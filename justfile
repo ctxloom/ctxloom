@@ -109,3 +109,7 @@ gemini *ARGS:
 # Run with Claude plugin (default)
 claude *ARGS:
     ./mlcm -P claude-code {{ARGS}}
+
+# Code review with reviewer persona
+review:
+    ./mlcm -p reviewer -r code-review

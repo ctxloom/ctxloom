@@ -182,15 +182,6 @@ func (c *Config) GetPromptDirs() []string {
 	return dirs
 }
 
-// HomeMLCMDir returns the path to ~/.mlcm
-func HomeMLCMDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(home, MLCMDirName), nil
-}
-
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
 	AI         AIConfig             `yaml:"ai"`

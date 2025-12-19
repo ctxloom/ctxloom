@@ -69,13 +69,19 @@ install:
     go install ./cmd/generators/git-context
     go install ./cmd/generators/simple
 
+# Build and install to ~/.local/bin
+install-local: build
+    mkdir -p ~/.local/bin
+    cp mlcm ~/.local/bin/
+    cp bin/mlcm-gen-* ~/.local/bin/
+
 # Show help
 help:
     ./mlcm --help
 
-# Initialize local .mlcm directory
-init-local:
-    ./mlcm init --local
+# Initialize .mlcm directory
+init:
+    ./mlcm init
 
 # Dry run with test fragments
 dry-run PROMPT:

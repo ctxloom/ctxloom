@@ -33,3 +33,6 @@ coverage.html
 
 # Debug
 __debug_bin*
+
+# Plan files
+.plan/

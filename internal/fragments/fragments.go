@@ -330,22 +330,18 @@ func (l *Loader) LoadMultiple(names []string) (string, error) {
 
 // LoadMultipleWithVars loads multiple fragments with additional variables.
 // The extraVars are merged first, then fragment variables override them.
+// Missing fragments are warned about but do not cause failure.
 func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]string) (string, error) {
 	var frags []*Fragment
-	var notFound []string
 
 	// Load all fragments
 	for _, name := range names {
 		frag, err := l.Load(name)
 		if err != nil {
-			notFound = append(notFound, name)
+			l.warn(fmt.Sprintf("fragment not found: %s", name))
 			continue
 		}
 		frags = append(frags, frag)
-	}
-
-	if len(notFound) > 0 {
-		return "", fmt.Errorf("fragments not found: %s", strings.Join(notFound, ", "))
 	}
 
 	// Start with extra vars (persona vars)

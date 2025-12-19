@@ -1,0 +1,130 @@
+ai:
+    default_plugin: claude-code
+    plugins:
+        claude-code:
+            binary_path: ""
+            args:
+                - --dangerously-skip-permissions
+            env: {}
+        gemini:
+            binary_path: ""
+            args:
+                - --yolo
+            env: {}
+
+editor:
+  command: vim
+
+defaults:
+  persona: developer
+
+generators:
+    git-context:
+        description: Git repository information
+        command: ./bin/mlcm-gen-git-context
+    simple:
+        description: Wrapper that runs any command and outputs as fragment
+        command: ./bin/mlcm-gen-simple
+personas:
+    developer:
+        description: Full development context with all standards and practices
+        fragments:
+            # Style & Workflow
+            - style/direct
+            - workflow/ask
+            - workflow/rootcause
+            - workflow/pushback
+            # Code Standards
+            - code/principles
+            - code/markers
+            - code/performance
+            # Testing
+            - testing/tdd
+            - testing/organization
+            - testing/integration
+            # Patterns
+            - patterns/ioc
+            - patterns/error-constants
+            # Tools
+            - tools/just
+            - tools/lefthook
+            - tools/devcontainer
+            # Git
+            - git/workflow
+            - git/commits
+            - git/versions
+            # Documentation
+            - docs/readme
+            - docs/planning
+            # Security
+            - security/basics
+    go-developer:
+        description: Go development context
+        fragments:
+            - style/direct
+            - workflow/ask
+            - workflow/rootcause
+            - code/principles
+            - testing/tdd
+            - testing/organization
+            - patterns/ioc
+            - patterns/error-constants
+            - tools/just
+            - tools/lefthook
+            - git/workflow
+            - git/commits
+            - docs/readme
+            - security/basics
+            - lang/go
+    rust-developer:
+        description: Rust development context
+        fragments:
+            - style/direct
+            - workflow/ask
+            - workflow/rootcause
+            - code/principles
+            - testing/tdd
+            - testing/organization
+            - patterns/ioc
+            - patterns/error-constants
+            - tools/just
+            - tools/lefthook
+            - git/workflow
+            - git/commits
+            - docs/readme
+            - security/basics
+            - lang/rust
+    python-developer:
+        description: Python development context
+        fragments:
+            - style/direct
+            - workflow/ask
+            - workflow/rootcause
+            - code/principles
+            - testing/tdd
+            - testing/organization
+            - patterns/ioc
+            - patterns/error-constants
+            - tools/just
+            - tools/lefthook
+            - git/workflow
+            - git/commits
+            - docs/readme
+            - security/basics
+            - lang/python
+    reviewer:
+        description: Code review with all perspectives
+        fragments:
+            - style/direct
+            - review/architect
+            - review/concurrency
+            - review/domain-expert
+            - review/junior-dev
+            - review/security
+    git-aware:
+        description: Context with git info
+        fragments:
+            - git/workflow
+            - git/commits
+        generators:
+            - git-context

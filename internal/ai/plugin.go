@@ -21,9 +21,9 @@ type Response struct {
 
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
-	BinaryPath string            `mapstructure:"binary_path"`
-	Args       []string          `mapstructure:"args"`
-	Env        map[string]string `mapstructure:"env"`
+	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
+	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
+	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
 }
 
 // Plugin defines the interface for AI backend plugins.

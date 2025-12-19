@@ -1,0 +1,98 @@
+# Versionator Configuration
+# See https://github.com/benjaminabbitt/versionator for documentation
+
+# Version prefix (e.g., "v" for v1.2.3)
+# Set to empty string for no prefix
+prefix: "v"
+
+# Pre-release configuration
+# Pre-release follows SemVer 2.0.0: appended with dash (-)
+# Example output: 1.2.3-alpha-5
+prerelease:
+  # Set to true to enable pre-release in version output
+  enabled: false
+
+  # Mustache template string for pre-release identifier
+  # IMPORTANT: Use DASHES (-) to separate identifiers per SemVer 2.0.0
+  # Example: "alpha-{{CommitsSinceTag}}" → "alpha-5"
+  # The leading dash is added automatically - do NOT include it here
+  template: "alpha-{{CommitsSinceTag}}"
+
+# Build metadata configuration
+# Metadata follows SemVer 2.0.0: appended with plus (+)
+# Example output: 1.2.3+20241211103045.abc1234def5
+metadata:
+  # Set to true to enable metadata in version output
+  enabled: false
+
+  # Metadata type (currently only "git" supported)
+  type: "git"
+
+  # Mustache template string for build metadata
+  # IMPORTANT: Use DOTS (.) to separate identifiers per SemVer 2.0.0
+  # Example: "{{BuildDateTimeCompact}}.{{MediumHash}}" → "20241211103045.abc1234def5"
+  # The leading plus is added automatically - do NOT include it here
+  template: "{{BuildDateTimeCompact}}.{{MediumHash}}"
+
+  # Git-specific configuration
+  git:
+    # Length of commit hash for MediumHash variable
+    hashLength: 12
+
+# Logging configuration
+logging:
+  # Output format: console, json, development
+  output: "console"
+
+# =============================================================================
+# AVAILABLE TEMPLATE VARIABLES
+# =============================================================================
+#
+# Version Components:
+#   {{Major}}, {{Minor}}, {{Patch}}  - Version numbers
+#   {{MajorMinorPatch}}              - Core version (1.2.3)
+#   {{MajorMinor}}                   - Major.Minor (1.2)
+#   {{Prefix}}                       - Version prefix (v)
+#
+# Pre-release (from VERSION file):
+#   {{PreRelease}}                   - Full pre-release string
+#   {{PreReleaseWithDash}}           - With dash prefix (-alpha.5)
+#   {{PreReleaseLabel}}              - Label only (alpha from alpha.5)
+#   {{PreReleaseNumber}}             - Number only (5 from alpha.5)
+#
+# Metadata (from VERSION file):
+#   {{Metadata}}                     - Full metadata string
+#   {{MetadataWithPlus}}             - With plus prefix (+build.123)
+#
+# VCS/Git Information:
+#   {{Hash}}                         - Full commit hash (40 chars for git)
+#   {{ShortHash}}                    - Short hash (7 chars)
+#   {{MediumHash}}                   - Medium hash (12 chars)
+#   {{BranchName}}                   - Current branch name
+#   {{EscapedBranchName}}            - Branch with / replaced by -
+#   {{CommitsSinceTag}}              - Commits since last tag
+#   {{BuildNumber}}                  - Alias for CommitsSinceTag
+#   {{BuildNumberPadded}}            - Padded to 4 digits (0042)
+#   {{UncommittedChanges}}           - Count of dirty files
+#   {{Dirty}}                        - "dirty" if uncommitted changes
+#   {{VersionSourceHash}}            - Hash of last tag's commit
+#
+# Commit Author:
+#   {{CommitAuthor}}                 - Commit author name
+#   {{CommitAuthorEmail}}            - Commit author email
+#
+# Commit Timestamps (UTC):
+#   {{CommitDate}}                   - ISO 8601 (2024-01-15T10:30:00Z)
+#   {{CommitDateCompact}}            - Compact (20240115103045)
+#   {{CommitDateShort}}              - Date only (2024-01-15)
+#   {{CommitYear}}, {{CommitMonth}}, {{CommitDay}}
+#
+# Build Timestamps (UTC):
+#   {{BuildDateTimeUTC}}             - ISO 8601 (2024-01-15T10:30:00Z)
+#   {{BuildDateTimeCompact}}         - Compact (20240115103045)
+#   {{BuildDateUTC}}                 - Date only (2024-01-15)
+#   {{BuildYear}}, {{BuildMonth}}, {{BuildDay}}
+#
+# Plugin Variables (git plugin):
+#   {{GitShortHash}}                 - Prefixed short hash (git.abc1234)
+#   {{ShaShortHash}}                 - Prefixed short hash (sha.abc1234)

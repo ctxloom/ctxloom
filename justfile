@@ -101,3 +101,11 @@ dry-run PROMPT:
 # Test git-context generator
 test-generator:
     ./bin/mlcm-gen-git-context
+
+# Run with Gemini plugin
+gemini *ARGS:
+    ./mlcm -P gemini {{ARGS}}
+
+# Run with Claude plugin (default)
+claude *ARGS:
+    ./mlcm -P claude-code {{ARGS}}

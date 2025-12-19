@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mlcm/internal/ai"
+	"mlcm/resources"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 type Config struct {
 	AI         AIConfig             `mapstructure:"ai"`
 	Editor     EditorConfig         `mapstructure:"editor"`
+	Defaults   Defaults             `mapstructure:"defaults"`
 	Personas   map[string]Persona   `mapstructure:"personas"`
 	Generators map[string]Generator `mapstructure:"generators"`
 	MLCMPaths  []string             // Resolved project .mlcm directories (closest to pwd first)
@@ -64,8 +66,8 @@ type Generator struct {
 
 // AIConfig holds AI-related configuration.
 type AIConfig struct {
-	DefaultPlugin string                     `mapstructure:"default_plugin"`
-	Plugins       map[string]ai.PluginConfig `mapstructure:"plugins"`
+	DefaultPlugin string                     `mapstructure:"default_plugin" yaml:"default_plugin"`
+	Plugins       map[string]ai.PluginConfig `mapstructure:"plugins" yaml:"plugins"`
 }
 
 // Persona is a named collection of context fragments, variables, and context generators.
@@ -74,6 +76,13 @@ type Persona struct {
 	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Generators  []string          `mapstructure:"generators" yaml:"generators,omitempty"` // Plugin binaries that output context
+}
+
+// Defaults holds default settings applied when no explicit values are specified.
+type Defaults struct {
+	Persona    string   `mapstructure:"persona" yaml:"persona,omitempty"`       // Default persona to use
+	Fragments  []string `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Fragments always included
+	Generators []string `mapstructure:"generators" yaml:"generators,omitempty"` // Generators always run
 }
 
 // Load finds and loads configuration from project .mlcm directories.
@@ -186,6 +195,7 @@ func (c *Config) GetPromptDirs() []string {
 type ConfigFile struct {
 	AI         AIConfig             `yaml:"ai"`
 	Editor     EditorConfig         `yaml:"editor,omitempty"`
+	Defaults   Defaults             `yaml:"defaults,omitempty"`
 	Personas   map[string]Persona   `yaml:"personas,omitempty"`
 	Generators map[string]Generator `yaml:"generators,omitempty"`
 }
@@ -215,6 +225,9 @@ func (c *Config) Save() error {
 
 	// Update with current values
 	existing["ai"] = c.AI
+	if c.Defaults.Persona != "" || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
+		existing["defaults"] = c.Defaults
+	}
 	if len(c.Personas) > 0 {
 		existing["personas"] = c.Personas
 	}
@@ -232,4 +245,134 @@ func (c *Config) Save() error {
 	}
 
 	return nil
+}
+
+// LoadEmbeddedConfig loads the embedded default configuration.
+func LoadEmbeddedConfig() (*Config, error) {
+	data, err := resources.GetEmbeddedConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read embedded config: %w", err)
+	}
+
+	cfg := &Config{
+		Personas:   make(map[string]Persona),
+		Generators: make(map[string]Generator),
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse embedded config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// LoadHomeConfig loads configuration from ~/.mlcm/config.yaml if it exists.
+// Returns nil config (not error) if home config doesn't exist.
+func LoadHomeConfig() (*Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	configPath := filepath.Join(home, MLCMDirName, ConfigFileName+".yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // Home config doesn't exist, that's ok
+		}
+		return nil, fmt.Errorf("failed to read home config: %w", err)
+	}
+
+	cfg := &Config{
+		Personas:   make(map[string]Persona),
+		Generators: make(map[string]Generator),
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse home config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// MergePersonas merges personas from source into target.
+// Source personas override target personas with the same name.
+func MergePersonas(target, source map[string]Persona) {
+	for name, persona := range source {
+		target[name] = persona
+	}
+}
+
+// MergeGenerators merges generators from source into target.
+// Source generators override target generators with the same name.
+func MergeGenerators(target, source map[string]Generator) {
+	for name, gen := range source {
+		target[name] = gen
+	}
+}
+
+// CollectFragmentsForPersonas returns a deduplicated list of all fragments
+// referenced by the specified personas.
+func CollectFragmentsForPersonas(personas map[string]Persona, personaNames []string) ([]string, error) {
+	seen := make(map[string]bool)
+	var fragments []string
+
+	for _, name := range personaNames {
+		persona, ok := personas[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown persona: %s", name)
+		}
+		for _, frag := range persona.Fragments {
+			if !seen[frag] {
+				seen[frag] = true
+				fragments = append(fragments, frag)
+			}
+		}
+	}
+
+	return fragments, nil
+}
+
+// CollectGeneratorsForPersonas returns a deduplicated list of all generators
+// referenced by the specified personas.
+func CollectGeneratorsForPersonas(personas map[string]Persona, personaNames []string) []string {
+	seen := make(map[string]bool)
+	var generators []string
+
+	for _, name := range personaNames {
+		persona, ok := personas[name]
+		if !ok {
+			continue
+		}
+		for _, gen := range persona.Generators {
+			if !seen[gen] {
+				seen[gen] = true
+				generators = append(generators, gen)
+			}
+		}
+	}
+
+	return generators
+}
+
+// FilterPersonas returns only the specified personas from the full map.
+func FilterPersonas(all map[string]Persona, names []string) map[string]Persona {
+	filtered := make(map[string]Persona)
+	for _, name := range names {
+		if persona, ok := all[name]; ok {
+			filtered[name] = persona
+		}
+	}
+	return filtered
+}
+
+// FilterGenerators returns only the specified generators from the full map.
+func FilterGenerators(all map[string]Generator, names []string) map[string]Generator {
+	filtered := make(map[string]Generator)
+	for _, name := range names {
+		if gen, ok := all[name]; ok {
+			filtered[name] = gen
+		}
+	}
+	return filtered
 }

@@ -10,6 +10,7 @@ import (
 
 	"mlcm/internal/ai"
 	_ "mlcm/internal/ai/claudecode" // Register Claude Code plugin
+	_ "mlcm/internal/ai/gemini"     // Register Gemini plugin
 	"mlcm/internal/config"
 	"mlcm/internal/fragments"
 )
@@ -90,16 +91,25 @@ Examples:
 		personaVars := make(map[string]string)
 		var generators []string
 
-		if runPersona != "" {
-			persona, exists := cfg.Personas[runPersona]
+		// Determine which persona to use: explicit flag > default from config
+		personaName := runPersona
+		if personaName == "" && len(runFragments) == 0 {
+			// No explicit persona or fragments - use defaults
+			personaName = cfg.Defaults.Persona
+			allFragments = append(allFragments, cfg.Defaults.Fragments...)
+			generators = append(generators, cfg.Defaults.Generators...)
+		}
+
+		if personaName != "" {
+			persona, exists := cfg.Personas[personaName]
 			if !exists {
-				return fmt.Errorf("persona %q not found", runPersona)
+				return fmt.Errorf("persona %q not found", personaName)
 			}
 			allFragments = append(allFragments, persona.Fragments...)
 			for k, v := range persona.Variables {
 				personaVars[k] = v
 			}
-			generators = persona.Generators
+			generators = append(generators, persona.Generators...)
 		}
 
 		// Append additional fragments from -f flags

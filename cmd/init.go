@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,39 +14,21 @@ import (
 	"mlcm/resources"
 )
 
-var (
-	initLocal       bool
-	initNoFragments bool
-)
+var initNoFragments bool
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize the .mlcm directory",
-	Long: `Initialize the .mlcm directory structure with default directories.
-
-By default, initializes ~/.mlcm as a git repository with:
+	Short: "Initialize .mlcm in current directory",
+	Long: `Initialize a .mlcm directory in the current directory with:
   - context-fragments/  (for context fragment files)
   - prompts/            (for prompt templates)
-  - config.yaml         (for configuration)
-
-Use --local to initialize a .mlcm directory in the current directory instead.`,
+  - config.yaml         (for configuration)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var mlcmDir string
-		var err error
-
-		if initLocal {
-			pwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get working directory: %w", err)
-			}
-			mlcmDir = filepath.Join(pwd, config.MLCMDirName)
-		} else {
-			mlcmDir, err = config.HomeMLCMDir()
-			if err != nil {
-				return err
-			}
+		pwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
 		}
-
+		mlcmDir := filepath.Join(pwd, config.MLCMDirName)
 		return initMLCMDirectory(mlcmDir)
 	},
 }
@@ -74,12 +58,26 @@ func initMLCMDirectory(mlcmDir string) error {
 		return fmt.Errorf("failed to create prompts directory: %w", err)
 	}
 
-	// Copy embedded fragments unless --no-fragments was specified
+	// Copy fragments unless --no-fragments was specified
 	if !initNoFragments {
+		// First, copy embedded fragments
 		if err := resources.CopyFragments(fragmentsDir); err != nil {
-			return fmt.Errorf("failed to copy fragments: %w", err)
+			return fmt.Errorf("failed to copy embedded fragments: %w", err)
 		}
-		fmt.Println("Copied default context fragments")
+		fmt.Println("Copied embedded context fragments")
+
+		// Then, copy from ~/.mlcm (overwrites duplicates)
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		homeFragments := filepath.Join(home, config.MLCMDirName, config.ContextFragmentsDir)
+		if info, err := os.Stat(homeFragments); err == nil && info.IsDir() {
+			if err := copyDir(homeFragments, fragmentsDir); err != nil {
+				return fmt.Errorf("failed to copy fragments from %s: %w", homeFragments, err)
+			}
+			fmt.Printf("Copied fragments from %s\n", homeFragments)
+		}
 	}
 
 	// Create default config file
@@ -130,9 +128,51 @@ ai:
 	return nil
 }
 
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(dstPath, 0755)
+		}
+
+		return copyFile(path, dstPath)
+	})
+}
+
+// copyFile copies a single file.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
 func init() {
 	rootCmd.AddCommand(initCmd)
 
-	initCmd.Flags().BoolVarP(&initLocal, "local", "l", false, "Initialize in current directory instead of home")
-	initCmd.Flags().BoolVar(&initNoFragments, "no-fragments", false, "Skip copying default context fragments")
+	initCmd.Flags().BoolVar(&initNoFragments, "no-fragments", false, "Skip copying context fragments from ~/.mlcm")
 }

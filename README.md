@@ -12,7 +12,7 @@ just install       # Install to GOPATH/bin
 ## Quick Start
 
 ```bash
-mlcm init --local                          # Initialize .mlcm in current project
+mlcm init                                  # Initialize .mlcm in current directory
 mlcm run -f my-fragment "Help me"          # Run with context fragment
 mlcm run -p developer "Review this code"   # Run with persona
 mlcm run -f my-fragment -n "Preview"       # Dry run to preview context
@@ -22,17 +22,21 @@ mlcm run -f my-fragment -n "Preview"       # Dry run to preview context
 
 ### `mlcm init`
 
-Initialize the `.mlcm` directory structure.
+Initialize the `.mlcm` directory structure in the current directory.
 
 ```bash
-mlcm init           # Create ~/.mlcm (template directory)
-mlcm init --local   # Create .mlcm in current project directory
+mlcm init                 # Create .mlcm in current directory
+mlcm init --no-fragments  # Skip copying context fragments
 ```
 
 Creates:
 - `config.yaml` - Configuration
-- `context-fragments/` - Context fragment files
+- `context-fragments/` - Context fragment files (copied from embedded + ~/.mlcm)
 - `prompts/` - Prompt templates
+
+Fragment sources (in order, later overwrites earlier):
+1. Embedded default fragments
+2. `~/.mlcm/context-fragments/` (your personal fragments)
 
 ### `mlcm run`
 

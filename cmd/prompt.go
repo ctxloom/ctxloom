@@ -98,16 +98,12 @@ var promptEditCmd = &cobra.Command{
 				return ed.Edit(promptPath)
 			}
 
-			// Prompt doesn't exist, use first available directory or home
+			// Prompt doesn't exist, use first available directory
 			dirs := cfg.GetPromptDirs()
 			if len(dirs) > 0 {
 				promptDir = dirs[0]
 			} else {
-				homeMLCM, err := config.HomeMLCMDir()
-				if err != nil {
-					return fmt.Errorf("failed to get home .mlcm directory: %w", err)
-				}
-				promptDir = filepath.Join(homeMLCM, config.PromptsDir)
+				return fmt.Errorf("no .mlcm directory found; run 'mlcm init' first")
 			}
 		}
 

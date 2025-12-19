@@ -401,13 +401,8 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 	return nil
 }
 
-// copyFile copies a single file, skipping if destination already exists.
+// copyFile copies a single file, overwriting if destination exists.
 func copyFile(src, dst string) error {
-	// Skip if file already exists
-	if _, err := os.Stat(dst); err == nil {
-		return nil
-	}
-
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err

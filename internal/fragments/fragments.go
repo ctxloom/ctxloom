@@ -387,9 +387,7 @@ func (l *Loader) assembleContext(frags []*Fragment) string {
 		if frag.Context == "" {
 			continue
 		}
-		// Add fragment name as a subtle header for organization
-		section := fmt.Sprintf("<!-- %s -->\n%s", frag.Name, strings.TrimSpace(frag.Context))
-		sections = append(sections, section)
+		sections = append(sections, strings.TrimSpace(frag.Context))
 	}
 
 	return strings.Join(sections, "\n\n---\n\n")

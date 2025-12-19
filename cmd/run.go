@@ -151,7 +151,7 @@ Examples:
 			var genContexts []string
 			for _, frag := range generatorFrags {
 				if frag.Context != "" {
-					genContexts = append(genContexts, fmt.Sprintf("<!-- %s -->\n%s", frag.Name, frag.Context))
+					genContexts = append(genContexts, frag.Context)
 				}
 			}
 			if len(genContexts) > 0 {

@@ -111,5 +111,5 @@ claude *ARGS:
     ./mlcm -P claude-code {{ARGS}}
 
 # Code review with reviewer persona
-review:
-    ./mlcm -p reviewer -r code-review
+review *ARGS:
+    ./mlcm -p reviewer -r code-review {{ARGS}}

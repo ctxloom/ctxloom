@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -12,10 +12,22 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mlcm/internal/config"
+	"mlcm/internal/fsys"
 	"mlcm/resources"
 )
 
+// yamlFragment represents the YAML structure of a fragment file.
+type yamlFragment struct {
+	Version   string            `yaml:"version,omitempty"`
+	Author    string            `yaml:"author,omitempty"`
+	Tags      []string          `yaml:"tags,omitempty"`
+	Variables []string          `yaml:"variables,omitempty"`
+	Content   string            `yaml:"content"`
+	VarValues map[string]string `yaml:"var_values,omitempty"`
+}
+
 var skipFragments string
+var fromGitRepo string
 
 var initCmd = &cobra.Command{
 	Use:   "init [personas...]",
@@ -34,11 +46,15 @@ Persona filtering:
 Fragment sources (in order, later overwrites earlier):
   1. Embedded default fragments
   2. ~/.mlcm/context-fragments/ (your personal fragments)
+  3. Git repository (if --from-git is specified)
 
 Use --skip-fragments to control which sources are skipped:
   --skip-fragments          Skip embedded fragments (default)
   --skip-fragments=local    Skip ~/.mlcm fragments only
-  --skip-fragments=both     Skip all fragment copying`,
+  --skip-fragments=both     Skip all fragment copying
+
+Use --from-git to clone fragments from a remote git repository:
+  --from-git=https://github.com/user/fragments-repo`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		pwd, err := os.Getwd()
 		if err != nil {
@@ -272,16 +288,41 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 	}
 
+	// Copy from git repository if specified (overwrites duplicates)
+	if fromGitRepo != "" {
+		if err := copyFromGitRepo(fromGitRepo, fragmentsDir, fragmentFilter); err != nil {
+			return fmt.Errorf("failed to copy from git repo: %w", err)
+		}
+	}
+
+	// Copy prompts from ~/.mlcm/prompts/ (if they exist)
+	if !skipLocal {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		homePrompts := filepath.Join(home, config.MLCMDirName, config.PromptsDir)
+		if info, err := os.Stat(homePrompts); err == nil && info.IsDir() {
+			if err := copyDir(homePrompts, promptsDir); err != nil {
+				return fmt.Errorf("failed to copy prompts from %s: %w", homePrompts, err)
+			}
+			fmt.Printf("Copied prompts from %s\n", homePrompts)
+		}
+	}
+
 	// Create config file
 	configPath := filepath.Join(mlcmDir, config.ConfigFileName+".yaml")
 	if err := writeProjectConfig(configPath, embeddedCfg, allPersonas, allGenerators, personas); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	// Create .gitkeep for prompts directory (fragments has content)
-	gitkeepPrompts := filepath.Join(promptsDir, ".gitkeep")
-	if err := os.WriteFile(gitkeepPrompts, []byte(""), 0644); err != nil {
-		return fmt.Errorf("failed to create .gitkeep: %w", err)
+	// Create .gitkeep for prompts directory if empty
+	promptFiles, _ := os.ReadDir(promptsDir)
+	if len(promptFiles) == 0 {
+		gitkeepPrompts := filepath.Join(promptsDir, ".gitkeep")
+		if err := os.WriteFile(gitkeepPrompts, []byte(""), 0644); err != nil {
+			return fmt.Errorf("failed to create .gitkeep: %w", err)
+		}
 	}
 
 	fmt.Printf("\nMLCM initialized successfully!\n")
@@ -323,7 +364,11 @@ func writeProjectConfig(configPath string, embeddedCfg *config.Config, allPerson
 	return os.WriteFile(configPath, data, 0644)
 }
 
-// copyDir recursively copies a directory tree.
+// distilledSuffix is the suffix for distilled fragment files.
+const distilledSuffix = ".distilled.yaml"
+
+// copyDir recursively copies a directory tree, converting YAML fragments to markdown.
+// Also copies .distilled.yaml files if they exist.
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -334,27 +379,49 @@ func copyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		dstPath := filepath.Join(dst, relPath)
 
 		if d.IsDir() {
-			return os.MkdirAll(dstPath, 0755)
+			return os.MkdirAll(filepath.Join(dst, relPath), 0755)
 		}
 
-		return copyFile(path, dstPath)
+		name := d.Name()
+
+		// Handle .distilled.md files - copy as-is
+		if strings.HasSuffix(name, distilledSuffix) {
+			dstPath := filepath.Join(dst, relPath)
+			return copyDistilledFile(path, dstPath)
+		}
+
+		// Convert .yaml/.yml to .md for destination
+		dstRelPath := relPath
+		if strings.HasSuffix(dstRelPath, ".yaml") {
+			dstRelPath = strings.TrimSuffix(dstRelPath, ".yaml") + ".md"
+		} else if strings.HasSuffix(dstRelPath, ".yml") {
+			dstRelPath = strings.TrimSuffix(dstRelPath, ".yml") + ".md"
+		} else {
+			// Skip non-YAML files that aren't distilled
+			return nil
+		}
+		dstPath := filepath.Join(dst, dstRelPath)
+
+		return copyFragmentFile(path, dstPath)
 	})
 }
 
 // copyDirFiltered copies only files matching the fragment filter.
-// fragmentFilter contains paths like "style/direct" (without .md extension).
+// fragmentFilter contains paths like "style/direct" (without extension).
+// Source files are YAML, output files are markdown.
+// Also copies .distilled.yaml files if they exist.
 // Missing fragments are warned about but do not cause failure.
 func copyDirFiltered(src, dst string, fragmentFilter []string) error {
-	// Build set of allowed fragments
+	// Build set of allowed fragments (normalized without extension)
 	allowed := make(map[string]bool)
 	for _, frag := range fragmentFilter {
-		// Normalize: add .md if missing
-		if !strings.HasSuffix(frag, ".md") {
-			frag = frag + ".md"
-		}
+		// Strip any extension
+		frag = strings.TrimSuffix(frag, distilledSuffix)
+		frag = strings.TrimSuffix(frag, ".md")
+		frag = strings.TrimSuffix(frag, ".yaml")
+		frag = strings.TrimSuffix(frag, ".yml")
 		allowed[frag] = true
 	}
 
@@ -375,16 +442,41 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 			return nil // Directories are created as needed
 		}
 
+		name := d.Name()
+
+		// Handle .distilled.md files
+		if strings.HasSuffix(name, distilledSuffix) {
+			// Get base name for checking if allowed
+			baseName := strings.TrimSuffix(relPath, distilledSuffix)
+			if !allowed[baseName] {
+				return nil
+			}
+			dstPath := filepath.Join(dst, relPath)
+			return copyDistilledFile(path, dstPath)
+		}
+
+		// Get base name without extension for comparison
+		baseName := relPath
+		if strings.HasSuffix(baseName, ".yaml") {
+			baseName = strings.TrimSuffix(baseName, ".yaml")
+		} else if strings.HasSuffix(baseName, ".yml") {
+			baseName = strings.TrimSuffix(baseName, ".yml")
+		} else {
+			// Skip non-YAML files
+			return nil
+		}
+
 		// Check if this fragment is allowed
-		if !allowed[relPath] {
+		if !allowed[baseName] {
 			return nil
 		}
 
 		// Mark as found
-		found[relPath] = true
+		found[baseName] = true
 
-		dstPath := filepath.Join(dst, relPath)
-		return copyFile(path, dstPath)
+		// Convert to .md for output
+		dstPath := filepath.Join(dst, baseName+".md")
+		return copyFragmentFile(path, dstPath)
 	})
 
 	if err != nil {
@@ -401,26 +493,101 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 	return nil
 }
 
-// copyFile copies a single file, overwriting if destination exists.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
+// copyFromGitRepo clones a git repository and copies fragments from it.
+// The repository should have YAML fragments in its root or in a context-fragments directory.
+func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string) error {
+	// Create temporary directory for clone
+	tmpDir, err := os.MkdirTemp("", "mlcm-git-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	fmt.Printf("Cloning %s...\n", repoURL)
+
+	// Clone the repository (shallow clone for speed)
+	cmd := exec.Command("git", "clone", "--depth", "1", repoURL, tmpDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git clone failed: %w", err)
+	}
+
+	// Look for fragments in standard locations
+	var srcDir string
+	candidates := []string{
+		filepath.Join(tmpDir, "context-fragments"),
+		filepath.Join(tmpDir, ".mlcm", "context-fragments"),
+		tmpDir, // Root of repo
+	}
+
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			// Check if it contains YAML files
+			hasYAML := false
+			filepath.WalkDir(candidate, func(path string, d fs.DirEntry, err error) error {
+				if err == nil && !d.IsDir() && (strings.HasSuffix(d.Name(), ".yaml") || strings.HasSuffix(d.Name(), ".yml")) {
+					hasYAML = true
+					return filepath.SkipAll
+				}
+				return nil
+			})
+			if hasYAML {
+				srcDir = candidate
+				break
+			}
+		}
+	}
+
+	if srcDir == "" {
+		return fmt.Errorf("no YAML fragments found in repository")
+	}
+
+	// Copy fragments
+	if len(fragmentFilter) > 0 {
+		if err := copyDirFiltered(srcDir, destDir, fragmentFilter); err != nil {
+			return err
+		}
+		fmt.Printf("Copied filtered fragments from git repository\n")
+	} else {
+		if err := copyDir(srcDir, destDir); err != nil {
+			return err
+		}
+		fmt.Printf("Copied fragments from git repository\n")
+	}
+
+	return nil
+}
+
+// copyFragmentFile reads a YAML fragment file and writes it as markdown.
+// The destination file is set to read-only to protect from accidental edits.
+func copyFragmentFile(src, dst string) error {
+	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
+	// Parse YAML to extract content
+	var frag yamlFragment
+	if err := yaml.Unmarshal(data, &frag); err != nil {
+		return fmt.Errorf("failed to parse %s: %w", src, err)
 	}
 
-	dstFile, err := os.Create(dst)
+	// Write content as markdown with protection
+	content := strings.TrimSpace(frag.Content) + "\n"
+	return fsys.WriteProtected(dst, []byte(content))
+}
+
+// copyDistilledFile copies a distilled YAML file as-is.
+// The destination file is set to read-only to protect from accidental edits.
+func copyDistilledFile(src, dst string) error {
+	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	// Write file with protection
+	return fsys.WriteProtected(dst, data)
 }
 
 func init() {
@@ -429,4 +596,5 @@ func init() {
 
 	initCmd.Flags().StringVar(&skipFragments, "skip-fragments", "", "Skip fragment sources: embedded (default), local, or both")
 	initCmd.Flags().Lookup("skip-fragments").NoOptDefVal = "embedded"
+	initCmd.Flags().StringVar(&fromGitRepo, "from-git", "", "Clone fragments from a git repository URL")
 }

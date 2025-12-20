@@ -1,0 +1,25 @@
+version: "1.0"
+tags:
+    - security
+    - code
+content: |-
+    # Security
+
+    ## Core Principles
+    - No secrets in commits (use env vars)
+    - Validate external input
+    - Parameterized DB queries
+    - Keep deps updated
+    - Least privilege
+
+    ## Review Checklist
+    - Input validation correct?
+    - Path traversal?
+    - Injection risks (SQL/cmd/XSS)?
+    - TOCTOU issues?
+    - Privilege escalation?
+    - Auth/authz correct?
+    - Secrets managed?
+    - Crypto correct?
+    - Data exposure?
+    - Deps scanned?

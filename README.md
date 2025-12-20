@@ -46,6 +46,23 @@ Fragment sources (in order, later overwrites earlier):
 1. Embedded default fragments
 2. `~/.mlcm/context-fragments/` (your personal fragments)
 
+### Persisting Your Fragments
+
+Your personal fragments in `~/.mlcm/` are valuable configuration. Consider storing this directory in git for:
+
+- **Backup** - Never lose your carefully crafted fragments
+- **Sync** - Share fragments across machines
+- **History** - Track changes over time
+
+```bash
+cd ~/.mlcm
+git init
+git add .
+git commit -m "Initial context fragments"
+git remote add origin <your-repo-url>
+git push -u origin main
+```
+
 ### `mlcm run`
 
 Assemble context and run the AI plugin.
@@ -56,10 +73,16 @@ mlcm run [flags] "your prompt"
 
 Flags:
 - `-f, --fragment` - Fragment(s) to include (repeatable)
+- `-t, --tag` - Include fragments with this tag (repeatable)
 - `-p, --persona` - Use a named persona
 - `-P, --plugin` - AI plugin to use
 - `-n, --dry-run` - Preview assembled context
 - `-q, --quiet` - Suppress warnings
+
+Example with tags:
+```bash
+mlcm run -t security -t review "Check for vulnerabilities"
+```
 
 ### `mlcm fragment`
 
@@ -111,21 +134,54 @@ mlcm generator run <name>
 mlcm generator remove <name>
 ```
 
+### `mlcm distill`
+
+Create minimal-token versions of fragments and prompts using AI compression.
+
+```bash
+mlcm distill                    # Distill all fragments and prompts
+mlcm distill -p go-developer    # Distill fragments for a persona
+mlcm distill -f style/direct    # Distill specific fragment
+mlcm distill --dry-run          # Preview what would be distilled
+mlcm distill --force            # Re-distill even if unchanged
+mlcm distill clean              # Remove all distilled files and hashes
+mlcm distill clean --home       # Clean ~/.mlcm distilled files
+```
+
+Distillation creates `.distilled.yaml` files alongside originals and `.sha256` files to track changes. When `use_distilled: true` (default), the distilled versions are preferred.
+
+### `--home` Flag
+
+The global `--home` flag operates on `~/.mlcm` instead of project directories:
+
+```bash
+mlcm fragment list --home       # List fragments in ~/.mlcm
+mlcm distill --home             # Distill ~/.mlcm fragments
+mlcm distill clean --home       # Clean ~/.mlcm distilled files
+```
+
 ## Context Fragments
 
-Markdown files in `context-fragments/` that define context and variables.
-
-```markdown
-## Context
-
-Your context here. Use {{variable_name}} for template variables.
-
-## Variables
+YAML files in `context-fragments/` that define context with optional metadata.
 
 ```yaml
-variable_name: value
+version: "1.0"
+author: "username"
+tags:
+  - golang
+  - code-style
+variables:
+  - project_name
+  - language
+content: |
+  Your context here. Use {{variable_name}} for template variables.
 ```
-```
+
+Fields:
+- `content` - The actual context (required)
+- `tags` - For filtering and persona assembly
+- `variables` - Template variables used in content
+- `version`, `author` - Optional metadata
 
 ### Fragment Discovery
 
@@ -170,10 +226,16 @@ generators:
 
 personas:
   developer:
+    tags:
+      - golang           # Include all fragments with these tags
+      - code-style
     fragments:
-      - coding-standards
+      - coding-standards  # Explicit fragments (in addition to tagged)
     generators:
       - git-context
+
+defaults:
+  use_distilled: true     # Prefer distilled versions (default)
 ```
 
 ### Editor Priority

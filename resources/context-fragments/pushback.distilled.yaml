@@ -1,0 +1,33 @@
+version: "1.0"
+tags:
+    - workflow
+    - quality
+content: |-
+    Here's the compressed version:
+
+    # Pushback
+
+    ## When to Push Back
+    Requests to: skip tests, add features w/o tests, ignore type hints, work around (not fix) linting errors
+
+    ## Response Pattern
+    1. State problem
+    2. Explain consequences
+    3. Suggest correct approach
+    4. Defer if insisted, note tech debt
+
+    ## Feature Start Questions
+    - Acceptance criteria?
+    - Performance requirements?
+    - Error cases to handle?
+    - Security implications?
+    - Logging needs?
+    - Dependencies?
+    - Testing approach?
+    - Error messages?
+
+    ## Component Design Questions
+    - Required dependencies?
+    - Interface/protocol for dependencies?
+    - Logging context?
+    - Error conditions & messages?

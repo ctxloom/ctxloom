@@ -30,7 +30,7 @@ var generatorListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List all registered generators",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -89,7 +89,7 @@ Examples:
 			return fmt.Errorf("command is required (use -c)")
 		}
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -125,7 +125,7 @@ var generatorRemoveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -152,7 +152,7 @@ var generatorShowCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -185,7 +185,7 @@ This is useful for testing generators or seeing what context they produce.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -243,7 +243,7 @@ func RunGeneratorByName(cfg *config.Config, name string) (*fragments.Fragment, e
 		return nil, err
 	}
 
-	frag, err := fragments.ParseMarkdown(output)
+	frag, err := fragments.ParseYAML(output)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse generator output: %w", err)
 	}
@@ -300,7 +300,7 @@ func RunGenerators(cfg *config.Config, names []string, warnFunc func(string)) ([
 			continue
 		}
 
-		frag, err := fragments.ParseMarkdown(output)
+		frag, err := fragments.ParseYAML(output)
 		if err != nil {
 			if warnFunc != nil {
 				warnFunc(fmt.Sprintf("generator %q output invalid: %v", name, err))

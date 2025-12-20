@@ -29,10 +29,20 @@ func Get(name string) (Plugin, error) {
 }
 
 // GetWithConfig retrieves a plugin by name and configures it.
+// If the plugin is cloneable, a new instance is returned to ensure thread-safety.
+// Otherwise, the shared instance is configured in place (not thread-safe).
 func GetWithConfig(name string, cfg PluginConfig) (Plugin, error) {
-	p, err := Get(name)
-	if err != nil {
-		return nil, err
+	mu.RLock()
+	p, ok := registry[name]
+	mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("ai plugin not found: %s", name)
+	}
+
+	// Clone the plugin if possible to avoid shared state mutations
+	if cloneable, ok := p.(CloneablePlugin); ok {
+		p = cloneable.Clone()
 	}
 
 	// If plugin supports configuration, apply it

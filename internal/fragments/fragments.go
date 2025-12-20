@@ -1,7 +1,6 @@
 package fragments
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,27 +8,43 @@ import (
 	"strings"
 
 	"github.com/cbroglie/mustache"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 
+	"mlcm/internal/fsys"
 	"mlcm/internal/logging"
 )
 
-// Fragment represents a parsed context fragment file.
-// Variables can be used across fragments and in prompts using mustache syntax: {{variable_name}}
+// Fragment represents a parsed YAML context fragment file.
+//
+// YAML format:
+//
+//	version: "1.0"
+//	author: "username"
+//	tags:
+//	  - review
+//	  - security
+//	variables:
+//	  - project_name
+//	  - language
+//	content: |
+//	  # Your markdown content here
 type Fragment struct {
-	Name      string
-	Context   string
-	Variables map[string]string
+	Name      string            // Fragment name (from filename)
+	Version   string            // Version string for the fragment
+	Author    string            // Author of the fragment
+	Tags      []string          // Tags for filtering/categorization
+	Variables []string          // Variable names used in content
+	VarValues map[string]string // Variable values (populated by generators)
+	Content   string            // Markdown content
 }
 
 // Loader finds and loads context fragments from .mlcm directories.
 type Loader struct {
 	searchDirs       []string
+	fs               fsys.FS
 	warnFunc         func(string)
 	suppressWarnings bool
+	preferDistilled  bool
 }
 
 // LoaderOption is a functional option for configuring a Loader.
@@ -49,11 +64,28 @@ func WithSuppressWarnings(suppress bool) LoaderOption {
 	}
 }
 
+// WithFS sets a custom filesystem implementation (for testing).
+func WithFS(fs fsys.FS) LoaderOption {
+	return func(l *Loader) {
+		l.fs = fs
+	}
+}
+
+// WithPreferDistilled sets whether to prefer .distilled.md versions.
+func WithPreferDistilled(prefer bool) LoaderOption {
+	return func(l *Loader) {
+		l.preferDistilled = prefer
+	}
+}
+
 // NewLoader creates a new fragment loader with the given search directories.
 // Directories are searched in order; first match wins.
+// By default, prefers distilled versions if available.
 func NewLoader(searchDirs []string, opts ...LoaderOption) *Loader {
 	l := &Loader{
-		searchDirs: searchDirs,
+		searchDirs:      searchDirs,
+		fs:              fsys.OS(),
+		preferDistilled: true, // Default to preferring distilled
 		warnFunc: func(msg string) {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 		},
@@ -70,26 +102,85 @@ func (l *Loader) warn(msg string) {
 	}
 }
 
+// ErrInvalidName is returned when a fragment name contains invalid characters.
+var ErrInvalidName = fmt.Errorf("invalid fragment name")
+
+// validateName checks that a fragment name doesn't contain path traversal patterns.
+func validateName(name string) error {
+	// Reject empty names
+	if name == "" {
+		return fmt.Errorf("%w: empty name", ErrInvalidName)
+	}
+
+	// Reject null bytes
+	if strings.ContainsRune(name, '\x00') {
+		return fmt.Errorf("%w: contains null byte", ErrInvalidName)
+	}
+
+	// Reject absolute paths
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("%w: absolute paths not allowed", ErrInvalidName)
+	}
+
+	// Normalize and check for path traversal
+	cleaned := filepath.Clean(name)
+	if strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("%w: path traversal not allowed", ErrInvalidName)
+	}
+
+	// Check each component for hidden directories or traversal
+	parts := strings.Split(filepath.ToSlash(cleaned), "/")
+	for _, part := range parts {
+		if part == ".." {
+			return fmt.Errorf("%w: path traversal not allowed", ErrInvalidName)
+		}
+	}
+
+	return nil
+}
+
+// supportedExtensions lists file extensions for fragments (in priority order).
+var supportedExtensions = []string{".yaml", ".yml"}
+
+// distilledExtension is the extension for distilled fragment files.
+const distilledExtension = ".distilled.yaml"
+
 // Find locates a fragment by name across all search directories.
 // Returns the full path to the fragment file.
+// If preferDistilled is true, looks for .distilled.md versions first.
 //
 // Naming conventions supported:
-//   - Slash paths: "testing/tdd" finds "testing/tdd.md" (forward or back slashes)
+//   - Slash paths: "testing/tdd" finds "testing/tdd.yaml"
 //   - Basename only: "tdd" finds it in any subdirectory (first match wins)
 func (l *Loader) Find(name string) (string, error) {
+	// Validate name to prevent path traversal
+	if err := validateName(name); err != nil {
+		return "", err
+	}
+
 	// Normalize path separators for cross-platform support
 	name = filepath.FromSlash(name)
 
-	candidates := []string{
-		name,
-		name + ".md",
+	// Build candidates with all supported extensions
+	// If preferDistilled, check for distilled version first
+	var candidates []string
+	if l.preferDistilled {
+		candidates = append(candidates, name+distilledExtension)
+	}
+	candidates = append(candidates, name)
+	for _, ext := range supportedExtensions {
+		if l.preferDistilled {
+			// For YAML source, the distilled version has same base name + .distilled.md
+			candidates = append(candidates, name+distilledExtension)
+		}
+		candidates = append(candidates, name+ext)
 	}
 
 	// First try direct path lookup (including subdirectory paths)
 	for _, dir := range l.searchDirs {
 		for _, candidate := range candidates {
 			path := filepath.Join(dir, candidate)
-			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			if info, err := l.fs.Stat(path); err == nil && !info.IsDir() {
 				return path, nil
 			}
 		}
@@ -97,18 +188,27 @@ func (l *Loader) Find(name string) (string, error) {
 
 	// If not found directly, walk directories to find by basename
 	baseName := filepath.Base(name)
-	baseNameMd := baseName + ".md"
+	var baseNames []string
+	if l.preferDistilled {
+		baseNames = append(baseNames, baseName+distilledExtension)
+	}
+	baseNames = append(baseNames, baseName)
+	for _, ext := range supportedExtensions {
+		baseNames = append(baseNames, baseName+ext)
+	}
 
 	for _, dir := range l.searchDirs {
 		var found string
-		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil
 			}
 			fileName := d.Name()
-			if fileName == baseName || fileName == baseNameMd {
-				found = path
-				return filepath.SkipAll
+			for _, bn := range baseNames {
+				if fileName == bn {
+					found = path
+					return filepath.SkipAll
+				}
 			}
 			return nil
 		})
@@ -127,199 +227,55 @@ func (l *Loader) Load(name string) (*Fragment, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := l.fs.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read fragment %s: %w", name, err)
 	}
 
-	frag, err := parseMarkdownFragment(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse fragment %s: %w", name, err)
-	}
-	frag.Name = name
+	var frag *Fragment
 
-	return frag, nil
-}
-
-// parseMarkdownFragment parses a markdown fragment file using goldmark.
-// Expected format:
-//
-//	## Context
-//	Content here with {{variables}}
-//
-//	## Variables
-//	```yaml
-//	project_name: SCM
-//	language: Go
-//	```
-func parseMarkdownFragment(source []byte) (*Fragment, error) {
-	frag := &Fragment{
-		Variables: make(map[string]string),
-	}
-
-	// Parse the markdown into an AST
-	parser := goldmark.DefaultParser()
-	reader := text.NewReader(source)
-	doc := parser.Parse(reader)
-
-	// Collect h2 headings with their byte positions
-	type headingInfo struct {
-		name         string
-		contentStart int // Position after the heading line
-		headingStart int // Position where the heading starts
-	}
-	var headings []headingInfo
-
-	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-
-		if heading, ok := n.(*ast.Heading); ok && heading.Level == 2 {
-			// Get heading text
-			var headingText bytes.Buffer
-			for child := heading.FirstChild(); child != nil; child = child.NextSibling() {
-				if textNode, ok := child.(*ast.Text); ok {
-					headingText.Write(textNode.Segment.Value(source))
-				}
-			}
-
-			name := strings.ToLower(strings.TrimSpace(headingText.String()))
-
-			// Find where the heading starts and where content begins
-			// ATX headings don't have Lines(), so we need to find position from children
-			headingStart := len(source)
-			contentStart := 0
-
-			// The heading node itself tracks its position via first child segment
-			if heading.FirstChild() != nil {
-				if textNode, ok := heading.FirstChild().(*ast.Text); ok {
-					// Heading starts a few chars before the text (for "## ")
-					headingStart = textNode.Segment.Start - heading.Level - 1
-					if headingStart < 0 {
-						headingStart = 0
-					}
-				}
-			}
-
-			// Content starts after the heading - find next newline after heading text
-			if heading.FirstChild() != nil {
-				if textNode, ok := heading.FirstChild().(*ast.Text); ok {
-					contentStart = textNode.Segment.Stop
-					// Skip to end of line
-					for contentStart < len(source) && source[contentStart] != '\n' {
-						contentStart++
-					}
-					if contentStart < len(source) {
-						contentStart++ // Skip the newline
-					}
-				}
-			}
-
-			headings = append(headings, headingInfo{
-				name:         name,
-				headingStart: headingStart,
-				contentStart: contentStart,
-			})
-		}
-
-		return ast.WalkContinue, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract section contents
-	sections := make(map[string][]byte)
-	for i, h := range headings {
-		var contentEnd int
-		if i+1 < len(headings) {
-			contentEnd = headings[i+1].headingStart
-		} else {
-			contentEnd = len(source)
-		}
-
-		if h.contentStart <= contentEnd {
-			content := bytes.TrimSpace(source[h.contentStart:contentEnd])
-			sections[h.name] = content
-		}
-	}
-
-	// Process context section
-	if contextContent, ok := sections["context"]; ok {
-		frag.Context = string(contextContent)
-	}
-
-	// Process variables section
-	if varsContent, ok := sections["variables"]; ok {
-		vars, err := parseVariables(varsContent)
+	// Check file type - YAML (including distilled) or plain markdown
+	if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
+		// YAML fragment file (including .distilled.yaml)
+		frag, err = parseYAMLFragment(data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse variables: %w", err)
+			return nil, fmt.Errorf("failed to parse fragment %s: %w", name, err)
 		}
-		frag.Variables = vars
-	}
-
-	// If no sections found, treat entire content as context
-	if len(sections) == 0 {
-		frag.Context = strings.TrimSpace(string(source))
+		frag.Name = name
+	} else if strings.HasSuffix(path, ".md") {
+		// Plain markdown file - content only, no metadata
+		frag = &Fragment{
+			Name:    name,
+			Content: strings.TrimSpace(string(data)),
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported file type for fragment %s: %s", name, path)
 	}
 
 	return frag, nil
 }
 
-// parseVariables extracts variables from a Variables section.
-// Handles both fenced code blocks and raw YAML/JSON.
-func parseVariables(content []byte) (map[string]string, error) {
-	vars := make(map[string]string)
-
-	// Parse the content to find code blocks
-	parser := goldmark.DefaultParser()
-	reader := text.NewReader(content)
-	doc := parser.Parse(reader)
-
-	var codeContent []byte
-
-	err := ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-
-		if fenced, ok := n.(*ast.FencedCodeBlock); ok {
-			// Extract code block content
-			var buf bytes.Buffer
-			lines := fenced.Lines()
-			for i := 0; i < lines.Len(); i++ {
-				line := lines.At(i)
-				buf.Write(line.Value(content))
-			}
-			codeContent = buf.Bytes()
-			return ast.WalkStop, nil
-		}
-
-		return ast.WalkContinue, nil
-	})
-	if err != nil {
-		return nil, err
+// parseYAMLFragment parses a YAML fragment file.
+func parseYAMLFragment(data []byte) (*Fragment, error) {
+	var yf yamlFragment
+	if err := yaml.Unmarshal(data, &yf); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 
-	// Use code block content if found, otherwise use raw content
-	parseContent := codeContent
-	if parseContent == nil {
-		parseContent = content
+	frag := &Fragment{
+		Version:   yf.Version,
+		Author:    yf.Author,
+		Tags:      yf.Tags,
+		Variables: yf.Variables,
+		Content:   strings.TrimSpace(yf.Content),
 	}
 
-	// Parse as YAML (which also handles JSON)
-	var rawVars map[string]interface{}
-	if err := yaml.Unmarshal(parseContent, &rawVars); err != nil {
-		return nil, fmt.Errorf("invalid YAML/JSON: %w", err)
+	// Copy var_values to VarValues if present (from generator output)
+	if len(yf.VarValues) > 0 {
+		frag.VarValues = yf.VarValues
 	}
 
-	// Convert to string map
-	for k, v := range rawVars {
-		vars[k] = fmt.Sprintf("%v", v)
-	}
-
-	return vars, nil
+	return frag, nil
 }
 
 // LoadMultiple loads multiple fragments, merges their variables,
@@ -329,7 +285,7 @@ func (l *Loader) LoadMultiple(names []string) (string, error) {
 }
 
 // LoadMultipleWithVars loads multiple fragments with additional variables.
-// The extraVars are merged first, then fragment variables override them.
+// Variables are provided via extraVars (from persona config or generators).
 // Missing fragments are warned about but do not cause failure.
 func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]string) (string, error) {
 	var frags []*Fragment
@@ -344,23 +300,10 @@ func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]strin
 		frags = append(frags, frag)
 	}
 
-	// Start with extra vars (persona vars)
+	// Use provided variables
 	variables := make(map[string]string)
-	variableSource := make(map[string]string)
 	for k, v := range extraVars {
 		variables[k] = v
-		variableSource[k] = "(persona)"
-	}
-
-	// Merge fragment variables (override extra vars)
-	for _, frag := range frags {
-		for k, v := range frag.Variables {
-			if existingSource, exists := variableSource[k]; exists {
-				l.warn(fmt.Sprintf("variable %q redefined: was set in %q, overwritten by %q", k, existingSource, frag.Name))
-			}
-			variables[k] = v
-			variableSource[k] = frag.Name
-		}
 	}
 
 	// Assemble context intelligently
@@ -384,10 +327,10 @@ func (l *Loader) assembleContext(frags []*Fragment) string {
 
 	var sections []string
 	for _, frag := range frags {
-		if frag.Context == "" {
+		if frag.Content == "" {
 			continue
 		}
-		sections = append(sections, strings.TrimSpace(frag.Context))
+		sections = append(sections, strings.TrimSpace(frag.Content))
 	}
 
 	return strings.Join(sections, "\n\n---\n\n")
@@ -438,13 +381,13 @@ func (l *Loader) applyTemplate(template string, vars map[string]string) (string,
 
 // List returns all available fragment names in the search directories.
 // Walks subdirectories recursively. Fragment names include relative paths
-// from the search directory (e.g., "testing/tdd" for "testing/tdd.md").
+// from the search directory (e.g., "testing/tdd" for "testing/tdd.yaml").
 func (l *Loader) List() ([]FragmentInfo, error) {
 	var fragments []FragmentInfo
 	seen := make(map[string]bool)
 
 	for _, dir := range l.searchDirs {
-		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		err := l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) {
 					return nil
@@ -461,7 +404,10 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 			}
 
 			name := d.Name()
-			if !strings.HasSuffix(name, ".md") {
+			ext := strings.ToLower(filepath.Ext(name))
+
+			// Accept .yaml and .yml files only
+			if ext != ".yaml" && ext != ".yml" {
 				return nil
 			}
 			if strings.HasPrefix(name, ".") {
@@ -474,16 +420,28 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 				return nil
 			}
 
-			// Fragment name is relative path without .md extension
-			fragName := strings.TrimSuffix(relPath, ".md")
+			// Fragment name is relative path without extension
+			fragName := strings.TrimSuffix(relPath, ext)
 
 			if !seen[fragName] {
 				seen[fragName] = true
+
+				// Load fragment to get metadata
+				frag, err := l.Load(fragName)
+				var tags []string
+				var variables []string
+				if err == nil {
+					tags = frag.Tags
+					variables = frag.Variables
+				}
+
 				fragments = append(fragments, FragmentInfo{
-					Name:     fragName,
-					FileName: name,
-					Path:     path,
-					Source:   dir,
+					Name:      fragName,
+					FileName:  name,
+					Path:      path,
+					Source:    dir,
+					Tags:      tags,
+					Variables: variables,
 				})
 			}
 			return nil
@@ -496,16 +454,113 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 	return fragments, nil
 }
 
-// FragmentInfo holds metadata about a fragment.
-type FragmentInfo struct {
-	Name     string
-	FileName string
-	Path     string
-	Source   string
+// ListByTags returns fragments that have any of the specified tags.
+// If tags is empty, returns all fragments.
+func (l *Loader) ListByTags(tags []string) ([]FragmentInfo, error) {
+	all, err := l.List()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tags) == 0 {
+		return all, nil
+	}
+
+	tagSet := make(map[string]bool)
+	for _, t := range tags {
+		tagSet[strings.ToLower(t)] = true
+	}
+
+	var filtered []FragmentInfo
+	for _, f := range all {
+		for _, ft := range f.Tags {
+			if tagSet[strings.ToLower(ft)] {
+				filtered = append(filtered, f)
+				break
+			}
+		}
+	}
+
+	return filtered, nil
 }
 
-// ParseMarkdown parses markdown content as a fragment.
+// LoadByTags loads all fragments matching any of the specified tags.
+func (l *Loader) LoadByTags(tags []string) ([]*Fragment, error) {
+	infos, err := l.ListByTags(tags)
+	if err != nil {
+		return nil, err
+	}
+
+	var frags []*Fragment
+	for _, info := range infos {
+		frag, err := l.Load(info.Name)
+		if err != nil {
+			continue
+		}
+		frags = append(frags, frag)
+	}
+
+	return frags, nil
+}
+
+// FragmentInfo holds metadata about a fragment.
+type FragmentInfo struct {
+	Name      string
+	FileName  string
+	Path      string
+	Source    string
+	Tags      []string
+	Variables []string
+}
+
+// yamlFragment is the structure for YAML-based fragment files.
+type yamlFragment struct {
+	Version   string            `yaml:"version,omitempty"`
+	Author    string            `yaml:"author,omitempty"`
+	Tags      []string          `yaml:"tags,omitempty"`
+	Variables []string          `yaml:"variables,omitempty"`
+	Content   string            `yaml:"content"`
+	VarValues map[string]string `yaml:"var_values,omitempty"` // For generator output
+}
+
+// ParseYAML parses YAML content as a fragment.
 // This is useful for parsing generator output.
-func ParseMarkdown(content string) (*Fragment, error) {
-	return parseMarkdownFragment([]byte(content))
+func ParseYAML(content string) (*Fragment, error) {
+	frag, err := parseYAMLFragment([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+	return frag, nil
+}
+
+// HasTag checks if a fragment has a specific tag (case-insensitive).
+func (f *Fragment) HasTag(tag string) bool {
+	tag = strings.ToLower(tag)
+	for _, t := range f.Tags {
+		if strings.ToLower(t) == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyTag checks if a fragment has any of the specified tags.
+func (f *Fragment) HasAnyTag(tags []string) bool {
+	for _, t := range tags {
+		if f.HasTag(t) {
+			return true
+		}
+	}
+	return false
+}
+
+// CombineFragments concatenates multiple fragment contents with separators.
+func CombineFragments(frags []*Fragment) string {
+	var parts []string
+	for _, f := range frags {
+		if f.Content != "" {
+			parts = append(parts, strings.TrimSpace(f.Content))
+		}
+	}
+	return strings.Join(parts, "\n\n---\n\n")
 }

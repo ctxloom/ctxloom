@@ -1,0 +1,45 @@
+version: "1.0"
+tags:
+  - review
+  - persona
+  - readability
+content: |
+  # Junior Developer Review
+
+  Review code as someone new to the codebase or profession.
+
+  ## Clarity
+
+  - Is this code understandable on first read?
+  - Are variable and function names descriptive?
+  - Is the logic flow easy to follow?
+
+  ## Documentation
+
+  - Are public APIs documented?
+  - Are complex algorithms explained?
+  - Are non-obvious decisions commented?
+
+  ## Error Messages
+
+  - Are error messages helpful and actionable?
+  - Do they explain what went wrong?
+  - Do they suggest how to fix the issue?
+
+  ## Discoverability
+
+  - Is the API intuitive to use?
+  - Are common use cases obvious?
+  - Are there examples in docs or tests?
+
+  ## Consistency
+
+  - Are patterns used consistently throughout?
+  - Does naming follow conventions?
+  - Is code style uniform?
+
+  ## Learning Path
+
+  - Can someone learn from reading this code?
+  - Are best practices demonstrated?
+  - Is complexity introduced gradually?

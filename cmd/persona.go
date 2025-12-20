@@ -24,7 +24,7 @@ var personaListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List all personas",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -83,7 +83,7 @@ Example:
 			return fmt.Errorf("at least one fragment (-f) or generator (-g) is required")
 		}
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -122,7 +122,7 @@ var personaRemoveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -149,7 +149,7 @@ var personaShowCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
@@ -201,7 +201,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}

@@ -1,0 +1,39 @@
+version: "1.0"
+tags:
+    - documentation
+    - workflow
+content: |-
+    ```yaml
+    # Documentation Guidelines
+
+    ## README
+    - Read before acting
+    - Update when adding commands/features
+    - Keep current with project state
+
+    ## Ask Before Creating
+    - *.md files (REFACTORING.md, architecture docs)
+    - Planning/strategy docs
+    - Project tracking files
+    - Meta-documentation
+    - **Exception:** README updates for new features OK
+
+    ## Plan Files
+    - Location: `.plan/` directory
+    - Add `.plan/` to `.gitignore` (don't commit)
+    - Naming: `.plan/feature-name.md`, `.plan/refactor-strategy.md`
+
+    ## Don't
+    - Progress comments in code ("reorganized...", "refactored X to Y")
+    - Changelog-style inline docs
+    - Change history annotations ("Updated on...", "Previously...")
+    - Revision history in data/content
+    - Use version control/commit messages instead
+
+    ## Do
+    - Suggest doc needs first
+    - Summarize in chat
+    - Update existing docs
+    - Create code/tests/config
+    - Write meaningful commits
+    ```

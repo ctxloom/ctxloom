@@ -1,0 +1,39 @@
+version: "1.0"
+tags:
+    - git
+    - workflow
+content: |-
+    Here's the compressed fragment:
+
+    ---
+
+    # Git Practices
+
+    ## General
+    - Use `git log` for context/history
+    - Use `git rm` not `rm` for file removal
+
+    ## Commit Messages
+    - Straightforward, describe code changes only
+    - No extraneous details/meta-commentary
+    - **NEVER mention Claude, Anthropic, AI, or "Generated with"**
+
+    ## Breaking Changes
+    - Version <1.0 or new major: No backwards compat, clean up deprecated code immediately
+    - Post-1.0 minor/patch: Discuss breaking changes first
+
+    ## Git Hooks: lefthook
+    - Config: `lefthook.yml`
+    - Pre-commit: lint, format, test
+    - Language-agnostic, parallel execution
+
+    ## Pre-commit Checklist
+    - Run linters (ruff, clippy, golangci-lint)
+    - Run formatters (ruff format, cargo fmt, gofmt)
+    - Run tests
+    - Fix all issues before commit—no broken code
+    - Fix pre-commit errors automatically
+
+    ## Bypassing Hooks
+    - Only for WIP on feature branches
+    - Document with `--no-verify` + reasoning

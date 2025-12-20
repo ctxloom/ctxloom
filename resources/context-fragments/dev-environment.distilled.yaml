@@ -1,0 +1,24 @@
+version: "1.0"
+tags:
+    - tooling
+    - environment
+content: |-
+    I'll compress this fragment content for you.
+
+    ---
+
+    # dev-environment
+
+    ## just (Command Runner)
+    - Define tasks in justfile: `just test`, `just lint`, `just run`
+    - Language-agnostic
+    - Use `git rev-parse --show-toplevel` for repo root (TOP)
+    - Base paths on TOP
+    - Create target for commands used 3+ times
+    - Document purpose, caveats, requirements, prerequisites
+
+    ## Dev Containers
+    - Maintain .devcontainer config
+    - Consistent env with all tools/deps
+    - Document system requirements
+    - Reproducible builds

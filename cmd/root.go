@@ -3,12 +3,103 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"mlcm/internal/config"
 )
 
+// Version is set at build time via ldflags
+// Example: go build -ldflags "-X mlcm/cmd.Version=v1.0.0"
+var Version = "dev"
+
 var cfgFile string
+
+// useHomeDir is a global flag to operate on ~/.mlcm instead of project directories
+var useHomeDir bool
+
+// GetMLCMDirs returns the .mlcm directories to operate on based on the --home flag.
+// If --home is set, returns only ~/.mlcm. Otherwise returns project directories from config.
+func GetMLCMDirs() ([]string, error) {
+	if useHomeDir {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		mlcmDir := filepath.Join(home, config.MLCMDirName)
+		return []string{mlcmDir}, nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.MLCMPaths, nil
+}
+
+// GetFragmentDirs returns fragment directories based on the --home flag.
+func GetFragmentDirs() ([]string, error) {
+	if useHomeDir {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		return []string{filepath.Join(home, config.MLCMDirName, config.ContextFragmentsDir)}, nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.GetFragmentDirs(), nil
+}
+
+// GetPromptDirs returns prompt directories based on the --home flag.
+func GetPromptDirs() ([]string, error) {
+	if useHomeDir {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		return []string{filepath.Join(home, config.MLCMDirName, config.PromptsDir)}, nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.GetPromptDirs(), nil
+}
+
+// GetConfig returns the configuration, loading from home if --home flag is set.
+// The returned config is properly configured for saving to the correct location.
+func GetConfig() (*config.Config, error) {
+	if useHomeDir {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		mlcmDir := filepath.Join(home, config.MLCMDirName)
+
+		cfg, err := config.LoadHomeConfig()
+		if err != nil {
+			return nil, err
+		}
+		if cfg == nil {
+			// Return empty config if home config doesn't exist
+			cfg = &config.Config{
+				Personas:   make(map[string]config.Persona),
+				Generators: make(map[string]config.Generator),
+			}
+		}
+		// Set MLCMPaths so Save() works correctly
+		cfg.MLCMPaths = []string{mlcmDir}
+		return cfg, nil
+	}
+	return config.Load()
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "mlcm",
@@ -62,6 +153,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mlcm.yaml)")
+	rootCmd.PersistentFlags().BoolVar(&useHomeDir, "home", false, "operate on ~/.mlcm instead of project directories")
 }
 
 func initConfig() {

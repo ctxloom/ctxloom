@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"mlcm/internal/ai"
+	"mlcm/internal/logging"
 	"mlcm/resources"
 )
 
@@ -71,18 +72,30 @@ type AIConfig struct {
 }
 
 // Persona is a named collection of context fragments, variables, and context generators.
+// Fragments can be specified directly by path, or dynamically via tags.
 type Persona struct {
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
-	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`
+	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`           // Fragment tags to include
+	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"` // Explicit fragment paths
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Generators  []string          `mapstructure:"generators" yaml:"generators,omitempty"` // Plugin binaries that output context
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Persona    string   `mapstructure:"persona" yaml:"persona,omitempty"`       // Default persona to use
-	Fragments  []string `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Fragments always included
-	Generators []string `mapstructure:"generators" yaml:"generators,omitempty"` // Generators always run
+	Persona      string   `mapstructure:"persona" yaml:"persona,omitempty"`             // Default persona to use
+	Fragments    []string `mapstructure:"fragments" yaml:"fragments,omitempty"`         // Fragments always included
+	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
+	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+}
+
+// ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
+// Defaults to true if not explicitly set.
+func (d *Defaults) ShouldUseDistilled() bool {
+	if d.UseDistilled == nil {
+		return true
+	}
+	return *d.UseDistilled
 }
 
 // Load finds and loads configuration from project .mlcm directories.
@@ -109,26 +122,36 @@ func Load() (*Config, error) {
 	// We load in reverse order so project-local config takes precedence
 	for i := len(mlcmPaths) - 1; i >= 0; i-- {
 		mlcmPath := mlcmPaths[i]
-		configPath := filepath.Join(mlcmPath, ConfigFileName)
+		configPath := filepath.Join(mlcmPath, ConfigFileName+".yaml")
 
 		v := viper.New()
-		v.SetConfigFile(configPath + ".yaml")
+		v.SetConfigFile(configPath)
 		v.SetConfigType("yaml")
 
 		if err := v.ReadInConfig(); err != nil {
 			// Config file is optional, continue if not found
-			if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-				if !os.IsNotExist(err) {
-					continue // Skip this config file
-				}
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				continue
 			}
+			if os.IsNotExist(err) {
+				continue
+			}
+			// Log warning for other read errors (permissions, malformed YAML, etc.)
+			logging.L().Warn("failed to read config file",
+				logging.FilePath(configPath),
+				logging.ErrorField(err))
 			continue
 		}
 
 		// Unmarshal into config
 		if err := v.Unmarshal(cfg); err != nil {
+			logging.L().Warn("failed to parse config file",
+				logging.FilePath(configPath),
+				logging.ErrorField(err))
 			return nil, fmt.Errorf("failed to parse config at %s: %w", configPath, err)
 		}
+
+		logging.L().Debug(logging.MsgConfigLoaded, logging.FilePath(configPath))
 	}
 
 	return cfg, nil

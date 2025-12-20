@@ -152,27 +152,41 @@ func (f *FragmentBuilder) SetVars(vars map[string]string) *FragmentBuilder {
 	return f
 }
 
-// String renders the complete fragment document.
+// String renders the complete fragment document as YAML.
 func (f *FragmentBuilder) String() string {
-	doc := New()
+	var lines []string
 
-	// Context section
-	doc.H2("Context")
+	// Variables section (as list of names)
+	if len(f.variables) > 0 {
+		lines = append(lines, "variables:")
+		for k := range f.variables {
+			lines = append(lines, fmt.Sprintf("  - %s", k))
+		}
+	}
+
+	// Build content from context builder
+	var contentParts []string
 	for _, s := range f.context.sections {
 		for _, c := range s.content {
-			doc.P(c)
+			contentParts = append(contentParts, c)
 		}
 	}
 
-	// Variables section
+	// Content section
+	lines = append(lines, "content: |")
+	for _, part := range contentParts {
+		for _, line := range strings.Split(part, "\n") {
+			lines = append(lines, "  "+line)
+		}
+	}
+
+	// Variables section with values (for generator output parsing)
 	if len(f.variables) > 0 {
-		var yamlLines []string
+		lines = append(lines, "var_values:")
 		for k, v := range f.variables {
-			yamlLines = append(yamlLines, fmt.Sprintf("%s: %s", k, v))
+			lines = append(lines, fmt.Sprintf("  %s: %s", k, v))
 		}
-		doc.H2("Variables")
-		doc.CodeBlock("yaml", strings.Join(yamlLines, "\n"))
 	}
 
-	return doc.String()
+	return strings.Join(lines, "\n") + "\n"
 }

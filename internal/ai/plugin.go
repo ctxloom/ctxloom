@@ -51,9 +51,10 @@ type CommandPreviewPlugin interface {
 	CommandPreview(req Request) string
 }
 
-// StreamingPlugin is an optional interface for plugins that support streaming.
-type StreamingPlugin interface {
+// CloneablePlugin is an optional interface for plugins that can be cloned.
+// This enables thread-safe configuration by returning a new instance for each caller.
+type CloneablePlugin interface {
 	Plugin
-	// RunStreaming executes with real-time output streaming.
-	RunStreaming(ctx context.Context, req Request, stdout, stderr io.Writer) (*Response, error)
+	// Clone returns a new instance of this plugin with the same base configuration.
+	Clone() Plugin
 }

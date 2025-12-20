@@ -1,0 +1,385 @@
+syntax = "proto3";
+
+package fragments.v1;
+
+option go_package = "mlcm/server/proto/fragmentspb";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Fragment represents a context fragment document.
+message Fragment {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string author = 4;
+  repeated string tags = 5;
+  repeated string variables = 6;
+  string content = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+
+  // Engagement metrics
+  int64 downloads = 10;
+  int64 likes = 11;
+  int64 dislikes = 12;
+  int64 used_by_personas = 13; // Count of personas referencing this fragment
+}
+
+// CreateFragmentRequest creates a new fragment.
+message CreateFragmentRequest {
+  string name = 1;
+  string version = 2;
+  string author = 3;
+  repeated string tags = 4;
+  repeated string variables = 5;
+  string content = 6;
+}
+
+// UpdateFragmentRequest updates an existing fragment.
+message UpdateFragmentRequest {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string author = 4;
+  repeated string tags = 5;
+  repeated string variables = 6;
+  string content = 7;
+}
+
+// GetFragmentRequest retrieves a fragment by ID.
+message GetFragmentRequest {
+  string id = 1;
+}
+
+// GetFragmentByNameRequest retrieves a fragment by name, author, and optional version.
+message GetFragmentByNameRequest {
+  string name = 1;
+  string author = 2;
+  string version = 3; // Optional: if empty, returns latest
+}
+
+// DeleteFragmentRequest deletes a fragment by ID.
+message DeleteFragmentRequest {
+  string id = 1;
+}
+
+// SortOrder specifies how to sort results.
+enum SortOrder {
+  SORT_ORDER_UNSPECIFIED = 0;
+  SORT_ORDER_POPULARITY = 1;   // downloads + (likes - dislikes)
+  SORT_ORDER_DOWNLOADS = 2;    // by download count
+  SORT_ORDER_RECENT = 3;       // by updated_at
+  SORT_ORDER_NAME = 4;         // alphabetical by name
+}
+
+// ListFragmentsRequest lists fragments with optional filtering.
+message ListFragmentsRequest {
+  repeated string tags = 1;      // Filter by tags (OR logic)
+  string author = 2;             // Filter by author
+  string name_prefix = 3;        // Filter by name prefix
+  int32 page_size = 4;           // Max results per page
+  string page_token = 5;         // Pagination token
+  SortOrder sort = 6;            // Sort order (default: POPULARITY)
+}
+
+// ListFragmentsResponse returns a paginated list of fragments.
+message ListFragmentsResponse {
+  repeated Fragment fragments = 1;
+  string next_page_token = 2;
+}
+
+// SearchFragmentsRequest searches fragments by content.
+message SearchFragmentsRequest {
+  string query = 1;              // Full-text search query
+  repeated string tags = 2;      // Optional tag filter
+  int32 page_size = 3;
+  string page_token = 4;
+  SortOrder sort = 5;            // Sort order (default: POPULARITY)
+}
+
+// SearchFragmentsResponse returns search results.
+message SearchFragmentsResponse {
+  repeated Fragment fragments = 1;
+  string next_page_token = 2;
+}
+
+// DownloadFragmentRequest increments download count and returns fragment.
+message DownloadFragmentRequest {
+  string id = 1;
+}
+
+// LikeFragmentRequest adds a like to a fragment.
+message LikeFragmentRequest {
+  string id = 1;
+}
+
+// DislikeFragmentRequest adds a dislike to a fragment with required reason.
+message DislikeFragmentRequest {
+  string id = 1;
+  string reason = 2;  // Required: why the user disliked this fragment
+}
+
+// Dislike represents a dislike record with reason.
+message Dislike {
+  string fragment_id = 1;
+  string reason = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+// ListDislikesRequest lists dislikes for a fragment.
+message ListDislikesRequest {
+  string fragment_id = 1;
+}
+
+// ListDislikesResponse returns dislikes for a fragment.
+message ListDislikesResponse {
+  repeated Dislike dislikes = 1;
+}
+
+// FragmentRef is a reference to a fragment by name, author, and version.
+message FragmentRef {
+  string name = 1;
+  string author = 2;
+  string version = 3;
+}
+
+// Persona represents a named collection of fragment references.
+message Persona {
+  string id = 1;
+  string name = 2;
+  string author = 3;
+  string version = 4;
+  string description = 5;
+  repeated FragmentRef fragments = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  int64 downloads = 9;
+  int64 likes = 10;
+  int64 dislikes = 11;
+}
+
+// CreatePersonaRequest creates a new persona.
+message CreatePersonaRequest {
+  string name = 1;
+  string author = 2;
+  string version = 3;
+  string description = 4;
+  repeated FragmentRef fragments = 5;
+}
+
+// UpdatePersonaRequest updates an existing persona.
+message UpdatePersonaRequest {
+  string id = 1;
+  string name = 2;
+  string author = 3;
+  string version = 4;
+  string description = 5;
+  repeated FragmentRef fragments = 6;
+}
+
+// GetPersonaRequest retrieves a persona by ID.
+message GetPersonaRequest {
+  string id = 1;
+}
+
+// GetPersonaByNameRequest retrieves a persona by name, author, and optional version.
+message GetPersonaByNameRequest {
+  string name = 1;
+  string author = 2;
+  string version = 3; // Optional: if empty, returns latest
+}
+
+// DeletePersonaRequest deletes a persona by ID.
+message DeletePersonaRequest {
+  string id = 1;
+}
+
+// ListPersonasRequest lists personas with optional filtering.
+message ListPersonasRequest {
+  string author = 1;
+  string name_prefix = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+  SortOrder sort = 5;
+}
+
+// ListPersonasResponse returns a paginated list of personas.
+message ListPersonasResponse {
+  repeated Persona personas = 1;
+  string next_page_token = 2;
+}
+
+// DownloadPersonaRequest increments download count and returns persona with resolved fragments.
+message DownloadPersonaRequest {
+  string id = 1;
+}
+
+// DownloadPersonaResponse returns the persona with all fragments resolved.
+message DownloadPersonaResponse {
+  Persona persona = 1;
+  repeated Fragment fragments = 2; // Resolved fragment contents
+}
+
+// LikePersonaRequest adds a like to a persona.
+message LikePersonaRequest {
+  string id = 1;
+}
+
+// DislikePersonaRequest adds a dislike to a persona with required reason.
+message DislikePersonaRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+// FragmentService provides CRUD operations for context fragments.
+service FragmentService {
+  // CreateFragment creates a new fragment.
+  rpc CreateFragment(CreateFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      post: "/v1/fragments"
+      body: "*"
+    };
+  }
+
+  // GetFragment retrieves a fragment by ID.
+  rpc GetFragment(GetFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      get: "/v1/fragments/{id}"
+    };
+  }
+
+  // GetFragmentByName retrieves a fragment by author, name, and optional version.
+  rpc GetFragmentByName(GetFragmentByNameRequest) returns (Fragment) {
+    option (google.api.http) = {
+      get: "/v1/fragments/by-key/{author}/{name}"
+    };
+  }
+
+  // UpdateFragment updates an existing fragment.
+  rpc UpdateFragment(UpdateFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      put: "/v1/fragments/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteFragment deletes a fragment.
+  rpc DeleteFragment(DeleteFragmentRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/fragments/{id}"
+    };
+  }
+
+  // ListFragments lists fragments with optional filtering.
+  rpc ListFragments(ListFragmentsRequest) returns (ListFragmentsResponse) {
+    option (google.api.http) = {
+      get: "/v1/fragments"
+    };
+  }
+
+  // SearchFragments searches fragments by content.
+  rpc SearchFragments(SearchFragmentsRequest) returns (SearchFragmentsResponse) {
+    option (google.api.http) = {
+      get: "/v1/fragments/search"
+    };
+  }
+
+  // DownloadFragment increments download count and returns the fragment.
+  rpc DownloadFragment(DownloadFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      post: "/v1/fragments/{id}/download"
+    };
+  }
+
+  // LikeFragment adds a like to a fragment.
+  rpc LikeFragment(LikeFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      post: "/v1/fragments/{id}/like"
+    };
+  }
+
+  // DislikeFragment adds a dislike to a fragment (reason required).
+  rpc DislikeFragment(DislikeFragmentRequest) returns (Fragment) {
+    option (google.api.http) = {
+      post: "/v1/fragments/{id}/dislike"
+      body: "*"
+    };
+  }
+
+  // ListDislikes returns dislikes with reasons for a fragment.
+  rpc ListDislikes(ListDislikesRequest) returns (ListDislikesResponse) {
+    option (google.api.http) = {
+      get: "/v1/fragments/{fragment_id}/dislikes"
+    };
+  }
+
+  // === Persona Operations ===
+
+  // CreatePersona creates a new persona.
+  rpc CreatePersona(CreatePersonaRequest) returns (Persona) {
+    option (google.api.http) = {
+      post: "/v1/personas"
+      body: "*"
+    };
+  }
+
+  // GetPersona retrieves a persona by ID.
+  rpc GetPersona(GetPersonaRequest) returns (Persona) {
+    option (google.api.http) = {
+      get: "/v1/personas/{id}"
+    };
+  }
+
+  // GetPersonaByName retrieves a persona by name, author, and optional version.
+  rpc GetPersonaByName(GetPersonaByNameRequest) returns (Persona) {
+    option (google.api.http) = {
+      get: "/v1/personas/by-key/{author}/{name}"
+    };
+  }
+
+  // UpdatePersona updates an existing persona.
+  rpc UpdatePersona(UpdatePersonaRequest) returns (Persona) {
+    option (google.api.http) = {
+      put: "/v1/personas/{id}"
+      body: "*"
+    };
+  }
+
+  // DeletePersona deletes a persona.
+  rpc DeletePersona(DeletePersonaRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/personas/{id}"
+    };
+  }
+
+  // ListPersonas lists personas with optional filtering.
+  rpc ListPersonas(ListPersonasRequest) returns (ListPersonasResponse) {
+    option (google.api.http) = {
+      get: "/v1/personas"
+    };
+  }
+
+  // DownloadPersona increments download count and returns persona with resolved fragments.
+  rpc DownloadPersona(DownloadPersonaRequest) returns (DownloadPersonaResponse) {
+    option (google.api.http) = {
+      post: "/v1/personas/{id}/download"
+    };
+  }
+
+  // LikePersona adds a like to a persona.
+  rpc LikePersona(LikePersonaRequest) returns (Persona) {
+    option (google.api.http) = {
+      post: "/v1/personas/{id}/like"
+    };
+  }
+
+  // DislikePersona adds a dislike to a persona (reason required).
+  rpc DislikePersona(DislikePersonaRequest) returns (Persona) {
+    option (google.api.http) = {
+      post: "/v1/personas/{id}/dislike"
+      body: "*"
+    };
+  }
+}

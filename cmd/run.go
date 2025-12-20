@@ -19,6 +19,7 @@ var (
 	runPlugin           string
 	runPrompt           string
 	runFragments        []string
+	runTags             []string
 	runPersona          string
 	runSavedPrompt      string
 	runDryRun           bool
@@ -36,6 +37,7 @@ Fragments are searched in order:
   2. ~/.mlcm/context-fragments/
 
 Use --persona/-p to load a predefined set of fragments, variables, and generators.
+Use --tag/-t to include all fragments with a specific tag.
 Additional -f flags will be appended to the persona's fragments.
 
 The AI plugin runs in isolation, ignoring default context files like Claude.md.
@@ -43,7 +45,9 @@ The AI plugin runs in isolation, ignoring default context files like Claude.md.
 Examples:
   mlcm run -f coding-standards "review this code"
   mlcm run -p developer "explain the architecture"
-  mlcm run -p reviewer -f extra-rules "review this PR"`,
+  mlcm run -p reviewer -f extra-rules "review this PR"
+  mlcm run -t security "check for vulnerabilities"
+  mlcm run -t review -t style "comprehensive code review"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Load configuration
 		cfg, err := config.Load()
@@ -52,7 +56,10 @@ Examples:
 		}
 
 		// Create fragment loader
-		loader := fragments.NewLoader(cfg.GetFragmentDirs(), fragments.WithSuppressWarnings(runSuppressWarnings))
+		loader := fragments.NewLoader(cfg.GetFragmentDirs(),
+			fragments.WithSuppressWarnings(runSuppressWarnings),
+			fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
+		)
 
 		// Determine which plugin to use
 		pluginName := runPlugin
@@ -93,8 +100,8 @@ Examples:
 
 		// Determine which persona to use: explicit flag > default from config
 		personaName := runPersona
-		if personaName == "" && len(runFragments) == 0 {
-			// No explicit persona or fragments - use defaults
+		if personaName == "" && len(runFragments) == 0 && len(runTags) == 0 {
+			// No explicit persona, fragments, or tags - use defaults
 			personaName = cfg.Defaults.Persona
 			allFragments = append(allFragments, cfg.Defaults.Fragments...)
 			generators = append(generators, cfg.Defaults.Generators...)
@@ -105,6 +112,19 @@ Examples:
 			if !exists {
 				return fmt.Errorf("persona %q not found", personaName)
 			}
+
+			// Include fragments matching persona tags
+			if len(persona.Tags) > 0 {
+				taggedInfos, err := loader.ListByTags(persona.Tags)
+				if err != nil {
+					return fmt.Errorf("failed to list fragments by persona tags: %w", err)
+				}
+				for _, info := range taggedInfos {
+					allFragments = append(allFragments, info.Name)
+				}
+			}
+
+			// Include explicit fragments
 			allFragments = append(allFragments, persona.Fragments...)
 			for k, v := range persona.Variables {
 				personaVars[k] = v
@@ -114,6 +134,17 @@ Examples:
 
 		// Append additional fragments from -f flags
 		allFragments = append(allFragments, runFragments...)
+
+		// Append fragments matching specified tags
+		if len(runTags) > 0 {
+			taggedInfos, err := loader.ListByTags(runTags)
+			if err != nil {
+				return fmt.Errorf("failed to list fragments by tags: %w", err)
+			}
+			for _, info := range taggedInfos {
+				allFragments = append(allFragments, info.Name)
+			}
+		}
 
 		// Warn function for reporting non-fatal issues
 		warnFunc := func(msg string) {
@@ -131,7 +162,7 @@ Examples:
 			}
 			// Merge generator variables into persona vars (generators take precedence)
 			for _, frag := range generatorFrags {
-				for k, v := range frag.Variables {
+				for k, v := range frag.VarValues {
 					personaVars[k] = v
 				}
 			}
@@ -150,8 +181,8 @@ Examples:
 		if len(generatorFrags) > 0 {
 			var genContexts []string
 			for _, frag := range generatorFrags {
-				if frag.Context != "" {
-					genContexts = append(genContexts, frag.Context)
+				if frag.Content != "" {
+					genContexts = append(genContexts, frag.Content)
 				}
 			}
 			if len(genContexts) > 0 {
@@ -208,6 +239,7 @@ func init() {
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
 	runCmd.Flags().StringVarP(&runSavedPrompt, "run-prompt", "r", "", "Run a saved prompt by name")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")
+	runCmd.Flags().StringSliceVarP(&runTags, "tag", "t", nil, "Include fragments with this tag (can be repeated)")
 	runCmd.Flags().StringVarP(&runPersona, "persona", "p", "", "Persona to use (predefined fragment collection)")
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")

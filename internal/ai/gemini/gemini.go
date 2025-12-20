@@ -1,20 +1,15 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
-
-	"github.com/creack/pty"
-	"golang.org/x/term"
 
 	"mlcm/internal/ai"
+	"mlcm/internal/ptyrunner"
 )
 
 const pluginName = "gemini"
@@ -38,6 +33,20 @@ func New() *Plugin {
 // Name returns the plugin identifier.
 func (p *Plugin) Name() string {
 	return pluginName
+}
+
+// Clone returns a new instance of this plugin with the same base configuration.
+func (p *Plugin) Clone() ai.Plugin {
+	clone := &Plugin{
+		binaryPath: p.binaryPath,
+		args:       make([]string, len(p.args)),
+		env:        make(map[string]string, len(p.env)),
+	}
+	copy(clone.args, p.args)
+	for k, v := range p.env {
+		clone.env[k] = v
+	}
+	return clone
 }
 
 // Configure applies the given configuration to the plugin.
@@ -77,67 +86,15 @@ func (p *Plugin) runInteractive(ctx context.Context, req ai.Request, stdout, std
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// Start command with a PTY
-	ptmx, err := pty.Start(cmd)
+	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start gemini with pty: %w", err)
-	}
-	defer ptmx.Close()
-
-	// Handle terminal resize
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
-	go func() {
-		for range ch {
-			if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-				// Ignore resize errors
-			}
-		}
-	}()
-	ch <- syscall.SIGWINCH // Initial resize
-	defer func() { signal.Stop(ch); close(ch) }()
-
-	// Set stdin to raw mode if it's a terminal
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err == nil {
-			defer term.Restore(int(os.Stdin.Fd()), oldState)
-		}
+		return nil, fmt.Errorf("failed to run gemini: %w", err)
 	}
 
-	// Copy stdin to PTY
-	go func() {
-		io.Copy(ptmx, os.Stdin)
-	}()
-
-	// Copy PTY output to stdout
-	var stdoutBuf bytes.Buffer
-	if stdout != nil {
-		io.Copy(io.MultiWriter(stdout, &stdoutBuf), ptmx)
-	} else {
-		io.Copy(&stdoutBuf, ptmx)
-	}
-
-	// Wait for command to finish
-	err = cmd.Wait()
-
-	resp := &ai.Response{
-		Output:   stdoutBuf.String(),
-		ExitCode: 0,
-	}
-
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			resp.ExitCode = exitErr.ExitCode()
-		} else {
-			// PTY close errors after command exit are normal
-			if !strings.Contains(err.Error(), "input/output error") {
-				return nil, fmt.Errorf("failed to run gemini: %w", err)
-			}
-		}
-	}
-
-	return resp, nil
+	return &ai.Response{
+		Output:   result.Output,
+		ExitCode: result.ExitCode,
+	}, nil
 }
 
 // runNonInteractive runs Gemini in non-interactive mode.
@@ -157,37 +114,15 @@ func (p *Plugin) runNonInteractive(ctx context.Context, req ai.Request, stdout, 
 		}
 	}
 
-	// Connect stdin for cases where we have a prompt but might need input
-	cmd.Stdin = os.Stdin
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	if stdout != nil {
-		cmd.Stdout = io.MultiWriter(stdout, &stdoutBuf)
-	} else {
-		cmd.Stdout = &stdoutBuf
-	}
-	if stderr != nil {
-		cmd.Stderr = io.MultiWriter(stderr, &stderrBuf)
-	} else {
-		cmd.Stderr = &stderrBuf
-	}
-
-	err := cmd.Run()
-
-	resp := &ai.Response{
-		Output:   stdoutBuf.String(),
-		ExitCode: 0,
-	}
-
+	result, err := ptyrunner.RunNonInteractive(ctx, cmd, stdout, stderr)
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			resp.ExitCode = exitErr.ExitCode()
-		} else {
-			return nil, fmt.Errorf("failed to run gemini: %w", err)
-		}
+		return nil, fmt.Errorf("failed to run gemini: %w", err)
 	}
 
-	return resp, nil
+	return &ai.Response{
+		Output:   result.Output,
+		ExitCode: result.ExitCode,
+	}, nil
 }
 
 // buildArgs constructs the command-line arguments for gemini.

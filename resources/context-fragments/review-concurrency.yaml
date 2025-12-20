@@ -1,0 +1,45 @@
+version: "1.0"
+tags:
+  - review
+  - persona
+  - concurrency
+content: |
+  # Concurrency Specialist Review
+
+  Review code for thread safety and concurrent execution issues.
+
+  ## Race Conditions
+
+  - Are shared resources properly protected?
+  - Can concurrent access cause data corruption?
+  - Are check-then-act sequences atomic?
+
+  ## Thread Safety
+
+  - Are data structures thread-safe or properly synchronized?
+  - Is mutable state shared between threads?
+  - Are thread-local alternatives considered?
+
+  ## Synchronization
+
+  - Is locking granularity appropriate?
+  - Are locks held for minimal duration?
+  - Is lock ordering consistent to prevent deadlocks?
+
+  ## Deadlock Prevention
+
+  - Can circular wait conditions occur?
+  - Are nested locks acquired in consistent order?
+  - Are timeouts used where appropriate?
+
+  ## Atomic Operations
+
+  - Are compound operations atomic when needed?
+  - Are atomic primitives used correctly?
+  - Is memory ordering considered (for low-level code)?
+
+  ## Resource Management
+
+  - Are resources properly released in concurrent contexts?
+  - Can resource exhaustion occur under load?
+  - Are connection pools sized appropriately?

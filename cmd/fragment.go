@@ -24,12 +24,12 @@ var fragmentListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List available fragments",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		fragmentDirs, err := GetFragmentDirs()
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return fmt.Errorf("failed to get fragment directories: %w", err)
 		}
 
-		loader := fragments.NewLoader(cfg.GetFragmentDirs())
+		loader := fragments.NewLoader(fragmentDirs)
 		frags, err := loader.List()
 		if err != nil {
 			return err
@@ -89,6 +89,11 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
+		fragmentDirs, err := GetFragmentDirs()
+		if err != nil {
+			return fmt.Errorf("failed to get fragment directories: %w", err)
+		}
+
 		var fragmentDir string
 		if fragmentEditLocal {
 			pwd, err := os.Getwd()
@@ -97,18 +102,17 @@ Examples:
 			}
 			fragmentDir = filepath.Join(pwd, ".mlcm", config.ContextFragmentsDir)
 		} else {
-			loader := fragments.NewLoader(cfg.GetFragmentDirs())
+			loader := fragments.NewLoader(fragmentDirs)
 			if path, err := loader.Find(name); err == nil {
 				editorCmd, editorArgs := cfg.GetEditorCommand()
 				ed := editor.New(editorCmd, editorArgs)
 				return ed.Edit(path)
 			}
 
-			dirs := cfg.GetFragmentDirs()
-			if len(dirs) > 0 {
-				fragmentDir = dirs[0]
+			if len(fragmentDirs) > 0 {
+				fragmentDir = fragmentDirs[0]
 			} else {
-				return fmt.Errorf("no .mlcm directory found; run 'mlcm init --local' first")
+				return fmt.Errorf("no .mlcm directory found; run 'mlcm init' first")
 			}
 		}
 
@@ -137,12 +141,12 @@ var fragmentShowCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		fragmentDirs, err := GetFragmentDirs()
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return fmt.Errorf("failed to get fragment directories: %w", err)
 		}
 
-		loader := fragments.NewLoader(cfg.GetFragmentDirs())
+		loader := fragments.NewLoader(fragmentDirs)
 		path, err := loader.Find(name)
 		if err != nil {
 			return fmt.Errorf("fragment not found: %s", name)
@@ -166,12 +170,12 @@ var fragmentDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := config.Load()
+		fragmentDirs, err := GetFragmentDirs()
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return fmt.Errorf("failed to get fragment directories: %w", err)
 		}
 
-		loader := fragments.NewLoader(cfg.GetFragmentDirs())
+		loader := fragments.NewLoader(fragmentDirs)
 		path, err := loader.Find(name)
 		if err != nil {
 			return fmt.Errorf("fragment not found: %s", name)

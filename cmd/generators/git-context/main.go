@@ -12,6 +12,11 @@ import (
 	"mlcm/internal/markdown"
 )
 
+// recentCommitCount is the number of recent commits to include in the context.
+// This provides enough history to understand recent changes without overwhelming
+// the context with too much information.
+const recentCommitCount = 5
+
 func main() {
 	if !isGitRepo() {
 		fmt.Fprintln(os.Stderr, "not a git repository")
@@ -25,7 +30,7 @@ func main() {
 func buildFragment() string {
 	branch := gitBranch()
 	status := gitStatus()
-	recentCommits := gitRecentCommits(5)
+	recentCommits := gitRecentCommits(recentCommitCount)
 	remoteURL := gitRemoteURL()
 
 	frag := markdown.NewFragment()

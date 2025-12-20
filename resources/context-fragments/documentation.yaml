@@ -1,0 +1,49 @@
+version: "1.0"
+tags:
+  - documentation
+  - workflow
+content: |
+  # Documentation Guidelines
+
+  ## README Management
+
+  - **Read first** - Consult the README before taking action
+  - **Update README** when adding new commands or features
+  - README should always reflect the current state of the project
+
+  ## Ask First Before Creating
+
+  - Markdown files (*.md) - REFACTORING.md, architecture docs, etc.
+  - Planning or strategy documents
+  - Project tracking files
+  - Meta-documentation
+
+  **Exception:** README updates permitted when adding new features.
+
+  ## Plan Files
+
+  - Place planning documents in `.plan/` directory
+  - Ensure `.plan/` is in `.gitignore` - plan files should not be committed
+  - Use descriptive names: `.plan/feature-name.md`, `.plan/refactor-strategy.md`
+
+  ## Don't Document Progress in Code
+
+  - No "reorganized code to..." comments
+  - No "refactored X to Y" inline documentation
+  - No changelog-style comments in code
+  - Version control handles this - use commit messages instead
+
+  ## Don't Include Change History in Files
+
+  - No "Updated on..." or "Changed from..." annotations
+  - No "Previously this was..." explanations
+  - No revision history within data/content
+  - History belongs in version control, not in the data itself
+
+  ## Do
+
+  - Suggest documentation needs first
+  - Summarize findings in chat
+  - Update existing documentation
+  - Create code, tests, and configuration files
+  - Write meaningful commit messages for progress tracking

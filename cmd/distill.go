@@ -48,7 +48,7 @@ var distillCmd = &cobra.Command{
 
 This command processes each fragment and prompt through an AI to create a compressed
 version that preserves all rules and behaviors while reducing verbosity.
-Distilled files are saved alongside the original with a .distilled.md extension.
+Distilled files are saved alongside the original with a .distilled.yaml extension.
 
 When loading fragments or prompts, the distilled version is preferred if it exists
 (controlled by use_distilled config setting).
@@ -156,7 +156,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
-					if strings.HasSuffix(sourcePath, ".distilled.md") {
+					if strings.HasSuffix(sourcePath, ".distilled.yaml") || strings.HasSuffix(sourcePath, ".distilled.yml") {
 						continue
 					}
 

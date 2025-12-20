@@ -410,6 +410,10 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 			if ext != ".yaml" && ext != ".yml" {
 				return nil
 			}
+			// Skip distilled files (they're derived, not source fragments)
+			if strings.HasSuffix(name, ".distilled.yaml") || strings.HasSuffix(name, ".distilled.yml") {
+				return nil
+			}
 			if strings.HasPrefix(name, ".") {
 				return nil
 			}

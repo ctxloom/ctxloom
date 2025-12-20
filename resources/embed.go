@@ -71,24 +71,37 @@ func CopyFragments(destDir string) error {
 			return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
 		}
 
-		// Convert .yaml/.yml extension to .md for output
-		destRelPath := relPath
-		if strings.HasSuffix(destRelPath, ".yaml") {
-			destRelPath = strings.TrimSuffix(destRelPath, ".yaml") + ".md"
-		} else if strings.HasSuffix(destRelPath, ".yml") {
-			destRelPath = strings.TrimSuffix(destRelPath, ".yml") + ".md"
-		}
-		destPath := filepath.Join(destDir, destRelPath)
-
-		// Skip if file already exists
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
-		}
+		name := d.Name()
 
 		// Read embedded file
 		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
 			return err
+		}
+
+		// Copy .sha256 and .distilled.yaml files as-is
+		if strings.HasSuffix(name, ".sha256") || strings.HasSuffix(name, ".distilled.yaml") {
+			destPath := filepath.Join(destDir, relPath)
+			if _, err := os.Stat(destPath); err == nil {
+				return nil // Skip if exists
+			}
+			return fsys.WriteProtected(destPath, data)
+		}
+
+		// Only process .yaml/.yml fragment files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			return nil
+		}
+
+		// Convert .yaml/.yml extension to .md for output
+		destRelPath := strings.TrimSuffix(relPath, ".yaml")
+		destRelPath = strings.TrimSuffix(destRelPath, ".yml")
+		destRelPath += ".md"
+		destPath := filepath.Join(destDir, destRelPath)
+
+		// Skip if file already exists
+		if _, err := os.Stat(destPath); err == nil {
+			return nil
 		}
 
 		// Convert YAML to markdown
@@ -157,9 +170,36 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 			return nil // Directories are created as needed when copying files
 		}
 
+		name := d.Name()
+
+		// Read embedded file
+		data, err := fragmentsFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Handle .sha256 and .distilled.yaml files
+		if strings.HasSuffix(name, ".sha256") || strings.HasSuffix(name, ".distilled.yaml") {
+			// Get base name for checking if allowed
+			baseName := strings.TrimSuffix(relPath, ".sha256")
+			baseName = strings.TrimSuffix(baseName, ".distilled.yaml")
+			if !allowed[baseName] {
+				return nil
+			}
+			destPath := filepath.Join(destDir, relPath)
+			if _, err := os.Stat(destPath); err == nil {
+				return nil // Skip if exists
+			}
+			return fsys.WriteProtected(destPath, data)
+		}
+
+		// Only process .yaml/.yml fragment files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			return nil
+		}
+
 		// Get base name without extension for comparison
-		baseName := relPath
-		baseName = strings.TrimSuffix(baseName, ".yaml")
+		baseName := strings.TrimSuffix(relPath, ".yaml")
 		baseName = strings.TrimSuffix(baseName, ".yml")
 
 		// Check if this fragment is in the allowed set
@@ -177,12 +217,6 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 		// Skip if file already exists
 		if _, err := os.Stat(destPath); err == nil {
 			return nil
-		}
-
-		// Read embedded file
-		data, err := fragmentsFS.ReadFile(path)
-		if err != nil {
-			return err
 		}
 
 		// Convert YAML to markdown

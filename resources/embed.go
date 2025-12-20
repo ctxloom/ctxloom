@@ -79,8 +79,8 @@ func CopyFragments(destDir string) error {
 			return err
 		}
 
-		// Copy .sha256 and .distilled.yaml files as-is
-		if strings.HasSuffix(name, ".sha256") || strings.HasSuffix(name, ".distilled.yaml") {
+		// Copy .sha256 files as-is
+		if strings.HasSuffix(name, ".sha256") {
 			destPath := filepath.Join(destDir, relPath)
 			if _, err := os.Stat(destPath); err == nil {
 				return nil // Skip if exists
@@ -88,7 +88,7 @@ func CopyFragments(destDir string) error {
 			return fsys.WriteProtected(destPath, data)
 		}
 
-		// Only process .yaml/.yml fragment files
+		// Only process .yaml/.yml fragment files (including .distilled.yaml)
 		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 			return nil
 		}
@@ -178,11 +178,9 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 			return err
 		}
 
-		// Handle .sha256 and .distilled.yaml files
-		if strings.HasSuffix(name, ".sha256") || strings.HasSuffix(name, ".distilled.yaml") {
-			// Get base name for checking if allowed
+		// Copy .sha256 files as-is
+		if strings.HasSuffix(name, ".sha256") {
 			baseName := strings.TrimSuffix(relPath, ".sha256")
-			baseName = strings.TrimSuffix(baseName, ".distilled.yaml")
 			if !allowed[baseName] {
 				return nil
 			}
@@ -193,7 +191,7 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 			return fsys.WriteProtected(destPath, data)
 		}
 
-		// Only process .yaml/.yml fragment files
+		// Only process .yaml/.yml fragment files (including .distilled.yaml)
 		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 			return nil
 		}
@@ -202,13 +200,16 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 		baseName := strings.TrimSuffix(relPath, ".yaml")
 		baseName = strings.TrimSuffix(baseName, ".yml")
 
+		// For .distilled files, check against the non-distilled name
+		checkName := strings.TrimSuffix(baseName, ".distilled")
+
 		// Check if this fragment is in the allowed set
-		if !allowed[baseName] {
+		if !allowed[checkName] {
 			return nil // Skip this fragment
 		}
 
-		// Mark as found
-		found[baseName] = true
+		// Mark as found (use the non-distilled name)
+		found[checkName] = true
 
 		// Convert to .md for output
 		destRelPath := baseName + ".md"

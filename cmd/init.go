@@ -16,16 +16,6 @@ import (
 	"mlcm/resources"
 )
 
-// yamlFragment represents the YAML structure of a fragment file.
-type yamlFragment struct {
-	Version   string            `yaml:"version,omitempty"`
-	Author    string            `yaml:"author,omitempty"`
-	Tags      []string          `yaml:"tags,omitempty"`
-	Variables []string          `yaml:"variables,omitempty"`
-	Content   string            `yaml:"content"`
-	VarValues map[string]string `yaml:"var_values,omitempty"`
-}
-
 var skipFragments string
 var fromGitRepo string
 
@@ -367,8 +357,7 @@ func writeProjectConfig(configPath string, embeddedCfg *config.Config, allPerson
 // distilledSuffix is the suffix for distilled fragment files.
 const distilledSuffix = ".distilled.yaml"
 
-// copyDir recursively copies a directory tree, converting YAML fragments to markdown.
-// Also copies .distilled.yaml files if they exist.
+// copyDir recursively copies a directory tree of YAML fragment files.
 func copyDir(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -386,32 +375,18 @@ func copyDir(src, dst string) error {
 
 		name := d.Name()
 
-		// Handle .distilled.md files - copy as-is
-		if strings.HasSuffix(name, distilledSuffix) {
-			dstPath := filepath.Join(dst, relPath)
-			return copyDistilledFile(path, dstPath)
-		}
-
-		// Convert .yaml/.yml to .md for destination
-		dstRelPath := relPath
-		if strings.HasSuffix(dstRelPath, ".yaml") {
-			dstRelPath = strings.TrimSuffix(dstRelPath, ".yaml") + ".md"
-		} else if strings.HasSuffix(dstRelPath, ".yml") {
-			dstRelPath = strings.TrimSuffix(dstRelPath, ".yml") + ".md"
-		} else {
-			// Skip non-YAML files that aren't distilled
+		// Only copy .yaml, .yml, and .sha256 files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
 			return nil
 		}
-		dstPath := filepath.Join(dst, dstRelPath)
 
-		return copyFragmentFile(path, dstPath)
+		dstPath := filepath.Join(dst, relPath)
+		return copyFile(path, dstPath)
 	})
 }
 
 // copyDirFiltered copies only files matching the fragment filter.
 // fragmentFilter contains paths like "style/direct" (without extension).
-// Source files are YAML, output files are markdown.
-// Also copies .distilled.yaml files if they exist.
 // Missing fragments are warned about but do not cause failure.
 func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 	// Build set of allowed fragments (normalized without extension)
@@ -419,7 +394,6 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 	for _, frag := range fragmentFilter {
 		// Strip any extension
 		frag = strings.TrimSuffix(frag, distilledSuffix)
-		frag = strings.TrimSuffix(frag, ".md")
 		frag = strings.TrimSuffix(frag, ".yaml")
 		frag = strings.TrimSuffix(frag, ".yml")
 		allowed[frag] = true
@@ -444,39 +418,29 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 
 		name := d.Name()
 
-		// Handle .distilled.md files
-		if strings.HasSuffix(name, distilledSuffix) {
-			// Get base name for checking if allowed
-			baseName := strings.TrimSuffix(relPath, distilledSuffix)
-			if !allowed[baseName] {
-				return nil
-			}
-			dstPath := filepath.Join(dst, relPath)
-			return copyDistilledFile(path, dstPath)
-		}
-
-		// Get base name without extension for comparison
-		baseName := relPath
-		if strings.HasSuffix(baseName, ".yaml") {
-			baseName = strings.TrimSuffix(baseName, ".yaml")
-		} else if strings.HasSuffix(baseName, ".yml") {
-			baseName = strings.TrimSuffix(baseName, ".yml")
-		} else {
-			// Skip non-YAML files
+		// Only process .yaml, .yml, and .sha256 files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
 			return nil
 		}
 
+		// Get base name without extension for comparison
+		baseName := strings.TrimSuffix(relPath, ".sha256")
+		baseName = strings.TrimSuffix(baseName, ".yaml")
+		baseName = strings.TrimSuffix(baseName, ".yml")
+
+		// For .distilled files, check against the non-distilled name
+		checkName := strings.TrimSuffix(baseName, ".distilled")
+
 		// Check if this fragment is allowed
-		if !allowed[baseName] {
+		if !allowed[checkName] {
 			return nil
 		}
 
 		// Mark as found
-		found[baseName] = true
+		found[checkName] = true
 
-		// Convert to .md for output
-		dstPath := filepath.Join(dst, baseName+".md")
-		return copyFragmentFile(path, dstPath)
+		dstPath := filepath.Join(dst, relPath)
+		return copyFile(path, dstPath)
 	})
 
 	if err != nil {
@@ -559,34 +523,12 @@ func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string) error {
 	return nil
 }
 
-// copyFragmentFile reads a YAML fragment file and writes it as markdown.
-// The destination file is set to read-only to protect from accidental edits.
-func copyFragmentFile(src, dst string) error {
+// copyFile copies a file as-is with read-only protection.
+func copyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-
-	// Parse YAML to extract content
-	var frag yamlFragment
-	if err := yaml.Unmarshal(data, &frag); err != nil {
-		return fmt.Errorf("failed to parse %s: %w", src, err)
-	}
-
-	// Write content as markdown with protection
-	content := strings.TrimSpace(frag.Content) + "\n"
-	return fsys.WriteProtected(dst, []byte(content))
-}
-
-// copyDistilledFile copies a distilled YAML file as-is.
-// The destination file is set to read-only to protect from accidental edits.
-func copyDistilledFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	// Write file with protection
 	return fsys.WriteProtected(dst, data)
 }
 

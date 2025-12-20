@@ -33,22 +33,13 @@ type yamlFragment struct {
 	VarValues map[string]string `yaml:"var_values,omitempty"`
 }
 
-// yamlToMarkdown converts a YAML fragment to markdown content.
-func yamlToMarkdown(data []byte) ([]byte, error) {
-	var frag yamlFragment
-	if err := yaml.Unmarshal(data, &frag); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-	return []byte(strings.TrimSpace(frag.Content) + "\n"), nil
-}
-
 // GetEmbeddedConfig returns the embedded default config.yaml content.
 func GetEmbeddedConfig() ([]byte, error) {
 	return configFS.ReadFile("config.yaml")
 }
 
 // CopyFragments copies all embedded context-fragments to the destination directory.
-// It preserves the directory structure, converts YAML to markdown, and skips files that already exist.
+// It preserves the directory structure and skips files that already exist.
 // Fragment files are set to read-only to protect from accidental edits.
 func CopyFragments(destDir string) error {
 	return fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
@@ -73,45 +64,25 @@ func CopyFragments(destDir string) error {
 
 		name := d.Name()
 
-		// Read embedded file
-		data, err := fragmentsFS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// Copy .sha256 files as-is
-		if strings.HasSuffix(name, ".sha256") {
-			destPath := filepath.Join(destDir, relPath)
-			if _, err := os.Stat(destPath); err == nil {
-				return nil // Skip if exists
-			}
-			return fsys.WriteProtected(destPath, data)
-		}
-
-		// Only process .yaml/.yml fragment files (including .distilled.yaml)
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+		// Only copy .yaml, .yml, .sha256, and .distilled.yaml files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
 			return nil
 		}
 
-		// Convert .yaml/.yml extension to .md for output
-		destRelPath := strings.TrimSuffix(relPath, ".yaml")
-		destRelPath = strings.TrimSuffix(destRelPath, ".yml")
-		destRelPath += ".md"
-		destPath := filepath.Join(destDir, destRelPath)
+		destPath := filepath.Join(destDir, relPath)
 
 		// Skip if file already exists
 		if _, err := os.Stat(destPath); err == nil {
 			return nil
 		}
 
-		// Convert YAML to markdown
-		mdData, err := yamlToMarkdown(data)
+		// Read and copy file as-is
+		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("failed to convert %s: %w", path, err)
+			return err
 		}
 
-		// Write file with protection (ensures parent dir exists, handles read-only)
-		return fsys.WriteProtected(destPath, mdData)
+		return fsys.WriteProtected(destPath, data)
 	})
 }
 
@@ -133,7 +104,6 @@ func ListFragments() ([]string, error) {
 
 // CopySelectedFragments copies only the specified context-fragments to the destination directory.
 // fragmentNames should be in the format "category/name" (without extension).
-// Source files are YAML, output files are markdown.
 // Fragment files are set to read-only to protect from accidental edits.
 // Missing context-fragments are warned about but do not cause failure.
 func CopySelectedFragments(destDir string, fragmentNames []string) error {
@@ -141,7 +111,6 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 	allowed := make(map[string]bool)
 	for _, name := range fragmentNames {
 		// Strip any extension for comparison
-		name = strings.TrimSuffix(name, ".md")
 		name = strings.TrimSuffix(name, ".yaml")
 		name = strings.TrimSuffix(name, ".yml")
 		allowed[name] = true
@@ -172,32 +141,14 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 
 		name := d.Name()
 
-		// Read embedded file
-		data, err := fragmentsFS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// Copy .sha256 files as-is
-		if strings.HasSuffix(name, ".sha256") {
-			baseName := strings.TrimSuffix(relPath, ".sha256")
-			if !allowed[baseName] {
-				return nil
-			}
-			destPath := filepath.Join(destDir, relPath)
-			if _, err := os.Stat(destPath); err == nil {
-				return nil // Skip if exists
-			}
-			return fsys.WriteProtected(destPath, data)
-		}
-
-		// Only process .yaml/.yml fragment files (including .distilled.yaml)
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+		// Only process .yaml, .yml, and .sha256 files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
 			return nil
 		}
 
 		// Get base name without extension for comparison
-		baseName := strings.TrimSuffix(relPath, ".yaml")
+		baseName := strings.TrimSuffix(relPath, ".sha256")
+		baseName = strings.TrimSuffix(baseName, ".yaml")
 		baseName = strings.TrimSuffix(baseName, ".yml")
 
 		// For .distilled files, check against the non-distilled name
@@ -211,23 +162,20 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 		// Mark as found (use the non-distilled name)
 		found[checkName] = true
 
-		// Convert to .md for output
-		destRelPath := baseName + ".md"
-		destPath := filepath.Join(destDir, destRelPath)
+		destPath := filepath.Join(destDir, relPath)
 
 		// Skip if file already exists
 		if _, err := os.Stat(destPath); err == nil {
 			return nil
 		}
 
-		// Convert YAML to markdown
-		mdData, err := yamlToMarkdown(data)
+		// Read and copy file as-is
+		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("failed to convert %s: %w", path, err)
+			return err
 		}
 
-		// Write file with protection
-		return fsys.WriteProtected(destPath, mdData)
+		return fsys.WriteProtected(destPath, data)
 	})
 
 	if err != nil {
@@ -288,7 +236,6 @@ func GetPrompt(name string) ([]byte, error) {
 }
 
 // CopyPrompts copies all embedded prompts to the destination directory.
-// Prompts are stored as YAML, and output files are markdown (content extracted).
 // Prompt files are set to read-only to protect from accidental edits.
 func CopyPrompts(destDir string) error {
 	return fs.WalkDir(promptsFS, "prompts", func(path string, d fs.DirEntry, err error) error {
@@ -309,32 +256,26 @@ func CopyPrompts(destDir string) error {
 			return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
 		}
 
-		// Convert .yaml/.yml extension to .md for output
-		destRelPath := relPath
-		if strings.HasSuffix(destRelPath, ".yaml") {
-			destRelPath = strings.TrimSuffix(destRelPath, ".yaml") + ".md"
-		} else if strings.HasSuffix(destRelPath, ".yml") {
-			destRelPath = strings.TrimSuffix(destRelPath, ".yml") + ".md"
+		name := d.Name()
+
+		// Only copy .yaml and .yml files
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			return nil
 		}
-		destPath := filepath.Join(destDir, destRelPath)
+
+		destPath := filepath.Join(destDir, relPath)
 
 		// Skip if file already exists
 		if _, err := os.Stat(destPath); err == nil {
 			return nil
 		}
 
+		// Read and copy file as-is
 		data, err := promptsFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
-		// Convert YAML to markdown
-		mdData, err := yamlToMarkdown(data)
-		if err != nil {
-			return fmt.Errorf("failed to convert %s: %w", path, err)
-		}
-
-		// Write file with protection
-		return fsys.WriteProtected(destPath, mdData)
+		return fsys.WriteProtected(destPath, data)
 	})
 }

@@ -107,6 +107,11 @@ func GetEmbeddedConfig() ([]byte, error) {
 	return configFS.ReadFile("config.yaml")
 }
 
+// GetFragmentSchema returns the embedded JSON schema for fragment validation.
+func GetFragmentSchema() ([]byte, error) {
+	return fragmentsFS.ReadFile("context-fragments/standards/fragment-schema.json")
+}
+
 // CopyFragments copies embedded context-fragments to the destination directory.
 //
 // Fragments are copied to the project directory to ensure all developers

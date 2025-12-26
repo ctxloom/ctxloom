@@ -14,6 +14,7 @@ import (
 	"mlcm/internal/config"
 	"mlcm/internal/fsys"
 	"mlcm/internal/gitutil"
+	"mlcm/internal/schema"
 	"mlcm/resources"
 )
 
@@ -463,11 +464,20 @@ func writeProjectConfig(configPath string, embeddedCfg *config.Config, allPerson
 // Fragments are copied to the project directory to ensure all developers
 // working on the project use the same context - providing reproducibility.
 //
+// Files are validated against the fragment JSON schema before copying.
+// Invalid files are skipped with a warning.
+//
 // If filter is non-nil, only fragments matching the filter are copied.
 // Filter entries are paths like "style/direct" (without extension).
 // If header is non-empty, it is prepended to YAML files.
 func copyDir(src, dst string, filter []string, header string) (*resources.CopyResult, error) {
 	result := &resources.CopyResult{}
+
+	// Create validator for schema checking
+	validator, err := schema.NewValidator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create validator: %w", err)
+	}
 
 	// Build filter set if provided
 	var allowed map[string]bool
@@ -482,7 +492,7 @@ func copyDir(src, dst string, filter []string, header string) (*resources.CopyRe
 		}
 	}
 
-	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -512,6 +522,17 @@ func copyDir(src, dst string, filter []string, header string) (*resources.CopyRe
 				return nil
 			}
 			found[baseName] = true
+		}
+
+		// Validate against schema before copying
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: cannot read %s: %v\n", path, err)
+			return nil
+		}
+		if err := validator.ValidateBytes(data); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: skipping invalid fragment %s: %v\n", path, err)
+			return nil
 		}
 
 		dstPath := filepath.Join(dst, relPath)

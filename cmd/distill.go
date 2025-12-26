@@ -13,6 +13,7 @@ import (
 	_ "mlcm/internal/ai/claudecode"
 	_ "mlcm/internal/ai/gemini"
 	"mlcm/internal/fragments"
+	"mlcm/internal/schema"
 	"mlcm/resources"
 )
 
@@ -98,9 +99,16 @@ func runDistill(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Create validator for schema checking before distilling
+	validator, err := schema.NewValidator()
+	if err != nil {
+		return fmt.Errorf("failed to create validator: %w", err)
+	}
+
 	// Track overall results
 	totalSuccess := 0
 	totalSkipped := 0
+	totalInvalid := 0
 
 	// Distill fragments unless --prompts-only is set
 	if !distillOnlyPrompts {
@@ -158,6 +166,18 @@ func runDistill(cmd *cobra.Command, args []string) error {
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "  Warning: fragment not found: %s\n", name)
 						continue
+					}
+
+					// Validate against schema before distilling
+					if frag.Path != "" {
+						data, err := os.ReadFile(frag.Path)
+						if err == nil {
+							if err := validator.ValidateBytes(data); err != nil {
+								fmt.Fprintf(os.Stderr, "  Skipping invalid fragment %s: %v\n", name, err)
+								totalInvalid++
+								continue
+							}
+						}
 					}
 
 					// Check if distillation is needed
@@ -245,6 +265,18 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
+					// Validate against schema before distilling
+					if prompt.Path != "" {
+						data, err := os.ReadFile(prompt.Path)
+						if err == nil {
+							if err := validator.ValidateBytes(data); err != nil {
+								fmt.Fprintf(os.Stderr, "  Skipping invalid prompt %s: %v\n", name, err)
+								totalInvalid++
+								continue
+							}
+						}
+					}
+
 					// Check if distillation is needed
 					if !distillForce && !prompt.NeedsDistill() {
 						fmt.Printf("  Skipping %s (unchanged)\n", name)
@@ -291,10 +323,18 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	if distillDryRun {
 		fmt.Printf("\nDry run complete. Use without --dry-run to distill.\n")
 	} else {
+		var parts []string
+		if totalSuccess > 0 {
+			parts = append(parts, fmt.Sprintf("distilled %d", totalSuccess))
+		}
 		if totalSkipped > 0 {
-			fmt.Printf("\nDistilled %d items, skipped %d unchanged (use --force to re-distill all)\n", totalSuccess, totalSkipped)
-		} else if totalSuccess > 0 {
-			fmt.Printf("\nDistilled %d items\n", totalSuccess)
+			parts = append(parts, fmt.Sprintf("skipped %d unchanged", totalSkipped))
+		}
+		if totalInvalid > 0 {
+			parts = append(parts, fmt.Sprintf("skipped %d invalid", totalInvalid))
+		}
+		if len(parts) > 0 {
+			fmt.Printf("\n%s\n", strings.Join(parts, ", "))
 		} else {
 			fmt.Println("No items to distill.")
 		}

@@ -523,6 +523,7 @@ type yamlFragment struct {
 	Author    string            `yaml:"author,omitempty"`
 	Tags      []string          `yaml:"tags,omitempty"`
 	Variables []string          `yaml:"variables,omitempty"`
+	Notes     string            `yaml:"notes,omitempty"` // Human-readable notes (not sent to AI)
 	Content   string            `yaml:"content"`
 	VarValues map[string]string `yaml:"var_values,omitempty"` // For generator output
 }

@@ -1,0 +1,122 @@
+version: "1.0"
+tags:
+  - mlcm
+  - standard
+  - documentation
+notes: |
+  This is the canonical reference for the MLCM context fragment YAML format.
+  It documents all supported fields and their intended usage.
+content: |
+  # Context Fragment YAML Standard
+
+  Context fragments are YAML files that define reusable context for AI interactions.
+
+  ## File Format
+
+  ```yaml
+  version: "1.0"              # Schema version (optional)
+  author: "username"          # Fragment author (optional)
+  tags:                       # Categorization tags (optional)
+    - category
+    - subcategory
+  variables:                  # Template variables used in content (optional)
+    - variable_name
+  notes: |                    # Human-readable notes (optional, NOT sent to AI)
+    Usage guidance, caveats, when to use/avoid this fragment.
+    This field is for human readers only.
+  content: |                  # The actual context (REQUIRED)
+    Markdown content that will be sent to the AI.
+    Supports {{variable_name}} for template substitution.
+  ```
+
+  ## Field Reference
+
+  ### Required Fields
+
+  | Field | Type | Description |
+  |-------|------|-------------|
+  | `content` | string | The context content sent to the AI. Markdown format. |
+
+  ### Optional Fields
+
+  | Field | Type | Description |
+  |-------|------|-------------|
+  | `version` | string | Schema version for the fragment format. Currently "1.0". |
+  | `author` | string | Who created or maintains this fragment. |
+  | `tags` | list | Categorization for filtering and persona assembly. Case-insensitive. |
+  | `variables` | list | Template variables referenced in content via `{{name}}`. |
+  | `notes` | string | Human-readable documentation. **Not sent to AI.** |
+
+  ### Generator-Only Fields
+
+  | Field | Type | Description |
+  |-------|------|-------------|
+  | `var_values` | map | Variable values output by generators. Maps variable names to values. |
+
+  ## Tags
+
+  Tags enable flexible fragment selection:
+
+  - **Language tags**: `golang`, `python`, `rust`, `typescript`
+  - **Category tags**: `pattern`, `review`, `security`, `tooling`
+  - **Special tags**: `mlcm` (internal MLCM fragments)
+
+  Use tags for:
+  - Persona assembly (`tags: [golang]` → included in go-developer persona)
+  - Filtering (`mlcm run -t security`)
+  - Organization and discovery
+
+  ## Variables
+
+  Variables enable dynamic content substitution:
+
+  ```yaml
+  variables:
+    - project_name
+    - language
+  content: |
+    # {{project_name}} Guidelines
+    This project uses {{language}}.
+  ```
+
+  Variable values come from:
+  1. Persona `variables` definition
+  2. Generator `var_values` output
+  3. Left as `{{name}}` if not provided
+
+  ## Notes Field
+
+  The `notes` field is for human documentation only:
+
+  - **NOT sent to AI** - purely for human readers
+  - Document when to use or avoid the fragment
+  - Explain caveats, prerequisites, or context
+  - Provide usage examples or guidance
+
+  Example:
+  ```yaml
+  notes: |
+    Use this fragment only during initial prototyping phases.
+    Not appropriate for production codebases with existing users.
+    See also: patterns/maintenance for production guidance.
+  ```
+
+  ## File Organization
+
+  ```
+  context-fragments/
+  ├── general/          # General guidance (communication, tdd, security)
+  ├── lang/{language}/  # Language-specific (golang, python, rust)
+  ├── tools/{tool}/     # Tool-specific (git, just, devcontainer)
+  ├── patterns/{name}/  # Design patterns (cqrs, event-sourcing)
+  ├── personas/{name}/  # Review perspectives (architect, junior-dev)
+  └── standards/        # Format standards and documentation
+  ```
+
+  ## Best Practices
+
+  1. **One concern per fragment** - Keep fragments focused
+  2. **Use tags consistently** - Follow existing tag conventions
+  3. **Document with notes** - Explain when to use/avoid
+  4. **Prefer markdown** - Content should be well-formatted markdown
+  5. **Test with dry-run** - Use `mlcm run -n` to preview assembled context

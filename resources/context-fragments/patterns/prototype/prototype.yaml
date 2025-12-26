@@ -3,6 +3,31 @@ tags:
   - pattern
   - prototype
   - greenfield
+notes: |
+  **This is ONE mode of development — not universally appropriate.**
+
+  USE this pattern when:
+  - Building a new prototype from scratch
+  - Exploring a design space without production constraints
+  - Working on a greenfield project with no existing users
+  - The cost of breaking changes is near zero
+  - You explicitly want to prioritize "correct" over "compatible"
+
+  DO NOT use this pattern when:
+  - Working on production code with existing users
+  - Making changes to public APIs with external consumers
+  - The codebase requires stability guarantees
+  - Breaking changes have real costs (user migration, documentation, support)
+  - You're in maintenance mode rather than initial development
+
+  Consider instead:
+  - patterns/maintenance — for production codebases
+  - Semantic versioning with deprecation cycles
+  - Feature flags for gradual rollouts
+
+  The aggressive stance in this fragment is intentional for prototype contexts
+  where the priority is getting the design right, not preserving compatibility
+  with decisions that haven't been validated yet.
 content: |
   # Prototype Mode
 

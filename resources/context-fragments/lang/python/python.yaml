@@ -1,0 +1,128 @@
+version: "1.0"
+tags:
+  - python
+  - language
+content: |
+  # Python Development
+
+  ## Environment & Tooling
+
+  - **Python Version**: Python 3 (specify exact version in pyproject.toml)
+  - **Package Manager**: UV exclusively
+  - **Testing Framework**: pytest
+  - **Acceptance Testing**: Gherkin (pytest-bdd or behave)
+  - **Code Quality**: ruff (linting and formatting)
+  - **Logging**: structlog (structured logging with context)
+
+  ## Test Structure
+
+  - **Unit Tests**: `test_*.py` (co-located with source code)
+  - **Integration Tests**: `tests/integration/test_*.py`
+  - **Acceptance Tests**: `tests/acceptance/features/*.feature`
+
+  ## Code Organization
+
+  ```
+  project/
+  ├── src/package_name/
+  │   ├── log_messages.py
+  │   ├── error_messages.py
+  │   ├── module.py
+  │   └── test_module.py
+  ├── tests/
+  │   ├── integration/
+  │   └── acceptance/
+  ├── .devcontainer/
+  ├── justfile
+  └── pyproject.toml
+  ```
+
+  ## Excluding Co-located Tests from Package
+
+  When using co-located unit tests (`test_*.py` alongside source), exclude them from distribution:
+
+  ```toml
+  # pyproject.toml
+  [tool.setuptools.packages.find]
+  where = ["src"]
+  exclude = ["**/test_*"]
+  ```
+
+  ## Logging with structlog
+
+  ```python
+  # log_messages.py
+  @dataclass(frozen=True)
+  class LogMessages:
+      USER_CREATED = "user_created"
+
+  LOG_MSG = LogMessages()
+
+  # Usage
+  logger.info(LOG_MSG.USER_CREATED, username=username)
+  ```
+
+  ## Error Message Constants
+
+  ```python
+  # error_messages.py
+  @dataclass(frozen=True)
+  class ErrorMessages:
+      DIVIDE_BY_ZERO = "Cannot divide by zero"
+
+  ERROR_MSG = ErrorMessages()
+
+  # Usage
+  raise ValueError(ERROR_MSG.DIVIDE_BY_ZERO)
+  ```
+
+  ## IoC Pattern
+
+  ```python
+  class UserService:
+      def __init__(self, repo: UserRepository, logger: structlog.BoundLogger):
+          self._repo = repo
+          self._logger = logger
+
+      @classmethod
+      def create(cls, db: DatabaseConnection) -> "UserService":  # pragma: no cover
+          return cls(SQLUserRepository(db), structlog.get_logger())
+  ```
+
+  ## Attribute Access & Typing
+
+  - Use type hints consistently throughout all code
+  - **Avoid string-based attribute access** when the string is a static/hardcoded value:
+    - Do NOT use `getattr(obj, "method_name")` — use `obj.method_name` directly
+    - Do NOT use `getattr(module, "ClassName")` — use `module.ClassName` directly
+    - Do NOT use `globals()["func_name"]` or `locals()["var_name"]`
+    - Do NOT use `operator.attrgetter("field")` with hardcoded strings
+  - These patterns defeat static analysis, IDE navigation, and refactoring tools
+  - **Exception**: Dynamic access is acceptable when the string comes from runtime data (config, user input, database) — but prefer explicit mappings or match/case when possible
+
+  ## Dictionaries vs Structured Types
+
+  - **Do NOT use dictionaries with known/hardcoded keys** — use dataclasses, NamedTuple, or classes instead
+  - If you know the structure at development time, it should be a proper type
+
+  ```python
+  # BAD: Keys are known, but using dict
+  game_state = {"score": 0, "level": 1, "lives": 3}
+  game_state["score"] += 10  # String-based access to known field
+
+  # GOOD: Use a dataclass for known structure
+  @dataclass
+  class GameState:
+      score: int = 0
+      level: int = 1
+      lives: int = 3
+
+  game_state = GameState()
+  game_state.score += 10  # Attribute access, type-checked
+  ```
+
+  - Dictionaries are appropriate when:
+    - Keys are truly dynamic (from user input, config files, APIs)
+    - Building lookup tables with variable keys
+    - Key set is not known until runtime
+  - Use `TypedDict` if you must use dict syntax with known keys (e.g., JSON serialization)

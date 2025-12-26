@@ -70,6 +70,7 @@ run *ARGS:
 # Build and install to ~/.local/bin
 install: build-static
     mkdir -p ~/.local/bin
+    -pkill -x mlcm && sleep 0.5
     cp mlcm ~/.local/bin/
     cp bin/mlcm-gen-* ~/.local/bin/
 

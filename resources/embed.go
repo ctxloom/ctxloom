@@ -2,6 +2,7 @@
 package resources
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -13,6 +14,74 @@ import (
 
 	"mlcm/internal/fsys"
 )
+
+// CopyResult tracks what happened during a copy operation.
+type CopyResult struct {
+	Added     []string // Files that were newly created
+	Updated   []string // Files that existed but were updated
+	Unchanged []string // Files that existed with same content
+}
+
+// Merge combines another CopyResult into this one.
+func (r *CopyResult) Merge(other *CopyResult) {
+	if other == nil {
+		return
+	}
+	r.Added = append(r.Added, other.Added...)
+	r.Updated = append(r.Updated, other.Updated...)
+	r.Unchanged = append(r.Unchanged, other.Unchanged...)
+}
+
+// Total returns the total number of files processed.
+func (r *CopyResult) Total() int {
+	return len(r.Added) + len(r.Updated) + len(r.Unchanged)
+}
+
+// copyStatus indicates what happened when copying a file.
+type copyStatus int
+
+const (
+	copyStatusAdded copyStatus = iota
+	copyStatusUpdated
+	copyStatusUnchanged
+)
+
+// ProjectHeader is the comment prepended to files copied to project directories.
+const ProjectHeader = `# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ DO NOT EDIT - Changes will be overwritten on next 'mlcm init'              │
+# │ To customize: edit ~/.mlcm/context-fragments/... then re-run 'mlcm init'   │
+# └─────────────────────────────────────────────────────────────────────────────┘
+`
+
+// copyFileWithStatus copies data to destPath and returns the status.
+// If header is non-empty and file is YAML, prepends the header.
+func copyFileWithStatus(destPath string, data []byte, header string) (copyStatus, error) {
+	// Prepend header to YAML files if specified
+	finalData := data
+	if header != "" && (strings.HasSuffix(destPath, ".yaml") || strings.HasSuffix(destPath, ".yml")) {
+		finalData = append([]byte(header), data...)
+	}
+
+	// Check if destination exists and compare content
+	existing, err := os.ReadFile(destPath)
+	if err == nil {
+		// File exists, check if content is the same
+		if bytes.Equal(existing, finalData) {
+			return copyStatusUnchanged, nil
+		}
+		// Content differs, will update
+		if err := fsys.WriteProtected(destPath, finalData); err != nil {
+			return 0, err
+		}
+		return copyStatusUpdated, nil
+	}
+
+	// File doesn't exist, create it
+	if err := fsys.WriteProtected(destPath, finalData); err != nil {
+		return 0, err
+	}
+	return copyStatusAdded, nil
+}
 
 //go:embed all:context-fragments
 var fragmentsFS embed.FS
@@ -39,10 +108,13 @@ func GetEmbeddedConfig() ([]byte, error) {
 }
 
 // CopyFragments copies all embedded context-fragments to the destination directory.
-// It preserves the directory structure and skips files that already exist.
+// It preserves the directory structure and tracks what was copied.
 // Fragment files are set to read-only to protect from accidental edits.
-func CopyFragments(destDir string) error {
-	return fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
+// If header is non-empty, it is prepended to YAML files.
+func CopyFragments(destDir string, header string) (*CopyResult, error) {
+	result := &CopyResult{}
+
+	err := fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -71,19 +143,29 @@ func CopyFragments(destDir string) error {
 
 		destPath := filepath.Join(destDir, relPath)
 
-		// Skip if file already exists
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
-		}
-
-		// Read and copy file as-is
+		// Read file content
 		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
-		return fsys.WriteProtected(destPath, data)
+		status, err := copyFileWithStatus(destPath, data, header)
+		if err != nil {
+			return err
+		}
+
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
+
+	return result, err
 }
 
 // ListFragments returns all embedded fragment paths.
@@ -106,7 +188,10 @@ func ListFragments() ([]string, error) {
 // fragmentNames should be in the format "category/name" (without extension).
 // Fragment files are set to read-only to protect from accidental edits.
 // Missing context-fragments are warned about but do not cause failure.
-func CopySelectedFragments(destDir string, fragmentNames []string) error {
+// If header is non-empty, it is prepended to YAML files.
+func CopySelectedFragments(destDir string, fragmentNames []string, header string) (*CopyResult, error) {
+	result := &CopyResult{}
+
 	// Build a set of allowed context-fragments for quick lookup (normalized without extension)
 	allowed := make(map[string]bool)
 	for _, name := range fragmentNames {
@@ -164,22 +249,30 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 
 		destPath := filepath.Join(destDir, relPath)
 
-		// Skip if file already exists
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
-		}
-
-		// Read and copy file as-is
+		// Read file content
 		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
-		return fsys.WriteProtected(destPath, data)
+		status, err := copyFileWithStatus(destPath, data, header)
+		if err != nil {
+			return err
+		}
+
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
 
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	// Warn about missing context-fragments
@@ -189,7 +282,7 @@ func CopySelectedFragments(destDir string, fragmentNames []string) error {
 		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // ListPrompts returns all embedded prompt paths.
@@ -282,8 +375,11 @@ func CopyPrompts(destDir string) error {
 
 // CopyTaggedFragments copies embedded fragments with the specified tag to the destination directory.
 // Fragment files are set to read-only to protect from accidental edits.
-func CopyTaggedFragments(destDir string, tag string) error {
-	return fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
+// If header is non-empty, it is prepended to YAML files.
+func CopyTaggedFragments(destDir string, tag string, header string) (*CopyResult, error) {
+	result := &CopyResult{}
+
+	err := fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -337,19 +433,32 @@ func CopyTaggedFragments(destDir string, tag string) error {
 
 		destPath := filepath.Join(destDir, relPath)
 
-		// Skip if file already exists
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
+		status, err := copyFileWithStatus(destPath, data, header)
+		if err != nil {
+			return err
 		}
 
-		return fsys.WriteProtected(destPath, data)
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
+
+	return result, err
 }
 
 // CopyTaggedPrompts copies embedded prompts with the specified tag to the destination directory.
 // Prompt files are set to read-only to protect from accidental edits.
-func CopyTaggedPrompts(destDir string, tag string) error {
-	return fs.WalkDir(promptsFS, "prompts", func(path string, d fs.DirEntry, err error) error {
+// If header is non-empty, it is prepended to YAML files.
+func CopyTaggedPrompts(destDir string, tag string, header string) (*CopyResult, error) {
+	result := &CopyResult{}
+
+	err := fs.WalkDir(promptsFS, "prompts", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -400,11 +509,21 @@ func CopyTaggedPrompts(destDir string, tag string) error {
 
 		destPath := filepath.Join(destDir, relPath)
 
-		// Skip if file already exists
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
+		status, err := copyFileWithStatus(destPath, data, header)
+		if err != nil {
+			return err
 		}
 
-		return fsys.WriteProtected(destPath, data)
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
+
+	return result, err
 }

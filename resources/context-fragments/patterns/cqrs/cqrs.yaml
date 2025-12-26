@@ -1,0 +1,55 @@
+version: "1.0"
+tags:
+  - pattern
+  - architecture
+  - cqrs
+content: |
+  # CQRS (Command Query Responsibility Segregation)
+
+  Separate read and write operations into distinct models.
+
+  ## Core Principles
+
+  - **Commands**: Modify state, return void or ID only, named imperatively (`CreateOrder`, `UpdateUser`)
+  - **Queries**: Read state, never modify, named descriptively (`GetOrderById`, `ListActiveUsers`)
+  - **Separation**: Command and query models can differ in structure and storage
+
+  ## Command Side
+
+  - Commands are imperative: `PlaceOrder`, `CancelSubscription`
+  - Command handlers validate, execute business logic, persist state
+  - One command = one transaction
+  - Return only success/failure or created entity ID
+
+  ## Query Side
+
+  - Queries are questions: `GetUserProfile`, `SearchProducts`
+  - Query handlers read from optimized read models
+  - No side effects — safe to retry, cache, parallelize
+  - Can use denormalized views for performance
+
+  ## When to Use CQRS
+
+  - Read and write patterns differ significantly
+  - Need independent scaling of reads vs writes
+  - Complex domain with rich business logic
+  - Event sourcing integration
+
+  ## When NOT to Use CQRS
+
+  - Simple CRUD applications
+  - Read/write patterns are similar
+  - Small team or early-stage project
+  - Adds unnecessary complexity
+
+  ## Read Model Synchronization
+
+  - **Synchronous**: Update read model in same transaction (simpler, consistent)
+  - **Asynchronous**: Update via events (scalable, eventually consistent)
+  - Document consistency guarantees for your system
+
+  ## Testing
+
+  - Test commands: verify state changes and invariants
+  - Test queries: verify correct data retrieval
+  - Test separately — they are independent concerns

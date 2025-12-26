@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -18,6 +19,58 @@ import (
 
 var skipFragments string
 var fromGitRepo string
+var verboseInit bool
+
+// findGitRoot returns the root of the git repository by walking up looking for .git.
+// Returns empty string if not in a git repo.
+func findGitRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// printCopyResult displays a copy result with optional file listing.
+func printCopyResult(result *resources.CopyResult, source string, verbose bool) {
+	if result == nil || result.Total() == 0 {
+		return
+	}
+
+	fmt.Printf("  From %s:\n", source)
+	if len(result.Added) > 0 {
+		fmt.Printf("    + Added:     %d files\n", len(result.Added))
+		if verbose {
+			for _, f := range result.Added {
+				fmt.Printf("        %s\n", f)
+			}
+		}
+	}
+	if len(result.Updated) > 0 {
+		fmt.Printf("    ~ Updated:   %d files\n", len(result.Updated))
+		if verbose {
+			for _, f := range result.Updated {
+				fmt.Printf("        %s\n", f)
+			}
+		}
+	}
+	if len(result.Unchanged) > 0 && verbose {
+		fmt.Printf("    = Unchanged: %d files\n", len(result.Unchanged))
+	}
+}
 
 var initCmd = &cobra.Command{
 	Use:   "init [personas...]",
@@ -46,11 +99,16 @@ Use --skip-fragments to control which sources are skipped:
 Use --from-git to clone fragments from a remote git repository:
   --from-git=https://github.com/user/fragments-repo`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		pwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
+		// Try to find git root, fallback to pwd
+		rootDir := findGitRoot()
+		if rootDir == "" {
+			var err error
+			rootDir, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get working directory: %w", err)
+			}
 		}
-		mlcmDir := filepath.Join(pwd, config.MLCMDirName)
+		mlcmDir := filepath.Join(rootDir, config.MLCMDirName)
 		return initMLCMDirectory(mlcmDir, args)
 	},
 }
@@ -84,11 +142,12 @@ Persona filtering:
 func initHomeDirectory(mlcmDir string, personas []string) error {
 	// Check if already exists
 	if info, err := os.Stat(mlcmDir); err == nil && info.IsDir() {
-		fmt.Printf(".mlcm directory already exists at %s\n", mlcmDir)
+		fmt.Printf("~/.mlcm already exists at %s\n", mlcmDir)
+		fmt.Println("Use 'mlcm init' in a project directory to initialize from home.")
 		return nil
 	}
 
-	fmt.Printf("Initializing .mlcm directory at %s\n", mlcmDir)
+	fmt.Printf("Initializing ~/.mlcm at %s\n", mlcmDir)
 
 	// Create main directory
 	if err := os.MkdirAll(mlcmDir, 0755); err != nil {
@@ -112,29 +171,53 @@ func initHomeDirectory(mlcmDir string, personas []string) error {
 		return fmt.Errorf("failed to load embedded config: %w", err)
 	}
 
-	// Copy fragments (filtered by persona if specified)
+	// Track totals
+	totalResult := &resources.CopyResult{}
+	promptResult := &resources.CopyResult{}
+
+	if len(personas) > 0 {
+		fmt.Printf("Filtering for personas: %s\n", strings.Join(personas, ", "))
+	}
+
+	fmt.Println("\nContext fragments:")
+
+	// Copy fragments (filtered by persona if specified) - no header for home
+	var result *resources.CopyResult
 	if len(personas) > 0 {
 		fragments, err := config.CollectFragmentsForPersonas(embeddedCfg.Personas, personas)
 		if err != nil {
 			return err
 		}
-		if err := resources.CopySelectedFragments(fragmentsDir, fragments); err != nil {
+		result, err = resources.CopySelectedFragments(fragmentsDir, fragments, "")
+		if err != nil {
 			return fmt.Errorf("failed to copy selected fragments: %w", err)
 		}
-		fmt.Printf("Copied %d fragments for personas: %s\n", len(fragments), strings.Join(personas, ", "))
 	} else {
-		if err := resources.CopyFragments(fragmentsDir); err != nil {
+		result, err = resources.CopyFragments(fragmentsDir, "")
+		if err != nil {
 			return fmt.Errorf("failed to copy embedded fragments: %w", err)
 		}
-		fmt.Println("Copied all embedded context fragments")
 	}
+	printCopyResult(result, "embedded", verboseInit)
+	totalResult.Merge(result)
 
-	// Always copy mlcm-tagged content (internal prompts/fragments)
-	if err := resources.CopyTaggedFragments(fragmentsDir, "mlcm"); err != nil {
+	// Always copy mlcm-tagged content (internal prompts/fragments) - no header for home
+	mlcmFragResult, err := resources.CopyTaggedFragments(fragmentsDir, "mlcm", "")
+	if err != nil {
 		return fmt.Errorf("failed to copy mlcm fragments: %w", err)
 	}
-	if err := resources.CopyTaggedPrompts(promptsDir, "mlcm"); err != nil {
+	totalResult.Merge(mlcmFragResult)
+
+	mlcmPromptResult, err := resources.CopyTaggedPrompts(promptsDir, "mlcm", "")
+	if err != nil {
 		return fmt.Errorf("failed to copy mlcm prompts: %w", err)
+	}
+	promptResult.Merge(mlcmPromptResult)
+
+	// Print prompts summary if any
+	if promptResult.Total() > 0 {
+		fmt.Println("\nPrompts:")
+		printCopyResult(promptResult, "embedded", verboseInit)
 	}
 
 	// Create config file with personas and generators
@@ -143,10 +226,11 @@ func initHomeDirectory(mlcmDir string, personas []string) error {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Printf("\nMLCM home initialized successfully!\n")
-	fmt.Printf("  Context fragments: %s\n", fragmentsDir)
-	fmt.Printf("  Prompts:           %s\n", promptsDir)
-	fmt.Printf("  Config:            %s\n", configPath)
+	// Summary
+	fmt.Println()
+	fmt.Printf("MLCM home initialized: %d files created\n",
+		len(totalResult.Added)+len(promptResult.Added))
+	fmt.Printf("  %s\n", mlcmDir)
 
 	return nil
 }
@@ -184,7 +268,9 @@ func writeHomeConfig(configPath string, embeddedCfg *config.Config, personas []s
 
 func initMLCMDirectory(mlcmDir string, personas []string) error {
 	// Check if already exists
+	isUpdate := false
 	if info, err := os.Stat(mlcmDir); err == nil && info.IsDir() {
+		isUpdate = true
 		fmt.Printf("Updating .mlcm directory at %s\n", mlcmDir)
 	} else {
 		fmt.Printf("Initializing .mlcm directory at %s\n", mlcmDir)
@@ -237,25 +323,31 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Printf("Filtering for personas: %s\n", strings.Join(personas, ", "))
 	}
 
 	// Copy fragments based on --skip-fragments setting
 	skipEmbedded := skipFragments == "embedded" || skipFragments == "both"
 	skipLocal := skipFragments == "local" || skipFragments == "both"
 
+	// Track totals
+	totalResult := &resources.CopyResult{}
+
+	fmt.Println("\nContext fragments:")
+
 	// First, copy embedded fragments
 	if !skipEmbedded {
+		var result *resources.CopyResult
 		if len(fragmentFilter) > 0 {
-			if err := resources.CopySelectedFragments(fragmentsDir, fragmentFilter); err != nil {
-				return fmt.Errorf("failed to copy embedded fragments: %w", err)
-			}
-			fmt.Printf("Copied %d embedded fragments for personas: %s\n", len(fragmentFilter), strings.Join(personas, ", "))
+			result, err = resources.CopySelectedFragments(fragmentsDir, fragmentFilter, resources.ProjectHeader)
 		} else {
-			if err := resources.CopyFragments(fragmentsDir); err != nil {
-				return fmt.Errorf("failed to copy embedded fragments: %w", err)
-			}
-			fmt.Println("Copied embedded context fragments")
+			result, err = resources.CopyFragments(fragmentsDir, resources.ProjectHeader)
 		}
+		if err != nil {
+			return fmt.Errorf("failed to copy embedded fragments: %w", err)
+		}
+		printCopyResult(result, "embedded", verboseInit)
+		totalResult.Merge(result)
 	}
 
 	// Then, copy from ~/.mlcm (overwrites duplicates)
@@ -266,28 +358,32 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 		homeFragments := filepath.Join(home, config.MLCMDirName, config.ContextFragmentsDir)
 		if info, err := os.Stat(homeFragments); err == nil && info.IsDir() {
+			var result *resources.CopyResult
 			if len(fragmentFilter) > 0 {
-				if err := copyDirFiltered(homeFragments, fragmentsDir, fragmentFilter); err != nil {
-					return fmt.Errorf("failed to copy fragments from %s: %w", homeFragments, err)
-				}
-				fmt.Printf("Copied filtered fragments from %s\n", homeFragments)
+				result, err = copyDirFiltered(homeFragments, fragmentsDir, fragmentFilter, resources.ProjectHeader)
 			} else {
-				if err := copyDir(homeFragments, fragmentsDir); err != nil {
-					return fmt.Errorf("failed to copy fragments from %s: %w", homeFragments, err)
-				}
-				fmt.Printf("Copied fragments from %s\n", homeFragments)
+				result, err = copyDir(homeFragments, fragmentsDir, resources.ProjectHeader)
 			}
+			if err != nil {
+				return fmt.Errorf("failed to copy fragments from %s: %w", homeFragments, err)
+			}
+			printCopyResult(result, "~/.mlcm", verboseInit)
+			totalResult.Merge(result)
 		}
 	}
 
 	// Copy from git repository if specified (overwrites duplicates)
 	if fromGitRepo != "" {
-		if err := copyFromGitRepo(fromGitRepo, fragmentsDir, fragmentFilter); err != nil {
+		result, err := copyFromGitRepo(fromGitRepo, fragmentsDir, fragmentFilter, resources.ProjectHeader)
+		if err != nil {
 			return fmt.Errorf("failed to copy from git repo: %w", err)
 		}
+		printCopyResult(result, fromGitRepo, verboseInit)
+		totalResult.Merge(result)
 	}
 
 	// Copy prompts from ~/.mlcm/prompts/ (if they exist)
+	promptResult := &resources.CopyResult{}
 	if !skipLocal {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -295,19 +391,31 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 		homePrompts := filepath.Join(home, config.MLCMDirName, config.PromptsDir)
 		if info, err := os.Stat(homePrompts); err == nil && info.IsDir() {
-			if err := copyDir(homePrompts, promptsDir); err != nil {
+			result, err := copyDir(homePrompts, promptsDir, resources.ProjectHeader)
+			if err != nil {
 				return fmt.Errorf("failed to copy prompts from %s: %w", homePrompts, err)
 			}
-			fmt.Printf("Copied prompts from %s\n", homePrompts)
+			promptResult.Merge(result)
 		}
 	}
 
-	// Always copy mlcm-tagged content (internal prompts/fragments)
-	if err := resources.CopyTaggedFragments(fragmentsDir, "mlcm"); err != nil {
+	// Always copy mlcm-tagged content (internal prompts/fragments) - with header for project
+	mlcmFragResult, err := resources.CopyTaggedFragments(fragmentsDir, "mlcm", resources.ProjectHeader)
+	if err != nil {
 		return fmt.Errorf("failed to copy mlcm fragments: %w", err)
 	}
-	if err := resources.CopyTaggedPrompts(promptsDir, "mlcm"); err != nil {
+	totalResult.Merge(mlcmFragResult)
+
+	mlcmPromptResult, err := resources.CopyTaggedPrompts(promptsDir, "mlcm", resources.ProjectHeader)
+	if err != nil {
 		return fmt.Errorf("failed to copy mlcm prompts: %w", err)
+	}
+	promptResult.Merge(mlcmPromptResult)
+
+	// Print prompts summary if any
+	if promptResult.Total() > 0 {
+		fmt.Println("\nPrompts:")
+		printCopyResult(promptResult, "~/.mlcm + embedded", verboseInit)
 	}
 
 	// Create config file
@@ -325,10 +433,18 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 	}
 
-	fmt.Printf("\nMLCM initialized successfully!\n")
-	fmt.Printf("  Context fragments: %s\n", fragmentsDir)
-	fmt.Printf("  Prompts:           %s\n", promptsDir)
-	fmt.Printf("  Config:            %s\n", configPath)
+	// Summary
+	fmt.Println()
+	if isUpdate {
+		fmt.Printf("MLCM updated: %d added, %d updated, %d unchanged\n",
+			len(totalResult.Added)+len(promptResult.Added),
+			len(totalResult.Updated)+len(promptResult.Updated),
+			len(totalResult.Unchanged)+len(promptResult.Unchanged))
+	} else {
+		fmt.Printf("MLCM initialized: %d files created\n",
+			len(totalResult.Added)+len(promptResult.Added))
+	}
+	fmt.Printf("  %s\n", mlcmDir)
 
 	return nil
 }
@@ -368,8 +484,12 @@ func writeProjectConfig(configPath string, embeddedCfg *config.Config, allPerson
 const distilledSuffix = ".distilled.yaml"
 
 // copyDir recursively copies a directory tree of YAML fragment files.
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+// Returns a CopyResult with details about what was copied.
+// If header is non-empty, it is prepended to YAML files.
+func copyDir(src, dst string, header string) (*resources.CopyResult, error) {
+	result := &resources.CopyResult{}
+
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -391,14 +511,32 @@ func copyDir(src, dst string) error {
 		}
 
 		dstPath := filepath.Join(dst, relPath)
-		return copyFile(path, dstPath)
+		status, err := copyFile(path, dstPath, header)
+		if err != nil {
+			return err
+		}
+
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
+
+	return result, err
 }
 
 // copyDirFiltered copies only files matching the fragment filter.
 // fragmentFilter contains paths like "style/direct" (without extension).
+// If header is non-empty, it is prepended to YAML files.
 // Missing fragments are warned about but do not cause failure.
-func copyDirFiltered(src, dst string, fragmentFilter []string) error {
+func copyDirFiltered(src, dst string, fragmentFilter []string, header string) (*resources.CopyResult, error) {
+	result := &resources.CopyResult{}
+
 	// Build set of allowed fragments (normalized without extension)
 	allowed := make(map[string]bool)
 	for _, frag := range fragmentFilter {
@@ -450,11 +588,24 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 		found[checkName] = true
 
 		dstPath := filepath.Join(dst, relPath)
-		return copyFile(path, dstPath)
+		status, err := copyFile(path, dstPath, header)
+		if err != nil {
+			return err
+		}
+
+		switch status {
+		case copyStatusAdded:
+			result.Added = append(result.Added, relPath)
+		case copyStatusUpdated:
+			result.Updated = append(result.Updated, relPath)
+		case copyStatusUnchanged:
+			result.Unchanged = append(result.Unchanged, relPath)
+		}
+		return nil
 	})
 
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	// Warn about missing fragments
@@ -464,27 +615,26 @@ func copyDirFiltered(src, dst string, fragmentFilter []string) error {
 		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // copyFromGitRepo clones a git repository and copies fragments from it.
 // The repository should have YAML fragments in its root or in a context-fragments directory.
-func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string) error {
+// If header is non-empty, it is prepended to YAML files.
+func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string, header string) (*resources.CopyResult, error) {
 	// Create temporary directory for clone
 	tmpDir, err := os.MkdirTemp("", "mlcm-git-*")
 	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
 	fmt.Printf("Cloning %s...\n", repoURL)
 
 	// Clone the repository (shallow clone for speed)
-	cmd := exec.Command("git", "clone", "--depth", "1", repoURL, tmpDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", repoURL, tmpDir)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git clone failed: %w", err)
+		return nil, fmt.Errorf("git clone failed: %w", err)
 	}
 
 	// Look for fragments in standard locations
@@ -514,32 +664,59 @@ func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string) error {
 	}
 
 	if srcDir == "" {
-		return fmt.Errorf("no YAML fragments found in repository")
+		return nil, fmt.Errorf("no YAML fragments found in repository")
 	}
 
 	// Copy fragments
 	if len(fragmentFilter) > 0 {
-		if err := copyDirFiltered(srcDir, destDir, fragmentFilter); err != nil {
-			return err
-		}
-		fmt.Printf("Copied filtered fragments from git repository\n")
-	} else {
-		if err := copyDir(srcDir, destDir); err != nil {
-			return err
-		}
-		fmt.Printf("Copied fragments from git repository\n")
+		return copyDirFiltered(srcDir, destDir, fragmentFilter, header)
 	}
-
-	return nil
+	return copyDir(srcDir, destDir, header)
 }
 
+// copyStatus indicates what happened when copying a file.
+type copyStatus int
+
+const (
+	copyStatusAdded copyStatus = iota
+	copyStatusUpdated
+	copyStatusUnchanged
+)
+
 // copyFile copies a file as-is with read-only protection.
-func copyFile(src, dst string) error {
+// If header is non-empty and the file is YAML, prepends the header.
+// Returns the status of the copy operation.
+func copyFile(src, dst string, header string) (copyStatus, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return fsys.WriteProtected(dst, data)
+
+	// Prepend header to YAML files if specified
+	finalData := data
+	if header != "" && (strings.HasSuffix(dst, ".yaml") || strings.HasSuffix(dst, ".yml")) {
+		finalData = append([]byte(header), data...)
+	}
+
+	// Check if destination exists and compare content
+	existing, err := os.ReadFile(dst)
+	if err == nil {
+		// File exists, check if content is the same
+		if bytes.Equal(existing, finalData) {
+			return copyStatusUnchanged, nil
+		}
+		// Content differs, will update
+		if err := fsys.WriteProtected(dst, finalData); err != nil {
+			return 0, err
+		}
+		return copyStatusUpdated, nil
+	}
+
+	// File doesn't exist, create it
+	if err := fsys.WriteProtected(dst, finalData); err != nil {
+		return 0, err
+	}
+	return copyStatusAdded, nil
 }
 
 func init() {
@@ -549,4 +726,5 @@ func init() {
 	initCmd.Flags().StringVar(&skipFragments, "skip-fragments", "", "Skip fragment sources: embedded (default), local, or both")
 	initCmd.Flags().Lookup("skip-fragments").NoOptDefVal = "embedded"
 	initCmd.Flags().StringVar(&fromGitRepo, "from-git", "", "Clone fragments from a git repository URL")
+	initCmd.Flags().BoolVarP(&verboseInit, "verbose", "v", false, "List individual files being copied")
 }

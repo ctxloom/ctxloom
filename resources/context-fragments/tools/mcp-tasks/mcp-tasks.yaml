@@ -1,0 +1,6 @@
+version: "1.0"
+tags:
+  - workflow
+content: |
+  # MCP Tasks
+  * Use mcp-tasks to persist/handle todo lists.  *IMPORTANT* - Keep it synchronized with TodoWrite.  The file to store tasks in is .tasks/todos.md

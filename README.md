@@ -435,7 +435,8 @@ All development tasks use [just](https://github.com/casey/just) as a command run
 
 | Command | Description |
 |---------|-------------|
-| `just build` | Build all binaries (main app + generators) |
+| `just build` | Validate, distill, then build all binaries |
+| `just validate` | Validate fragment YAML files against JSON schema |
 | `just build-mlcm` | Build only the main binary |
 | `just build-generators` | Build all generator binaries |
 | `just build-static` | Build static binaries (CGO_ENABLED=0, stripped) |

@@ -4,8 +4,12 @@ default: build
 # Get version from versionator (with v prefix)
 version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}"`
 
+# Distill resources before packaging
+distill-resources:
+    go run . distill --resources --force
+
 # Build all binaries (main app + generators)
-build: build-mlcm build-generators
+build: distill-resources build-mlcm build-generators
 
 # Build the main binary
 build-mlcm:

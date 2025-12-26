@@ -3,21 +3,16 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"mlcm/internal/ai"
 	_ "mlcm/internal/ai/claudecode"
 	_ "mlcm/internal/ai/gemini"
 	"mlcm/internal/fragments"
-	"mlcm/internal/fsys"
 	"mlcm/resources"
 )
 
@@ -39,6 +34,7 @@ var (
 	distillForce        bool
 	distillOnlyPrompts  bool
 	distillSkipPrompts  bool
+	distillResources    bool
 )
 
 var distillCmd = &cobra.Command{
@@ -58,6 +54,7 @@ Use --fragment/-f to distill specific fragments by name.
 Use --prompt/-P to distill specific prompts by name.
 Use --prompts-only to distill only prompts (skip fragments).
 Use --skip-prompts to distill only fragments (skip prompts).
+Use --resources to distill embedded resources (for packaging).
 
 Examples:
   mlcm distill                           # Distill all fragments and prompts
@@ -65,7 +62,8 @@ Examples:
   mlcm distill -f style/direct           # Distill specific fragments
   mlcm distill -P code-review            # Distill specific prompts
   mlcm distill --prompts-only            # Distill only prompts
-  mlcm distill --dry-run                 # Preview what would be distilled`,
+  mlcm distill --dry-run                 # Preview what would be distilled
+  mlcm distill --resources               # Distill resources/ for packaging`,
 	RunE: runDistill,
 }
 
@@ -106,9 +104,15 @@ func runDistill(cmd *cobra.Command, args []string) error {
 
 	// Distill fragments unless --prompts-only is set
 	if !distillOnlyPrompts {
-		fragmentDirs, err := GetFragmentDirs()
-		if err != nil {
-			return fmt.Errorf("failed to get fragment directories: %w", err)
+		var fragmentDirs []string
+		if distillResources {
+			// Use resources directory for packaging
+			fragmentDirs = []string{"resources/context-fragments"}
+		} else {
+			fragmentDirs, err = GetFragmentDirs()
+			if err != nil {
+				return fmt.Errorf("failed to get fragment directories: %w", err)
+			}
 		}
 
 		if len(fragmentDirs) > 0 {
@@ -150,68 +154,46 @@ func runDistill(cmd *cobra.Command, args []string) error {
 				fmt.Printf("Distilling %d fragments using %s...\n", len(fragmentNames), pluginName)
 
 				for _, name := range fragmentNames {
-					sourcePath, err := loader.Find(name)
+					frag, err := loader.Load(name)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "  Warning: fragment not found: %s\n", name)
 						continue
 					}
 
-					if strings.HasSuffix(sourcePath, ".distilled.yaml") || strings.HasSuffix(sourcePath, ".distilled.yml") {
+					// Check if distillation is needed
+					if !distillForce && !frag.NeedsDistill() {
+						fmt.Printf("  Skipping %s (unchanged)\n", name)
+						totalSkipped++
 						continue
-					}
-
-					frag, err := loader.Load(name)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "  Warning: failed to load %s: %v\n", name, err)
-						continue
-					}
-
-					sourceHash := computeFragmentHash(frag)
-					hashPath := computeHashPath(sourcePath)
-					destPath := computeDistilledPath(sourcePath)
-
-					// Check if source has changed by comparing hash
-					if !distillForce {
-						cachedHash := readCachedHash(hashPath)
-						if cachedHash == sourceHash {
-							fmt.Printf("  Skipping %s (unchanged)\n", name)
-							totalSkipped++
-							continue
-						}
 					}
 
 					if distillDryRun {
-						fmt.Printf("  Would distill: %s -> %s\n", name, destPath)
+						fmt.Printf("  Would distill: %s\n", name)
 						continue
 					}
 
-					reDistilling := false
-					if !distillForce {
-						if _, err := os.Stat(destPath); err == nil {
-							reDistilling = true
-						}
-					}
-
+					reDistilling := frag.Distilled != ""
 					if reDistilling {
 						fmt.Printf("  Re-distilling %s (source changed)...", name)
 					} else {
 						fmt.Printf("  Distilling: %s...", name)
 					}
 
-					distilled, err := distillFragment(plugin, frag, distillPrompt)
+					distilledContent, err := distillContent(plugin, frag.Name, frag.Content, distillPrompt)
 					if err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
 					}
 
-					if err := fsys.WriteProtected(destPath, []byte(distilled)); err != nil {
+					// Update the fragment with distilled content
+					frag.Distilled = distilledContent
+					frag.ContentHash = frag.ComputeContentHash()
+					frag.DistilledBy = pluginName
+
+					// Save back to the same file
+					if err := frag.Save(); err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
-					}
-
-					// Write hash file alongside source
-					if err := writeCachedHash(hashPath, sourceHash); err != nil {
-						fmt.Fprintf(os.Stderr, "  Warning: could not write hash file %s: %v\n", hashPath, err)
 					}
 
 					fmt.Printf(" OK\n")
@@ -224,9 +206,15 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	// Distill prompts unless --skip-prompts is set
 	// Prompts use the same YAML format as fragments
 	if !distillSkipPrompts {
-		promptDirs, err := GetPromptDirs()
-		if err != nil {
-			return fmt.Errorf("failed to get prompt directories: %w", err)
+		var promptDirs []string
+		if distillResources {
+			// Use resources directory for packaging
+			promptDirs = []string{"resources/prompts"}
+		} else {
+			promptDirs, err = GetPromptDirs()
+			if err != nil {
+				return fmt.Errorf("failed to get prompt directories: %w", err)
+			}
 		}
 
 		if len(promptDirs) > 0 {
@@ -251,68 +239,46 @@ func runDistill(cmd *cobra.Command, args []string) error {
 				fmt.Printf("Distilling %d prompts using %s...\n", len(promptNames), pluginName)
 
 				for _, name := range promptNames {
-					sourcePath, err := promptLoader.Find(name)
+					prompt, err := promptLoader.Load(name)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "  Warning: prompt not found: %s\n", name)
 						continue
 					}
 
-					if strings.HasSuffix(sourcePath, ".distilled.yaml") {
+					// Check if distillation is needed
+					if !distillForce && !prompt.NeedsDistill() {
+						fmt.Printf("  Skipping %s (unchanged)\n", name)
+						totalSkipped++
 						continue
-					}
-
-					prompt, err := promptLoader.Load(name)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "  Warning: failed to load %s: %v\n", name, err)
-						continue
-					}
-
-					sourceHash := computeFragmentHash(prompt)
-					hashPath := computeHashPath(sourcePath)
-					destPath := computeDistilledPath(sourcePath)
-
-					// Check if source has changed by comparing hash
-					if !distillForce {
-						cachedHash := readCachedHash(hashPath)
-						if cachedHash == sourceHash {
-							fmt.Printf("  Skipping %s (unchanged)\n", name)
-							totalSkipped++
-							continue
-						}
 					}
 
 					if distillDryRun {
-						fmt.Printf("  Would distill: %s -> %s\n", name, destPath)
+						fmt.Printf("  Would distill: %s\n", name)
 						continue
 					}
 
-					reDistilling := false
-					if !distillForce {
-						if _, err := os.Stat(destPath); err == nil {
-							reDistilling = true
-						}
-					}
-
+					reDistilling := prompt.Distilled != ""
 					if reDistilling {
 						fmt.Printf("  Re-distilling %s (source changed)...", name)
 					} else {
 						fmt.Printf("  Distilling: %s...", name)
 					}
 
-					distilled, err := distillPromptContent(plugin, prompt, distillPrompt)
+					distilledContent, err := distillContent(plugin, prompt.Name, prompt.Content, distillPrompt)
 					if err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
 					}
 
-					if err := fsys.WriteProtected(destPath, []byte(distilled)); err != nil {
+					// Update the prompt with distilled content
+					prompt.Distilled = distilledContent
+					prompt.ContentHash = prompt.ComputeContentHash()
+					prompt.DistilledBy = pluginName
+
+					// Save back to the same file
+					if err := prompt.Save(); err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
-					}
-
-					// Write hash file alongside source
-					if err := writeCachedHash(hashPath, sourceHash); err != nil {
-						fmt.Fprintf(os.Stderr, "  Warning: could not write hash file %s: %v\n", hashPath, err)
 					}
 
 					fmt.Printf(" OK\n")
@@ -337,87 +303,19 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// computeDistilledPath returns the path for a distilled version of a fragment.
-// For example: style/direct.yaml -> style/direct.distilled.yaml
-func computeDistilledPath(sourcePath string) string {
-	dir := filepath.Dir(sourcePath)
-	base := filepath.Base(sourcePath)
-
-	// Remove extension
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-
-	return filepath.Join(dir, name+".distilled.yaml")
-}
-
-// computeHashPath returns the path for a .sha256 file alongside the source.
-// For example: style/direct.yaml -> style/direct.sha256
-func computeHashPath(sourcePath string) string {
-	dir := filepath.Dir(sourcePath)
-	base := filepath.Base(sourcePath)
-
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-
-	return filepath.Join(dir, name+".sha256")
-}
-
-// readCachedHash reads the cached hash from a .sha256 file.
-// Returns empty string if file doesn't exist or can't be read.
-func readCachedHash(hashPath string) string {
-	data, err := os.ReadFile(hashPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-// writeCachedHash writes the hash to a .sha256 file.
-func writeCachedHash(hashPath, hash string) error {
-	return os.WriteFile(hashPath, []byte(hash+"\n"), 0644)
-}
-
-// computeFragmentHash computes a SHA-256 hash of the fragment's content and metadata.
-// Returns full 64-character hex-encoded hash.
-func computeFragmentHash(frag *fragments.Fragment) string {
-	h := sha256.New()
-	h.Write([]byte(frag.Version))
-	h.Write([]byte(frag.Author))
-	h.Write([]byte(frag.Content))
-	for _, tag := range frag.Tags {
-		h.Write([]byte(tag))
-	}
-	for _, v := range frag.Variables {
-		h.Write([]byte(v))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// distilledFragment represents the YAML structure for distilled output.
-type distilledFragment struct {
-	Version   string   `yaml:"version,omitempty"`
-	Author    string   `yaml:"author,omitempty"`
-	Tags      []string `yaml:"tags,omitempty"`
-	Variables []string `yaml:"variables,omitempty"`
-	Content   string   `yaml:"content"`
-}
-
-// distillFragment sends a fragment through the AI for distillation.
-// Returns YAML-formatted output preserving the original metadata.
-func distillFragment(plugin ai.Plugin, frag *fragments.Fragment, distillPrompt string) (string, error) {
+// distillContent sends content through the AI for distillation.
+// Returns just the distilled text content.
+func distillContent(plugin ai.Plugin, name, content, distillPrompt string) (string, error) {
 	// Build the content to distill
-	var content strings.Builder
-	content.WriteString("# Fragment: ")
-	content.WriteString(frag.Name)
-	content.WriteString("\n\n")
-
-	if frag.Content != "" {
-		content.WriteString(frag.Content)
-	}
+	var builder strings.Builder
+	builder.WriteString("# ")
+	builder.WriteString(name)
+	builder.WriteString("\n\n")
+	builder.WriteString(content)
 
 	// Build the request
 	req := ai.Request{
-		Prompt:  content.String(),
+		Prompt:  builder.String(),
 		Context: distillPrompt,
 		Print:   true, // Non-interactive mode
 	}
@@ -439,94 +337,28 @@ func distillFragment(plugin ai.Plugin, frag *fragments.Fragment, distillPrompt s
 		distilledContent = strings.TrimSpace(resp.Output)
 	}
 
-	// Create the distilled YAML structure with original metadata
-	distilled := distilledFragment{
-		Version:   frag.Version,
-		Author:    frag.Author,
-		Tags:      frag.Tags,
-		Variables: frag.Variables,
-		Content:   distilledContent,
-	}
-
-	// Marshal to YAML
-	yamlData, err := yaml.Marshal(&distilled)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal distilled fragment: %w", err)
-	}
-
-	return string(yamlData), nil
-}
-
-// distillPromptContent sends a prompt through the AI for distillation.
-// Takes a parsed prompt fragment and returns YAML-formatted output.
-func distillPromptContent(plugin ai.Plugin, prompt *fragments.Fragment, distillPrompt string) (string, error) {
-	// Build the content to distill
-	var promptContent strings.Builder
-	promptContent.WriteString("# Prompt: ")
-	promptContent.WriteString(prompt.Name)
-	promptContent.WriteString("\n\n")
-	promptContent.WriteString(prompt.Content)
-
-	// Build the request
-	req := ai.Request{
-		Prompt:  promptContent.String(),
-		Context: distillPrompt,
-		Print:   true, // Non-interactive mode
-	}
-
-	// Run the AI
-	var stdout, stderr bytes.Buffer
-	resp, err := plugin.Run(context.Background(), req, &stdout, &stderr)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.ExitCode != 0 {
-		return "", fmt.Errorf("AI exited with code %d: %s", resp.ExitCode, stderr.String())
-	}
-
-	// Get the distilled content
-	distilledContent := strings.TrimSpace(stdout.String())
-	if distilledContent == "" {
-		distilledContent = strings.TrimSpace(resp.Output)
-	}
-
-	// Create the distilled YAML structure with original metadata
-	distilled := distilledFragment{
-		Version:   prompt.Version,
-		Author:    prompt.Author,
-		Tags:      prompt.Tags,
-		Variables: prompt.Variables,
-		Content:   distilledContent,
-	}
-
-	// Marshal to YAML
-	yamlData, err := yaml.Marshal(&distilled)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal distilled prompt: %w", err)
-	}
-
-	return string(yamlData), nil
+	return distilledContent, nil
 }
 
 var distillCleanDryRun bool
 
 var distillCleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Remove all distilled fragments, prompts, and hash files",
-	Long: `Remove all .distilled.yaml and .sha256 files from fragment and prompt directories.
+	Short: "Clear distilled content from all fragments and prompts",
+	Long: `Clear distilled content from fragment and prompt YAML files.
 
 This command walks through all .mlcm directories in the search path and
-deletes any files with .distilled.yaml or .sha256 extensions.
+clears the distilled, content_hash, and distilled_by fields from each YAML file.
 
 Examples:
-  mlcm distill clean              # Remove all distilled and hash files
-  mlcm distill clean --dry-run    # Preview what would be deleted`,
+  mlcm distill clean              # Clear distilled content from all files
+  mlcm distill clean --dry-run    # Preview what would be cleaned`,
 	RunE: runDistillClean,
 }
 
 func runDistillClean(cmd *cobra.Command, args []string) error {
-	var deleted int
+	var cleaned int
+	var skipped int
 	var errors int
 
 	// Clean fragment directories
@@ -534,10 +366,48 @@ func runDistillClean(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get fragment directories: %w", err)
 	}
-	for _, dir := range fragmentDirs {
-		d, e := cleanDistilledFiles(dir, distillCleanDryRun)
-		deleted += d
-		errors += e
+
+	if len(fragmentDirs) > 0 {
+		loader := fragments.NewLoader(fragmentDirs, fragments.WithPreferDistilled(false))
+		frags, err := loader.List()
+		if err != nil {
+			return fmt.Errorf("failed to list fragments: %w", err)
+		}
+
+		for _, info := range frags {
+			frag, err := loader.Load(info.Name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: failed to load %s: %v\n", info.Name, err)
+				errors++
+				continue
+			}
+
+			// Skip if nothing to clean
+			if frag.Distilled == "" && frag.ContentHash == "" && frag.DistilledBy == "" {
+				skipped++
+				continue
+			}
+
+			if distillCleanDryRun {
+				fmt.Printf("  Would clean: %s\n", info.Name)
+				cleaned++
+				continue
+			}
+
+			// Clear distilled fields
+			frag.Distilled = ""
+			frag.ContentHash = ""
+			frag.DistilledBy = ""
+
+			if err := frag.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error cleaning %s: %v\n", info.Name, err)
+				errors++
+				continue
+			}
+
+			fmt.Printf("  Cleaned: %s\n", info.Name)
+			cleaned++
+		}
 	}
 
 	// Clean prompt directories
@@ -545,56 +415,64 @@ func runDistillClean(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get prompt directories: %w", err)
 	}
-	for _, dir := range promptDirs {
-		d, e := cleanDistilledFiles(dir, distillCleanDryRun)
-		deleted += d
-		errors += e
+
+	if len(promptDirs) > 0 {
+		promptLoader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(false))
+		prompts, err := promptLoader.List()
+		if err != nil {
+			return fmt.Errorf("failed to list prompts: %w", err)
+		}
+
+		for _, info := range prompts {
+			prompt, err := promptLoader.Load(info.Name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: failed to load prompt %s: %v\n", info.Name, err)
+				errors++
+				continue
+			}
+
+			// Skip if nothing to clean
+			if prompt.Distilled == "" && prompt.ContentHash == "" && prompt.DistilledBy == "" {
+				skipped++
+				continue
+			}
+
+			if distillCleanDryRun {
+				fmt.Printf("  Would clean: %s\n", info.Name)
+				cleaned++
+				continue
+			}
+
+			// Clear distilled fields
+			prompt.Distilled = ""
+			prompt.ContentHash = ""
+			prompt.DistilledBy = ""
+
+			if err := prompt.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error cleaning prompt %s: %v\n", info.Name, err)
+				errors++
+				continue
+			}
+
+			fmt.Printf("  Cleaned: %s\n", info.Name)
+			cleaned++
+		}
 	}
 
 	if distillCleanDryRun {
-		fmt.Printf("Would delete %d distilled files\n", deleted)
+		fmt.Printf("\nDry run: would clean %d files", cleaned)
 	} else {
-		fmt.Printf("Deleted %d distilled files", deleted)
-		if errors > 0 {
-			fmt.Printf(" (%d errors)", errors)
-		}
-		fmt.Println()
+		fmt.Printf("\nCleaned %d files", cleaned)
 	}
+	if skipped > 0 {
+		fmt.Printf(", skipped %d (already clean)", skipped)
+	}
+	if errors > 0 {
+		fmt.Printf(", %d errors", errors)
+	}
+	fmt.Println()
 
 	return nil
-}
-
-// cleanDistilledFiles removes all .distilled.yaml and .sha256 files from a directory.
-// Returns the count of deleted files and errors.
-func cleanDistilledFiles(dir string, dryRun bool) (deleted, errors int) {
-	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		name := d.Name()
-		if strings.HasSuffix(name, ".distilled.yaml") || strings.HasSuffix(name, ".sha256") {
-			if dryRun {
-				fmt.Printf("  Would delete: %s\n", path)
-				deleted++
-			} else {
-				// Make writable before deleting (may be read-only)
-				fsys.MakeWritable(path)
-				if err := os.Remove(path); err != nil {
-					fmt.Fprintf(os.Stderr, "  Error deleting %s: %v\n", path, err)
-					errors++
-				} else {
-					fmt.Printf("  Deleted: %s\n", path)
-					deleted++
-				}
-			}
-		}
-		return nil
-	})
-	return
 }
 
 func init() {
@@ -609,6 +487,7 @@ func init() {
 	distillCmd.Flags().BoolVar(&distillForce, "force", false, "Re-distill even if unchanged")
 	distillCmd.Flags().BoolVar(&distillOnlyPrompts, "prompts-only", false, "Distill only prompts (skip fragments)")
 	distillCmd.Flags().BoolVar(&distillSkipPrompts, "skip-prompts", false, "Distill only fragments (skip prompts)")
+	distillCmd.Flags().BoolVar(&distillResources, "resources", false, "Distill resources/ directory (for packaging)")
 
 	distillCleanCmd.Flags().BoolVarP(&distillCleanDryRun, "dry-run", "n", false, "Show what would be deleted without doing it")
 }

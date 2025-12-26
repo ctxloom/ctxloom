@@ -1,6 +1,8 @@
 package fragments
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,14 +30,21 @@ import (
 //	  - language
 //	content: |
 //	  # Your markdown content here
+//	content_hash: "sha256:abc123..."
+//	distilled: |
+//	  # Compressed content here
 type Fragment struct {
-	Name      string            // Fragment name (from filename)
-	Version   string            // Version string for the fragment
-	Author    string            // Author of the fragment
-	Tags      []string          // Tags for filtering/categorization
-	Variables []string          // Variable names used in content
-	VarValues map[string]string // Variable values (populated by generators)
-	Content   string            // Markdown content
+	Name        string            // Fragment name (from filename)
+	Path        string            // File path (for saving back)
+	Version     string            // Version string for the fragment
+	Author      string            // Author of the fragment
+	Tags        []string          // Tags for filtering/categorization
+	Variables   []string          // Variable names used in content
+	VarValues   map[string]string // Variable values (populated by generators)
+	Content     string            // Markdown content
+	ContentHash string            // SHA256 hash of content (for change detection)
+	Distilled   string            // Distilled/compressed version of content
+	DistilledBy string            // LLM that performed the distillation (e.g., "claude-3-opus")
 }
 
 // Loader finds and loads context fragments from .mlcm directories.
@@ -142,12 +151,8 @@ func validateName(name string) error {
 // supportedExtensions lists file extensions for fragments (in priority order).
 var supportedExtensions = []string{".yaml", ".yml"}
 
-// distilledExtension is the extension for distilled fragment files.
-const distilledExtension = ".distilled.yaml"
-
 // Find locates a fragment by name across all search directories.
 // Returns the full path to the fragment file.
-// If preferDistilled is true, looks for .distilled.md versions first.
 //
 // Naming conventions supported:
 //   - Slash paths: "testing/tdd" finds "testing/tdd.yaml"
@@ -162,17 +167,9 @@ func (l *Loader) Find(name string) (string, error) {
 	name = filepath.FromSlash(name)
 
 	// Build candidates with all supported extensions
-	// If preferDistilled, check for distilled version first
 	var candidates []string
-	if l.preferDistilled {
-		candidates = append(candidates, name+distilledExtension)
-	}
 	candidates = append(candidates, name)
 	for _, ext := range supportedExtensions {
-		if l.preferDistilled {
-			// For YAML source, the distilled version has same base name + .distilled.md
-			candidates = append(candidates, name+distilledExtension)
-		}
 		candidates = append(candidates, name+ext)
 	}
 
@@ -189,9 +186,6 @@ func (l *Loader) Find(name string) (string, error) {
 	// If not found directly, walk directories to find by basename
 	baseName := filepath.Base(name)
 	var baseNames []string
-	if l.preferDistilled {
-		baseNames = append(baseNames, baseName+distilledExtension)
-	}
 	baseNames = append(baseNames, baseName)
 	for _, ext := range supportedExtensions {
 		baseNames = append(baseNames, baseName+ext)
@@ -221,6 +215,7 @@ func (l *Loader) Find(name string) (string, error) {
 }
 
 // Load reads and parses a fragment by name.
+// If preferDistilled is true and the fragment has a distilled field, that content is used.
 func (l *Loader) Load(name string) (*Fragment, error) {
 	path, err := l.Find(name)
 	if err != nil {
@@ -234,18 +229,20 @@ func (l *Loader) Load(name string) (*Fragment, error) {
 
 	var frag *Fragment
 
-	// Check file type - YAML (including distilled) or plain markdown
+	// Check file type - YAML or plain markdown
 	if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
-		// YAML fragment file (including .distilled.yaml)
+		// YAML fragment file
 		frag, err = parseYAMLFragment(data)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse fragment %s: %w", name, err)
 		}
 		frag.Name = name
+		frag.Path = path
 	} else if strings.HasSuffix(path, ".md") {
 		// Plain markdown file - content only, no metadata
 		frag = &Fragment{
 			Name:    name,
+			Path:    path,
 			Content: strings.TrimSpace(string(data)),
 		}
 	} else {
@@ -253,6 +250,64 @@ func (l *Loader) Load(name string) (*Fragment, error) {
 	}
 
 	return frag, nil
+}
+
+// EffectiveContent returns the content to use for the fragment.
+// If preferDistilled is true and the fragment has distilled content, returns that.
+// Otherwise returns the original content.
+func (f *Fragment) EffectiveContent(preferDistilled bool) string {
+	if preferDistilled && f.Distilled != "" {
+		return f.Distilled
+	}
+	return f.Content
+}
+
+// ComputeContentHash computes a SHA-256 hash of the fragment's content.
+// Returns the hash in format "sha256:<hex>".
+func (f *Fragment) ComputeContentHash() string {
+	h := sha256.New()
+	h.Write([]byte(f.Content))
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// NeedsDistill returns true if the fragment needs to be distilled.
+// This is true if there's no distilled content, or if the content has changed
+// since the last distillation (hash mismatch).
+func (f *Fragment) NeedsDistill() bool {
+	if f.Distilled == "" {
+		return true
+	}
+	if f.ContentHash == "" {
+		return true
+	}
+	return f.ContentHash != f.ComputeContentHash()
+}
+
+// Save writes the fragment back to its YAML file.
+// The Path field must be set.
+func (f *Fragment) Save() error {
+	if f.Path == "" {
+		return fmt.Errorf("fragment path not set")
+	}
+
+	yf := yamlFragment{
+		Version:     f.Version,
+		Author:      f.Author,
+		Tags:        f.Tags,
+		Variables:   f.Variables,
+		Content:     f.Content,
+		ContentHash: f.ContentHash,
+		Distilled:   f.Distilled,
+		DistilledBy: f.DistilledBy,
+		VarValues:   f.VarValues,
+	}
+
+	data, err := yaml.Marshal(&yf)
+	if err != nil {
+		return fmt.Errorf("marshal fragment: %w", err)
+	}
+
+	return fsys.WriteProtected(f.Path, data)
 }
 
 // parseYAMLFragment parses a YAML fragment file.
@@ -263,11 +318,14 @@ func parseYAMLFragment(data []byte) (*Fragment, error) {
 	}
 
 	frag := &Fragment{
-		Version:   yf.Version,
-		Author:    yf.Author,
-		Tags:      yf.Tags,
-		Variables: yf.Variables,
-		Content:   strings.TrimSpace(yf.Content),
+		Version:     yf.Version,
+		Author:      yf.Author,
+		Tags:        yf.Tags,
+		Variables:   yf.Variables,
+		Content:     strings.TrimSpace(yf.Content),
+		ContentHash: yf.ContentHash,
+		Distilled:   strings.TrimSpace(yf.Distilled),
+		DistilledBy: yf.DistilledBy,
 	}
 
 	// Copy var_values to VarValues if present (from generator output)
@@ -320,6 +378,7 @@ func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]strin
 
 // assembleContext intelligently combines fragment contexts.
 // Groups related content and adds clear section boundaries.
+// Uses distilled content when preferDistilled is true and available.
 func (l *Loader) assembleContext(frags []*Fragment) string {
 	if len(frags) == 0 {
 		return ""
@@ -327,10 +386,11 @@ func (l *Loader) assembleContext(frags []*Fragment) string {
 
 	var sections []string
 	for _, frag := range frags {
-		if frag.Content == "" {
+		content := frag.EffectiveContent(l.preferDistilled)
+		if content == "" {
 			continue
 		}
-		sections = append(sections, strings.TrimSpace(frag.Content))
+		sections = append(sections, strings.TrimSpace(content))
 	}
 
 	return strings.Join(sections, "\n\n---\n\n")
@@ -408,10 +468,6 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 
 			// Accept .yaml and .yml files only
 			if ext != ".yaml" && ext != ".yml" {
-				return nil
-			}
-			// Skip distilled files (they're derived, not source fragments)
-			if strings.HasSuffix(name, ".distilled.yaml") || strings.HasSuffix(name, ".distilled.yml") {
 				return nil
 			}
 			if strings.HasPrefix(name, ".") {
@@ -519,13 +575,16 @@ type FragmentInfo struct {
 
 // yamlFragment is the structure for YAML-based fragment files.
 type yamlFragment struct {
-	Version   string            `yaml:"version,omitempty"`
-	Author    string            `yaml:"author,omitempty"`
-	Tags      []string          `yaml:"tags,omitempty"`
-	Variables []string          `yaml:"variables,omitempty"`
-	Notes     string            `yaml:"notes,omitempty"` // Human-readable notes (not sent to AI)
-	Content   string            `yaml:"content"`
-	VarValues map[string]string `yaml:"var_values,omitempty"` // For generator output
+	Version     string            `yaml:"version,omitempty"`
+	Author      string            `yaml:"author,omitempty"`
+	Tags        []string          `yaml:"tags,omitempty"`
+	Variables   []string          `yaml:"variables,omitempty"`
+	Notes       string            `yaml:"notes,omitempty"`        // Human-readable notes (not sent to AI)
+	Content     string            `yaml:"content"`
+	ContentHash string            `yaml:"content_hash,omitempty"` // SHA256 hash of content
+	Distilled   string            `yaml:"distilled,omitempty"`    // Distilled version of content
+	DistilledBy string            `yaml:"distilled_by,omitempty"` // LLM that performed distillation
+	VarValues   map[string]string `yaml:"var_values,omitempty"`   // For generator output
 }
 
 // ParseYAML parses YAML content as a fragment.

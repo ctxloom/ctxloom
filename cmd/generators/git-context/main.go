@@ -3,12 +3,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
+	"mlcm/internal/gitutil"
 	"mlcm/internal/markdown"
 )
 
@@ -18,20 +16,20 @@ import (
 const recentCommitCount = 5
 
 func main() {
-	if !isGitRepo() {
+	repo, err := gitutil.Open(".")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "not a git repository")
 		os.Exit(1)
 	}
 
-	doc := buildFragment()
+	doc := buildFragment(repo)
 	fmt.Print(doc)
 }
 
-func buildFragment() string {
-	branch := gitBranch()
-	status := gitStatus()
-	recentCommits := gitRecentCommits(recentCommitCount)
-	remoteURL := gitRemoteURL()
+func buildFragment(repo *gitutil.Repo) string {
+	branch, _ := repo.Branch()
+	status, _ := repo.StatusShort()
+	remoteURL := repo.RemoteURL("origin")
 
 	frag := markdown.NewFragment()
 
@@ -50,6 +48,7 @@ func buildFragment() string {
 		ctx.P("Working tree is clean.")
 	}
 
+	recentCommits := formatCommits(repo, recentCommitCount)
 	if recentCommits != "" {
 		ctx.P(markdown.Bold("Recent commits:"))
 		ctx.CodeBlock("", recentCommits)
@@ -62,35 +61,18 @@ func buildFragment() string {
 	return frag.String()
 }
 
-func isGitRepo() bool {
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	cmd.Stderr = nil
-	return cmd.Run() == nil
-}
-
-func gitBranch() string {
-	return runGit("rev-parse", "--abbrev-ref", "HEAD")
-}
-
-func gitStatus() string {
-	return runGit("status", "--short")
-}
-
-func gitRecentCommits(n int) string {
-	return runGit("log", "--oneline", fmt.Sprintf("-%d", n))
-}
-
-func gitRemoteURL() string {
-	return runGit("remote", "get-url", "origin")
-}
-
-func runGit(args ...string) string {
-	cmd := exec.Command("git", args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
+func formatCommits(repo *gitutil.Repo, n int) string {
+	commits, err := repo.RecentCommits(n)
+	if err != nil || len(commits) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(stdout.String())
+
+	result := ""
+	for i, c := range commits {
+		if i > 0 {
+			result += "\n"
+		}
+		result += c.Hash + " " + c.Message
+	}
+	return result
 }

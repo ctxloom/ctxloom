@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 
 	"mlcm/internal/config"
 	"mlcm/internal/fsys"
+	"mlcm/internal/gitutil"
 	"mlcm/resources"
 )
 
@@ -29,19 +29,11 @@ func findGitRoot() string {
 		return ""
 	}
 
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
-			return dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached filesystem root
-			return ""
-		}
-		dir = parent
+	root, err := gitutil.FindRoot(dir)
+	if err != nil {
+		return ""
 	}
+	return root
 }
 
 // printCopyResult displays a copy result with optional file listing.
@@ -182,21 +174,17 @@ func initHomeDirectory(mlcmDir string, personas []string) error {
 	fmt.Println("\nContext fragments:")
 
 	// Copy fragments (filtered by persona if specified) - no header for home
-	var result *resources.CopyResult
+	var fragmentFilter []string
 	if len(personas) > 0 {
-		fragments, err := config.CollectFragmentsForPersonas(embeddedCfg.Personas, personas)
+		var err error
+		fragmentFilter, err = config.CollectFragmentsForPersonas(embeddedCfg.Personas, personas)
 		if err != nil {
 			return err
 		}
-		result, err = resources.CopySelectedFragments(fragmentsDir, fragments, "")
-		if err != nil {
-			return fmt.Errorf("failed to copy selected fragments: %w", err)
-		}
-	} else {
-		result, err = resources.CopyFragments(fragmentsDir, "")
-		if err != nil {
-			return fmt.Errorf("failed to copy embedded fragments: %w", err)
-		}
+	}
+	result, err := resources.CopyFragments(fragmentsDir, fragmentFilter, "")
+	if err != nil {
+		return fmt.Errorf("failed to copy embedded fragments: %w", err)
 	}
 	printCopyResult(result, "embedded", verboseInit)
 	totalResult.Merge(result)
@@ -337,12 +325,7 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 
 	// First, copy embedded fragments
 	if !skipEmbedded {
-		var result *resources.CopyResult
-		if len(fragmentFilter) > 0 {
-			result, err = resources.CopySelectedFragments(fragmentsDir, fragmentFilter, resources.ProjectHeader)
-		} else {
-			result, err = resources.CopyFragments(fragmentsDir, resources.ProjectHeader)
-		}
+		result, err := resources.CopyFragments(fragmentsDir, fragmentFilter, resources.ProjectHeader)
 		if err != nil {
 			return fmt.Errorf("failed to copy embedded fragments: %w", err)
 		}
@@ -358,12 +341,7 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 		homeFragments := filepath.Join(home, config.MLCMDirName, config.ContextFragmentsDir)
 		if info, err := os.Stat(homeFragments); err == nil && info.IsDir() {
-			var result *resources.CopyResult
-			if len(fragmentFilter) > 0 {
-				result, err = copyDirFiltered(homeFragments, fragmentsDir, fragmentFilter, resources.ProjectHeader)
-			} else {
-				result, err = copyDir(homeFragments, fragmentsDir, resources.ProjectHeader)
-			}
+			result, err := copyDir(homeFragments, fragmentsDir, fragmentFilter, resources.ProjectHeader)
 			if err != nil {
 				return fmt.Errorf("failed to copy fragments from %s: %w", homeFragments, err)
 			}
@@ -391,7 +369,7 @@ func initMLCMDirectory(mlcmDir string, personas []string) error {
 		}
 		homePrompts := filepath.Join(home, config.MLCMDirName, config.PromptsDir)
 		if info, err := os.Stat(homePrompts); err == nil && info.IsDir() {
-			result, err := copyDir(homePrompts, promptsDir, resources.ProjectHeader)
+			result, err := copyDir(homePrompts, promptsDir, nil, resources.ProjectHeader)
 			if err != nil {
 				return fmt.Errorf("failed to copy prompts from %s: %w", homePrompts, err)
 			}
@@ -480,76 +458,30 @@ func writeProjectConfig(configPath string, embeddedCfg *config.Config, allPerson
 	return os.WriteFile(configPath, data, 0644)
 }
 
-// distilledSuffix is the suffix for distilled fragment files.
-const distilledSuffix = ".distilled.yaml"
-
-// copyDir recursively copies a directory tree of YAML fragment files.
-// Returns a CopyResult with details about what was copied.
+// copyDir copies YAML fragment files from src to dst.
+//
+// Fragments are copied to the project directory to ensure all developers
+// working on the project use the same context - providing reproducibility.
+//
+// If filter is non-nil, only fragments matching the filter are copied.
+// Filter entries are paths like "style/direct" (without extension).
 // If header is non-empty, it is prepended to YAML files.
-func copyDir(src, dst string, header string) (*resources.CopyResult, error) {
+func copyDir(src, dst string, filter []string, header string) (*resources.CopyResult, error) {
 	result := &resources.CopyResult{}
 
-	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	// Build filter set if provided
+	var allowed map[string]bool
+	var found map[string]bool
+	if len(filter) > 0 {
+		allowed = make(map[string]bool)
+		found = make(map[string]bool)
+		for _, frag := range filter {
+			frag = strings.TrimSuffix(frag, ".yaml")
+			frag = strings.TrimSuffix(frag, ".yml")
+			allowed[frag] = true
 		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return os.MkdirAll(filepath.Join(dst, relPath), 0755)
-		}
-
-		name := d.Name()
-
-		// Only copy .yaml, .yml, and .sha256 files
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
-			return nil
-		}
-
-		dstPath := filepath.Join(dst, relPath)
-		status, err := copyFile(path, dstPath, header)
-		if err != nil {
-			return err
-		}
-
-		switch status {
-		case copyStatusAdded:
-			result.Added = append(result.Added, relPath)
-		case copyStatusUpdated:
-			result.Updated = append(result.Updated, relPath)
-		case copyStatusUnchanged:
-			result.Unchanged = append(result.Unchanged, relPath)
-		}
-		return nil
-	})
-
-	return result, err
-}
-
-// copyDirFiltered copies only files matching the fragment filter.
-// fragmentFilter contains paths like "style/direct" (without extension).
-// If header is non-empty, it is prepended to YAML files.
-// Missing fragments are warned about but do not cause failure.
-func copyDirFiltered(src, dst string, fragmentFilter []string, header string) (*resources.CopyResult, error) {
-	result := &resources.CopyResult{}
-
-	// Build set of allowed fragments (normalized without extension)
-	allowed := make(map[string]bool)
-	for _, frag := range fragmentFilter {
-		// Strip any extension
-		frag = strings.TrimSuffix(frag, distilledSuffix)
-		frag = strings.TrimSuffix(frag, ".yaml")
-		frag = strings.TrimSuffix(frag, ".yml")
-		allowed[frag] = true
 	}
 
-	// Track which fragments were found
-	found := make(map[string]bool)
-
 	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -561,31 +493,26 @@ func copyDirFiltered(src, dst string, fragmentFilter []string, header string) (*
 		}
 
 		if d.IsDir() {
-			return nil // Directories are created as needed
+			if allowed == nil {
+				return os.MkdirAll(filepath.Join(dst, relPath), 0755)
+			}
+			return nil // Directories created as needed when filtering
 		}
 
 		name := d.Name()
-
-		// Only process .yaml, .yml, and .sha256 files
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 			return nil
 		}
 
-		// Get base name without extension for comparison
-		baseName := strings.TrimSuffix(relPath, ".sha256")
-		baseName = strings.TrimSuffix(baseName, ".yaml")
-		baseName = strings.TrimSuffix(baseName, ".yml")
-
-		// For .distilled files, check against the non-distilled name
-		checkName := strings.TrimSuffix(baseName, ".distilled")
-
-		// Check if this fragment is allowed
-		if !allowed[checkName] {
-			return nil
+		// Apply filter if set
+		if allowed != nil {
+			baseName := strings.TrimSuffix(relPath, ".yaml")
+			baseName = strings.TrimSuffix(baseName, ".yml")
+			if !allowed[baseName] {
+				return nil
+			}
+			found[baseName] = true
 		}
-
-		// Mark as found
-		found[checkName] = true
 
 		dstPath := filepath.Join(dst, relPath)
 		status, err := copyFile(path, dstPath, header)
@@ -608,7 +535,7 @@ func copyDirFiltered(src, dst string, fragmentFilter []string, header string) (*
 		return result, err
 	}
 
-	// Warn about missing fragments
+	// Warn about missing fragments when filtering
 	for name := range allowed {
 		if !found[name] {
 			fmt.Fprintf(os.Stderr, "Warning: local fragment not found: %s\n", name)
@@ -632,8 +559,7 @@ func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string, header st
 	fmt.Printf("Cloning %s...\n", repoURL)
 
 	// Clone the repository (shallow clone for speed)
-	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", repoURL, tmpDir)
-	if err := cmd.Run(); err != nil {
+	if err := gitutil.ShallowClone(repoURL, tmpDir); err != nil {
 		return nil, fmt.Errorf("git clone failed: %w", err)
 	}
 
@@ -667,11 +593,7 @@ func copyFromGitRepo(repoURL, destDir string, fragmentFilter []string, header st
 		return nil, fmt.Errorf("no YAML fragments found in repository")
 	}
 
-	// Copy fragments
-	if len(fragmentFilter) > 0 {
-		return copyDirFiltered(srcDir, destDir, fragmentFilter, header)
-	}
-	return copyDir(srcDir, destDir, header)
+	return copyDir(srcDir, destDir, fragmentFilter, header)
 }
 
 // copyStatus indicates what happened when copying a file.

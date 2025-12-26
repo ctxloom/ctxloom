@@ -107,149 +107,67 @@ func GetEmbeddedConfig() ([]byte, error) {
 	return configFS.ReadFile("config.yaml")
 }
 
-// CopyFragments copies all embedded context-fragments to the destination directory.
-// It preserves the directory structure and tracks what was copied.
-// Fragment files are set to read-only to protect from accidental edits.
+// CopyFragments copies embedded context-fragments to the destination directory.
+//
+// Fragments are copied to the project directory to ensure all developers
+// working on the project use the same context - providing reproducibility.
+//
+// If filter is non-nil, only fragments matching the filter are copied.
+// Filter entries are paths like "style/direct" (without extension).
 // If header is non-empty, it is prepended to YAML files.
-func CopyFragments(destDir string, header string) (*CopyResult, error) {
+func CopyFragments(destDir string, filter []string, header string) (*CopyResult, error) {
 	result := &CopyResult{}
 
-	err := fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	// Build filter set if provided
+	var allowed map[string]bool
+	var found map[string]bool
+	if len(filter) > 0 {
+		allowed = make(map[string]bool)
+		found = make(map[string]bool)
+		for _, name := range filter {
+			name = strings.TrimSuffix(name, ".yaml")
+			name = strings.TrimSuffix(name, ".yml")
+			allowed[name] = true
 		}
-
-		// Get relative path from "context-fragments" root
-		relPath, err := filepath.Rel("context-fragments", path)
-		if err != nil {
-			return err
-		}
-
-		// Skip the root "context-fragments" directory itself
-		if relPath == "." {
-			return nil
-		}
-
-		if d.IsDir() {
-			return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
-		}
-
-		name := d.Name()
-
-		// Only copy .yaml, .yml, .sha256, and .distilled.yaml files
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
-			return nil
-		}
-
-		destPath := filepath.Join(destDir, relPath)
-
-		// Read file content
-		data, err := fragmentsFS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		status, err := copyFileWithStatus(destPath, data, header)
-		if err != nil {
-			return err
-		}
-
-		switch status {
-		case copyStatusAdded:
-			result.Added = append(result.Added, relPath)
-		case copyStatusUpdated:
-			result.Updated = append(result.Updated, relPath)
-		case copyStatusUnchanged:
-			result.Unchanged = append(result.Unchanged, relPath)
-		}
-		return nil
-	})
-
-	return result, err
-}
-
-// ListFragments returns all embedded fragment paths.
-func ListFragments() ([]string, error) {
-	var paths []string
-	err := fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			relPath, _ := filepath.Rel("context-fragments", path)
-			paths = append(paths, relPath)
-		}
-		return nil
-	})
-	return paths, err
-}
-
-// CopySelectedFragments copies only the specified context-fragments to the destination directory.
-// fragmentNames should be in the format "category/name" (without extension).
-// Fragment files are set to read-only to protect from accidental edits.
-// Missing context-fragments are warned about but do not cause failure.
-// If header is non-empty, it is prepended to YAML files.
-func CopySelectedFragments(destDir string, fragmentNames []string, header string) (*CopyResult, error) {
-	result := &CopyResult{}
-
-	// Build a set of allowed context-fragments for quick lookup (normalized without extension)
-	allowed := make(map[string]bool)
-	for _, name := range fragmentNames {
-		// Strip any extension for comparison
-		name = strings.TrimSuffix(name, ".yaml")
-		name = strings.TrimSuffix(name, ".yml")
-		allowed[name] = true
 	}
 
-	// Track which context-fragments were found
-	found := make(map[string]bool)
-
 	err := fs.WalkDir(fragmentsFS, "context-fragments", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Get relative path from "context-fragments" root
 		relPath, err := filepath.Rel("context-fragments", path)
 		if err != nil {
 			return err
 		}
 
-		// Skip the root "context-fragments" directory itself
 		if relPath == "." {
 			return nil
 		}
 
 		if d.IsDir() {
-			return nil // Directories are created as needed when copying files
+			if allowed == nil {
+				return os.MkdirAll(filepath.Join(destDir, relPath), 0755)
+			}
+			return nil // Directories created as needed when filtering
 		}
 
 		name := d.Name()
-
-		// Only process .yaml, .yml, and .sha256 files
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".sha256") {
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 			return nil
 		}
 
-		// Get base name without extension for comparison
-		baseName := strings.TrimSuffix(relPath, ".sha256")
-		baseName = strings.TrimSuffix(baseName, ".yaml")
-		baseName = strings.TrimSuffix(baseName, ".yml")
-
-		// For .distilled files, check against the non-distilled name
-		checkName := strings.TrimSuffix(baseName, ".distilled")
-
-		// Check if this fragment is in the allowed set
-		if !allowed[checkName] {
-			return nil // Skip this fragment
+		// Apply filter if set
+		if allowed != nil {
+			baseName := strings.TrimSuffix(relPath, ".yaml")
+			baseName = strings.TrimSuffix(baseName, ".yml")
+			if !allowed[baseName] {
+				return nil
+			}
+			found[baseName] = true
 		}
 
-		// Mark as found (use the non-distilled name)
-		found[checkName] = true
-
 		destPath := filepath.Join(destDir, relPath)
-
-		// Read file content
 		data, err := fragmentsFS.ReadFile(path)
 		if err != nil {
 			return err
@@ -275,7 +193,7 @@ func CopySelectedFragments(destDir string, fragmentNames []string, header string
 		return result, err
 	}
 
-	// Warn about missing context-fragments
+	// Warn about missing fragments when filtering
 	for name := range allowed {
 		if !found[name] {
 			fmt.Fprintf(os.Stderr, "Warning: embedded fragment not found: %s\n", name)
@@ -399,11 +317,8 @@ func CopyTaggedFragments(destDir string, tag string, header string) (*CopyResult
 
 		name := d.Name()
 
-		// Only process .yaml and .yml files (not .sha256 or .distilled.yaml)
+		// Only process .yaml and .yml files
 		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			return nil
-		}
-		if strings.HasSuffix(name, ".distilled.yaml") {
 			return nil
 		}
 

@@ -47,9 +47,10 @@ var distillCmd = &cobra.Command{
 
 This command processes each fragment and prompt through an AI to create a compressed
 version that preserves all rules and behaviors while reducing verbosity.
-Distilled files are saved alongside the original with a .distilled.yaml extension.
+Distilled content is stored in the fragment's 'distilled' field alongside content_hash
+and distilled_by metadata.
 
-When loading fragments or prompts, the distilled version is preferred if it exists
+When loading fragments, the distilled version is used if available
 (controlled by use_distilled config setting).
 
 Use --persona/-p to distill only fragments associated with specific personas.

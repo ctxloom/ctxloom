@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,6 +29,7 @@ var (
 	copyPersonas  []string
 	copyVerbose   bool
 	copyDev       bool // Dev mode: allow copying to resources directory
+	copyConfig    bool // Copy config.yaml
 )
 
 // Location represents a copy source or destination.
@@ -189,11 +191,24 @@ func runCopy(cmd *cobra.Command, args []string) error {
 		printCopyResultVerbose(promptResult, "prompts", copyVerbose)
 	}
 
+	// Copy config if requested
+	configResult := &CopyResult{}
+	if copyConfig {
+		fmt.Printf("Copying config from %s to %s\n", from, to)
+
+		result, err := copyConfigWithOptions(from, to, addHeader, removeHeader)
+		if err != nil {
+			return fmt.Errorf("failed to copy config: %w", err)
+		}
+		configResult.Merge(result)
+		printCopyResultVerbose(configResult, "config", copyVerbose)
+	}
+
 	// Summary
-	totalAdded := len(fragResult.Added) + len(promptResult.Added)
-	totalUpdated := len(fragResult.Updated) + len(promptResult.Updated)
-	totalUnchanged := len(fragResult.Unchanged) + len(promptResult.Unchanged)
-	totalSkipped := len(fragResult.Skipped) + len(promptResult.Skipped)
+	totalAdded := len(fragResult.Added) + len(promptResult.Added) + len(configResult.Added)
+	totalUpdated := len(fragResult.Updated) + len(promptResult.Updated) + len(configResult.Updated)
+	totalUnchanged := len(fragResult.Unchanged) + len(promptResult.Unchanged) + len(configResult.Unchanged)
+	totalSkipped := len(fragResult.Skipped) + len(promptResult.Skipped) + len(configResult.Skipped)
 
 	fmt.Printf("\nCopy complete: %d added, %d updated", totalAdded, totalUpdated)
 	if totalUnchanged > 0 {
@@ -203,6 +218,13 @@ func runCopy(cmd *cobra.Command, args []string) error {
 		fmt.Printf(", %d skipped", totalSkipped)
 	}
 	fmt.Println()
+
+	// Initialize home directory as git repo if copying to home
+	if to == LocationHome {
+		if err := ensureHomeGitRepo(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to initialize git repo: %v\n", err)
+		}
+	}
 
 	return nil
 }
@@ -244,6 +266,90 @@ func getLocationPaths(loc Location) (fragDir, promptDir string, err error) {
 	default:
 		return "", "", fmt.Errorf("unknown location")
 	}
+}
+
+func getConfigPath(loc Location) (string, error) {
+	switch loc {
+	case LocationResources:
+		// For dev mode, return path in resources directory
+		pwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(pwd, "resources", "config.yaml"), nil
+
+	case LocationHome:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, config.MLCMDirName, "config.yaml"), nil
+
+	case LocationProject:
+		rootDir := findGitRoot()
+		if rootDir == "" {
+			var err error
+			rootDir, err = os.Getwd()
+			if err != nil {
+				return "", err
+			}
+		}
+		return filepath.Join(rootDir, config.MLCMDirName, "config.yaml"), nil
+
+	default:
+		return "", fmt.Errorf("unknown location")
+	}
+}
+
+func copyConfigWithOptions(from, to Location, _, removeHeader bool) (*CopyResult, error) {
+	result := &CopyResult{}
+
+	// Get destination path
+	dstPath, err := getConfigPath(to)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		return nil, err
+	}
+
+	// Get source data
+	var data []byte
+	if from == LocationResources {
+		data, err = resources.GetEmbeddedConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read embedded config: %w", err)
+		}
+	} else {
+		srcPath, err := getConfigPath(from)
+		if err != nil {
+			return nil, err
+		}
+		data, err = os.ReadFile(srcPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "Warning: no config.yaml at %s\n", srcPath)
+				return result, nil
+			}
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
+	}
+
+	// Handle header transformations
+	if removeHeader {
+		data = stripHeader(data)
+	}
+
+	// Config is user-editable, never add DO NOT EDIT header
+	status, err := copyDataToFile(data, dstPath, false, false)
+	if err != nil {
+		return nil, err
+	}
+
+	appendByStatus(result, "config.yaml", status)
+	return result, nil
 }
 
 func buildFragmentFilter() ([]string, error) {
@@ -726,6 +832,34 @@ func findGitRoot() string {
 	return root
 }
 
+// ensureHomeGitRepo initializes ~/.mlcm as a git repository if it isn't already.
+func ensureHomeGitRepo() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	mlcmDir := filepath.Join(home, config.MLCMDirName)
+	gitDir := filepath.Join(mlcmDir, ".git")
+
+	// Check if already a git repo
+	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+		return nil
+	}
+
+	// Initialize git repo
+	fmt.Printf("Initializing %s as git repository...\n", mlcmDir)
+
+	cmd := exec.Command("git", "init")
+	cmd.Dir = mlcmDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git init failed: %w\n%s", err, output)
+	}
+
+
+	return nil
+}
+
 func init() {
 	rootCmd.AddCommand(copyCmd)
 
@@ -739,6 +873,7 @@ func init() {
 	copyCmd.Flags().BoolVarP(&copyVerbose, "verbose", "v", false, "List individual files")
 
 	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for mlcm development)")
+	copyCmd.Flags().BoolVar(&copyConfig, "include-config", true, "Include config.yaml in copy (use --include-config=false to skip)")
 
 	copyCmd.MarkFlagRequired("from")
 	copyCmd.MarkFlagRequired("to")

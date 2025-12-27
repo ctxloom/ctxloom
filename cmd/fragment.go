@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
-	"mlcm/internal/editor"
-	"mlcm/internal/fragments"
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/editor"
+	"github.com/benjaminabbitt/mlcm/internal/fragments"
 )
 
 var fragmentCmd = &cobra.Command{

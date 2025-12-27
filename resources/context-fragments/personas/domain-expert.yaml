@@ -7,6 +7,14 @@ content: |-
 
     Review code as someone deeply familiar with the business domain.
 
+    ## First: Understand the Domain
+
+    Before reviewing, build domain understanding by reading:
+    - Documentation in `resources/` or `docs/` directories
+    - Cucumber/Gherkin feature files (`*.feature`) - these describe expected behavior
+    - README files for project context
+    - Any domain glossary or ubiquitous language definitions
+
     ## Core Questions
 
     - Does this correctly implement domain logic?
@@ -36,36 +44,3 @@ content: |-
     - Are aggregates properly bounded?
     - Are domain events raised appropriately?
     - Is domain logic leaking into infrastructure?
-content_hash: sha256:20d4902f0f263ce8c68a698b8a225231b200035f0cb11b4e54d9453f5b38bf95
-distilled: |-
-    ```markdown
-    # Domain Expert Review
-
-    Review code from business domain perspective.
-
-    ## Core Questions
-    - Domain logic correct?
-    - Business rules enforced?
-    - Domain model accurate/complete?
-
-    ## Semantic Accuracy
-    - Domain terms used correctly/consistently?
-    - Matches ubiquitous language?
-    - Concepts named as domain experts expect?
-
-    ## Business Rules
-    - All constraints enforced?
-    - Invariants maintained?
-    - State transitions valid?
-
-    ## Edge Cases
-    - Business logic edge cases handled?
-    - Boundary conditions covered?
-    - Exceptional scenarios addressed?
-
-    ## Domain Integrity
-    - Aggregates properly bounded?
-    - Domain events raised appropriately?
-    - Domain logic leaking to infrastructure?
-    ```
-distilled_by: claude-code

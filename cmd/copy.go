@@ -12,11 +12,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"mlcm/internal/config"
-	"mlcm/internal/fsys"
-	"mlcm/internal/gitutil"
-	"mlcm/internal/schema"
-	"mlcm/resources"
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/fsys"
+	"github.com/benjaminabbitt/mlcm/internal/gitutil"
+	"github.com/benjaminabbitt/mlcm/internal/schema"
+	"github.com/benjaminabbitt/mlcm/resources"
 )
 
 var (

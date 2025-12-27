@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/config"
 )
 
 var personaCmd = &cobra.Command{
@@ -78,7 +78,6 @@ var personaAddCmd = &cobra.Command{
 
 Example:
   mlcm persona add developer -f coding-standards -f go-patterns -d "Standard dev context"
-  mlcm persona add git-aware -f test-fragment -g mlcm-gen-git-context -d "Context with git info"
   mlcm persona add go-developer --parent developer -t golang -d "Go development context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -218,8 +217,8 @@ Examples:
   mlcm persona update go-developer --remove-parent base
   mlcm persona update developer --add-fragment error-handling
   mlcm persona update developer --remove-fragment old-patterns
-  mlcm persona update git-aware --add-generator git-context
-  mlcm persona update git-aware --remove-generator old-gen
+  mlcm persona update developer --add-generator my-generator
+  mlcm persona update developer --remove-generator old-gen
   mlcm persona update developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

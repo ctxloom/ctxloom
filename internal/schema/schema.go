@@ -8,7 +8,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"gopkg.in/yaml.v3"
 
-	"mlcm/resources"
+	"github.com/benjaminabbitt/mlcm/resources"
 )
 
 // Validator validates fragment YAML against the JSON schema.

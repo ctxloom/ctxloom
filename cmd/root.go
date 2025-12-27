@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/config"
 )
 
 // Version is set at build time via ldflags

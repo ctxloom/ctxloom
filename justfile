@@ -17,14 +17,10 @@ build: validate distill-resources build-mlcm build-generators
 
 # Build the main binary
 build-mlcm:
-    go build -ldflags "-X mlcm/cmd.Version={{version}}" -o mlcm .
+    go build -ldflags "-X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
 
 # Build all generators
-build-generators: build-git-context build-simple
-
-# Build git-context generator
-build-git-context:
-    go build -o bin/mlcm-gen-git-context ./cmd/generators/git-context
+build-generators: build-simple
 
 # Build simple wrapper generator
 build-simple:
@@ -32,8 +28,7 @@ build-simple:
 
 # Build with verbose output
 build-verbose:
-    go build -v -ldflags "-X mlcm/cmd.Version={{version}}" -o mlcm .
-    go build -v -o bin/mlcm-gen-git-context ./cmd/generators/git-context
+    go build -v -ldflags "-X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
     go build -v -o bin/mlcm-gen-simple ./cmd/generators/simple
 
 # Run tests
@@ -96,8 +91,7 @@ uninstall:
 
 # Build static binaries
 build-static: validate distill-resources
-    CGO_ENABLED=0 go build -ldflags="-s -w -X mlcm/cmd.Version={{version}}" -o mlcm .
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-git-context ./cmd/generators/git-context
+    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
     CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
 
 # Show help
@@ -111,10 +105,6 @@ init:
 # Dry run with test fragments
 dry-run PROMPT:
     ./mlcm run -f test-fragment -f additional-context -n "{{PROMPT}}"
-
-# Test git-context generator
-test-generator:
-    ./bin/mlcm-gen-git-context
 
 # Run with Gemini plugin
 gemini *ARGS:

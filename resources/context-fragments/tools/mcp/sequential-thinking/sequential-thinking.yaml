@@ -1,0 +1,55 @@
+version: "1.0"
+tags:
+    - mcp
+    - reasoning
+    - problem-solving
+content: |-
+    # Sequential Thinking MCP Server
+
+    MCP server for dynamic, reflective problem-solving through structured thoughts.
+
+    ## MCP Tools
+
+    - `sequentialthinking`: Analyze problems through flexible thinking process
+
+    ## When to Use
+
+    - Breaking down complex problems into steps
+    - Planning and design with room for revision
+    - Analysis that might need course correction
+    - Problems where full scope isn't clear initially
+    - Multi-step solutions requiring context
+    - Filtering irrelevant information
+
+    ## Key Features
+
+    - Adjust `total_thoughts` up/down as you progress
+    - Question or revise previous thoughts
+    - Add thoughts after reaching apparent end
+    - Express uncertainty and explore alternatives
+    - Branch or backtrack (non-linear thinking)
+    - Generate and verify hypotheses
+
+    ## Parameters
+
+    - `thought`: Current thinking step (analysis, revision, question, hypothesis)
+    - `nextThoughtNeeded`: True if more thinking needed
+    - `thoughtNumber`: Current position in sequence
+    - `totalThoughts`: Estimated thoughts needed (adjustable)
+    - `isRevision`: Whether this revises previous thinking
+    - `revisesThought`: Which thought being reconsidered
+    - `branchFromThought`: Branching point for alternative paths
+    - `branchId`: Identifier for current branch
+    - `needsMoreThoughts`: Signal need for additional thoughts
+
+    ## Workflow
+
+    1. Start with initial estimate, be ready to adjust
+    2. Question or revise previous thoughts freely
+    3. Add more thoughts if needed, even at "end"
+    4. Express uncertainty when present
+    5. Mark revisions and branches explicitly
+    6. Generate hypothesis when appropriate
+    7. Verify hypothesis against chain of thought
+    8. Repeat until satisfactory answer reached
+    9. Set `nextThoughtNeeded: false` only when truly done

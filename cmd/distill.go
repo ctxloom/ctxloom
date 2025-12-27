@@ -10,13 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
-	"mlcm/internal/fragments"
-	"mlcm/internal/ml"
-	_ "mlcm/internal/ml/claudecode"
-	_ "mlcm/internal/ml/gemini"
-	"mlcm/internal/schema"
-	"mlcm/resources"
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/mlcm/internal/ml"
+	_ "github.com/benjaminabbitt/mlcm/internal/ml/claudecode"
+	_ "github.com/benjaminabbitt/mlcm/internal/ml/gemini"
+	"github.com/benjaminabbitt/mlcm/internal/schema"
+	"github.com/benjaminabbitt/mlcm/resources"
 )
 
 // getDistillPrompt loads the distillation prompt from embedded resources.

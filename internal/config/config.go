@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
-	"mlcm/internal/logging"
-	"mlcm/internal/ml"
-	"mlcm/internal/schema"
-	"mlcm/resources"
+	"github.com/benjaminabbitt/mlcm/internal/logging"
+	"github.com/benjaminabbitt/mlcm/internal/ml"
+	"github.com/benjaminabbitt/mlcm/internal/schema"
+	"github.com/benjaminabbitt/mlcm/resources"
 )
 
 const (

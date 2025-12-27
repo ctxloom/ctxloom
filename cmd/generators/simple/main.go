@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"mlcm/internal/markdown"
+	"github.com/benjaminabbitt/mlcm/internal/markdown"
 )
 
 func main() {

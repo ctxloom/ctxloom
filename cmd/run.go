@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
-	"mlcm/internal/fragments"
-	"mlcm/internal/ml"
-	_ "mlcm/internal/ml/claudecode" // Register Claude Code plugin
-	_ "mlcm/internal/ml/gemini"     // Register Gemini plugin
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/mlcm/internal/ml"
+	_ "github.com/benjaminabbitt/mlcm/internal/ml/claudecode" // Register Claude Code plugin
+	_ "github.com/benjaminabbitt/mlcm/internal/ml/gemini"     // Register Gemini plugin
 )
 
 var (

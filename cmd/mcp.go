@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
-	"mlcm/internal/fragments"
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/fragments"
 )
 
 var mcpCmd = &cobra.Command{

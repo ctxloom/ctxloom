@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main, initial-prototyping]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run unit tests
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin latest
+
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout=5m
+
+  build-and-acceptance:
+    name: Build & Acceptance Tests
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25
+    needs: [test]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git
+        run: |
+          apt-get update && apt-get install -y git
+
+      - name: Mark workspace as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Validate schemas
+        run: go run ./cmd/validate
+
+      - name: Distill resources
+        run: go run . distill --resources
+
+      - name: Build static binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags="-s -w -X github.com/benjaminabbitt/mlcm/cmd.Version=ci-${GITHUB_SHA::8}" -o mlcm .
+          mkdir -p bin
+          go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
+
+      - name: Add binaries to PATH
+        run: |
+          echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
+          echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
+
+      - name: Run acceptance tests
+        run: go test -v ./tests/acceptance/...
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlcm-linux-amd64
+          path: |
+            mlcm
+            bin/mlcm-gen-*
+          retention-days: 7

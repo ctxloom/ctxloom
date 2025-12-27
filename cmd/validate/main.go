@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"mlcm/internal/schema"
+	"github.com/benjaminabbitt/mlcm/internal/schema"
 )
 
 func main() {

@@ -297,9 +297,9 @@ Feature: Persona management
   # ============================================================================
 
   Scenario: Add persona with generators
-    When I run mlcm "persona add with-gen -f fragment -g git-context"
+    When I run mlcm "persona add with-gen -f fragment -g my-generator"
     Then the exit code should be 0
     When I run mlcm "persona show with-gen"
     Then the exit code should be 0
-    And the output should contain "git-context"
+    And the output should contain "my-generator"
 

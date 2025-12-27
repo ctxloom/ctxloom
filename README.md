@@ -132,7 +132,6 @@ Built-in personas for common workflows:
 | `typescript-developer` | Developer + TypeScript-specific guidance |
 | `reviewer` | Code review with architect, junior-dev, domain-expert, concurrency perspectives |
 | `prototype` | Rapid prototyping without backwards compatibility concerns |
-| `git-aware` | Context with git repository information |
 
 Personas inherit from others via `parents` and can combine fragments, tags, generators, and variables.
 
@@ -227,7 +226,7 @@ personas:
     parents: [developer]
     tags: [my-tag]
     fragments: [my-fragment]
-    generators: [git-context]
+    generators: [my-generator]
     variables:
       key: value
 ```
@@ -414,7 +413,6 @@ mlcm generator remove <name>
 ```
 
 Built-in generators:
-- `mlcm-gen-git-context` - Git repository info (branch, status, commits)
 - `mlcm-gen-simple` - Runs any command, wraps output as fragment
 
 ### `mlcm mcp`
@@ -450,7 +448,7 @@ exports:
   git_branch: main
 ```
 
-> **Note**: Generators are fully functional and the author believes they're a good architectural idea for dynamic context generation. However, no compelling real-world use case has emerged yet. The built-in `git-context` generator demonstrates the pattern, but static fragments have proven sufficient for most needs.
+> **Note**: Generators are fully functional and provide a good architectural pattern for dynamic context generation. The `mlcm-gen-simple` wrapper makes it easy to create generators from any command. Static fragments have proven sufficient for most needs, but generators are available when dynamic context is required.
 
 ## Environment Variables
 

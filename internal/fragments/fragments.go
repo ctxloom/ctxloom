@@ -12,8 +12,8 @@ import (
 	"github.com/cbroglie/mustache"
 	"gopkg.in/yaml.v3"
 
-	"mlcm/internal/fsys"
-	"mlcm/internal/logging"
+	"github.com/benjaminabbitt/mlcm/internal/fsys"
+	"github.com/benjaminabbitt/mlcm/internal/logging"
 )
 
 // Fragment represents a parsed YAML context fragment file.

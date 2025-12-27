@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"mlcm/internal/fsys"
+	"github.com/benjaminabbitt/mlcm/internal/fsys"
 )
 
 // CopyResult tracks what happened during a copy operation.

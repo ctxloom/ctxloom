@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/config"
-	"mlcm/internal/fragments"
+	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/mlcm/internal/fragments"
 )
 
 var generatorCmd = &cobra.Command{
@@ -78,7 +78,6 @@ var generatorAddCmd = &cobra.Command{
 	Long: `Register a new context generator.
 
 Examples:
-  mlcm generator add git-context -c mlcm-gen-git-context -d "Git repository info"
   mlcm generator add env-info -c ./scripts/env-gen.sh -d "Environment variables"
   mlcm generator add date -c date -a "+%Y-%m-%d" -d "Current date"`,
 	Args: cobra.ExactArgs(1),
@@ -324,13 +323,9 @@ func EnsureGeneratorInPath(command string) error {
 }
 
 // InstallBuiltinGenerators registers the built-in generators if not already present.
+// Currently no built-in generators are registered by default.
 func InstallBuiltinGenerators(cfg *config.Config) ([]string, error) {
-	builtins := map[string]config.Generator{
-		"git-context": {
-			Description: "Git repository information (branch, status, recent commits)",
-			Command:     "mlcm-gen-git-context",
-		},
-	}
+	builtins := map[string]config.Generator{}
 
 	var installed []string
 	for name, g := range builtins {

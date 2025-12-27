@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"mlcm/internal/ml"
-	"mlcm/internal/ptyrunner"
+	"github.com/benjaminabbitt/mlcm/internal/ml"
+	"github.com/benjaminabbitt/mlcm/internal/ptyrunner"
 )
 
 const pluginName = "gemini"

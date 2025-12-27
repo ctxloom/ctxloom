@@ -12,11 +12,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/fsys"
-	"github.com/benjaminabbitt/mlcm/internal/gitutil"
-	"github.com/benjaminabbitt/mlcm/internal/schema"
-	"github.com/benjaminabbitt/mlcm/resources"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/gitutil"
+	"github.com/benjaminabbitt/scm/internal/schema"
+	"github.com/benjaminabbitt/scm/resources"
 )
 
 var (
@@ -96,8 +96,8 @@ var copyCmd = &cobra.Command{
 
 Locations:
   resources (r)  - Embedded default fragments and prompts
-  home (h)       - ~/.mlcm directory
-  project (p)    - .mlcm directory in the current project
+  home (h)       - ~/.scm directory
+  project (p)    - .scm directory in the current project
 
 Header behavior:
   - Copying TO project: adds a "DO NOT EDIT" header to files
@@ -105,22 +105,22 @@ Header behavior:
 
 Examples:
   # Copy all embedded fragments to project
-  mlcm copy --from resources --to project
+  scm copy --from resources --to project
 
   # Copy specific fragments from home to project
-  mlcm copy --from home --to project -f security -f golang
+  scm copy --from home --to project -f security -f golang
 
   # Copy fragments with specific tags
-  mlcm copy --from resources --to home -t review
+  scm copy --from resources --to home -t review
 
   # Copy prompts from resources to project
-  mlcm copy --from resources --to project -p code-review
+  scm copy --from resources --to project -p code-review
 
   # Force overwrite existing files
-  mlcm copy --from resources --to project --force
+  scm copy --from resources --to project --force
 
   # Copy fragments for specific personas
-  mlcm copy --from resources --to project --persona go-developer`,
+  scm copy --from resources --to project --persona go-developer`,
 	RunE: runCopy,
 }
 
@@ -141,7 +141,7 @@ func runCopy(cmd *cobra.Command, args []string) error {
 
 	// Resources cannot be a destination unless in dev mode
 	if to == LocationResources && !copyDev {
-		return fmt.Errorf("cannot copy to resources (use --dev flag when working on mlcm itself)")
+		return fmt.Errorf("cannot copy to resources (use --dev flag when working on scm itself)")
 	}
 
 	// Get source and destination paths
@@ -247,9 +247,9 @@ func getLocationPaths(loc Location) (fragDir, promptDir string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		mlcmDir := filepath.Join(home, config.MLCMDirName)
-		return filepath.Join(mlcmDir, config.ContextFragmentsDir),
-			filepath.Join(mlcmDir, config.PromptsDir), nil
+		scmDir := filepath.Join(home, config.SCMDirName)
+		return filepath.Join(scmDir, config.ContextFragmentsDir),
+			filepath.Join(scmDir, config.PromptsDir), nil
 
 	case LocationProject:
 		rootDir := findGitRoot()
@@ -259,9 +259,9 @@ func getLocationPaths(loc Location) (fragDir, promptDir string, err error) {
 				return "", "", err
 			}
 		}
-		mlcmDir := filepath.Join(rootDir, config.MLCMDirName)
-		return filepath.Join(mlcmDir, config.ContextFragmentsDir),
-			filepath.Join(mlcmDir, config.PromptsDir), nil
+		scmDir := filepath.Join(rootDir, config.SCMDirName)
+		return filepath.Join(scmDir, config.ContextFragmentsDir),
+			filepath.Join(scmDir, config.PromptsDir), nil
 
 	default:
 		return "", "", fmt.Errorf("unknown location")
@@ -283,7 +283,7 @@ func getConfigPath(loc Location) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(home, config.MLCMDirName, "config.yaml"), nil
+		return filepath.Join(home, config.SCMDirName, "config.yaml"), nil
 
 	case LocationProject:
 		rootDir := findGitRoot()
@@ -294,7 +294,7 @@ func getConfigPath(loc Location) (string, error) {
 				return "", err
 			}
 		}
-		return filepath.Join(rootDir, config.MLCMDirName, "config.yaml"), nil
+		return filepath.Join(rootDir, config.SCMDirName, "config.yaml"), nil
 
 	default:
 		return "", fmt.Errorf("unknown location")
@@ -832,15 +832,15 @@ func findGitRoot() string {
 	return root
 }
 
-// ensureHomeGitRepo initializes ~/.mlcm as a git repository if it isn't already.
+// ensureHomeGitRepo initializes ~/.scm as a git repository if it isn't already.
 func ensureHomeGitRepo() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 
-	mlcmDir := filepath.Join(home, config.MLCMDirName)
-	gitDir := filepath.Join(mlcmDir, ".git")
+	scmDir := filepath.Join(home, config.SCMDirName)
+	gitDir := filepath.Join(scmDir, ".git")
 
 	// Check if already a git repo
 	if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
@@ -848,10 +848,10 @@ func ensureHomeGitRepo() error {
 	}
 
 	// Initialize git repo
-	fmt.Printf("Initializing %s as git repository...\n", mlcmDir)
+	fmt.Printf("Initializing %s as git repository...\n", scmDir)
 
 	cmd := exec.Command("git", "init")
-	cmd.Dir = mlcmDir
+	cmd.Dir = scmDir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git init failed: %w\n%s", err, output)
 	}
@@ -872,7 +872,7 @@ func init() {
 	copyCmd.Flags().StringArrayVarP(&copyPersonas, "persona", "P", nil, "Copy fragments for these personas")
 	copyCmd.Flags().BoolVarP(&copyVerbose, "verbose", "v", false, "List individual files")
 
-	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for mlcm development)")
+	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for scm development)")
 	copyCmd.Flags().BoolVar(&copyConfig, "include-config", true, "Include config.yaml in copy (use --include-config=false to skip)")
 
 	copyCmd.MarkFlagRequired("from")

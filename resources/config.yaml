@@ -22,7 +22,7 @@ defaults:
 generators:
   simple:
     description: Wrapper that runs any command and outputs as fragment
-    command: mlcm-gen-simple
+    command: scm-gen-simple
 
 personas:
   base:
@@ -38,12 +38,13 @@ personas:
     fragments:
       - general/tdd
       - general/code-quality
-      - tools/cli/just
-      - tools/cli/git
-      - tools/cli/ast-grep
+      - tools/cli/just/just
+      - tools/cli/git/git
+      - tools/cli/ast-grep/ast-grep
       - general/documentation
       - general/problem-solving
       - general/pushback
+      - patterns/12-factor/12-factor
 
   go-developer:
     description: Go development context

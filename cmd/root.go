@@ -3,52 +3,30 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/config"
 )
 
 // Version is set at build time via ldflags
-// Example: go build -ldflags "-X mlcm/cmd.Version=v1.0.0"
+// Example: go build -ldflags "-X scm/cmd.Version=v1.0.0"
 var Version = "dev"
 
 var cfgFile string
 
-// useHomeDir is a global flag to operate on ~/.mlcm instead of project directories
-var useHomeDir bool
-
-// GetMLCMDirs returns the .mlcm directories to operate on based on the --home flag.
-// If --home is set, returns only ~/.mlcm. Otherwise returns project directories from config.
-func GetMLCMDirs() ([]string, error) {
-	if useHomeDir {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
-		mlcmDir := filepath.Join(home, config.MLCMDirName)
-		return []string{mlcmDir}, nil
-	}
-
+// GetSCMDirs returns the .scm directories from project config.
+func GetSCMDirs() ([]string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	return cfg.MLCMPaths, nil
+	return cfg.SCMPaths, nil
 }
 
-// GetFragmentDirs returns fragment directories based on the --home flag.
+// GetFragmentDirs returns fragment directories from project config.
 func GetFragmentDirs() ([]string, error) {
-	if useHomeDir {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
-		return []string{filepath.Join(home, config.MLCMDirName, config.ContextFragmentsDir)}, nil
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -56,16 +34,8 @@ func GetFragmentDirs() ([]string, error) {
 	return cfg.GetFragmentDirs(), nil
 }
 
-// GetPromptDirs returns prompt directories based on the --home flag.
+// GetPromptDirs returns prompt directories from project config.
 func GetPromptDirs() ([]string, error) {
-	if useHomeDir {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
-		return []string{filepath.Join(home, config.MLCMDirName, config.PromptsDir)}, nil
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -73,38 +43,15 @@ func GetPromptDirs() ([]string, error) {
 	return cfg.GetPromptDirs(), nil
 }
 
-// GetConfig returns the configuration, loading from home if --home flag is set.
-// The returned config is properly configured for saving to the correct location.
+// GetConfig returns the project configuration.
 func GetConfig() (*config.Config, error) {
-	if useHomeDir {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
-		}
-		mlcmDir := filepath.Join(home, config.MLCMDirName)
-
-		cfg, err := config.LoadHomeConfig()
-		if err != nil {
-			return nil, err
-		}
-		if cfg == nil {
-			// Return empty config if home config doesn't exist
-			cfg = &config.Config{
-				Personas:   make(map[string]config.Persona),
-				Generators: make(map[string]config.Generator),
-			}
-		}
-		// Set MLCMPaths so Save() works correctly
-		cfg.MLCMPaths = []string{mlcmDir}
-		return cfg, nil
-	}
 	return config.Load()
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "mlcm",
-	Short: "Machine Learning Context Manager",
-	Long:  `MLCM is a CLI tool for managing context, fragments, and prompts for AI interactions.`,
+	Use:   "scm",
+	Short: "Sophisticated Context Management",
+	Long:  `SCM is a CLI tool for managing context, fragments, and prompts for AI interactions.`,
 }
 
 func Execute() {
@@ -152,8 +99,7 @@ func shouldDefaultToRun(args []string) bool {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mlcm.yaml)")
-	rootCmd.PersistentFlags().BoolVar(&useHomeDir, "home", false, "operate on ~/.mlcm instead of project directories")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scm.yaml)")
 }
 
 func initConfig() {
@@ -165,7 +111,7 @@ func initConfig() {
 
 		viper.AddConfigPath(home)
 		viper.SetConfigType("yaml")
-		viper.SetConfigName(".mlcm")
+		viper.SetConfigName(".scm")
 	}
 
 	viper.AutomaticEnv()

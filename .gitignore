@@ -1,5 +1,5 @@
 # Binaries
-mlcm
+scm
 bin/
 
 # Go
@@ -14,7 +14,7 @@ go.work
 go.work.sum
 
 # Local config
-.mlcm/
+.scm/
 .mcp.json
 .tasks/
 

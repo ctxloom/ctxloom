@@ -4,7 +4,7 @@ Feature: Run command
   So that I can interact with AI using my configured fragments
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
     And a mock LM is configured
 
   # ============================================================================
@@ -23,7 +23,7 @@ Feature: Run command
       """
       LM response.
       """
-    When I run mlcm "run -f test-fragment --print test prompt"
+    When I run scm "run -f test-fragment --print test prompt"
     Then the exit code should be 0
     And the LM should have received context containing "This is test content"
     And the LM should have received context containing "test prompt"
@@ -47,7 +47,7 @@ Feature: Run command
       """
       Response.
       """
-    When I run mlcm "run -f frag-one -f frag-two --print combined test"
+    When I run scm "run -f frag-one -f frag-two --print combined test"
     Then the exit code should be 0
     And the LM should have received context containing "Content from fragment one"
     And the LM should have received context containing "Content from fragment two"
@@ -81,7 +81,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -p test-persona --print persona test"
+    When I run scm "run -p test-persona --print persona test"
     Then the exit code should be 0
     And the LM should have received context containing "Persona fragment content"
 
@@ -108,7 +108,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -t security --print tag test"
+    When I run scm "run -t security --print tag test"
     Then the exit code should be 0
     And the LM should have received context containing "Security guidelines"
     And the LM should have received context not containing "Style guidelines"
@@ -132,7 +132,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -t review -t testing --print multi-tag test"
+    When I run scm "run -t review -t testing --print multi-tag test"
     Then the exit code should be 0
     And the LM should have received context containing "Review content"
     And the LM should have received context containing "Testing content"
@@ -170,7 +170,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -p var-persona --print var test"
+    When I run scm "run -p var-persona --print var test"
     Then the exit code should be 0
     And the LM should have received context containing "The language is Go"
     And the LM should have received context containing "The version is 1.21"
@@ -187,7 +187,7 @@ Feature: Run command
       content: |
         Dry run content.
       """
-    When I run mlcm "run -f dry-frag --dry-run test prompt"
+    When I run scm "run -f dry-frag --dry-run test prompt"
     Then the exit code should be 0
     And the output should contain "Dry run content"
 
@@ -208,7 +208,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -f no-distill-frag --print no-distill test"
+    When I run scm "run -f no-distill-frag --print no-distill test"
     Then the exit code should be 0
     And the LM should have received context containing "This exact content must be preserved"
 
@@ -217,12 +217,12 @@ Feature: Run command
   # ============================================================================
 
   Scenario: Run with nonexistent fragment fails
-    When I run mlcm "run -f nonexistent --print test"
+    When I run scm "run -f nonexistent --print test"
     Then the exit code should be 1
     And the output should contain "not found"
 
   Scenario: Run with nonexistent persona fails
-    When I run mlcm "run -p nonexistent --print test"
+    When I run scm "run -p nonexistent --print test"
     Then the exit code should be 1
     And the output should contain "unknown persona"
 
@@ -242,7 +242,7 @@ Feature: Run command
       """
       This is the LM response.
       """
-    When I run mlcm "run -f print-frag --print test"
+    When I run scm "run -f print-frag --print test"
     Then the exit code should be 0
     And the output should contain "This is the LM response"
 
@@ -262,7 +262,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -f quiet-frag --quiet --print test"
+    When I run scm "run -f quiet-frag --quiet --print test"
     Then the exit code should be 0
 
   # ============================================================================
@@ -287,7 +287,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -f prompt-frag -r saved-prompt --print"
+    When I run scm "run -f prompt-frag -r saved-prompt --print"
     Then the exit code should be 0
     And the LM should have received context containing "This is saved prompt content"
 
@@ -303,7 +303,7 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -f alt-frag --prompt alternative-prompt-text --print"
+    When I run scm "run -f alt-frag --prompt alternative-prompt-text --print"
     Then the exit code should be 0
     And the LM should have received context containing "alternative-prompt-text"
 
@@ -323,6 +323,6 @@ Feature: Run command
       """
       OK
       """
-    When I run mlcm "run -f lang/golang --print test"
+    When I run scm "run -f lang/golang --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Go coding guidelines from subdirectory"

@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/fragments"
 )
 
 var generatorCmd = &cobra.Command{
@@ -37,7 +37,7 @@ var generatorListCmd = &cobra.Command{
 
 		if len(cfg.Generators) == 0 {
 			fmt.Println("No generators registered.")
-			fmt.Println("Use 'mlcm generator add <name> -c <command>' to register one.")
+			fmt.Println("Use 'scm generator add <name> -c <command>' to register one.")
 			return nil
 		}
 
@@ -78,8 +78,8 @@ var generatorAddCmd = &cobra.Command{
 	Long: `Register a new context generator.
 
 Examples:
-  mlcm generator add env-info -c ./scripts/env-gen.sh -d "Environment variables"
-  mlcm generator add date -c date -a "+%Y-%m-%d" -d "Current date"`,
+  scm generator add env-info -c ./scripts/env-gen.sh -d "Environment variables"
+  scm generator add date -c date -a "+%Y-%m-%d" -d "Current date"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

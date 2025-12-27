@@ -2,6 +2,7 @@ package steps
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/cucumber/godog"
 )
@@ -11,6 +12,7 @@ func RegisterAssertionSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the exit code should be (\d+)$`, theExitCodeShouldBe)
 	ctx.Step(`^the output should contain "([^"]*)"$`, theOutputShouldContain)
 	ctx.Step(`^the output should not contain "([^"]*)"$`, theOutputShouldNotContain)
+	ctx.Step(`^the output should match "([^"]*)"$`, theOutputShouldMatch)
 	ctx.Step(`^the file "([^"]*)" should exist$`, theFileShouldExist)
 	ctx.Step(`^the file "([^"]*)" should not exist$`, theFileShouldNotExist)
 	ctx.Step(`^the file "([^"]*)" should contain "([^"]*)"$`, theFileShouldContain)
@@ -41,6 +43,18 @@ func theOutputShouldNotContain(unexpected string) error {
 	output := TestEnv.LastOutput()
 	if contains(output, unexpected) {
 		return fmt.Errorf("expected output NOT to contain %q\nActual output:\n%s", unexpected, output)
+	}
+	return nil
+}
+
+func theOutputShouldMatch(pattern string) error {
+	output := TestEnv.LastOutput()
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Errorf("invalid regex pattern %q: %w", pattern, err)
+	}
+	if !re.MatchString(output) {
+		return fmt.Errorf("expected output to match pattern %q\nActual output:\n%s", pattern, output)
 	}
 	return nil
 }

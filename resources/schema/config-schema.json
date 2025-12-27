@@ -1,10 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mlcm.dev/schemas/config.json",
-  "title": "MLCM Configuration",
-  "description": "Schema for MLCM config.yaml files",
+  "$id": "https://scm.dev/schemas/config.json",
+  "title": "SCM Configuration",
+  "description": "Schema for SCM config.yaml files",
   "type": "object",
   "properties": {
+    "version": {
+      "type": ["string", "number"],
+      "description": "Schema version for the config format",
+      "examples": ["1.0", 1.0]
+    },
     "lm": {
       "type": "object",
       "description": "Language model plugin configuration",

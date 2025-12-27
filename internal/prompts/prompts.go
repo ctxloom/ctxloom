@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/mlcm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/fsys"
 )
 
 // Prompt represents a YAML-based prompt with metadata and content.

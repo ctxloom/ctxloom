@@ -1,8 +1,9 @@
 # Default recipe
 default: build
 
-# Get version from versionator (with v prefix)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}"`
+# Get version from versionator
+# Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
+version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}"`
 
 # Validate fragment YAML files against JSON schema
 validate:
@@ -13,23 +14,23 @@ distill-resources:
     go run . distill --resources
 
 # Build all binaries (main app + generators)
-build: validate distill-resources build-mlcm build-generators
+build: validate distill-resources build-scm build-generators
 
 # Build the main binary
-build-mlcm:
-    go build -ldflags "-X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
+build-scm:
+    go build -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
 
 # Build all generators
 build-generators: build-simple
 
 # Build simple wrapper generator
 build-simple:
-    go build -o bin/mlcm-gen-simple ./cmd/generators/simple
+    go build -o bin/scm-gen-simple ./cmd/generators/simple
 
 # Build with verbose output
 build-verbose:
-    go build -v -ldflags "-X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
-    go build -v -o bin/mlcm-gen-simple ./cmd/generators/simple
+    go build -v -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
+    go build -v -o bin/scm-gen-simple ./cmd/generators/simple
 
 # Run tests
 test:
@@ -43,17 +44,27 @@ test-verbose:
 test-coverage:
     go test -cover ./...
 
-# Run acceptance tests (requires mlcm binary)
-test-acceptance: build-mlcm
+# Run acceptance tests (requires scm binary)
+test-acceptance: build-scm
     go test -v ./tests/acceptance/...
 
 # Run acceptance tests with specific tags
 test-acceptance-tags TAGS:
     go test -v ./tests/acceptance/... -godog.tags="{{TAGS}}"
 
+# Run all tests in container (matches CI environment)
+test-container:
+    docker run --rm -v "$(pwd):/app" -w /app golang:1.24 sh -c '\
+        go mod download && \
+        go test -race ./... && \
+        CGO_ENABLED=0 go build -o scm . && \
+        mkdir -p bin && \
+        CGO_ENABLED=0 go build -o bin/scm-gen-simple ./cmd/generators/simple && \
+        go test -v ./tests/acceptance/...'
+
 # Clean build artifacts
 clean:
-    rm -f mlcm
+    rm -f scm
     rm -rf bin/
     go clean
 
@@ -80,43 +91,43 @@ run *ARGS:
 # Build and install to ~/.local/bin
 install: build-static
     mkdir -p ~/.local/bin
-    -pkill -x mlcm && sleep 0.5
-    cp mlcm ~/.local/bin/
-    cp bin/mlcm-gen-* ~/.local/bin/
+    -pkill -x scm && sleep 0.5
+    cp scm ~/.local/bin/
+    cp bin/scm-gen-* ~/.local/bin/
 
 # Uninstall from ~/.local/bin
 uninstall:
-    rm -f ~/.local/bin/mlcm
-    rm -f ~/.local/bin/mlcm-gen-*
+    rm -f ~/.local/bin/scm
+    rm -f ~/.local/bin/scm-gen-*
 
 # Build static binaries
 build-static: validate distill-resources
-    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/mlcm/cmd.Version={{version}}" -o mlcm .
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
+    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
 
 # Show help
 help:
-    ./mlcm --help
+    ./scm --help
 
-# Initialize .mlcm directory
+# Initialize .scm directory
 init:
-    ./mlcm init
+    ./scm init
 
 # Dry run with test fragments
 dry-run PROMPT:
-    ./mlcm run -f test-fragment -f additional-context -n "{{PROMPT}}"
+    ./scm run -f test-fragment -f additional-context -n "{{PROMPT}}"
 
 # Run with Gemini plugin
 gemini *ARGS:
-    ./mlcm -P gemini {{ARGS}}
+    ./scm -P gemini {{ARGS}}
 
 # Run with Claude plugin (default)
 claude *ARGS:
-    ./mlcm -P claude-code {{ARGS}}
+    ./scm -P claude-code {{ARGS}}
 
 # Code review with reviewer persona
 review *ARGS:
-    ./mlcm -p reviewer -r code-review {{ARGS}}
+    ./scm -p reviewer -r code-review {{ARGS}}
 
 # ===== Terraform targets =====
 
@@ -147,4 +158,3 @@ tf-fmt:
 # Validate Terraform configuration
 tf-validate:
     cd terraform && terraform validate
-

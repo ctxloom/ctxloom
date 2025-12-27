@@ -2,6 +2,7 @@
 package fsys
 
 import (
+	"embed"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -253,4 +254,45 @@ func WriteProtected(path string, data []byte) error {
 
 	_, err = f.Write(data)
 	return err
+}
+
+// EmbedFS wraps embed.FS to implement the FS interface.
+// The root parameter specifies the subdirectory within the embed.FS to use as the root.
+type EmbedFS struct {
+	fs   embed.FS
+	root string
+}
+
+// NewEmbedFS creates a new EmbedFS wrapper.
+// root is the subdirectory within the embed.FS to use as the root for all operations.
+func NewEmbedFS(efs embed.FS, root string) *EmbedFS {
+	return &EmbedFS{fs: efs, root: root}
+}
+
+// ReadFile reads a file from the embedded filesystem.
+func (e *EmbedFS) ReadFile(name string) ([]byte, error) {
+	return e.fs.ReadFile(filepath.Join(e.root, name))
+}
+
+// Stat returns file info for a file in the embedded filesystem.
+func (e *EmbedFS) Stat(name string) (fs.FileInfo, error) {
+	f, err := e.fs.Open(filepath.Join(e.root, name))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.Stat()
+}
+
+// WalkDir walks the embedded filesystem.
+func (e *EmbedFS) WalkDir(root string, fn fs.WalkDirFunc) error {
+	fullRoot := filepath.Join(e.root, root)
+	return fs.WalkDir(e.fs, fullRoot, func(path string, d fs.DirEntry, err error) error {
+		// Convert path back to be relative to our virtual root
+		relPath, relErr := filepath.Rel(e.root, path)
+		if relErr != nil {
+			relPath = path
+		}
+		return fn(relPath, d, err)
+	})
 }

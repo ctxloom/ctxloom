@@ -6,23 +6,23 @@ import (
 
 // RegisterCommandSteps registers steps for running commands.
 func RegisterCommandSteps(ctx *godog.ScenarioContext) {
-	ctx.Step(`^I run mlcm "([^"]*)"$`, iRunMlcm)
-	ctx.Step(`^I run mlcm with args:$`, iRunMlcmWithArgs)
+	ctx.Step(`^I run scm "([^"]*)"$`, iRunSCM)
+	ctx.Step(`^I run scm with args:$`, iRunSCMWithArgs)
 }
 
-func iRunMlcm(args string) error {
+func iRunSCM(args string) error {
 	// Split args by space (simple splitting, doesn't handle quotes)
 	parts := splitArgs(args)
 
 	// Run the command but don't return the error - let assertion steps check results
-	TestEnv.RunMLCM(parts...)
+	TestEnv.RunSCM(parts...)
 	return nil
 }
 
-func iRunMlcmWithArgs(args *godog.DocString) error {
+func iRunSCMWithArgs(args *godog.DocString) error {
 	parts := splitArgs(args.Content)
 	// Run the command but don't return the error - let assertion steps check results
-	TestEnv.RunMLCM(parts...)
+	TestEnv.RunSCM(parts...)
 	return nil
 }
 

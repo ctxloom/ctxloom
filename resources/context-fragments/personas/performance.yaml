@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - review
     - persona
@@ -58,3 +58,55 @@ content: |-
     - Where are the actual bottlenecks?
     - Are micro-optimizations justified by measurement?
     - Is premature optimization being avoided?
+content_hash: sha256:a19a8038750c291a6a4700c7cb547e019878d1143fd178292e966a5049d90c3e
+distilled: |-
+    Here's the compressed version:
+
+    ```markdown
+    # Performance & Algorithms Review
+
+    CS-focused review: efficiency, data structures, algorithmic complexity.
+
+    ## Complexity
+    - Time/space Big-O?
+    - Hidden O(n) in loops?
+    - Better algorithm possible?
+
+    ## Data Structures
+    - Right structure for access patterns?
+    - HashMap vs TreeMap (ordering needed?)
+    - Array vs LinkedList (random vs sequential?)
+    - Set vs List (duplicates?)
+    - PriorityQueue/heap/sorted: which fits?
+
+    ## Memory
+    - Allocations minimized in hot paths?
+    - Unnecessary copies?
+    - Stream vs load entirely?
+    - Large objects by reference?
+
+    ## Caching
+    - Expensive computations cached?
+    - Invalidation correct?
+    - Memoization opportunities?
+    - Cache sizes bounded?
+
+    ## I/O & Network
+    - Batched I/O?
+    - Pagination for large datasets?
+    - Round-trips minimized?
+    - Async where appropriate?
+
+    ## Loops
+    - Work movable outside?
+    - Invariants hoisted?
+    - Early termination?
+    - Parallelizable?
+
+    ## Profiling
+    - Profiled?
+    - Actual bottlenecks identified?
+    - Micro-optimizations justified?
+    - Premature optimization avoided?
+    ```
+distilled_by: claude-code

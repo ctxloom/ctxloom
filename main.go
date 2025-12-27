@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/benjaminabbitt/mlcm/cmd"
-	"github.com/benjaminabbitt/mlcm/internal/logging"
+	"github.com/benjaminabbitt/scm/cmd"
+	"github.com/benjaminabbitt/scm/internal/logging"
 )
 
 func main() {

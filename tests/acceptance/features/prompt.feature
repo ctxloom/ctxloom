@@ -4,14 +4,14 @@ Feature: Prompt management
   So that I can reuse prompt templates
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
 
   # ============================================================================
   # Prompt List
   # ============================================================================
 
   Scenario: List prompts in empty project
-    When I run mlcm "prompt list"
+    When I run scm "prompt list"
     Then the exit code should be 0
     And the output should contain "No prompts found"
 
@@ -22,7 +22,7 @@ Feature: Prompt management
       content: |
         Please review this code for bugs and improvements.
       """
-    When I run mlcm "prompt list"
+    When I run scm "prompt list"
     Then the exit code should be 0
     And the output should contain "code-review"
 
@@ -39,7 +39,7 @@ Feature: Prompt management
       content: |
         Explain this code.
       """
-    When I run mlcm "prompt list"
+    When I run scm "prompt list"
     Then the exit code should be 0
     And the output should contain "review"
     And the output should contain "explain"
@@ -55,7 +55,7 @@ Feature: Prompt management
       content: |
         This is the prompt content to display.
       """
-    When I run mlcm "prompt show show-test"
+    When I run scm "prompt show show-test"
     Then the exit code should be 0
     And the output should contain "This is the prompt content to display"
 
@@ -66,12 +66,12 @@ Feature: Prompt management
       content: |
         Prompt content here.
       """
-    When I run mlcm "prompt show described"
+    When I run scm "prompt show described"
     Then the exit code should be 0
     And the output should contain "Prompt content here"
 
   Scenario: Show nonexistent prompt fails
-    When I run mlcm "prompt show nonexistent"
+    When I run scm "prompt show nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
@@ -86,50 +86,10 @@ Feature: Prompt management
       content: |
         This will be deleted.
       """
-    When I run mlcm "prompt delete to-delete"
+    When I run scm "prompt delete to-delete"
     Then the exit code should be 0
-    And the file ".mlcm/prompts/to-delete.yaml" should not exist
+    And the file ".scm/prompts/to-delete.yaml" should not exist
 
   Scenario: Delete nonexistent prompt fails
-    When I run mlcm "prompt delete nonexistent"
+    When I run scm "prompt delete nonexistent"
     Then the exit code should be 1
-
-  # ============================================================================
-  # Prompt with Home Directory
-  # ============================================================================
-
-  Scenario: List prompts from home with --home flag
-    Given a home directory with mlcm config
-    And a prompt "home-prompt" in home with content:
-      """
-      description: Home prompt
-      content: |
-        Home prompt content.
-      """
-    When I run mlcm "prompt list --home"
-    Then the exit code should be 0
-    And the output should contain "home-prompt"
-
-  Scenario: Show prompt from home with --home flag
-    Given a home directory with mlcm config
-    And a prompt "home-show" in home with content:
-      """
-      description: Home prompt to show
-      content: |
-        Home content to show.
-      """
-    When I run mlcm "prompt show home-show --home"
-    Then the exit code should be 0
-    And the output should contain "Home content to show"
-
-  Scenario: Delete prompt from home with --home flag
-    Given a home directory with mlcm config
-    And a prompt "home-delete" in home with content:
-      """
-      description: To be deleted
-      content: |
-        To be deleted from home.
-      """
-    When I run mlcm "prompt delete home-delete --home"
-    Then the exit code should be 0
-    And the home file ".mlcm/prompts/home-delete.yaml" should not exist

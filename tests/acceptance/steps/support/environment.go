@@ -21,8 +21,8 @@ type TestEnvironment struct {
 	// ProjectDir is the fake project directory (a git repo)
 	ProjectDir string
 
-	// MLCMBinary is the path to the mlcm binary to test
-	MLCMBinary string
+	// SCMBinary is the path to the scm binary to test
+	SCMBinary string
 
 	// originalEnv stores original environment variables for restoration
 	originalEnv map[string]string
@@ -40,7 +40,7 @@ type TestEnvironment struct {
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
 	// Create root temp directory
-	root, err := os.MkdirTemp("", "mlcm-acceptance-*")
+	root, err := os.MkdirTemp("", "scm-acceptance-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp root: %w", err)
 	}
@@ -53,11 +53,11 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	}
 
 	// Create home directory structure
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".mlcm", "context-fragments"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "context-fragments"), 0755); err != nil {
 		env.Cleanup()
-		return nil, fmt.Errorf("failed to create home .mlcm: %w", err)
+		return nil, fmt.Errorf("failed to create home .scm: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".mlcm", "prompts"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "prompts"), 0755); err != nil {
 		env.Cleanup()
 		return nil, fmt.Errorf("failed to create home prompts: %w", err)
 	}
@@ -68,20 +68,20 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 		return nil, fmt.Errorf("failed to create project dir: %w", err)
 	}
 
-	// Find the mlcm binary
-	env.MLCMBinary, err = env.findMLCMBinary()
+	// Find the scm binary
+	env.SCMBinary, err = env.findSCMBinary()
 	if err != nil {
 		env.Cleanup()
-		return nil, fmt.Errorf("failed to find mlcm binary: %w", err)
+		return nil, fmt.Errorf("failed to find scm binary: %w", err)
 	}
 
 	return env, nil
 }
 
-// findMLCMBinary locates the mlcm binary to test.
-func (e *TestEnvironment) findMLCMBinary() (string, error) {
-	// First, check if MLCM_BINARY is set (for CI or custom builds)
-	if bin := os.Getenv("MLCM_BINARY"); bin != "" {
+// findSCMBinary locates the scm binary to test.
+func (e *TestEnvironment) findSCMBinary() (string, error) {
+	// First, check if SCM_BINARY is set (for CI or custom builds)
+	if bin := os.Getenv("SCM_BINARY"); bin != "" {
 		if _, err := os.Stat(bin); err == nil {
 			return bin, nil
 		}
@@ -106,14 +106,14 @@ func (e *TestEnvironment) findMLCMBinary() (string, error) {
 	// Try to find in common locations
 	locations := []string{
 		// Built binary in project root (found by walking up)
-		filepath.Join(projectRoot, "mlcm"),
+		filepath.Join(projectRoot, "scm"),
 		// Built binary in current dir
-		"./mlcm",
+		"./scm",
 		// Go install location
-		filepath.Join(os.Getenv("GOPATH"), "bin", "mlcm"),
-		filepath.Join(os.Getenv("HOME"), "go", "bin", "mlcm"),
+		filepath.Join(os.Getenv("GOPATH"), "bin", "scm"),
+		filepath.Join(os.Getenv("HOME"), "go", "bin", "scm"),
 		// Local bin
-		filepath.Join(os.Getenv("HOME"), ".local", "bin", "mlcm"),
+		filepath.Join(os.Getenv("HOME"), ".local", "bin", "scm"),
 	}
 
 	// Add .exe suffix on Windows
@@ -136,11 +136,11 @@ func (e *TestEnvironment) findMLCMBinary() (string, error) {
 	}
 
 	// Try PATH lookup
-	if path, err := exec.LookPath("mlcm"); err == nil {
+	if path, err := exec.LookPath("scm"); err == nil {
 		return path, nil
 	}
 
-	return "", fmt.Errorf("mlcm binary not found; set MLCM_BINARY or ensure mlcm is in PATH")
+	return "", fmt.Errorf("scm binary not found; set SCM_BINARY or ensure scm is in PATH")
 }
 
 // Setup configures the environment variables for isolated testing.
@@ -216,7 +216,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 }
 
 // isolatedEnv returns environment variables with home directory properly isolated.
-// This ensures mlcm uses our fake home directory, not the real one.
+// This ensures scm uses our fake home directory, not the real one.
 func (e *TestEnvironment) isolatedEnv() []string {
 	// Variables to replace with our test paths
 	replacements := map[string]string{
@@ -248,11 +248,11 @@ func (e *TestEnvironment) gitEnv() []string {
 	return e.isolatedEnv()
 }
 
-// CreateProjectMLCM creates the .mlcm directory structure in the project.
-func (e *TestEnvironment) CreateProjectMLCM() error {
+// CreateProjectSCM creates the .scm directory structure in the project.
+func (e *TestEnvironment) CreateProjectSCM() error {
 	dirs := []string{
-		filepath.Join(e.ProjectDir, ".mlcm", "context-fragments"),
-		filepath.Join(e.ProjectDir, ".mlcm", "prompts"),
+		filepath.Join(e.ProjectDir, ".scm", "context-fragments"),
+		filepath.Join(e.ProjectDir, ".scm", "prompts"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -316,9 +316,9 @@ func (e *TestEnvironment) HomeFileExists(relPath string) bool {
 	return err == nil
 }
 
-// RunMLCM executes mlcm with the given arguments in the project directory.
-func (e *TestEnvironment) RunMLCM(args ...string) error {
-	cmd := exec.Command(e.MLCMBinary, args...)
+// RunSCM executes scm with the given arguments in the project directory.
+func (e *TestEnvironment) RunSCM(args ...string) error {
+	cmd := exec.Command(e.SCMBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
 
@@ -388,9 +388,9 @@ func (e *TestEnvironment) GitBranch(name string) error {
 	return nil
 }
 
-// RunMLCMWithStdin executes mlcm with stdin input and returns the output.
-func (e *TestEnvironment) RunMLCMWithStdin(stdin string, args ...string) error {
-	cmd := exec.Command(e.MLCMBinary, args...)
+// RunSCMWithStdin executes scm with stdin input and returns the output.
+func (e *TestEnvironment) RunSCMWithStdin(stdin string, args ...string) error {
+	cmd := exec.Command(e.SCMBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
 	cmd.Stdin = strings.NewReader(stdin)

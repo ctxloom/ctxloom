@@ -105,7 +105,7 @@ func (m *MockLM) ClearRecordedInput() error {
 	return err
 }
 
-// SetupMockLM sets up a mock LM in the test environment and configures mlcm to use it.
+// SetupMockLM sets up a mock LM in the test environment and configures scm to use it.
 func (e *TestEnvironment) SetupMockLM() (*MockLM, error) {
 	mockLM, err := NewMockLM(e.Root)
 	if err != nil {
@@ -125,7 +125,7 @@ personas: {}
 `, mockLM.BinaryPath)
 
 	// Write to project directory (takes precedence)
-	if err := e.WriteFile(".mlcm/config.yaml", config); err != nil {
+	if err := e.WriteFile(".scm/config.yaml", config); err != nil {
 		return nil, err
 	}
 

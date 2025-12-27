@@ -10,13 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
-	"github.com/benjaminabbitt/mlcm/internal/ml"
-	_ "github.com/benjaminabbitt/mlcm/internal/ml/claudecode"
-	_ "github.com/benjaminabbitt/mlcm/internal/ml/gemini"
-	"github.com/benjaminabbitt/mlcm/internal/schema"
-	"github.com/benjaminabbitt/mlcm/resources"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/ml"
+	_ "github.com/benjaminabbitt/scm/internal/ml/claudecode"
+	_ "github.com/benjaminabbitt/scm/internal/ml/gemini"
+	"github.com/benjaminabbitt/scm/internal/schema"
+	"github.com/benjaminabbitt/scm/resources"
 )
 
 // getDistillPrompt loads the distillation prompt from embedded resources.
@@ -61,13 +61,13 @@ Use --skip-prompts to distill only fragments (skip prompts).
 Use --resources to distill embedded resources (for packaging).
 
 Examples:
-  mlcm distill                           # Distill all fragments and prompts
-  mlcm distill -p go-developer           # Distill fragments for go-developer persona
-  mlcm distill -f style/direct           # Distill specific fragments
-  mlcm distill -P code-review            # Distill specific prompts
-  mlcm distill --prompts-only            # Distill only prompts
-  mlcm distill --dry-run                 # Preview what would be distilled
-  mlcm distill --resources               # Distill resources/ for packaging`,
+  scm distill                           # Distill all fragments and prompts
+  scm distill -p go-developer           # Distill fragments for go-developer persona
+  scm distill -f style/direct           # Distill specific fragments
+  scm distill -P code-review            # Distill specific prompts
+  scm distill --prompts-only            # Distill only prompts
+  scm distill --dry-run                 # Preview what would be distilled
+  scm distill --resources               # Distill resources/ for packaging`,
 	RunE: runDistill,
 }
 
@@ -76,6 +76,11 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Can't distill embedded resources without --resources flag
+	if cfg.IsEmbedded() && !distillResources {
+		return fmt.Errorf("no .scm directory found; use 'scm copy' to create one, or use --resources for packaging")
 	}
 
 	// Determine which plugin to use
@@ -442,25 +447,31 @@ var distillCleanCmd = &cobra.Command{
 	Short: "Clear distilled content from all fragments and prompts",
 	Long: `Clear distilled content from fragment and prompt YAML files.
 
-This command walks through all .mlcm directories in the search path and
+This command walks through all .scm directories in the search path and
 clears the distilled, content_hash, and distilled_by fields from each YAML file.
 
 Examples:
-  mlcm distill clean              # Clear distilled content from all files
-  mlcm distill clean --dry-run    # Preview what would be cleaned`,
+  scm distill clean              # Clear distilled content from all files
+  scm distill clean --dry-run    # Preview what would be cleaned`,
 	RunE: runDistillClean,
 }
 
 func runDistillClean(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if cfg.IsEmbedded() {
+		return fmt.Errorf("no .scm directory found; nothing to clean")
+	}
+
 	var cleaned int
 	var skipped int
 	var errors int
 
 	// Clean fragment directories
-	fragmentDirs, err := GetFragmentDirs()
-	if err != nil {
-		return fmt.Errorf("failed to get fragment directories: %w", err)
-	}
+	fragmentDirs := cfg.GetFragmentDirs()
 
 	if len(fragmentDirs) > 0 {
 		loader := fragments.NewLoader(fragmentDirs, fragments.WithPreferDistilled(false))
@@ -506,10 +517,7 @@ func runDistillClean(cmd *cobra.Command, args []string) error {
 	}
 
 	// Clean prompt directories
-	promptDirs, err := GetPromptDirs()
-	if err != nil {
-		return fmt.Errorf("failed to get prompt directories: %w", err)
-	}
+	promptDirs := cfg.GetPromptDirs()
 
 	if len(promptDirs) > 0 {
 		promptLoader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(false))

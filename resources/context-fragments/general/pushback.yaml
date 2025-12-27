@@ -1,39 +1,73 @@
 version: "1.0"
 tags:
-  - workflow
-  - quality
-content: |
-  # When to Push Back
+    - workflow
+    - quality
+content: |-
+    # When to Push Back
 
-  ## Situations Requiring Pushback
+    ## Situations Requiring Pushback
 
-  If asked to:
-  - Skip tests ("just make it work first")
-  - Add features without tests
-  - Ignore type hints/annotations
-  - Work around linting errors instead of fixing them
+    If asked to:
+    - Skip tests ("just make it work first")
+    - Add features without tests
+    - Ignore type hints/annotations
+    - Work around linting errors instead of fixing them
 
-  ## Response Pattern
+    ## Response Pattern
 
-  1. State why this is problematic
-  2. Explain the consequences
-  3. Suggest the correct approach
-  4. Defer to user if they insist, but note the technical debt
+    1. State why this is problematic
+    2. Explain the consequences
+    3. Suggest the correct approach
+    4. Defer to user if they insist, but note the technical debt
 
-  ## Questions When Starting Features
+    ## Questions When Starting Features
 
-  - What is the acceptance criterion?
-  - Are there performance requirements?
-  - What error cases should be handled?
-  - Are there security implications?
-  - What should be logged?
-  - What are the dependencies?
-  - How will this be tested?
-  - What error messages are needed?
+    - What is the acceptance criterion?
+    - Are there performance requirements?
+    - What error cases should be handled?
+    - Are there security implications?
+    - What should be logged?
+    - What are the dependencies?
+    - How will this be tested?
+    - What error messages are needed?
 
-  ## Questions When Designing Components
+    ## Questions When Designing Components
 
-  - What dependencies does this need?
-  - What interface/protocol should dependencies implement?
-  - What context should be logged?
-  - What error conditions exist and what messages should they have?
+    - What dependencies does this need?
+    - What interface/protocol should dependencies implement?
+    - What context should be logged?
+    - What error conditions exist and what messages should they have?
+content_hash: sha256:dcb677dd3c01df01a6c70d5e0aebb57e6ba29bb06e916fc5b498afc421d3d39e
+distilled: |-
+    ```yaml
+    # Pushback Guidelines
+
+    ## When to Push Back
+    - Skip tests
+    - Add features w/o tests
+    - Ignore type hints
+    - Work around linting vs fix
+
+    ## Response Pattern
+    1. State problem
+    2. Explain consequences
+    3. Suggest correct approach
+    4. Defer if insisted, note tech debt
+
+    ## Feature Start Questions
+    - Acceptance criteria?
+    - Perf requirements?
+    - Error cases?
+    - Security implications?
+    - Logging needs?
+    - Dependencies?
+    - Test approach?
+    - Error messages?
+
+    ## Component Design Questions
+    - Required dependencies?
+    - Dependency interface/protocol?
+    - Log context?
+    - Error conditions & messages?
+    ```
+distilled_by: claude-code

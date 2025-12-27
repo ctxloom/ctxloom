@@ -8,13 +8,13 @@ import (
 	"os/exec"
 	"strings"
 
-	"mlcm/internal/ai"
+	"mlcm/internal/ml"
 	"mlcm/internal/ptyrunner"
 )
 
 const pluginName = "gemini"
 
-// Plugin implements the ai.Plugin and ai.ConfigurablePlugin interfaces for Gemini CLI.
+// Plugin implements the ml.Plugin and ml.ConfigurablePlugin interfaces for Gemini CLI.
 type Plugin struct {
 	binaryPath string
 	args       []string
@@ -36,7 +36,7 @@ func (p *Plugin) Name() string {
 }
 
 // Clone returns a new instance of this plugin with the same base configuration.
-func (p *Plugin) Clone() ai.Plugin {
+func (p *Plugin) Clone() ml.Plugin {
 	clone := &Plugin{
 		binaryPath: p.binaryPath,
 		args:       make([]string, len(p.args)),
@@ -50,7 +50,7 @@ func (p *Plugin) Clone() ai.Plugin {
 }
 
 // Configure applies the given configuration to the plugin.
-func (p *Plugin) Configure(cfg ai.PluginConfig) {
+func (p *Plugin) Configure(cfg ml.PluginConfig) {
 	if cfg.BinaryPath != "" {
 		p.binaryPath = cfg.BinaryPath
 	}
@@ -63,7 +63,7 @@ func (p *Plugin) Configure(cfg ai.PluginConfig) {
 }
 
 // Run executes Gemini with the given request.
-func (p *Plugin) Run(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) Run(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	// Use PTY for interactive mode (no prompt and not print mode)
 	if req.Prompt == "" && !req.Print {
 		return p.runInteractive(ctx, req, stdout, stderr)
@@ -72,7 +72,7 @@ func (p *Plugin) Run(ctx context.Context, req ai.Request, stdout, stderr io.Writ
 }
 
 // runInteractive runs Gemini in interactive mode using a PTY.
-func (p *Plugin) runInteractive(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) runInteractive(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	args := p.buildArgs(req)
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 
@@ -91,14 +91,14 @@ func (p *Plugin) runInteractive(ctx context.Context, req ai.Request, stdout, std
 		return nil, fmt.Errorf("failed to run gemini: %w", err)
 	}
 
-	return &ai.Response{
+	return &ml.Response{
 		Output:   result.Output,
 		ExitCode: result.ExitCode,
 	}, nil
 }
 
 // runNonInteractive runs Gemini in non-interactive mode.
-func (p *Plugin) runNonInteractive(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) runNonInteractive(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	args := p.buildArgs(req)
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 
@@ -119,14 +119,14 @@ func (p *Plugin) runNonInteractive(ctx context.Context, req ai.Request, stdout, 
 		return nil, fmt.Errorf("failed to run gemini: %w", err)
 	}
 
-	return &ai.Response{
+	return &ml.Response{
 		Output:   result.Output,
 		ExitCode: result.ExitCode,
 	}, nil
 }
 
 // buildArgs constructs the command-line arguments for gemini.
-func (p *Plugin) buildArgs(req ai.Request) []string {
+func (p *Plugin) buildArgs(req ml.Request) []string {
 	// Start with configured args
 	args := make([]string, len(p.args))
 	copy(args, p.args)
@@ -151,7 +151,7 @@ func (p *Plugin) buildArgs(req ai.Request) []string {
 }
 
 // CommandPreview returns the command that would be executed for the given request.
-func (p *Plugin) CommandPreview(req ai.Request) string {
+func (p *Plugin) CommandPreview(req ml.Request) string {
 	args := p.buildArgs(req)
 
 	// Quote arguments that contain spaces or special characters
@@ -168,5 +168,5 @@ func (p *Plugin) CommandPreview(req ai.Request) string {
 }
 
 func init() {
-	ai.Register(New())
+	ml.Register(New())
 }

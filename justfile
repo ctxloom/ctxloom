@@ -10,7 +10,7 @@ validate:
 
 # Distill resources before packaging
 distill-resources:
-    go run . distill --resources --force
+    go run . distill --resources
 
 # Build all binaries (main app + generators)
 build: validate distill-resources build-mlcm build-generators
@@ -47,6 +47,14 @@ test-verbose:
 # Run tests with coverage
 test-coverage:
     go test -cover ./...
+
+# Run acceptance tests (requires mlcm binary)
+test-acceptance: build-mlcm
+    go test -v ./tests/acceptance/...
+
+# Run acceptance tests with specific tags
+test-acceptance-tags TAGS:
+    go test -v ./tests/acceptance/... -godog.tags="{{TAGS}}"
 
 # Clean build artifacts
 clean:

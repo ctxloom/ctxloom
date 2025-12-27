@@ -1,49 +1,74 @@
 version: "1.0"
 tags:
-  - testing
-  - tdd
-  - workflow
-content: |
-  # Test-Driven Development (TDD) Workflow
+    - testing
+    - tdd
+    - workflow
+content: |-
+    # Test-Driven Development (TDD) Workflow
 
-  ## Mandatory TDD Cycle
+    ## Mandatory TDD Cycle
 
-  1. **Red**: Write a failing test first
-     - Test should fail for the right reason
-     - Ensure good isolation - unit tests shouldn't modify environment
-     - Verify the test actually runs and fails
+    1. **Red**: Write a failing test first
+       - Test should fail for the right reason
+       - Ensure good isolation - unit tests shouldn't modify environment
+       - Verify the test actually runs and fails
 
-  2. **Green**: Write minimal code to make the test pass
-     - No premature optimization
-     - No extra features
+    2. **Green**: Write minimal code to make the test pass
+       - No premature optimization
+       - No extra features
 
-  3. **Refactor**: Clean up code while keeping tests green
-     - Apply SOLID principles
-     - Remove duplication - scan codebase for pattern/algorithmic duplication
-     - Use existing libraries for common tasks (sorting, data structures)
-     - Improve naming
+    3. **Refactor**: Clean up code while keeping tests green
+       - Apply SOLID principles
+       - Remove duplication - scan codebase for pattern/algorithmic duplication
+       - Use existing libraries for common tasks (sorting, data structures)
+       - Improve naming
 
-  ## Integration/Acceptance Tests
+    ## Integration/Acceptance Tests
 
-  - Build and run actual binaries, don't define hooks
-  - Mark slow tests with a slow tag (framework-specific)
-  - Ensure good test isolation, clean up after yourself
+    - Build and run actual binaries, don't define hooks
+    - Mark slow tests with a slow tag (framework-specific)
+    - Ensure good test isolation, clean up after yourself
 
-  ## Test Naming
+    ## Test Naming
 
-  Format: `test_<action>_<condition>_<expected_result>`
+    Format: `test_<action>_<condition>_<expected_result>`
 
-  Language conventions:
-  - Python: `test_divide_by_zero_raises_value_error` (snake_case)
-  - C#/Java: `testDivideByZeroRaisesValueError` (camelCase)
-  - JavaScript: `testDivideByZeroThrowsError` (camelCase)
+    Language conventions:
+    - Python: `test_divide_by_zero_raises_value_error` (snake_case)
+    - C#/Java: `testDivideByZeroRaisesValueError` (camelCase)
+    - JavaScript: `testDivideByZeroThrowsError` (camelCase)
 
-  Prioritize readability over strict format compliance.
+    Prioritize readability over strict format compliance.
 
-  ## Test Organization
+    ## Test Organization
 
-  - Emphasize human readability
-  - Order by complexity:
-    - Top: Simple usage-demonstrating tests (examples for developers)
-    - Bottom: Comprehensive tests, edge cases, exhaustive coverage
-  - Tests serve as documentation
+    - Emphasize human readability
+    - Order by complexity:
+      - Top: Simple usage-demonstrating tests (examples for developers)
+      - Bottom: Comprehensive tests, edge cases, exhaustive coverage
+    - Tests serve as documentation
+content_hash: sha256:1a4514779dbf0d21fc5b81ead5478d2bf6aeed406a24ad5cce5631c59210b2fa
+distilled: |-
+    # TDD Workflow
+
+    ## Cycle
+    1. **Red**: Write failing test first - verify fails correctly, good isolation
+    2. **Green**: Minimal code to pass - no extras
+    3. **Refactor**: Keep green, apply SOLID, dedupe, use existing libs, improve names
+
+    ## Integration Tests
+    - Run actual binaries
+    - Tag slow tests
+    - Clean up after
+
+    ## Naming
+    `test_<action>_<condition>_<result>`
+    - Python: snake_case
+    - C#/Java/JS: camelCase
+    - Prioritize readability
+
+    ## Organization
+    - Human readable
+    - Order by complexity: simple examples top, edge cases bottom
+    - Tests = documentation
+distilled_by: claude-code

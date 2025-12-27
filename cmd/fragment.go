@@ -75,11 +75,11 @@ var fragmentEditCmd = &cobra.Command{
 	Long: `Edit an existing context fragment or create a new one.
 
 Opens the fragment in your configured editor.
-If the fragment doesn't exist, creates it with a template.
+If the fragment doesn't exist, creates it in ~/.mlcm/context-fragments/ by default.
 
 Examples:
-  mlcm fragment edit coding-standards
-  mlcm fragment edit my-fragment --local`,
+  mlcm fragment edit coding-standards         # Creates/edits in ~/.mlcm
+  mlcm fragment edit my-fragment --local      # Creates in project .mlcm`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -94,33 +94,37 @@ Examples:
 			return fmt.Errorf("failed to get fragment directories: %w", err)
 		}
 
+		// First, try to find existing fragment
+		loader := fragments.NewLoader(fragmentDirs)
+		if path, err := loader.Find(name); err == nil {
+			editorCmd, editorArgs := cfg.GetEditorCommand()
+			ed := editor.New(editorCmd, editorArgs)
+			return ed.Edit(path)
+		}
+
+		// Fragment doesn't exist, determine where to create it
 		var fragmentDir string
 		if fragmentEditLocal {
+			// Create in project-local .mlcm
 			pwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 			fragmentDir = filepath.Join(pwd, ".mlcm", config.ContextFragmentsDir)
 		} else {
-			loader := fragments.NewLoader(fragmentDirs)
-			if path, err := loader.Find(name); err == nil {
-				editorCmd, editorArgs := cfg.GetEditorCommand()
-				ed := editor.New(editorCmd, editorArgs)
-				return ed.Edit(path)
+			// Default: create in ~/.mlcm
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
 			}
-
-			if len(fragmentDirs) > 0 {
-				fragmentDir = fragmentDirs[0]
-			} else {
-				return fmt.Errorf("no .mlcm directory found; run 'mlcm init' first")
-			}
+			fragmentDir = filepath.Join(home, ".mlcm", config.ContextFragmentsDir)
 		}
 
 		if err := os.MkdirAll(fragmentDir, 0755); err != nil {
 			return fmt.Errorf("failed to create fragment directory: %w", err)
 		}
 
-		fragmentPath := filepath.Join(fragmentDir, name+".md")
+		fragmentPath := filepath.Join(fragmentDir, name+".yaml")
 		editorCmd, editorArgs := cfg.GetEditorCommand()
 		ed := editor.New(editorCmd, editorArgs)
 
@@ -191,20 +195,12 @@ var fragmentDeleteCmd = &cobra.Command{
 }
 
 func fragmentTemplate(name string) string {
-	return fmt.Sprintf(`## Context
+	return fmt.Sprintf(`version: "1.0"
+tags: []
+content: |-
+    # %s
 
-<!--
-Fragment: %s
-Add your context content here.
-Use {{variable_name}} for template variables.
--->
-
-## Variables
-
-`+"```yaml"+`
-# Define variables here
-# example_var: value
-`+"```"+`
+    Add your context content here.
 `, name)
 }
 

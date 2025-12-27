@@ -1,55 +1,100 @@
 version: "1.0"
 tags:
-  - pattern
-  - architecture
-  - cqrs
-content: |
-  # CQRS (Command Query Responsibility Segregation)
+    - pattern
+    - architecture
+    - cqrs
+content: |-
+    # CQRS (Command Query Responsibility Segregation)
 
-  Separate read and write operations into distinct models.
+    Separate read and write operations into distinct models.
 
-  ## Core Principles
+    ## Core Principles
 
-  - **Commands**: Modify state, return void or ID only, named imperatively (`CreateOrder`, `UpdateUser`)
-  - **Queries**: Read state, never modify, named descriptively (`GetOrderById`, `ListActiveUsers`)
-  - **Separation**: Command and query models can differ in structure and storage
+    - **Commands**: Modify state, return void or ID only, named imperatively (`CreateOrder`, `UpdateUser`)
+    - **Queries**: Read state, never modify, named descriptively (`GetOrderById`, `ListActiveUsers`)
+    - **Separation**: Command and query models can differ in structure and storage
 
-  ## Command Side
+    ## Command Side
 
-  - Commands are imperative: `PlaceOrder`, `CancelSubscription`
-  - Command handlers validate, execute business logic, persist state
-  - One command = one transaction
-  - Return only success/failure or created entity ID
+    - Commands are imperative: `PlaceOrder`, `CancelSubscription`
+    - Command handlers validate, execute business logic, persist state
+    - One command = one transaction
+    - Return only success/failure or created entity ID
 
-  ## Query Side
+    ## Query Side
 
-  - Queries are questions: `GetUserProfile`, `SearchProducts`
-  - Query handlers read from optimized read models
-  - No side effects — safe to retry, cache, parallelize
-  - Can use denormalized views for performance
+    - Queries are questions: `GetUserProfile`, `SearchProducts`
+    - Query handlers read from optimized read models
+    - No side effects — safe to retry, cache, parallelize
+    - Can use denormalized views for performance
 
-  ## When to Use CQRS
+    ## When to Use CQRS
 
-  - Read and write patterns differ significantly
-  - Need independent scaling of reads vs writes
-  - Complex domain with rich business logic
-  - Event sourcing integration
+    - Read and write patterns differ significantly
+    - Need independent scaling of reads vs writes
+    - Complex domain with rich business logic
+    - Event sourcing integration
 
-  ## When NOT to Use CQRS
+    ## When NOT to Use CQRS
 
-  - Simple CRUD applications
-  - Read/write patterns are similar
-  - Small team or early-stage project
-  - Adds unnecessary complexity
+    - Simple CRUD applications
+    - Read/write patterns are similar
+    - Small team or early-stage project
+    - Adds unnecessary complexity
 
-  ## Read Model Synchronization
+    ## Read Model Synchronization
 
-  - **Synchronous**: Update read model in same transaction (simpler, consistent)
-  - **Asynchronous**: Update via events (scalable, eventually consistent)
-  - Document consistency guarantees for your system
+    - **Synchronous**: Update read model in same transaction (simpler, consistent)
+    - **Asynchronous**: Update via events (scalable, eventually consistent)
+    - Document consistency guarantees for your system
 
-  ## Testing
+    ## Testing
 
-  - Test commands: verify state changes and invariants
-  - Test queries: verify correct data retrieval
-  - Test separately — they are independent concerns
+    - Test commands: verify state changes and invariants
+    - Test queries: verify correct data retrieval
+    - Test separately — they are independent concerns
+content_hash: sha256:faa0b391646479285db5cf4c4ad155d0755228111110853a1477f23a9f5c3a43
+distilled: |-
+    # CQRS
+
+    Separate read/write ops into distinct models.
+
+    ## Core Principles
+    - **Commands**: Modify state, return void/ID, imperative naming (`CreateOrder`)
+    - **Queries**: Read-only, descriptive naming (`GetOrderById`)
+    - **Separation**: Models can differ in structure/storage
+
+    ## Command Side
+    - Imperative: `PlaceOrder`, `CancelSubscription`
+    - Handlers: validate → business logic → persist
+    - One command = one transaction
+    - Return success/failure or created ID only
+
+    ## Query Side
+    - Questions: `GetUserProfile`, `SearchProducts`
+    - Read from optimized read models
+    - No side effects — cacheable, parallelizable
+    - Can use denormalized views
+
+    ## When to Use
+    - Read/write patterns differ significantly
+    - Independent scaling needed
+    - Complex domain logic
+    - Event sourcing integration
+
+    ## When NOT to Use
+    - Simple CRUD
+    - Similar read/write patterns
+    - Small team/early-stage
+    - Adds unnecessary complexity
+
+    ## Read Model Sync
+    - **Sync**: Same transaction (simpler, consistent)
+    - **Async**: Via events (scalable, eventually consistent)
+    - Document consistency guarantees
+
+    ## Testing
+    - Commands: verify state changes/invariants
+    - Queries: verify correct retrieval
+    - Test separately — independent concerns
+distilled_by: claude-code

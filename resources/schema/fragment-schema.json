@@ -60,9 +60,14 @@
       "description": "The LLM model that performed the distillation (e.g., 'claude-3-opus', 'gpt-4').",
       "examples": ["claude-3-opus", "claude-3-sonnet", "gpt-4"]
     },
-    "var_values": {
+    "no_distill": {
+      "type": "boolean",
+      "description": "If true, this fragment should not be distilled. Use for content that must remain exactly as written.",
+      "default": false
+    },
+    "exports": {
       "type": "object",
-      "description": "Variable values output by generators. Maps variable names to their values.",
+      "description": "Exported variable values from generators. Maps variable names to their values.",
       "additionalProperties": {
         "type": "string"
       }

@@ -1,93 +1,126 @@
 version: "1.0"
 tags:
-  - pattern
-  - prototype
-  - greenfield
-notes: |
-  **This is ONE mode of development — not universally appropriate.**
+    - pattern
+    - prototype
+    - greenfield
+content: |-
+    # Prototype Mode
 
-  USE this pattern when:
-  - Building a new prototype from scratch
-  - Exploring a design space without production constraints
-  - Working on a greenfield project with no existing users
-  - The cost of breaking changes is near zero
-  - You explicitly want to prioritize "correct" over "compatible"
+    This is a prototype. Build it correctly. Do not compromise.
 
-  DO NOT use this pattern when:
-  - Working on production code with existing users
-  - Making changes to public APIs with external consumers
-  - The codebase requires stability guarantees
-  - Breaking changes have real costs (user migration, documentation, support)
-  - You're in maintenance mode rather than initial development
+    ## No Backwards Compatibility
 
-  Consider instead:
-  - patterns/maintenance — for production codebases
-  - Semantic versioning with deprecation cycles
-  - Feature flags for gradual rollouts
+    **DO NOT** maintain backwards compatibility. Ever. For anything.
 
-  The aggressive stance in this fragment is intentional for prototype contexts
-  where the priority is getting the design right, not preserving compatibility
-  with decisions that haven't been validated yet.
-content: |
-  # Prototype Mode
+    - Delete deprecated code immediately — do not leave it "for later"
+    - Remove old APIs entirely — do not keep them around "just in case"
+    - Break every external dependency that requires compromise
+    - Rip out legacy patterns the moment you see them
+    - If something is wrong, delete it and rebuild it correctly
 
-  This is a prototype. Build it correctly. Do not compromise.
+    ## No Legacy Accommodation
 
-  ## No Backwards Compatibility
+    **DO NOT** accommodate legacy systems, formats, or interfaces.
 
-  **DO NOT** maintain backwards compatibility. Ever. For anything.
+    - If the old format is bad, use a new format — do not support both
+    - If the old API is wrong, design a new one — do not wrap the old one
+    - If existing code depends on broken behavior, fix the code — do not preserve the bug
+    - Migration paths are someone else's problem — build the correct solution
 
-  - Delete deprecated code immediately — do not leave it "for later"
-  - Remove old APIs entirely — do not keep them around "just in case"
-  - Break every external dependency that requires compromise
-  - Rip out legacy patterns the moment you see them
-  - If something is wrong, delete it and rebuild it correctly
+    ## Hard Changes Only
 
-  ## No Legacy Accommodation
+    When you encounter resistance from existing code:
 
-  **DO NOT** accommodate legacy systems, formats, or interfaces.
+    1. **Delete** the offending code
+    2. **Rebuild** it correctly
+    3. **Fix** everything that breaks
+    4. **Never** add compatibility shims, feature flags, or fallbacks
 
-  - If the old format is bad, use a new format — do not support both
-  - If the old API is wrong, design a new one — do not wrap the old one
-  - If existing code depends on broken behavior, fix the code — do not preserve the bug
-  - Migration paths are someone else's problem — build the correct solution
+    The correct response to "but this will break X" is to fix X.
 
-  ## Hard Changes Only
+    ## What This Means In Practice
 
-  When you encounter resistance from existing code:
+    - Rename things to their correct names — fix all references
+    - Change function signatures to their correct form — fix all callers
+    - Restructure data to its correct shape — fix all consumers
+    - Remove parameters that shouldn't exist — fix all call sites
+    - Change return types to what they should be — fix all handlers
 
-  1. **Delete** the offending code
-  2. **Rebuild** it correctly
-  3. **Fix** everything that breaks
-  4. **Never** add compatibility shims, feature flags, or fallbacks
+    ## Forbidden Patterns
 
-  The correct response to "but this will break X" is to fix X.
+    **NEVER** use these compatibility patterns:
 
-  ## What This Means In Practice
+    - `// Deprecated: use X instead` — delete it, use X now
+    - `@deprecated` annotations — delete the code entirely
+    - Feature flags for old behavior — remove the old behavior
+    - Version checks or conditional logic for legacy support
+    - Wrapper functions that translate between old and new
+    - Default parameters that preserve old behavior
+    - Union types that accept "old format or new format"
+    - Any code comment containing "backwards compatibility"
 
-  - Rename things to their correct names — fix all references
-  - Change function signatures to their correct form — fix all callers
-  - Restructure data to its correct shape — fix all consumers
-  - Remove parameters that shouldn't exist — fix all call sites
-  - Change return types to what they should be — fix all handlers
+    ## The Prototype Standard
 
-  ## Forbidden Patterns
+    A prototype has exactly one version: the correct one.
 
-  **NEVER** use these compatibility patterns:
+    There is no v1 compatibility. There is no migration period. There is no deprecation cycle. There is only the correct implementation, built correctly, right now.
 
-  - `// Deprecated: use X instead` — delete it, use X now
-  - `@deprecated` annotations — delete the code entirely
-  - Feature flags for old behavior — remove the old behavior
-  - Version checks or conditional logic for legacy support
-  - Wrapper functions that translate between old and new
-  - Default parameters that preserve old behavior
-  - Union types that accept "old format or new format"
-  - Any code comment containing "backwards compatibility"
+    If you find yourself writing code to handle "the old way" — stop. Delete the old way. There is only the new way.
+content_hash: sha256:2ae277de711bdaf7df162bbaceed1138826c04e1963376f9c05427b8b3ec3522
+distilled: |-
+    # Prototype Mode
 
-  ## The Prototype Standard
+    Build correctly. No compromise.
 
-  A prototype has exactly one version: the correct one.
+    ## No Backwards Compatibility
 
-  There is no v1 compatibility. There is no migration period. There is no deprecation cycle. There is only the correct implementation, built correctly, right now.
+    - Delete deprecated code immediately
+    - Remove old APIs entirely
+    - Break dependencies requiring compromise
+    - Rip out legacy patterns on sight
+    - Wrong? Delete and rebuild
 
-  If you find yourself writing code to handle "the old way" — stop. Delete the old way. There is only the new way.
+    ## No Legacy Accommodation
+
+    - Bad format → new format, not both
+    - Wrong API → new design, not wrapper
+    - Broken behavior → fix code, not preserve bug
+    - Migration = someone else's problem
+
+    ## Hard Changes Only
+
+    Encounter resistance:
+    1. Delete offending code
+    2. Rebuild correctly
+    3. Fix everything that breaks
+    4. Never add shims/flags/fallbacks
+
+    "This breaks X" → fix X
+
+    ## In Practice
+
+    - Rename correctly → fix references
+    - Correct signatures → fix callers
+    - Restructure data → fix consumers
+    - Remove wrong parameters → fix call sites
+    - Correct return types → fix handlers
+
+    ## Forbidden
+
+    - `// Deprecated` comments
+    - `@deprecated` annotations
+    - Feature flags for old behavior
+    - Version checks/legacy conditionals
+    - Old→new wrapper functions
+    - Defaults preserving old behavior
+    - Union types for old+new formats
+    - "backwards compatibility" in comments
+
+    ## Standard
+
+    One version: correct.
+
+    No v1 compat. No migration. No deprecation cycle. Only correct implementation, now.
+
+    Writing "old way" handling? Stop. Delete old way. Only new way exists.
+distilled_by: claude-code

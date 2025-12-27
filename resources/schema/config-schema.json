@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlcm.dev/schemas/config.json",
+  "title": "MLCM Configuration",
+  "description": "Schema for MLCM config.yaml files",
+  "type": "object",
+  "properties": {
+    "lm": {
+      "type": "object",
+      "description": "Language model plugin configuration",
+      "properties": {
+        "default_plugin": {
+          "type": "string",
+          "description": "Default LM plugin to use",
+          "examples": ["claude-code", "gemini"]
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Plugin configurations keyed by name",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "binary_path": {
+                "type": "string",
+                "description": "Path to the plugin binary (optional, uses PATH if empty)"
+              },
+              "args": {
+                "type": "array",
+                "description": "Command line arguments to pass to the plugin",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables to set for the plugin",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "editor": {
+      "type": "object",
+      "description": "Editor configuration for fragment/prompt editing",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Editor command to use",
+          "examples": ["vim", "nano", "code"]
+        },
+        "args": {
+          "type": "array",
+          "description": "Additional arguments for the editor",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default settings applied when no explicit values are specified",
+      "properties": {
+        "personas": {
+          "type": "array",
+          "description": "Default personas to load when none is specified",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "fragments": {
+          "type": "array",
+          "description": "Fragments always included in context",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "generators": {
+          "type": "array",
+          "description": "Generators always run",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "use_distilled": {
+          "type": "boolean",
+          "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "generators": {
+      "type": "object",
+      "description": "Context generators that produce dynamic content",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of what this generator produces"
+          },
+          "command": {
+            "type": "string",
+            "description": "Command to execute (can be a path or binary name in PATH)",
+            "minLength": 1
+          },
+          "args": {
+            "type": "array",
+            "description": "Additional arguments for the generator command",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "personas": {
+      "type": "object",
+      "description": "Named collections of context fragments, variables, and generators",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of this persona"
+          },
+          "parents": {
+            "type": "array",
+            "description": "Parent personas to inherit from (processed depth-first)",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "tags": {
+            "type": "array",
+            "description": "Fragment tags to include (fragments with matching tags are added)",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "fragments": {
+            "type": "array",
+            "description": "Explicit fragment paths to include",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "variables": {
+            "type": "object",
+            "description": "Variable values for template substitution in fragments",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "generators": {
+            "type": "array",
+            "description": "Generators to run for this persona",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

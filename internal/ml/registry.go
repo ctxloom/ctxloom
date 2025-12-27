@@ -1,4 +1,4 @@
-package ai
+package ml
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ func Get(name string) (Plugin, error) {
 	defer mu.RUnlock()
 	p, ok := registry[name]
 	if !ok {
-		return nil, fmt.Errorf("ai plugin not found: %s", name)
+		return nil, fmt.Errorf("ml plugin not found: %s", name)
 	}
 	return p, nil
 }
@@ -37,7 +37,7 @@ func GetWithConfig(name string, cfg PluginConfig) (Plugin, error) {
 	mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("ai plugin not found: %s", name)
+		return nil, fmt.Errorf("ml plugin not found: %s", name)
 	}
 
 	// Clone the plugin if possible to avoid shared state mutations

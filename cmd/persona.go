@@ -49,6 +49,9 @@ var personaListCmd = &cobra.Command{
 			if p.Description != "" {
 				fmt.Printf("    Description: %s\n", p.Description)
 			}
+			if len(p.Parents) > 0 {
+				fmt.Printf("    Parents: %s\n", strings.Join(p.Parents, ", "))
+			}
 			if len(p.Fragments) > 0 {
 				fmt.Printf("    Fragments: %s\n", strings.Join(p.Fragments, ", "))
 			}
@@ -62,6 +65,7 @@ var personaListCmd = &cobra.Command{
 }
 
 var (
+	personaAddParents     []string
 	personaAddFragments   []string
 	personaAddGenerators  []string
 	personaAddDescription string
@@ -70,17 +74,18 @@ var (
 var personaAddCmd = &cobra.Command{
 	Use:   "add <name>",
 	Short: "Add a new persona",
-	Long: `Add a new persona with the specified fragments and optional generators.
+	Long: `Add a new persona with the specified fragments, generators, and/or parents.
 
 Example:
   mlcm persona add developer -f coding-standards -f go-patterns -d "Standard dev context"
-  mlcm persona add git-aware -f test-fragment -g mlcm-gen-git-context -d "Context with git info"`,
+  mlcm persona add git-aware -f test-fragment -g mlcm-gen-git-context -d "Context with git info"
+  mlcm persona add go-developer --parent developer -t golang -d "Go development context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		if len(personaAddFragments) == 0 && len(personaAddGenerators) == 0 {
-			return fmt.Errorf("at least one fragment (-f) or generator (-g) is required")
+		if len(personaAddParents) == 0 && len(personaAddFragments) == 0 && len(personaAddGenerators) == 0 {
+			return fmt.Errorf("at least one parent (--parent), fragment (-f), or generator (-g) is required")
 		}
 
 		cfg, err := GetConfig()
@@ -92,8 +97,16 @@ Example:
 			return fmt.Errorf("persona %q already exists (use 'persona remove' first)", name)
 		}
 
+		// Validate parent personas exist
+		for _, parent := range personaAddParents {
+			if _, exists := cfg.Personas[parent]; !exists {
+				return fmt.Errorf("parent persona %q not found", parent)
+			}
+		}
+
 		cfg.Personas[name] = config.Persona{
 			Description: personaAddDescription,
+			Parents:     personaAddParents,
 			Fragments:   personaAddFragments,
 			Generators:  personaAddGenerators,
 		}
@@ -103,6 +116,9 @@ Example:
 		}
 
 		var parts []string
+		if len(personaAddParents) > 0 {
+			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(personaAddParents, ", ")))
+		}
 		if len(personaAddFragments) > 0 {
 			parts = append(parts, fmt.Sprintf("fragments: %s", strings.Join(personaAddFragments, ", ")))
 		}
@@ -163,6 +179,12 @@ var personaShowCmd = &cobra.Command{
 		if p.Description != "" {
 			fmt.Printf("Description: %s\n", p.Description)
 		}
+		if len(p.Parents) > 0 {
+			fmt.Println("Parents:")
+			for _, parent := range p.Parents {
+				fmt.Printf("  - %s\n", parent)
+			}
+		}
 		if len(p.Fragments) > 0 {
 			fmt.Println("Fragments:")
 			for _, f := range p.Fragments {
@@ -189,9 +211,11 @@ var personaShowCmd = &cobra.Command{
 var personaUpdateCmd = &cobra.Command{
 	Use:   "update <name>",
 	Short: "Update a persona",
-	Long: `Update an existing persona by adding or removing fragments/generators.
+	Long: `Update an existing persona by adding or removing parents, fragments, or generators.
 
 Examples:
+  mlcm persona update go-developer --add-parent developer
+  mlcm persona update go-developer --remove-parent base
   mlcm persona update developer --add-fragment error-handling
   mlcm persona update developer --remove-fragment old-patterns
   mlcm persona update git-aware --add-generator git-context
@@ -217,6 +241,32 @@ Examples:
 		if cmd.Flags().Changed("description") {
 			p.Description = personaUpdateDescription
 			modified = true
+		}
+
+		// Add parents
+		for _, parent := range personaUpdateAddParents {
+			// Validate parent exists
+			if _, exists := cfg.Personas[parent]; !exists {
+				return fmt.Errorf("parent persona %q not found", parent)
+			}
+			if !contains(p.Parents, parent) {
+				p.Parents = append(p.Parents, parent)
+				fmt.Printf("Added parent: %s\n", parent)
+				modified = true
+			} else {
+				fmt.Printf("Parent already present: %s\n", parent)
+			}
+		}
+
+		// Remove parents
+		for _, parent := range personaUpdateRemoveParents {
+			if idx := indexOf(p.Parents, parent); idx >= 0 {
+				p.Parents = append(p.Parents[:idx], p.Parents[idx+1:]...)
+				fmt.Printf("Removed parent: %s\n", parent)
+				modified = true
+			} else {
+				fmt.Printf("Parent not found: %s\n", parent)
+			}
 		}
 
 		// Add fragments
@@ -279,6 +329,8 @@ Examples:
 }
 
 var (
+	personaUpdateAddParents       []string
+	personaUpdateRemoveParents    []string
 	personaUpdateAddFragments     []string
 	personaUpdateRemoveFragments  []string
 	personaUpdateAddGenerators    []string
@@ -313,10 +365,13 @@ func init() {
 	personaCmd.AddCommand(personaShowCmd)
 	personaCmd.AddCommand(personaUpdateCmd)
 
+	personaAddCmd.Flags().StringSliceVar(&personaAddParents, "parent", nil, "Parent persona(s) to inherit from (can be repeated)")
 	personaAddCmd.Flags().StringSliceVarP(&personaAddFragments, "fragment", "f", nil, "Fragment(s) to include (can be repeated)")
 	personaAddCmd.Flags().StringSliceVarP(&personaAddGenerators, "generator", "g", nil, "Generator(s) to run (can be repeated)")
 	personaAddCmd.Flags().StringVarP(&personaAddDescription, "description", "d", "", "Description of the persona")
 
+	personaUpdateCmd.Flags().StringSliceVar(&personaUpdateAddParents, "add-parent", nil, "Parent persona(s) to add (can be repeated)")
+	personaUpdateCmd.Flags().StringSliceVar(&personaUpdateRemoveParents, "remove-parent", nil, "Parent persona(s) to remove (can be repeated)")
 	personaUpdateCmd.Flags().StringSliceVar(&personaUpdateAddFragments, "add-fragment", nil, "Fragment(s) to add (can be repeated)")
 	personaUpdateCmd.Flags().StringSliceVar(&personaUpdateRemoveFragments, "remove-fragment", nil, "Fragment(s) to remove (can be repeated)")
 	personaUpdateCmd.Flags().StringSliceVar(&personaUpdateAddGenerators, "add-generator", nil, "Generator(s) to add (can be repeated)")

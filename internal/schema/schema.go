@@ -1,4 +1,4 @@
-// Package schema provides JSON Schema validation for fragment YAML files.
+// Package schema provides JSON Schema validation for fragment and config YAML files.
 package schema
 
 import (
@@ -16,7 +16,7 @@ type Validator struct {
 	schema *jsonschema.Schema
 }
 
-// NewValidator creates a new schema validator using the embedded schema.
+// NewValidator creates a new schema validator using the embedded fragment schema.
 func NewValidator() (*Validator, error) {
 	// Load schema from embedded resources
 	schemaData, err := resources.GetFragmentSchema()
@@ -35,6 +35,42 @@ func NewValidator() (*Validator, error) {
 	}
 
 	return &Validator{schema: schema}, nil
+}
+
+// ConfigValidator validates config YAML against the JSON schema.
+type ConfigValidator struct {
+	schema *jsonschema.Schema
+}
+
+// NewConfigValidator creates a new schema validator using the embedded config schema.
+func NewConfigValidator() (*ConfigValidator, error) {
+	schemaData, err := resources.GetConfigSchema()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config schema: %w", err)
+	}
+
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("config.json", strings.NewReader(string(schemaData))); err != nil {
+		return nil, fmt.Errorf("failed to add config schema resource: %w", err)
+	}
+
+	schema, err := compiler.Compile("config.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile config schema: %w", err)
+	}
+
+	return &ConfigValidator{schema: schema}, nil
+}
+
+// ValidateBytes validates YAML content against the config schema.
+func (v *ConfigValidator) ValidateBytes(data []byte) error {
+	var yamlData interface{}
+	if err := yaml.Unmarshal(data, &yamlData); err != nil {
+		return fmt.Errorf("YAML parse error: %w", err)
+	}
+
+	jsonData := convertToJSON(yamlData)
+	return v.schema.Validate(jsonData)
 }
 
 // ValidateBytes validates YAML content against the fragment schema.

@@ -5,14 +5,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/ai"
-	_ "mlcm/internal/ai/claudecode"
-	_ "mlcm/internal/ai/gemini"
+	"mlcm/internal/config"
 	"mlcm/internal/fragments"
+	"mlcm/internal/ml"
+	_ "mlcm/internal/ml/claudecode"
+	_ "mlcm/internal/ml/gemini"
 	"mlcm/internal/schema"
 	"mlcm/resources"
 )
@@ -27,15 +29,15 @@ func getDistillPrompt() (string, error) {
 }
 
 var (
-	distillPlugin       string
-	distillPersona      string
-	distillFragments    []string
-	distillPromptNames  []string
-	distillDryRun       bool
-	distillForce        bool
-	distillOnlyPrompts  bool
-	distillSkipPrompts  bool
-	distillResources    bool
+	distillPlugin      string
+	distillPersona     string
+	distillFragments   []string
+	distillPromptNames []string
+	distillDryRun      bool
+	distillForce       bool
+	distillOnlyPrompts bool
+	distillSkipPrompts bool
+	distillResources   bool
 )
 
 var distillCmd = &cobra.Command{
@@ -78,17 +80,17 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	// Determine which plugin to use
 	pluginName := distillPlugin
 	if pluginName == "" {
-		pluginName = cfg.AI.DefaultPlugin
+		pluginName = cfg.LM.DefaultPlugin
 	}
 	if pluginName == "" {
-		pluginName = ai.Default()
+		pluginName = ml.Default()
 	}
 
 	// Get plugin configuration
-	pluginCfg := cfg.AI.Plugins[pluginName]
+	pluginCfg := cfg.LM.Plugins[pluginName]
 
 	// Get the AI plugin with configuration
-	plugin, err := ai.GetWithConfig(pluginName, pluginCfg)
+	plugin, err := ml.GetWithConfig(pluginName, pluginCfg)
 	if err != nil {
 		return fmt.Errorf("failed to get AI plugin: %w", err)
 	}
@@ -130,9 +132,10 @@ func runDistill(cmd *cobra.Command, args []string) error {
 			if len(distillFragments) > 0 {
 				fragmentNames = distillFragments
 			} else if distillPersona != "" {
-				persona, exists := cfg.Personas[distillPersona]
-				if !exists {
-					return fmt.Errorf("persona %q not found", distillPersona)
+				// Resolve persona with inheritance
+				persona, err := config.ResolvePersona(cfg.Personas, distillPersona)
+				if err != nil {
+					return fmt.Errorf("failed to resolve persona %q: %w", distillPersona, err)
 				}
 
 				// Include fragments matching persona tags
@@ -161,10 +164,19 @@ func runDistill(cmd *cobra.Command, args []string) error {
 			if len(fragmentNames) > 0 {
 				fmt.Printf("Distilling %d fragments using %s...\n", len(fragmentNames), pluginName)
 
+				var missingFragments []string
 				for _, name := range fragmentNames {
 					frag, err := loader.Load(name)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "  Warning: fragment not found: %s\n", name)
+						fmt.Fprintf(os.Stderr, "  Error: fragment not found: %s\n", name)
+						missingFragments = append(missingFragments, name)
+						continue
+					}
+
+					// Skip fragments marked as no_distill
+					if frag.NoDistill {
+						fmt.Printf("  Skipping %s (no_distill)\n", name)
+						totalSkipped++
 						continue
 					}
 
@@ -192,9 +204,12 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
-					reDistilling := frag.Distilled != ""
-					if reDistilling {
-						fmt.Printf("  Re-distilling %s (source changed)...", name)
+					if frag.Distilled != "" {
+						if frag.NeedsDistill() {
+							fmt.Printf("  Re-distilling %s (source changed)...", name)
+						} else {
+							fmt.Printf("  Re-distilling %s (forced)...", name)
+						}
 					} else {
 						fmt.Printf("  Distilling: %s...", name)
 					}
@@ -218,6 +233,11 @@ func runDistill(cmd *cobra.Command, args []string) error {
 
 					fmt.Printf(" OK\n")
 					totalSuccess++
+				}
+
+				// Fail if any fragments were not found
+				if len(missingFragments) > 0 {
+					return fmt.Errorf("fragments not found: %s", strings.Join(missingFragments, ", "))
 				}
 			}
 		}
@@ -265,6 +285,13 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
+					// Skip prompts marked as no_distill
+					if prompt.NoDistill {
+						fmt.Printf("  Skipping %s (no_distill)\n", name)
+						totalSkipped++
+						continue
+					}
+
 					// Validate against schema before distilling
 					if prompt.Path != "" {
 						data, err := os.ReadFile(prompt.Path)
@@ -289,9 +316,12 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						continue
 					}
 
-					reDistilling := prompt.Distilled != ""
-					if reDistilling {
-						fmt.Printf("  Re-distilling %s (source changed)...", name)
+					if prompt.Distilled != "" {
+						if prompt.NeedsDistill() {
+							fmt.Printf("  Re-distilling %s (source changed)...", name)
+						} else {
+							fmt.Printf("  Re-distilling %s (forced)...", name)
+						}
 					} else {
 						fmt.Printf("  Distilling: %s...", name)
 					}
@@ -345,7 +375,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 
 // distillContent sends content through the AI for distillation.
 // Returns just the distilled text content.
-func distillContent(plugin ai.Plugin, name, content, distillPrompt string) (string, error) {
+func distillContent(plugin ml.Plugin, name, content, distillPrompt string) (string, error) {
 	// Build the content to distill
 	var builder strings.Builder
 	builder.WriteString("# ")
@@ -354,7 +384,7 @@ func distillContent(plugin ai.Plugin, name, content, distillPrompt string) (stri
 	builder.WriteString(content)
 
 	// Build the request
-	req := ai.Request{
+	req := ml.Request{
 		Prompt:  builder.String(),
 		Context: distillPrompt,
 		Print:   true, // Non-interactive mode
@@ -377,7 +407,31 @@ func distillContent(plugin ai.Plugin, name, content, distillPrompt string) (stri
 		distilledContent = strings.TrimSpace(resp.Output)
 	}
 
+	// Strip any preamble before "---" that LLMs sometimes add despite instructions
+	distilledContent = stripDistillPreamble(distilledContent)
+
 	return distilledContent, nil
+}
+
+// preamblePattern matches a line with 3+ dashes (markdown horizontal rule/separator)
+var preamblePattern = regexp.MustCompile(`(?m)^-{3,}\s*$`)
+
+// stripDistillPreamble removes any content before the first "---+" separator.
+// LLMs sometimes add explanatory text before the actual distilled content.
+func stripDistillPreamble(content string) string {
+	loc := preamblePattern.FindStringIndex(content)
+	if loc == nil {
+		return content
+	}
+
+	// Find the end of the separator line
+	afterSep := content[loc[1]:]
+	// Skip any leading newline after the separator
+	if len(afterSep) > 0 && afterSep[0] == '\n' {
+		afterSep = afterSep[1:]
+	}
+
+	return strings.TrimSpace(afterSep)
 }
 
 var distillCleanDryRun bool

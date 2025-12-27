@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"mlcm/internal/ai"
-	_ "mlcm/internal/ai/claudecode" // Register Claude Code plugin
-	_ "mlcm/internal/ai/gemini"     // Register Gemini plugin
 	"mlcm/internal/config"
 	"mlcm/internal/fragments"
+	"mlcm/internal/ml"
+	_ "mlcm/internal/ml/claudecode" // Register Claude Code plugin
+	_ "mlcm/internal/ml/gemini"     // Register Gemini plugin
 )
 
 var (
@@ -59,22 +59,23 @@ Examples:
 		loader := fragments.NewLoader(cfg.GetFragmentDirs(),
 			fragments.WithSuppressWarnings(runSuppressWarnings),
 			fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
+			fragments.WithFailOnMissing(true),
 		)
 
 		// Determine which plugin to use
 		pluginName := runPlugin
 		if pluginName == "" {
-			pluginName = cfg.AI.DefaultPlugin
+			pluginName = cfg.LM.DefaultPlugin
 		}
 		if pluginName == "" {
-			pluginName = ai.Default()
+			pluginName = ml.Default()
 		}
 
 		// Get plugin configuration
-		pluginCfg := cfg.AI.Plugins[pluginName]
+		pluginCfg := cfg.LM.Plugins[pluginName]
 
 		// Get the AI plugin with configuration
-		plugin, err := ai.GetWithConfig(pluginName, pluginCfg)
+		plugin, err := ml.GetWithConfig(pluginName, pluginCfg)
 		if err != nil {
 			return fmt.Errorf("failed to get AI plugin: %w", err)
 		}
@@ -98,19 +99,23 @@ Examples:
 		personaVars := make(map[string]string)
 		var generators []string
 
-		// Determine which persona to use: explicit flag > default from config
-		personaName := runPersona
-		if personaName == "" && len(runFragments) == 0 && len(runTags) == 0 {
+		// Determine which personas to use: explicit flag > default from config
+		var personaNames []string
+		if runPersona != "" {
+			personaNames = []string{runPersona}
+		} else if len(runFragments) == 0 && len(runTags) == 0 {
 			// No explicit persona, fragments, or tags - use defaults
-			personaName = cfg.Defaults.Persona
+			personaNames = cfg.Defaults.Personas
 			allFragments = append(allFragments, cfg.Defaults.Fragments...)
 			generators = append(generators, cfg.Defaults.Generators...)
 		}
 
-		if personaName != "" {
-			persona, exists := cfg.Personas[personaName]
-			if !exists {
-				return fmt.Errorf("persona %q not found", personaName)
+		// Process all personas (supports multiple default personas)
+		for _, personaName := range personaNames {
+			// Resolve persona with inheritance
+			persona, err := config.ResolvePersona(cfg.Personas, personaName)
+			if err != nil {
+				return fmt.Errorf("failed to resolve persona %q: %w", personaName, err)
 			}
 
 			// Include fragments matching persona tags
@@ -146,6 +151,10 @@ Examples:
 			}
 		}
 
+		// Dedupe fragments and generators before processing
+		allFragments = config.DedupeStrings(allFragments)
+		generators = config.DedupeStrings(generators)
+
 		// Warn function for reporting non-fatal issues
 		warnFunc := func(msg string) {
 			if !runSuppressWarnings {
@@ -160,9 +169,9 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to run generators: %w", err)
 			}
-			// Merge generator variables into persona vars (generators take precedence)
+			// Merge generator exports into persona vars (generators take precedence)
 			for _, frag := range generatorFrags {
-				for k, v := range frag.VarValues {
+				for k, v := range frag.Exports {
 					personaVars[k] = v
 				}
 			}
@@ -194,7 +203,7 @@ Examples:
 		}
 
 		// Build request
-		req := ai.Request{
+		req := ml.Request{
 			Prompt:  prompt,
 			Context: contextContent,
 			WorkDir: "",
@@ -203,7 +212,7 @@ Examples:
 
 		// Dry run mode - show the command that would be executed
 		if runDryRun {
-			if previewPlugin, ok := plugin.(ai.CommandPreviewPlugin); ok {
+			if previewPlugin, ok := plugin.(ml.CommandPreviewPlugin); ok {
 				fmt.Println(previewPlugin.CommandPreview(req))
 			} else {
 				fmt.Println("=== Assembled Context ===")

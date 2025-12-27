@@ -28,11 +28,13 @@ import (
 //	variables:
 //	  - project_name
 //	  - language
+//	no_distill: true  # Optional: skip distillation for this fragment
 //	content: |
 //	  # Your markdown content here
 //	content_hash: "sha256:abc123..."
 //	distilled: |
 //	  # Compressed content here
+//	distilled_by: "claude-code"
 type Fragment struct {
 	Name        string            // Fragment name (from filename)
 	Path        string            // File path (for saving back)
@@ -40,11 +42,12 @@ type Fragment struct {
 	Author      string            // Author of the fragment
 	Tags        []string          // Tags for filtering/categorization
 	Variables   []string          // Variable names used in content
-	VarValues   map[string]string // Variable values (populated by generators)
+	Exports     map[string]string // Exported variable values (populated by generators)
 	Content     string            // Markdown content
 	ContentHash string            // SHA256 hash of content (for change detection)
 	Distilled   string            // Distilled/compressed version of content
 	DistilledBy string            // LLM that performed the distillation (e.g., "claude-3-opus")
+	NoDistill   bool              // If true, skip distillation for this fragment
 }
 
 // Loader finds and loads context fragments from .mlcm directories.
@@ -54,6 +57,8 @@ type Loader struct {
 	warnFunc         func(string)
 	suppressWarnings bool
 	preferDistilled  bool
+	failOnMissing    bool
+	missingFragments []string
 }
 
 // LoaderOption is a functional option for configuring a Loader.
@@ -84,6 +89,13 @@ func WithFS(fs fsys.FS) LoaderOption {
 func WithPreferDistilled(prefer bool) LoaderOption {
 	return func(l *Loader) {
 		l.preferDistilled = prefer
+	}
+}
+
+// WithFailOnMissing sets whether to fail when fragments are not found.
+func WithFailOnMissing(fail bool) LoaderOption {
+	return func(l *Loader) {
+		l.failOnMissing = fail
 	}
 }
 
@@ -290,19 +302,81 @@ func (f *Fragment) Save() error {
 		return fmt.Errorf("fragment path not set")
 	}
 
-	yf := yamlFragment{
-		Version:     f.Version,
-		Author:      f.Author,
-		Tags:        f.Tags,
-		Variables:   f.Variables,
-		Content:     f.Content,
-		ContentHash: f.ContentHash,
-		Distilled:   f.Distilled,
-		DistilledBy: f.DistilledBy,
-		VarValues:   f.VarValues,
+	// Build YAML node tree to control scalar styles
+	root := &yaml.Node{Kind: yaml.MappingNode}
+
+	addScalar := func(key, value string) {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+		)
 	}
 
-	data, err := yaml.Marshal(&yf)
+	addLiteralBlock := func(key, value string) {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: value, Style: yaml.LiteralStyle},
+		)
+	}
+
+	addSequence := func(key string, values []string) {
+		if len(values) == 0 {
+			return
+		}
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, v := range values {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: v})
+		}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			seq,
+		)
+	}
+
+	addMap := func(key string, values map[string]string) {
+		if len(values) == 0 {
+			return
+		}
+		m := &yaml.Node{Kind: yaml.MappingNode}
+		for k, v := range values {
+			m.Content = append(m.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: k},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: v},
+			)
+		}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+			m,
+		)
+	}
+
+	if f.Version != "" {
+		addScalar("version", f.Version)
+	}
+	if f.Author != "" {
+		addScalar("author", f.Author)
+	}
+	addSequence("tags", f.Tags)
+	addSequence("variables", f.Variables)
+	if f.NoDistill {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "no_distill"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "true"},
+		)
+	}
+	addLiteralBlock("content", f.Content)
+	if f.ContentHash != "" {
+		addScalar("content_hash", f.ContentHash)
+	}
+	if f.Distilled != "" {
+		addLiteralBlock("distilled", f.Distilled)
+	}
+	if f.DistilledBy != "" {
+		addScalar("distilled_by", f.DistilledBy)
+	}
+	addMap("exports", f.Exports)
+
+	data, err := yaml.Marshal(root)
 	if err != nil {
 		return fmt.Errorf("marshal fragment: %w", err)
 	}
@@ -326,11 +400,12 @@ func parseYAMLFragment(data []byte) (*Fragment, error) {
 		ContentHash: yf.ContentHash,
 		Distilled:   strings.TrimSpace(yf.Distilled),
 		DistilledBy: yf.DistilledBy,
+		NoDistill:   yf.NoDistill,
 	}
 
-	// Copy var_values to VarValues if present (from generator output)
-	if len(yf.VarValues) > 0 {
-		frag.VarValues = yf.VarValues
+	// Copy exports if present (from generator output)
+	if len(yf.Exports) > 0 {
+		frag.Exports = yf.Exports
 	}
 
 	return frag, nil
@@ -344,18 +419,25 @@ func (l *Loader) LoadMultiple(names []string) (string, error) {
 
 // LoadMultipleWithVars loads multiple fragments with additional variables.
 // Variables are provided via extraVars (from persona config or generators).
-// Missing fragments are warned about but do not cause failure.
+// Missing fragments are warned about. If WithFailOnMissing is set, returns an error.
 func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]string) (string, error) {
 	var frags []*Fragment
+	l.missingFragments = nil // Reset missing fragments
 
 	// Load all fragments
 	for _, name := range names {
 		frag, err := l.Load(name)
 		if err != nil {
+			l.missingFragments = append(l.missingFragments, name)
 			l.warn(fmt.Sprintf("fragment not found: %s", name))
 			continue
 		}
 		frags = append(frags, frag)
+	}
+
+	// Fail if any fragments were missing and failOnMissing is set
+	if l.failOnMissing && len(l.missingFragments) > 0 {
+		return "", fmt.Errorf("fragments not found: %s", strings.Join(l.missingFragments, ", "))
 	}
 
 	// Use provided variables
@@ -584,7 +666,8 @@ type yamlFragment struct {
 	ContentHash string            `yaml:"content_hash,omitempty"` // SHA256 hash of content
 	Distilled   string            `yaml:"distilled,omitempty"`    // Distilled version of content
 	DistilledBy string            `yaml:"distilled_by,omitempty"` // LLM that performed distillation
-	VarValues   map[string]string `yaml:"var_values,omitempty"`   // For generator output
+	NoDistill   bool              `yaml:"no_distill,omitempty"`   // If true, skip distillation
+	Exports     map[string]string `yaml:"exports,omitempty"`      // For generator output
 }
 
 // ParseYAML parses YAML content as a fragment.

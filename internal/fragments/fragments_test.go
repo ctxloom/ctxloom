@@ -286,7 +286,7 @@ func TestParseYAML(t *testing.T) {
   - git_branch
 content: |
   Generator output content.
-var_values:
+exports:
   git_branch: main
 `
 
@@ -298,8 +298,8 @@ var_values:
 	if !strings.Contains(frag.Content, "Generator output content.") {
 		t.Errorf("unexpected content: %q", frag.Content)
 	}
-	if frag.VarValues["git_branch"] != "main" {
-		t.Errorf("expected git_branch=main, got %q", frag.VarValues["git_branch"])
+	if frag.Exports["git_branch"] != "main" {
+		t.Errorf("expected git_branch=main, got %q", frag.Exports["git_branch"])
 	}
 }
 
@@ -787,5 +787,123 @@ content: Go content.
 	}
 	if len(frags) != 1 {
 		t.Errorf("expected case-insensitive match, got %d fragments", len(frags))
+	}
+}
+
+func TestParseNoDistill(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		expectFlag bool
+	}{
+		{
+			name: "no_distill true",
+			input: `no_distill: true
+content: Do not compress this.`,
+			expectFlag: true,
+		},
+		{
+			name: "no_distill false",
+			input: `no_distill: false
+content: Can compress this.`,
+			expectFlag: false,
+		},
+		{
+			name: "no_distill absent",
+			input: `content: Default behavior.`,
+			expectFlag: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frag, err := parseYAMLFragment([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if frag.NoDistill != tt.expectFlag {
+				t.Errorf("expected NoDistill=%v, got %v", tt.expectFlag, frag.NoDistill)
+			}
+		})
+	}
+}
+
+func TestSaveNoDistill(t *testing.T) {
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	path := tmpDir + "/test.yaml"
+
+	frag := &Fragment{
+		Path:      path,
+		Version:   "1.0",
+		Tags:      []string{"test"},
+		NoDistill: true,
+		Content:   "Test content.",
+	}
+
+	// Save the fragment
+	err := frag.Save()
+	if err != nil {
+		t.Fatalf("unexpected error saving: %v", err)
+	}
+
+	// Load it back via standard loader
+	loader := NewLoader([]string{tmpDir})
+	loaded, err := loader.Load("test")
+	if err != nil {
+		t.Fatalf("unexpected error loading: %v", err)
+	}
+
+	// Verify NoDistill was preserved
+	if !loaded.NoDistill {
+		t.Error("expected NoDistill to be true after round-trip")
+	}
+	if loaded.Content != "Test content." {
+		t.Errorf("expected content preserved, got %q", loaded.Content)
+	}
+}
+
+func TestEffectiveContentFallback(t *testing.T) {
+	tests := []struct {
+		name            string
+		content         string
+		distilled       string
+		preferDistilled bool
+		expected        string
+	}{
+		{
+			name:            "prefer distilled when available",
+			content:         "full content",
+			distilled:       "compressed",
+			preferDistilled: true,
+			expected:        "compressed",
+		},
+		{
+			name:            "fallback to content when no distilled",
+			content:         "full content",
+			distilled:       "",
+			preferDistilled: true,
+			expected:        "full content",
+		},
+		{
+			name:            "use content when not preferring distilled",
+			content:         "full content",
+			distilled:       "compressed",
+			preferDistilled: false,
+			expected:        "full content",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frag := &Fragment{
+				Content:   tt.content,
+				Distilled: tt.distilled,
+			}
+			result := frag.EffectiveContent(tt.preferDistilled)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
 	}
 }

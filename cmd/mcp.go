@@ -479,7 +479,7 @@ func (s *mcpServer) toolListPersonas(args json.RawMessage) (interface{}, error) 
 	return map[string]interface{}{
 		"personas": result,
 		"count":    len(result),
-		"default":  s.cfg.Defaults.Persona,
+		"defaults": s.cfg.Defaults.Personas,
 	}, nil
 }
 
@@ -502,6 +502,7 @@ func (s *mcpServer) toolGetPersona(args json.RawMessage) (interface{}, error) {
 	return map[string]interface{}{
 		"name":        params.Name,
 		"description": persona.Description,
+		"parents":     persona.Parents,
 		"tags":        persona.Tags,
 		"fragments":   persona.Fragments,
 		"variables":   persona.Variables,
@@ -550,20 +551,25 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	personaVars := make(map[string]string)
 
 	personaName := params.Persona
+	var personaNames []string
 	if personaName == "" && len(params.Fragments) == 0 && len(params.Tags) == 0 {
-		// Use session persona if set, otherwise config default
+		// Use session persona if set, otherwise config defaults
 		if s.sessionPersona != "" {
-			personaName = s.sessionPersona
+			personaNames = []string{s.sessionPersona}
 		} else {
-			personaName = s.cfg.Defaults.Persona
+			personaNames = s.cfg.Defaults.Personas
 		}
 		allFragments = append(allFragments, s.cfg.Defaults.Fragments...)
+	} else if personaName != "" {
+		personaNames = []string{personaName}
 	}
 
-	if personaName != "" {
-		persona, exists := s.cfg.Personas[personaName]
-		if !exists {
-			return nil, fmt.Errorf("persona not found: %s", personaName)
+	// Process all personas
+	for _, pName := range personaNames {
+		// Resolve persona with inheritance
+		persona, err := config.ResolvePersona(s.cfg.Personas, pName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve persona %s: %w", pName, err)
 		}
 
 		if len(persona.Tags) > 0 {
@@ -613,7 +619,7 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	}
 
 	return map[string]interface{}{
-		"persona":          personaName,
+		"personas":         personaNames,
 		"fragments_loaded": uniqueFragments,
 		"context":          contextContent,
 	}, nil

@@ -1,0 +1,328 @@
+Feature: Run command
+  As a user
+  I want to run AI with assembled context
+  So that I can interact with AI using my configured fragments
+
+  Background:
+    Given a project with mlcm initialized
+    And a mock LM is configured
+
+  # ============================================================================
+  # Basic Run Operations
+  # ============================================================================
+
+  Scenario: Run with single fragment
+    Given a fragment "test-fragment" in the project with content:
+      """
+      tags:
+        - testing
+      content: |
+        This is test content.
+      """
+    And the mock LM will respond with:
+      """
+      LM response.
+      """
+    When I run mlcm "run -f test-fragment --print test prompt"
+    Then the exit code should be 0
+    And the LM should have received context containing "This is test content"
+    And the LM should have received context containing "test prompt"
+
+  Scenario: Run with multiple fragments
+    Given a fragment "frag-one" in the project with content:
+      """
+      tags:
+        - first
+      content: |
+        Content from fragment one.
+      """
+    And a fragment "frag-two" in the project with content:
+      """
+      tags:
+        - second
+      content: |
+        Content from fragment two.
+      """
+    And the mock LM will respond with:
+      """
+      Response.
+      """
+    When I run mlcm "run -f frag-one -f frag-two --print combined test"
+    Then the exit code should be 0
+    And the LM should have received context containing "Content from fragment one"
+    And the LM should have received context containing "Content from fragment two"
+
+  # ============================================================================
+  # Run with Persona
+  # ============================================================================
+
+  Scenario: Run with persona loads persona's fragments
+    Given a fragment "persona-frag" in the project with content:
+      """
+      tags:
+        - persona
+      content: |
+        Persona fragment content.
+      """
+    And a config file with:
+      """
+      lm:
+        default_plugin: claude-code
+        plugins:
+          claude-code:
+            binary_path: "{{MOCK_LM_PATH}}"
+      personas:
+        test-persona:
+          description: Test persona
+          fragments:
+            - persona-frag
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -p test-persona --print persona test"
+    Then the exit code should be 0
+    And the LM should have received context containing "Persona fragment content"
+
+  # ============================================================================
+  # Run with Tags
+  # ============================================================================
+
+  Scenario: Run with tag loads matching fragments
+    Given a fragment "security-frag" in the project with content:
+      """
+      tags:
+        - security
+      content: |
+        Security guidelines here.
+      """
+    And a fragment "style-frag" in the project with content:
+      """
+      tags:
+        - style
+      content: |
+        Style guidelines here.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -t security --print tag test"
+    Then the exit code should be 0
+    And the LM should have received context containing "Security guidelines"
+    And the LM should have received context not containing "Style guidelines"
+
+  Scenario: Run with multiple tags
+    Given a fragment "review-frag" in the project with content:
+      """
+      tags:
+        - review
+      content: |
+        Review content.
+      """
+    And a fragment "testing-frag" in the project with content:
+      """
+      tags:
+        - testing
+      content: |
+        Testing content.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -t review -t testing --print multi-tag test"
+    Then the exit code should be 0
+    And the LM should have received context containing "Review content"
+    And the LM should have received context containing "Testing content"
+
+  # ============================================================================
+  # Run with Variables
+  # ============================================================================
+
+  Scenario: Run substitutes variables from persona
+    Given a fragment "var-frag" in the project with content:
+      """
+      tags:
+        - variables
+      content: |
+        The language is {{language}}.
+        The version is {{version}}.
+      """
+    And a config file with:
+      """
+      lm:
+        default_plugin: claude-code
+        plugins:
+          claude-code:
+            binary_path: "{{MOCK_LM_PATH}}"
+      personas:
+        var-persona:
+          description: Variable persona
+          fragments:
+            - var-frag
+          variables:
+            language: Go
+            version: "1.21"
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -p var-persona --print var test"
+    Then the exit code should be 0
+    And the LM should have received context containing "The language is Go"
+    And the LM should have received context containing "The version is 1.21"
+
+  # ============================================================================
+  # Dry Run Mode
+  # ============================================================================
+
+  Scenario: Dry run shows command without executing
+    Given a fragment "dry-frag" in the project with content:
+      """
+      tags:
+        - dry
+      content: |
+        Dry run content.
+      """
+    When I run mlcm "run -f dry-frag --dry-run test prompt"
+    Then the exit code should be 0
+    And the output should contain "Dry run content"
+
+  # ============================================================================
+  # No Distill Flag
+  # ============================================================================
+
+  Scenario: Fragment with no_distill preserves content
+    Given a fragment "no-distill-frag" in the project with content:
+      """
+      tags:
+        - protected
+      no_distill: true
+      content: |
+        This exact content must be preserved.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -f no-distill-frag --print no-distill test"
+    Then the exit code should be 0
+    And the LM should have received context containing "This exact content must be preserved"
+
+  # ============================================================================
+  # Error Handling
+  # ============================================================================
+
+  Scenario: Run with nonexistent fragment fails
+    When I run mlcm "run -f nonexistent --print test"
+    Then the exit code should be 1
+    And the output should contain "not found"
+
+  Scenario: Run with nonexistent persona fails
+    When I run mlcm "run -p nonexistent --print test"
+    Then the exit code should be 1
+    And the output should contain "unknown persona"
+
+  # ============================================================================
+  # Print Mode
+  # ============================================================================
+
+  Scenario: Print mode outputs response and exits
+    Given a fragment "print-frag" in the project with content:
+      """
+      tags:
+        - print
+      content: |
+        Print test.
+      """
+    And the mock LM will respond with:
+      """
+      This is the LM response.
+      """
+    When I run mlcm "run -f print-frag --print test"
+    Then the exit code should be 0
+    And the output should contain "This is the LM response"
+
+  # ============================================================================
+  # Quiet Mode
+  # ============================================================================
+
+  Scenario: Quiet mode suppresses warnings
+    Given a fragment "quiet-frag" in the project with content:
+      """
+      tags:
+        - quiet
+      content: |
+        Quiet test.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -f quiet-frag --quiet --print test"
+    Then the exit code should be 0
+
+  # ============================================================================
+  # Run with Saved Prompt
+  # ============================================================================
+
+  Scenario: Run with saved prompt using --run-prompt
+    Given a fragment "prompt-frag" in the project with content:
+      """
+      tags:
+        - prompts
+      content: |
+        Fragment for prompt test.
+      """
+    And a prompt "saved-prompt" in the project with content:
+      """
+      description: A saved prompt
+      content: |
+        This is saved prompt content.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -f prompt-frag -r saved-prompt --print"
+    Then the exit code should be 0
+    And the LM should have received context containing "This is saved prompt content"
+
+  Scenario: Run with --prompt flag as alternative to positional args
+    Given a fragment "alt-frag" in the project with content:
+      """
+      tags:
+        - alt
+      content: |
+        Alternative prompt test.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -f alt-frag --prompt alternative-prompt-text --print"
+    Then the exit code should be 0
+    And the LM should have received context containing "alternative-prompt-text"
+
+  # ============================================================================
+  # Subdirectory Fragments
+  # ============================================================================
+
+  Scenario: Run with fragment in subdirectory
+    Given a fragment "lang/golang" in the project with content:
+      """
+      tags:
+        - golang
+      content: |
+        Go coding guidelines from subdirectory.
+      """
+    And the mock LM will respond with:
+      """
+      OK
+      """
+    When I run mlcm "run -f lang/golang --print test"
+    Then the exit code should be 0
+    And the LM should have received context containing "Go coding guidelines from subdirectory"

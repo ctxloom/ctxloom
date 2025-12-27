@@ -1,11 +1,85 @@
 version: "1.0"
 tags:
-  - review
-  - code
-  - git
-content: |
-  # Code Review
+    - review
+    - code
+    - git
+content: |-
+    # Code Review
 
-  Review the recent changes in this repository.
+    Review the recent changes in this repository.
 
-  Start by examining `git diff HEAD~1` or staged changes to understand what was modified.
+    Start by examining `git diff HEAD~1` or staged changes to understand what was modified.
+content_hash: sha256:112f0f60f4727857f1f3fcf04cfbebdb2e0f7440ddba09dce5f645b89f95cb9d
+distilled: |-
+    ## Code Review Summary
+
+    This commit makes significant architectural changes to MLCM. Build and tests pass.
+
+    ### Changes Overview
+
+    | Category | Files Changed | Lines |
+    |----------|---------------|-------|
+    | Config refactor | 7 | ~250 |
+    | Directory restructure | 10 | ~200 |
+    | README rewrite | 1 | ~500 |
+    | Fragment content | 17 | ~400 |
+    | Terraform removal | 8 | -551 |
+
+    ### Key Changes
+
+    **1. `ai` → `lm` Config Rename**
+    - `config.AI` → `config.LM` throughout codebase
+    - Clearer naming: "Language Model" vs generic "AI"
+
+    **2. Persona Inheritance System** (`internal/config/config.go:435-562`)
+    - New `Parents` field enables persona inheritance
+    - `ResolvePersona()` recursively merges parent personas (depth-first)
+    - Circular dependency detection
+    - Arrays append, maps merge with child override
+
+    **3. Directory Restructure**
+    ```
+    tools/git/          → tools/cli/git/
+    tools/just/         → tools/cli/just/
+    tools/devcontainer/ → tools/cli/devcontainer/
+    tools/mcp-tasks/    → tools/mcp/mcp-tasks/
+    ```
+    Better organization separating CLI tools from MCP tools.
+
+    **4. `mlcm init` → `mlcm copy`**
+    - Deleted `cmd/init.go` (673 lines)
+    - Replaced by `cmd/copy.go` (new, untracked)
+    - Simpler model: explicit copy between locations
+
+    **5. Schema Validation**
+    - New `config-schema.json` for config.yaml validation
+    - `ConfigValidator` in `internal/schema/schema.go`
+    - Validates config at load time
+
+    **6. README Overhaul**
+    - More concise and task-oriented
+    - Better examples and command reference
+    - Removed verbose explanations
+
+    ### Issues Found
+
+    **Potential Breaking Changes:**
+    1. Config files using `ai:` key need migration to `lm:`
+    2. Fragment paths changed (tools/git → tools/cli/git)
+    3. `mlcm init` no longer exists
+
+    **Missing Fragment Reference:**
+    - `config.yaml:45` references `tools/ast-grep` but `resources/context-fragments/tools/cli/ast-grep/` is empty
+
+    **Untracked Files:**
+    - `cmd/copy.go` - new command not staged
+    - `.mcp.json`, `.tasks/` - local config
+    - `resources/schema/` directory exists but schemas are readable
+
+    ### Recommendations
+
+    1. **Add migration notes** for `ai:` → `lm:` config change
+    2. **Stage or implement** `tools/ast-grep` fragment (currently referenced but missing)
+    3. **Stage** `cmd/copy.go` if it's the `init` replacement
+    4. **Add tests** for `ResolvePersona()` inheritance logic - critical new functionality with edge cases (circular deps, diamond inheritance)
+distilled_by: claude-code

@@ -8,8 +8,9 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
-	"mlcm/internal/ai"
 	"mlcm/internal/logging"
+	"mlcm/internal/ml"
+	"mlcm/internal/schema"
 	"mlcm/resources"
 )
 
@@ -22,7 +23,7 @@ const (
 
 // Config holds the MLCM configuration.
 type Config struct {
-	AI         AIConfig             `mapstructure:"ai"`
+	LM         LMConfig             `mapstructure:"lm"`
 	Editor     EditorConfig         `mapstructure:"editor"`
 	Defaults   Defaults             `mapstructure:"defaults"`
 	Personas   map[string]Persona   `mapstructure:"personas"`
@@ -65,16 +66,18 @@ type Generator struct {
 	Args        []string `mapstructure:"args" yaml:"args,omitempty"` // Additional arguments
 }
 
-// AIConfig holds AI-related configuration.
-type AIConfig struct {
+// LMConfig holds LM (language model) configuration.
+type LMConfig struct {
 	DefaultPlugin string                     `mapstructure:"default_plugin" yaml:"default_plugin"`
-	Plugins       map[string]ai.PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+	Plugins       map[string]ml.PluginConfig `mapstructure:"plugins" yaml:"plugins"`
 }
 
 // Persona is a named collection of context fragments, variables, and context generators.
 // Fragments can be specified directly by path, or dynamically via tags.
+// Personas can inherit from parent personas using the Parents field.
 type Persona struct {
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
+	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`     // Parent personas to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`           // Fragment tags to include
 	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"` // Explicit fragment paths
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
@@ -83,7 +86,7 @@ type Persona struct {
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Persona      string   `mapstructure:"persona" yaml:"persona,omitempty"`             // Default persona to use
+	Personas     []string `mapstructure:"personas" yaml:"personas,omitempty"`           // Default personas to load when none specified
 	Fragments    []string `mapstructure:"fragments" yaml:"fragments,omitempty"`         // Fragments always included
 	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
@@ -103,9 +106,9 @@ func (d *Defaults) ShouldUseDistilled() bool {
 // Home directory (~/.mlcm) is only used as a template source for init.
 func Load() (*Config, error) {
 	cfg := &Config{
-		AI: AIConfig{
+		LM: LMConfig{
 			DefaultPlugin: "claude-code",
-			Plugins:       make(map[string]ai.PluginConfig),
+			Plugins:       make(map[string]ml.PluginConfig),
 		},
 		Personas:   make(map[string]Persona),
 		Generators: make(map[string]Generator),
@@ -118,11 +121,40 @@ func Load() (*Config, error) {
 	}
 	cfg.MLCMPaths = mlcmPaths
 
+	// Create config validator for schema validation
+	configValidator, err := schema.NewConfigValidator()
+	if err != nil {
+		// If schema validator fails to load, log warning but continue
+		// This allows the tool to work even if schema is missing
+		logging.L().Warn("failed to create config validator",
+			logging.ErrorField(err))
+		configValidator = nil
+	}
+
 	// Load configuration from each .mlcm directory (later ones override earlier)
 	// We load in reverse order so project-local config takes precedence
 	for i := len(mlcmPaths) - 1; i >= 0; i-- {
 		mlcmPath := mlcmPaths[i]
 		configPath := filepath.Join(mlcmPath, ConfigFileName+".yaml")
+
+		// Read config file for validation
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			logging.L().Warn("failed to read config file",
+				logging.FilePath(configPath),
+				logging.ErrorField(err))
+			continue
+		}
+
+		// Validate against schema before parsing
+		if configValidator != nil {
+			if err := configValidator.ValidateBytes(data); err != nil {
+				return nil, fmt.Errorf("config validation failed at %s: %w", configPath, err)
+			}
+		}
 
 		v := viper.New()
 		v.SetConfigFile(configPath)
@@ -216,7 +248,7 @@ func (c *Config) GetPromptDirs() []string {
 
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
-	AI         AIConfig             `yaml:"ai"`
+	LM         LMConfig             `yaml:"lm"`
 	Editor     EditorConfig         `yaml:"editor,omitempty"`
 	Defaults   Defaults             `yaml:"defaults,omitempty"`
 	Personas   map[string]Persona   `yaml:"personas,omitempty"`
@@ -247,8 +279,8 @@ func (c *Config) Save() error {
 	}
 
 	// Update with current values
-	existing["ai"] = c.AI
-	if c.Defaults.Persona != "" || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
+	existing["lm"] = c.LM
+	if len(c.Defaults.Personas) > 0 || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
 		existing["defaults"] = c.Defaults
 	}
 	if len(c.Personas) > 0 {
@@ -398,4 +430,131 @@ func FilterGenerators(all map[string]Generator, names []string) map[string]Gener
 		}
 	}
 	return filtered
+}
+
+// personaBuilder collects persona fields using sets to avoid duplicates during inheritance.
+type personaBuilder struct {
+	Description string
+	Tags        map[string]bool
+	Fragments   map[string]bool
+	Generators  map[string]bool
+	Variables   map[string]string
+	// Track insertion order for stable output
+	tagsOrder       []string
+	fragmentsOrder  []string
+	generatorsOrder []string
+}
+
+func newPersonaBuilder() *personaBuilder {
+	return &personaBuilder{
+		Tags:       make(map[string]bool),
+		Fragments:  make(map[string]bool),
+		Generators: make(map[string]bool),
+		Variables:  make(map[string]string),
+	}
+}
+
+func (b *personaBuilder) addTag(tag string) {
+	if !b.Tags[tag] {
+		b.Tags[tag] = true
+		b.tagsOrder = append(b.tagsOrder, tag)
+	}
+}
+
+func (b *personaBuilder) addFragment(frag string) {
+	if !b.Fragments[frag] {
+		b.Fragments[frag] = true
+		b.fragmentsOrder = append(b.fragmentsOrder, frag)
+	}
+}
+
+func (b *personaBuilder) addGenerator(gen string) {
+	if !b.Generators[gen] {
+		b.Generators[gen] = true
+		b.generatorsOrder = append(b.generatorsOrder, gen)
+	}
+}
+
+func (b *personaBuilder) toPersona() *Persona {
+	return &Persona{
+		Description: b.Description,
+		Tags:        b.tagsOrder,
+		Fragments:   b.fragmentsOrder,
+		Generators:  b.generatorsOrder,
+		Variables:   b.Variables,
+	}
+}
+
+// ResolvePersona resolves a persona by recursively merging all parent personas.
+// Parents are processed depth-first, with later parents and the child overriding earlier values.
+// Uses sets internally to handle diamond inheritance (shared ancestors) without duplicates.
+// Returns an error if the persona doesn't exist or if circular dependencies are detected.
+func ResolvePersona(personas map[string]Persona, name string) (*Persona, error) {
+	visited := make(map[string]bool)
+	builder := newPersonaBuilder()
+	if err := resolvePersonaRecursive(personas, name, visited, builder); err != nil {
+		return nil, err
+	}
+	return builder.toPersona(), nil
+}
+
+func resolvePersonaRecursive(personas map[string]Persona, name string, visited map[string]bool, builder *personaBuilder) error {
+	// Check for circular dependency
+	if visited[name] {
+		return fmt.Errorf("circular persona inheritance detected: %s", name)
+	}
+	visited[name] = true
+
+	persona, ok := personas[name]
+	if !ok {
+		return fmt.Errorf("unknown persona: %s", name)
+	}
+
+	// Resolve parents first (depth-first)
+	for _, parentName := range persona.Parents {
+		if err := resolvePersonaRecursive(personas, parentName, copyVisited(visited), builder); err != nil {
+			return fmt.Errorf("failed to resolve parent %s: %w", parentName, err)
+		}
+	}
+
+	// Merge this persona's values (child overrides parents for variables)
+	for _, tag := range persona.Tags {
+		builder.addTag(tag)
+	}
+	for _, frag := range persona.Fragments {
+		builder.addFragment(frag)
+	}
+	for _, gen := range persona.Generators {
+		builder.addGenerator(gen)
+	}
+	for k, v := range persona.Variables {
+		builder.Variables[k] = v
+	}
+
+	// Set description from the leaf persona (will be overwritten by each child)
+	builder.Description = persona.Description
+
+	return nil
+}
+
+// copyVisited creates a copy of the visited map for branching recursion.
+func copyVisited(visited map[string]bool) map[string]bool {
+	result := make(map[string]bool, len(visited))
+	for k, v := range visited {
+		result[k] = v
+	}
+	return result
+}
+
+// DedupeStrings removes duplicates from a string slice while preserving order.
+func DedupeStrings(items []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
 }

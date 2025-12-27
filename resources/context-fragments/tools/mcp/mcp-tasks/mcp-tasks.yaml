@@ -1,0 +1,58 @@
+version: "1.0"
+tags:
+    - workflow
+    - mcp
+    - tasks
+content: |-
+    # MCP Tasks
+
+    Use mcp-tasks for persistent task management across sessions.
+
+    ## Setup
+
+    - Store tasks in `.tasks/todos.md`
+    - Call `tasks_setup` once per conversation with the source path
+    - Use the workspace parameter to specify the project directory
+
+    ## Task Statuses
+
+    - **In Progress**: Current work item (limit to one at a time)
+    - **To Do**: Upcoming tasks
+    - **Backlog**: Lower priority items
+    - **Done**: Completed tasks
+    - **Reminders**: Persistent instructions for the AI
+    - **Notes**: Non-actionable reference information
+
+    ## Best Practices
+
+    - Keep mcp-tasks synchronized with TodoWrite
+    - Use `tasks_add` for batch additions
+    - Use `tasks_update` for bulk status changes
+    - Call `tasks_search` to find specific tasks by status or text
+    - Avoid redundant `tasks_summary` calls after add/update operations
+content_hash: sha256:f19fe92482910c9fe5342f52fdf5bc945124228508d428e611227d0c042afc25
+distilled: |-
+    # MCP Tasks
+
+    Persistent task mgmt across sessions.
+
+    ## Setup
+    - Tasks in `.tasks/todos.md`
+    - Call `tasks_setup` once/conversation w/ source path
+    - Use workspace param for project dir
+
+    ## Statuses
+    - **In Progress**: Current work (limit 1)
+    - **To Do**: Upcoming
+    - **Backlog**: Low priority
+    - **Done**: Completed
+    - **Reminders**: Persistent AI instructions
+    - **Notes**: Non-actionable reference
+
+    ## Best Practices
+    - Sync w/ TodoWrite
+    - `tasks_add`: batch additions
+    - `tasks_update`: bulk status changes
+    - `tasks_search`: find by status/text
+    - Skip `tasks_summary` after add/update
+distilled_by: claude-code

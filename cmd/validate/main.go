@@ -1,4 +1,4 @@
-// validate checks that all fragment YAML files conform to the JSON schema.
+// validate checks that all fragment and config YAML files conform to their JSON schemas.
 // Run before build to catch schema violations early.
 package main
 
@@ -20,7 +20,12 @@ func main() {
 }
 
 func run() error {
-	validator, err := schema.NewValidator()
+	fragmentValidator, err := schema.NewValidator()
+	if err != nil {
+		return err
+	}
+
+	configValidator, err := schema.NewConfigValidator()
 	if err != nil {
 		return err
 	}
@@ -28,13 +33,23 @@ func run() error {
 	var errors []string
 	var validated int
 
+	// Validate resources/config.yaml
+	configPath := "resources/config.yaml"
+	if data, err := os.ReadFile(configPath); err == nil {
+		if err := configValidator.ValidateBytes(data); err != nil {
+			errors = append(errors, fmt.Sprintf("  %s: %v", configPath, err))
+		} else {
+			validated++
+		}
+	}
+
 	// Validate resources/context-fragments
 	fragmentsDir := "resources/context-fragments"
 	err = filepath.WalkDir(fragmentsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || strings.Contains(path, "standards/") {
+		if d.IsDir() {
 			return nil
 		}
 		name := d.Name()
@@ -48,7 +63,7 @@ func run() error {
 			return nil
 		}
 
-		if err := validator.ValidateBytes(data); err != nil {
+		if err := fragmentValidator.ValidateBytes(data); err != nil {
 			errors = append(errors, fmt.Sprintf("  %s: %v", path, err))
 		} else {
 			validated++
@@ -80,7 +95,7 @@ func run() error {
 				return nil
 			}
 
-			if err := validator.ValidateBytes(data); err != nil {
+			if err := fragmentValidator.ValidateBytes(data); err != nil {
 				errors = append(errors, fmt.Sprintf("  %s: %v", path, err))
 			} else {
 				validated++

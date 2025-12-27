@@ -180,9 +180,9 @@ func (f *FragmentBuilder) String() string {
 		}
 	}
 
-	// Variables section with values (for generator output parsing)
+	// Exports section with values (for generator output parsing)
 	if len(f.variables) > 0 {
-		lines = append(lines, "var_values:")
+		lines = append(lines, "exports:")
 		for k, v := range f.variables {
 			lines = append(lines, fmt.Sprintf("  %s: %s", k, v))
 		}

@@ -48,8 +48,8 @@ const (
 
 // ProjectHeader is the comment prepended to files copied to project directories.
 const ProjectHeader = `# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ DO NOT EDIT - Changes will be overwritten on next 'mlcm init'              │
-# │ To customize: edit ~/.mlcm/context-fragments/... then re-run 'mlcm init'   │
+# │ DO NOT EDIT - Changes will be overwritten on next 'mlcm copy'              │
+# │ To customize: mlcm fragment edit {{name}} then re-run 'mlcm copy'          │
 # └─────────────────────────────────────────────────────────────────────────────┘
 `
 
@@ -89,8 +89,21 @@ var fragmentsFS embed.FS
 //go:embed all:prompts
 var promptsFS embed.FS
 
+//go:embed all:schema
+var schemaFS embed.FS
+
 //go:embed config.yaml
 var configFS embed.FS
+
+// FragmentsFS returns the embedded fragments filesystem.
+func FragmentsFS() embed.FS {
+	return fragmentsFS
+}
+
+// PromptsFS returns the embedded prompts filesystem.
+func PromptsFS() embed.FS {
+	return promptsFS
+}
 
 // yamlFragment represents the YAML structure of a fragment file.
 type yamlFragment struct {
@@ -99,7 +112,7 @@ type yamlFragment struct {
 	Tags      []string          `yaml:"tags,omitempty"`
 	Variables []string          `yaml:"variables,omitempty"`
 	Content   string            `yaml:"content"`
-	VarValues map[string]string `yaml:"var_values,omitempty"`
+	Exports   map[string]string `yaml:"exports,omitempty"`
 }
 
 // GetEmbeddedConfig returns the embedded default config.yaml content.
@@ -109,7 +122,12 @@ func GetEmbeddedConfig() ([]byte, error) {
 
 // GetFragmentSchema returns the embedded JSON schema for fragment validation.
 func GetFragmentSchema() ([]byte, error) {
-	return fragmentsFS.ReadFile("context-fragments/standards/fragment-schema.json")
+	return schemaFS.ReadFile("schema/fragment-schema.json")
+}
+
+// GetConfigSchema returns the embedded JSON schema for config validation.
+func GetConfigSchema() ([]byte, error) {
+	return schemaFS.ReadFile("schema/config-schema.json")
 }
 
 // CopyFragments copies embedded context-fragments to the destination directory.

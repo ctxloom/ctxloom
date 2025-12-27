@@ -1,4 +1,4 @@
-ai:
+lm:
   default_plugin: claude-code
   plugins:
     claude-code:
@@ -16,7 +16,8 @@ editor:
   command: vim
 
 defaults:
-  persona: developer
+  personas:
+    - developer
 
 generators:
   git-context:
@@ -27,86 +28,60 @@ generators:
     command: mlcm-gen-simple
 
 personas:
-  developer:
-    description: Full development context with all standards and practices
+  base:
+    description: Core context for all AI interactions
     fragments:
       - general/communication
+      - general/security
+
+  developer:
+    description: Full development context with all standards and practices
+    parents:
+      - base
+    fragments:
       - general/tdd
       - general/code-quality
       - tools/just
       - tools/git
+      - tools/ast-grep
       - general/documentation
       - general/problem-solving
       - general/pushback
-      - general/security
 
   go-developer:
     description: Go development context
+    parents:
+      - developer
     tags:
       - golang
-    fragments:
-      - general/communication
-      - general/tdd
-      - general/code-quality
-      - tools/just
-      - tools/git
-      - general/documentation
-      - general/problem-solving
-      - general/pushback
-      - general/security
 
   python-developer:
     description: Python development context
+    parents:
+      - developer
     tags:
       - python
-    fragments:
-      - general/communication
-      - general/tdd
-      - general/code-quality
-      - tools/just
-      - tools/git
-      - general/documentation
-      - general/problem-solving
-      - general/pushback
-      - general/security
 
   rust-developer:
     description: Rust development context
+    parents:
+      - developer
     tags:
       - rust
-    fragments:
-      - general/communication
-      - general/tdd
-      - general/code-quality
-      - tools/just
-      - tools/git
-      - general/documentation
-      - general/problem-solving
-      - general/pushback
-      - general/security
 
   typescript-developer:
     description: TypeScript development context
+    parents:
+      - developer
     tags:
       - typescript
-    fragments:
-      - general/communication
-      - general/tdd
-      - general/code-quality
-      - tools/just
-      - tools/git
-      - general/documentation
-      - general/problem-solving
-      - general/pushback
-      - general/security
 
   reviewer:
     description: Code review with all perspectives
+    parents:
+      - base
     tags:
       - review
-    fragments:
-      - general/communication
-      - general/security
 
   git-aware:
     description: Context with git repository info
@@ -117,8 +92,7 @@ personas:
 
   prototype:
     description: Prototype mode - no backwards compatibility
+    parents:
+      - developer
     fragments:
       - patterns/prototype
-      - general/communication
-      - general/tdd
-      - general/code-quality

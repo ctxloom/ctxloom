@@ -1,58 +1,97 @@
 version: "1.0"
 tags:
-  - golang
-  - language
-content: |
-  # Golang Development
+    - golang
+    - language
+content: |-
+    # Golang Development
 
-  ## Environment & Tooling
+    ## Environment & Tooling
 
-  - **Go Version**: Specify in go.mod
-  - **Testing Framework**: Standard library `testing`
-  - **Acceptance Testing**: Gherkin (godog)
-  - **Code Quality**: golangci-lint, gofmt/goimports
-  - **Logging**: zap (high-performance structured logging)
+    - **Go Version**: Specify in go.mod
+    - **Testing Framework**: Standard library `testing`
+    - **Acceptance Testing**: Gherkin (godog)
+    - **Code Quality**: golangci-lint, gofmt/goimports
+    - **Logging**: zap (high-performance structured logging)
 
-  ## Test Structure
+    ## Test Structure
 
-  - **Unit Tests**: `*_test.go` (co-located)
-  - **Integration Tests**: `tests/integration/*_test.go` or build tags
-  - **Acceptance Tests**: `tests/acceptance/features/*.feature`
+    - **Unit Tests**: `*_test.go` (co-located)
+    - **Integration Tests**: `tests/integration/*_test.go` or build tags
+    - **Acceptance Tests**: `tests/acceptance/features/*.feature`
 
-  ## Testing Tools
+    ## Testing Tools
 
-  - **Testify Suites**: Use testify suites to DRY up related tests with shared setup/teardown. Don't create a suite for a single test.
-  - **Mocking**: Use gomock for mocks. Generate mocks via just target.
+    - **Testify Suites**: Use testify suites to DRY up related tests with shared setup/teardown. Don't create a suite for a single test.
+    - **Mocking**: Use gomock for mocks. Generate mocks via just target.
 
-  ## Logging with zap
+    ## Logging with zap
 
-  ```go
-  // logmsg/messages.go
-  const UserCreated = "user_created"
+    ```go
+    // logmsg/messages.go
+    const UserCreated = "user_created"
 
-  // Usage
-  logger.Info(logmsg.UserCreated, zap.String("username", username))
-  ```
+    // Usage
+    logger.Info(logmsg.UserCreated, zap.String("username", username))
+    ```
 
-  ## Error Message Constants
+    ## Error Message Constants
 
-  ```go
-  // errmsg/messages.go
-  const DivideByZero = "cannot divide by zero"
+    ```go
+    // errmsg/messages.go
+    const DivideByZero = "cannot divide by zero"
 
-  // Usage
-  return 0, errors.New(errmsg.DivideByZero)
-  ```
+    // Usage
+    return 0, errors.New(errmsg.DivideByZero)
+    ```
 
-  ## IoC Pattern
+    ## IoC Pattern
 
-  ```go
-  func NewUserService(repo UserRepository, logger *zap.Logger) *UserService {
-      return &UserService{repo: repo, logger: logger}
-  }
+    ```go
+    func NewUserService(repo UserRepository, logger *zap.Logger) *UserService {
+        return &UserService{repo: repo, logger: logger}
+    }
 
-  func NewUserServiceDefault(db *Database) *UserService {  // nolint:unused
-      logger, _ := zap.NewProduction()
-      return NewUserService(NewSQLUserRepository(db), logger)
-  }
-  ```
+    func NewUserServiceDefault(db *Database) *UserService {  // nolint:unused
+        logger, _ := zap.NewProduction()
+        return NewUserService(NewSQLUserRepository(db), logger)
+    }
+    ```
+content_hash: sha256:0bcef5ab7e6a370085f8bd7b48a2a898c61443e124ab55c255aa818cd109bd14
+distilled: |-
+    # Golang Development
+
+    ## Environment
+    - Go version in go.mod
+    - Testing: stdlib `testing`, godog (Gherkin acceptance)
+    - Quality: golangci-lint, gofmt/goimports
+    - Logging: zap
+
+    ## Test Structure
+    - Unit: `*_test.go` (co-located)
+    - Integration: `tests/integration/*_test.go` or build tags
+    - Acceptance: `tests/acceptance/features/*.feature`
+
+    ## Testing
+    - Testify suites for shared setup (not single tests)
+    - gomock for mocks (generate via just)
+
+    ## Patterns
+
+    **Logging (zap)**
+    ```go
+    // logmsg/messages.go - const UserCreated = "user_created"
+    logger.Info(logmsg.UserCreated, zap.String("username", username))
+    ```
+
+    **Error constants**
+    ```go
+    // errmsg/messages.go - const DivideByZero = "cannot divide by zero"
+    return 0, errors.New(errmsg.DivideByZero)
+    ```
+
+    **IoC**
+    ```go
+    func NewUserService(repo UserRepository, logger *zap.Logger) *UserService { ... }
+    func NewUserServiceDefault(db *Database) *UserService { ... }  // nolint:unused
+    ```
+distilled_by: claude-code

@@ -8,13 +8,13 @@ import (
 	"os/exec"
 	"strings"
 
-	"mlcm/internal/ai"
+	"mlcm/internal/ml"
 	"mlcm/internal/ptyrunner"
 )
 
 const pluginName = "claude-code"
 
-// Plugin implements the ai.Plugin and ai.ConfigurablePlugin interfaces for Claude Code CLI.
+// Plugin implements the ml.Plugin and ml.ConfigurablePlugin interfaces for Claude Code CLI.
 type Plugin struct {
 	binaryPath string
 	args       []string
@@ -36,7 +36,7 @@ func (p *Plugin) Name() string {
 }
 
 // Clone returns a new instance of this plugin with the same base configuration.
-func (p *Plugin) Clone() ai.Plugin {
+func (p *Plugin) Clone() ml.Plugin {
 	clone := &Plugin{
 		binaryPath: p.binaryPath,
 		args:       make([]string, len(p.args)),
@@ -50,7 +50,7 @@ func (p *Plugin) Clone() ai.Plugin {
 }
 
 // Configure applies the given configuration to the plugin.
-func (p *Plugin) Configure(cfg ai.PluginConfig) {
+func (p *Plugin) Configure(cfg ml.PluginConfig) {
 	if cfg.BinaryPath != "" {
 		p.binaryPath = cfg.BinaryPath
 	}
@@ -63,7 +63,7 @@ func (p *Plugin) Configure(cfg ai.PluginConfig) {
 }
 
 // Run executes Claude Code with the given request.
-func (p *Plugin) Run(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) Run(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	// Use PTY for interactive mode unless --print is requested
 	// Claude supports initial prompts while staying interactive
 	if !req.Print {
@@ -73,7 +73,7 @@ func (p *Plugin) Run(ctx context.Context, req ai.Request, stdout, stderr io.Writ
 }
 
 // runInteractive runs Claude Code in interactive mode using a PTY.
-func (p *Plugin) runInteractive(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) runInteractive(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	args := p.buildArgs(req)
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 
@@ -92,14 +92,14 @@ func (p *Plugin) runInteractive(ctx context.Context, req ai.Request, stdout, std
 		return nil, fmt.Errorf("failed to run claude: %w", err)
 	}
 
-	return &ai.Response{
+	return &ml.Response{
 		Output:   result.Output,
 		ExitCode: result.ExitCode,
 	}, nil
 }
 
 // runNonInteractive runs Claude Code in non-interactive mode.
-func (p *Plugin) runNonInteractive(ctx context.Context, req ai.Request, stdout, stderr io.Writer) (*ai.Response, error) {
+func (p *Plugin) runNonInteractive(ctx context.Context, req ml.Request, stdout, stderr io.Writer) (*ml.Response, error) {
 	args := p.buildArgs(req)
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 
@@ -120,14 +120,14 @@ func (p *Plugin) runNonInteractive(ctx context.Context, req ai.Request, stdout, 
 		return nil, fmt.Errorf("failed to run claude: %w", err)
 	}
 
-	return &ai.Response{
+	return &ml.Response{
 		Output:   result.Output,
 		ExitCode: result.ExitCode,
 	}, nil
 }
 
 // buildArgs constructs the command-line arguments for claude.
-func (p *Plugin) buildArgs(req ai.Request) []string {
+func (p *Plugin) buildArgs(req ml.Request) []string {
 	// Start with configured args
 	args := make([]string, len(p.args))
 	copy(args, p.args)
@@ -151,7 +151,7 @@ func (p *Plugin) buildArgs(req ai.Request) []string {
 }
 
 // CommandPreview returns the command that would be executed for the given request.
-func (p *Plugin) CommandPreview(req ai.Request) string {
+func (p *Plugin) CommandPreview(req ml.Request) string {
 	args := p.buildArgs(req)
 
 	// Quote arguments that contain spaces or special characters
@@ -168,5 +168,5 @@ func (p *Plugin) CommandPreview(req ai.Request) string {
 }
 
 func init() {
-	ai.Register(New())
+	ml.Register(New())
 }

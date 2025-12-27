@@ -1,49 +1,90 @@
 version: "1.0"
 tags:
-  - code
-  - quality
-  - principles
-content: |
-  # Code Quality Standards
+    - code
+    - quality
+    - principles
+content: |-
+    # Code Quality Standards
 
-  ## Philosophy
+    ## Philosophy
 
-  - **SOLID** - Single responsibility, Open/closed, Liskov substitution, Interface segregation, Dependency inversion
-  - **KISS** - Keep It Simple, Stupid. Prefer clear, straightforward solutions
-  - **YAGNI** - You Ain't Gonna Need It. Don't build features until they're actually needed
+    - **SOLID** - Single responsibility, Open/closed, Liskov substitution, Interface segregation, Dependency inversion
+    - **KISS** - Keep It Simple, Stupid. Prefer clear, straightforward solutions
+    - **YAGNI** - You Ain't Gonna Need It. Don't build features until they're actually needed
 
-  ## General Principles
+    ## General Principles
 
-  - Follow language-specific style guides
-  - Use type hints/annotations where available
-  - Write clear, self-documenting code over excessive comments
-  - Document public APIs
-  - Keep functions small and focused
-  - Prefer composition over inheritance
+    - Follow language-specific style guides
+    - Use type hints/annotations where available
+    - Write clear, self-documenting code over excessive comments
+    - Document public APIs
+    - Keep functions small and focused
+    - Prefer composition over inheritance
 
-  ## Coupling and Cohesion
+    ## Coupling and Cohesion
 
-  - **Low coupling**: Modules should have minimal dependencies on other modules
-  - **High cohesion**: Related functionality should be grouped together
-  - Each module/class should have a single, well-defined purpose
+    - **Low coupling**: Modules should have minimal dependencies on other modules
+    - **High cohesion**: Related functionality should be grouped together
+    - Each module/class should have a single, well-defined purpose
 
-  ## Code Markers
+    ## Code Markers
 
-  - `TODO` - Work that needs to be done
-  - `FIXME` - Known bugs or issues that need fixing
-  - `NOTE` - Important explanations or warnings
-  - `HACK` - Non-ideal solutions that work but need improvement
+    - `TODO` - Work that needs to be done
+    - `FIXME` - Known bugs or issues that need fixing
+    - `NOTE` - Important explanations or warnings
+    - `HACK` - Non-ideal solutions that work but need improvement
 
-  ## Performance Considerations
+    ## Performance Considerations
 
-  - Profile before optimizing
-  - Document performance requirements in tests
-  - Use appropriate data structures
-  - State algorithmic complexity for non-trivial algorithms
-  - Consider memory allocation patterns
+    - Profile before optimizing
+    - Document performance requirements in tests
+    - Use appropriate data structures
+    - State algorithmic complexity for non-trivial algorithms
+    - Consider memory allocation patterns
 
-  ## Clean Up
+    ## Clean Up
 
-  - Kill background processes when no longer needed
-  - Remove unused code, files, imports, and variables
-  - Don't leave dead code behind
+    - Kill background processes when no longer needed
+    - Remove unused code, files, imports, and variables
+    - Don't leave dead code behind
+content_hash: sha256:e73c48402de3ed257be0268781d234ca91c3ba0ab64271f44af57be0415f9423
+distilled: |-
+    ```yaml
+    # Code Quality Standards
+
+    ## Philosophy
+    - **SOLID** - SRP, OCP, LSP, ISP, DIP
+    - **KISS** - Simple, straightforward solutions
+    - **YAGNI** - Build only when needed
+
+    ## Principles
+    - Follow lang style guides
+    - Use type hints
+    - Self-documenting code > comments
+    - Document public APIs
+    - Small, focused functions
+    - Composition > inheritance
+
+    ## Coupling/Cohesion
+    - Low coupling: minimal module dependencies
+    - High cohesion: group related functionality
+    - Single purpose per module/class
+
+    ## Markers
+    - `TODO` - pending work
+    - `FIXME` - known bugs
+    - `NOTE` - explanations/warnings
+    - `HACK` - temp workarounds
+
+    ## Performance
+    - Profile before optimizing
+    - Document perf requirements in tests
+    - Use appropriate data structures
+    - State complexity for non-trivial algorithms
+    - Consider memory allocation
+
+    ## Clean Up
+    - Kill unused background processes
+    - Remove dead code, files, imports, vars
+    ```
+distilled_by: claude-code

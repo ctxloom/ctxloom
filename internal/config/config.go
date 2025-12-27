@@ -8,27 +8,42 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/mlcm/internal/logging"
-	"github.com/benjaminabbitt/mlcm/internal/ml"
-	"github.com/benjaminabbitt/mlcm/internal/schema"
-	"github.com/benjaminabbitt/mlcm/resources"
+	"github.com/benjaminabbitt/scm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/gitutil"
+	"github.com/benjaminabbitt/scm/internal/logging"
+	"github.com/benjaminabbitt/scm/internal/ml"
+	"github.com/benjaminabbitt/scm/internal/schema"
+	"github.com/benjaminabbitt/scm/resources"
 )
 
 const (
-	MLCMDirName         = ".mlcm"
+	SCMDirName          = ".scm"
 	ConfigFileName      = "config"
 	ContextFragmentsDir = "context-fragments"
 	PromptsDir          = "prompts"
 )
 
-// Config holds the MLCM configuration.
+// ConfigSource indicates where the configuration was loaded from.
+type ConfigSource int
+
+const (
+	// SourceEmbedded means config was loaded from embedded resources (fallback).
+	SourceEmbedded ConfigSource = iota
+	// SourceHome means config was loaded from ~/.scm.
+	SourceHome
+	// SourceProject means config was loaded from a project .scm directory.
+	SourceProject
+)
+
+// Config holds the SCM configuration.
 type Config struct {
 	LM         LMConfig             `mapstructure:"lm"`
 	Editor     EditorConfig         `mapstructure:"editor"`
 	Defaults   Defaults             `mapstructure:"defaults"`
 	Personas   map[string]Persona   `mapstructure:"personas"`
 	Generators map[string]Generator `mapstructure:"generators"`
-	MLCMPaths  []string             // Resolved project .mlcm directories (closest to pwd first)
+	SCMPaths   []string             // Resolved .scm directory (at most one)
+	Source     ConfigSource         // Where the configuration was loaded from
 }
 
 // EditorConfig holds editor-related configuration.
@@ -101,9 +116,11 @@ func (d *Defaults) ShouldUseDistilled() bool {
 	return *d.UseDistilled
 }
 
-// Load finds and loads configuration from project .mlcm directories.
-// It walks up from the current directory looking for .mlcm directories.
-// Home directory (~/.mlcm) is only used as a template source for init.
+// Load finds and loads configuration from a single source.
+// Priority order (first found wins, no merging):
+//  1. Project .scm directory (at git root)
+//  2. Home directory (~/.scm)
+//  3. Embedded resources (fallback)
 func Load() (*Config, error) {
 	cfg := &Config{
 		LM: LMConfig{
@@ -114,119 +131,129 @@ func Load() (*Config, error) {
 		Generators: make(map[string]Generator),
 	}
 
-	// Find all .mlcm directories
-	mlcmPaths, err := findMLCMDirs()
-	if err != nil {
-		return nil, fmt.Errorf("failed to find .mlcm directories: %w", err)
-	}
-	cfg.MLCMPaths = mlcmPaths
-
 	// Create config validator for schema validation
 	configValidator, err := schema.NewConfigValidator()
 	if err != nil {
-		// If schema validator fails to load, log warning but continue
-		// This allows the tool to work even if schema is missing
 		logging.L().Warn("failed to create config validator",
 			logging.ErrorField(err))
 		configValidator = nil
 	}
 
-	// Load configuration from each .mlcm directory (later ones override earlier)
-	// We load in reverse order so project-local config takes precedence
-	for i := len(mlcmPaths) - 1; i >= 0; i-- {
-		mlcmPath := mlcmPaths[i]
-		configPath := filepath.Join(mlcmPath, ConfigFileName+".yaml")
+	// Try project .scm directory first
+	scmPath, source := findSCMDir()
+	if scmPath != "" {
+		cfg.SCMPaths = []string{scmPath}
+		cfg.Source = source
 
-		// Read config file for validation
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			logging.L().Warn("failed to read config file",
-				logging.FilePath(configPath),
-				logging.ErrorField(err))
-			continue
+		configPath := filepath.Join(scmPath, ConfigFileName+".yaml")
+		if err := loadConfigFile(cfg, configPath, configValidator); err != nil {
+			return nil, err
 		}
-
-		// Validate against schema before parsing
-		if configValidator != nil {
-			if err := configValidator.ValidateBytes(data); err != nil {
-				return nil, fmt.Errorf("config validation failed at %s: %w", configPath, err)
-			}
-		}
-
-		v := viper.New()
-		v.SetConfigFile(configPath)
-		v.SetConfigType("yaml")
-
-		if err := v.ReadInConfig(); err != nil {
-			// Config file is optional, continue if not found
-			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-				continue
-			}
-			if os.IsNotExist(err) {
-				continue
-			}
-			// Log warning for other read errors (permissions, malformed YAML, etc.)
-			logging.L().Warn("failed to read config file",
-				logging.FilePath(configPath),
-				logging.ErrorField(err))
-			continue
-		}
-
-		// Unmarshal into config
-		if err := v.Unmarshal(cfg); err != nil {
-			logging.L().Warn("failed to parse config file",
-				logging.FilePath(configPath),
-				logging.ErrorField(err))
-			return nil, fmt.Errorf("failed to parse config at %s: %w", configPath, err)
-		}
-
-		logging.L().Debug(logging.MsgConfigLoaded, logging.FilePath(configPath))
+		return cfg, nil
 	}
 
+	// Fall back to embedded resources
+	cfg.Source = SourceEmbedded
+	embeddedCfg, err := LoadEmbeddedConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load embedded config: %w", err)
+	}
+
+	// Merge embedded config into cfg
+	cfg.LM = embeddedCfg.LM
+	cfg.Defaults = embeddedCfg.Defaults
+	cfg.Personas = embeddedCfg.Personas
+	cfg.Generators = embeddedCfg.Generators
+
+	logging.L().Debug("using embedded configuration")
 	return cfg, nil
 }
 
-// findMLCMDirs locates all .mlcm directories by walking up from pwd.
-// Only project directories are searched; ~/.mlcm is not included.
-func findMLCMDirs() ([]string, error) {
-	var dirs []string
-	seen := make(map[string]bool)
-
-	// Walk up from current directory
-	pwd, err := os.Getwd()
+// loadConfigFile loads a config file into the provided Config struct.
+func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigValidator) error {
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
+		if os.IsNotExist(err) {
+			// Config file is optional
+			return nil
+		}
+		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	current := pwd
-	for {
-		mlcmPath := filepath.Join(current, MLCMDirName)
-		if info, err := os.Stat(mlcmPath); err == nil && info.IsDir() {
-			absPath, _ := filepath.Abs(mlcmPath)
-			if !seen[absPath] {
-				dirs = append(dirs, absPath)
-				seen[absPath] = true
-			}
+	// Validate against schema before parsing
+	if validator != nil {
+		if err := validator.ValidateBytes(data); err != nil {
+			return fmt.Errorf("config validation failed at %s: %w", configPath, err)
 		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			break // Reached root
-		}
-		current = parent
 	}
 
-	return dirs, nil
+	v := viper.New()
+	v.SetConfigFile(configPath)
+	v.SetConfigType("yaml")
+
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			return nil
+		}
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read config at %s: %w", configPath, err)
+	}
+
+	if err := v.Unmarshal(cfg); err != nil {
+		return fmt.Errorf("failed to parse config at %s: %w", configPath, err)
+	}
+
+	logging.L().Debug(logging.MsgConfigLoaded, logging.FilePath(configPath))
+	return nil
 }
 
-// GetFragmentDirs returns all context-fragments directories in priority order.
+// findSCMDir locates a single .scm directory using the priority order:
+//  1. Project .scm directory (at git root)
+//  2. Home directory (~/.scm)
+//
+// Returns the path and source, or empty string if not found.
+func findSCMDir() (string, ConfigSource) {
+	// Try to find git root
+	pwd, err := os.Getwd()
+	if err != nil {
+		logging.L().Warn("failed to get working directory", logging.ErrorField(err))
+		return "", SourceEmbedded
+	}
+
+	// Check for project .scm at git root
+	gitRoot, err := gitutil.FindRoot(pwd)
+	if err == nil {
+		scmPath := filepath.Join(gitRoot, SCMDirName)
+		if info, err := os.Stat(scmPath); err == nil && info.IsDir() {
+			return scmPath, SourceProject
+		}
+	}
+
+	// Fall back to home directory
+	home, err := os.UserHomeDir()
+	if err != nil {
+		logging.L().Warn("failed to get home directory", logging.ErrorField(err))
+		return "", SourceEmbedded
+	}
+	homeSCM := filepath.Join(home, SCMDirName)
+	if info, err := os.Stat(homeSCM); err == nil && info.IsDir() {
+		return homeSCM, SourceHome
+	}
+
+	return "", SourceEmbedded
+}
+
+// GetFragmentDirs returns context-fragments directories.
+// For embedded source, returns ["."] (use with GetFragmentFS).
 func (c *Config) GetFragmentDirs() []string {
+	if c.Source == SourceEmbedded {
+		return []string{"."}
+	}
 	var dirs []string
-	for _, mlcmPath := range c.MLCMPaths {
-		fragDir := filepath.Join(mlcmPath, ContextFragmentsDir)
+	for _, scmPath := range c.SCMPaths {
+		fragDir := filepath.Join(scmPath, ContextFragmentsDir)
 		if info, err := os.Stat(fragDir); err == nil && info.IsDir() {
 			dirs = append(dirs, fragDir)
 		}
@@ -234,16 +261,59 @@ func (c *Config) GetFragmentDirs() []string {
 	return dirs
 }
 
-// GetPromptDirs returns all prompts directories in priority order.
+// GetPromptDirs returns prompts directories.
+// For embedded source, returns ["."] (use with GetPromptFS).
 func (c *Config) GetPromptDirs() []string {
+	if c.Source == SourceEmbedded {
+		return []string{"."}
+	}
 	var dirs []string
-	for _, mlcmPath := range c.MLCMPaths {
-		promptDir := filepath.Join(mlcmPath, PromptsDir)
+	for _, scmPath := range c.SCMPaths {
+		promptDir := filepath.Join(scmPath, PromptsDir)
 		if info, err := os.Stat(promptDir); err == nil && info.IsDir() {
 			dirs = append(dirs, promptDir)
 		}
 	}
 	return dirs
+}
+
+// IsEmbedded returns true if using embedded resources (no .scm directory found).
+func (c *Config) IsEmbedded() bool {
+	return c.Source == SourceEmbedded
+}
+
+// SourceName returns a human-readable name for the config source.
+func (c *Config) SourceName() string {
+	switch c.Source {
+	case SourceProject:
+		return "project"
+	case SourceHome:
+		return "home"
+	case SourceEmbedded:
+		return "embedded"
+	default:
+		return "unknown"
+	}
+}
+
+// GetFragmentFS returns an fsys.FS for loading fragments.
+// For embedded source, returns an EmbedFS wrapper.
+// For project/home sources, returns nil (use GetFragmentDirs with OS filesystem).
+func (c *Config) GetFragmentFS() fsys.FS {
+	if c.Source == SourceEmbedded {
+		return fsys.NewEmbedFS(resources.FragmentsFS(), ContextFragmentsDir)
+	}
+	return nil
+}
+
+// GetPromptFS returns an fsys.FS for loading prompts.
+// For embedded source, returns an EmbedFS wrapper.
+// For project/home sources, returns nil (use GetPromptDirs with OS filesystem).
+func (c *Config) GetPromptFS() fsys.FS {
+	if c.Source == SourceEmbedded {
+		return fsys.NewEmbedFS(resources.PromptsFS(), PromptsDir)
+	}
+	return nil
 }
 
 // ConfigFile represents the structure for saving config.yaml
@@ -256,12 +326,12 @@ type ConfigFile struct {
 }
 
 // GetConfigFilePath returns the path to the primary config file.
-// Uses the closest project .mlcm directory.
+// Uses the closest project .scm directory.
 func (c *Config) GetConfigFilePath() (string, error) {
-	if len(c.MLCMPaths) == 0 {
-		return "", fmt.Errorf("no .mlcm directory found; run 'mlcm init --local' first")
+	if len(c.SCMPaths) == 0 {
+		return "", fmt.Errorf("no .scm directory found; run 'scm init --local' first")
 	}
-	return filepath.Join(c.MLCMPaths[0], ConfigFileName+".yaml"), nil
+	return filepath.Join(c.SCMPaths[0], ConfigFileName+".yaml"), nil
 }
 
 // Save writes the configuration to the primary config file.
@@ -321,7 +391,7 @@ func LoadEmbeddedConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// LoadHomeConfig loads configuration from ~/.mlcm/config.yaml if it exists.
+// LoadHomeConfig loads configuration from ~/.scm/config.yaml if it exists.
 // Returns nil config (not error) if home config doesn't exist.
 func LoadHomeConfig() (*Config, error) {
 	home, err := os.UserHomeDir()
@@ -329,7 +399,7 @@ func LoadHomeConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	configPath := filepath.Join(home, MLCMDirName, ConfigFileName+".yaml")
+	configPath := filepath.Join(home, SCMDirName, ConfigFileName+".yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {

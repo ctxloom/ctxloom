@@ -7,32 +7,26 @@ prefix: "v"
 
 # Pre-release configuration
 # Pre-release follows SemVer 2.0.0: appended with dash (-)
-# Example output: 1.2.3-alpha-5
+# Note: Template is specified inline in justfile for Go module compatibility
 prerelease:
-  # Set to true to enable pre-release in version output
+  # Disabled - using inline template in justfile instead
   enabled: false
 
-  # Mustache template string for pre-release identifier
-  # IMPORTANT: Use DASHES (-) to separate identifiers per SemVer 2.0.0
-  # Example: "alpha-{{CommitsSinceTag}}" → "alpha-5"
-  # The leading dash is added automatically - do NOT include it here
-  template: "alpha-{{CommitsSinceTag}}"
+  # Template for reference (used inline in justfile):
+  # Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
+  template: "{{ShortHash}}{{DirtyWithDot}}"
 
 # Build metadata configuration
-# Metadata follows SemVer 2.0.0: appended with plus (+)
-# Example output: 1.2.3+20241211103045.abc1234def5
+# Disabled for Go compatibility - Go modules ignore metadata after +
 metadata:
-  # Set to true to enable metadata in version output
+  # Set to false for Go projects (metadata is ignored by go mod)
   enabled: false
 
   # Metadata type (currently only "git" supported)
   type: "git"
 
   # Mustache template string for build metadata
-  # IMPORTANT: Use DOTS (.) to separate identifiers per SemVer 2.0.0
-  # Example: "{{BuildDateTimeCompact}}.{{MediumHash}}" → "20241211103045.abc1234def5"
-  # The leading plus is added automatically - do NOT include it here
-  template: "{{BuildDateTimeCompact}}.{{MediumHash}}"
+  template: "{{ShortHash}}"
 
   # Git-specific configuration
   git:

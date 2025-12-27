@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
-project_name: mlcm
+project_name: scm
 
 builds:
-  # Main mlcm binary
-  - id: mlcm
+  # Main scm binary
+  - id: scm
     main: ./main.go
-    binary: mlcm
+    binary: scm
     env:
       - CGO_ENABLED=0
     goos:
@@ -18,12 +18,12 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/benjaminabbitt/mlcm/cmd.Version={{.Version}}
+      - -s -w -X github.com/benjaminabbitt/scm/cmd.Version={{.Version}}
 
   # simple generator
-  - id: mlcm-gen-simple
+  - id: scm-gen-simple
     main: ./cmd/generators/simple/main.go
-    binary: mlcm-gen-simple
+    binary: scm-gen-simple
     env:
       - CGO_ENABLED=0
     goos:
@@ -41,8 +41,8 @@ archives:
     format: tar.gz
     # Include binaries in each archive
     builds:
-      - mlcm
-      - mlcm-gen-simple
+      - scm
+      - scm-gen-simple
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -74,25 +74,25 @@ changelog:
 release:
   github:
     owner: benjaminabbitt
-    name: mlcm
+    name: scm
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
   header: |
-    ## MLCM v{{.Version}}
+    ## SCM v{{.Version}}
 
-    Machine Learning Context Manager - Manage context fragments for AI coding assistants.
+    Sophisticated Context Management - Manage context fragments for AI coding assistants.
 
     ### Installation
 
     **Homebrew (macOS/Linux):**
     ```bash
-    brew install benjaminabbitt/tap/mlcm
+    brew install benjaminabbitt/tap/scm
     ```
 
     **Go Install:**
     ```bash
-    go install github.com/benjaminabbitt/mlcm@v{{.Version}}
+    go install github.com/benjaminabbitt/scm@v{{.Version}}
     ```
 
     **Manual Download:**
@@ -100,7 +100,7 @@ release:
 
 # Homebrew Tap configuration
 brews:
-  - name: mlcm
+  - name: scm
     ids:
       - default
     repository:
@@ -113,11 +113,11 @@ brews:
       email: bot@goreleaser.com
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     directory: Formula
-    homepage: "https://github.com/benjaminabbitt/mlcm"
-    description: "Machine Learning Context Manager - Manage context fragments for AI coding assistants"
+    homepage: "https://github.com/benjaminabbitt/scm"
+    description: "Sophisticated Context Management - Manage context fragments for AI coding assistants"
     license: "MIT"
     install: |
-      bin.install "mlcm"
-      bin.install "mlcm-gen-simple"
+      bin.install "scm"
+      bin.install "scm-gen-simple"
     test: |
-      system "#{bin}/mlcm", "version"
+      system "#{bin}/scm", "version"

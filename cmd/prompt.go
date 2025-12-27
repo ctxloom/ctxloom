@@ -11,9 +11,9 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/editor"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/editor"
+	"github.com/benjaminabbitt/scm/internal/fragments"
 )
 
 var promptCmd = &cobra.Command{
@@ -21,7 +21,7 @@ var promptCmd = &cobra.Command{
 	Short: "Manage saved prompts",
 	Long: `Manage saved prompts - reusable prompt templates.
 
-Prompts are YAML files stored in .mlcm/prompts/ directories.
+Prompts are YAML files stored in .scm/prompts/ directories.
 They use the same format as context fragments and can include {{variables}}.`,
 }
 
@@ -30,12 +30,16 @@ var promptListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available prompts",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		promptDirs, err := GetPromptDirs()
+		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to get prompt directories: %w", err)
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		loader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(false))
+		loaderOpts := []fragments.LoaderOption{fragments.WithPreferDistilled(false)}
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetPromptFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetPromptDirs(), loaderOpts...)
 		prompts, err := loader.List()
 		if err != nil {
 			return err
@@ -80,14 +84,9 @@ var promptEditCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := GetConfig()
+		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		promptDirs, err := GetPromptDirs()
-		if err != nil {
-			return fmt.Errorf("failed to get prompt directories: %w", err)
 		}
 
 		var promptDir string
@@ -96,22 +95,24 @@ var promptEditCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			promptDir = filepath.Join(pwd, ".mlcm", config.PromptsDir)
+			promptDir = filepath.Join(pwd, ".scm", config.PromptsDir)
 		} else {
-			// Try to find existing prompt first
-			loader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(false))
-			if promptPath, err := loader.Find(name); err == nil {
-				editorCmd, editorArgs := cfg.GetEditorCommand()
-				ed := editor.New(editorCmd, editorArgs)
-				return ed.Edit(promptPath)
+			// Try to find existing prompt first (can't edit embedded prompts)
+			if !cfg.IsEmbedded() {
+				loader := fragments.NewLoader(cfg.GetPromptDirs(), fragments.WithPreferDistilled(false))
+				if promptPath, err := loader.Find(name); err == nil {
+					editorCmd, editorArgs := cfg.GetEditorCommand()
+					ed := editor.New(editorCmd, editorArgs)
+					return ed.Edit(promptPath)
+				}
 			}
 
-			// Prompt doesn't exist, use first available directory
-			if len(promptDirs) > 0 {
-				promptDir = promptDirs[0]
-			} else {
-				return fmt.Errorf("no .mlcm directory found; run 'mlcm init' first")
+			// Prompt doesn't exist or using embedded, create in home
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
 			}
+			promptDir = filepath.Join(home, ".scm", config.PromptsDir)
 		}
 
 		if err := os.MkdirAll(promptDir, 0755); err != nil {
@@ -141,13 +142,17 @@ var promptDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		promptDirs, err := GetPromptDirs()
+		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to get prompt directories: %w", err)
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		if cfg.IsEmbedded() {
+			return fmt.Errorf("cannot delete embedded prompts; use 'scm copy' to create a local copy first")
 		}
 
 		// Don't prefer distilled when deleting - delete the source
-		loader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(false))
+		loader := fragments.NewLoader(cfg.GetPromptDirs(), fragments.WithPreferDistilled(false))
 		promptPath, err := loader.Find(name)
 		if err != nil {
 			return fmt.Errorf("prompt not found: %s", name)
@@ -170,17 +175,18 @@ var promptShowCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		cfg, err := GetConfig()
+		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		promptDirs, err := GetPromptDirs()
-		if err != nil {
-			return fmt.Errorf("failed to get prompt directories: %w", err)
+		loaderOpts := []fragments.LoaderOption{
+			fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
 		}
-
-		loader := fragments.NewLoader(promptDirs, fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()))
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetPromptFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetPromptDirs(), loaderOpts...)
 		prompt, err := loader.Load(name)
 		if err != nil {
 			return fmt.Errorf("prompt not found: %s", name)
@@ -199,7 +205,13 @@ func toTitle(s string) string {
 
 // LoadPrompt loads a prompt by name and returns its content.
 func LoadPrompt(cfg *config.Config, name string) (string, error) {
-	loader := fragments.NewLoader(cfg.GetPromptDirs(), fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()))
+	loaderOpts := []fragments.LoaderOption{
+		fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
+	}
+	if cfg.IsEmbedded() {
+		loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetPromptFS()))
+	}
+	loader := fragments.NewLoader(cfg.GetPromptDirs(), loaderOpts...)
 	prompt, err := loader.Load(name)
 	if err != nil {
 		return "", err
@@ -232,5 +244,5 @@ func init() {
 	promptCmd.AddCommand(promptDeleteCmd)
 	promptCmd.AddCommand(promptShowCmd)
 
-	promptEditCmd.Flags().BoolVarP(&promptEditLocal, "local", "l", false, "Create prompt in local .mlcm directory")
+	promptEditCmd.Flags().BoolVarP(&promptEditLocal, "local", "l", false, "Create prompt in local .scm directory")
 }

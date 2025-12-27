@@ -1,10 +1,10 @@
 Feature: Context assembly
   As a user
-  I want to run mlcm with fragments
+  I want to run scm with fragments
   So that context is correctly sent to the language model
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
     And a mock LM is configured
 
   Scenario: Run with a single fragment
@@ -20,7 +20,7 @@ Feature: Context assembly
       """
       LM processed your request.
       """
-    When I run mlcm "run -f test-fragment --print test prompt"
+    When I run scm "run -f test-fragment --print test prompt"
     Then the exit code should be 0
     And the LM should have received context containing "This is test content"
     And the LM should have received context containing "test prompt"
@@ -44,7 +44,7 @@ Feature: Context assembly
       """
       Response from mock LM.
       """
-    When I run mlcm "run -f fragment-one -f fragment-two --print combined test"
+    When I run scm "run -f fragment-one -f fragment-two --print combined test"
     Then the exit code should be 0
     And the LM should have received context containing "Content from fragment one"
     And the LM should have received context containing "Content from fragment two"
@@ -80,7 +80,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p lang-persona --print test"
+    When I run scm "run -p lang-persona --print test"
     Then the exit code should be 0
     And the LM should have received context containing "The language is Python"
 
@@ -115,7 +115,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p multi-var-persona --print test"
+    When I run scm "run -p multi-var-persona --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Project: MyApp"
     And the LM should have received context containing "Language: Go"
@@ -156,7 +156,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p shared-persona --print test"
+    When I run scm "run -p shared-persona --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Fragment one uses CommonValue"
     And the LM should have received context containing "Fragment two also uses CommonValue"
@@ -193,7 +193,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p child-persona --print test"
+    When I run scm "run -p child-persona --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Using ParentValue from parent"
 
@@ -231,7 +231,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p derived --print test"
+    When I run scm "run -p derived --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Value is DerivedValue"
 
@@ -247,7 +247,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -f missing-var --print test"
+    When I run scm "run -f missing-var --print test"
     Then the exit code should be 0
     And the LM should have received context containing "This uses  here"
 
@@ -281,7 +281,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -f first -f second -f third --print test"
+    When I run scm "run -f first -f second -f third --print test"
     Then the exit code should be 0
     And the LM should have received context containing "FIRST_MARKER"
     And the LM should have received context containing "SECOND_MARKER"
@@ -319,7 +319,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p base-persona -f extra-frag --print test"
+    When I run scm "run -p base-persona -f extra-frag --print test"
     Then the exit code should be 0
     And the LM should have received context containing "From persona"
     And the LM should have received context containing "Extra fragment added"
@@ -359,7 +359,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p go-dev --print test"
+    When I run scm "run -p go-dev --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Write Go code following best practices"
     And the LM should have received context not containing "This should not be included"
@@ -393,7 +393,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p gen-persona --print test"
+    When I run scm "run -p gen-persona --print test"
     Then the exit code should be 0
     And the LM should have received context containing "GENERATED_CONTEXT_MARKER"
 
@@ -428,7 +428,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p multi-gen --print test"
+    When I run scm "run -p multi-gen --print test"
     Then the exit code should be 0
     And the LM should have received context containing "FIRST_GEN_OUTPUT"
     And the LM should have received context containing "SECOND_GEN_OUTPUT"
@@ -466,7 +466,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run mlcm "run -p combined --print test"
+    When I run scm "run -p combined --print test"
     Then the exit code should be 0
     And the LM should have received context containing "STATIC_FRAGMENT_CONTENT"
     And the LM should have received context containing "DYNAMIC_GEN_CONTENT"

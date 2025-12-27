@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/mlcm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/fsys"
 )
 
 // CopyResult tracks what happened during a copy operation.
@@ -48,8 +48,8 @@ const (
 
 // ProjectHeader is the comment prepended to files copied to project directories.
 const ProjectHeader = `# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ DO NOT EDIT - Changes will be overwritten on next 'mlcm copy'              │
-# │ To customize: mlcm fragment edit {{name}} then re-run 'mlcm copy'          │
+# │ DO NOT EDIT - Changes will be overwritten on next 'scm copy'              │
+# │ To customize: scm fragment edit {{name}} then re-run 'scm copy'          │
 # └─────────────────────────────────────────────────────────────────────────────┘
 `
 

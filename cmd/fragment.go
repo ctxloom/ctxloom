@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/editor"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/editor"
+	"github.com/benjaminabbitt/scm/internal/fragments"
 )
 
 var fragmentCmd = &cobra.Command{
@@ -24,12 +24,16 @@ var fragmentListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List available fragments",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fragmentDirs, err := GetFragmentDirs()
+		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to get fragment directories: %w", err)
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		loader := fragments.NewLoader(fragmentDirs)
+		loaderOpts := []fragments.LoaderOption{}
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetFragmentFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetFragmentDirs(), loaderOpts...)
 		frags, err := loader.List()
 		if err != nil {
 			return err
@@ -37,7 +41,7 @@ var fragmentListCmd = &cobra.Command{
 
 		if len(frags) == 0 {
 			fmt.Println("No fragments found.")
-			fmt.Println("Use 'mlcm fragment edit <name>' to create one.")
+			fmt.Println("Use 'scm fragment edit <name>' to create one.")
 			return nil
 		}
 
@@ -75,11 +79,11 @@ var fragmentEditCmd = &cobra.Command{
 	Long: `Edit an existing context fragment or create a new one.
 
 Opens the fragment in your configured editor.
-If the fragment doesn't exist, creates it in ~/.mlcm/context-fragments/ by default.
+If the fragment doesn't exist, creates it in ~/.scm/context-fragments/ by default.
 
 Examples:
-  mlcm fragment edit coding-standards         # Creates/edits in ~/.mlcm
-  mlcm fragment edit my-fragment --local      # Creates in project .mlcm`,
+  scm fragment edit coding-standards         # Creates/edits in ~/.scm
+  scm fragment edit my-fragment --local      # Creates in project .scm`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -89,13 +93,12 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		fragmentDirs, err := GetFragmentDirs()
-		if err != nil {
-			return fmt.Errorf("failed to get fragment directories: %w", err)
-		}
-
 		// First, try to find existing fragment
-		loader := fragments.NewLoader(fragmentDirs)
+		loaderOpts := []fragments.LoaderOption{}
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetFragmentFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetFragmentDirs(), loaderOpts...)
 		if path, err := loader.Find(name); err == nil {
 			editorCmd, editorArgs := cfg.GetEditorCommand()
 			ed := editor.New(editorCmd, editorArgs)
@@ -105,19 +108,19 @@ Examples:
 		// Fragment doesn't exist, determine where to create it
 		var fragmentDir string
 		if fragmentEditLocal {
-			// Create in project-local .mlcm
+			// Create in project-local .scm
 			pwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			fragmentDir = filepath.Join(pwd, ".mlcm", config.ContextFragmentsDir)
+			fragmentDir = filepath.Join(pwd, ".scm", config.ContextFragmentsDir)
 		} else {
-			// Default: create in ~/.mlcm
+			// Default: create in ~/.scm
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return fmt.Errorf("failed to get home directory: %w", err)
 			}
-			fragmentDir = filepath.Join(home, ".mlcm", config.ContextFragmentsDir)
+			fragmentDir = filepath.Join(home, ".scm", config.ContextFragmentsDir)
 		}
 
 		if err := os.MkdirAll(fragmentDir, 0755); err != nil {
@@ -145,23 +148,31 @@ var fragmentShowCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		fragmentDirs, err := GetFragmentDirs()
+		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to get fragment directories: %w", err)
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		loader := fragments.NewLoader(fragmentDirs)
-		path, err := loader.Find(name)
+		loaderOpts := []fragments.LoaderOption{}
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetFragmentFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetFragmentDirs(), loaderOpts...)
+
+		frag, err := loader.Load(name)
 		if err != nil {
 			return fmt.Errorf("fragment not found: %s", name)
 		}
 
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read fragment: %w", err)
+		// Print the raw YAML content
+		fmt.Printf("Name: %s\n", frag.Name)
+		if frag.Version != "" {
+			fmt.Printf("Version: %s\n", frag.Version)
 		}
-
-		fmt.Println(string(content))
+		if len(frag.Tags) > 0 {
+			fmt.Printf("Tags: %v\n", frag.Tags)
+		}
+		fmt.Printf("\nContent:\n%s\n", frag.Content)
 		return nil
 	},
 }
@@ -174,12 +185,16 @@ var fragmentDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		fragmentDirs, err := GetFragmentDirs()
+		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to get fragment directories: %w", err)
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		loader := fragments.NewLoader(fragmentDirs)
+		if cfg.IsEmbedded() {
+			return fmt.Errorf("cannot delete embedded fragments; use 'scm copy' to create a local copy first")
+		}
+
+		loader := fragments.NewLoader(cfg.GetFragmentDirs())
 		path, err := loader.Find(name)
 		if err != nil {
 			return fmt.Errorf("fragment not found: %s", name)
@@ -212,5 +227,5 @@ func init() {
 	fragmentCmd.AddCommand(fragmentShowCmd)
 	fragmentCmd.AddCommand(fragmentDeleteCmd)
 
-	fragmentEditCmd.Flags().BoolVarP(&fragmentEditLocal, "local", "l", false, "Create in local .mlcm directory")
+	fragmentEditCmd.Flags().BoolVarP(&fragmentEditLocal, "local", "l", false, "Create in local .scm directory")
 }

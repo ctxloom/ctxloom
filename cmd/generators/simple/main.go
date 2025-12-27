@@ -9,20 +9,20 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/benjaminabbitt/mlcm/internal/markdown"
+	"github.com/benjaminabbitt/scm/internal/markdown"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: mlcm-gen-simple <command> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: scm-gen-simple <command> [args...]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Runs the specified command and wraps stdout in a context fragment.")
 		fmt.Fprintln(os.Stderr, "SECURITY NOTE: this runs *arbitrary* commands.  It will *not* save you from shooting yourself in the foot.  It runs at the same access level as the invoker, so it's not a meaningful security risk, but be aware.")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Examples:")
-		fmt.Fprintln(os.Stderr, "  mlcm-gen-simple date")
-		fmt.Fprintln(os.Stderr, "  mlcm-gen-simple ls -la")
-		fmt.Fprintln(os.Stderr, "  mlcm-gen-simple cat README.md")
+		fmt.Fprintln(os.Stderr, "  scm-gen-simple date")
+		fmt.Fprintln(os.Stderr, "  scm-gen-simple ls -la")
+		fmt.Fprintln(os.Stderr, "  scm-gen-simple cat README.md")
 		os.Exit(1)
 	}
 

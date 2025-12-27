@@ -11,7 +11,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     container:
-      image: golang:1.25
+      image: golang:1.24
 
     steps:
       - name: Checkout code
@@ -46,7 +46,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     container:
-      image: golang:1.25
+      image: golang:1.24
 
     steps:
       - name: Checkout code
@@ -63,7 +63,7 @@ jobs:
     name: Build & Acceptance Tests
     runs-on: ubuntu-latest
     container:
-      image: golang:1.25
+      image: golang:1.24
     needs: [test]
 
     steps:
@@ -102,9 +102,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go build -ldflags="-s -w -X github.com/benjaminabbitt/mlcm/cmd.Version=ci-${GITHUB_SHA::8}" -o mlcm .
+          go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version=ci-${GITHUB_SHA::8}" -o scm .
           mkdir -p bin
-          go build -ldflags="-s -w" -o bin/mlcm-gen-simple ./cmd/generators/simple
+          go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
 
       - name: Add binaries to PATH
         run: |
@@ -117,8 +117,8 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mlcm-linux-amd64
+          name: scm-linux-amd64
           path: |
-            mlcm
-            bin/mlcm-gen-*
+            scm
+            bin/scm-gen-*
           retention-days: 7

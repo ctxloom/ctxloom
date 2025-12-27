@@ -1,0 +1,152 @@
+version: "1.0"
+tags:
+    - mcp
+    - context
+    - mlcm
+content: |-
+    # MLCM - Machine Learning Context Manager
+
+    MCP server for managing reusable AI context fragments.
+
+    ## MCP Tools
+
+    - `list_fragments`: List available fragments with tags
+    - `get_fragment`: Get fragment content by name
+    - `list_personas`: List configured personas
+    - `get_persona`: Get persona configuration
+    - `set_persona`: Set default persona for session
+    - `assemble_context`: Combine fragments/personas into context
+    - `list_prompts`: List saved prompts
+    - `get_prompt`: Get prompt content by name
+
+    ## Key Concepts
+
+    **Fragments**: Reusable context snippets (coding standards, language patterns, security guidelines)
+    - Organized by category: general/, lang/, patterns/, personas/
+    - Tagged for filtering (e.g., golang, security, review)
+    - Support {{variables}} via Mustache templating
+
+    **Personas**: Named fragment collections for common workflows
+    - `developer`: Full dev context (TDD, code-quality, security)
+    - `go-developer`, `python-developer`, etc.: Language-specific
+    - `reviewer`: Multi-perspective code review
+    - `prototype`: Rapid prototyping without backwards compat concerns
+
+    **Distillation**: Token-optimized versions of fragments
+    - Fragments with `no_distill: true` are never compressed
+    - Falls back to full content if no distilled version exists
+
+    ## Common MCP Workflows
+
+    **Switching personas mid-session**: Use `set_persona` to change the default, then `assemble_context` to get the new context.
+
+    ```
+    # User wants to switch from development to code review
+    set_persona(name="reviewer")
+    assemble_context()  # Returns reviewer context
+    ```
+
+    **Adding fragments to current context**: Call `assemble_context` with additional fragments alongside the current persona.
+
+    ```
+    # Add security focus to current persona
+    assemble_context(persona="go-developer", fragments=["security"])
+
+    # Layer on specific patterns
+    assemble_context(persona="developer", fragments=["patterns/cqrs", "patterns/event-sourcing"])
+    ```
+
+    **Exploring available context**: List what's available before assembling.
+
+    ```
+    # See all fragments
+    list_fragments()
+
+    # Filter by tag
+    list_fragments(tags=["golang"])
+
+    # Check persona contents
+    get_persona(name="reviewer")
+    ```
+
+    **Ad-hoc context assembly**: Skip personas entirely, pick specific fragments.
+
+    ```
+    # Just security and Go guidance
+    assemble_context(fragments=["security", "lang/golang/golang"])
+
+    # Everything tagged "review"
+    assemble_context(tags=["review"])
+    ```
+
+    ## Fragment Format
+
+    ```yaml
+    version: "1.0"
+    tags: [golang, code-style]
+    variables: [project_name]
+    no_distill: true  # Optional: skip distillation
+    content: |
+      Your context here. Use {{project_name}} for variables.
+    ```
+content_hash: sha256:c3428fa5c36224bbc36b5e3c3ea6d78fa4f4d57b8c9ff4b2560242cb8a466a5f
+distilled: |-
+    # MLCM - Machine Learning Context Manager
+
+    MCP server for reusable AI context fragments.
+
+    ## MCP Tools
+    - `list_fragments`: List fragments w/ tags
+    - `get_fragment`: Get fragment by name
+    - `list_personas`: List personas
+    - `get_persona`: Get persona config
+    - `set_persona`: Set session default persona
+    - `assemble_context`: Combine fragments/personas
+    - `list_prompts`/`get_prompt`: Manage saved prompts
+
+    ## Concepts
+
+    **Fragments**: Reusable context snippets
+    - Categories: general/, lang/, patterns/, personas/
+    - Tagged for filtering
+    - {{variables}} via Mustache
+
+    **Personas**: Named fragment collections
+    - `developer`: Full dev (TDD, quality, security)
+    - `go-developer`, `python-developer`: Lang-specific
+    - `reviewer`: Multi-perspective review
+    - `prototype`: Rapid prototyping
+
+    **Distillation**: Token-optimized versions
+    - `no_distill: true` skips compression
+    - Falls back to full if no distilled version
+
+    ## Workflows
+
+    ```
+    # Switch persona mid-session
+    set_persona(name="reviewer")
+    assemble_context()
+
+    # Add fragments to persona
+    assemble_context(persona="go-developer", fragments=["security"])
+
+    # Explore available context
+    list_fragments(tags=["golang"])
+    get_persona(name="reviewer")
+
+    # Ad-hoc assembly (no persona)
+    assemble_context(fragments=["security", "lang/golang/golang"])
+    assemble_context(tags=["review"])
+    ```
+
+    ## Fragment Format
+    ```yaml
+    version: "1.0"
+    tags: [golang, code-style]
+    variables: [project_name]
+    no_distill: true  # Optional
+    content: |
+      Context here. Use {{project_name}}.
+    ```
+distilled_by: claude-code

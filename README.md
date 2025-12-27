@@ -1,4 +1,4 @@
-# MLCM - Machine Learning Context Manager
+# SCM - Sophisticated Context Management
 
 A CLI tool for managing context fragments and prompts for AI coding assistants.
 
@@ -8,10 +8,10 @@ When working with AI coding assistants, you repeatedly provide the same context:
 
 ## The Solution
 
-MLCM organizes context into reusable fragments that can be:
+SCM organizes context into reusable fragments that can be:
 - **Assembled on demand** - Combine fragments for different tasks
 - **Grouped into personas** - Switch contexts with a single flag (`-p go-developer`)
-- **Shared across teams** - Project-local `.mlcm/` ensures reproducibility
+- **Shared across teams** - Project-local `.scm/` ensures reproducibility
 - **Token-optimized** - Distill fragments to minimal versions
 - **Dynamically generated** - Generators add git status, file trees, etc.
 
@@ -21,13 +21,13 @@ MLCM organizes context into reusable fragments that can be:
 # Install
 just install              # Build and install to ~/.local/bin
 
-# Set up project with fragments
-mlcm copy --from resources --to project  # Copy all fragments to .mlcm/
+# Works immediately with built-in fragments
+scm run -p developer "Help me with this code"
+scm run -n                # Preview what context would be sent
 
-# Run with context
-mlcm run -p developer "Help me with this code"
-mlcm run -f security -f golang "Review for vulnerabilities"
-mlcm run -n "Preview context"  # Dry run
+# Optional: copy fragments to customize
+scm copy --from resources --to home     # Copy to ~/.scm/ for personal use
+scm copy --from resources --to project  # Copy to .scm/ for team sharing
 ```
 
 ## Usage Examples
@@ -36,22 +36,22 @@ mlcm run -n "Preview context"  # Dry run
 
 ```bash
 # Development with language-specific context
-mlcm run -p go-developer "implement error handling"
-mlcm run -p python-developer "add type hints"
-mlcm run -p typescript-developer "refactor to use generics"
+scm run -p go-developer "implement error handling"
+scm run -p python-developer "add type hints"
+scm run -p typescript-developer "refactor to use generics"
 
 # Code review with multiple perspectives
-mlcm run -p reviewer "review this pull request"
+scm run -p reviewer "review this pull request"
 
 # Prototyping (no backwards compatibility concerns)
-mlcm run -p prototype "build this feature"
+scm run -p prototype "build this feature"
 
 # Combine fragments ad-hoc
-mlcm run -t security -t golang "audit this code"
-mlcm run -f patterns/cqrs -f patterns/event-sourcing "design the system"
+scm run -t security -t golang "audit this code"
+scm run -f patterns/cqrs -f patterns/event-sourcing "design the system"
 
 # Switch AI backend
-mlcm run -P gemini "use Gemini instead of Claude"
+scm run -P gemini "use Gemini instead of Claude"
 ```
 
 ### MCP Usage
@@ -59,13 +59,13 @@ mlcm run -P gemini "use Gemini instead of Claude"
 <!-- NOTE: This is an intentional example of MCP interaction - do not delete -->
 
 ```
-> ok, lets adopt the go developer and prototype profiles 
-and fragment 
+> ok, lets adopt the go developer and prototype profiles
+and fragment
 
-● mlcm - assemble_context (MCP)(persona: "go-developer",
+● scm - assemble_context (MCP)(persona: "go-developer",
                                fragments: ["patterns/prototyp
                                e/prototype"])
-  ⎿ {                                                   
+  ⎿ {
       "context": "# Golang Development\n\n## Environment
      \u0026 Tooling\n\n- **Go Version**: Specify in go.m
     … +239 lines (ctrl+o to expand)
@@ -90,50 +90,34 @@ and fragment
 
   Also includes: TDD, code quality, git practices, documentation, security, pushback guidelines.
 
-> cool, lets do a code review with that persona 
+> cool, lets do a code review with that persona
 ```
 
 ### Managing fragments
 
 ```bash
-mlcm fragment list              # List all fragments
-mlcm fragment list -t golang    # Filter by tag
-mlcm fragment show security     # View fragment content
-mlcm fragment edit my-custom    # Create/edit fragment
+scm fragment list              # List all fragments
+scm fragment list -t golang    # Filter by tag
+scm fragment show security     # View fragment content
+scm fragment edit my-custom    # Create/edit fragment
 ```
 
 ### Saved prompts
 
 ```bash
-mlcm prompt list                # List saved prompts
-mlcm prompt show code-review    # View prompt content
-mlcm run -r code-review         # Run AI with saved prompt
+scm prompt list                # List saved prompts
+scm prompt show code-review    # View prompt content
+scm run -r code-review         # Run AI with saved prompt
 ```
 
 ### Token optimization
 
 ```bash
-mlcm distill                    # Compress all fragments
-mlcm distill -p go-developer    # Compress fragments for persona
-mlcm distill --dry-run          # Preview what would be compressed
-mlcm distill clean              # Clear distilled content
+scm distill                    # Compress all fragments and prompts
+scm distill -p go-developer    # Compress fragments for persona
+scm distill --dry-run          # Preview what would be compressed
+scm distill clean              # Clear distilled content
 ```
-
-## Personas
-
-Built-in personas for common workflows:
-
-| Persona | Description |
-|---------|-------------|
-| `developer` | Full development context (communication, TDD, code-quality, git, docs, security) |
-| `go-developer` | Developer + Go-specific guidance |
-| `python-developer` | Developer + Python-specific guidance |
-| `rust-developer` | Developer + Rust-specific guidance |
-| `typescript-developer` | Developer + TypeScript-specific guidance |
-| `reviewer` | Code review with architect, junior-dev, domain-expert, concurrency perspectives |
-| `prototype` | Rapid prototyping without backwards compatibility concerns |
-
-Personas inherit from others via `parents` and can combine fragments, tags, generators, and variables.
 
 ## Configuration
 
@@ -151,7 +135,7 @@ content: |
   Your context here. Use {{variable}} for templating.
 ```
 
-**Distillation fields** (added automatically by `mlcm distill`):
+**Distillation fields** (added automatically by `scm distill`):
 
 ```yaml
 content_hash: "sha256:..."       # Hash of original content
@@ -165,22 +149,37 @@ distilled_by: "claude-opus-4-5-20251101"
 no_distill: true  # Content will never be distilled
 ```
 
+### Personas
+
+Built-in personas for common workflows:
+
+| Persona | Description |
+|---------|-------------|
+| `developer` | Full development context (communication, TDD, code-quality, git, docs, security) |
+| `go-developer` | Developer + Go-specific guidance |
+| `python-developer` | Developer + Python-specific guidance |
+| `rust-developer` | Developer + Rust-specific guidance |
+| `typescript-developer` | Developer + TypeScript-specific guidance |
+| `reviewer` | Code review with architect, domain-expert, concurrency, performance, standards perspectives |
+| `prototype` | Rapid prototyping without backwards compatibility concerns |
+
+Personas inherit from others via `parents` and can combine fragments, tags, generators, and variables.
+
 ### Tags vs Personas
 
 Tags and personas provide complementary ways to organize fragments:
 
 **Tags** are for categorization and discovery:
-- Filter fragments: `mlcm fragment list -t golang`
-- Copy by tag: `mlcm copy --from r --to p -t security`
-- Ad-hoc context: `mlcm run -t golang -t security "review this"`
-- Future: search and share fragments across teams
+- Filter fragments: `scm fragment list -t golang`
+- Copy by tag: `scm copy --from r --to p -t security`
+- Ad-hoc context: `scm run -t golang -t security "review this"`
 
 **Personas** are for workflow presets:
 - Bundle fragments, tags, generators, and variables
 - Inherit from other personas via `parents`
 - Set defaults in config: `defaults: { personas: [developer] }`
 
-Personas can reference tags (`tags: [golang]`), meaning fragments with matching tags are automatically included. This is intentionally redundant - you can use whichever approach fits your workflow.
+Personas can reference tags (`tags: [golang]`), meaning fragments with matching tags are automatically included.
 
 ### Variables (Mustache Templating)
 
@@ -199,7 +198,7 @@ personas:
   my-project:
     fragments: [my-fragment]
     variables:
-      project_name: "MLCM"
+      project_name: "SCM"
       language: "Go"
 ```
 
@@ -233,7 +232,7 @@ personas:
 
 ### LM plugins
 
-MLCM uses plugins to interface with language models. Built-in plugins:
+SCM uses plugins to interface with language models. Built-in plugins:
 
 | Plugin | CLI | Description |
 |--------|-----|-------------|
@@ -244,7 +243,7 @@ MLCM uses plugins to interface with language models. Built-in plugins:
 
 ```bash
 # One-time use
-mlcm run -P gemini "your prompt"
+scm run -P gemini "your prompt"
 
 # Set as default in config.yaml
 lm:
@@ -271,42 +270,47 @@ The plugin must support `--print` for non-interactive mode and accept a prompt a
 
 Personas can inherit from multiple parents using the `parents` field. Inheritance is resolved depth-first with later values overriding earlier ones.
 
-**Diamond inheritance**: When multiple parents share a common ancestor (e.g., A inherits from B and C, both of which inherit from D), fragments from D are included only once. The resolver uses sets internally to track fragments, tags, and generators, ensuring no duplicates. Order is preserved (first occurrence wins) and the approach is simpler than complex diamond resolution algorithms.
+**Diamond inheritance**: When multiple parents share a common ancestor (e.g., A inherits from B and C, both of which inherit from D), fragments from D are included only once. Order is preserved (first occurrence wins).
 
 ### Home directory as git repository
 
-The `~/.mlcm` directory is automatically initialized as a git repository when you first copy to it. This serves two purposes:
+The `~/.scm` directory is automatically initialized as a git repository when you first copy to it. This enables:
 
-1. **Recovery** - Copy operations can overwrite files. Git history lets you recover previous versions of your fragments and config.
-2. **Sharing** - Push your configuration to a remote to sync across machines or share with your team.
+1. **Recovery** - Git history lets you recover previous versions of fragments and config
+2. **Sharing** - Push to a remote to sync across machines or share with your team
 
 ```bash
 # After copying to home, commit your setup
-cd ~/.mlcm && git add -A && git commit -m "Initial mlcm setup"
+cd ~/.scm && git add -A && git commit -m "Initial scm setup"
 
 # Share across machines
-git remote add origin git@github.com:you/mlcm-config.git
+git remote add origin git@github.com:you/scm-config.git
 git push -u origin main
 ```
 
 ### Config hierarchy
 
-1. **Project**: `.mlcm/config.yaml` (highest priority)
-2. **Home**: `~/.mlcm/config.yaml`
-3. **Embedded**: Built-in defaults
+SCM uses a single source (no merging):
 
-### Fragment discovery
+1. **Project**: `.scm/` at git repository root (if exists)
+2. **Home**: `~/.scm/` (fallback if no project .scm)
+3. **Embedded**: Built-in resources (fallback if no home .scm)
 
-MLCM walks up from the current directory looking for `.mlcm/context-fragments/`, then checks `~/.mlcm/context-fragments/`. Later sources override earlier ones.
+When in a project with `.scm/`, only that project's config and fragments are used. This ensures reproducibility across team members.
+
+**Embedded mode behavior**: When no `.scm/` directory exists, SCM uses built-in fragments and config. Read operations (`list`, `show`, `run`) work normally. Write operations behave as follows:
+- `fragment edit` / `prompt edit` → creates new file in `~/.scm/`
+- `fragment delete` / `prompt delete` → errors (use `scm copy` first)
+- `distill` → errors (use `--resources` for packaging)
 
 ## Commands Reference
 
-### `mlcm run`
+### `scm run`
 
 Assemble context and run AI plugin.
 
 ```bash
-mlcm run [flags] "prompt"
+scm run [flags] "prompt"
 
 Flags:
   -f, --fragment     Fragment(s) to include (repeatable)
@@ -319,27 +323,27 @@ Flags:
       --print        Print response and exit (non-interactive)
 ```
 
-### `mlcm copy`
+### `scm copy`
 
 Copy fragments and prompts between locations.
 
 ```bash
 # Locations: resources (r), home (h), project (p)
-mlcm copy --from resources --to project       # Copy all embedded fragments to project
-mlcm copy --from resources --to home          # Copy embedded fragments to ~/.mlcm
-mlcm copy --from home --to project            # Copy home fragments to project
-mlcm copy --from project --to home            # Sync project changes back to home
+scm copy --from resources --to project       # Copy all embedded fragments to project
+scm copy --from resources --to home          # Copy embedded fragments to ~/.scm
+scm copy --from home --to project            # Copy home fragments to project
+scm copy --from project --to home            # Sync project changes back to home
 
 # Filter what to copy
-mlcm copy --from r --to p -f security         # Copy specific fragment
-mlcm copy --from r --to p -t golang           # Copy fragments with tag
-mlcm copy --from r --to p -P go-developer     # Copy fragments for persona
-mlcm copy --from r --to p -p code-review      # Copy specific prompt
+scm copy --from r --to p -f security         # Copy specific fragment
+scm copy --from r --to p -t golang           # Copy fragments with tag
+scm copy --from r --to p -P go-developer     # Copy fragments for persona
+scm copy --from r --to p -p code-review      # Copy specific prompt
 
 # Options
-mlcm copy --from r --to p --force             # Overwrite existing files
-mlcm copy --from r --to p --include-config=false  # Skip config.yaml
-mlcm copy --from r --to p -v                  # Verbose output
+scm copy --from r --to p --force             # Overwrite existing files
+scm copy --from r --to p --include-config=false  # Skip config.yaml
+scm copy --from r --to p -v                  # Verbose output
 
 # Home directory is initialized as git repo automatically
 # Header behavior:
@@ -347,93 +351,84 @@ mlcm copy --from r --to p -v                  # Verbose output
 #   FROM project: removes header
 ```
 
-### `mlcm fragment`
+**Recommended workflow**: Edit fragments in `~/.scm/`, then use `scm copy --from home --to project` to copy them into your project. The copy command adds a "DO NOT EDIT" header to project files, signaling that changes should be made in home and copied over.
+
+### `scm fragment`
 
 Manage context fragments.
 
 ```bash
-mlcm fragment list              # List all
-mlcm fragment list -t <tag>     # Filter by tag
-mlcm fragment show <name>       # Display content
-mlcm fragment edit <name>       # Edit or create
-mlcm fragment edit -l <name>    # Create in local .mlcm
-mlcm fragment delete <name>     # Remove
+scm fragment list              # List all
+scm fragment list -t <tag>     # Filter by tag
+scm fragment show <name>       # Display content
+scm fragment edit <name>       # Edit or create
+scm fragment edit -l <name>    # Create in local .scm
+scm fragment delete <name>     # Remove
 ```
 
-### `mlcm persona`
+### `scm persona`
 
 Manage personas.
 
 ```bash
-mlcm persona list
-mlcm persona show <name>
-mlcm persona add <name> -f <fragments...> -d "description"
-mlcm persona update <name> --add-fragment <name>
-mlcm persona remove <name>
+scm persona list
+scm persona show <name>
+scm persona add <name> -f <fragments...> -d "description"
+scm persona update <name> --add-fragment <name>
+scm persona remove <name>
 ```
 
-### `mlcm prompt`
+### `scm prompt`
 
 Manage saved prompts.
 
 ```bash
-mlcm prompt list
-mlcm prompt show <name>
-mlcm prompt edit <name>
-mlcm prompt delete <name>
+scm prompt list
+scm prompt show <name>
+scm prompt edit <name>
+scm prompt delete <name>
 ```
 
-### `mlcm distill`
+### `scm distill`
 
 Create token-optimized versions of fragments.
 
 ```bash
-mlcm distill                    # Distill all fragments and prompts
-mlcm distill -p <persona>       # Distill fragments for persona
-mlcm distill -f <fragment>      # Distill specific fragment(s)
-mlcm distill -P <prompt>        # Distill specific prompt(s)
-mlcm distill --prompts-only     # Distill only prompts (skip fragments)
-mlcm distill --skip-prompts     # Distill only fragments (skip prompts)
-mlcm distill --dry-run          # Preview what would be distilled
-mlcm distill --force            # Re-distill even if unchanged
-mlcm distill --resources        # Distill embedded resources (for packaging)
-mlcm distill clean              # Clear distilled content
-mlcm distill clean --home       # Clean ~/.mlcm fragments
+scm distill                    # Distill all fragments and prompts
+scm distill -p <persona>       # Distill fragments for persona
+scm distill -f <fragment>      # Distill specific fragment(s)
+scm distill -P <prompt>        # Distill specific prompt(s)
+scm distill --prompts-only     # Distill only prompts (skip fragments)
+scm distill --skip-prompts     # Distill only fragments (skip prompts)
+scm distill --dry-run          # Preview what would be distilled
+scm distill --force            # Re-distill even if unchanged
+scm distill --resources        # Distill embedded resources (for packaging)
+scm distill clean              # Clear distilled content
 ```
 
-### `mlcm generator`
+### `scm generator`
 
 Manage context generators (executables that produce dynamic context).
 
 ```bash
-mlcm generator list
-mlcm generator run <name>
-mlcm generator add <name> -c <command> -d "description"
-mlcm generator remove <name>
+scm generator list
+scm generator run <name>
+scm generator add <name> -c <command> -d "description"
+scm generator remove <name>
 ```
 
 Built-in generators:
-- `mlcm-gen-simple` - Runs any command, wraps output as fragment
+- `scm-gen-simple` - Runs any command, wraps output as fragment
 
-### `mlcm mcp`
+### `scm mcp`
 
 Run as MCP (Model Context Protocol) server over stdio.
 
 ```bash
-mlcm mcp
+scm mcp
 ```
 
 Available MCP tools: `list_fragments`, `get_fragment`, `list_personas`, `get_persona`, `set_persona`, `assemble_context`, `list_prompts`, `get_prompt`
-
-### `--home` flag
-
-Global flag to operate on `~/.mlcm` instead of project directories:
-
-```bash
-mlcm fragment list --home
-mlcm distill --home
-mlcm distill clean --home
-```
 
 ## Generators
 
@@ -448,13 +443,13 @@ exports:
   git_branch: main
 ```
 
-> **Note**: Generators are fully functional and provide a good architectural pattern for dynamic context generation. The `mlcm-gen-simple` wrapper makes it easy to create generators from any command. Static fragments have proven sufficient for most needs, but generators are available when dynamic context is required.
+> **Note**: Generators are fully functional and provide a good architectural pattern for dynamic context generation. The `scm-gen-simple` wrapper makes it easy to create generators from any command. Static fragments have proven sufficient for most needs, but generators are available when dynamic context is required.
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `MLCM_VERBOSE=1` | Enable verbose logging |
+| `SCM_VERBOSE=1` | Enable verbose logging |
 | `VISUAL` | Preferred editor (over `EDITOR`) |
 | `EDITOR` | Fallback editor |
 
@@ -472,7 +467,7 @@ exports:
 |---------|-------------|
 | `just build` | Validate, distill, then build all binaries |
 | `just validate` | Validate fragment YAML against JSON schema |
-| `just build-mlcm` | Build only main binary |
+| `just build-scm` | Build only main binary |
 | `just build-generators` | Build all generator binaries |
 | `just build-static` | Build static binaries (stripped, no CGO) |
 
@@ -483,6 +478,8 @@ exports:
 | `just test` | Run all tests |
 | `just test-verbose` | Run tests with verbose output |
 | `just test-coverage` | Run tests with coverage report |
+| `just test-acceptance` | Run acceptance tests (requires built binary) |
+| `just test-container` | Run all tests in Docker (matches CI) |
 
 ### Code quality
 
@@ -497,4 +494,3 @@ exports:
 |---------|-------------|
 | `just install` | Build static and install to `~/.local/bin` |
 | `just uninstall` | Remove from `~/.local/bin` |
-

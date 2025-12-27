@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminabbitt/mlcm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/fsys"
 )
 
 func TestNewLoader(t *testing.T) {

@@ -1,10 +1,10 @@
 Feature: MCP server
   As an AI agent
-  I want to interact with mlcm via MCP protocol
+  I want to interact with scm via MCP protocol
   So that I can access context fragments programmatically
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
 
   # ============================================================================
   # Initialize
@@ -14,7 +14,7 @@ Feature: MCP server
     When I send MCP initialize request
     Then the exit code should be 0
     And the MCP response should contain "protocolVersion"
-    And the MCP response should contain "mlcm"
+    And the MCP response should contain "scm"
 
   # ============================================================================
   # Tools List

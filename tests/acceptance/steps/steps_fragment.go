@@ -22,22 +22,22 @@ func aFragmentWithContent(name string, content *godog.DocString) error {
 }
 
 func aFragmentInProjectWithContent(name string, content *godog.DocString) error {
-	path := ".mlcm/context-fragments/" + name + ".yaml"
+	path := ".scm/context-fragments/" + name + ".yaml"
 	return TestEnv.WriteFile(path, content.Content)
 }
 
 func aFragmentInHomeWithContent(name string, content *godog.DocString) error {
-	path := ".mlcm/context-fragments/" + name + ".yaml"
+	path := ".scm/context-fragments/" + name + ".yaml"
 	return TestEnv.WriteHomeFile(path, content.Content)
 }
 
 func aPromptInProjectWithContent(name string, content *godog.DocString) error {
-	path := ".mlcm/prompts/" + name + ".yaml"
+	path := ".scm/prompts/" + name + ".yaml"
 	return TestEnv.WriteFile(path, content.Content)
 }
 
 func aPromptInHomeWithContent(name string, content *godog.DocString) error {
-	path := ".mlcm/prompts/" + name + ".yaml"
+	path := ".scm/prompts/" + name + ".yaml"
 	return TestEnv.WriteHomeFile(path, content.Content)
 }
 
@@ -47,9 +47,9 @@ func aConfigFileWith(content *godog.DocString) error {
 	if MockLM != nil {
 		configContent = strings.ReplaceAll(configContent, "{{MOCK_LM_PATH}}", MockLM.BinaryPath)
 	}
-	return TestEnv.WriteFile(".mlcm/config.yaml", configContent)
+	return TestEnv.WriteFile(".scm/config.yaml", configContent)
 }
 
 func aHomeConfigFileWith(content *godog.DocString) error {
-	return TestEnv.WriteHomeFile(".mlcm/config.yaml", content.Content)
+	return TestEnv.WriteHomeFile(".scm/config.yaml", content.Content)
 }

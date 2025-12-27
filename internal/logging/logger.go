@@ -1,4 +1,4 @@
-// Package logging provides structured logging for MLCM using zap.
+// Package logging provides structured logging for SCM using zap.
 package logging
 
 import (
@@ -144,5 +144,5 @@ func Count(n int) zap.Field {
 
 // IsVerbose returns true if verbose output should be shown.
 func IsVerbose() bool {
-	return os.Getenv("MLCM_VERBOSE") == "1"
+	return os.Getenv("SCM_VERBOSE") == "1"
 }

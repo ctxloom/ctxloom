@@ -12,8 +12,8 @@ import (
 	"github.com/cbroglie/mustache"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/mlcm/internal/fsys"
-	"github.com/benjaminabbitt/mlcm/internal/logging"
+	"github.com/benjaminabbitt/scm/internal/fsys"
+	"github.com/benjaminabbitt/scm/internal/logging"
 )
 
 // Fragment represents a parsed YAML context fragment file.
@@ -50,7 +50,7 @@ type Fragment struct {
 	NoDistill   bool              // If true, skip distillation for this fragment
 }
 
-// Loader finds and loads context fragments from .mlcm directories.
+// Loader finds and loads context fragments from .scm directories.
 type Loader struct {
 	searchDirs       []string
 	fs               fsys.FS

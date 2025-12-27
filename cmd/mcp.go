@@ -13,16 +13,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/fragments"
 )
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Run as MCP server over stdio",
-	Long: `Run mlcm as an MCP (Model Context Protocol) server over stdio.
+	Long: `Run scm as an MCP (Model Context Protocol) server over stdio.
 
-This allows AI agents to interact with mlcm functionality using standard MCP tool calls.
+This allows AI agents to interact with scm functionality using standard MCP tool calls.
 
 Available tools:
   - list_fragments: List available context fragments
@@ -35,7 +35,7 @@ Available tools:
   - get_prompt: Get a prompt's content by name
 
 Example:
-  mlcm mcp`,
+  scm mcp`,
 	RunE: runMCPServer,
 }
 
@@ -104,6 +104,31 @@ type mcpServer struct {
 	writer         io.Writer
 	cfg            *config.Config
 	sessionPersona string // Override persona for this session
+}
+
+// fragmentLoader returns a fragment loader configured for the current config source.
+func (s *mcpServer) fragmentLoader(opts ...fragments.LoaderOption) *fragments.Loader {
+	allOpts := []fragments.LoaderOption{
+		fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()),
+		fragments.WithSuppressWarnings(true),
+	}
+	if s.cfg.IsEmbedded() {
+		allOpts = append(allOpts, fragments.WithFS(s.cfg.GetFragmentFS()))
+	}
+	allOpts = append(allOpts, opts...)
+	return fragments.NewLoader(s.cfg.GetFragmentDirs(), allOpts...)
+}
+
+// promptLoader returns a prompt loader configured for the current config source.
+func (s *mcpServer) promptLoader(opts ...fragments.LoaderOption) *fragments.Loader {
+	allOpts := []fragments.LoaderOption{
+		fragments.WithSuppressWarnings(true),
+	}
+	if s.cfg.IsEmbedded() {
+		allOpts = append(allOpts, fragments.WithFS(s.cfg.GetPromptFS()))
+	}
+	allOpts = append(allOpts, opts...)
+	return fragments.NewLoader(s.cfg.GetPromptDirs(), allOpts...)
 }
 
 func (s *mcpServer) run(ctx context.Context) error {
@@ -188,7 +213,7 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 				"tools": map[string]interface{}{},
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "mlcm",
+				"name":    "scm",
 				"version": "1.0.0",
 			},
 		},
@@ -393,10 +418,7 @@ func (s *mcpServer) toolListFragments(args json.RawMessage) (interface{}, error)
 	}
 	json.Unmarshal(args, &params)
 
-	loader := fragments.NewLoader(s.cfg.GetFragmentDirs(),
-		fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()),
-		fragments.WithSuppressWarnings(true),
-	)
+	loader := s.fragmentLoader()
 
 	var infos []fragments.FragmentInfo
 	var err error
@@ -442,10 +464,7 @@ func (s *mcpServer) toolGetFragment(args json.RawMessage) (interface{}, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	loader := fragments.NewLoader(s.cfg.GetFragmentDirs(),
-		fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()),
-		fragments.WithSuppressWarnings(true),
-	)
+	loader := s.fragmentLoader()
 
 	frag, err := loader.Load(params.Name)
 	if err != nil {
@@ -542,10 +561,7 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	}
 	json.Unmarshal(args, &params)
 
-	loader := fragments.NewLoader(s.cfg.GetFragmentDirs(),
-		fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()),
-		fragments.WithSuppressWarnings(true),
-	)
+	loader := s.fragmentLoader()
 
 	var allFragments []string
 	personaVars := make(map[string]string)
@@ -626,10 +642,7 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 }
 
 func (s *mcpServer) toolListPrompts(args json.RawMessage) (interface{}, error) {
-	loader := fragments.NewLoader(s.cfg.GetPromptDirs(),
-		fragments.WithPreferDistilled(false),
-		fragments.WithSuppressWarnings(true),
-	)
+	loader := s.promptLoader(fragments.WithPreferDistilled(false))
 
 	prompts, err := loader.List()
 	if err != nil {
@@ -666,10 +679,7 @@ func (s *mcpServer) toolGetPrompt(args json.RawMessage) (interface{}, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	loader := fragments.NewLoader(s.cfg.GetPromptDirs(),
-		fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()),
-		fragments.WithSuppressWarnings(true),
-	)
+	loader := s.promptLoader(fragments.WithPreferDistilled(s.cfg.Defaults.ShouldUseDistilled()))
 
 	prompt, err := loader.Load(params.Name)
 	if err != nil {

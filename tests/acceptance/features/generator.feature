@@ -4,14 +4,14 @@ Feature: Generator management
   So that I can include dynamic context in AI interactions
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
 
   # ============================================================================
   # Generator List
   # ============================================================================
 
   Scenario: List generators when none exist
-    When I run mlcm "generator list"
+    When I run scm "generator list"
     Then the exit code should be 0
     And the output should contain "No generators"
 
@@ -23,7 +23,7 @@ Feature: Generator management
           description: My test generator
           command: echo test
       """
-    When I run mlcm "generator list"
+    When I run scm "generator list"
     Then the exit code should be 0
     And the output should contain "my-gen"
 
@@ -38,7 +38,7 @@ Feature: Generator management
           description: Second generator
           command: echo two
       """
-    When I run mlcm "generator list"
+    When I run scm "generator list"
     Then the exit code should be 0
     And the output should contain "gen-one"
     And the output should contain "gen-two"
@@ -58,13 +58,13 @@ Feature: Generator management
             - --verbose
             - --format=json
       """
-    When I run mlcm "generator show detailed"
+    When I run scm "generator show detailed"
     Then the exit code should be 0
     And the output should contain "A detailed generator"
     And the output should contain "/usr/bin/my-generator"
 
   Scenario: Show nonexistent generator fails
-    When I run mlcm "generator show nonexistent"
+    When I run scm "generator show nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
@@ -73,24 +73,24 @@ Feature: Generator management
   # ============================================================================
 
   Scenario: Add generator with command
-    When I run mlcm "generator add my-gen -c echo"
+    When I run scm "generator add my-gen -c echo"
     Then the exit code should be 0
     And the output should contain "Added generator"
-    When I run mlcm "generator show my-gen"
+    When I run scm "generator show my-gen"
     Then the exit code should be 0
     And the output should contain "echo"
 
   Scenario: Add generator with description
-    When I run mlcm "generator add described -c echo -d TestGenerator"
+    When I run scm "generator add described -c echo -d TestGenerator"
     Then the exit code should be 0
-    When I run mlcm "generator show described"
+    When I run scm "generator show described"
     Then the exit code should be 0
     And the output should contain "TestGenerator"
 
   Scenario: Add generator with arguments
-    When I run mlcm "generator add with-args -c echo -a hello -a world"
+    When I run scm "generator add with-args -c echo -a hello -a world"
     Then the exit code should be 0
-    When I run mlcm "generator show with-args"
+    When I run scm "generator show with-args"
     Then the exit code should be 0
     And the output should contain "echo"
     And the output should contain "hello"
@@ -107,7 +107,7 @@ Feature: Generator management
             - arg1
             - arg2
       """
-    When I run mlcm "generator run echo-args"
+    When I run scm "generator run echo-args"
     Then the exit code should be 0
     And the output should contain "arg1"
     And the output should contain "arg2"
@@ -120,7 +120,7 @@ Feature: Generator management
           description: Existing generator
           command: echo existing
       """
-    When I run mlcm "generator add existing -c echo"
+    When I run scm "generator add existing -c echo"
     Then the exit code should be 1
     And the output should contain "already exists"
 
@@ -139,15 +139,15 @@ Feature: Generator management
           description: Should remain
           command: echo keep
       """
-    When I run mlcm "generator remove to-remove"
+    When I run scm "generator remove to-remove"
     Then the exit code should be 0
-    When I run mlcm "generator show to-remove"
+    When I run scm "generator show to-remove"
     Then the exit code should be 1
-    When I run mlcm "generator show keep-this"
+    When I run scm "generator show keep-this"
     Then the exit code should be 0
 
   Scenario: Remove nonexistent generator fails
-    When I run mlcm "generator remove nonexistent"
+    When I run scm "generator remove nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
@@ -165,12 +165,12 @@ Feature: Generator management
           args:
             - "Hello from generator"
       """
-    When I run mlcm "generator run echo-gen"
+    When I run scm "generator run echo-gen"
     Then the exit code should be 0
     And the output should contain "Hello from generator"
 
   Scenario: Run nonexistent generator fails
-    When I run mlcm "generator run nonexistent"
+    When I run scm "generator run nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
@@ -186,6 +186,6 @@ Feature: Generator management
           description: Alias test
           command: echo alias
       """
-    When I run mlcm "gen list"
+    When I run scm "gen list"
     Then the exit code should be 0
     And the output should contain "alias-test"

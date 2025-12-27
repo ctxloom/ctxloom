@@ -2,8 +2,8 @@ package acceptance
 
 import (
 	"context"
-	"github.com/benjaminabbitt/mlcm/tests/acceptance/steps"
-	"github.com/benjaminabbitt/mlcm/tests/acceptance/steps/support"
+	"github.com/benjaminabbitt/scm/tests/acceptance/steps"
+	"github.com/benjaminabbitt/scm/tests/acceptance/steps/support"
 	"testing"
 
 	"github.com/cucumber/godog"

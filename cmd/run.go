@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
-	"github.com/benjaminabbitt/mlcm/internal/fragments"
-	"github.com/benjaminabbitt/mlcm/internal/ml"
-	_ "github.com/benjaminabbitt/mlcm/internal/ml/claudecode" // Register Claude Code plugin
-	_ "github.com/benjaminabbitt/mlcm/internal/ml/gemini"     // Register Gemini plugin
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/fragments"
+	"github.com/benjaminabbitt/scm/internal/ml"
+	_ "github.com/benjaminabbitt/scm/internal/ml/claudecode" // Register Claude Code plugin
+	_ "github.com/benjaminabbitt/scm/internal/ml/gemini"     // Register Gemini plugin
 )
 
 var (
@@ -32,9 +32,10 @@ var runCmd = &cobra.Command{
 	Short: "Assemble context and run AI",
 	Long: `Assemble context from fragments and execute the configured AI plugin.
 
-Fragments are searched in order:
-  1. .mlcm/context-fragments/ directories walking up from current directory
-  2. ~/.mlcm/context-fragments/
+Fragments are loaded from a single source (first found):
+  1. <git-root>/.scm/context-fragments/ (project)
+  2. ~/.scm/context-fragments/ (home)
+  3. Embedded resources (fallback)
 
 Use --persona/-p to load a predefined set of fragments, variables, and generators.
 Use --tag/-t to include all fragments with a specific tag.
@@ -43,11 +44,11 @@ Additional -f flags will be appended to the persona's fragments.
 The AI plugin runs in isolation, ignoring default context files like Claude.md.
 
 Examples:
-  mlcm run -f coding-standards "review this code"
-  mlcm run -p developer "explain the architecture"
-  mlcm run -p reviewer -f extra-rules "review this PR"
-  mlcm run -t security "check for vulnerabilities"
-  mlcm run -t review -t style "comprehensive code review"`,
+  scm run -f coding-standards "review this code"
+  scm run -p developer "explain the architecture"
+  scm run -p reviewer -f extra-rules "review this PR"
+  scm run -t security "check for vulnerabilities"
+  scm run -t review -t style "comprehensive code review"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Load configuration
 		cfg, err := config.Load()
@@ -55,12 +56,16 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Create fragment loader
-		loader := fragments.NewLoader(cfg.GetFragmentDirs(),
+		// Create fragment loader with appropriate source
+		loaderOpts := []fragments.LoaderOption{
 			fragments.WithSuppressWarnings(runSuppressWarnings),
 			fragments.WithPreferDistilled(cfg.Defaults.ShouldUseDistilled()),
 			fragments.WithFailOnMissing(true),
-		)
+		}
+		if cfg.IsEmbedded() {
+			loaderOpts = append(loaderOpts, fragments.WithFS(cfg.GetFragmentFS()))
+		}
+		loader := fragments.NewLoader(cfg.GetFragmentDirs(), loaderOpts...)
 
 		// Determine which plugin to use
 		pluginName := runPlugin
@@ -151,7 +156,8 @@ Examples:
 			}
 		}
 
-		// Dedupe fragments and generators before processing
+		// Dedupe fragments and generators before processing.
+		// This handles the diamond problem when multiple personas share common fragments.
 		allFragments = config.DedupeStrings(allFragments)
 		generators = config.DedupeStrings(generators)
 

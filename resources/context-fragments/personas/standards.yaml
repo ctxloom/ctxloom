@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - review
     - persona
@@ -63,3 +63,56 @@ content: |-
     - Is style consistent throughout the codebase?
     - Are similar problems solved in similar ways?
     - Do naming and formatting follow team/language conventions?
+content_hash: sha256:26078b7ed990937d734140dd57a19399777f3991a92601e996afd991120c5c90
+distilled: |-
+    # Standards & Readability Review
+
+    Code review focus: canonical patterns, textbook approaches, long-term readability.
+
+    ## Naming
+    - Intent-revealing names
+    - No abbreviations (unless universal)
+    - Functions describe *what*, not *how*
+    - Booleans as questions (isValid, hasItems)
+
+    ## Organization
+    - Follow language/framework standards
+    - Files by feature or layer
+    - Group related code
+    - Minimal, organized imports
+
+    ## Functions
+    - Single responsibility
+    - Small, understandable at glance
+    - Minimize/document side effects
+    - Clear signatures
+
+    ## Documentation
+    - Public APIs: purpose, params, returns
+    - Explain non-obvious algorithms
+    - "Why" comments where needed
+    - Keep docs synced
+
+    ## Patterns
+    - Use standard design patterns
+    - Prefer stdlib over reinventing
+    - Follow language idioms
+    - Avoid anti-patterns
+
+    ## Error Handling
+    - Handle explicitly, never swallow
+    - Descriptive, actionable messages
+    - Clear happy path vs error paths
+    - No exceptions for control flow
+
+    ## Readability
+    - Newcomer-understandable
+    - Clarity over cleverness
+    - Break complex expressions into named values
+    - Code reads like prose
+
+    ## Consistency
+    - Consistent style throughout
+    - Similar problems → similar solutions
+    - Follow team/language conventions
+distilled_by: claude-code

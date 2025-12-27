@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/mlcm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/config"
 )
 
 var personaCmd = &cobra.Command{
@@ -31,7 +31,7 @@ var personaListCmd = &cobra.Command{
 
 		if len(cfg.Personas) == 0 {
 			fmt.Println("No personas defined.")
-			fmt.Println("Use 'mlcm persona add <name> -f <fragments...>' to create one.")
+			fmt.Println("Use 'scm persona add <name> -f <fragments...>' to create one.")
 			return nil
 		}
 
@@ -77,8 +77,8 @@ var personaAddCmd = &cobra.Command{
 	Long: `Add a new persona with the specified fragments, generators, and/or parents.
 
 Example:
-  mlcm persona add developer -f coding-standards -f go-patterns -d "Standard dev context"
-  mlcm persona add go-developer --parent developer -t golang -d "Go development context"`,
+  scm persona add developer -f coding-standards -f go-patterns -d "Standard dev context"
+  scm persona add go-developer --parent developer -t golang -d "Go development context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -213,13 +213,13 @@ var personaUpdateCmd = &cobra.Command{
 	Long: `Update an existing persona by adding or removing parents, fragments, or generators.
 
 Examples:
-  mlcm persona update go-developer --add-parent developer
-  mlcm persona update go-developer --remove-parent base
-  mlcm persona update developer --add-fragment error-handling
-  mlcm persona update developer --remove-fragment old-patterns
-  mlcm persona update developer --add-generator my-generator
-  mlcm persona update developer --remove-generator old-gen
-  mlcm persona update developer -d "New description"`,
+  scm persona update go-developer --add-parent developer
+  scm persona update go-developer --remove-parent base
+  scm persona update developer --add-fragment error-handling
+  scm persona update developer --remove-fragment old-patterns
+  scm persona update developer --add-generator my-generator
+  scm persona update developer --remove-generator old-gen
+  scm persona update developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]

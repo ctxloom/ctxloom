@@ -1,7 +1,7 @@
 package steps
 
 import (
-	"github.com/benjaminabbitt/mlcm/tests/acceptance/steps/support"
+	"github.com/benjaminabbitt/scm/tests/acceptance/steps/support"
 )
 
 // TestEnv holds the current test environment for step definitions

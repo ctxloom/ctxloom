@@ -4,7 +4,7 @@ Feature: Distill command
   So that I can reduce token usage while preserving meaning
 
   Background:
-    Given a project with mlcm initialized
+    Given a project with scm initialized
     And a mock LM is configured
 
   # ============================================================================
@@ -24,7 +24,7 @@ Feature: Distill command
       """
       Concise version of the fragment.
       """
-    When I run mlcm "distill -f to-distill"
+    When I run scm "distill -f to-distill"
     Then the exit code should be 0
     And the output should contain "Distilling"
     And the output should contain "to-distill"
@@ -49,7 +49,7 @@ Feature: Distill command
       """
       Distilled content.
       """
-    When I run mlcm "distill -f multi-one -f multi-two"
+    When I run scm "distill -f multi-one -f multi-two"
     Then the exit code should be 0
     And the output should contain "multi-one"
     And the output should contain "multi-two"
@@ -67,7 +67,7 @@ Feature: Distill command
       content: |
         This content must not be distilled.
       """
-    When I run mlcm "distill -f protected"
+    When I run scm "distill -f protected"
     Then the exit code should be 0
     And the output should contain "Skipping protected (no_distill)"
 
@@ -100,7 +100,7 @@ Feature: Distill command
       """
       Distilled.
       """
-    When I run mlcm "distill -p test-persona"
+    When I run scm "distill -p test-persona"
     Then the exit code should be 0
     And the output should contain "persona-frag"
 
@@ -119,7 +119,7 @@ Feature: Distill command
       """
       Concise prompt.
       """
-    When I run mlcm "distill -P to-distill"
+    When I run scm "distill -P to-distill"
     Then the exit code should be 0
     And the output should contain "to-distill"
 
@@ -142,7 +142,7 @@ Feature: Distill command
       """
       Second distillation.
       """
-    When I run mlcm "distill -f force-test --force"
+    When I run scm "distill -f force-test --force"
     Then the exit code should be 0
     And the output should contain "Re-distilling force-test"
     And the output should contain "OK"
@@ -159,7 +159,7 @@ Feature: Distill command
       content: |
         Content to distill.
       """
-    When I run mlcm "distill -f dry-test --dry-run"
+    When I run scm "distill -f dry-test --dry-run"
     Then the exit code should be 0
     And the output should contain "Would distill: dry-test"
     And the output should contain "Dry run complete"
@@ -169,7 +169,7 @@ Feature: Distill command
   # ============================================================================
 
   Scenario: Distill nonexistent fragment fails
-    When I run mlcm "distill -f nonexistent"
+    When I run scm "distill -f nonexistent"
     Then the exit code should be 1
     And the output should contain "not found: nonexistent"
 
@@ -189,7 +189,7 @@ Feature: Distill command
       content_hash: "abc123"
       distilled_by: "test"
       """
-    When I run mlcm "distill clean"
+    When I run scm "distill clean"
     Then the exit code should be 0
     And the output should contain "Cleaned: to-clean"
 
@@ -203,7 +203,7 @@ Feature: Distill command
       distilled: |
         Distilled content.
       """
-    When I run mlcm "distill clean --dry-run"
+    When I run scm "distill clean --dry-run"
     Then the exit code should be 0
     And the output should contain "Would clean: dry-clean"
 
@@ -229,7 +229,7 @@ Feature: Distill command
       """
       Distilled.
       """
-    When I run mlcm "distill --prompts-only"
+    When I run scm "distill --prompts-only"
     Then the exit code should be 0
     And the output should contain "prompts"
     And the output should not contain "fragments"
@@ -252,7 +252,7 @@ Feature: Distill command
       """
       Distilled.
       """
-    When I run mlcm "distill --skip-prompts"
+    When I run scm "distill --skip-prompts"
     Then the exit code should be 0
     And the output should contain "fragments"
     And the output should not contain "prompts"
@@ -273,7 +273,7 @@ Feature: Distill command
       """
       Distilled Python guidelines.
       """
-    When I run mlcm "distill -f lang/python"
+    When I run scm "distill -f lang/python"
     Then the exit code should be 0
     And the output should contain "lang/python"
     And the output should contain "OK"

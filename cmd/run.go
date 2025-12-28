@@ -69,10 +69,7 @@ Examples:
 		// Determine which plugin to use
 		pluginName := runPlugin
 		if pluginName == "" {
-			pluginName = cfg.LM.DefaultPlugin
-		}
-		if pluginName == "" {
-			pluginName = "claude-code"
+			pluginName = cfg.LM.GetDefaultPlugin()
 		}
 
 		// Verify the backend exists
@@ -109,8 +106,7 @@ Examples:
 			profileNames = []string{runProfile}
 		} else if len(runFragments) == 0 && len(runTags) == 0 {
 			// No explicit profile, fragments, or tags - use defaults
-			profileNames = cfg.Defaults.Profiles
-			allFragments = append(allFragments, cfg.Defaults.Fragments...)
+			profileNames = cfg.GetDefaultProfiles()
 			generators = append(generators, cfg.Defaults.Generators...)
 		}
 
@@ -304,7 +300,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(runCmd)
 
-	runCmd.Flags().StringVarP(&runPlugin, "plugin", "P", "", "AI plugin to use (default from config)")
+	runCmd.Flags().StringVarP(&runPlugin, "plugin", "l", "", "LLM to use (default from config)")
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
 	runCmd.Flags().StringVarP(&runSavedPrompt, "run-prompt", "r", "", "Run a saved prompt by name")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")

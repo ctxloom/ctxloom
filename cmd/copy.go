@@ -942,8 +942,8 @@ func init() {
 	copyCmd.Flags().BoolVar(&copyClear, "clear", false, "Clear destination .scm directory before copying (destroys customizations)")
 	copyCmd.Flags().StringArrayVarP(&copyFragments, "fragment", "f", nil, "Fragment(s) to copy")
 	copyCmd.Flags().StringArrayVarP(&copyTags, "tag", "t", nil, "Copy fragments with these tags")
-	copyCmd.Flags().StringArrayVarP(&copyPrompts, "prompt", "p", nil, "Prompt(s) to copy")
-	copyCmd.Flags().StringArrayVarP(&copyProfiles, "profile", "P", nil, "Copy fragments for these profiles")
+	copyCmd.Flags().StringArrayVarP(&copyPrompts, "prompt", "r", nil, "Prompt(s) to copy")
+	copyCmd.Flags().StringArrayVarP(&copyProfiles, "profile", "p", nil, "Copy fragments for these profiles")
 	copyCmd.Flags().BoolVarP(&copyVerbose, "verbose", "v", false, "List individual files")
 
 	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for scm development)")

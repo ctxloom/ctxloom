@@ -86,7 +86,9 @@ Feature: Distill command
     And a config file with:
       """
       lm:
-        default_plugin: claude-code
+        plugins:
+          claude-code:
+            default: true
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
@@ -119,7 +121,7 @@ Feature: Distill command
       """
       Concise prompt.
       """
-    When I run scm "distill -P to-distill"
+    When I run scm "distill -r to-distill"
     Then the exit code should be 0
     And the output should contain "to-distill"
 
@@ -256,6 +258,95 @@ Feature: Distill command
     Then the exit code should be 0
     And the output should contain "fragments"
     And the output should not contain "prompts"
+
+  # ============================================================================
+  # Filter Isolation (flags should not cross-distill)
+  # ============================================================================
+
+  Scenario: Distill with -P only distills prompts not fragments
+    Given a fragment "isolated-frag" in the project with content:
+      """
+      tags:
+        - isolated
+      content: |
+        Fragment that should not be distilled.
+      """
+    And a prompt "isolated-prompt" in the project with content:
+      """
+      description: Isolated prompt
+      content: |
+        Prompt content.
+      """
+    And the mock LM will respond with:
+      """
+      Distilled.
+      """
+    When I run scm "distill -r isolated-prompt"
+    Then the exit code should be 0
+    And the output should contain "1 prompts"
+    And the output should not contain "fragments"
+    And the output should contain "isolated-prompt"
+
+  Scenario: Distill with -f only distills fragments not prompts
+    Given a fragment "frag-only" in the project with content:
+      """
+      tags:
+        - fragonly
+      content: |
+        Fragment content.
+      """
+    And a prompt "prompt-untouched" in the project with content:
+      """
+      description: Untouched prompt
+      content: |
+        Prompt content.
+      """
+    And the mock LM will respond with:
+      """
+      Distilled.
+      """
+    When I run scm "distill -f frag-only"
+    Then the exit code should be 0
+    And the output should contain "1 fragments"
+    And the output should not contain "prompts"
+    And the output should contain "frag-only"
+
+  Scenario: Distill with -p only distills profile fragments not prompts
+    Given a fragment "profile-only-frag" in the project with content:
+      """
+      tags:
+        - profileonly
+      content: |
+        Profile fragment content.
+      """
+    And a prompt "profile-untouched" in the project with content:
+      """
+      description: Untouched prompt
+      content: |
+        Prompt content.
+      """
+    And a config file with:
+      """
+      lm:
+        plugins:
+          claude-code:
+            default: true
+            binary_path: "{{MOCK_LM_PATH}}"
+      profiles:
+        isolated-profile:
+          description: Isolated test profile
+          fragments:
+            - profile-only-frag
+      """
+    And the mock LM will respond with:
+      """
+      Distilled.
+      """
+    When I run scm "distill -p isolated-profile"
+    Then the exit code should be 0
+    And the output should contain "1 fragments"
+    And the output should not contain "prompts"
+    And the output should contain "profile-only-frag"
 
   # ============================================================================
   # Subdirectory Fragments

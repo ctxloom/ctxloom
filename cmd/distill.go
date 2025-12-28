@@ -85,10 +85,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	// Determine which plugin to use
 	pluginName := distillPlugin
 	if pluginName == "" {
-		pluginName = cfg.LM.DefaultPlugin
-	}
-	if pluginName == "" {
-		pluginName = "claude-code"
+		pluginName = cfg.LM.GetDefaultPlugin()
 	}
 
 	// Verify the backend exists
@@ -116,8 +113,8 @@ func runDistill(cmd *cobra.Command, args []string) error {
 	totalSkipped := 0
 	totalInvalid := 0
 
-	// Distill fragments unless --prompts-only is set
-	if !distillOnlyPrompts {
+	// Distill fragments unless --prompts-only is set or specific prompts are requested
+	if !distillOnlyPrompts && len(distillPromptNames) == 0 {
 		var fragmentDirs []string
 		if distillResources {
 			// Use resources directory for packaging
@@ -247,9 +244,9 @@ func runDistill(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Distill prompts unless --skip-prompts is set
+	// Distill prompts unless --skip-prompts is set or specific fragments/profile are requested
 	// Prompts use the same YAML format as fragments
-	if !distillSkipPrompts {
+	if !distillSkipPrompts && len(distillFragments) == 0 && distillProfile == "" {
 		var promptDirs []string
 		if distillResources {
 			// Use resources directory for packaging
@@ -594,10 +591,10 @@ func init() {
 	rootCmd.AddCommand(distillCmd)
 	distillCmd.AddCommand(distillCleanCmd)
 
-	distillCmd.Flags().StringVar(&distillPlugin, "plugin", "", "AI plugin to use (default from config)")
+	distillCmd.Flags().StringVarP(&distillPlugin, "plugin", "l", "", "LLM to use (default from config)")
 	distillCmd.Flags().StringVarP(&distillProfile, "profile", "p", "", "Distill only fragments for this profile")
 	distillCmd.Flags().StringSliceVarP(&distillFragments, "fragment", "f", nil, "Specific fragment(s) to distill (can be repeated)")
-	distillCmd.Flags().StringSliceVarP(&distillPromptNames, "prompt", "P", nil, "Specific prompt(s) to distill (can be repeated)")
+	distillCmd.Flags().StringSliceVarP(&distillPromptNames, "prompt", "r", nil, "Specific prompt(s) to distill (can be repeated)")
 	distillCmd.Flags().BoolVarP(&distillDryRun, "dry-run", "n", false, "Show what would be distilled without doing it")
 	distillCmd.Flags().BoolVar(&distillForce, "force", false, "Re-distill even if unchanged")
 	distillCmd.Flags().BoolVar(&distillOnlyPrompts, "prompts-only", false, "Distill only prompts (skip fragments)")

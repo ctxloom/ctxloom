@@ -72,16 +72,16 @@ Feature: Distill command
     And the output should contain "Skipping protected (no_distill)"
 
   # ============================================================================
-  # Distill by Persona
+  # Distill by Profile
   # ============================================================================
 
-  Scenario: Distill fragments by persona
-    Given a fragment "persona-frag" in the project with content:
+  Scenario: Distill fragments by profile
+    Given a fragment "profile-frag" in the project with content:
       """
       tags:
         - code
       content: |
-        Persona fragment content.
+        Profile fragment content.
       """
     And a config file with:
       """
@@ -90,19 +90,19 @@ Feature: Distill command
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        test-persona:
-          description: Test persona
+      profiles:
+        test-profile:
+          description: Test profile
           fragments:
-            - persona-frag
+            - profile-frag
       """
     And the mock LM will respond with:
       """
       Distilled.
       """
-    When I run scm "distill -p test-persona"
+    When I run scm "distill -p test-profile"
     Then the exit code should be 0
-    And the output should contain "persona-frag"
+    And the output should contain "profile-frag"
 
   # ============================================================================
   # Distill Prompts

@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y git curl
+          apt-get update && apt-get install -y git curl upx
 
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"

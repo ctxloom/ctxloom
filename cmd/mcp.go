@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/fragments"
 )
@@ -27,10 +28,10 @@ This allows AI agents to interact with scm functionality using standard MCP tool
 Available tools:
   - list_fragments: List available context fragments
   - get_fragment: Get a fragment's content by name
-  - list_personas: List configured personas
-  - get_persona: Get a persona's configuration
-  - set_persona: Set the default persona for this session
-  - assemble_context: Assemble context from persona/fragments/tags
+  - list_profiles: List configured profiles
+  - get_profile: Get a profile's configuration
+  - set_profile: Set the default profile for this session
+  - assemble_context: Assemble context from profile/fragments/tags
   - list_prompts: List saved prompts
   - get_prompt: Get a prompt's content by name
 
@@ -103,7 +104,7 @@ type mcpServer struct {
 	reader         *bufio.Reader
 	writer         io.Writer
 	cfg            *config.Config
-	sessionPersona string // Override persona for this session
+	sessionProfile string // Override profile for this session
 }
 
 // fragmentLoader returns a fragment loader configured for the current config source.
@@ -161,7 +162,13 @@ func (s *mcpServer) run(ctx context.Context) error {
 }
 
 func (s *mcpServer) sendResponse(resp *mcpResponse) {
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		// Marshal error - send a minimal error response
+		fmt.Fprintf(os.Stderr, "MCP: failed to marshal response: %v\n", err)
+		fmt.Fprintln(s.writer, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal marshal error"}}`)
+		return
+	}
 	fmt.Fprintln(s.writer, string(data))
 }
 
@@ -214,7 +221,7 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 			},
 			"serverInfo": map[string]interface{}{
 				"name":    "scm",
-				"version": "1.0.0",
+				"version": Version,
 			},
 		},
 	}
@@ -263,36 +270,36 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 			},
 		},
 		{
-			Name:        "list_personas",
-			Description: "List all configured personas with their descriptions",
+			Name:        "list_profiles",
+			Description: "List all configured profiles with their descriptions",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
 		},
 		{
-			Name:        "get_persona",
-			Description: "Get a persona's configuration including fragments, tags, and variables",
+			Name:        "get_profile",
+			Description: "Get a profile's configuration including fragments, tags, and variables",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"name"},
 				"properties": map[string]interface{}{
 					"name": map[string]interface{}{
 						"type":        "string",
-						"description": "Persona name",
+						"description": "Profile name",
 					},
 				},
 			},
 		},
 		{
 			Name:        "assemble_context",
-			Description: "Assemble context from a persona, fragments, and/or tags. Returns the combined context that would be sent to an AI.",
+			Description: "Assemble context from a profile, fragments, and/or tags. Returns the combined context that would be sent to an AI.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"persona": map[string]interface{}{
+					"profile": map[string]interface{}{
 						"type":        "string",
-						"description": "Persona name to use (optional)",
+						"description": "Profile name to use (optional)",
 					},
 					"fragments": map[string]interface{}{
 						"type":        "array",
@@ -330,15 +337,15 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 			},
 		},
 		{
-			Name:        "set_persona",
-			Description: "Set the default persona for this session. Affects subsequent assemble_context calls.",
+			Name:        "set_profile",
+			Description: "Set the default profile for this session. Affects subsequent assemble_context calls.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"name"},
 				"properties": map[string]interface{}{
 					"name": map[string]interface{}{
 						"type":        "string",
-						"description": "Persona name to use as default",
+						"description": "Profile name to use as default",
 					},
 				},
 			},
@@ -367,18 +374,18 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolListFragments(params.Arguments)
 	case "get_fragment":
 		result, err = s.toolGetFragment(params.Arguments)
-	case "list_personas":
-		result, err = s.toolListPersonas(params.Arguments)
-	case "get_persona":
-		result, err = s.toolGetPersona(params.Arguments)
+	case "list_profiles":
+		result, err = s.toolListProfiles(params.Arguments)
+	case "get_profile":
+		result, err = s.toolGetProfile(params.Arguments)
 	case "assemble_context":
 		result, err = s.toolAssembleContext(params.Arguments)
 	case "list_prompts":
 		result, err = s.toolListPrompts(params.Arguments)
 	case "get_prompt":
 		result, err = s.toolGetPrompt(params.Arguments)
-	case "set_persona":
-		result, err = s.toolSetPersona(params.Arguments)
+	case "set_profile":
+		result, err = s.toolSetProfile(params.Arguments)
 	default:
 		return &mcpResponse{
 			JSONRPC: "2.0",
@@ -416,7 +423,8 @@ func (s *mcpServer) toolListFragments(args json.RawMessage) (interface{}, error)
 	var params struct {
 		Tags []string `json:"tags"`
 	}
-	json.Unmarshal(args, &params)
+	// Unmarshal errors are non-fatal - use defaults for optional params
+	_ = json.Unmarshal(args, &params)
 
 	loader := s.fragmentLoader()
 
@@ -479,30 +487,30 @@ func (s *mcpServer) toolGetFragment(args json.RawMessage) (interface{}, error) {
 	}, nil
 }
 
-func (s *mcpServer) toolListPersonas(args json.RawMessage) (interface{}, error) {
-	type personaEntry struct {
+func (s *mcpServer) toolListProfiles(args json.RawMessage) (interface{}, error) {
+	type profileEntry struct {
 		Name        string   `json:"name"`
 		Description string   `json:"description,omitempty"`
 		Tags        []string `json:"tags,omitempty"`
 	}
 
-	var result []personaEntry
-	for name, persona := range s.cfg.Personas {
-		result = append(result, personaEntry{
+	var result []profileEntry
+	for name, profile := range s.cfg.Profiles {
+		result = append(result, profileEntry{
 			Name:        name,
-			Description: persona.Description,
-			Tags:        persona.Tags,
+			Description: profile.Description,
+			Tags:        profile.Tags,
 		})
 	}
 
 	return map[string]interface{}{
-		"personas": result,
+		"profiles": result,
 		"count":    len(result),
-		"defaults": s.cfg.Defaults.Personas,
+		"defaults": s.cfg.Defaults.Profiles,
 	}, nil
 }
 
-func (s *mcpServer) toolGetPersona(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolGetProfile(args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
@@ -513,23 +521,23 @@ func (s *mcpServer) toolGetPersona(args json.RawMessage) (interface{}, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	persona, exists := s.cfg.Personas[params.Name]
+	profile, exists := s.cfg.Profiles[params.Name]
 	if !exists {
-		return nil, fmt.Errorf("persona not found: %s", params.Name)
+		return nil, fmt.Errorf("profile not found: %s", params.Name)
 	}
 
 	return map[string]interface{}{
 		"name":        params.Name,
-		"description": persona.Description,
-		"parents":     persona.Parents,
-		"tags":        persona.Tags,
-		"fragments":   persona.Fragments,
-		"variables":   persona.Variables,
-		"generators":  persona.Generators,
+		"description": profile.Description,
+		"parents":     profile.Parents,
+		"tags":        profile.Tags,
+		"fragments":   profile.Fragments,
+		"variables":   profile.Variables,
+		"generators":  profile.Generators,
 	}, nil
 }
 
-func (s *mcpServer) toolSetPersona(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolSetProfile(args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
@@ -540,67 +548,68 @@ func (s *mcpServer) toolSetPersona(args json.RawMessage) (interface{}, error) {
 		return nil, fmt.Errorf("name is required")
 	}
 
-	// Verify persona exists
-	if _, exists := s.cfg.Personas[params.Name]; !exists {
-		return nil, fmt.Errorf("persona not found: %s", params.Name)
+	// Verify profile exists
+	if _, exists := s.cfg.Profiles[params.Name]; !exists {
+		return nil, fmt.Errorf("profile not found: %s", params.Name)
 	}
 
-	s.sessionPersona = params.Name
+	s.sessionProfile = params.Name
 
 	return map[string]interface{}{
-		"persona": params.Name,
-		"message": fmt.Sprintf("Session persona set to %q", params.Name),
+		"profile": params.Name,
+		"message": fmt.Sprintf("Session profile set to %q", params.Name),
 	}, nil
 }
 
 func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, error) {
 	var params struct {
-		Persona   string   `json:"persona"`
+		Profile   string   `json:"profile"`
 		Fragments []string `json:"fragments"`
 		Tags      []string `json:"tags"`
 	}
-	json.Unmarshal(args, &params)
+	// Unmarshal errors are non-fatal - use defaults for optional params
+	_ = json.Unmarshal(args, &params)
 
 	loader := s.fragmentLoader()
 
 	var allFragments []string
-	personaVars := make(map[string]string)
+	profileVars := make(map[string]string)
 
-	personaName := params.Persona
-	var personaNames []string
-	if personaName == "" && len(params.Fragments) == 0 && len(params.Tags) == 0 {
-		// Use session persona if set, otherwise config defaults
-		if s.sessionPersona != "" {
-			personaNames = []string{s.sessionPersona}
+	profileName := params.Profile
+	var profileNames []string
+	if profileName == "" && len(params.Fragments) == 0 && len(params.Tags) == 0 {
+		// Use session profile if set, otherwise config defaults
+		if s.sessionProfile != "" {
+			profileNames = []string{s.sessionProfile}
 		} else {
-			personaNames = s.cfg.Defaults.Personas
+			profileNames = s.cfg.Defaults.Profiles
 		}
 		allFragments = append(allFragments, s.cfg.Defaults.Fragments...)
-	} else if personaName != "" {
-		personaNames = []string{personaName}
+	} else if profileName != "" {
+		profileNames = []string{profileName}
 	}
 
-	// Process all personas
-	for _, pName := range personaNames {
-		// Resolve persona with inheritance
-		persona, err := config.ResolvePersona(s.cfg.Personas, pName)
+	// Process all profiles
+	for _, pName := range profileNames {
+		// Resolve profile with inheritance
+		profile, err := config.ResolveProfile(s.cfg.Profiles, pName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve persona %s: %w", pName, err)
+			return nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
 		}
 
-		if len(persona.Tags) > 0 {
-			taggedInfos, err := loader.ListByTags(persona.Tags)
+		if len(profile.Tags) > 0 {
+			taggedInfos, err := loader.ListByTags(profile.Tags)
 			if err != nil {
-				return nil, fmt.Errorf("failed to list fragments by persona tags: %w", err)
+				return nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
 			}
 			for _, info := range taggedInfos {
 				allFragments = append(allFragments, info.Name)
 			}
 		}
 
-		allFragments = append(allFragments, persona.Fragments...)
-		for k, v := range persona.Variables {
-			personaVars[k] = v
+		allFragments = append(allFragments, profile.Fragments...)
+		for k, v := range profile.Variables {
+			profileVars[k] = v
 		}
 	}
 
@@ -616,11 +625,11 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 		}
 	}
 
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	var uniqueFragments []string
 	for _, f := range allFragments {
-		if !seen[f] {
-			seen[f] = true
+		if !seen.Has(f) {
+			seen.Add(f)
 			uniqueFragments = append(uniqueFragments, f)
 		}
 	}
@@ -628,14 +637,14 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	var contextContent string
 	if len(uniqueFragments) > 0 {
 		var err error
-		contextContent, err = loader.LoadMultipleWithVars(uniqueFragments, personaVars)
+		contextContent, err = loader.LoadMultipleWithVars(uniqueFragments, profileVars)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load fragments: %w", err)
 		}
 	}
 
 	return map[string]interface{}{
-		"personas":         personaNames,
+		"profiles":         profileNames,
 		"fragments_loaded": uniqueFragments,
 		"context":          contextContent,
 	}, nil

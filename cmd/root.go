@@ -16,6 +16,16 @@ var Version = "dev"
 
 var cfgFile string
 
+// ExitError is returned when a command needs to exit with a specific code.
+// This allows deferred cleanup to run before the process exits.
+type ExitError struct {
+	Code int
+}
+
+func (e *ExitError) Error() string {
+	return fmt.Sprintf("exit code %d", e.Code)
+}
+
 // GetSCMDirs returns the .scm directories from project config.
 func GetSCMDirs() ([]string, error) {
 	cfg, err := config.Load()
@@ -65,6 +75,10 @@ func Execute() {
 	}
 
 	if err := rootCmd.Execute(); err != nil {
+		// Check for ExitError to preserve specific exit codes
+		if exitErr, ok := err.(*ExitError); ok {
+			os.Exit(exitErr.Code)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

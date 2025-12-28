@@ -12,9 +12,8 @@ import (
 
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/fragments"
-	"github.com/benjaminabbitt/scm/internal/ml"
-	_ "github.com/benjaminabbitt/scm/internal/ml/claudecode"
-	_ "github.com/benjaminabbitt/scm/internal/ml/gemini"
+	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
 	"github.com/benjaminabbitt/scm/internal/schema"
 	"github.com/benjaminabbitt/scm/resources"
 )
@@ -30,7 +29,7 @@ func getDistillPrompt() (string, error) {
 
 var (
 	distillPlugin      string
-	distillPersona     string
+	distillProfile     string
 	distillFragments   []string
 	distillPromptNames []string
 	distillDryRun      bool
@@ -53,7 +52,7 @@ and distilled_by metadata.
 When loading fragments, the distilled version is used if available
 (controlled by use_distilled config setting).
 
-Use --persona/-p to distill only fragments associated with specific personas.
+Use --profile/-p to distill only fragments associated with specific profiles.
 Use --fragment/-f to distill specific fragments by name.
 Use --prompt/-P to distill specific prompts by name.
 Use --prompts-only to distill only prompts (skip fragments).
@@ -62,7 +61,7 @@ Use --resources to distill embedded resources (for packaging).
 
 Examples:
   scm distill                           # Distill all fragments and prompts
-  scm distill -p go-developer           # Distill fragments for go-developer persona
+  scm distill -p go-developer           # Distill fragments for go-developer profile
   scm distill -f style/direct           # Distill specific fragments
   scm distill -P code-review            # Distill specific prompts
   scm distill --prompts-only            # Distill only prompts
@@ -89,17 +88,16 @@ func runDistill(cmd *cobra.Command, args []string) error {
 		pluginName = cfg.LM.DefaultPlugin
 	}
 	if pluginName == "" {
-		pluginName = ml.Default()
+		pluginName = "claude-code"
+	}
+
+	// Verify the backend exists
+	if !backends.Exists(pluginName) {
+		return fmt.Errorf("unknown plugin: %s (available: %v)", pluginName, backends.List())
 	}
 
 	// Get plugin configuration
 	pluginCfg := cfg.LM.Plugins[pluginName]
-
-	// Get the AI plugin with configuration
-	plugin, err := ml.GetWithConfig(pluginName, pluginCfg)
-	if err != nil {
-		return fmt.Errorf("failed to get AI plugin: %w", err)
-	}
 
 	// Load the distillation prompt from embedded resources
 	distillPrompt, err := getDistillPrompt()
@@ -137,18 +135,18 @@ func runDistill(cmd *cobra.Command, args []string) error {
 			var fragmentNames []string
 			if len(distillFragments) > 0 {
 				fragmentNames = distillFragments
-			} else if distillPersona != "" {
-				// Resolve persona with inheritance
-				persona, err := config.ResolvePersona(cfg.Personas, distillPersona)
+			} else if distillProfile != "" {
+				// Resolve profile with inheritance
+				profile, err := config.ResolveProfile(cfg.Profiles, distillProfile)
 				if err != nil {
-					return fmt.Errorf("failed to resolve persona %q: %w", distillPersona, err)
+					return fmt.Errorf("failed to resolve profile %q: %w", distillProfile, err)
 				}
 
-				// Include fragments matching persona tags
-				if len(persona.Tags) > 0 {
-					taggedInfos, err := loader.ListByTags(persona.Tags)
+				// Include fragments matching profile tags
+				if len(profile.Tags) > 0 {
+					taggedInfos, err := loader.ListByTags(profile.Tags)
 					if err != nil {
-						return fmt.Errorf("failed to list fragments by persona tags: %w", err)
+						return fmt.Errorf("failed to list fragments by profile tags: %w", err)
 					}
 					for _, info := range taggedInfos {
 						fragmentNames = append(fragmentNames, info.Name)
@@ -156,7 +154,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 				}
 
 				// Include explicit fragments
-				fragmentNames = append(fragmentNames, persona.Fragments...)
+				fragmentNames = append(fragmentNames, profile.Fragments...)
 			} else {
 				frags, err := loader.List()
 				if err != nil {
@@ -220,7 +218,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						fmt.Printf("  Distilling: %s...", name)
 					}
 
-					distilledContent, err := distillContent(plugin, frag.Name, frag.Content, distillPrompt)
+					distilledContent, err := distillContent(pluginName, pluginCfg.Env, frag.Name, frag.Content, distillPrompt)
 					if err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
@@ -332,7 +330,7 @@ func runDistill(cmd *cobra.Command, args []string) error {
 						fmt.Printf("  Distilling: %s...", name)
 					}
 
-					distilledContent, err := distillContent(plugin, prompt.Name, prompt.Content, distillPrompt)
+					distilledContent, err := distillContent(pluginName, pluginCfg.Env, prompt.Name, prompt.Content, distillPrompt)
 					if err != nil {
 						fmt.Printf(" FAILED: %v\n", err)
 						continue
@@ -381,37 +379,51 @@ func runDistill(cmd *cobra.Command, args []string) error {
 
 // distillContent sends content through the AI for distillation.
 // Returns just the distilled text content.
-func distillContent(plugin ml.Plugin, name, content, distillPrompt string) (string, error) {
-	// Build the content to distill
+func distillContent(pluginName string, env map[string]string, name, content, distillPrompt string) (string, error) {
+	// Build the content to distill, wrapped in XML tags to prevent prompt injection.
+	// Without these tags, content like "Perform a code review..." gets executed as an instruction.
 	var builder strings.Builder
-	builder.WriteString("# ")
+	builder.WriteString("<content_to_compress>\n# ")
 	builder.WriteString(name)
 	builder.WriteString("\n\n")
 	builder.WriteString(content)
+	builder.WriteString("\n</content_to_compress>")
+
+	// Create plugin client
+	client, err := pb.NewSelfInvokingClient(pluginName)
+	if err != nil {
+		return "", fmt.Errorf("failed to start plugin: %w", err)
+	}
+	defer client.Kill()
 
 	// Build the request
-	req := ml.Request{
-		Prompt:  builder.String(),
-		Context: distillPrompt,
-		Print:   true, // Non-interactive mode
+	req := &pb.RunRequest{
+		Prompt: &pb.Fragment{
+			Content: builder.String(),
+		},
+		Fragments: []*pb.Fragment{
+			{Content: distillPrompt},
+		},
+		Options: &pb.RunOptions{
+			AutoApprove: true,
+			Mode:        pb.ExecutionMode_ONESHOT,
+			Env:         env,
+		},
 	}
 
 	// Run the AI
 	var stdout, stderr bytes.Buffer
-	resp, err := plugin.Run(context.Background(), req, &stdout, &stderr)
+	exitCode, err := client.Run(context.Background(), req, &stdout, &stderr)
 	if err != nil {
 		return "", err
 	}
 
-	if resp.ExitCode != 0 {
-		return "", fmt.Errorf("AI exited with code %d: %s", resp.ExitCode, stderr.String())
+	if exitCode != 0 {
+		return "", fmt.Errorf("AI exited with code %d: %s", exitCode, stderr.String())
 	}
 
 	// Get the distilled content
 	distilledContent := strings.TrimSpace(stdout.String())
-	if distilledContent == "" {
-		distilledContent = strings.TrimSpace(resp.Output)
-	}
 
 	// Strip any preamble before "---" that LLMs sometimes add despite instructions
 	distilledContent = stripDistillPreamble(distilledContent)
@@ -583,7 +595,7 @@ func init() {
 	distillCmd.AddCommand(distillCleanCmd)
 
 	distillCmd.Flags().StringVar(&distillPlugin, "plugin", "", "AI plugin to use (default from config)")
-	distillCmd.Flags().StringVarP(&distillPersona, "persona", "p", "", "Distill only fragments for this persona")
+	distillCmd.Flags().StringVarP(&distillProfile, "profile", "p", "", "Distill only fragments for this profile")
 	distillCmd.Flags().StringSliceVarP(&distillFragments, "fragment", "f", nil, "Specific fragment(s) to distill (can be repeated)")
 	distillCmd.Flags().StringSliceVarP(&distillPromptNames, "prompt", "P", nil, "Specific prompt(s) to distill (can be repeated)")
 	distillCmd.Flags().BoolVarP(&distillDryRun, "dry-run", "n", false, "Show what would be distilled without doing it")

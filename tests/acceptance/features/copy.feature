@@ -22,7 +22,7 @@ Feature: Copy fragments and prompts
       content: |
         This is my custom fragment content.
       """
-    When I run scm "copy --from home --to project -f my-fragment"
+    When I run scm "copy h p -f my-fragment"
     Then the exit code should be 0
     And the file ".scm/context-fragments/my-fragment.yaml" should exist
     And the file ".scm/context-fragments/my-fragment.yaml" should contain "This is my custom fragment content"
@@ -37,7 +37,7 @@ Feature: Copy fragments and prompts
       content: |
         Project-specific content to share.
       """
-    When I run scm "copy --from project --to home -f project-frag"
+    When I run scm "copy p h -f project-frag"
     Then the exit code should be 0
     And the home file ".scm/context-fragments/project-frag.yaml" should exist
     And the home file ".scm/context-fragments/project-frag.yaml" should contain "Project-specific content to share"
@@ -57,7 +57,7 @@ Feature: Copy fragments and prompts
       content: |
         Fragment two content.
       """
-    When I run scm "copy --from home --to project -f frag-one -f frag-two"
+    When I run scm "copy h p -f frag-one -f frag-two"
     Then the exit code should be 0
     And the file ".scm/context-fragments/frag-one.yaml" should exist
     And the file ".scm/context-fragments/frag-two.yaml" should exist
@@ -79,7 +79,7 @@ Feature: Copy fragments and prompts
       content: |
         Second fragment.
       """
-    When I run scm "copy --from home --to project"
+    When I run scm "copy h p"
     Then the exit code should be 0
     And the file ".scm/context-fragments/all-one.yaml" should exist
     And the file ".scm/context-fragments/all-two.yaml" should exist
@@ -96,7 +96,7 @@ Feature: Copy fragments and prompts
       content: |
         Test content for header.
       """
-    When I run scm "copy --from home --to project -f header-test"
+    When I run scm "copy h p -f header-test"
     Then the exit code should be 0
     And the file ".scm/context-fragments/header-test.yaml" should contain "DO NOT EDIT"
 
@@ -112,7 +112,7 @@ Feature: Copy fragments and prompts
       content: |
         Content with header to strip.
       """
-    When I run scm "copy --from project --to home -f strip-header"
+    When I run scm "copy p h -f strip-header"
     Then the exit code should be 0
     And the home file ".scm/context-fragments/strip-header.yaml" should not contain "DO NOT EDIT"
     And the home file ".scm/context-fragments/strip-header.yaml" should contain "Content with header to strip"
@@ -136,7 +136,7 @@ Feature: Copy fragments and prompts
       content: |
         Modified project content.
       """
-    When I run scm "copy --from home --to project -f existing"
+    When I run scm "copy h p -f existing"
     Then the exit code should be 0
     And the output should contain "skipped"
     And the file ".scm/context-fragments/existing.yaml" should contain "Modified project content"
@@ -156,7 +156,7 @@ Feature: Copy fragments and prompts
       content: |
         Old project content to be replaced.
       """
-    When I run scm "copy --from home --to project -f to-overwrite --force"
+    When I run scm "copy h p -f to-overwrite --force"
     Then the exit code should be 0
     And the output should contain "updated"
     And the file ".scm/context-fragments/to-overwrite.yaml" should contain "New content from home"
@@ -181,7 +181,7 @@ Feature: Copy fragments and prompts
       content: |
         Style fragment - should not be copied.
       """
-    When I run scm "copy --from home --to project -t security"
+    When I run scm "copy h p -t security"
     Then the exit code should be 0
     And the file ".scm/context-fragments/tagged-one.yaml" should exist
     And the file ".scm/context-fragments/tagged-two.yaml" should not exist
@@ -208,7 +208,7 @@ Feature: Copy fragments and prompts
       content: |
         Misc content - should not be copied.
       """
-    When I run scm "copy --from home --to project -t security -t style"
+    When I run scm "copy h p -t security -t style"
     Then the exit code should be 0
     And the file ".scm/context-fragments/sec-frag.yaml" should exist
     And the file ".scm/context-fragments/style-frag.yaml" should exist
@@ -236,26 +236,26 @@ Feature: Copy fragments and prompts
       content: |
         Should not be copied.
       """
-    When I run scm "copy --from home --to project -f explicit-frag -t included"
+    When I run scm "copy h p -f explicit-frag -t included"
     Then the exit code should be 0
     And the file ".scm/context-fragments/explicit-frag.yaml" should exist
     And the file ".scm/context-fragments/tagged-frag.yaml" should exist
     And the file ".scm/context-fragments/excluded-frag.yaml" should not exist
 
-  Scenario: Copy fragments for persona
-    Given a fragment "persona-frag-one" in home with content:
+  Scenario: Copy fragments for profile
+    Given a fragment "profile-frag-one" in home with content:
       """
       tags:
         - dev
       content: |
-        Persona fragment one.
+        Profile fragment one.
       """
-    And a fragment "persona-frag-two" in home with content:
+    And a fragment "profile-frag-two" in home with content:
       """
       tags:
         - dev
       content: |
-        Persona fragment two.
+        Profile fragment two.
       """
     And a fragment "other-frag" in home with content:
       """
@@ -266,17 +266,17 @@ Feature: Copy fragments and prompts
       """
     And a home config file with:
       """
-      personas:
-        dev-persona:
-          description: Developer persona
+      profiles:
+        dev-profile:
+          description: Developer profile
           fragments:
-            - persona-frag-one
-            - persona-frag-two
+            - profile-frag-one
+            - profile-frag-two
       """
-    When I run scm "copy --from home --to project --persona dev-persona"
+    When I run scm "copy h p --profile dev-profile"
     Then the exit code should be 0
-    And the file ".scm/context-fragments/persona-frag-one.yaml" should exist
-    And the file ".scm/context-fragments/persona-frag-two.yaml" should exist
+    And the file ".scm/context-fragments/profile-frag-one.yaml" should exist
+    And the file ".scm/context-fragments/profile-frag-two.yaml" should exist
     And the file ".scm/context-fragments/other-frag.yaml" should not exist
 
   # ============================================================================
@@ -290,7 +290,7 @@ Feature: Copy fragments and prompts
       content: |
         This is my prompt template.
       """
-    When I run scm "copy --from home --to project -p my-prompt"
+    When I run scm "copy h p -p my-prompt"
     Then the exit code should be 0
     And the file ".scm/prompts/my-prompt.yaml" should exist
     And the file ".scm/prompts/my-prompt.yaml" should contain "This is my prompt template"
@@ -302,7 +302,7 @@ Feature: Copy fragments and prompts
       content: |
         Project-specific prompt content.
       """
-    When I run scm "copy --from project --to home -p project-prompt"
+    When I run scm "copy p h -p project-prompt"
     Then the exit code should be 0
     And the home file ".scm/prompts/project-prompt.yaml" should exist
     And the home file ".scm/prompts/project-prompt.yaml" should contain "Project-specific prompt content"
@@ -320,7 +320,7 @@ Feature: Copy fragments and prompts
       content: |
         Content B.
       """
-    When I run scm "copy --from home --to project -p prompt-a -p prompt-b"
+    When I run scm "copy h p -p prompt-a -p prompt-b"
     Then the exit code should be 0
     And the file ".scm/prompts/prompt-a.yaml" should exist
     And the file ".scm/prompts/prompt-b.yaml" should exist
@@ -337,7 +337,7 @@ Feature: Copy fragments and prompts
       content: |
         Verbose test content.
       """
-    When I run scm "copy --from home --to project -f verbose-frag --verbose"
+    When I run scm "copy h p -f verbose-frag --verbose"
     Then the exit code should be 0
     And the output should contain "verbose-frag.yaml"
 
@@ -353,7 +353,7 @@ Feature: Copy fragments and prompts
       content: |
         Testing short aliases.
       """
-    When I run scm "copy --from h --to p -f alias-test"
+    When I run scm "copy h p -f alias-test"
     Then the exit code should be 0
     And the file ".scm/context-fragments/alias-test.yaml" should exist
 
@@ -362,27 +362,27 @@ Feature: Copy fragments and prompts
   # ============================================================================
 
   Scenario: Copy fails with same source and destination
-    When I run scm "copy --from project --to project"
+    When I run scm "copy p p"
     Then the exit code should be 1
     And the output should contain "cannot be the same"
 
   Scenario: Copy fails when copying to resources without dev flag
-    When I run scm "copy --from home --to resources"
+    When I run scm "copy h r"
     Then the exit code should be 1
     And the output should contain "cannot copy to resources"
 
   Scenario: Copy fails with invalid source location
-    When I run scm "copy --from invalid --to project"
+    When I run scm "copy invalid p"
     Then the exit code should be 1
     And the output should contain "invalid location"
 
   Scenario: Copy fails with invalid destination location
-    When I run scm "copy --from home --to badloc"
+    When I run scm "copy h badloc"
     Then the exit code should be 1
     And the output should contain "invalid location"
 
-  Scenario: Copy fails when required flags missing
-    When I run scm "copy --from home"
+  Scenario: Copy fails when required args missing
+    When I run scm "copy h"
     Then the exit code should be 1
 
   # ============================================================================
@@ -392,7 +392,7 @@ Feature: Copy fragments and prompts
   Scenario: Empty fake home has no fragments to copy
     # This verifies the test uses an isolated home directory
     # If real home leaked through, this would copy real user fragments
-    When I run scm "copy --from home --to project"
+    When I run scm "copy h p"
     Then the exit code should be 0
     And the output should contain "No fragments to copy"
 
@@ -408,7 +408,7 @@ Feature: Copy fragments and prompts
       content: |
         Go language guidelines.
       """
-    When I run scm "copy --from home --to project -f lang/golang"
+    When I run scm "copy h p -f lang/golang"
     Then the exit code should be 0
     And the file ".scm/context-fragments/lang/golang.yaml" should exist
     And the file ".scm/context-fragments/lang/golang.yaml" should contain "Go language guidelines"
@@ -418,32 +418,73 @@ Feature: Copy fragments and prompts
   # ============================================================================
 
   Scenario: Copy fragment from resources to project
-    When I run scm "copy --from resources --to project -f general/security"
+    When I run scm "copy r p -f general/security"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/security.yaml" should exist
 
   Scenario: Copy fragment from resources to home
-    When I run scm "copy --from resources --to home -f general/code-quality"
+    When I run scm "copy r h -f general/code-quality"
     Then the exit code should be 0
     And the home file ".scm/context-fragments/general/code-quality.yaml" should exist
 
   Scenario: Copy multiple fragments from resources
-    When I run scm "copy --from resources --to project -f general/security -f general/tdd"
+    When I run scm "copy r p -f general/security -f general/tdd"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/security.yaml" should exist
     And the file ".scm/context-fragments/general/tdd.yaml" should exist
 
   Scenario: Copy fragments by tag from resources
-    When I run scm "copy --from resources --to project -t golang"
+    When I run scm "copy r p -t golang"
     Then the exit code should be 0
     And the file ".scm/context-fragments/lang/golang/golang.yaml" should exist
 
   Scenario: Use short alias 'r' for resources
-    When I run scm "copy --from r --to p -f general/documentation"
+    When I run scm "copy r p -f general/documentation"
     Then the exit code should be 0
     And the file ".scm/context-fragments/general/documentation.yaml" should exist
 
   Scenario: Copy nonexistent fragment from resources fails gracefully
-    When I run scm "copy --from resources --to project -f nonexistent/fragment"
+    When I run scm "copy r p -f nonexistent/fragment"
     Then the exit code should be 0
     And the output should contain "No fragments to copy"
+
+  # ============================================================================
+  # Clear Flag
+  # ============================================================================
+
+  Scenario: Copy with clear flag destroys destination first
+    Given a fragment "existing-frag" in the project with content:
+      """
+      tags:
+        - existing
+      content: |
+        Existing fragment content.
+      """
+    And a fragment "new-frag" in home with content:
+      """
+      tags:
+        - new
+      content: |
+        New fragment content.
+      """
+    When I run scm "copy h p --clear -f new-frag"
+    Then the exit code should be 0
+    And the file ".scm/context-fragments/new-frag.yaml" should exist
+    And the file ".scm/context-fragments/existing-frag.yaml" should not exist
+    And the output should contain "Clearing"
+
+  # ============================================================================
+  # Arbitrary Path Destination
+  # ============================================================================
+
+  Scenario: Copy to arbitrary path
+    Given a fragment "path-test" in home with content:
+      """
+      tags:
+        - path
+      content: |
+        Testing arbitrary path destination.
+      """
+    When I run scm "copy h ./custom-dest -f path-test"
+    Then the exit code should be 0
+    And the file "custom-dest/.scm/context-fragments/path-test.yaml" should exist

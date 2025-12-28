@@ -1,199 +1,199 @@
-Feature: Persona management
+Feature: Profile management
   As a user
-  I want to manage personas
+  I want to manage profiles
   So that I can quickly switch between different context configurations
 
   Background:
     Given a project with scm initialized
 
   # ============================================================================
-  # Persona List
+  # Profile List
   # ============================================================================
 
-  Scenario: List personas when none exist
-    When I run scm "persona list"
+  Scenario: List profiles when none exist
+    When I run scm "profile list"
     Then the exit code should be 0
-    And the output should contain "No personas"
+    And the output should contain "No profiles"
 
-  Scenario: List personas shows defined personas
+  Scenario: List profiles shows defined profiles
     Given a config file with:
       """
-      personas:
-        my-persona:
-          description: My test persona
+      profiles:
+        my-profile:
+          description: My test profile
           fragments:
             - fragment-one
       """
-    When I run scm "persona list"
+    When I run scm "profile list"
     Then the exit code should be 0
-    And the output should contain "my-persona"
+    And the output should contain "my-profile"
 
-  Scenario: List personas shows multiple personas
+  Scenario: List profiles shows multiple profiles
     Given a config file with:
       """
-      personas:
+      profiles:
         alpha:
-          description: Alpha persona
+          description: Alpha profile
           fragments:
             - frag-a
         beta:
-          description: Beta persona
+          description: Beta profile
           fragments:
             - frag-b
       """
-    When I run scm "persona list"
+    When I run scm "profile list"
     Then the exit code should be 0
     And the output should contain "alpha"
     And the output should contain "beta"
 
   # ============================================================================
-  # Persona Show
+  # Profile Show
   # ============================================================================
 
-  Scenario: Show persona displays details
+  Scenario: Show profile displays details
     Given a config file with:
       """
-      personas:
+      profiles:
         detailed:
-          description: A detailed persona
+          description: A detailed profile
           fragments:
             - coding-standards
             - security
           variables:
             language: Go
       """
-    When I run scm "persona show detailed"
+    When I run scm "profile show detailed"
     Then the exit code should be 0
-    And the output should contain "A detailed persona"
+    And the output should contain "A detailed profile"
     And the output should contain "coding-standards"
     And the output should contain "language"
     And the output should contain "Go"
 
-  Scenario: Show nonexistent persona fails
-    When I run scm "persona show nonexistent"
+  Scenario: Show nonexistent profile fails
+    When I run scm "profile show nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
   # ============================================================================
-  # Persona Add
+  # Profile Add
   # ============================================================================
 
-  Scenario: Add persona with fragments
-    When I run scm "persona add new-persona -f fragment-one -f fragment-two"
+  Scenario: Add profile with fragments
+    When I run scm "profile add new-profile -f fragment-one -f fragment-two"
     Then the exit code should be 0
-    And the output should contain "Added persona"
-    When I run scm "persona show new-persona"
+    And the output should contain "Added profile"
+    When I run scm "profile show new-profile"
     Then the exit code should be 0
     And the output should contain "fragment-one"
     And the output should contain "fragment-two"
 
-  Scenario: Add persona with description
-    When I run scm "persona add described --description TestPersona -f test-frag"
+  Scenario: Add profile with description
+    When I run scm "profile add described --description TestProfile -f test-frag"
     Then the exit code should be 0
-    When I run scm "persona show described"
+    When I run scm "profile show described"
     Then the exit code should be 0
-    And the output should contain "TestPersona"
+    And the output should contain "TestProfile"
 
-  Scenario: Add persona with parent
+  Scenario: Add profile with parent
     Given a config file with:
       """
-      personas:
+      profiles:
         base:
-          description: Base persona
+          description: Base profile
           fragments:
             - common-fragment
       """
-    When I run scm "persona add child --parent base -f extra-fragment"
+    When I run scm "profile add child --parent base -f extra-fragment"
     Then the exit code should be 0
-    When I run scm "persona show child"
+    When I run scm "profile show child"
     Then the exit code should be 0
     And the output should contain "base"
 
-  Scenario: Add duplicate persona fails
+  Scenario: Add duplicate profile fails
     Given a config file with:
       """
-      personas:
+      profiles:
         existing:
-          description: Existing persona
+          description: Existing profile
           fragments:
             - some-fragment
       """
-    When I run scm "persona add existing -f new-fragment"
+    When I run scm "profile add existing -f new-fragment"
     Then the exit code should be 1
     And the output should contain "already exists"
 
   # ============================================================================
-  # Persona Update
+  # Profile Update
   # ============================================================================
 
-  Scenario: Update persona adds fragments
+  Scenario: Update profile adds fragments
     Given a config file with:
       """
-      personas:
+      profiles:
         to-update:
           description: Original description
           fragments:
             - original-fragment
       """
-    When I run scm "persona update to-update --add-fragment new-fragment"
+    When I run scm "profile update to-update --add-fragment new-fragment"
     Then the exit code should be 0
-    When I run scm "persona show to-update"
+    When I run scm "profile show to-update"
     Then the exit code should be 0
     And the output should contain "new-fragment"
 
-  Scenario: Update persona changes description
+  Scenario: Update profile changes description
     Given a config file with:
       """
-      personas:
+      profiles:
         update-desc:
           description: OldDescription
           fragments:
             - some-fragment
       """
-    When I run scm "persona update update-desc --description NewDescription"
+    When I run scm "profile update update-desc --description NewDescription"
     Then the exit code should be 0
-    When I run scm "persona show update-desc"
+    When I run scm "profile show update-desc"
     Then the exit code should be 0
     And the output should contain "NewDescription"
 
-  Scenario: Update persona removes fragment
+  Scenario: Update profile removes fragment
     Given a config file with:
       """
-      personas:
+      profiles:
         remove-frag:
           description: Has fragments
           fragments:
             - keep-fragment
             - remove-fragment
       """
-    When I run scm "persona update remove-frag --remove-fragment remove-fragment"
+    When I run scm "profile update remove-frag --remove-fragment remove-fragment"
     Then the exit code should be 0
     And the output should contain "Removed fragment"
-    When I run scm "persona show remove-frag"
+    When I run scm "profile show remove-frag"
     Then the exit code should be 0
     And the output should contain "keep-fragment"
     And the output should not contain "remove-fragment"
 
-  Scenario: Update persona adds generator
+  Scenario: Update profile adds generator
     Given a config file with:
       """
-      personas:
+      profiles:
         add-gen:
           description: Will add generator
           fragments:
             - some-fragment
       """
-    When I run scm "persona update add-gen --add-generator my-generator"
+    When I run scm "profile update add-gen --add-generator my-generator"
     Then the exit code should be 0
     And the output should contain "Added generator"
-    When I run scm "persona show add-gen"
+    When I run scm "profile show add-gen"
     Then the exit code should be 0
     And the output should contain "my-generator"
 
-  Scenario: Update persona removes generator
+  Scenario: Update profile removes generator
     Given a config file with:
       """
-      personas:
+      profiles:
         remove-gen:
           description: Has generators
           fragments:
@@ -202,38 +202,38 @@ Feature: Persona management
             - keep-generator
             - remove-generator
       """
-    When I run scm "persona update remove-gen --remove-generator remove-generator"
+    When I run scm "profile update remove-gen --remove-generator remove-generator"
     Then the exit code should be 0
     And the output should contain "Removed generator"
-    When I run scm "persona show remove-gen"
+    When I run scm "profile show remove-gen"
     Then the exit code should be 0
     And the output should contain "keep-generator"
     And the output should not contain "remove-generator"
 
-  Scenario: Update persona adds parent
+  Scenario: Update profile adds parent
     Given a config file with:
       """
-      personas:
-        base-persona:
+      profiles:
+        base-profile:
           description: Base
           fragments:
             - base-fragment
-        child-persona:
+        child-profile:
           description: Child
           fragments:
             - child-fragment
       """
-    When I run scm "persona update child-persona --add-parent base-persona"
+    When I run scm "profile update child-profile --add-parent base-profile"
     Then the exit code should be 0
     And the output should contain "Added parent"
-    When I run scm "persona show child-persona"
+    When I run scm "profile show child-profile"
     Then the exit code should be 0
-    And the output should contain "base-persona"
+    And the output should contain "base-profile"
 
-  Scenario: Update persona removes parent
+  Scenario: Update profile removes parent
     Given a config file with:
       """
-      personas:
+      profiles:
         base-one:
           description: Base one
           fragments:
@@ -250,27 +250,27 @@ Feature: Persona management
             - base-one
             - base-two
       """
-    When I run scm "persona update child --remove-parent base-one"
+    When I run scm "profile update child --remove-parent base-one"
     Then the exit code should be 0
     And the output should contain "Removed parent"
-    When I run scm "persona show child"
+    When I run scm "profile show child"
     Then the exit code should be 0
     And the output should contain "base-two"
     And the output should not contain "base-one"
 
-  Scenario: Update nonexistent persona fails
-    When I run scm "persona update nonexistent --add-fragment fragment"
+  Scenario: Update nonexistent profile fails
+    When I run scm "profile update nonexistent --add-fragment fragment"
     Then the exit code should be 1
     And the output should contain "not found"
 
   # ============================================================================
-  # Persona Remove
+  # Profile Remove
   # ============================================================================
 
-  Scenario: Remove persona deletes it
+  Scenario: Remove profile deletes it
     Given a config file with:
       """
-      personas:
+      profiles:
         to-remove:
           description: Will be removed
           fragments:
@@ -280,26 +280,26 @@ Feature: Persona management
           fragments:
             - other
       """
-    When I run scm "persona remove to-remove"
+    When I run scm "profile remove to-remove"
     Then the exit code should be 0
-    When I run scm "persona show to-remove"
+    When I run scm "profile show to-remove"
     Then the exit code should be 1
-    When I run scm "persona show keep-this"
+    When I run scm "profile show keep-this"
     Then the exit code should be 0
 
-  Scenario: Remove nonexistent persona fails
-    When I run scm "persona remove nonexistent"
+  Scenario: Remove nonexistent profile fails
+    When I run scm "profile remove nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
 
   # ============================================================================
-  # Persona with Generators
+  # Profile with Generators
   # ============================================================================
 
-  Scenario: Add persona with generators
-    When I run scm "persona add with-gen -f fragment -g my-generator"
+  Scenario: Add profile with generators
+    When I run scm "profile add with-gen -f fragment -g my-generator"
     Then the exit code should be 0
-    When I run scm "persona show with-gen"
+    When I run scm "profile show with-gen"
     Then the exit code should be 0
     And the output should contain "my-generator"
 

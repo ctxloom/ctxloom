@@ -44,7 +44,7 @@ content_hash: sha256:85ec39503cd67964d4fa0af8b26b9fbb342be1f543ee893603a432ea840
 distilled: |-
     ## Summary
 
-    This changeset updates CI/CD workflows to use Go 1.23 (from a non-existent Go 1.25), updates go.mod to Go 1.24.0, adds distilled content to several YAML context fragments (personas and tools), removes fragment references from code review prompts, and normalizes YAML version formatting.
+    This changeset updates CI/CD workflows to use Go 1.23 (from a non-existent Go 1.25), updates go.mod to Go 1.24.0, adds distilled content to several YAML context fragments (profiles and tools), removes fragment references from code review prompts, and normalizes YAML version formatting.
 
     ---
 
@@ -66,9 +66,9 @@ distilled: |-
 
     ## Medium Issues
 
-    ### 1. Distilled Content Contains LLM Preamble (`resources/context-fragments/personas/performance.yaml:62-66`)
+    ### 1. Distilled Content Contains LLM Preamble (`resources/context-fragments/profiles/performance.yaml:62-66`)
 
-    The distilled content for the performance persona includes conversational text and extra markdown fencing that defeats the purpose of distillation:
+    The distilled content for the performance profile includes conversational text and extra markdown fencing that defeats the purpose of distillation:
 
     ```yaml
     distilled: |-
@@ -99,11 +99,11 @@ distilled: |-
     ```yaml
     # Removed from both files:
     fragments:
-        - personas/architect
-        - personas/performance
-        - personas/standards
-        - personas/concurrency
-        - personas/domain-expert
+        - profiles/architect
+        - profiles/performance
+        - profiles/standards
+        - profiles/concurrency
+        - profiles/domain-expert
     ```
 
     If these fragments are meant to be assembled separately, this may be intentional, but it's a significant behavior change that should be documented.
@@ -139,9 +139,9 @@ distilled: |-
 
     2. **Consistent version formatting normalization** - Standardizing on `version: 1.0` without quotes is cleaner YAML.
 
-    3. **Good distilled content for standards.yaml** - The distilled version (`resources/context-fragments/personas/standards.yaml:67-118`) is well-compressed while preserving all key review criteria.
+    3. **Good distilled content for standards.yaml** - The distilled version (`resources/context-fragments/profiles/standards.yaml:67-118`) is well-compressed while preserving all key review criteria.
 
-    4. **Good distilled content for domain-expert.yaml** - Similarly well-compressed (`resources/context-fragments/personas/domain-expert.yaml:48-85`), maintaining all checklist items in a more concise format.
+    4. **Good distilled content for domain-expert.yaml** - Similarly well-compressed (`resources/context-fragments/profiles/domain-expert.yaml:48-85`), maintaining all checklist items in a more concise format.
 
     5. **Good distilled content for ast-grep.yaml** - The distilled version preserves all commands and pattern syntax in a compact, usable format.
 distilled_by: claude-code

@@ -36,6 +36,14 @@ builds:
     ldflags:
       - -s -w
 
+# UPX compression for smaller binaries
+upx:
+  - enabled: true
+    goos: [linux, darwin]  # Windows UPX support can be problematic
+    goarch: [amd64, arm64]
+    compress: best
+    lzma: true
+
 archives:
   - id: default
     format: tar.gz

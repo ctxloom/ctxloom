@@ -10,7 +10,7 @@ When working with AI coding assistants, you repeatedly provide the same context:
 
 SCM organizes context into reusable fragments that can be:
 - **Assembled on demand** - Combine fragments for different tasks
-- **Grouped into personas** - Switch contexts with a single flag (`-p go-developer`)
+- **Grouped into profiles** - Switch contexts with a single flag (`-p go-developer`)
 - **Shared across teams** - Project-local `.scm/` ensures reproducibility
 - **Token-optimized** - Distill fragments to minimal versions
 - **Dynamically generated** - Generators add git status, file trees, etc.
@@ -26,8 +26,8 @@ scm run -p developer "Help me with this code"
 scm run -n                # Preview what context would be sent
 
 # Optional: copy fragments to customize
-scm copy --from resources --to home     # Copy to ~/.scm/ for personal use
-scm copy --from resources --to project  # Copy to .scm/ for team sharing
+scm copy r h              # Copy to ~/.scm/ for personal use
+scm copy r p              # Copy to .scm/ for team sharing
 ```
 
 ## Usage Examples
@@ -62,7 +62,7 @@ scm run -P gemini "use Gemini instead of Claude"
 > ok, lets adopt the go developer and prototype profiles
 and fragment
 
-● scm - assemble_context (MCP)(persona: "go-developer",
+● scm - assemble_context (MCP)(profile: "go-developer",
                                fragments: ["patterns/prototyp
                                e/prototype"])
   ⎿ {
@@ -72,7 +72,7 @@ and fragment
 
 
 
-● Done. I've adopted the go-developer persona plus the prototype fragment. Key points now active:
+● Done. I've adopted the go-developer profile plus the prototype fragment. Key points now active:
 
   Go Development:
   - Go version in go.mod, stdlib testing, godog for acceptance
@@ -90,7 +90,7 @@ and fragment
 
   Also includes: TDD, code quality, git practices, documentation, security, pushback guidelines.
 
-> cool, lets do a code review with that persona
+> cool, lets do a code review with that profile
 ```
 
 ### Managing fragments
@@ -114,7 +114,7 @@ scm run -r code-review         # Run AI with saved prompt
 
 ```bash
 scm distill                    # Compress all fragments and prompts
-scm distill -p go-developer    # Compress fragments for persona
+scm distill -p go-developer    # Compress fragments for profile
 scm distill --dry-run          # Preview what would be compressed
 scm distill clean              # Clear distilled content
 ```
@@ -149,11 +149,11 @@ distilled_by: "claude-opus-4-5-20251101"
 no_distill: true  # Content will never be distilled
 ```
 
-### Personas
+### Profiles
 
-Built-in personas for common workflows:
+Built-in profiles for common workflows:
 
-| Persona | Description |
+| Profile | Description |
 |---------|-------------|
 | `developer` | Full development context (communication, TDD, code-quality, git, docs, security) |
 | `go-developer` | Developer + Go-specific guidance |
@@ -163,27 +163,27 @@ Built-in personas for common workflows:
 | `reviewer` | Code review with architect, domain-expert, concurrency, performance, standards perspectives |
 | `prototype` | Rapid prototyping without backwards compatibility concerns |
 
-Personas inherit from others via `parents` and can combine fragments, tags, generators, and variables.
+Profiles inherit from others via `parents` and can combine fragments, tags, generators, and variables.
 
-### Tags vs Personas
+### Tags vs Profiles
 
-Tags and personas provide complementary ways to organize fragments:
+Tags and profiles provide complementary ways to organize fragments:
 
 **Tags** are for categorization and discovery:
 - Filter fragments: `scm fragment list -t golang`
 - Copy by tag: `scm copy --from r --to p -t security`
 - Ad-hoc context: `scm run -t golang -t security "review this"`
 
-**Personas** are for workflow presets:
+**Profiles** are for workflow presets:
 - Bundle fragments, tags, generators, and variables
-- Inherit from other personas via `parents`
-- Set defaults in config: `defaults: { personas: [developer] }`
+- Inherit from other profiles via `parents`
+- Set defaults in config: `defaults: { profiles: [developer] }`
 
-Personas can reference tags (`tags: [golang]`), meaning fragments with matching tags are automatically included.
+Profiles can reference tags (`tags: [golang]`), meaning fragments with matching tags are automatically included.
 
 ### Variables (Mustache Templating)
 
-Fragments support [Mustache](https://mustache.github.io/) templating. Use `{{variable}}` in content and provide values via personas:
+Fragments support [Mustache](https://mustache.github.io/) templating. Use `{{variable}}` in content and provide values via profiles:
 
 ```yaml
 # Fragment: my-fragment.yaml
@@ -194,7 +194,7 @@ content: |
 
 ```yaml
 # config.yaml
-personas:
+profiles:
   my-project:
     fragments: [my-fragment]
     variables:
@@ -216,12 +216,12 @@ lm:
       args: ["--yolo"]
 
 defaults:
-  personas: [developer]
+  profiles: [developer]
   use_distilled: true
 
-personas:
-  my-persona:
-    description: Custom persona
+profiles:
+  my-profile:
+    description: Custom profile
     parents: [developer]
     tags: [my-tag]
     fragments: [my-fragment]
@@ -238,6 +238,9 @@ SCM uses plugins to interface with language models. Built-in plugins:
 |--------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude CLI |
 | `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini CLI |
+| `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI's Codex CLI (**provisional**) |
+
+> **Note**: The `codex` plugin is provisional and untested. The author does not have a Codex subscription. Command-line arguments are based on public documentation and may need adjustment.
 
 **Using a different plugin:**
 
@@ -266,9 +269,9 @@ lm:
 
 The plugin must support `--print` for non-interactive mode and accept a prompt argument.
 
-### Persona inheritance
+### Profile inheritance
 
-Personas can inherit from multiple parents using the `parents` field. Inheritance is resolved depth-first with later values overriding earlier ones.
+Profiles can inherit from multiple parents using the `parents` field. Inheritance is resolved depth-first with later values overriding earlier ones.
 
 **Diamond inheritance**: When multiple parents share a common ancestor (e.g., A inherits from B and C, both of which inherit from D), fragments from D are included only once. Order is preserved (first occurrence wins).
 
@@ -315,7 +318,7 @@ scm run [flags] "prompt"
 Flags:
   -f, --fragment     Fragment(s) to include (repeatable)
   -t, --tag          Include fragments with tag (repeatable)
-  -p, --persona      Use a named persona
+  -p, --profile      Use a named profile
   -P, --plugin       AI plugin (default: claude-code)
   -r, --run-prompt   Run a saved prompt by name
   -n, --dry-run      Preview assembled context
@@ -328,22 +331,26 @@ Flags:
 Copy fragments and prompts between locations.
 
 ```bash
-# Locations: resources (r), home (h), project (p)
-scm copy --from resources --to project       # Copy all embedded fragments to project
-scm copy --from resources --to home          # Copy embedded fragments to ~/.scm
-scm copy --from home --to project            # Copy home fragments to project
-scm copy --from project --to home            # Sync project changes back to home
+scm copy <from> <to> [flags]
+
+# Locations: resources (r), home (h), project (p), or a path
+scm copy r p                     # Copy embedded fragments to project
+scm copy r h                     # Copy embedded fragments to ~/.scm
+scm copy h p                     # Copy home fragments to project
+scm copy p h                     # Sync project changes back to home
+scm copy r ./my-config           # Copy to arbitrary path
 
 # Filter what to copy
-scm copy --from r --to p -f security         # Copy specific fragment
-scm copy --from r --to p -t golang           # Copy fragments with tag
-scm copy --from r --to p -P go-developer     # Copy fragments for persona
-scm copy --from r --to p -p code-review      # Copy specific prompt
+scm copy r p -f security         # Copy specific fragment
+scm copy r p -t golang           # Copy fragments with tag
+scm copy r p --profile go-developer  # Copy fragments for profile
+scm copy r p -p code-review      # Copy specific prompt
 
 # Options
-scm copy --from r --to p --force             # Overwrite existing files
-scm copy --from r --to p --include-config=false  # Skip config.yaml
-scm copy --from r --to p -v                  # Verbose output
+scm copy r p --force             # Overwrite existing files
+scm copy r p --clear             # Clear destination before copying
+scm copy r p --include-config=false  # Skip config.yaml
+scm copy r p -v                  # Verbose output
 
 # Home directory is initialized as git repo automatically
 # Header behavior:
@@ -351,7 +358,7 @@ scm copy --from r --to p -v                  # Verbose output
 #   FROM project: removes header
 ```
 
-**Recommended workflow**: Edit fragments in `~/.scm/`, then use `scm copy --from home --to project` to copy them into your project. The copy command adds a "DO NOT EDIT" header to project files, signaling that changes should be made in home and copied over.
+**Recommended workflow**: Edit fragments in `~/.scm/`, then use `scm copy h p` to copy them into your project. The copy command adds a "DO NOT EDIT" header to project files, signaling that changes should be made in home and copied over.
 
 ### `scm fragment`
 
@@ -366,16 +373,16 @@ scm fragment edit -l <name>    # Create in local .scm
 scm fragment delete <name>     # Remove
 ```
 
-### `scm persona`
+### `scm profile`
 
-Manage personas.
+Manage profiles.
 
 ```bash
-scm persona list
-scm persona show <name>
-scm persona add <name> -f <fragments...> -d "description"
-scm persona update <name> --add-fragment <name>
-scm persona remove <name>
+scm profile list
+scm profile show <name>
+scm profile add <name> -f <fragments...> -d "description"
+scm profile update <name> --add-fragment <name>
+scm profile remove <name>
 ```
 
 ### `scm prompt`
@@ -395,7 +402,7 @@ Create token-optimized versions of fragments.
 
 ```bash
 scm distill                    # Distill all fragments and prompts
-scm distill -p <persona>       # Distill fragments for persona
+scm distill -p <profile>       # Distill fragments for profile
 scm distill -f <fragment>      # Distill specific fragment(s)
 scm distill -P <prompt>        # Distill specific prompt(s)
 scm distill --prompts-only     # Distill only prompts (skip fragments)
@@ -428,7 +435,7 @@ Run as MCP (Model Context Protocol) server over stdio.
 scm mcp
 ```
 
-Available MCP tools: `list_fragments`, `get_fragment`, `list_personas`, `get_persona`, `set_persona`, `assemble_context`, `list_prompts`, `get_prompt`
+Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `set_profile`, `assemble_context`, `list_prompts`, `get_prompt`
 
 ## Generators
 

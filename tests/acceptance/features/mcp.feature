@@ -25,9 +25,9 @@ Feature: MCP server
     Then the exit code should be 0
     And the MCP response should contain "list_fragments"
     And the MCP response should contain "get_fragment"
-    And the MCP response should contain "list_personas"
-    And the MCP response should contain "get_persona"
-    And the MCP response should contain "set_persona"
+    And the MCP response should contain "list_profiles"
+    And the MCP response should contain "get_profile"
+    And the MCP response should contain "set_profile"
     And the MCP response should contain "assemble_context"
     And the MCP response should contain "list_prompts"
     And the MCP response should contain "get_prompt"
@@ -115,57 +115,57 @@ Feature: MCP server
     And the MCP response should contain "name is required"
 
   # ============================================================================
-  # List Personas
+  # List Profiles
   # ============================================================================
 
-  Scenario: List personas returns empty when none defined
-    When I send MCP tools/call "list_personas"
+  Scenario: List profiles returns empty when none defined
+    When I send MCP tools/call "list_profiles"
     Then the exit code should be 0
     And the MCP response should contain "count"
 
-  Scenario: List personas returns defined personas
+  Scenario: List profiles returns defined profiles
     Given a config file with:
       """
-      personas:
+      profiles:
         developer:
-          description: Developer persona
+          description: Developer profile
           fragments:
             - code-style
       """
-    When I send MCP tools/call "list_personas"
+    When I send MCP tools/call "list_profiles"
     Then the exit code should be 0
     And the MCP response should contain "developer"
-    And the MCP response should contain "Developer persona"
+    And the MCP response should contain "Developer profile"
 
   # ============================================================================
-  # Get Persona
+  # Get Profile
   # ============================================================================
 
-  Scenario: Get persona returns configuration
+  Scenario: Get profile returns configuration
     Given a config file with:
       """
-      personas:
+      profiles:
         detailed:
-          description: A detailed persona
+          description: A detailed profile
           fragments:
             - frag-one
             - frag-two
           variables:
             language: Go
       """
-    When I send MCP tools/call "get_persona" with:
+    When I send MCP tools/call "get_profile" with:
       """
       {"name": "detailed"}
       """
     Then the exit code should be 0
-    And the MCP response should contain "A detailed persona"
+    And the MCP response should contain "A detailed profile"
     And the MCP response should contain "frag-one"
     And the MCP response should contain "frag-two"
     And the MCP response should contain "language"
     And the MCP response should contain "Go"
 
-  Scenario: Get nonexistent persona returns error
-    When I send MCP tools/call "get_persona" with:
+  Scenario: Get nonexistent profile returns error
+    When I send MCP tools/call "get_profile" with:
       """
       {"name": "nonexistent"}
       """
@@ -173,28 +173,28 @@ Feature: MCP server
     And the MCP response should contain "not found"
 
   # ============================================================================
-  # Set Persona
+  # Set Profile
   # ============================================================================
 
-  Scenario: Set persona for session
+  Scenario: Set profile for session
     Given a config file with:
       """
-      personas:
-        session-persona:
+      profiles:
+        session-profile:
           description: Session test
           fragments:
             - test-frag
       """
-    When I send MCP tools/call "set_persona" with:
+    When I send MCP tools/call "set_profile" with:
       """
-      {"name": "session-persona"}
+      {"name": "session-profile"}
       """
     Then the exit code should be 0
-    And the MCP response should contain "session-persona"
-    And the MCP response should contain "Session persona set"
+    And the MCP response should contain "session-profile"
+    And the MCP response should contain "Session profile set"
 
-  Scenario: Set nonexistent persona returns error
-    When I send MCP tools/call "set_persona" with:
+  Scenario: Set nonexistent profile returns error
+    When I send MCP tools/call "set_profile" with:
       """
       {"name": "nonexistent"}
       """
@@ -266,28 +266,28 @@ Feature: MCP server
     Then the exit code should be 0
     And the MCP response should contain "Assembled fragment content"
 
-  Scenario: Assemble context with persona
-    Given a fragment "persona-frag" in the project with content:
+  Scenario: Assemble context with profile
+    Given a fragment "profile-frag" in the project with content:
       """
       tags:
-        - persona
+        - profile
       content: |
-        Persona fragment content.
+        Profile fragment content.
       """
     And a config file with:
       """
-      personas:
-        test-persona:
+      profiles:
+        test-profile:
           description: Test
           fragments:
-            - persona-frag
+            - profile-frag
       """
     When I send MCP tools/call "assemble_context" with:
       """
-      {"persona": "test-persona"}
+      {"profile": "test-profile"}
       """
     Then the exit code should be 0
-    And the MCP response should contain "Persona fragment content"
+    And the MCP response should contain "Profile fragment content"
 
   Scenario: Assemble context with tags
     Given a fragment "tag-frag" in the project with content:
@@ -314,8 +314,8 @@ Feature: MCP server
       """
     And a config file with:
       """
-      personas:
-        var-persona:
+      profiles:
+        var-profile:
           description: Variables
           fragments:
             - var-frag
@@ -324,7 +324,7 @@ Feature: MCP server
       """
     When I send MCP tools/call "assemble_context" with:
       """
-      {"persona": "var-persona"}
+      {"profile": "var-profile"}
       """
     Then the exit code should be 0
     And the MCP response should contain "The language is Python"
@@ -336,7 +336,7 @@ Feature: MCP server
   Scenario: Unknown tool returns error
     Given a config file with:
       """
-      personas: {}
+      profiles: {}
       """
     When I send MCP tools/call "unknown_tool"
     Then the exit code should be 0

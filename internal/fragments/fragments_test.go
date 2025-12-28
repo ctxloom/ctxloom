@@ -687,8 +687,8 @@ content: |
 	}
 }
 
-func TestPersonaTagSelection(t *testing.T) {
-	// Simulates how a persona with tags selects fragments
+func TestProfileTagSelection(t *testing.T) {
+	// Simulates how a profile with tags selects fragments
 	fs := fsys.NewMapFS()
 	fs.AddDir("/fragments")
 	fs.AddFile("/fragments/lang-go.yaml", []byte(`tags:
@@ -722,12 +722,12 @@ content: |
 
 	loader := NewLoader([]string{"/fragments"}, WithFS(fs), WithSuppressWarnings(true))
 
-	// Simulate go-developer persona: tags=[golang], fragments=[tdd, git]
-	personaTags := []string{"golang"}
+	// Simulate go-developer profile: tags=[golang], fragments=[tdd, git]
+	profileTags := []string{"golang"}
 	explicitFragments := []string{"tdd", "git"}
 
 	// Get fragments matching tags
-	taggedInfos, err := loader.ListByTags(personaTags)
+	taggedInfos, err := loader.ListByTags(profileTags)
 	if err != nil {
 		t.Fatalf("unexpected error listing by tags: %v", err)
 	}

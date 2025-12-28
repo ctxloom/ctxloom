@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/fsys"
 )
 
@@ -162,7 +163,7 @@ func parseLegacyMarkdown(data []byte, path string) (*Prompt, error) {
 // List returns all available prompts across all search directories.
 func (l *Loader) List() ([]PromptInfo, error) {
 	var prompts []PromptInfo
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 
 	for _, dir := range l.searchDirs {
 		err := l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -200,10 +201,10 @@ func (l *Loader) List() ([]PromptInfo, error) {
 			// Prompt name is relative path without extension
 			promptName := strings.TrimSuffix(relPath, ext)
 
-			if seen[promptName] {
+			if seen.Has(promptName) {
 				return nil
 			}
-			seen[promptName] = true
+			seen.Add(promptName)
 
 			// Load prompt to get metadata
 			prompt, err := l.LoadFile(path)
@@ -246,15 +247,15 @@ func (l *Loader) ListByTags(tags []string) ([]PromptInfo, error) {
 		return all, nil
 	}
 
-	tagSet := make(map[string]bool)
+	tagSet := collections.NewSet[string]()
 	for _, t := range tags {
-		tagSet[strings.ToLower(t)] = true
+		tagSet.Add(strings.ToLower(t))
 	}
 
 	var filtered []PromptInfo
 	for _, p := range all {
 		for _, pt := range p.Tags {
-			if tagSet[strings.ToLower(pt)] {
+			if tagSet.Has(strings.ToLower(pt)) {
 				filtered = append(filtered, p)
 				break
 			}

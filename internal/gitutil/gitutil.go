@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -158,7 +159,7 @@ func (r *Repo) RecentCommits(n int) ([]Commit, error) {
 		}
 		// Get first line of commit message
 		msg := c.Message
-		if idx := indexOf(msg, '\n'); idx != -1 {
+		if idx := strings.IndexByte(msg, '\n'); idx != -1 {
 			msg = msg[:idx]
 		}
 		commits = append(commits, Commit{
@@ -252,22 +253,6 @@ func (r *Repo) Root() (string, error) {
 	return wt.Filesystem.Root(), nil
 }
 
-func indexOf(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
 func joinLines(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	result := lines[0]
-	for i := 1; i < len(lines); i++ {
-		result += "\n" + lines[i]
-	}
-	return result
+	return strings.Join(lines, "\n")
 }

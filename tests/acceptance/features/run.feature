@@ -53,16 +53,16 @@ Feature: Run command
     And the LM should have received context containing "Content from fragment two"
 
   # ============================================================================
-  # Run with Persona
+  # Run with Profile
   # ============================================================================
 
-  Scenario: Run with persona loads persona's fragments
-    Given a fragment "persona-frag" in the project with content:
+  Scenario: Run with profile loads profile's fragments
+    Given a fragment "profile-frag" in the project with content:
       """
       tags:
-        - persona
+        - profile
       content: |
-        Persona fragment content.
+        Profile fragment content.
       """
     And a config file with:
       """
@@ -71,19 +71,19 @@ Feature: Run command
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        test-persona:
-          description: Test persona
+      profiles:
+        test-profile:
+          description: Test profile
           fragments:
-            - persona-frag
+            - profile-frag
       """
     And the mock LM will respond with:
       """
       OK
       """
-    When I run scm "run -p test-persona --print persona test"
+    When I run scm "run -p test-profile --print profile test"
     Then the exit code should be 0
-    And the LM should have received context containing "Persona fragment content"
+    And the LM should have received context containing "Profile fragment content"
 
   # ============================================================================
   # Run with Tags
@@ -141,7 +141,7 @@ Feature: Run command
   # Run with Variables
   # ============================================================================
 
-  Scenario: Run substitutes variables from persona
+  Scenario: Run substitutes variables from profile
     Given a fragment "var-frag" in the project with content:
       """
       tags:
@@ -157,9 +157,9 @@ Feature: Run command
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        var-persona:
-          description: Variable persona
+      profiles:
+        var-profile:
+          description: Variable profile
           fragments:
             - var-frag
           variables:
@@ -170,7 +170,7 @@ Feature: Run command
       """
       OK
       """
-    When I run scm "run -p var-persona --print var test"
+    When I run scm "run -p var-profile --print var test"
     Then the exit code should be 0
     And the LM should have received context containing "The language is Go"
     And the LM should have received context containing "The version is 1.21"
@@ -221,10 +221,10 @@ Feature: Run command
     Then the exit code should be 1
     And the output should contain "not found"
 
-  Scenario: Run with nonexistent persona fails
+  Scenario: Run with nonexistent profile fails
     When I run scm "run -p nonexistent --print test"
     Then the exit code should be 1
-    And the output should contain "unknown persona"
+    And the output should contain "unknown profile"
 
   # ============================================================================
   # Print Mode

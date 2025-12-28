@@ -20,13 +20,12 @@ import (
 )
 
 var (
-	copyFrom      string
-	copyTo        string
 	copyForce     bool
+	copyClear     bool // Clear destination .scm directory before copying
 	copyFragments []string
 	copyTags      []string
 	copyPrompts   []string
-	copyPersonas  []string
+	copyProfiles  []string
 	copyVerbose   bool
 	copyDev       bool // Dev mode: allow copying to resources directory
 	copyConfig    bool // Copy config.yaml
@@ -39,18 +38,33 @@ const (
 	LocationResources Location = iota
 	LocationHome
 	LocationProject
+	LocationPath // Arbitrary filesystem path
 )
 
-func parseLocation(s string) (Location, error) {
+// ParsedLocation holds a Location type and optional path for LocationPath.
+type ParsedLocation struct {
+	Type Location
+	Path string // Only set for LocationPath
+}
+
+func parseLocation(s string) (ParsedLocation, error) {
 	switch strings.ToLower(s) {
 	case "resources", "r":
-		return LocationResources, nil
+		return ParsedLocation{Type: LocationResources}, nil
 	case "home", "h":
-		return LocationHome, nil
+		return ParsedLocation{Type: LocationHome}, nil
 	case "project", "p":
-		return LocationProject, nil
+		return ParsedLocation{Type: LocationProject}, nil
 	default:
-		return 0, fmt.Errorf("invalid location %q: must be resources, home, or project", s)
+		// Check if it's a path (contains / or \ or is absolute)
+		if strings.ContainsAny(s, "/\\") || filepath.IsAbs(s) || s == "." || s == ".." {
+			absPath, err := filepath.Abs(s)
+			if err != nil {
+				return ParsedLocation{}, fmt.Errorf("invalid path %q: %w", s, err)
+			}
+			return ParsedLocation{Type: LocationPath, Path: absPath}, nil
+		}
+		return ParsedLocation{}, fmt.Errorf("invalid location %q: must be resources (r), home (h), project (p), or a path", s)
 	}
 }
 
@@ -62,6 +76,8 @@ func (l Location) String() string {
 		return "home"
 	case LocationProject:
 		return "project"
+	case LocationPath:
+		return "path"
 	default:
 		return "unknown"
 	}
@@ -90,57 +106,67 @@ func (r *CopyResult) Merge(other *CopyResult) {
 }
 
 var copyCmd = &cobra.Command{
-	Use:   "copy",
+	Use:   "copy <from> <to>",
 	Short: "Copy fragments and prompts between locations",
-	Long: `Copy context fragments and prompts between resources, home, and project.
+	Long: `Copy context fragments and prompts between resources, home, project, or a path.
 
 Locations:
   resources (r)  - Embedded default fragments and prompts
   home (h)       - ~/.scm directory
   project (p)    - .scm directory in the current project
+  <path>         - Arbitrary directory path (creates .scm subdirectory)
 
 Header behavior:
   - Copying TO project: adds a "DO NOT EDIT" header to files
   - Copying FROM project: removes the header from files
 
 Examples:
-  # Copy all embedded fragments to project
-  scm copy --from resources --to project
+  # Copy all embedded fragments to project (positional args)
+  scm copy r p
+  scm copy resources project
+
+  # Copy to arbitrary path
+  scm copy r /path/to/dir
+  scm copy resources ./my-config
+
+  # Clear destination before copying (destroys customizations)
+  scm copy r p --clear
 
   # Copy specific fragments from home to project
-  scm copy --from home --to project -f security -f golang
+  scm copy h p -f security -f golang
 
   # Copy fragments with specific tags
-  scm copy --from resources --to home -t review
+  scm copy r h -t review
 
   # Copy prompts from resources to project
-  scm copy --from resources --to project -p code-review
+  scm copy r p -p code-review
 
   # Force overwrite existing files
-  scm copy --from resources --to project --force
+  scm copy r p --force
 
-  # Copy fragments for specific personas
-  scm copy --from resources --to project --persona go-developer`,
+  # Copy fragments for specific profiles
+  scm copy r p --profile go-developer`,
+	Args: cobra.ExactArgs(2),
 	RunE: runCopy,
 }
 
 func runCopy(cmd *cobra.Command, args []string) error {
-	from, err := parseLocation(copyFrom)
+	from, err := parseLocation(args[0])
 	if err != nil {
 		return err
 	}
 
-	to, err := parseLocation(copyTo)
+	to, err := parseLocation(args[1])
 	if err != nil {
 		return err
 	}
 
-	if from == to {
+	if from.Type == to.Type && from.Path == to.Path {
 		return fmt.Errorf("source and destination cannot be the same")
 	}
 
 	// Resources cannot be a destination unless in dev mode
-	if to == LocationResources && !copyDev {
+	if to.Type == LocationResources && !copyDev {
 		return fmt.Errorf("cannot copy to resources (use --dev flag when working on scm itself)")
 	}
 
@@ -155,9 +181,43 @@ func runCopy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve destination: %w", err)
 	}
 
+	// Handle --clear flag: destroy destination .scm directory before copying
+	if copyClear {
+		var scmDir string
+		switch to.Type {
+		case LocationHome:
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
+			}
+			scmDir = filepath.Join(home, config.SCMDirName)
+		case LocationProject:
+			rootDir := findGitRoot()
+			if rootDir == "" {
+				rootDir, _ = os.Getwd()
+			}
+			scmDir = filepath.Join(rootDir, config.SCMDirName)
+		case LocationPath:
+			scmDir = filepath.Join(to.Path, config.SCMDirName)
+		case LocationResources:
+			// Resources clear handled in dev mode - clear resources directory
+			pwd, _ := os.Getwd()
+			scmDir = filepath.Join(pwd, "resources")
+		}
+
+		if scmDir != "" {
+			if _, err := os.Stat(scmDir); err == nil {
+				fmt.Printf("Clearing %s...\n", scmDir)
+				if err := os.RemoveAll(scmDir); err != nil {
+					return fmt.Errorf("failed to clear destination: %w", err)
+				}
+			}
+		}
+	}
+
 	// Determine header behavior
-	addHeader := to == LocationProject
-	removeHeader := from == LocationProject
+	addHeader := to.Type == LocationProject
+	removeHeader := from.Type == LocationProject
 
 	// Build fragment filter from flags
 	fragmentFilter, err := buildFragmentFilter()
@@ -167,10 +227,10 @@ func runCopy(cmd *cobra.Command, args []string) error {
 
 	// Copy fragments
 	fragResult := &CopyResult{}
-	if len(copyPrompts) == 0 || len(copyFragments) > 0 || len(copyTags) > 0 || len(copyPersonas) > 0 {
-		fmt.Printf("Copying fragments from %s to %s\n", from, to)
+	if len(copyPrompts) == 0 || len(copyFragments) > 0 || len(copyTags) > 0 || len(copyProfiles) > 0 {
+		fmt.Printf("Copying fragments from %s to %s\n", from.Type, to.Type)
 
-		result, err := copyFragmentsWithOptions(from, srcFragDir, dstFragDir, fragmentFilter, addHeader, removeHeader)
+		result, err := copyFragmentsWithOptions(from.Type, srcFragDir, dstFragDir, fragmentFilter, addHeader, removeHeader)
 		if err != nil {
 			return fmt.Errorf("failed to copy fragments: %w", err)
 		}
@@ -180,10 +240,10 @@ func runCopy(cmd *cobra.Command, args []string) error {
 
 	// Copy prompts
 	promptResult := &CopyResult{}
-	if len(copyPrompts) > 0 || (len(copyFragments) == 0 && len(copyTags) == 0 && len(copyPersonas) == 0) {
-		fmt.Printf("Copying prompts from %s to %s\n", from, to)
+	if len(copyPrompts) > 0 || (len(copyFragments) == 0 && len(copyTags) == 0 && len(copyProfiles) == 0) {
+		fmt.Printf("Copying prompts from %s to %s\n", from.Type, to.Type)
 
-		result, err := copyPromptsWithOptions(from, srcPromptDir, dstPromptDir, copyPrompts, addHeader, removeHeader)
+		result, err := copyPromptsWithOptions(from.Type, srcPromptDir, dstPromptDir, copyPrompts, addHeader, removeHeader)
 		if err != nil {
 			return fmt.Errorf("failed to copy prompts: %w", err)
 		}
@@ -194,9 +254,9 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	// Copy config if requested
 	configResult := &CopyResult{}
 	if copyConfig {
-		fmt.Printf("Copying config from %s to %s\n", from, to)
+		fmt.Printf("Copying config from %s to %s\n", from.Type, to.Type)
 
-		result, err := copyConfigWithOptions(from, to, addHeader, removeHeader)
+		result, err := copyConfigWithOptions(from, to.Type, addHeader, removeHeader)
 		if err != nil {
 			return fmt.Errorf("failed to copy config: %w", err)
 		}
@@ -220,7 +280,7 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Initialize home directory as git repo if copying to home
-	if to == LocationHome {
+	if to.Type == LocationHome {
 		if err := ensureHomeGitRepo(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to initialize git repo: %v\n", err)
 		}
@@ -229,8 +289,8 @@ func runCopy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getLocationPaths(loc Location) (fragDir, promptDir string, err error) {
-	switch loc {
+func getLocationPaths(loc ParsedLocation) (fragDir, promptDir string, err error) {
+	switch loc.Type {
 	case LocationResources:
 		// For dev mode, resources are in the current directory
 		// When reading, resources are embedded (handled specially)
@@ -263,13 +323,18 @@ func getLocationPaths(loc Location) (fragDir, promptDir string, err error) {
 		return filepath.Join(scmDir, config.ContextFragmentsDir),
 			filepath.Join(scmDir, config.PromptsDir), nil
 
+	case LocationPath:
+		scmDir := filepath.Join(loc.Path, config.SCMDirName)
+		return filepath.Join(scmDir, config.ContextFragmentsDir),
+			filepath.Join(scmDir, config.PromptsDir), nil
+
 	default:
 		return "", "", fmt.Errorf("unknown location")
 	}
 }
 
-func getConfigPath(loc Location) (string, error) {
-	switch loc {
+func getConfigPath(loc ParsedLocation) (string, error) {
+	switch loc.Type {
 	case LocationResources:
 		// For dev mode, return path in resources directory
 		pwd, err := os.Getwd()
@@ -296,16 +361,21 @@ func getConfigPath(loc Location) (string, error) {
 		}
 		return filepath.Join(rootDir, config.SCMDirName, "config.yaml"), nil
 
+	case LocationPath:
+		return filepath.Join(loc.Path, config.SCMDirName, "config.yaml"), nil
+
 	default:
 		return "", fmt.Errorf("unknown location")
 	}
 }
 
-func copyConfigWithOptions(from, to Location, _, removeHeader bool) (*CopyResult, error) {
+// copyConfigWithOptions copies config.yaml between locations.
+// Note: addHeader is intentionally ignored - config is user-editable and should not have DO NOT EDIT header.
+func copyConfigWithOptions(from ParsedLocation, to Location, _ /* addHeader */, removeHeader bool) (*CopyResult, error) {
 	result := &CopyResult{}
 
 	// Get destination path
-	dstPath, err := getConfigPath(to)
+	dstPath, err := getConfigPath(ParsedLocation{Type: to})
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +387,7 @@ func copyConfigWithOptions(from, to Location, _, removeHeader bool) (*CopyResult
 
 	// Get source data
 	var data []byte
-	if from == LocationResources {
+	if from.Type == LocationResources {
 		data, err = resources.GetEmbeddedConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read embedded config: %w", err)
@@ -358,25 +428,25 @@ func buildFragmentFilter() ([]string, error) {
 	// Add explicit fragments
 	filter = append(filter, copyFragments...)
 
-	// Add fragments from personas
-	if len(copyPersonas) > 0 {
+	// Add fragments from profiles
+	if len(copyProfiles) > 0 {
 		embeddedCfg, err := config.LoadEmbeddedConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load config: %w", err)
 		}
 
 		homeCfg, _ := config.LoadHomeConfig()
-		allPersonas := make(map[string]config.Persona)
-		config.MergePersonas(allPersonas, embeddedCfg.Personas)
+		allProfiles := make(map[string]config.Profile)
+		config.MergeProfiles(allProfiles, embeddedCfg.Profiles)
 		if homeCfg != nil {
-			config.MergePersonas(allPersonas, homeCfg.Personas)
+			config.MergeProfiles(allProfiles, homeCfg.Profiles)
 		}
 
-		personaFrags, err := config.CollectFragmentsForPersonas(allPersonas, copyPersonas)
+		profileFrags, err := config.CollectFragmentsForProfiles(allProfiles, copyProfiles)
 		if err != nil {
 			return nil, err
 		}
-		filter = append(filter, personaFrags...)
+		filter = append(filter, profileFrags...)
 	}
 
 	return filter, nil
@@ -756,8 +826,8 @@ func matchesFilters(baseName string, data []byte, allowed, tagFilter map[string]
 		}
 	}
 
-	// If filters are specified but nothing matched, exclude
-	return allowed == nil && tagFilter == nil
+	// Filters are specified but nothing matched - exclude
+	return false
 }
 
 func extractTags(data []byte) []string {
@@ -765,8 +835,13 @@ func extractTags(data []byte) []string {
 	var fragment struct {
 		Tags []string `yaml:"tags"`
 	}
-	// Use yaml.Unmarshal but ignore errors - just return empty tags
-	_ = yaml.Unmarshal(data, &fragment)
+	if err := yaml.Unmarshal(data, &fragment); err != nil {
+		// Log parse errors but continue - treat as having no tags
+		if copyVerbose {
+			fmt.Fprintf(os.Stderr, "Warning: failed to parse YAML for tag extraction: %v\n", err)
+		}
+		return nil
+	}
 	return fragment.Tags
 }
 
@@ -863,18 +938,14 @@ func ensureHomeGitRepo() error {
 func init() {
 	rootCmd.AddCommand(copyCmd)
 
-	copyCmd.Flags().StringVar(&copyFrom, "from", "", "Source location: resources (r), home (h), or project (p)")
-	copyCmd.Flags().StringVar(&copyTo, "to", "", "Destination location: home (h) or project (p)")
 	copyCmd.Flags().BoolVar(&copyForce, "force", false, "Overwrite existing files")
+	copyCmd.Flags().BoolVar(&copyClear, "clear", false, "Clear destination .scm directory before copying (destroys customizations)")
 	copyCmd.Flags().StringArrayVarP(&copyFragments, "fragment", "f", nil, "Fragment(s) to copy")
 	copyCmd.Flags().StringArrayVarP(&copyTags, "tag", "t", nil, "Copy fragments with these tags")
 	copyCmd.Flags().StringArrayVarP(&copyPrompts, "prompt", "p", nil, "Prompt(s) to copy")
-	copyCmd.Flags().StringArrayVarP(&copyPersonas, "persona", "P", nil, "Copy fragments for these personas")
+	copyCmd.Flags().StringArrayVarP(&copyProfiles, "profile", "P", nil, "Copy fragments for these profiles")
 	copyCmd.Flags().BoolVarP(&copyVerbose, "verbose", "v", false, "List individual files")
 
 	copyCmd.Flags().BoolVar(&copyDev, "dev", false, "Dev mode: allow copying to resources directory (for scm development)")
 	copyCmd.Flags().BoolVar(&copyConfig, "include-config", true, "Include config.yaml in copy (use --include-config=false to skip)")
-
-	copyCmd.MarkFlagRequired("from")
-	copyCmd.MarkFlagRequired("to")
 }

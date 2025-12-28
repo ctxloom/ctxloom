@@ -12,6 +12,7 @@ import (
 	"github.com/cbroglie/mustache"
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/fsys"
 	"github.com/benjaminabbitt/scm/internal/logging"
 )
@@ -418,7 +419,7 @@ func (l *Loader) LoadMultiple(names []string) (string, error) {
 }
 
 // LoadMultipleWithVars loads multiple fragments with additional variables.
-// Variables are provided via extraVars (from persona config or generators).
+// Variables are provided via extraVars (from profile config or generators).
 // Missing fragments are warned about. If WithFailOnMissing is set, returns an error.
 func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]string) (string, error) {
 	var frags []*Fragment
@@ -486,7 +487,7 @@ func (l *Loader) applyTemplate(template string, vars map[string]string) (string,
 	matches := varPattern.FindAllStringSubmatch(template, -1)
 
 	// Check for undefined variables
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	for _, match := range matches {
 		if len(match) > 1 {
 			varName := strings.TrimSpace(match[1])
@@ -497,8 +498,8 @@ func (l *Loader) applyTemplate(template string, vars map[string]string) (string,
 				strings.HasPrefix(varName, ">") {
 				continue
 			}
-			if !seen[varName] {
-				seen[varName] = true
+			if !seen.Has(varName) {
+				seen.Add(varName)
 				if _, exists := vars[varName]; !exists {
 					l.warn(fmt.Sprintf("undefined variable: {{%s}}", varName))
 					logging.L().Warn(logging.MsgVariableUnexpanded,
@@ -526,7 +527,7 @@ func (l *Loader) applyTemplate(template string, vars map[string]string) (string,
 // from the search directory (e.g., "testing/tdd" for "testing/tdd.yaml").
 func (l *Loader) List() ([]FragmentInfo, error) {
 	var fragments []FragmentInfo
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 
 	for _, dir := range l.searchDirs {
 		err := l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -565,8 +566,8 @@ func (l *Loader) List() ([]FragmentInfo, error) {
 			// Fragment name is relative path without extension
 			fragName := strings.TrimSuffix(relPath, ext)
 
-			if !seen[fragName] {
-				seen[fragName] = true
+			if !seen.Has(fragName) {
+				seen.Add(fragName)
 
 				// Load fragment to get metadata
 				frag, err := l.Load(fragName)
@@ -608,15 +609,15 @@ func (l *Loader) ListByTags(tags []string) ([]FragmentInfo, error) {
 		return all, nil
 	}
 
-	tagSet := make(map[string]bool)
+	tagSet := collections.NewSet[string]()
 	for _, t := range tags {
-		tagSet[strings.ToLower(t)] = true
+		tagSet.Add(strings.ToLower(t))
 	}
 
 	var filtered []FragmentInfo
 	for _, f := range all {
 		for _, ft := range f.Tags {
-			if tagSet[strings.ToLower(ft)] {
+			if tagSet.Has(strings.ToLower(ft)) {
 				filtered = append(filtered, f)
 				break
 			}
@@ -710,4 +711,64 @@ func CombineFragments(frags []*Fragment) string {
 		}
 	}
 	return strings.Join(parts, "\n\n---\n\n")
+}
+
+// LoadedFragment contains a fragment with its effective content and metadata.
+// Used to pass structured fragment data to plugins.
+type LoadedFragment struct {
+	Name        string
+	Version     string
+	Tags        []string
+	Content     string // Effective content (distilled or original, with variables applied)
+	IsDistilled bool
+	DistilledBy string
+}
+
+// LoadMultipleAsFragments loads multiple fragments and returns them with metadata.
+// Unlike LoadMultipleWithVars, this preserves fragment boundaries and metadata.
+func (l *Loader) LoadMultipleAsFragments(names []string, extraVars map[string]string) ([]*LoadedFragment, error) {
+	var result []*LoadedFragment
+	l.missingFragments = nil
+
+	// Use provided variables
+	variables := make(map[string]string)
+	for k, v := range extraVars {
+		variables[k] = v
+	}
+
+	for _, name := range names {
+		frag, err := l.Load(name)
+		if err != nil {
+			l.missingFragments = append(l.missingFragments, name)
+			l.warn(fmt.Sprintf("fragment not found: %s", name))
+			continue
+		}
+
+		// Determine if we're using distilled content
+		useDistilled := l.preferDistilled && frag.Distilled != ""
+		content := frag.EffectiveContent(l.preferDistilled)
+
+		// Apply mustache templating to content
+		rendered, err := l.applyTemplate(content, variables)
+		if err != nil {
+			l.warn(fmt.Sprintf("failed to apply template to %s: %v", name, err))
+			rendered = content // Fall back to unrendered content
+		}
+
+		loaded := &LoadedFragment{
+			Name:        frag.Name,
+			Version:     frag.Version,
+			Tags:        frag.Tags,
+			Content:     strings.TrimSpace(rendered),
+			IsDistilled: useDistilled,
+			DistilledBy: frag.DistilledBy,
+		}
+		result = append(result, loaded)
+	}
+
+	if l.failOnMissing && len(l.missingFragments) > 0 {
+		return nil, fmt.Errorf("fragments not found: %s", strings.Join(l.missingFragments, ", "))
+	}
+
+	return result, nil
 }

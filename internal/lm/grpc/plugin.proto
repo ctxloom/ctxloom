@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package scm.lm.plugin;
+
+option go_package = "github.com/benjaminabbitt/scm/internal/lm/grpc";
+
+// AIPlugin is the gRPC service that all AI backend plugins must implement.
+service AIPlugin {
+  // Info returns metadata about the plugin.
+  rpc Info(Empty) returns (PluginInfo);
+
+  // Run executes the AI backend with the given prompt and context.
+  // Streams output back to the caller for real-time display.
+  rpc Run(RunRequest) returns (stream RunResponse);
+}
+
+message Empty {}
+
+message PluginInfo {
+  string name = 1;
+  string version = 2;
+  repeated ExecutionMode supported_modes = 3;
+}
+
+message RunRequest {
+  RunOptions options = 1;
+  repeated Fragment fragments = 2;       // Context fragments with metadata
+  Fragment prompt = 3;                   // The user prompt as a fragment
+}
+
+// Fragment represents a context fragment or prompt with metadata.
+// All fields except content are optional - they're omitted when empty/zero.
+message Fragment {
+  string name = 1;             // Optional: fragment name (e.g., "coding-standards", "testing/tdd")
+  string version = 2;          // Optional: version string from the fragment
+  repeated string tags = 3;    // Optional: tags for categorization
+  string content = 4;          // The effective content (distilled or original)
+  bool is_distilled = 5;       // Optional: true if content is the distilled version
+  string distilled_by = 6;     // Optional: LLM that performed distillation (e.g., "claude-3-opus")
+}
+
+message RunOptions {
+  string work_dir = 1;
+  bool auto_approve = 2;
+  ExecutionMode mode = 3;
+  map<string, string> env = 4;
+  bool dry_run = 5;       // Validate without executing
+  uint32 verbosity = 6;   // 0=silent, 16=commands, 32=args, 48+=debug
+  string model = 7;       // Model to use (e.g., "opus", "gpt-4", "claude-3-sonnet")
+  float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
+  uint32 max_tokens = 9;  // Maximum response tokens (0=default)
+}
+
+enum ExecutionMode {
+  INTERACTIVE = 0;  // Full interactive session, continues after each response
+  ONESHOT = 1;      // Single prompt/response, exit after completion
+}
+
+message RunResponse {
+  oneof output {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    int32 exit_code = 3;
+  }
+  // Model info is populated at the end of the stream (with exit_code)
+  ModelInfo model_info = 4;
+}
+
+// ModelInfo contains information about the model used for the response.
+message ModelInfo {
+  string model_name = 1;     // Model name (e.g., "claude-3-opus-20240229")
+  string model_version = 2;  // Model version if available
+  string provider = 3;       // Provider (e.g., "anthropic", "openai")
+}

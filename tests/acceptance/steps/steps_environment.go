@@ -35,7 +35,7 @@ func aHomeDirectoryWithMlcmConfig() error {
   default_plugin: claude-code
 defaults:
   use_distilled: false
-personas: {}
+profiles: {}
 `
 	return TestEnv.WriteHomeFile(".scm/config.yaml", config)
 }

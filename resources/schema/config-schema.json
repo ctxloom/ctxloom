@@ -19,6 +19,14 @@
           "description": "Default LM plugin to use",
           "examples": ["claude-code", "gemini"]
         },
+        "plugin_paths": {
+          "type": "array",
+          "description": "Paths to search for external plugin binaries",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["~/.scm/plugins", ".scm/plugins"]]
+        },
         "plugins": {
           "type": "object",
           "description": "Plugin configurations keyed by name",
@@ -73,9 +81,9 @@
       "type": "object",
       "description": "Default settings applied when no explicit values are specified",
       "properties": {
-        "personas": {
+        "profiles": {
           "type": "array",
-          "description": "Default personas to load when none is specified",
+          "description": "Default profiles to load when none is specified",
           "items": {
             "type": "string",
             "minLength": 1
@@ -131,7 +139,7 @@
         "additionalProperties": false
       }
     },
-    "personas": {
+    "profiles": {
       "type": "object",
       "description": "Named collections of context fragments, variables, and generators",
       "additionalProperties": {
@@ -139,11 +147,11 @@
         "properties": {
           "description": {
             "type": "string",
-            "description": "Human-readable description of this persona"
+            "description": "Human-readable description of this profile"
           },
           "parents": {
             "type": "array",
-            "description": "Parent personas to inherit from (processed depth-first)",
+            "description": "Parent profiles to inherit from (processed depth-first)",
             "items": {
               "type": "string",
               "minLength": 1
@@ -176,7 +184,7 @@
           },
           "generators": {
             "type": "array",
-            "description": "Generators to run for this persona",
+            "description": "Generators to run for this profile",
             "items": {
               "type": "string",
               "minLength": 1

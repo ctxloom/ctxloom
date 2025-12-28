@@ -68,9 +68,9 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        lang-persona:
-          description: Language persona
+      profiles:
+        lang-profile:
+          description: Language profile
           fragments:
             - var-fragment
           variables:
@@ -80,7 +80,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run scm "run -p lang-persona --print test"
+    When I run scm "run -p lang-profile --print test"
     Then the exit code should be 0
     And the LM should have received context containing "The language is Python"
 
@@ -101,8 +101,8 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        multi-var-persona:
+      profiles:
+        multi-var-profile:
           description: Multiple variables
           fragments:
             - multi-var
@@ -115,7 +115,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run scm "run -p multi-var-persona --print test"
+    When I run scm "run -p multi-var-profile --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Project: MyApp"
     And the LM should have received context containing "Language: Go"
@@ -143,8 +143,8 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        shared-persona:
+      profiles:
+        shared-profile:
           description: Shared variables
           fragments:
             - frag-one
@@ -156,12 +156,12 @@ Feature: Context assembly
       """
       OK
       """
-    When I run scm "run -p shared-persona --print test"
+    When I run scm "run -p shared-profile --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Fragment one uses CommonValue"
     And the LM should have received context containing "Fragment two also uses CommonValue"
 
-  Scenario: Variables inherited from parent persona
+  Scenario: Variables inherited from parent profile
     Given a fragment "child-frag" in the project with content:
       """
       tags:
@@ -176,16 +176,16 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        parent-persona:
+      profiles:
+        parent-profile:
           description: Parent with variables
           fragments: []
           variables:
             inherited_var: ParentValue
-        child-persona:
+        child-profile:
           description: Child inheriting variables
           parents:
-            - parent-persona
+            - parent-profile
           fragments:
             - child-frag
       """
@@ -193,11 +193,11 @@ Feature: Context assembly
       """
       OK
       """
-    When I run scm "run -p child-persona --print test"
+    When I run scm "run -p child-profile --print test"
     Then the exit code should be 0
     And the LM should have received context containing "Using ParentValue from parent"
 
-  Scenario: Child persona overrides parent variables
+  Scenario: Child profile overrides parent variables
     Given a fragment "override-frag" in the project with content:
       """
       tags:
@@ -212,7 +212,7 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
+      profiles:
         base:
           description: Base with default
           fragments: []
@@ -287,13 +287,13 @@ Feature: Context assembly
     And the LM should have received context containing "SECOND_MARKER"
     And the LM should have received context containing "THIRD_MARKER"
 
-  Scenario: Persona fragments combined with additional fragments
-    Given a fragment "persona-frag" in the project with content:
+  Scenario: Profile fragments combined with additional fragments
+    Given a fragment "profile-frag" in the project with content:
       """
       tags:
-        - persona
+        - profile
       content: |
-        From persona.
+        From profile.
       """
     And a fragment "extra-frag" in the project with content:
       """
@@ -309,19 +309,19 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
-        base-persona:
+      profiles:
+        base-profile:
           description: Base
           fragments:
-            - persona-frag
+            - profile-frag
       """
     And the mock LM will respond with:
       """
       OK
       """
-    When I run scm "run -p base-persona -f extra-frag --print test"
+    When I run scm "run -p base-profile -f extra-frag --print test"
     Then the exit code should be 0
-    And the LM should have received context containing "From persona"
+    And the LM should have received context containing "From profile"
     And the LM should have received context containing "Extra fragment added"
 
   Scenario: Tag-selected fragments with variable substitution
@@ -347,7 +347,7 @@ Feature: Context assembly
         plugins:
           claude-code:
             binary_path: "{{MOCK_LM_PATH}}"
-      personas:
+      profiles:
         go-dev:
           description: Go developer
           tags:
@@ -382,9 +382,9 @@ Feature: Context assembly
           command: printf
           args:
             - "content: |\n  GENERATED_CONTEXT_MARKER\n"
-      personas:
-        gen-persona:
-          description: Persona with generator
+      profiles:
+        gen-profile:
+          description: Profile with generator
           fragments: []
           generators:
             - test-gen
@@ -393,7 +393,7 @@ Feature: Context assembly
       """
       OK
       """
-    When I run scm "run -p gen-persona --print test"
+    When I run scm "run -p gen-profile --print test"
     Then the exit code should be 0
     And the LM should have received context containing "GENERATED_CONTEXT_MARKER"
 
@@ -416,7 +416,7 @@ Feature: Context assembly
           command: printf
           args:
             - "content: |\n  SECOND_GEN_OUTPUT\n"
-      personas:
+      profiles:
         multi-gen:
           description: Multiple generators
           fragments: []
@@ -454,7 +454,7 @@ Feature: Context assembly
           command: printf
           args:
             - "content: |\n  DYNAMIC_GEN_CONTENT\n"
-      personas:
+      profiles:
         combined:
           description: Fragments and generators
           fragments:

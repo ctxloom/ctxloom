@@ -18,7 +18,7 @@
     },
     "tags": {
       "type": "array",
-      "description": "Categorization tags for filtering and persona assembly",
+      "description": "Categorization tags for filtering and profile assembly",
       "items": {
         "type": "string",
         "minLength": 1

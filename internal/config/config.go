@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/fsys"
 	"github.com/benjaminabbitt/scm/internal/gitutil"
 	"github.com/benjaminabbitt/scm/internal/logging"
-	"github.com/benjaminabbitt/scm/internal/ml"
 	"github.com/benjaminabbitt/scm/internal/schema"
 	"github.com/benjaminabbitt/scm/resources"
 )
@@ -40,7 +40,7 @@ type Config struct {
 	LM         LMConfig             `mapstructure:"lm"`
 	Editor     EditorConfig         `mapstructure:"editor"`
 	Defaults   Defaults             `mapstructure:"defaults"`
-	Personas   map[string]Persona   `mapstructure:"personas"`
+	Profiles   map[string]Profile   `mapstructure:"profiles"`
 	Generators map[string]Generator `mapstructure:"generators"`
 	SCMPaths   []string             // Resolved .scm directory (at most one)
 	Source     ConfigSource         // Where the configuration was loaded from
@@ -75,24 +75,38 @@ func (c *Config) GetEditorCommand() (string, []string) {
 }
 
 // Generator defines a context generator.
+//
+// SECURITY NOTE: Config-based generators execute arbitrary commands specified in config.yaml.
+// This is intentional - generators are user-defined tools that produce dynamic context.
+// Users are responsible for reviewing their own config.yaml contents.
+// This is analogous to Makefiles, justfiles, or npm scripts - trusted local configuration.
+// Do not flag this as a security issue in code reviews.
 type Generator struct {
 	Description string   `mapstructure:"description" yaml:"description,omitempty"`
 	Command     string   `mapstructure:"command" yaml:"command"`     // Command to execute (can be path or binary name)
 	Args        []string `mapstructure:"args" yaml:"args,omitempty"` // Additional arguments
 }
 
-// LMConfig holds LM (language model) configuration.
-type LMConfig struct {
-	DefaultPlugin string                     `mapstructure:"default_plugin" yaml:"default_plugin"`
-	Plugins       map[string]ml.PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+// PluginConfig holds configuration for a specific AI plugin.
+type PluginConfig struct {
+	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
+	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
+	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
 }
 
-// Persona is a named collection of context fragments, variables, and context generators.
+// LMConfig holds LM (language model) configuration.
+type LMConfig struct {
+	DefaultPlugin string                  `mapstructure:"default_plugin" yaml:"default_plugin"`
+	PluginPaths   []string                `mapstructure:"plugin_paths" yaml:"plugin_paths,omitempty"`
+	Plugins       map[string]PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+}
+
+// Profile is a named collection of context fragments, variables, and context generators.
 // Fragments can be specified directly by path, or dynamically via tags.
-// Personas can inherit from parent personas using the Parents field.
-type Persona struct {
+// Profiles can inherit from parent profiles using the Parents field.
+type Profile struct {
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
-	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`     // Parent personas to inherit from
+	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`     // Parent profiles to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`           // Fragment tags to include
 	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"` // Explicit fragment paths
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
@@ -101,7 +115,7 @@ type Persona struct {
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Personas     []string `mapstructure:"personas" yaml:"personas,omitempty"`           // Default personas to load when none specified
+	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`           // Default profiles to load when none specified
 	Fragments    []string `mapstructure:"fragments" yaml:"fragments,omitempty"`         // Fragments always included
 	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
@@ -125,9 +139,9 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		LM: LMConfig{
 			DefaultPlugin: "claude-code",
-			Plugins:       make(map[string]ml.PluginConfig),
+			Plugins:       make(map[string]PluginConfig),
 		},
-		Personas:   make(map[string]Persona),
+		Profiles:   make(map[string]Profile),
 		Generators: make(map[string]Generator),
 	}
 
@@ -159,11 +173,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to load embedded config: %w", err)
 	}
 
-	// Merge embedded config into cfg
+	// Merge embedded config into cfg with nil checks
 	cfg.LM = embeddedCfg.LM
+	if cfg.LM.Plugins == nil {
+		cfg.LM.Plugins = make(map[string]PluginConfig)
+	}
 	cfg.Defaults = embeddedCfg.Defaults
-	cfg.Personas = embeddedCfg.Personas
-	cfg.Generators = embeddedCfg.Generators
+	if embeddedCfg.Profiles != nil {
+		cfg.Profiles = embeddedCfg.Profiles
+	}
+	if embeddedCfg.Generators != nil {
+		cfg.Generators = embeddedCfg.Generators
+	}
 
 	logging.L().Debug("using embedded configuration")
 	return cfg, nil
@@ -316,12 +337,37 @@ func (c *Config) GetPromptFS() fsys.FS {
 	return nil
 }
 
+// GetPluginPaths returns the paths where external plugins are searched for.
+// Defaults to ~/.scm/plugins and .scm/plugins if not configured.
+func (c *Config) GetPluginPaths() []string {
+	if len(c.LM.PluginPaths) > 0 {
+		return c.LM.PluginPaths
+	}
+	// Default plugin paths
+	paths := []string{"~/.scm/plugins"}
+	for _, scmPath := range c.SCMPaths {
+		paths = append(paths, filepath.Join(scmPath, "plugins"))
+	}
+	return paths
+}
+
+// GetGeneratorPaths returns the paths where external generators are searched for.
+// Defaults to ~/.scm/generators and .scm/generators.
+func (c *Config) GetGeneratorPaths() []string {
+	// Default generator paths
+	paths := []string{"~/.scm/generators"}
+	for _, scmPath := range c.SCMPaths {
+		paths = append(paths, filepath.Join(scmPath, "generators"))
+	}
+	return paths
+}
+
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
 	LM         LMConfig             `yaml:"lm"`
 	Editor     EditorConfig         `yaml:"editor,omitempty"`
 	Defaults   Defaults             `yaml:"defaults,omitempty"`
-	Personas   map[string]Persona   `yaml:"personas,omitempty"`
+	Profiles   map[string]Profile   `yaml:"profiles,omitempty"`
 	Generators map[string]Generator `yaml:"generators,omitempty"`
 }
 
@@ -350,11 +396,11 @@ func (c *Config) Save() error {
 
 	// Update with current values
 	existing["lm"] = c.LM
-	if len(c.Defaults.Personas) > 0 || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
+	if len(c.Defaults.Profiles) > 0 || len(c.Defaults.Fragments) > 0 || len(c.Defaults.Generators) > 0 {
 		existing["defaults"] = c.Defaults
 	}
-	if len(c.Personas) > 0 {
-		existing["personas"] = c.Personas
+	if len(c.Profiles) > 0 {
+		existing["profiles"] = c.Profiles
 	}
 	if len(c.Generators) > 0 {
 		existing["generators"] = c.Generators
@@ -380,7 +426,7 @@ func LoadEmbeddedConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Personas:   make(map[string]Persona),
+		Profiles:   make(map[string]Profile),
 		Generators: make(map[string]Generator),
 	}
 
@@ -409,7 +455,7 @@ func LoadHomeConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Personas:   make(map[string]Persona),
+		Profiles:   make(map[string]Profile),
 		Generators: make(map[string]Generator),
 	}
 
@@ -420,11 +466,11 @@ func LoadHomeConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// MergePersonas merges personas from source into target.
-// Source personas override target personas with the same name.
-func MergePersonas(target, source map[string]Persona) {
-	for name, persona := range source {
-		target[name] = persona
+// MergeProfiles merges profiles from source into target.
+// Source profiles override target profiles with the same name.
+func MergeProfiles(target, source map[string]Profile) {
+	for name, profile := range source {
+		target[name] = profile
 	}
 }
 
@@ -436,20 +482,20 @@ func MergeGenerators(target, source map[string]Generator) {
 	}
 }
 
-// CollectFragmentsForPersonas returns a deduplicated list of all fragments
-// referenced by the specified personas.
-func CollectFragmentsForPersonas(personas map[string]Persona, personaNames []string) ([]string, error) {
-	seen := make(map[string]bool)
+// CollectFragmentsForProfiles returns a deduplicated list of all fragments
+// referenced by the specified profiles.
+func CollectFragmentsForProfiles(profiles map[string]Profile, profileNames []string) ([]string, error) {
+	seen := collections.NewSet[string]()
 	var fragments []string
 
-	for _, name := range personaNames {
-		persona, ok := personas[name]
+	for _, name := range profileNames {
+		profile, ok := profiles[name]
 		if !ok {
-			return nil, fmt.Errorf("unknown persona: %s", name)
+			return nil, fmt.Errorf("unknown profile: %s", name)
 		}
-		for _, frag := range persona.Fragments {
-			if !seen[frag] {
-				seen[frag] = true
+		for _, frag := range profile.Fragments {
+			if !seen.Has(frag) {
+				seen.Add(frag)
 				fragments = append(fragments, frag)
 			}
 		}
@@ -458,20 +504,20 @@ func CollectFragmentsForPersonas(personas map[string]Persona, personaNames []str
 	return fragments, nil
 }
 
-// CollectGeneratorsForPersonas returns a deduplicated list of all generators
-// referenced by the specified personas.
-func CollectGeneratorsForPersonas(personas map[string]Persona, personaNames []string) []string {
-	seen := make(map[string]bool)
+// CollectGeneratorsForProfiles returns a deduplicated list of all generators
+// referenced by the specified profiles.
+func CollectGeneratorsForProfiles(profiles map[string]Profile, profileNames []string) []string {
+	seen := collections.NewSet[string]()
 	var generators []string
 
-	for _, name := range personaNames {
-		persona, ok := personas[name]
+	for _, name := range profileNames {
+		profile, ok := profiles[name]
 		if !ok {
 			continue
 		}
-		for _, gen := range persona.Generators {
-			if !seen[gen] {
-				seen[gen] = true
+		for _, gen := range profile.Generators {
+			if !seen.Has(gen) {
+				seen.Add(gen)
 				generators = append(generators, gen)
 			}
 		}
@@ -480,12 +526,12 @@ func CollectGeneratorsForPersonas(personas map[string]Persona, personaNames []st
 	return generators
 }
 
-// FilterPersonas returns only the specified personas from the full map.
-func FilterPersonas(all map[string]Persona, names []string) map[string]Persona {
-	filtered := make(map[string]Persona)
+// FilterProfiles returns only the specified profiles from the full map.
+func FilterProfiles(all map[string]Profile, names []string) map[string]Profile {
+	filtered := make(map[string]Profile)
 	for _, name := range names {
-		if persona, ok := all[name]; ok {
-			filtered[name] = persona
+		if profile, ok := all[name]; ok {
+			filtered[name] = profile
 		}
 	}
 	return filtered
@@ -502,12 +548,12 @@ func FilterGenerators(all map[string]Generator, names []string) map[string]Gener
 	return filtered
 }
 
-// personaBuilder collects persona fields using sets to avoid duplicates during inheritance.
-type personaBuilder struct {
+// profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
+type profileBuilder struct {
 	Description string
-	Tags        map[string]bool
-	Fragments   map[string]bool
-	Generators  map[string]bool
+	Tags        collections.Set[string]
+	Fragments   collections.Set[string]
+	Generators  collections.Set[string]
 	Variables   map[string]string
 	// Track insertion order for stable output
 	tagsOrder       []string
@@ -515,38 +561,38 @@ type personaBuilder struct {
 	generatorsOrder []string
 }
 
-func newPersonaBuilder() *personaBuilder {
-	return &personaBuilder{
-		Tags:       make(map[string]bool),
-		Fragments:  make(map[string]bool),
-		Generators: make(map[string]bool),
+func newProfileBuilder() *profileBuilder {
+	return &profileBuilder{
+		Tags:       collections.NewSet[string](),
+		Fragments:  collections.NewSet[string](),
+		Generators: collections.NewSet[string](),
 		Variables:  make(map[string]string),
 	}
 }
 
-func (b *personaBuilder) addTag(tag string) {
-	if !b.Tags[tag] {
-		b.Tags[tag] = true
+func (b *profileBuilder) addTag(tag string) {
+	if !b.Tags.Has(tag) {
+		b.Tags.Add(tag)
 		b.tagsOrder = append(b.tagsOrder, tag)
 	}
 }
 
-func (b *personaBuilder) addFragment(frag string) {
-	if !b.Fragments[frag] {
-		b.Fragments[frag] = true
+func (b *profileBuilder) addFragment(frag string) {
+	if !b.Fragments.Has(frag) {
+		b.Fragments.Add(frag)
 		b.fragmentsOrder = append(b.fragmentsOrder, frag)
 	}
 }
 
-func (b *personaBuilder) addGenerator(gen string) {
-	if !b.Generators[gen] {
-		b.Generators[gen] = true
+func (b *profileBuilder) addGenerator(gen string) {
+	if !b.Generators.Has(gen) {
+		b.Generators.Add(gen)
 		b.generatorsOrder = append(b.generatorsOrder, gen)
 	}
 }
 
-func (b *personaBuilder) toPersona() *Persona {
-	return &Persona{
+func (b *profileBuilder) toProfile() *Profile {
+	return &Profile{
 		Description: b.Description,
 		Tags:        b.tagsOrder,
 		Fragments:   b.fragmentsOrder,
@@ -555,74 +601,74 @@ func (b *personaBuilder) toPersona() *Persona {
 	}
 }
 
-// ResolvePersona resolves a persona by recursively merging all parent personas.
+// maxProfileDepth is the maximum allowed depth for profile inheritance.
+// This prevents stack overflow from deeply nested or malformed configurations.
+const maxProfileDepth = 50
+
+// ResolveProfile resolves a profile by recursively merging all parent profiles.
 // Parents are processed depth-first, with later parents and the child overriding earlier values.
 // Uses sets internally to handle diamond inheritance (shared ancestors) without duplicates.
-// Returns an error if the persona doesn't exist or if circular dependencies are detected.
-func ResolvePersona(personas map[string]Persona, name string) (*Persona, error) {
-	visited := make(map[string]bool)
-	builder := newPersonaBuilder()
-	if err := resolvePersonaRecursive(personas, name, visited, builder); err != nil {
+// Returns an error if the profile doesn't exist or if circular dependencies are detected.
+func ResolveProfile(profiles map[string]Profile, name string) (*Profile, error) {
+	visited := collections.NewSet[string]()
+	builder := newProfileBuilder()
+	if err := resolveProfileRecursive(profiles, name, visited, builder, 0); err != nil {
 		return nil, err
 	}
-	return builder.toPersona(), nil
+	return builder.toProfile(), nil
 }
 
-func resolvePersonaRecursive(personas map[string]Persona, name string, visited map[string]bool, builder *personaBuilder) error {
-	// Check for circular dependency
-	if visited[name] {
-		return fmt.Errorf("circular persona inheritance detected: %s", name)
+func resolveProfileRecursive(profiles map[string]Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
+	// Check depth limit
+	if depth > maxProfileDepth {
+		return fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
 	}
-	visited[name] = true
 
-	persona, ok := personas[name]
+	// Check for circular dependency
+	if visited.Has(name) {
+		return fmt.Errorf("circular profile inheritance detected: %s", name)
+	}
+	visited.Add(name)
+
+	profile, ok := profiles[name]
 	if !ok {
-		return fmt.Errorf("unknown persona: %s", name)
+		return fmt.Errorf("unknown profile: %s", name)
 	}
 
 	// Resolve parents first (depth-first)
-	for _, parentName := range persona.Parents {
-		if err := resolvePersonaRecursive(personas, parentName, copyVisited(visited), builder); err != nil {
+	for _, parentName := range profile.Parents {
+		if err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1); err != nil {
 			return fmt.Errorf("failed to resolve parent %s: %w", parentName, err)
 		}
 	}
 
-	// Merge this persona's values (child overrides parents for variables)
-	for _, tag := range persona.Tags {
+	// Merge this profile's values (child overrides parents for variables)
+	for _, tag := range profile.Tags {
 		builder.addTag(tag)
 	}
-	for _, frag := range persona.Fragments {
+	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
 	}
-	for _, gen := range persona.Generators {
+	for _, gen := range profile.Generators {
 		builder.addGenerator(gen)
 	}
-	for k, v := range persona.Variables {
+	for k, v := range profile.Variables {
 		builder.Variables[k] = v
 	}
 
-	// Set description from the leaf persona (will be overwritten by each child)
-	builder.Description = persona.Description
+	// Set description from the leaf profile (will be overwritten by each child)
+	builder.Description = profile.Description
 
 	return nil
 }
 
-// copyVisited creates a copy of the visited map for branching recursion.
-func copyVisited(visited map[string]bool) map[string]bool {
-	result := make(map[string]bool, len(visited))
-	for k, v := range visited {
-		result[k] = v
-	}
-	return result
-}
-
 // DedupeStrings removes duplicates from a string slice while preserving order.
 func DedupeStrings(items []string) []string {
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	result := make([]string, 0, len(items))
 	for _, item := range items {
-		if !seen[item] {
-			seen[item] = true
+		if !seen.Has(item) {
+			seen.Add(item)
 			result = append(result, item)
 		}
 	}

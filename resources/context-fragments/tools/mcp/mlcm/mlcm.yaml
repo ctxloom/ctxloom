@@ -1,4 +1,4 @@
-version: "1.0"
+version: 1.0
 tags:
     - mcp
     - context
@@ -12,21 +12,21 @@ content: |-
 
     - `list_fragments`: List available fragments with tags
     - `get_fragment`: Get fragment content by name
-    - `list_personas`: List configured personas
-    - `get_persona`: Get persona configuration
-    - `set_persona`: Set default persona for session
-    - `assemble_context`: Combine fragments/personas into context
+    - `list_profiles`: List configured profiles
+    - `get_profile`: Get profile configuration
+    - `set_profile`: Set default profile for session
+    - `assemble_context`: Combine fragments/profiles into context
     - `list_prompts`: List saved prompts
     - `get_prompt`: Get prompt content by name
 
     ## Key Concepts
 
     **Fragments**: Reusable context snippets (coding standards, language patterns, security guidelines)
-    - Organized by category: general/, lang/, patterns/, personas/
+    - Organized by category: general/, lang/, patterns/, profiles/
     - Tagged for filtering (e.g., golang, security, review)
     - Support {{variables}} via Mustache templating
 
-    **Personas**: Named fragment collections for common workflows
+    **Profiles**: Named fragment collections for common workflows
     - `developer`: Full dev context (TDD, code-quality, security)
     - `go-developer`, `python-developer`, etc.: Language-specific
     - `reviewer`: Multi-perspective code review
@@ -38,22 +38,22 @@ content: |-
 
     ## Common MCP Workflows
 
-    **Switching personas mid-session**: Use `set_persona` to change the default, then `assemble_context` to get the new context.
+    **Switching profiles mid-session**: Use `set_profile` to change the default, then `assemble_context` to get the new context.
 
     ```
     # User wants to switch from development to code review
-    set_persona(name="reviewer")
+    set_profile(name="reviewer")
     assemble_context()  # Returns reviewer context
     ```
 
-    **Adding fragments to current context**: Call `assemble_context` with additional fragments alongside the current persona.
+    **Adding fragments to current context**: Call `assemble_context` with additional fragments alongside the current profile.
 
     ```
-    # Add security focus to current persona
-    assemble_context(persona="go-developer", fragments=["security"])
+    # Add security focus to current profile
+    assemble_context(profile="go-developer", fragments=["security"])
 
     # Layer on specific patterns
-    assemble_context(persona="developer", fragments=["patterns/cqrs", "patterns/event-sourcing"])
+    assemble_context(profile="developer", fragments=["patterns/cqrs", "patterns/event-sourcing"])
     ```
 
     **Exploring available context**: List what's available before assembling.
@@ -65,11 +65,11 @@ content: |-
     # Filter by tag
     list_fragments(tags=["golang"])
 
-    # Check persona contents
-    get_persona(name="reviewer")
+    # Check profile contents
+    get_profile(name="reviewer")
     ```
 
-    **Ad-hoc context assembly**: Skip personas entirely, pick specific fragments.
+    **Ad-hoc context assembly**: Skip profiles entirely, pick specific fragments.
 
     ```
     # Just security and Go guidance
@@ -89,53 +89,55 @@ content: |-
     content: |
       Your context here. Use {{project_name}} for variables.
     ```
-content_hash: sha256:c3428fa5c36224bbc36b5e3c3ea6d78fa4f4d57b8c9ff4b2560242cb8a466a5f
+content_hash: sha256:93b054d38d2427657cb932431049d911e2dbadc54c528fd5a13c53415cb98608
 distilled: |-
-    # MLCM - Machine Learning Context Manager
+    # MLCM - ML Context Manager
 
     MCP server for reusable AI context fragments.
 
-    ## MCP Tools
+    ## Tools
     - `list_fragments`: List fragments w/ tags
     - `get_fragment`: Get fragment by name
-    - `list_personas`: List personas
-    - `get_persona`: Get persona config
-    - `set_persona`: Set session default persona
-    - `assemble_context`: Combine fragments/personas
-    - `list_prompts`/`get_prompt`: Manage saved prompts
+    - `list_profiles`: List profiles
+    - `get_profile`: Get profile config
+    - `set_profile`: Set session default profile
+    - `assemble_context`: Combine fragments/profiles
+    - `list_prompts`/`get_prompt`: Manage prompts
 
     ## Concepts
 
-    **Fragments**: Reusable context snippets
-    - Categories: general/, lang/, patterns/, personas/
+    **Fragments**: Reusable context snippets (standards, patterns, guidelines)
+    - Categories: general/, lang/, patterns/, profiles/
     - Tagged for filtering
-    - {{variables}} via Mustache
+    - Support {{variables}} via Mustache
 
-    **Personas**: Named fragment collections
-    - `developer`: Full dev (TDD, quality, security)
-    - `go-developer`, `python-developer`: Lang-specific
+    **Profiles**: Named fragment collections
+    - `developer`: Full dev context
+    - `go-developer`, `python-developer`: Language-specific
     - `reviewer`: Multi-perspective review
     - `prototype`: Rapid prototyping
 
     **Distillation**: Token-optimized versions
-    - `no_distill: true` skips compression
-    - Falls back to full if no distilled version
+    - `no_distill: true` prevents compression
+    - Falls back to full content if none
 
     ## Workflows
 
     ```
-    # Switch persona mid-session
-    set_persona(name="reviewer")
+    # Switch profile mid-session
+    set_profile(name="reviewer")
     assemble_context()
 
-    # Add fragments to persona
-    assemble_context(persona="go-developer", fragments=["security"])
+    # Add fragments to profile
+    assemble_context(profile="go-developer", fragments=["security"])
+    assemble_context(profile="developer", fragments=["patterns/cqrs"])
 
     # Explore available context
+    list_fragments()
     list_fragments(tags=["golang"])
-    get_persona(name="reviewer")
+    get_profile(name="reviewer")
 
-    # Ad-hoc assembly (no persona)
+    # Ad-hoc assembly (no profile)
     assemble_context(fragments=["security", "lang/golang/golang"])
     assemble_context(tags=["review"])
     ```
@@ -147,6 +149,6 @@ distilled: |-
     variables: [project_name]
     no_distill: true  # Optional
     content: |
-      Context here. Use {{project_name}}.
+      Context here. Use {{project_name}} for vars.
     ```
 distilled_by: claude-code

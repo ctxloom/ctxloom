@@ -13,8 +13,8 @@ validate:
 distill-resources:
     go run . distill --resources
 
-# Build all binaries (main app + generators)
-build: validate distill-resources build-scm build-generators
+# Build all binaries (main app + generators + plugins)
+build: validate distill-resources proto build-scm build-generators
 
 # Build the main binary
 build-scm:
@@ -26,6 +26,31 @@ build-generators: build-simple
 # Build simple wrapper generator
 build-simple:
     go build -o bin/scm-gen-simple ./cmd/generators/simple
+
+# ===== Plugin targets =====
+
+# Generate protobuf code
+proto:
+    protoc --go_out=. --go_opt=paths=source_relative \
+           --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+           internal/lm/grpc/plugin.proto
+
+# Check protoc is installed
+proto-check:
+    @which protoc > /dev/null || (echo "protoc not installed. Install with: brew install protobuf" && exit 1)
+    @which protoc-gen-go > /dev/null || (echo "protoc-gen-go not installed. Install with: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest" && exit 1)
+    @which protoc-gen-go-grpc > /dev/null || (echo "protoc-gen-go-grpc not installed. Install with: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest" && exit 1)
+
+# Install protobuf tools
+proto-tools:
+    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# List available plugins
+plugin-list:
+    ./scm plugin list
+
+# ===== End plugin targets =====
 
 # Build with verbose output
 build-verbose:
@@ -95,15 +120,31 @@ install: build-static
     cp scm ~/.local/bin/
     cp bin/scm-gen-* ~/.local/bin/
 
+# Build compressed and install to ~/.local/bin
+install-compressed: build-compressed
+    mkdir -p ~/.local/bin
+    -pkill -x scm && sleep 0.5
+    cp scm ~/.local/bin/
+    cp bin/scm-gen-* ~/.local/bin/
+
 # Uninstall from ~/.local/bin
 uninstall:
     rm -f ~/.local/bin/scm
     rm -f ~/.local/bin/scm-gen-*
 
 # Build static binaries
-build-static: validate distill-resources
+build-static: validate distill-resources proto
     CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
     CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
+
+# Compress binaries with UPX (requires upx installed)
+compress:
+    @which upx > /dev/null || (echo "upx not installed. Install with: brew install upx (macOS) or apt install upx (Linux)" && exit 1)
+    upx --best --lzma scm
+    upx --best --lzma bin/scm-gen-simple
+
+# Build static binaries with UPX compression
+build-compressed: build-static compress
 
 # Show help
 help:
@@ -125,7 +166,7 @@ gemini *ARGS:
 claude *ARGS:
     ./scm -P claude-code {{ARGS}}
 
-# Code review with reviewer persona
+# Code review with reviewer profile
 review *ARGS:
     ./scm -p reviewer -r code-review {{ARGS}}
 

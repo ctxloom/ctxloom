@@ -290,7 +290,7 @@ Feature: Copy fragments and prompts
       content: |
         This is my prompt template.
       """
-    When I run scm "copy h p -p my-prompt"
+    When I run scm "copy h p -r my-prompt"
     Then the exit code should be 0
     And the file ".scm/prompts/my-prompt.yaml" should exist
     And the file ".scm/prompts/my-prompt.yaml" should contain "This is my prompt template"
@@ -302,7 +302,7 @@ Feature: Copy fragments and prompts
       content: |
         Project-specific prompt content.
       """
-    When I run scm "copy p h -p project-prompt"
+    When I run scm "copy p h -r project-prompt"
     Then the exit code should be 0
     And the home file ".scm/prompts/project-prompt.yaml" should exist
     And the home file ".scm/prompts/project-prompt.yaml" should contain "Project-specific prompt content"
@@ -320,7 +320,7 @@ Feature: Copy fragments and prompts
       content: |
         Content B.
       """
-    When I run scm "copy h p -p prompt-a -p prompt-b"
+    When I run scm "copy h p -r prompt-a -r prompt-b"
     Then the exit code should be 0
     And the file ".scm/prompts/prompt-a.yaml" should exist
     And the file ".scm/prompts/prompt-b.yaml" should exist
@@ -472,6 +472,100 @@ Feature: Copy fragments and prompts
     And the file ".scm/context-fragments/new-frag.yaml" should exist
     And the file ".scm/context-fragments/existing-frag.yaml" should not exist
     And the output should contain "Clearing"
+
+  # ============================================================================
+  # Filter Isolation (flags should not cross-copy)
+  # ============================================================================
+
+  Scenario: Copy with -r only copies prompts not fragments
+    Given a fragment "isolated-frag" in home with content:
+      """
+      tags:
+        - isolated
+      content: |
+        Fragment that should not be copied.
+      """
+    And a prompt "isolated-prompt" in home with content:
+      """
+      description: Isolated prompt
+      content: |
+        Prompt content.
+      """
+    When I run scm "copy h p -r isolated-prompt"
+    Then the exit code should be 0
+    And the file ".scm/prompts/isolated-prompt.yaml" should exist
+    And the file ".scm/context-fragments/isolated-frag.yaml" should not exist
+    And the output should contain "prompts"
+    And the output should not contain "Copying fragments"
+
+  Scenario: Copy with -f only copies fragments not prompts
+    Given a fragment "frag-only" in home with content:
+      """
+      tags:
+        - fragonly
+      content: |
+        Fragment content.
+      """
+    And a prompt "prompt-untouched" in home with content:
+      """
+      description: Untouched prompt
+      content: |
+        Prompt content.
+      """
+    When I run scm "copy h p -f frag-only"
+    Then the exit code should be 0
+    And the file ".scm/context-fragments/frag-only.yaml" should exist
+    And the file ".scm/prompts/prompt-untouched.yaml" should not exist
+    And the output should contain "fragments"
+    And the output should not contain "Copying prompts"
+
+  Scenario: Copy with -t only copies fragments not prompts
+    Given a fragment "tagged-frag" in home with content:
+      """
+      tags:
+        - tagonly
+      content: |
+        Tagged fragment content.
+      """
+    And a prompt "prompt-ignored" in home with content:
+      """
+      description: Ignored prompt
+      content: |
+        Prompt content.
+      """
+    When I run scm "copy h p -t tagonly"
+    Then the exit code should be 0
+    And the file ".scm/context-fragments/tagged-frag.yaml" should exist
+    And the file ".scm/prompts/prompt-ignored.yaml" should not exist
+    And the output should not contain "Copying prompts"
+
+  Scenario: Copy with -p only copies profile fragments not prompts
+    Given a fragment "profile-frag" in home with content:
+      """
+      tags:
+        - profiletest
+      content: |
+        Profile fragment content.
+      """
+    And a prompt "profile-prompt-ignored" in home with content:
+      """
+      description: Ignored prompt
+      content: |
+        Prompt content.
+      """
+    And a home config file with:
+      """
+      profiles:
+        filter-test:
+          description: Filter test profile
+          fragments:
+            - profile-frag
+      """
+    When I run scm "copy h p -p filter-test"
+    Then the exit code should be 0
+    And the file ".scm/context-fragments/profile-frag.yaml" should exist
+    And the file ".scm/prompts/profile-prompt-ignored.yaml" should not exist
+    And the output should not contain "Copying prompts"
 
   # ============================================================================
   # Arbitrary Path Destination

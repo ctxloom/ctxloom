@@ -42,106 +42,28 @@ content: |-
     Good patterns worth noting.
 content_hash: sha256:85ec39503cd67964d4fa0af8b26b9fbb342be1f543ee893603a432ea840d16af
 distilled: |-
-    ## Summary
+    # Code Review
 
-    This changeset updates CI/CD workflows to use Go 1.23 (from a non-existent Go 1.25), updates go.mod to Go 1.24.0, adds distilled content to several YAML context fragments (profiles and tools), removes fragment references from code review prompts, and normalizes YAML version formatting.
+    Comprehensive review using multiple perspectives.
 
-    ---
+    ## Perspectives
+    - **Architecture** - Structure, boundaries, testability, tech debt
+    - **Performance** - Algorithms, data structures, complexity
+    - **Standards** - Readability, naming, docs, patterns
+    - **Concurrency** - Thread safety, races, sync (if applicable)
+    - **Domain** - Business logic, domain model (if applicable)
 
-    ## Critical Issues
+    ## Process
+    1. Understand code purpose
+    2. Apply each perspective
+    3. Categorize by severity
+    4. Include file:line refs
+    5. Note positive patterns
 
-    ### 1. Go Version Mismatch - CI vs go.mod (`go.mod:3`, `ci.yml:14,49,66`, `release.yml:16`)
-
-    The CI workflows now correctly use `golang:1.23`, but `go.mod` specifies `go 1.24.0` which doesn't exist yet (Go releases are at 1.23.x as of late 2024). This will cause build failures.
-
-    ```diff
-    # go.mod:3
-    -go 1.25
-    +go 1.24.0  # Should be: go 1.23
-    ```
-
-    **Fix:** Change `go.mod` to `go 1.23` to match the CI container images.
-
-    ---
-
-    ## Medium Issues
-
-    ### 1. Distilled Content Contains LLM Preamble (`resources/context-fragments/profiles/performance.yaml:62-66`)
-
-    The distilled content for the performance profile includes conversational text and extra markdown fencing that defeats the purpose of distillation:
-
-    ```yaml
-    distilled: |-
-        Here's the compressed version:
-
-        ```markdown
-        # Performance & Algorithms Review
-    ```
-
-    This should be stripped. The distillation function or prompt should be adjusted to prevent this.
-
-    ### 2. Broken Distilled Content - Not Actually Distilled (`resources/context-fragments/tools/mcp/sequential-thinking/sequential-thinking.yaml:57-67`)
-
-    The "distilled" content is a conversational response asking the user what they want, not a compressed version of the documentation:
-
-    ```yaml
-    distilled: |-
-        I understand you're sharing documentation about the Sequential Thinking MCP Server...
-        Is there something specific you'd like me to do with this?
-    ```
-
-    This is clearly a bug in the distillation process where the LLM misunderstood its task.
-
-    ### 3. Fragment References Removed Without Clear Reason (`resources/prompts/code-review.yaml:5-10`, `resources/prompts/code-review-recent.yaml:7-12`)
-
-    Both code review prompts had their `fragments:` section removed:
-
-    ```yaml
-    # Removed from both files:
-    fragments:
-        - profiles/architect
-        - profiles/performance
-        - profiles/standards
-        - profiles/concurrency
-        - profiles/domain-expert
-    ```
-
-    If these fragments are meant to be assembled separately, this may be intentional, but it's a significant behavior change that should be documented.
-
-    ---
-
-    ## Minor Issues
-
-    ### 1. Inconsistent YAML Version Formatting
-
-    Some files use quoted `version: "1.0"` while others use unquoted `version: 1.0`. The diff shows normalization to unquoted format, but `code-review.yaml` still uses the quoted format:
-
-    - `code-review.yaml:1` - `version: "1.0"` (quoted, unchanged)
-    - All other files changed to `version: 1.0` (unquoted)
-
-    ### 2. Distilled Content for code-review-recent.yaml Contains Review of Previous Commit (`resources/prompts/code-review-recent.yaml:41-121`)
-
-    The distilled content appears to be a code review of a *previous* commit, not a compressed version of the prompt template. It references:
-    - "This commit adds CI/CD infrastructure..."
-    - "Module path migration from `mlcm` to `github.com/benjaminabbitt/mlcm`"
-
-    This is stale data that should be removed or regenerated.
-
-    ### 3. Inconsistent Indentation Style in YAML (`resources/context-fragments/tools/cli/ast-grep/ast-grep.yaml`)
-
-    The file changed from 2-space indentation with `content: |` to 4-space indentation with `content: |-`. While functionally equivalent, this creates a large diff for a formatting-only change in the content section.
-
-    ---
-
-    ## Positive Observations
-
-    1. **Correct CI version downgrade** - Fixing the Go version from non-existent 1.25 to 1.23 in all workflow files is the right approach.
-
-    2. **Consistent version formatting normalization** - Standardizing on `version: 1.0` without quotes is cleaner YAML.
-
-    3. **Good distilled content for standards.yaml** - The distilled version (`resources/context-fragments/profiles/standards.yaml:67-118`) is well-compressed while preserving all key review criteria.
-
-    4. **Good distilled content for domain-expert.yaml** - Similarly well-compressed (`resources/context-fragments/profiles/domain-expert.yaml:48-85`), maintaining all checklist items in a more concise format.
-
-    5. **Good distilled content for ast-grep.yaml** - The distilled version preserves all commands and pattern syntax in a compact, usable format.
+    ## Output
+    - **Summary** - What code does
+    - **Critical** - Must fix before merge
+    - **Medium** - Should address, non-blocking
+    - **Minor** - Style/small improvements
+    - **Positive** - Good patterns to maintain
 distilled_by: claude-code

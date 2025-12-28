@@ -263,7 +263,7 @@ Feature: Distill command
   # Filter Isolation (flags should not cross-distill)
   # ============================================================================
 
-  Scenario: Distill with -P only distills prompts not fragments
+  Scenario: Distill with -r only distills prompts not fragments
     Given a fragment "isolated-frag" in the project with content:
       """
       tags:

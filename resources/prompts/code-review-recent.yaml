@@ -38,85 +38,25 @@ content: |-
     Good patterns worth noting.
 content_hash: sha256:31155d953aff0925e33805eb1f02c563d6f90d76b6a6cf120cb7fd7398fab21a
 distilled: |-
-    ## Summary
+    # Code Review - Recent Changes
 
-    This commit adds CI/CD infrastructure (GitHub Actions workflows, GoReleaser config), migrates the Go module path from `mlcm` to `github.com/benjaminabbitt/mlcm`, removes the `git-context` generator, adds new reviewer profiles (performance, standards, domain-expert), and refactors the code review prompts to be structured templates.
+    Review changes since last commit.
 
-    ---
+    ## Steps
 
-    ## Critical Issues
+    1. **Examine**: `git diff HEAD~1` (or `git diff --staged` for uncommitted)
 
-    **None identified.** The changes are well-structured and the module path migration is complete.
+    2. **Review Perspectives**:
+       - Architecture: structure, boundaries, testability, tech debt
+       - Performance: algorithms, data structures, complexity
+       - Standards: readability, naming, docs, patterns
+       - Concurrency: thread safety, races, sync (if applicable)
+       - Domain: business logic, domain model (if applicable)
 
-    ---
-
-    ## Medium Issues
-
-    ### 1. Go Version Mismatch (`go.mod:3`)
-    ```diff
-    -go 1.25
-    +go 1.24.0
-    ```
-    Go 1.24 doesn't exist yet (as of late 2024). This should likely be `go 1.23` to match the CI workflow container image `golang:1.23`.
-
-    ### 2. Distilled Content Contains Redundant Preamble (`resources/context-fragments/profiles/performance.yaml:60-63`)
-    ```yaml
-    distilled: |-
-        Here's the compressed version:
-
-        ```markdown
-    ```
-    The distilled content includes the LLM's conversational preamble "Here's the compressed version:" and extra markdown fencing. This defeats the purpose of distillation - the `stripDistillPreamble` function should have caught this, or the distillation prompt needs adjustment.
-
-    ### 3. Missing Test Updates for Removed Generator
-    The `git-context` generator was removed but I didn't see corresponding test updates. While acceptance tests were updated for profile changes, any unit tests that referenced `git-context` or `mlcm-gen-git-context` should be verified as removed.
-
-    ---
-
-    ## Minor Issues
-
-    ### 1. Inconsistent File Organization for Profiles
-    Some profile YAML files are in subdirectories (`architect/architect.yaml`) while others are flat (`performance.yaml`). This commit partially flattens the structure but leaves inconsistency:
-    - Flattened: `architect.yaml`, `concurrency.yaml`, `domain-expert.yaml`
-    - New flat files: `performance.yaml`, `standards.yaml`
-
-    Consider completing the flattening or documenting the intended structure.
-
-    ### 2. Orphaned Markdown File Deletion (`resources/context-fragments/profiles/concurrency/concurrency.md`)
-    The `concurrency.md` file is deleted but no explanation is given. This appears intentional (the YAML file now contains all content), but the `junior-dev/junior-dev.yaml` is also deleted—was this intentional or should there be a replacement?
-
-    ### 3. Versionator Dependency in Release Workflow (`release.yml:32-33`)
-    ```yaml
-    - name: Install versionator
-      run: |
-        curl -sSL https://github.com/benjaminabbitt/versionator/releases/latest/download/versionator_linux_amd64.tar.gz | tar xz -C /usr/local/bin
-    ```
-    This downloads from the author's own repo but doesn't pin a version. Consider pinning to a specific release or verifying the checksum for reproducible builds.
-
-    ### 4. Homebrew Token Environment Variable (`release.yml:48`)
-    ```yaml
-    HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-    ```
-    This requires a separate secret. If it's not configured, the release will fail silently or with a confusing error. Consider adding a workflow check or documentation.
-
-    ### 5. Code Review Prompts Lost Previous Distilled Content
-    The `code-review.yaml` and `code-review-recent.yaml` files had detailed `distilled:` and `distilled_by:` fields removed. These contained valuable compressed review checklists. Was this intentional, or should the new templates also be distilled?
-
-    ---
-
-    ## Positive Observations
-
-    1. **Complete module path migration** - All 20+ files updated consistently from `mlcm` to `github.com/benjaminabbitt/mlcm`
-
-    2. **Well-structured CI pipeline** - Parallel jobs for test/lint, then sequential build-and-acceptance. Good use of caching and artifact upload.
-
-    3. **Comprehensive GoReleaser config** - Multi-platform builds, checksums, changelog filtering, Homebrew tap integration all properly configured.
-
-    4. **New reviewer profiles are well-designed** - The performance, standards, and domain-expert profiles provide clear review checklists with good questions.
-
-    5. **Domain-expert profile improvement** - Added guidance to read feature files and documentation before reviewing, which is a practical improvement.
-
-    6. **Clean removal of git-context generator** - All references removed from config, justfile, README, and profile definitions consistently.
-
-    7. **Code review prompts simplified** - Now template-based rather than containing stale distilled output, which makes them more maintainable.
+    3. **Report**:
+       - Summary: what changes accomplish
+       - Critical: must fix before merge
+       - Medium: should address, non-blocking
+       - Minor: style/small improvements
+       - Positives: good patterns worth noting
 distilled_by: claude-code

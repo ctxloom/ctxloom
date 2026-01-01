@@ -41,6 +41,15 @@ func (b *Codex) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.W
 		opts = &pb.RunOptions{}
 	}
 
+	// Write context files (.scp.context.md and update CODEX.md)
+	workDir := opts.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+	if err := WriteContextFiles(b.Name(), workDir, req.Fragments); err != nil {
+		fmt.Fprintf(stderr, "warning: failed to write context files: %v\n", err)
+	}
+
 	// Determine if quiet mode (for non-interactive)
 	quiet := opts.Mode == pb.ExecutionMode_ONESHOT
 	args := b.buildArgs(req, quiet)

@@ -1,0 +1,191 @@
+package backends
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
+)
+
+const (
+	// SCMContextFile is the file where assembled context is written
+	SCMContextFile = ".scp.context.md"
+
+	// Section markers for managed content in primary context files
+	scmSectionBegin = "<!-- SCM:BEGIN -->"
+	scmSectionEnd   = "<!-- SCM:END -->"
+)
+
+// ContextFileConfig holds the configuration for context file writing
+type ContextFileConfig struct {
+	// PrimaryFile is the main context file for this backend (e.g., "CLAUDE.md")
+	PrimaryFile string
+	// SupportsInclude indicates if the AI tool supports @file include syntax
+	SupportsInclude bool
+}
+
+// GetContextFileConfig returns the context file configuration for a backend
+func GetContextFileConfig(backendName string) ContextFileConfig {
+	switch backendName {
+	case "claude-code":
+		return ContextFileConfig{
+			PrimaryFile:     "CLAUDE.md",
+			SupportsInclude: true, // Claude Code supports @file references
+		}
+	case "gemini":
+		return ContextFileConfig{
+			PrimaryFile:     "GEMINI.md",
+			SupportsInclude: false,
+		}
+	case "codex":
+		return ContextFileConfig{
+			PrimaryFile:     "CODEX.md",
+			SupportsInclude: false,
+		}
+	case "aider":
+		return ContextFileConfig{
+			PrimaryFile:     "AIDER.md",
+			SupportsInclude: false,
+		}
+	case "cline":
+		return ContextFileConfig{
+			PrimaryFile:     "CLINE.md",
+			SupportsInclude: false,
+		}
+	case "goose":
+		return ContextFileConfig{
+			PrimaryFile:     "GOOSE.md",
+			SupportsInclude: false,
+		}
+	case "q":
+		return ContextFileConfig{
+			PrimaryFile:     "Q.md",
+			SupportsInclude: false,
+		}
+	default:
+		return ContextFileConfig{
+			PrimaryFile:     fmt.Sprintf("%s.md", strings.ToUpper(backendName)),
+			SupportsInclude: false,
+		}
+	}
+}
+
+// WriteContextFiles writes the assembled context to .scp.context.md and updates
+// the primary context file (e.g., CLAUDE.md) with a reference to it.
+// workDir is the directory where files should be written.
+func WriteContextFiles(backendName, workDir string, fragments []*pb.Fragment) error {
+	if len(fragments) == 0 {
+		return nil
+	}
+
+	config := GetContextFileConfig(backendName)
+
+	// Assemble the context content
+	var parts []string
+	for _, f := range fragments {
+		if f.Content == "" {
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(f.Content))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	contextContent := strings.Join(parts, "\n\n---\n\n")
+
+	// Write .scp.context.md
+	contextPath := filepath.Join(workDir, SCMContextFile)
+	if err := os.WriteFile(contextPath, []byte(contextContent), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", SCMContextFile, err)
+	}
+
+	// Update primary context file with managed section
+	primaryPath := filepath.Join(workDir, config.PrimaryFile)
+	if err := updatePrimaryContextFile(primaryPath, config.SupportsInclude); err != nil {
+		return fmt.Errorf("failed to update %s: %w", config.PrimaryFile, err)
+	}
+
+	return nil
+}
+
+// updatePrimaryContextFile adds or updates the SCM managed section in the primary context file
+func updatePrimaryContextFile(path string, supportsInclude bool) error {
+	// Read existing content (if any)
+	existingContent := ""
+	if data, err := os.ReadFile(path); err == nil {
+		existingContent = string(data)
+	}
+
+	// Build the reference content
+	var reference string
+	if supportsInclude {
+		reference = fmt.Sprintf("@%s", SCMContextFile)
+	} else {
+		reference = fmt.Sprintf("See [%s](%s) for additional context from SCM.", SCMContextFile, SCMContextFile)
+	}
+
+	scmSection := fmt.Sprintf("%s\n%s\n%s", scmSectionBegin, reference, scmSectionEnd)
+
+	// Check if managed section already exists
+	sectionRegex := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(scmSectionBegin) + `.*?` + regexp.QuoteMeta(scmSectionEnd))
+
+	var newContent string
+	if sectionRegex.MatchString(existingContent) {
+		// Replace existing section
+		newContent = sectionRegex.ReplaceAllString(existingContent, scmSection)
+	} else if existingContent != "" {
+		// Prepend new section to existing content
+		newContent = scmSection + "\n\n" + existingContent
+	} else {
+		// New file with just the section
+		newContent = scmSection + "\n"
+	}
+
+	// Write the updated content
+	return os.WriteFile(path, []byte(newContent), 0644)
+}
+
+// CleanupContextFiles removes the SCM context files from the work directory.
+// This can be called after the AI tool completes if cleanup is desired.
+func CleanupContextFiles(backendName, workDir string) error {
+	config := GetContextFileConfig(backendName)
+
+	// Remove .scp.context.md
+	contextPath := filepath.Join(workDir, SCMContextFile)
+	if err := os.Remove(contextPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove %s: %w", SCMContextFile, err)
+	}
+
+	// Remove managed section from primary context file
+	primaryPath := filepath.Join(workDir, config.PrimaryFile)
+	if err := removeManagedSection(primaryPath); err != nil {
+		return fmt.Errorf("failed to clean %s: %w", config.PrimaryFile, err)
+	}
+
+	return nil
+}
+
+// removeManagedSection removes the SCM managed section from a file
+func removeManagedSection(path string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+	sectionRegex := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(scmSectionBegin) + `.*?` + regexp.QuoteMeta(scmSectionEnd) + `\n*`)
+	newContent := sectionRegex.ReplaceAllString(content, "")
+
+	// If file would be empty, remove it
+	if strings.TrimSpace(newContent) == "" {
+		return os.Remove(path)
+	}
+
+	return os.WriteFile(path, []byte(newContent), 0644)
+}

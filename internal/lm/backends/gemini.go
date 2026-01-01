@@ -37,6 +37,15 @@ func (b *Gemini) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.
 		opts = &pb.RunOptions{}
 	}
 
+	// Write context files (.scp.context.md and update GEMINI.md)
+	workDir := opts.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+	if err := WriteContextFiles(b.Name(), workDir, req.Fragments); err != nil {
+		fmt.Fprintf(stderr, "warning: failed to write context files: %v\n", err)
+	}
+
 	args := b.buildArgs(req)
 
 	// Verbosity level 16+: show command

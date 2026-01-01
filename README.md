@@ -439,6 +439,8 @@ Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_pro
 
 ### `scm completion`
 
+> **⚠️ Known Issue:** Shell completions currently crash scm. This feature is not yet functional.
+
 Generate shell completion scripts for tab-completion of commands, flags, fragments, profiles, and more.
 
 ```bash

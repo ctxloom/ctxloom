@@ -3,7 +3,7 @@ tags:
     - code
     - quality
     - refactoring
-content: |
+content: |-
     # Reductive Development
 
     **Disclaimer:** This approach is intended for greenfield/prototype projects where aggressive cleanup is acceptable. For production systems with external consumers, use judgment about backwards compatibility.
@@ -57,3 +57,42 @@ content: |
     - Comment updates
     - Single-line changes
     - Documentation-only changes
+content_hash: sha256:1b9ed3cca66ec1056a39ea77a98b011cc95e22e39c97a69d7c6277b0aa52d175
+distilled: |-
+    # Reductive Development
+
+    **Disclaimer:** For greenfield/prototype projects only. Use judgment on backwards compatibility for production systems.
+
+    Reduce codebase before starting significant tasks.
+
+    ## Pre-Task Process
+
+    1. **Pause** - Don't implement immediately
+    2. **Scan for duplication** - duplicate functions, similar patterns, copy-pasted logic, multiple implementations
+    3. **Identify reduction targets** - dead code, unused imports/variables/params, over-engineered abstractions, wrapper functions, compatibility shims
+    4. **Reduce first** - clean up before starting task
+    5. **Proceed** - work on smaller codebase
+
+    ## Rules
+
+    - Preserve test coverage
+    - Keep tests green
+    - Smaller = better
+    - Delete over deprecate
+
+    ## Why
+
+    - Fewer bugs in smaller codebases
+    - Less to understand before changes
+    - Prevents duplication spread
+    - Task may simplify post-reduction
+    - Tech debt compounds
+
+    ## Apply To
+
+    New features, multi-line bug fixes, refactoring, multi-file changes
+
+    ## Skip For
+
+    Typos, comments, single-line changes, docs-only
+distilled_by: claude-code

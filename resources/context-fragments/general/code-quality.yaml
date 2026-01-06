@@ -22,7 +22,7 @@ content: |-
 
     ## Naming
     - Interfaces/protocols (py) are the thing -- UserService is a Protocol.  Do not use IWhatever
-    - Implementations are to be named after the description of *how* the thing, the interface, is implemented.  If it's implemented one way, it'll be Default{{InterfaceName}}.
+    - Implementations are to be named after the description of *how* the thing, the interface, is implemented.  If it's implemented one way, it'll be Default<InterfaceName>.
 
     ## Philosophy
 
@@ -72,7 +72,7 @@ content: |-
     - **No revision history in code** - don't document what was modified, when, or by whom
     - **No commented-out code** - delete it; git has it if needed
     - Comments explain *why*, not *what* or *what changed*
-content_hash: sha256:b8a61eb51d333a1d5c7969f18a102b3b7befb3f7dadb11911d841f6b65dbd812
+content_hash: sha256:65d45a27c694b7dc3f0c58498da36c6f2cbabc5718e1fe62079fa63cc66c09bf
 distilled: |-
     # Code Quality
 
@@ -88,37 +88,35 @@ distilled: |-
 
     ## Naming
     - Interfaces = the thing (UserService is Protocol, no IWhatever)
-    - Implementations = Default{{InterfaceName}} or descriptive of *how*
+    - Implementations = Default<InterfaceName> or descriptive how
 
     ## Philosophy
     - SOLID, KISS, YAGNI
 
     ## Principles
-    - Follow lang style guides
-    - Use type hints
+    - Follow lang style guides; use type hints
     - Self-documenting code > comments
     - Document public APIs
     - Composition > inheritance
 
     ## Coupling/Cohesion
     - Low coupling, high cohesion
-    - Single well-defined purpose per module/class
+    - Single well-defined purpose per module
 
-    ## Code Markers
+    ## Markers
     - TODO, FIXME, NOTE, HACK
 
     ## Performance
-    - Profile before optimizing
-    - Document perf requirements in tests
-    - Appropriate data structures
-    - State algorithmic complexity
+    - Profile first; document requirements in tests
+    - Appropriate data structures; state complexity
+    - Consider memory patterns
 
-    ## Clean Up
-    - Kill unused background processes
-    - Remove dead code/files/imports/variables
+    ## Cleanup
+    - Kill unused processes
+    - Remove dead code/imports/variables
 
     ## Comments
-    - No change-tracking comments—git has history
-    - No revision history or commented-out code
-    - Comments explain *why*, not *what changed*
+    - No change-tracking—git handles history
+    - No commented-out code
+    - Explain *why*, not *what*
 distilled_by: claude-code

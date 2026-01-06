@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cbroglie/mustache"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/benjaminabbitt/scm/internal/collections"
@@ -451,7 +452,7 @@ func (l *Loader) LoadMultipleWithVars(names []string, extraVars map[string]strin
 	assembled := l.assembleContext(frags)
 
 	// Apply mustache templating
-	rendered, err := l.applyTemplate(assembled, variables)
+	rendered, err := l.applyTemplate(assembled, variables, "assembled")
 	if err != nil {
 		return "", fmt.Errorf("failed to apply template: %w", err)
 	}
@@ -481,7 +482,8 @@ func (l *Loader) assembleContext(frags []*Fragment) string {
 
 // applyTemplate applies mustache templating to the context using variables.
 // It warns about any variables referenced in the template that aren't defined.
-func (l *Loader) applyTemplate(template string, vars map[string]string) (string, error) {
+// templateName is used for diagnostic messages to identify which template has issues.
+func (l *Loader) applyTemplate(template string, vars map[string]string, templateName string) (string, error) {
 	// Find all variable references in the template
 	varPattern := regexp.MustCompile(`\{\{\s*([^}#/!>\s][^}]*?)\s*\}\}`)
 	matches := varPattern.FindAllStringSubmatch(template, -1)
@@ -501,9 +503,10 @@ func (l *Loader) applyTemplate(template string, vars map[string]string) (string,
 			if !seen.Has(varName) {
 				seen.Add(varName)
 				if _, exists := vars[varName]; !exists {
-					l.warn(fmt.Sprintf("undefined variable: {{%s}}", varName))
+					l.warn(fmt.Sprintf("undefined variable: {{%s}} in %s", varName, templateName))
 					logging.L().Warn(logging.MsgVariableUnexpanded,
-						logging.VariableName(varName))
+						logging.VariableName(varName),
+						zap.String("template", templateName))
 				}
 			}
 		}
@@ -749,7 +752,7 @@ func (l *Loader) LoadMultipleAsFragments(names []string, extraVars map[string]st
 		content := frag.EffectiveContent(l.preferDistilled)
 
 		// Apply mustache templating to content
-		rendered, err := l.applyTemplate(content, variables)
+		rendered, err := l.applyTemplate(content, variables, name)
 		if err != nil {
 			l.warn(fmt.Sprintf("failed to apply template to %s: %v", name, err))
 			rendered = content // Fall back to unrendered content

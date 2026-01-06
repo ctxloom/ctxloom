@@ -182,17 +182,13 @@ content: |-
 
     # Inner layers: use Status enum, never raw strings
     ```
-content_hash: sha256:827b1a4278649f4c26558c440677e5077b1502e1bda89d21c142fd6e478598e0
+content_hash: sha256:da3dbe93061b8b53ed16bd7cdfc3154570a08b5365364f58ec85449c4450122c
 distilled: |-
     # Python Dev
 
     ## Env/Tools
     - Python 3 (version in pyproject.toml)
-    - UV (pkg mgr)
-    - pytest
-    - Gherkin (pytest-bdd/behave) for acceptance
-    - ruff (lint/format)
-    - structlog
+    - UV (pkg mgr), pytest, Gherkin (pytest-bdd/behave), ruff, structlog
 
     ## Test Structure
     - Unit: `test_*.py` (co-located)
@@ -201,12 +197,9 @@ distilled: |-
 
     ## Layout
     ```
-    project/
-    ├── src/package_name/
-    │   ├── log_messages.py, error_messages.py
-    │   ├── module.py, test_module.py
-    ├── tests/{integration,acceptance}/
-    ├── .devcontainer/, justfile, pyproject.toml
+    src/package_name/{log_messages,error_messages,module,test_module}.py
+    tests/{integration,acceptance}/
+    .devcontainer/, justfile, pyproject.toml
     ```
 
     ## Exclude Co-located Tests
@@ -239,31 +232,41 @@ distilled: |-
     class UserService:
         def __init__(self, repo: UserRepository, logger: structlog.BoundLogger):
             self._repo, self._logger = repo, logger
-
         @classmethod
         def create(cls, db: DatabaseConnection) -> "UserService":  # pragma: no cover
             return cls(SQLUserRepository(db), structlog.get_logger())
     ```
 
-    ## Typing & Attribute Access
+    ## Type Hints & Attribute Access
     - Use type hints consistently
-    - **Avoid hardcoded string-based access**: no `getattr(obj, "method")`, `globals()["name"]`, `operator.attrgetter("field")`
-    - Defeats static analysis/IDE/refactoring
-    - **Exception**: Dynamic strings from runtime data OK; prefer explicit mappings/match-case
+    - NO hardcoded string attr access: avoid `getattr(obj, "method")`, `globals()["x"]`, `operator.attrgetter("field")`
+    - Defeats static analysis/refactoring
+    - OK if string from runtime data; prefer explicit mappings
 
     ## Dicts vs Structured Types
-    - **Don't use dicts with known keys** — use dataclass/NamedTuple
-
+    - NO dicts w/ known keys → use dataclass/NamedTuple
     ```python
     # BAD
-    game_state = {"score": 0, "level": 1}
+    game_state = {"score": 0}
     # GOOD
     @dataclass
     class GameState:
         score: int = 0
-        level: int = 1
     ```
+    - Dicts OK for truly dynamic keys
+    - Use TypedDict if dict syntax required
 
-    - Dicts OK for: truly dynamic keys, lookup tables, unknown-until-runtime keys
-    - Use `TypedDict` if dict syntax required (JSON serialization)
+    ## Flow Control Anti-Patterns
+    Avoid when values known at dev time:
+    - `hasattr` branching → use Protocol/ABC/isinstance
+    - Dict dispatch w/ hardcoded keys → match/case
+    - String comparisons for state → use Enum
+
+    Exception: OK at boundaries parsing external data; convert to typed values immediately:
+    ```python
+    def parse_status(raw: str) -> Status:
+        match raw:
+            case "pending": return Status.PENDING
+            case _: raise ValueError(f"Unknown: {raw}")
+    ```
 distilled_by: claude-code

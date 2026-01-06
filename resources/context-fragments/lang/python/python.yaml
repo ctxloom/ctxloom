@@ -126,6 +126,62 @@ content: |-
       - Building lookup tables with variable keys
       - Key set is not known until runtime
     - Use `TypedDict` if you must use dict syntax with known keys (e.g., JSON serialization)
+
+    ## Flow Control Anti-Patterns
+
+    Do NOT use these for branching or dispatch when values are known at development time:
+
+    - **getattr/hasattr for branching**:
+      ```python
+      # BAD: Using hasattr for flow control
+      if hasattr(handler, "process"):
+          handler.process()
+
+      # GOOD: Use protocols/ABCs or explicit type checks
+      if isinstance(handler, Processor):
+          handler.process()
+      ```
+
+    - **Dictionary dispatch with hardcoded keys**:
+      ```python
+      # BAD: Dict dispatch for known operations
+      handlers = {"add": add_func, "remove": remove_func}
+      handlers[operation]()
+
+      # GOOD: Use match/case or explicit conditionals
+      match operation:
+          case Operation.ADD: add_func()
+          case Operation.REMOVE: remove_func()
+      ```
+
+    - **String comparisons for state/type**:
+      ```python
+      # BAD: Stringly-typed flow control
+      if status == "pending":
+          process_pending()
+
+      # GOOD: Use enums
+      class Status(Enum):
+          PENDING = auto()
+
+      if status == Status.PENDING:
+          process_pending()
+      ```
+
+    These patterns hide control flow from static analysis, make refactoring error-prone, and turn typos into runtime bugs instead of type errors.
+
+    **Exception**: These patterns are acceptable when parsing external data (files, API responses, user input) — but confine them to the outer layer. Parse strings/dicts into proper types at the boundary, then use typed values throughout the rest of the codebase.
+
+    ```python
+    # Outer layer: parse external string into enum
+    def parse_status(raw: str) -> Status:
+        match raw:
+            case "pending": return Status.PENDING
+            case "complete": return Status.COMPLETE
+            case _: raise ValueError(f"Unknown status: {raw}")
+
+    # Inner layers: use Status enum, never raw strings
+    ```
 content_hash: sha256:827b1a4278649f4c26558c440677e5077b1502e1bda89d21c142fd6e478598e0
 distilled: |-
     # Python Dev

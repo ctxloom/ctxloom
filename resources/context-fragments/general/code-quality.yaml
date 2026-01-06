@@ -6,6 +6,24 @@ tags:
 content: |-
     # Code Quality Standards
 
+    ## Before Writing Code
+
+    - **Research first**: Search the codebase for existing implementations before writing new code
+    - **Read existing code**: Understand patterns, conventions, and utilities already in use
+    - **No duplication**: Reuse existing functions, types, and modules rather than creating duplicates
+    - **Extend, don't recreate**: If similar functionality exists, extend or refactor it instead of writing parallel implementations
+
+    ## Code Size
+    - **Small**: Less than 500 lines of code per file
+    - Keep files small and focused.  Only exceed small if necessary, with very high coupling and cohesion
+    - Keep functions small.  Each function should do one thing and do it well
+    - Optimize for reading and understanding, not performance
+    - Prefer to separate via files interfaces and implementations
+
+    ## Naming
+    - Interfaces/protocols (py) are the thing -- UserService is a Protocol.  Do not use IWhatever
+    - Implementations are to be named after the description of *how* the thing, the interface, is implemented.  If it's implemented one way, it'll be Default{{InterfaceName}}.
+
     ## Philosophy
 
     - **SOLID** - Single responsibility, Open/closed, Liskov substitution, Interface segregation, Dependency inversion
@@ -47,42 +65,60 @@ content: |-
     - Kill background processes when no longer needed
     - Remove unused code, files, imports, and variables
     - Don't leave dead code behind
-content_hash: sha256:e73c48402de3ed257be0268781d234ca91c3ba0ab64271f44af57be0415f9423
+
+    ## Comments
+
+    - **Never add change-tracking comments** - git tracks history; no "changed X to Y", "removed Z", "updated for feature W"
+    - **No revision history in code** - don't document what was modified, when, or by whom
+    - **No commented-out code** - delete it; git has it if needed
+    - Comments explain *why*, not *what* or *what changed*
+content_hash: sha256:b8a61eb51d333a1d5c7969f18a102b3b7befb3f7dadb11911d841f6b65dbd812
 distilled: |-
     # Code Quality
 
+    ## Before Writing
+    - Research codebase first; read existing patterns
+    - No duplication—reuse/extend existing code
+
+    ## Size
+    - Files <500 LOC; exceed only w/ high coupling+cohesion
+    - Small, single-purpose functions
+    - Optimize for readability
+    - Separate interfaces from implementations
+
+    ## Naming
+    - Interfaces = the thing (UserService is Protocol, no IWhatever)
+    - Implementations = Default{{InterfaceName}} or descriptive of *how*
+
     ## Philosophy
-    - **SOLID** - Single resp, Open/closed, Liskov, Interface seg, Dependency inv
-    - **KISS** - Simple, straightforward solutions
-    - **YAGNI** - Build only when needed
+    - SOLID, KISS, YAGNI
 
     ## Principles
     - Follow lang style guides
     - Use type hints
     - Self-documenting code > comments
     - Document public APIs
-    - Small, focused functions
     - Composition > inheritance
 
     ## Coupling/Cohesion
-    - Low coupling: minimal module dependencies
-    - High cohesion: group related functionality
-    - Single purpose per module/class
+    - Low coupling, high cohesion
+    - Single well-defined purpose per module/class
 
-    ## Markers
-    - `TODO` - pending work
-    - `FIXME` - known bugs
-    - `NOTE` - important info
-    - `HACK` - temp solutions
+    ## Code Markers
+    - TODO, FIXME, NOTE, HACK
 
     ## Performance
     - Profile before optimizing
     - Document perf requirements in tests
     - Appropriate data structures
-    - State complexity for non-trivial algos
-    - Consider memory patterns
+    - State algorithmic complexity
 
-    ## Cleanup
+    ## Clean Up
     - Kill unused background processes
-    - Remove dead code/files/imports/vars
+    - Remove dead code/files/imports/variables
+
+    ## Comments
+    - No change-tracking comments—git has history
+    - No revision history or commented-out code
+    - Comments explain *why*, not *what changed*
 distilled_by: claude-code

@@ -1,3 +1,3 @@
 <!-- SCM:BEGIN -->
-@.scm.context.md
+@.scm/context.md
 <!-- SCM:END -->

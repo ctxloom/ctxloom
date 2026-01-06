@@ -11,7 +11,7 @@ validate:
 
 # Distill resources before packaging
 distill-resources:
-    go run . distill --resources
+    go run . distill ./resources
 
 # Build all binaries (main app + generators + plugins)
 build: validate distill-resources proto build-scm build-generators

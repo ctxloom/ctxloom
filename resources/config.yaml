@@ -84,3 +84,4 @@ profiles:
       - developer
     fragments:
       - patterns/prototype
+      - general/reductive

@@ -11,7 +11,7 @@ content: |-
     ## Core Principles
 
     - **Events are facts**: Immutable records of what happened, never modified or deleted
-    - **State is derived**: Current state reconstructed by replaying events
+    - **State is derived**: Current state reconstructed by replaying events **Important**: Events must carry minimally sufficient information to reconstruct state
     - **Append-only**: Event store only supports append operations
     - **Temporal queries**: Can reconstruct state at any point in time
 
@@ -19,7 +19,7 @@ content: |-
 
     - Name events in past tense: `OrderPlaced`, `PaymentReceived`, `ItemShipped`
     - Events are immutable — never update or delete
-    - Include all data needed to understand what happened
+    - Include all data needed to understand what happened and *only* that information.  If more information is explicitly instructed to be included, document that as a comment.
     - Version events when schema evolves
     - Keep events small and focused on single facts
 
@@ -93,7 +93,7 @@ content: |-
     - Given events → When command → Then new events
     - Test projections: Given events → Assert read model state
     - Test event upcasting for version migrations
-content_hash: sha256:5fcde87f349c5e78338c3d4638e6df4ec025ccf0ae13202b3629a2540d8f9d5a
+content_hash: sha256:19131ab83c0f5a012846cab6c5286a4677b4210c294ba74eeadd229ea908d275
 distilled: |-
     # Event Sourcing
 
@@ -102,14 +102,15 @@ distilled: |-
     ## Core Principles
     - Events = immutable facts, never modified/deleted
     - State derived by replaying events
+    - Events carry minimally sufficient info for state reconstruction
     - Append-only store
-    - Temporal queries: reconstruct state at any time
+    - Temporal queries possible
 
     ## Event Design
     - Past tense names: `OrderPlaced`, `PaymentReceived`
     - Immutable, never update/delete
-    - Include all necessary data
-    - Version for schema evolution
+    - Include only necessary data; document if explicitly adding more
+    - Version on schema evolution
     - Small, single-fact focused
 
     ## Event Structure
@@ -122,35 +123,36 @@ distilled: |-
     - One aggregate = one stream
 
     ## Event Store Requirements
-    - Append-only writes
-    - Read by aggregate ID or position
+    - Append-only, read by aggregateId/position
     - Optimistic concurrency via versions
-    - Ordered within stream
+    - Guaranteed ordering per stream
 
     ## Projections
     - Read-optimized views from events
     - Rebuildable anytime
-    - Multiple projections per event stream
+    - Multiple projections possible
     - Async = eventual consistency
 
     ## Snapshots
-    - Store aggregate state periodically for faster loading
-    - Load snapshot + replay newer events
+    - Periodic state cache for faster loading
     - Optimization only, not source of truth
+    - Rebuild when aggregate logic changes
 
-    ## Use When
+    ## When to Use
     - Audit trail required
-    - Need state evolution history
+    - State evolution tracking needed
     - Rich business events
-    - Temporal queries needed
+    - Temporal queries
+    - Event-driven integration
 
-    ## Avoid When
+    ## When NOT to Use
     - Simple CRUD, no audit needs
     - High-frequency same-entity updates
-    - Team unfamiliar with pattern
+    - Unfamiliar team
+    - No clear business events
 
     ## Pitfalls
-    - Large events → keep focused
+    - Large events → split
     - Plan event versioning upfront
     - Snapshot long-lived aggregates
     - Events = facts, not commands
@@ -159,5 +161,5 @@ distilled: |-
     ## Testing
     - Given events → command → assert new events
     - Given events → assert projection state
-    - Test event upcasting
+    - Test event upcasting for migrations
 distilled_by: claude-code

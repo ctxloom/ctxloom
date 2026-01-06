@@ -38,7 +38,7 @@ func (b *ClaudeCode) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm.context.md and update CLAUDE.md)
+	// Write context files (.scm/context.md and update CLAUDE.md)
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."

@@ -41,7 +41,7 @@ func (b *Codex) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.W
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm.context.md and update CODEX.md)
+	// Write context files (.scm/context.md and update CODEX.md)
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."

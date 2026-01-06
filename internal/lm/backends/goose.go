@@ -41,7 +41,7 @@ func (b *Goose) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.W
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm.context.md and update GOOSE.md)
+	// Write context files (.scm/context.md and update GOOSE.md)
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."

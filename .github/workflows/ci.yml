@@ -96,7 +96,7 @@ jobs:
         run: go run ./cmd/validate
 
       - name: Distill resources
-        run: go run . distill --resources
+        run: go run . distill ./resources
 
       - name: Build static binaries
         env:

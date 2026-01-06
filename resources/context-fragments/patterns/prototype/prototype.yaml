@@ -58,6 +58,9 @@ content: |-
     - Default parameters that preserve old behavior
     - Union types that accept "old format or new format"
     - Any code comment containing "backwards compatibility"
+    - Fallback logic for renames — don't check "old name or new name", just use new name
+    - Case handling for multiple versions — there is only one version
+    - "Handle both formats" logic — if we control the data generation, we can change the data generation or the code to handle it.  Don't use if/thens or ors or switches to handle legacy formats and new formats.
 
     ## The Prototype Standard
 
@@ -66,7 +69,7 @@ content: |-
     There is no v1 compatibility. There is no migration period. There is no deprecation cycle. There is only the correct implementation, built correctly, right now.
 
     If you find yourself writing code to handle "the old way" — stop. Delete the old way. There is only the new way.
-content_hash: sha256:2ae277de711bdaf7df162bbaceed1138826c04e1963376f9c05427b8b3ec3522
+content_hash: sha256:99236a463fdde9e1dc06a48b1bc72eafb9489ce5c2c72ab13119127c8ac41633
 distilled: |-
     # Prototype Mode
 
@@ -78,13 +81,13 @@ distilled: |-
     - Remove old APIs entirely
     - Break dependencies requiring compromise
     - Rip out legacy patterns on sight
-    - Wrong = delete + rebuild correctly
+    - Wrong? Delete and rebuild correctly
 
     ## No Legacy Accommodation
 
-    - Bad format → new format (not both)
-    - Wrong API → new design (not wrapper)
-    - Broken behavior → fix dependent code (not preserve bug)
+    - Bad format → new format, don't support both
+    - Wrong API → new API, don't wrap old
+    - Broken behavior → fix code, don't preserve bug
     - Migration = someone else's problem
 
     ## Hard Changes Only
@@ -92,35 +95,39 @@ distilled: |-
     When existing code resists:
     1. Delete offending code
     2. Rebuild correctly
-    3. Fix breakages
+    3. Fix everything that breaks
     4. Never add shims/flags/fallbacks
 
     "This breaks X" → fix X
 
     ## In Practice
 
-    - Rename correctly → fix all refs
-    - Correct signatures → fix callers
-    - Correct data shape → fix consumers
-    - Remove bad params → fix call sites
-    - Correct return types → fix handlers
+    - Rename correctly, fix all refs
+    - Correct signatures, fix all callers
+    - Restructure data, fix all consumers
+    - Remove bad params, fix call sites
+    - Correct return types, fix handlers
 
-    ## Forbidden
+    ## Forbidden Patterns
 
-    - `// Deprecated` comments → delete now
-    - `@deprecated` annotations → delete code
-    - Feature flags for old behavior → remove old
-    - Legacy version checks/conditionals
-    - Old↔new wrapper/translator functions
+    Never use:
+    - `// Deprecated` comments — delete now
+    - `@deprecated` annotations — delete code
+    - Feature flags for old behavior
+    - Version checks/legacy conditionals
+    - Old→new wrapper functions
     - Defaults preserving old behavior
-    - Union types for old|new format
-    - Any "backwards compatibility" comment
+    - Union types for old+new formats
+    - Any "backwards compatibility" comments
+    - Fallback logic for renames
+    - Multi-version case handling
+    - "Handle both formats" logic when you control data generation
 
     ## Standard
 
-    One version: the correct one.
+    One version: correct one.
 
-    No v1 compat. No migration period. No deprecation cycle. Only correct implementation, now.
+    No v1 compat. No migration period. No deprecation cycle. Only correct implementation, built correctly, now.
 
-    Writing "old way" handling → stop. Delete old way. Only new way exists.
+    Writing code for "the old way"? Stop. Delete it. Only the new way exists.
 distilled_by: claude-code

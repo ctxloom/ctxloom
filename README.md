@@ -15,6 +15,8 @@ SCM organizes context into reusable fragments that can be:
 - **Token-optimized** - Distill fragments to minimal versions
 - **Dynamically generated** - Generators add git status, file trees, etc.
 
+> **Disclaimer**: This is a pre-release project. Much of the code was AI-generated and has not yet been reviewed or cleaned up by a human. It works and is in active use by the author, but architectural improvements, refactoring, bug fixes, and code reduction are likely needed. This is functional and quick, not polished.
+
 ## Quick Start
 
 ```bash
@@ -163,6 +165,8 @@ Built-in profiles for common workflows:
 | `reviewer` | Code review with architect, domain-expert, concurrency, performance, standards perspectives |
 | `prototype` | Rapid prototyping without backwards compatibility concerns |
 
+> **Warning**: The `prototype` profile/fragment is for early development only. It instructs the AI to aggressively break backwards compatibility. See [prototype fragment documentation](resources/context-fragments/patterns/prototype/README.md) for details. This fragment is not included in any default configuration.
+
 Profiles inherit from others via `parents` and can combine fragments, tags, generators, and variables.
 
 ### Tags vs Profiles
@@ -246,17 +250,17 @@ SCM uses plugins to interface with language models. Built-in plugins:
 
 Claude Code ignores context passed via `--append-system-prompt` after a context reset (e.g., when conversation history is cleared or compacted). To ensure SCM context remains available, the plugin uses a file-based workaround:
 
-1. Writes assembled context to `.scm.context.md` in the working directory
-2. Updates `CLAUDE.md` with a managed section containing `@.scm.context.md`
+1. Writes assembled context to `.scm/context.md` in the working directory
+2. Updates `CLAUDE.md` with a managed section containing `@.scm/context.md`
 3. Claude Code's `@file` include syntax reads this on every prompt
 
 The managed section in `CLAUDE.md` is delimited by `<!-- SCM:BEGIN -->` and `<!-- SCM:END -->` markers. SCM only modifies content within these markers, preserving any other content in `CLAUDE.md`.
 
 **Files created:**
-- `.scm.context.md` - Contains the assembled context
+- `.scm/context.md` - Contains the assembled context
 - `CLAUDE.md` - Updated with reference (created if missing)
 
-Consider adding `.scm.context.md` to `.gitignore` if you don't want to track the generated context file.
+Consider adding `.scm/context.md` to `.gitignore` if you don't want to track the generated context file.
 
 **Using a different plugin:**
 
@@ -320,7 +324,7 @@ When in a project with `.scm/`, only that project's config and fragments are use
 **Embedded mode behavior**: When no `.scm/` directory exists, SCM uses built-in fragments and config. Read operations (`list`, `show`, `run`) work normally. Write operations behave as follows:
 - `fragment edit` / `prompt edit` → creates new file in `~/.scm/`
 - `fragment delete` / `prompt delete` → errors (use `scm copy` first)
-- `distill` → errors (use `--resources` for packaging)
+- `distill` → errors (use `scm distill ./resources` for packaging)
 
 ## Commands Reference
 
@@ -425,7 +429,7 @@ scm distill --prompts-only     # Distill only prompts (skip fragments)
 scm distill --skip-prompts     # Distill only fragments (skip prompts)
 scm distill --dry-run          # Preview what would be distilled
 scm distill --force            # Re-distill even if unchanged
-scm distill --resources        # Distill embedded resources (for packaging)
+scm distill ./resources        # Distill embedded resources (for packaging)
 scm distill clean              # Clear distilled content
 ```
 

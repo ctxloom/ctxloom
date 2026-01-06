@@ -41,7 +41,7 @@ func (b *Cline) Run(ctx context.Context, req *pb.RunRequest, stdout, stderr io.W
 		opts = &pb.RunOptions{}
 	}
 
-	// Write context files (.scm.context.md and update CLINE.md)
+	// Write context files (.scm/context.md and update CLINE.md)
 	workDir := opts.WorkDir
 	if workDir == "" {
 		workDir = "."

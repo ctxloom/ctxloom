@@ -7,11 +7,19 @@ content: |-
 
     ## Core Principles
 
-    - Never commit secrets (use environment variables)
+    - **NEVER hardcode secrets** — no passwords, API keys, tokens, or credentials in code, config files, or tests. Ever. Use environment variables, secret managers (Vault, AWS Secrets Manager), or encrypted config.
     - Validate all external input
     - Use parameterized queries for databases
     - Keep dependencies updated
     - Follow principle of least privilege
+
+    ## Secrets Management
+
+    - Environment variables for runtime secrets
+    - `.env` files for local dev (NEVER commit — must be in `.gitignore`)
+    - Secret managers for production (Vault, AWS SM, GCP SM, Azure KV)
+    - For tests: use fake/mock values like `test-password`, `FAKE_API_KEY`, or inject from CI secrets
+    - If you see a hardcoded secret, remove it immediately and rotate the credential
 
     ## Security Review Checklist
 
@@ -30,11 +38,17 @@ distilled: |-
     # Security
 
     ## Core Principles
-    - No secrets in commits (use env vars)
+    - **NEVER hardcode secrets** — no passwords/keys/tokens in code, config, or tests. Use env vars or secret managers.
     - Validate external input
     - Parameterized DB queries
     - Update dependencies
     - Least privilege
+
+    ## Secrets
+    - Env vars for runtime; `.env` for local (never commit)
+    - Secret managers for prod (Vault, AWS/GCP/Azure)
+    - Tests: use fakes (`test-password`, `FAKE_API_KEY`)
+    - Found hardcoded secret? Remove + rotate immediately
 
     ## Review Checklist
     - Input validation

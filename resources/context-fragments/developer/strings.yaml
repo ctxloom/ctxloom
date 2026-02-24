@@ -1,0 +1,77 @@
+version: 1.0
+tags:
+    - code
+    - strings
+    - errors
+content: |-
+    # String Handling
+
+    ## No String-Based Flow Control
+
+    Never use string approximations (`startswith`, `endswith`, `contains`, substring matching) for program flow control unless explicitly instructed. These are brittle and break silently when messages change.
+
+    ```python
+    # Wrong: brittle string matching
+    if error.message.startswith("Invalid"):
+        handle_validation_error()
+    elif "not found" in error.message.lower():
+        handle_not_found()
+
+    # Right: use typed errors or error codes
+    if isinstance(error, ValidationError):
+        handle_validation_error()
+    elif error.code == ErrorCode.NOT_FOUND:
+        handle_not_found()
+    ```
+
+    ```go
+    // Wrong
+    if strings.Contains(err.Error(), "connection refused") {
+        retry()
+    }
+
+    // Right
+    if errors.Is(err, ErrConnectionRefused) {
+        retry()
+    }
+    ```
+
+    ## Error Messages as Constants
+
+    All error messages must be defined as constants and reused in test assertions. No magic strings.
+
+    ```python
+    # constants.py
+    ERR_USER_NOT_FOUND = "user not found"
+    ERR_INVALID_EMAIL = "invalid email format"
+
+    # service.py
+    from .constants import ERR_USER_NOT_FOUND
+    raise NotFoundError(ERR_USER_NOT_FOUND)
+
+    # test_service.py
+    from .constants import ERR_USER_NOT_FOUND
+    assert str(exc.value) == ERR_USER_NOT_FOUND
+    ```
+
+    ```go
+    // errors.go
+    var (
+        ErrUserNotFound = errors.New("user not found")
+        ErrInvalidEmail = errors.New("invalid email format")
+    )
+
+    // service.go
+    return ErrUserNotFound
+
+    // service_test.go
+    assert.ErrorIs(t, err, ErrUserNotFound)
+    ```
+
+    ## Why This Matters
+
+    - String matching breaks silently when messages change
+    - Typos in string comparisons cause subtle bugs
+    - Constants enable IDE refactoring and find-all-references
+    - Tests verify actual error handling, not string coincidences
+    - Internationalization becomes possible

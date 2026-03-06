@@ -455,7 +455,7 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
 		SCMPaths: []string{"/project/.scm"},
-		Defaults: config.Defaults{Profile: "base"},
+		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -475,7 +475,7 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
 		SCMPaths: []string{"/project/.scm"},
-		Defaults: config.Defaults{Profile: "base"},
+		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -648,8 +648,8 @@ func TestCreateProfile_SetDefault(t *testing.T) {
 	} else {
 		assert.Equal(t, "created", result.Status)
 	}
-	// Default should be set in memory
-	assert.Equal(t, "default-profile", cfg.Defaults.Profile)
+	// Default should be set in memory (stored in Profiles array)
+	assert.Contains(t, cfg.Defaults.Profiles, "default-profile")
 }
 
 func TestUpdateProfile_AddTags(t *testing.T) {
@@ -847,14 +847,14 @@ tags:
 	// The error is expected since there's no config file to save to
 	if err != nil {
 		// Verify the config was updated before the save error
-		assert.Equal(t, "base", cfg.Defaults.Profile)
+		assert.Contains(t, cfg.Defaults.Profiles, "base")
 		assert.Contains(t, err.Error(), "failed to save config")
 		return
 	}
 
 	assert.Equal(t, "updated", result.Status)
 	assert.Contains(t, result.Changes, "set as default")
-	assert.Equal(t, "base", cfg.Defaults.Profile)
+	assert.Contains(t, cfg.Defaults.Profiles, "base")
 }
 
 func TestUpdateProfile_UnsetDefault(t *testing.T) {
@@ -874,7 +874,7 @@ tags:
 	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{
 		SCMPaths: []string{scmDir},
-		Defaults: config.Defaults{Profile: "base"},
+		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
 	unsetDefault := false
@@ -887,14 +887,14 @@ tags:
 	// Should fail at cfg.Save() but we've verified the logic works
 	if err != nil {
 		// Verify the config was updated before the save error
-		assert.Empty(t, cfg.Defaults.Profile)
+		assert.NotContains(t, cfg.Defaults.Profiles, "base")
 		assert.Contains(t, err.Error(), "failed to save config")
 		return
 	}
 
 	assert.Equal(t, "updated", result.Status)
 	assert.Contains(t, result.Changes, "unset default")
-	assert.Empty(t, cfg.Defaults.Profile)
+	assert.NotContains(t, cfg.Defaults.Profiles, "base")
 }
 
 func TestDeleteProfile_Success(t *testing.T) {
@@ -949,7 +949,7 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 
 	cfg := &config.Config{
 		SCMPaths: []string{"/project/.scm"},
-		Defaults: config.Defaults{Profile: "frontend"}, // Set as default
+		Defaults: config.Defaults{Profiles: []string{"frontend"}}, // Set as default
 	}
 
 	result, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
@@ -966,5 +966,5 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 		assert.Equal(t, "deleted", result.Status)
 	}
 	// Default profile should be cleared in memory regardless
-	assert.Empty(t, cfg.Defaults.Profile)
+	assert.NotContains(t, cfg.Defaults.Profiles, "frontend")
 }

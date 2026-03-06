@@ -681,7 +681,7 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 
 	// Create config directory and file
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
-	configContent := `lm:
+	configContent := `llm:
   plugins: {}
 `
 	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte(configContent), 0644))
@@ -708,7 +708,7 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 
 	// Create config directory and file
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
-	configContent := `lm:
+	configContent := `llm:
   plugins: {}
 `
 	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte(configContent), 0644))
@@ -733,23 +733,28 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "npx")
 }
 
-func TestAddMCPServer_WithFS_LoadError(t *testing.T) {
+func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	scmDir := "/project/.scm"
 
 	// Create config directory with invalid YAML
+	// With resilient startup, this will load an empty config with warnings, not fail
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
 
-	_, err := AddMCPServer(context.Background(), nil, AddMCPServerRequest{
+	result, err := AddMCPServer(context.Background(), nil, AddMCPServerRequest{
 		Name:    "test-server",
 		Command: "npx",
 		FS:      fs,
 		SCMDir:  scmDir,
 	})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load config")
+	// With resilient startup, this now succeeds - config loads with warnings
+	require.NoError(t, err)
+	assert.Equal(t, "added", result.Status)
+
+	// Config should have warnings about the invalid YAML
+	assert.NotEmpty(t, result.Config.Warnings)
 }
 
 func TestRemoveMCPServer_WithFS(t *testing.T) {
@@ -758,7 +763,7 @@ func TestRemoveMCPServer_WithFS(t *testing.T) {
 
 	// Create config with an existing server
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
-	configContent := `lm:
+	configContent := `llm:
   plugins: {}
 mcp:
   servers:
@@ -785,11 +790,12 @@ mcp:
 	assert.NotContains(t, string(data), "existing-server")
 }
 
-func TestRemoveMCPServer_WithFS_LoadError(t *testing.T) {
+func TestRemoveMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	scmDir := "/project/.scm"
 
 	// Create config directory with invalid YAML
+	// With resilient startup, this will load an empty config with warnings
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
 
@@ -799,6 +805,7 @@ func TestRemoveMCPServer_WithFS_LoadError(t *testing.T) {
 		SCMDir: scmDir,
 	})
 
+	// With resilient startup, config loads successfully but server won't exist
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load config")
+	assert.Contains(t, err.Error(), "not found")
 }

@@ -51,7 +51,6 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 	}
 
 	query := strings.ToLower(req.Query)
-	defaultProfile := cfg.Defaults.Profile
 
 	var result []ProfileEntry
 	for _, p := range profileList {
@@ -68,7 +67,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
-			Default:     p.Name == defaultProfile,
+			Default:     cfg.Defaults.IsDefaultProfile(p.Name),
 			Path:        p.Path,
 		})
 	}
@@ -207,7 +206,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 
 	// Set as default if requested
 	if req.Default {
-		cfg.Defaults.Profile = req.Name
+		cfg.Defaults.AddDefaultProfile(req.Name)
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save default setting: %w", err)
 		}
@@ -270,10 +269,11 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	// Update default flag
 	if req.Default != nil {
 		if *req.Default {
-			cfg.Defaults.Profile = req.Name
-			changes = append(changes, "set as default")
-		} else if cfg.Defaults.Profile == req.Name {
-			cfg.Defaults.Profile = ""
+			if cfg.Defaults.AddDefaultProfile(req.Name) {
+				changes = append(changes, "set as default")
+			}
+		} else if cfg.Defaults.IsDefaultProfile(req.Name) {
+			cfg.Defaults.RemoveDefaultProfile(req.Name)
 			changes = append(changes, "unset default")
 		}
 	}
@@ -387,8 +387,8 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	}
 
 	// Clear default if deleting the default profile
-	if cfg.Defaults.Profile == req.Name {
-		cfg.Defaults.Profile = ""
+	if cfg.Defaults.IsDefaultProfile(req.Name) {
+		cfg.Defaults.RemoveDefaultProfile(req.Name)
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}

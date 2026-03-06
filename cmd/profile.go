@@ -51,13 +51,16 @@ var profileListCmd = &cobra.Command{
 			return nil
 		}
 
-		// Get default profile from config
-		defaultProfile := cfg.Defaults.Profile
+		// Get default profiles from config
+		defaultProfiles := make(map[string]bool)
+		for _, name := range cfg.Defaults.Profiles {
+			defaultProfiles[name] = true
+		}
 
 		fmt.Printf("Profiles (%d):\n", len(profileList))
 		for _, p := range profileList {
 			fmt.Printf("  %s", p.Name)
-			if p.Name == defaultProfile {
+			if defaultProfiles[p.Name] || p.Default {
 				fmt.Printf(" (default)")
 			}
 			fmt.Println()
@@ -216,7 +219,14 @@ var profileShowCmd = &cobra.Command{
 
 		fmt.Printf("Profile: %s\n", p.Name)
 		fmt.Printf("Path: %s\n", p.Path)
-		if p.Name == cfg.Defaults.Profile {
+		isDefault := p.Default
+		for _, defName := range cfg.Defaults.Profiles {
+			if p.Name == defName {
+				isDefault = true
+				break
+			}
+		}
+		if isDefault {
 			fmt.Println("Default: yes")
 		}
 		if p.Description != "" {

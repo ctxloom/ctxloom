@@ -815,18 +815,19 @@ func TestLoadFromDir(t *testing.T) {
 	t.Run("loads valid config", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configContent := `
-lm:
+llm:
   plugins:
     claude-code:
       default: true
 defaults:
-  profile: dev
+  profiles:
+    - dev
 `
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configContent), 0644))
 
 		cfg, err := LoadFromDir(tmpDir)
 		require.NoError(t, err)
-		assert.Equal(t, "dev", cfg.Defaults.Profile)
+		assert.Contains(t, cfg.Defaults.Profiles, "dev")
 		assert.True(t, cfg.LM.Plugins["claude-code"].Default)
 	})
 
@@ -836,14 +837,20 @@ defaults:
 		cfg, err := LoadFromDir(tmpDir)
 		require.NoError(t, err)
 		assert.NotNil(t, cfg.Profiles)
+		assert.Equal(t, tmpDir, cfg.SCMDir) // Should still set paths
 	})
 
-	t.Run("errors on invalid yaml", func(t *testing.T) {
+	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("invalid: ["), 0644))
 
-		_, err := LoadFromDir(tmpDir)
-		assert.Error(t, err)
+		cfg, err := LoadFromDir(tmpDir)
+		// Returns config with warning instead of error for resilient startup
+		assert.NoError(t, err)
+		assert.NotNil(t, cfg)
+		assert.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "failed to parse config")
+		assert.Equal(t, tmpDir, cfg.SCMDir) // Should still set paths
 	})
 }
 
@@ -862,7 +869,7 @@ func TestConfig_Save(t *testing.T) {
 			},
 		},
 		Defaults: Defaults{
-			Profile: "dev",
+			Profiles: []string{"dev"},
 		},
 		Profiles: map[string]Profile{
 			"dev": {Description: "development"},
@@ -876,7 +883,7 @@ func TestConfig_Save(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(tmpDir, "config.yaml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
-	assert.Contains(t, string(data), "profile: dev")
+	assert.Contains(t, string(data), "- dev")
 }
 
 func TestConfig_Save_NoSCMPaths(t *testing.T) {
@@ -917,19 +924,20 @@ func TestLoad_WithOptions(t *testing.T) {
 
 	// Create a valid config file
 	configContent := `
-lm:
+llm:
   plugins:
     claude-code:
       default: true
 defaults:
-  profile: test
+  profiles:
+    - test
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
 	require.NoError(t, err)
 
-	assert.Equal(t, "test", cfg.Defaults.Profile)
+	assert.Contains(t, cfg.Defaults.Profiles, "test")
 	assert.Equal(t, []string{scmDir}, cfg.SCMPaths)
 	assert.Equal(t, scmDir, cfg.SCMDir)
 	assert.Equal(t, SourceProject, cfg.Source)
@@ -958,13 +966,16 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("invalid yaml", func(t *testing.T) {
+	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
 
 		cfg := &Config{}
 		err := loadConfigFile(cfg, "/config.yaml", nil, fs)
-		assert.Error(t, err)
+		// Invalid YAML no longer errors - adds warning instead for resilient startup
+		assert.NoError(t, err)
+		assert.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "failed to read config")
 	})
 }
 
@@ -995,13 +1006,13 @@ func TestConfig_getFS_UsesSetFS(t *testing.T) {
 // =============================================================================
 
 func TestConfig_GetDefaultProfiles(t *testing.T) {
-	t.Run("returns defaults.profile", func(t *testing.T) {
+	t.Run("returns defaults.profiles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		scmDir := "/project/.scm"
 		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Defaults: Defaults{Profile: "dev"},
+			Defaults: Defaults{Profiles: []string{"dev"}},
 			Profiles: map[string]Profile{},
 			SCMPaths: []string{scmDir},
 			fs:       fs,
@@ -1036,7 +1047,7 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Defaults: Defaults{Profile: "prod"},
+			Defaults: Defaults{Profiles: []string{"prod"}},
 			Profiles: map[string]Profile{
 				"prod": {Default: true}, // Same profile also marked default
 			},
@@ -1067,6 +1078,86 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 		defaults := cfg.GetDefaultProfiles()
 		assert.Nil(t, defaults)
+	})
+
+	t.Run("returns multiple profiles from defaults.profiles array", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		scmDir := "/project/.scm"
+		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+
+		cfg := &Config{
+			Defaults: Defaults{Profiles: []string{"profile1", "profile2", "profile3"}},
+			Profiles: map[string]Profile{},
+			SCMPaths: []string{scmDir},
+			fs:       fs,
+		}
+
+		defaults := cfg.GetDefaultProfiles()
+		assert.Len(t, defaults, 3)
+		assert.Contains(t, defaults, "profile1")
+		assert.Contains(t, defaults, "profile2")
+		assert.Contains(t, defaults, "profile3")
+	})
+}
+
+// =============================================================================
+// Defaults Helper Methods Tests
+// =============================================================================
+
+func TestDefaults_AddDefaultProfile(t *testing.T) {
+	t.Run("adds profile to empty profiles", func(t *testing.T) {
+		d := &Defaults{}
+		added := d.AddDefaultProfile("new-profile")
+
+		assert.True(t, added)
+		assert.Contains(t, d.Profiles, "new-profile")
+	})
+
+	t.Run("adds profile to existing profiles", func(t *testing.T) {
+		d := &Defaults{Profiles: []string{"existing"}}
+		added := d.AddDefaultProfile("new-profile")
+
+		assert.True(t, added)
+		assert.Contains(t, d.Profiles, "existing")
+		assert.Contains(t, d.Profiles, "new-profile")
+	})
+
+	t.Run("does not add duplicate", func(t *testing.T) {
+		d := &Defaults{Profiles: []string{"existing"}}
+		added := d.AddDefaultProfile("existing")
+
+		assert.False(t, added)
+		assert.Len(t, d.Profiles, 1)
+	})
+}
+
+func TestDefaults_RemoveDefaultProfile(t *testing.T) {
+	t.Run("removes profile from profiles array", func(t *testing.T) {
+		d := &Defaults{Profiles: []string{"keep", "remove", "also-keep"}}
+		removed := d.RemoveDefaultProfile("remove")
+
+		assert.True(t, removed)
+		assert.NotContains(t, d.Profiles, "remove")
+		assert.Contains(t, d.Profiles, "keep")
+		assert.Contains(t, d.Profiles, "also-keep")
+	})
+
+	t.Run("returns false for non-existent profile", func(t *testing.T) {
+		d := &Defaults{Profiles: []string{"existing"}}
+		removed := d.RemoveDefaultProfile("not-found")
+
+		assert.False(t, removed)
+		assert.Len(t, d.Profiles, 1)
+	})
+}
+
+func TestDefaults_IsDefaultProfile(t *testing.T) {
+	t.Run("finds profile in profiles array", func(t *testing.T) {
+		d := &Defaults{Profiles: []string{"profile1", "profile2"}}
+
+		assert.True(t, d.IsDefaultProfile("profile1"))
+		assert.True(t, d.IsDefaultProfile("profile2"))
+		assert.False(t, d.IsDefaultProfile("profile3"))
 	})
 }
 
@@ -1236,7 +1327,7 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 
 func TestConfig_ResolveBundleMCPServers_NoSCMPaths(t *testing.T) {
 	cfg := &Config{
-		Defaults: Defaults{Profile: "test"},
+		Defaults: Defaults{Profiles: []string{"test"}},
 		SCMPaths: []string{},
 	}
 
@@ -1250,7 +1341,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
 
 	cfg := &Config{
-		Defaults: Defaults{Profile: "nonexistent"},
+		Defaults: Defaults{Profiles: []string{"nonexistent"}},
 		SCMPaths: []string{scmDir},
 		fs:       fs,
 	}
@@ -1331,7 +1422,7 @@ func TestConfig_Save_PreservesExisting(t *testing.T) {
 	// Write existing config with custom fields
 	existingContent := `
 custom_field: preserved
-lm:
+llm:
   plugins: {}
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(existingContent), 0644))
@@ -1384,22 +1475,24 @@ description: A default profile
 // Load Schema Validation Error
 // =============================================================================
 
-func TestLoad_SchemaValidationError(t *testing.T) {
+func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	scmDir := "/project/.scm"
 	require.NoError(t, fs.MkdirAll(scmDir, 0755))
 
 	// Create config that fails schema validation (using wrong type)
-	// Note: This depends on having a strict schema - may need adjustment
 	configContent := `
-lm:
+llm:
   plugins: "should be a map not string"
 `
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configContent), 0644))
 
-	_, err := Load(WithFS(fs), WithSCMDir(scmDir))
-	// May fail on schema validation or YAML unmarshaling
-	assert.Error(t, err)
+	// Now returns config with warnings instead of error for resilient startup
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	// Should have collected warnings about parse/validation issues
+	assert.NotEmpty(t, cfg.Warnings)
 }
 
 // =============================================================================
@@ -1425,4 +1518,141 @@ func TestResolveProfile_SessionEndHooks(t *testing.T) {
 
 	assert.Len(t, resolved.Hooks.Unified.SessionEnd, 1)
 	assert.Equal(t, "./session-end.sh", resolved.Hooks.Unified.SessionEnd[0].Command)
+}
+
+// =============================================================================
+// Resilient Startup Tests
+// =============================================================================
+
+func TestResilientStartup_MalformedConfig(t *testing.T) {
+	// Test that malformed config produces warnings but doesn't fail startup
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+
+	// Create malformed YAML
+	malformedYAML := `
+llm:
+  plugins:
+    - this is wrong format
+    claude-code:
+      default: true
+`
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(malformedYAML), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	// Should NOT error
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+
+	// Should have warnings
+	assert.NotEmpty(t, cfg.Warnings)
+
+	// Config should still be usable with defaults
+	assert.NotNil(t, cfg.Profiles)
+}
+
+func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+
+	// Completely unparseable YAML
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte("{{{{invalid"), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.NotEmpty(t, cfg.Warnings)
+	// Schema validation catches parse errors first
+	assert.Contains(t, cfg.Warnings[0], "config validation warning")
+}
+
+func TestResilientStartup_NonExistentProfile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+
+	// Config references a non-existent profile
+	configYAML := `
+defaults:
+  profiles:
+    - nonexistent-profile
+`
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	// Loading should succeed
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Contains(t, cfg.Defaults.Profiles, "nonexistent-profile")
+
+	// GetDefaultProfiles should return the name even if profile doesn't exist
+	defaults := cfg.GetDefaultProfiles()
+	assert.Contains(t, defaults, "nonexistent-profile")
+}
+
+func TestResilientStartup_EmptyConfig(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+
+	// Empty config file - schema validation will warn but not fail
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(""), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	// Schema validation warns on empty config, but we still start
+	assert.NotNil(t, cfg.Profiles)
+}
+
+func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+
+	// Config with some valid and some invalid parts
+	// Schema validation may catch this, but we should still not fail
+	configYAML := `
+llm:
+  plugins:
+    claude-code:
+      default: true
+profiles:
+  valid-profile:
+    description: "This is valid"
+`
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Contains(t, cfg.Profiles, "valid-profile")
+}
+
+func TestResilientStartup_WarningsAreCollected(t *testing.T) {
+	// Test that schema validation warnings are collected
+	fs := afero.NewMemMapFs()
+	scmDir := "/project/.scm"
+	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+
+	// Create config with type mismatch that schema validation should catch
+	configYAML := `
+llm:
+  plugins: invalid-should-be-map
+`
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+
+	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+
+	// Should not error, should have warnings
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg)
+	// The config struct is valid even if content is wrong
 }

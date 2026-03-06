@@ -488,7 +488,7 @@ type LMPluginConfig struct {
 
 // PluginsConfig holds plugin-specific settings.
 type PluginsConfig struct {
-	LM LMPluginConfig `yaml:"lm"`
+	LM LMPluginConfig `yaml:"llm"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

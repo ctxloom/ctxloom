@@ -36,9 +36,10 @@ const (
 
 // Config holds the SCM configuration.
 type Config struct {
-	LM       LMConfig           `mapstructure:"lm"`
+	LM       LMConfig           `mapstructure:"llm" yaml:"llm"`
 	Editor   EditorConfig       `mapstructure:"editor"`
 	Defaults Defaults           `mapstructure:"defaults"`
+	Sync     SyncConfig         `mapstructure:"sync"`
 	Hooks    HooksConfig        `mapstructure:"hooks"`
 	MCP      MCPConfig          `mapstructure:"mcp"`
 	Profiles map[string]Profile `mapstructure:"profiles"`
@@ -46,6 +47,7 @@ type Config struct {
 	SCMRoot  string             // Project root (parent of .scm directory)
 	SCMDir   string             // Full path to the .scm directory
 	Source   ConfigSource       // Where the configuration was loaded from
+	Warnings []string           // Non-fatal warnings collected during load
 	fs       afero.Fs           // Filesystem for file operations (nil = OS filesystem)
 }
 
@@ -100,46 +102,35 @@ func (c *Config) GetEditorCommand() (string, []string) {
 }
 
 // GetDefaultProfiles returns the default profiles from config.
-// Checks both defaults.profile setting and profiles with default: true.
+// Checks defaults.profiles array and profiles with default: true.
 func (c *Config) GetDefaultProfiles() []string {
+	seen := collections.NewSet[string]()
 	var defaults []string
 
-	// Check defaults.profile setting first
-	if c.Defaults.Profile != "" {
-		defaults = append(defaults, c.Defaults.Profile)
+	// Helper to add without duplicates
+	addProfile := func(name string) {
+		if name != "" && !seen.Has(name) {
+			seen.Add(name)
+			defaults = append(defaults, name)
+		}
+	}
+
+	// Check defaults.profiles array
+	for _, name := range c.Defaults.Profiles {
+		addProfile(name)
 	}
 
 	// Also check for profiles with default: true in config
 	for name, profile := range c.Profiles {
 		if profile.Default {
-			// Avoid duplicates if already in defaults.profile
-			found := false
-			for _, d := range defaults {
-				if d == name {
-					found = true
-					break
-				}
-			}
-			if !found {
-				defaults = append(defaults, name)
-			}
+			addProfile(name)
 		}
 	}
 
 	// Also check directory-based profiles with default: true
 	loader := c.GetProfileLoader()
 	for _, name := range loader.GetDefaults() {
-		// Avoid duplicates
-		found := false
-		for _, d := range defaults {
-			if d == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			defaults = append(defaults, name)
-		}
+		addProfile(name)
 	}
 
 	if len(defaults) == 0 {
@@ -298,8 +289,50 @@ type Profile struct {
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Profile      string `mapstructure:"profile" yaml:"profile,omitempty"`             // Default profile to load
-	UseDistilled *bool  `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`           // Default profiles to load (supports multiple)
+	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+}
+
+// SyncConfig holds configuration for dependency sync behavior.
+type SyncConfig struct {
+	// AutoSync enables automatic sync of remote dependencies on startup.
+	// Defaults to true if not specified.
+	AutoSync *bool `mapstructure:"auto_sync" yaml:"auto_sync,omitempty"`
+
+	// Lock controls whether to update lockfile after sync.
+	// Defaults to true if not specified.
+	Lock *bool `mapstructure:"lock" yaml:"lock,omitempty"`
+
+	// ApplyHooks controls whether to apply hooks after sync.
+	// Defaults to true if not specified.
+	ApplyHooks *bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
+}
+
+// ShouldAutoSync returns whether to auto-sync dependencies on startup.
+// Defaults to true if not explicitly set.
+func (s *SyncConfig) ShouldAutoSync() bool {
+	if s == nil || s.AutoSync == nil {
+		return true
+	}
+	return *s.AutoSync
+}
+
+// ShouldLock returns whether to update lockfile after sync.
+// Defaults to true if not explicitly set.
+func (s *SyncConfig) ShouldLock() bool {
+	if s == nil || s.Lock == nil {
+		return true
+	}
+	return *s.Lock
+}
+
+// ShouldApplyHooks returns whether to apply hooks after sync.
+// Defaults to true if not explicitly set.
+func (s *SyncConfig) ShouldApplyHooks() bool {
+	if s == nil || s.ApplyHooks == nil {
+		return true
+	}
+	return *s.ApplyHooks
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
@@ -309,6 +342,37 @@ func (d *Defaults) ShouldUseDistilled() bool {
 		return true
 	}
 	return *d.UseDistilled
+}
+
+// AddDefaultProfile adds a profile to the defaults list if not already present.
+func (d *Defaults) AddDefaultProfile(name string) bool {
+	if d.IsDefaultProfile(name) {
+		return false
+	}
+	d.Profiles = append(d.Profiles, name)
+	return true
+}
+
+// RemoveDefaultProfile removes a profile from the defaults list.
+// Returns true if the profile was removed, false if it wasn't present.
+func (d *Defaults) RemoveDefaultProfile(name string) bool {
+	for i, p := range d.Profiles {
+		if p == name {
+			d.Profiles = append(d.Profiles[:i], d.Profiles[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// IsDefaultProfile checks if a profile is in the defaults list.
+func (d *Defaults) IsDefaultProfile(name string) bool {
+	for _, p := range d.Profiles {
+		if p == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Load finds and loads configuration from a single source.
@@ -366,6 +430,8 @@ func Load(opts ...LoadOption) (*Config, error) {
 }
 
 // loadConfigFile loads a config file into the provided Config struct.
+// Non-fatal errors (malformed YAML, schema validation) are collected as warnings.
+// Returns an error only for I/O failures (except missing file, which is OK).
 func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigValidator, fs afero.Fs) error {
 	data, err := afero.ReadFile(fs, configPath)
 	if err != nil {
@@ -376,10 +442,11 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	// Validate against schema before parsing
+	// Validate against schema before parsing - warn but continue on failure
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			return fmt.Errorf("config validation failed at %s: %w", configPath, err)
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("config validation warning at %s: %v", configPath, err))
+			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}
 
@@ -388,11 +455,17 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 
 	// Use ReadConfig instead of ReadInConfig to read from the data we already have
 	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
-		return fmt.Errorf("failed to read config at %s: %w", configPath, err)
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to read config at %s: %v", configPath, err))
+		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
+		// Return nil - we have a valid (empty) config with warnings
+		return nil
 	}
 
 	if err := v.Unmarshal(cfg); err != nil {
-		return fmt.Errorf("failed to parse config at %s: %w", configPath, err)
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to parse config at %s: %v", configPath, err))
+		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
+		// Return nil - we have a valid (partially loaded) config with warnings
+		return nil
 	}
 
 	zap.L().Debug("config_loaded", zap.String("path", configPath))
@@ -486,9 +559,10 @@ func (c *Config) GetPluginPaths() []string {
 
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
-	LM       LMConfig           `yaml:"lm"`
+	LM       LMConfig           `yaml:"llm"`
 	Editor   EditorConfig       `yaml:"editor,omitempty"`
 	Defaults Defaults           `yaml:"defaults,omitempty"`
+	Sync     SyncConfig         `yaml:"sync,omitempty"`
 	Hooks    HooksConfig        `yaml:"hooks,omitempty"`
 	Profiles map[string]Profile `yaml:"profiles,omitempty"`
 }
@@ -532,9 +606,10 @@ func (c *Config) Save() error {
 	}
 
 	// Update with current values (delete keys when empty to clean up config)
-	existing["lm"] = c.LM
+	existing["llm"] = c.LM
+	delete(existing, "lm") // Remove old key if present
 
-	if c.Defaults.Profile != "" || c.Defaults.UseDistilled != nil {
+	if len(c.Defaults.Profiles) > 0 || c.Defaults.UseDistilled != nil {
 		existing["defaults"] = c.Defaults
 	} else {
 		delete(existing, "defaults")
@@ -544,6 +619,13 @@ func (c *Config) Save() error {
 		existing["profiles"] = c.Profiles
 	} else {
 		delete(existing, "profiles")
+	}
+
+	// Save sync config if any values are set
+	if c.Sync.AutoSync != nil || c.Sync.Lock != nil || c.Sync.ApplyHooks != nil {
+		existing["sync"] = c.Sync
+	} else {
+		delete(existing, "sync")
 	}
 
 	// Remove generators key if present (no longer supported)
@@ -568,6 +650,7 @@ func (c *Config) Save() error {
 }
 
 // LoadFromDir loads config from a specific .scm directory.
+// Returns a valid config with warnings on parse errors for resilient startup.
 func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
 	// Apply options
 	options := &loadOptions{}
@@ -591,13 +674,18 @@ func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return empty config if no config file exists
+			cfg.SCMPaths = []string{scmDir}
+			cfg.SCMDir = scmDir
+			cfg.SCMRoot = filepath.Dir(scmDir)
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read config from %s: %w", configPath, err)
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config from %s: %w", configPath, err)
+		// Add warning but continue with empty config for resilient startup
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to parse config from %s: %v", configPath, err))
+		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 	}
 
 	cfg.SCMPaths = []string{scmDir}
@@ -930,14 +1018,14 @@ func DedupeStrings(items []string) []string {
 	return result
 }
 
-// ResolveBundleMCPServers loads MCP servers from bundles referenced in the default profile.
+// ResolveBundleMCPServers loads MCP servers from bundles referenced in the default profiles.
 // It returns a map of server name to MCPServer configuration.
 func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 	result := make(map[string]MCPServer)
 
-	// Get the default profile name
-	defaultProfile := c.Defaults.Profile
-	if defaultProfile == "" {
+	// Get the default profile names
+	defaultProfiles := c.GetDefaultProfiles()
+	if len(defaultProfiles) == 0 {
 		return result
 	}
 
@@ -947,22 +1035,23 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 	}
 	scmDir := c.SCMPaths[0]
 
-	// Load the profile using profiles package
+	// Load each default profile and collect MCP servers
 	profileLoader := c.GetProfileLoader()
-	profile, err := profileLoader.Load(defaultProfile)
-	if err != nil {
-		return result
-	}
-
-	// Create bundle loader
 	bundleDirs := []string{filepath.Join(scmDir, BundlesDir)}
 	bundleLoader := bundles.NewLoader(bundleDirs, false)
 
-	// Process each bundle URL in the profile
-	for _, bundleRef := range profile.Bundles {
-		servers := loadMCPFromBundleRef(bundleRef, scmDir, bundleLoader)
-		for name, server := range servers {
-			result[name] = server
+	for _, defaultProfile := range defaultProfiles {
+		profile, err := profileLoader.Load(defaultProfile)
+		if err != nil {
+			continue
+		}
+
+		// Process each bundle URL in the profile
+		for _, bundleRef := range profile.Bundles {
+			servers := loadMCPFromBundleRef(bundleRef, scmDir, bundleLoader)
+			for name, server := range servers {
+				result[name] = server
+			}
 		}
 	}
 

@@ -11,7 +11,7 @@
       "description": "Schema version for the config format",
       "examples": ["1.0", 1.0]
     },
-    "lm": {
+    "llm": {
       "type": "object",
       "description": "Language model plugin configuration",
       "properties": {
@@ -86,9 +86,14 @@
       "type": "object",
       "description": "Default settings",
       "properties": {
-        "profile": {
-          "type": "string",
-          "description": "Default profile to load when no profile is specified"
+        "profiles": {
+          "type": "array",
+          "description": "Default profiles to load when no profile is specified",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         },
         "use_distilled": {
           "type": "boolean",

@@ -2,7 +2,7 @@
 # See https://github.com/benjaminabbitt/scm for documentation
 
 # Language model plugin configuration
-lm:
+llm:
   plugins:
     claude-code:
       default: true

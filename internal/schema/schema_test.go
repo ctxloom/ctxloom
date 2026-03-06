@@ -58,7 +58,7 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
-lm:
+llm:
   plugins:
     claude-code:
       default: true

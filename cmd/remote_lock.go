@@ -1,17 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
 var remoteLockCmd = &cobra.Command{
@@ -55,300 +50,101 @@ Examples:
 }
 
 func runRemoteLock(cmd *cobra.Command, args []string) error {
-	baseDir := ".scm"
-
-	lockManager := remote.NewLockfileManager(baseDir)
-	lockfile := &remote.Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]remote.LockEntry),
-		Profiles: make(map[string]remote.LockEntry),
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	itemCount := 0
-
-	// Scan for installed items in project .scm directory (bundles and profiles only)
-	for _, itemType := range []remote.ItemType{
-		remote.ItemTypeBundle,
-		remote.ItemTypeProfile,
-	} {
-		var dirName string
-		switch itemType {
-		case remote.ItemTypeBundle:
-			dirName = "bundles"
-		case remote.ItemTypeProfile:
-			dirName = "profiles"
-		}
-
-		itemDir := filepath.Join(baseDir, dirName)
-		entries, err := os.ReadDir(itemDir)
-		if err != nil {
-			continue // Directory doesn't exist
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-
-			remoteName := entry.Name()
-			remoteDir := filepath.Join(itemDir, remoteName)
-
-			// Find yaml files in this remote's directory
-			files, err := filepath.Glob(filepath.Join(remoteDir, "**", "*.yaml"))
-			if err != nil {
-				continue
-			}
-			// Also get files in the root of the remote directory
-			rootFiles, _ := filepath.Glob(filepath.Join(remoteDir, "*.yaml"))
-			files = append(files, rootFiles...)
-
-			for _, file := range files {
-				content, err := os.ReadFile(file)
-				if err != nil {
-					continue
-				}
-
-				// Try to extract source metadata
-				var meta struct {
-					Source remote.SourceMeta `yaml:"_source"`
-				}
-				if err := yaml.Unmarshal(content, &meta); err != nil {
-					continue
-				}
-
-				if meta.Source.SHA == "" {
-					continue // No source metadata
-				}
-
-				// Build reference key
-				relPath, _ := filepath.Rel(filepath.Join(itemDir, remoteName), file)
-				name := strings.TrimSuffix(relPath, ".yaml")
-				ref := fmt.Sprintf("%s/%s", remoteName, name)
-
-				lockEntry := remote.LockEntry{
-					SHA:        meta.Source.SHA,
-					URL:        meta.Source.URL,
-					SCMVersion: meta.Source.Version,
-					FetchedAt:  meta.Source.FetchedAt,
-				}
-
-				lockfile.AddEntry(itemType, ref, lockEntry)
-				itemCount++
-			}
-		}
+	result, err := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{})
+	if err != nil {
+		return err
 	}
 
-	if itemCount == 0 {
+	if result.Status == "empty" {
 		fmt.Println("No remote items with source metadata found.")
 		fmt.Println("Pull items with: scm remote [bundles|profiles] pull <remote>/<name>")
 		return nil
 	}
 
-	if err := lockManager.Save(lockfile); err != nil {
-		return err
-	}
-
-	fmt.Printf("Generated %s with %d entries\n", lockManager.Path(), itemCount)
+	fmt.Printf("Generated %s with %d entries\n", result.Path, result.ItemCount)
 	fmt.Println("Commit this file to your repository for reproducible installations.")
 
 	return nil
 }
 
 func runRemoteInstall(cmd *cobra.Command, args []string) error {
-	lockManager := remote.NewLockfileManager(".scm")
-	lockfile, err := lockManager.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	result, err := operations.InstallDependencies(cmd.Context(), cfg, operations.InstallDependenciesRequest{
+		Force: pullForce,
+	})
 	if err != nil {
 		return err
 	}
 
-	if lockfile.IsEmpty() {
+	if result.Status == "empty" {
 		fmt.Println("No entries in lockfile.")
 		fmt.Println("Generate one with: scm remote lock")
 		return nil
 	}
 
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
+	fmt.Printf("Installing %d items from lockfile...\n\n", result.Total)
 
-	auth := remote.LoadAuth("")
-	puller := remote.NewPuller(registry, auth)
-
-	entries := lockfile.AllEntries()
-	fmt.Printf("Installing %d items from lockfile...\n\n", len(entries))
-
-	installed := 0
-	skipped := 0
-	failed := 0
-
-	for _, e := range entries {
-		ref := fmt.Sprintf("%s@%s", e.Ref, e.Entry.SHA[:7])
-		fmt.Printf("Installing %s %s...", e.Type, ref)
-
-		opts := remote.PullOptions{
-			Force:    pullForce,
-			ItemType: e.Type,
-		}
-
-		result, err := puller.Pull(cmd.Context(), ref, opts)
-		if err != nil {
-			if strings.Contains(err.Error(), "cancelled") {
-				fmt.Println(" skipped")
-				skipped++
-			} else {
-				fmt.Printf(" error: %v\n", err)
-				failed++
-			}
-			continue
-		}
-
-		action := "installed"
-		if result.Overwritten {
-			action = "updated"
-		}
-		fmt.Printf(" %s\n", action)
-		installed++
+	// Show errors if any
+	for _, e := range result.Errors {
+		fmt.Printf("Error: %s\n", e)
 	}
 
 	fmt.Println()
-	fmt.Printf("Installed: %d, Skipped: %d, Failed: %d\n", installed, skipped, failed)
+	fmt.Printf("Installed: %d, Failed: %d\n", result.Installed, result.Failed)
 
 	return nil
 }
 
 func runRemoteOutdated(cmd *cobra.Command, args []string) error {
-	lockManager := remote.NewLockfileManager(".scm")
-	lockfile, err := lockManager.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	fmt.Printf("Checking items for updates...\n\n")
+
+	result, err := operations.CheckOutdated(cmd.Context(), cfg, operations.CheckOutdatedRequest{})
 	if err != nil {
 		return err
 	}
 
-	if lockfile.IsEmpty() {
+	if result.Status == "empty" {
 		fmt.Println("No entries in lockfile.")
 		return nil
 	}
 
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	auth := remote.LoadAuth("")
-
-	entries := lockfile.AllEntries()
-	fmt.Printf("Checking %d items for updates...\n\n", len(entries))
-
-	var outdated []struct {
-		Type      remote.ItemType
-		Ref       string
-		LockedSHA string
-		LatestSHA string
-		Age       time.Duration
-	}
-
-	for _, e := range entries {
-		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
-			continue
-		}
-
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			continue
-		}
-
-		fetcher, err := remote.NewFetcher(rem.URL, auth)
-		if err != nil {
-			continue
-		}
-
-		owner, repo, err := remote.ParseRepoURL(rem.URL)
-		if err != nil {
-			continue
-		}
-
-		latestSHA, err := getLatestSHA(cmd.Context(), fetcher, owner, repo)
-		if err != nil {
-			continue
-		}
-
-		if latestSHA != e.Entry.SHA {
-			outdated = append(outdated, struct {
-				Type      remote.ItemType
-				Ref       string
-				LockedSHA string
-				LatestSHA string
-				Age       time.Duration
-			}{
-				Type:      e.Type,
-				Ref:       e.Ref,
-				LockedSHA: e.Entry.SHA,
-				LatestSHA: latestSHA,
-				Age:       time.Since(e.Entry.FetchedAt),
-			})
-		}
-	}
-
-	if len(outdated) == 0 {
+	if result.Status == "up_to_date" {
 		fmt.Println("All items are up to date!")
 		return nil
 	}
 
-	fmt.Printf("Found %d outdated items:\n\n", len(outdated))
-	fmt.Printf("  %-10s │ %-25s │ %-10s │ %-10s │ %s\n", "Type", "Reference", "Locked", "Latest", "Age")
-	fmt.Printf("────────────┼───────────────────────────┼────────────┼────────────┼────────────\n")
+	fmt.Printf("Found %d outdated items:\n\n", result.Count)
+	fmt.Printf("  %-10s │ %-25s │ %-10s │ %-10s\n", "Type", "Reference", "Locked", "Latest")
+	fmt.Printf("────────────┼───────────────────────────┼────────────┼────────────\n")
 
-	for _, o := range outdated {
-		lockedShort := o.LockedSHA
-		if len(lockedShort) > 7 {
-			lockedShort = lockedShort[:7]
-		}
-		latestShort := o.LatestSHA
-		if len(latestShort) > 7 {
-			latestShort = latestShort[:7]
-		}
-
-		ref := o.Ref
+	for _, o := range result.Items {
+		ref := o.Reference
 		if len(ref) > 23 {
 			ref = ref[:20] + "..."
 		}
 
-		age := formatDuration(o.Age)
-
-		fmt.Printf("  %-10s │ %-25s │ %-10s │ %-10s │ %s\n",
-			o.Type, ref, lockedShort, latestShort, age)
+		fmt.Printf("  %-10s │ %-25s │ %-10s │ %-10s\n",
+			o.Type, ref, o.LockedSHA, o.LatestSHA)
 	}
 
 	fmt.Println()
 	fmt.Println("Update with: scm remote [bundles|profiles] pull <reference>")
 
 	return nil
-}
-
-// getLatestSHA gets the latest commit SHA on the default branch.
-func getLatestSHA(ctx context.Context, fetcher remote.Fetcher, owner, repo string) (string, error) {
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-	if err != nil {
-		return "", err
-	}
-	return fetcher.ResolveRef(ctx, owner, repo, branch)
-}
-
-// formatDuration formats a duration in human-readable form.
-func formatDuration(d time.Duration) string {
-	days := int(d.Hours() / 24)
-	if days > 30 {
-		return fmt.Sprintf("%d months", days/30)
-	}
-	if days > 0 {
-		return fmt.Sprintf("%d days", days)
-	}
-	hours := int(d.Hours())
-	if hours > 0 {
-		return fmt.Sprintf("%d hours", hours)
-	}
-	return "< 1 hour"
 }
 
 func init() {

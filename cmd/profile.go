@@ -72,9 +72,6 @@ var profileListCmd = &cobra.Command{
 			if len(p.Bundles) > 0 {
 				parts = append(parts, fmt.Sprintf("%d bundles", len(p.Bundles)))
 			}
-			if len(p.Generators) > 0 {
-				parts = append(parts, fmt.Sprintf("%d generators", len(p.Generators)))
-			}
 			if len(parts) > 0 {
 				fmt.Printf("    %s\n", strings.Join(parts, ", "))
 			}
@@ -87,14 +84,13 @@ var profileListCmd = &cobra.Command{
 var (
 	profileAddParents     []string
 	profileAddBundles     []string
-	profileAddGenerators  []string
 	profileAddDescription string
 )
 
 var profileAddCmd = &cobra.Command{
 	Use:   "add <name>",
 	Short: "Add a new profile",
-	Long: `Add a new profile with bundles, generators, and/or parents.
+	Long: `Add a new profile with bundles and/or parents.
 
 Bundle references use full URLs:
   https://github.com/user/repo@v1/bundles/name    # Bundle from remote
@@ -108,17 +104,13 @@ Example:
 			return cmd.Help()
 		}
 
-		if len(profileAddParents) == 0 && len(profileAddBundles) == 0 && len(profileAddGenerators) == 0 {
-			return fmt.Errorf("at least one parent (--parent), bundle (-b), or generator (-g) is required")
+		if len(profileAddParents) == 0 && len(profileAddBundles) == 0 {
+			return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
 		}
 
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		if cfg.IsEmbedded() {
-			return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
 		}
 
 		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
@@ -145,7 +137,6 @@ Example:
 			Description: profileAddDescription,
 			Parents:     profileAddParents,
 			Bundles:     profileAddBundles,
-			Generators:  profileAddGenerators,
 		}
 
 		if err := loader.Save(profile); err != nil {
@@ -158,9 +149,6 @@ Example:
 		}
 		if len(profileAddBundles) > 0 {
 			parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileAddBundles, ", ")))
-		}
-		if len(profileAddGenerators) > 0 {
-			parts = append(parts, fmt.Sprintf("generators: %s", strings.Join(profileAddGenerators, ", ")))
 		}
 		fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
 		fmt.Printf("Saved to: %s\n", profile.Path)
@@ -250,12 +238,6 @@ var profileShowCmd = &cobra.Command{
 			fmt.Println("Tags:")
 			for _, t := range p.Tags {
 				fmt.Printf("  - %s\n", t)
-			}
-		}
-		if len(p.Generators) > 0 {
-			fmt.Println("Generators:")
-			for _, g := range p.Generators {
-				fmt.Printf("  - %s\n", g)
 			}
 		}
 		if len(p.Variables) > 0 {
@@ -353,28 +335,6 @@ Examples:
 			}
 		}
 
-		// Add generators
-		for _, g := range profileUpdateAddGenerators {
-			if !slices.Contains(p.Generators, g) {
-				p.Generators = append(p.Generators, g)
-				fmt.Printf("Added generator: %s\n", g)
-				modified = true
-			} else {
-				fmt.Printf("Generator already present: %s\n", g)
-			}
-		}
-
-		// Remove generators
-		for _, g := range profileUpdateRemoveGenerators {
-			if idx := slices.Index(p.Generators, g); idx >= 0 {
-				p.Generators = slices.Delete(p.Generators, idx, idx+1)
-				fmt.Printf("Removed generator: %s\n", g)
-				modified = true
-			} else {
-				fmt.Printf("Generator not found: %s\n", g)
-			}
-		}
-
 		if !modified {
 			fmt.Println("No changes made.")
 			return nil
@@ -390,13 +350,11 @@ Examples:
 }
 
 var (
-	profileUpdateAddParents       []string
-	profileUpdateRemoveParents    []string
-	profileUpdateAddBundles       []string
-	profileUpdateRemoveBundles    []string
-	profileUpdateAddGenerators    []string
-	profileUpdateRemoveGenerators []string
-	profileUpdateDescription      string
+	profileUpdateAddParents    []string
+	profileUpdateRemoveParents []string
+	profileUpdateAddBundles    []string
+	profileUpdateRemoveBundles []string
+	profileUpdateDescription   string
 )
 
 var profileExportCmd = &cobra.Command{
@@ -478,10 +436,6 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if cfg.IsEmbedded() {
-		return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
-	}
-
 	// Verify source exists and is valid
 	srcData, err := os.ReadFile(srcPath)
 	if err != nil {
@@ -529,15 +483,12 @@ func init() {
 
 	profileAddCmd.Flags().StringSliceVar(&profileAddParents, "parent", nil, "Parent profile URL(s) to inherit from")
 	profileAddCmd.Flags().StringSliceVarP(&profileAddBundles, "bundle", "b", nil, "Bundle URL(s) to include")
-	profileAddCmd.Flags().StringSliceVarP(&profileAddGenerators, "generator", "g", nil, "Generator(s) to run")
 	profileAddCmd.Flags().StringVarP(&profileAddDescription, "description", "d", "", "Description of the profile")
 
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile URL(s) to remove")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddGenerators, "add-generator", nil, "Generator(s) to add")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveGenerators, "remove-generator", nil, "Generator(s) to remove")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")

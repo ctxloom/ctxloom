@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -227,30 +228,31 @@ func (b *Bundle) AssembledContent(preferDistilled bool) string {
 
 // Loader finds and loads bundles from search directories.
 type Loader struct {
-	searchDirs       []string
-	legacyDirs       []string // Legacy context-fragments directories
-	legacyPromptDirs []string // Legacy prompts directories
-	preferDistilled  bool
+	searchDirs      []string
+	preferDistilled bool
+	fs              afero.Fs
 }
 
-// NewLoader creates a bundle loader.
-func NewLoader(searchDirs []string, preferDistilled bool) *Loader {
-	return &Loader{
-		searchDirs:      searchDirs,
-		preferDistilled: preferDistilled,
+// LoaderOption is a functional option for configuring a Loader.
+type LoaderOption func(*Loader)
+
+// WithFS sets a custom filesystem implementation (for testing).
+func WithFS(fs afero.Fs) LoaderOption {
+	return func(l *Loader) {
+		l.fs = fs
 	}
 }
 
-// WithLegacyDirs adds legacy fragment directories to search.
-// Legacy fragments are wrapped as single-fragment bundles.
-func (l *Loader) WithLegacyDirs(dirs []string) *Loader {
-	l.legacyDirs = dirs
-	return l
-}
-
-// WithLegacyPromptDirs adds legacy prompt directories to search.
-func (l *Loader) WithLegacyPromptDirs(dirs []string) *Loader {
-	l.legacyPromptDirs = dirs
+// NewLoader creates a bundle loader.
+func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
+	l := &Loader{
+		searchDirs:      searchDirs,
+		preferDistilled: preferDistilled,
+		fs:              afero.NewOsFs(),
+	}
+	for _, opt := range opts {
+		opt(l)
+	}
 	return l
 }
 
@@ -279,13 +281,13 @@ func (l *Loader) Find(name string) (string, error) {
 	for _, dir := range l.searchDirs {
 		// Try direct path: name.yaml
 		path := filepath.Join(dir, osName+".yaml")
-		if _, err := os.Stat(path); err == nil {
+		if _, err := l.fs.Stat(path); err == nil {
 			return path, nil
 		}
 
 		// Try directory path: name/bundle.yaml
 		path = filepath.Join(dir, osName, "bundle.yaml")
-		if _, err := os.Stat(path); err == nil {
+		if _, err := l.fs.Stat(path); err == nil {
 			return path, nil
 		}
 	}
@@ -295,7 +297,7 @@ func (l *Loader) Find(name string) (string, error) {
 
 // LoadFile reads a bundle from a specific path.
 func (l *Loader) LoadFile(path string) (*Bundle, error) {
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
 	}
@@ -318,33 +320,34 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 
 	// Search bundle directories recursively
 	for _, dir := range l.searchDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
+		exists, err := afero.DirExists(l.fs, dir)
+		if err != nil || !exists {
 			continue
 		}
 
-		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		_ = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil // Skip directories we can't read
 			}
-			if d.IsDir() {
+			if info.IsDir() {
 				// Check for bundle.yaml in directories
 				bundlePath := filepath.Join(path, "bundle.yaml")
-				if _, err := os.Stat(bundlePath); err == nil {
+				if _, err := l.fs.Stat(bundlePath); err == nil {
 					relPath, _ := filepath.Rel(dir, path)
 					bundleName := filepath.ToSlash(relPath)
 					if seen[bundleName] {
 						return nil
 					}
-					info, err := l.loadBundleInfo(bundlePath, bundleName)
+					bundleInfo, err := l.loadBundleInfo(bundlePath, bundleName)
 					if err == nil {
-						bundles = append(bundles, info)
+						bundles = append(bundles, bundleInfo)
 						seen[bundleName] = true
 					}
 				}
 				return nil
 			}
 
-			name := d.Name()
+			name := info.Name()
 			// Check for .yaml files (bundle files)
 			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
 				relPath, _ := filepath.Rel(dir, path)
@@ -352,49 +355,14 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				if seen[bundleName] {
 					return nil
 				}
-				info, err := l.loadBundleInfo(path, bundleName)
+				bundleInfo, err := l.loadBundleInfo(path, bundleName)
 				if err == nil {
-					bundles = append(bundles, info)
+					bundles = append(bundles, bundleInfo)
 					seen[bundleName] = true
 				}
 			}
 			return nil
 		})
-	}
-
-	// Search legacy fragment directories
-	for _, dir := range l.legacyDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			name := entry.Name()
-
-			// Only process .yaml files
-			if entry.IsDir() || !strings.HasSuffix(name, ".yaml") {
-				continue
-			}
-
-			fragName := strings.TrimSuffix(name, ".yaml")
-			// Legacy fragments use "_legacy_" prefix to avoid collision
-			bundleName := "_legacy_" + fragName
-			if seen[bundleName] {
-				continue
-			}
-
-			path := filepath.Join(dir, name)
-			info, err := l.loadLegacyFragmentInfo(path, fragName)
-			if err == nil {
-				bundles = append(bundles, info)
-				seen[bundleName] = true
-			}
-		}
 	}
 
 	// Sort by name
@@ -433,70 +401,6 @@ func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
 		PromptCount:   bundle.PromptCount(),
 		MCPCount:      bundle.MCPCount(),
 	}, nil
-}
-
-// loadLegacyFragmentInfo creates a BundleInfo from a legacy fragment file.
-func (l *Loader) loadLegacyFragmentInfo(path, fragName string) (*BundleInfo, error) {
-	frag, err := l.LoadLegacyFragment(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return &BundleInfo{
-		Name:          "_legacy_" + fragName,
-		Path:          path,
-		Version:       "legacy",
-		Description:   "Legacy fragment: " + fragName,
-		Tags:          frag.Tags,
-		FragmentCount: 1,
-		PromptCount:   0,
-		MCPCount:      0,
-	}, nil
-}
-
-// LegacyFragment represents the old standalone fragment format.
-type LegacyFragment struct {
-	Tags      []string          `yaml:"tags,omitempty"`
-	Variables []string          `yaml:"variables,omitempty"`
-	Content   string            `yaml:"content"`
-	Exports   map[string]string `yaml:"exports,omitempty"`
-}
-
-// LoadLegacyFragment reads a legacy fragment file.
-func (l *Loader) LoadLegacyFragment(path string) (*LegacyFragment, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var frag LegacyFragment
-	if err := yaml.Unmarshal(data, &frag); err != nil {
-		return nil, err
-	}
-
-	return &frag, nil
-}
-
-// LegacyPrompt is a prompt from a legacy .yaml file.
-type LegacyPrompt struct {
-	Description string   `yaml:"description,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Content     string   `yaml:"content"`
-}
-
-// LoadLegacyPrompt reads a legacy prompt file.
-func (l *Loader) LoadLegacyPrompt(path string) (*LegacyPrompt, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var prompt LegacyPrompt
-	if err := yaml.Unmarshal(data, &prompt); err != nil {
-		return nil, err
-	}
-
-	return &prompt, nil
 }
 
 // ParseBundle parses raw YAML into a Bundle.
@@ -609,11 +513,6 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 	seen := make(map[string]bool)
 
 	for _, bundleInfo := range bundles {
-		// Skip legacy bundles - we'll handle them separately
-		if strings.HasPrefix(bundleInfo.Name, "_legacy_") {
-			continue
-		}
-
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
@@ -638,51 +537,10 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 		}
 	}
 
-	// Add legacy fragments
-	for _, dir := range l.legacyDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, ".yaml") {
-				continue
-			}
-
-			fragName := strings.TrimSuffix(name, ".yaml")
-			if seen[fragName] {
-				continue
-			}
-			seen[fragName] = true
-
-			path := filepath.Join(dir, name)
-			frag, err := l.LoadLegacyFragment(path)
-			if err != nil {
-				continue
-			}
-
-			infos = append(infos, ContentInfo{
-				Name:     fragName,
-				FileName: name,
-				Path:     path,
-				Source:   "legacy",
-				Tags:     frag.Tags,
-				Bundle:   "",
-				ItemType: "fragment",
-			})
-		}
-	}
-
 	return infos, nil
 }
 
-// ListAllPrompts returns info about all prompts across all bundles and legacy dirs.
+// ListAllPrompts returns info about all prompts across all bundles.
 func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 	bundles, err := l.List()
 	if err != nil {
@@ -710,47 +568,6 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 				Source:   bundle.Name,
 				Tags:     append(bundle.Tags, prompt.Tags...),
 				Bundle:   bundle.Name,
-				ItemType: "prompt",
-			})
-		}
-	}
-
-	// Add legacy prompts
-	for _, dir := range l.legacyPromptDirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, ".yaml") {
-				continue
-			}
-
-			promptName := strings.TrimSuffix(name, ".yaml")
-			if seen[promptName] {
-				continue
-			}
-			seen[promptName] = true
-
-			path := filepath.Join(dir, name)
-			prompt, err := l.LoadLegacyPrompt(path)
-			if err != nil {
-				continue
-			}
-
-			infos = append(infos, ContentInfo{
-				Name:     promptName,
-				FileName: name,
-				Path:     path,
-				Source:   "legacy",
-				Tags:     prompt.Tags,
-				Bundle:   "",
 				ItemType: "prompt",
 			})
 		}
@@ -818,24 +635,6 @@ func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
 		}
 	}
 
-	// Search legacy fragment directories
-	for _, dir := range l.legacyDirs {
-		path := filepath.Join(dir, name+".yaml")
-		if _, err := os.Stat(path); err == nil {
-			frag, err := l.LoadLegacyFragment(path)
-			if err != nil {
-				continue
-			}
-			return &LoadedContent{
-				Name:    name,
-				Version: "legacy",
-				Tags:    frag.Tags,
-				Content: frag.Content,
-				Exports: frag.Exports,
-			}, nil
-		}
-	}
-
 	return nil, fmt.Errorf("fragment not found: %s", name)
 }
 
@@ -894,23 +693,6 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 				Content:     prompt.EffectiveContent(l.preferDistilled),
 				IsDistilled: l.preferDistilled && prompt.Distilled != "",
 				DistilledBy: prompt.DistilledBy,
-			}, nil
-		}
-	}
-
-	// Search legacy prompt directories
-	for _, dir := range l.legacyPromptDirs {
-		path := filepath.Join(dir, name+".yaml")
-		if _, err := os.Stat(path); err == nil {
-			prompt, err := l.LoadLegacyPrompt(path)
-			if err != nil {
-				continue
-			}
-			return &LoadedContent{
-				Name:    name,
-				Version: "legacy",
-				Tags:    prompt.Tags,
-				Content: prompt.Content,
 			}, nil
 		}
 	}

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
 var remoteCmd = &cobra.Command{
@@ -40,43 +40,24 @@ Examples:
   scm remote add corp https://gitlab.com/corp/scm`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		url := args[1]
-
-		registry, err := remote.NewRegistry("")
+		cfg, err := GetConfig()
 		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
-		}
-
-		if err := registry.Add(name, url); err != nil {
 			return err
 		}
 
-		// Verify the remote is valid
-		auth := remote.LoadAuth("")
-		fetcher, err := registry.GetFetcher(name, auth)
+		result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+			Name: args[0],
+			URL:  args[1],
+		})
 		if err != nil {
-			// Rollback
-			registry.Remove(name)
-			return fmt.Errorf("failed to create fetcher: %w", err)
+			return err
 		}
 
-		owner, repo, err := remote.ParseRepoURL(url)
-		if err != nil {
-			registry.Remove(name)
-			return fmt.Errorf("invalid URL: %w", err)
+		if result.Warning != "" {
+			fmt.Printf("Warning: %s\n", result.Warning)
 		}
 
-		// Check if repo has valid SCM structure
-		valid, err := fetcher.ValidateRepo(cmd.Context(), owner, repo)
-		if err != nil {
-			fmt.Printf("Warning: could not validate repository structure: %v\n", err)
-		} else if !valid {
-			fmt.Printf("Warning: repository does not have scm/v1/ directory structure\n")
-		}
-
-		r, _ := registry.Get(name)
-		fmt.Printf("Added remote '%s' → %s\n", name, r.URL)
+		fmt.Printf("Added remote '%s' → %s\n", result.Name, result.URL)
 		return nil
 	},
 }
@@ -87,18 +68,19 @@ var remoteRemoveCmd = &cobra.Command{
 	Short:   "Remove a remote source",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-
-		registry, err := remote.NewRegistry("")
+		cfg, err := GetConfig()
 		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
-		}
-
-		if err := registry.Remove(name); err != nil {
 			return err
 		}
 
-		fmt.Printf("Removed remote '%s'\n", name)
+		result, err := operations.RemoveRemote(cmd.Context(), cfg, operations.RemoveRemoteRequest{
+			Name: args[0],
+		})
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Removed remote '%s'\n", result.Name)
 		return nil
 	},
 }
@@ -108,13 +90,17 @@ var remoteListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List configured remotes",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		registry, err := remote.NewRegistry("")
+		cfg, err := GetConfig()
 		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
+			return err
 		}
 
-		remotes := registry.List()
-		if len(remotes) == 0 {
+		result, err := operations.ListRemotes(cmd.Context(), cfg, operations.ListRemotesRequest{})
+		if err != nil {
+			return err
+		}
+
+		if result.Count == 0 {
 			fmt.Println("No remotes configured.")
 			fmt.Println("Use 'scm remote add <name> <url>' to add a remote.")
 			fmt.Println("Use 'scm remote discover' to find public repositories.")
@@ -122,7 +108,7 @@ var remoteListCmd = &cobra.Command{
 		}
 
 		fmt.Println("Configured remotes:")
-		for _, r := range remotes {
+		for _, r := range result.Remotes {
 			fmt.Printf("  %-15s %s (version: %s)\n", r.Name, r.URL, r.Version)
 		}
 

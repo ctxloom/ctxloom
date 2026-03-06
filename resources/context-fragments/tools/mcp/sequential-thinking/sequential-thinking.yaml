@@ -1,9 +1,0 @@
-version: 1.0
-tags:
-    - mcp
-    - reasoning
-    - problem-solving
-no_distill: true
-content: |-
-    # Sequential Thinking MCP Server
-    Use sequential thinking MCP server in accordance with its documentation.

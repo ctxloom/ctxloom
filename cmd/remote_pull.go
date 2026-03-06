@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
 var pullForce bool
@@ -35,7 +35,7 @@ Examples:
   scm remote profiles pull corp/enterprise@v1.0.0
   scm remote profiles pull alice/go-developer --no-cascade`,
 	Args: cobra.ExactArgs(1),
-	RunE: runRemotePull(remote.ItemTypeProfile),
+	RunE: runRemotePull("profile"),
 }
 
 // remoteBundlesCmd is the parent for bundle-specific remote commands.
@@ -61,35 +61,29 @@ Examples:
   scm remote bundles pull github:bundles/core-practices
   scm remote bundles pull github:bundles/go-development@v1.0.0`,
 	Args: cobra.ExactArgs(1),
-	RunE: runRemotePull(remote.ItemTypeBundle),
+	RunE: runRemotePull("bundle"),
 }
 
 // runRemotePull returns a RunE function for pulling items of the specified type.
-func runRemotePull(itemType remote.ItemType) func(*cobra.Command, []string) error {
+func runRemotePull(itemType string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		refStr := args[0]
-
-		registry, err := remote.NewRegistry("")
+		cfg, err := GetConfig()
 		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
+			return err
 		}
-
-		auth := remote.LoadAuth("")
-		puller := remote.NewPuller(registry, auth)
 
 		// Cascade is enabled by default for profiles, disabled for others
 		cascade := pullCascade
-		if itemType == remote.ItemTypeProfile && !pullNoCascade {
+		if itemType == "profile" && !pullNoCascade {
 			cascade = true
 		}
 
-		opts := remote.PullOptions{
-			Force:    pullForce,
-			ItemType: itemType,
-			Cascade:  cascade,
-		}
-
-		result, err := puller.Pull(cmd.Context(), refStr, opts)
+		result, err := operations.PullItem(cmd.Context(), cfg, operations.PullItemRequest{
+			Reference: args[0],
+			ItemType:  itemType,
+			Force:     pullForce,
+			Cascade:   cascade,
+		})
 		if err != nil {
 			return err
 		}
@@ -99,8 +93,12 @@ func runRemotePull(itemType remote.ItemType) func(*cobra.Command, []string) erro
 			action = "Updated"
 		}
 
-		fmt.Printf("%s %s → %s\n", action, refStr, result.LocalPath)
-		fmt.Printf("SHA: %s\n", result.SHA[:7])
+		fmt.Printf("%s %s → %s\n", action, args[0], result.LocalPath)
+		shortSHA := result.SHA
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		fmt.Printf("SHA: %s\n", shortSHA)
 
 		if len(result.CascadePulled) > 0 {
 			fmt.Printf("Cascade pulled %d bundles\n", len(result.CascadePulled))

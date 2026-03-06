@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/spf13/afero"
 )
 
 // SettingsWriter writes hooks and MCP servers to backend-specific configuration files.
@@ -32,11 +33,33 @@ type SettingsWriter interface {
 // HookWriter is kept for backwards compatibility.
 type HookWriter = SettingsWriter
 
+// settingsOptions holds configuration for settings operations.
+type settingsOptions struct {
+	fs afero.Fs
+}
+
+// SettingsOption is a functional option for settings operations.
+type SettingsOption func(*settingsOptions)
+
+// WithSettingsFS sets the filesystem to use for settings operations.
+// If not provided, the real OS filesystem is used.
+func WithSettingsFS(fs afero.Fs) SettingsOption {
+	return func(o *settingsOptions) {
+		o.fs = fs
+	}
+}
+
 // WriteSettings writes hooks and MCP servers for the specified backend.
 // If the backend doesn't support settings, this is a no-op.
 // bundleMCP contains MCP servers resolved from profile bundles.
-func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error {
-	writer := GetSettingsWriter(backendName)
+// Use WithSettingsFS to provide a custom filesystem for testing.
+func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string, opts ...SettingsOption) error {
+	options := &settingsOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	writer := GetSettingsWriter(backendName, options.fs)
 	if writer == nil {
 		return nil // Backend doesn't support settings
 	}
@@ -50,12 +73,13 @@ func WriteHooks(backendName string, cfg *config.HooksConfig, projectDir string) 
 }
 
 // GetSettingsWriter returns a SettingsWriter for the named backend, or nil if not supported.
-func GetSettingsWriter(name string) SettingsWriter {
+// If fs is provided, it will be used for filesystem operations; otherwise the OS filesystem is used.
+func GetSettingsWriter(name string, fs afero.Fs) SettingsWriter {
 	switch name {
 	case "claude-code":
-		return &ClaudeCodeHookWriter{}
+		return &ClaudeCodeHookWriter{FS: fs}
 	case "gemini":
-		return &GeminiHookWriter{}
+		return &GeminiHookWriter{FS: fs}
 	default:
 		return nil
 	}
@@ -64,7 +88,7 @@ func GetSettingsWriter(name string) SettingsWriter {
 // GetHookWriter returns a SettingsWriter for the named backend, or nil if not supported.
 // Deprecated: Use GetSettingsWriter instead.
 func GetHookWriter(name string) SettingsWriter {
-	return GetSettingsWriter(name)
+	return GetSettingsWriter(name, nil)
 }
 
 // computeHookHash computes a hash from the hook's defining fields.
@@ -84,7 +108,18 @@ func computeHookHash(h config.Hook) string {
 }
 
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
-type ClaudeCodeHookWriter struct{}
+type ClaudeCodeHookWriter struct {
+	// FS is the filesystem to use. If nil, the real OS filesystem is used.
+	FS afero.Fs
+}
+
+// getFS returns the filesystem to use, defaulting to the OS filesystem.
+func (w *ClaudeCodeHookWriter) getFS() afero.Fs {
+	if w.FS == nil {
+		return afero.NewOsFs()
+	}
+	return w.FS
+}
 
 // HooksPath returns the path to Claude Code's settings.json file.
 func (w *ClaudeCodeHookWriter) HooksPath(projectDir string) string {
@@ -153,11 +188,12 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 		hooks = &config.HooksConfig{}
 	}
 
+	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
 
 	// Ensure .claude directory exists
 	claudeDir := filepath.Dir(settingsPath)
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := fs.MkdirAll(claudeDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .claude directory: %w", err)
 	}
 
@@ -204,7 +240,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		Other: make(map[string]json.RawMessage),
 	}
 
-	data, err := os.ReadFile(path)
+	fs := w.getFS()
+	data, err := afero.ReadFile(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return settings, nil
@@ -258,7 +295,8 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	fs := w.getFS()
+	return afero.WriteFile(fs, path, data, 0644)
 }
 
 // loadMCPConfig loads existing .mcp.json or returns empty config.
@@ -267,7 +305,8 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 		MCPServers: make(map[string]claudeCodeMCPServer),
 	}
 
-	data, err := os.ReadFile(path)
+	fs := w.getFS()
+	data, err := afero.ReadFile(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return mcpConfig, nil
@@ -293,7 +332,8 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	fs := w.getFS()
+	return afero.WriteFile(fs, path, data, 0644)
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.
@@ -497,7 +537,19 @@ func computeMCPServerHash(s config.MCPServer) string {
 }
 
 // GeminiHookWriter writes hooks to Gemini CLI's settings.json format.
-type GeminiHookWriter struct{}
+// GeminiHookWriter writes hooks to Gemini's settings.json format.
+type GeminiHookWriter struct {
+	// FS is the filesystem to use. If nil, the real OS filesystem is used.
+	FS afero.Fs
+}
+
+// getFS returns the filesystem to use, defaulting to the OS filesystem.
+func (w *GeminiHookWriter) getFS() afero.Fs {
+	if w.FS == nil {
+		return afero.NewOsFs()
+	}
+	return w.FS
+}
 
 // HooksPath returns the path to Gemini's project-level settings.json file.
 func (w *GeminiHookWriter) HooksPath(projectDir string) string {
@@ -536,11 +588,12 @@ func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.
 		hooks = &config.HooksConfig{}
 	}
 
+	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
 
 	// Ensure .gemini directory exists
 	geminiDir := filepath.Dir(settingsPath)
-	if err := os.MkdirAll(geminiDir, 0755); err != nil {
+	if err := fs.MkdirAll(geminiDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .gemini directory: %w", err)
 	}
 
@@ -584,7 +637,8 @@ func (w *GeminiHookWriter) loadSettings(path string) (*geminiSettings, error) {
 		Other:      make(map[string]json.RawMessage),
 	}
 
-	data, err := os.ReadFile(path)
+	fs := w.getFS()
+	data, err := afero.ReadFile(fs, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return settings, nil
@@ -645,7 +699,8 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	fs := w.getFS()
+	return afero.WriteFile(fs, path, data, 0644)
 }
 
 // removeScmHooks removes all hooks with _scm field from settings.

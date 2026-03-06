@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/lm/backends"
 	"github.com/benjaminabbitt/scm/internal/profiles"
-	"github.com/benjaminabbitt/scm/resources"
 )
 
 var completionCmd = &cobra.Command{
@@ -117,60 +117,23 @@ func listYAMLNames(dirs []string) []string {
 	return names
 }
 
-// listEmbeddedYAMLNames lists YAML names from embedded filesystem.
-func listEmbeddedYAMLNames(fsys fs.FS, root string) []string {
-	seen := make(map[string]bool)
-	var names []string
-
-	fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		name := d.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		fragName := strings.TrimSuffix(relPath, ext)
-
-		if !seen[fragName] {
-			seen[fragName] = true
-			names = append(names, fragName)
-		}
-		return nil
-	})
-
-	sort.Strings(names)
-	return names
-}
-
 // completeFragmentNames returns a completion function for fragment names.
 func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	// Try to get fragment dirs from config, fall back to embedded
 	cfg, err := config.Load()
 	if err != nil {
-		// Fall back to embedded fragments
-		names := listEmbeddedYAMLNames(resources.FragmentsFS(), "context-fragments")
-		return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	infos, err := loader.ListAllFragments()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	if cfg.IsEmbedded() {
-		// Use embedded resources directly
-		names = listEmbeddedYAMLNames(resources.FragmentsFS(), "context-fragments")
-	} else {
-		names = listYAMLNames(cfg.GetFragmentDirs())
+	for _, info := range infos {
+		names = append(names, info.Name)
 	}
-
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
@@ -242,41 +205,20 @@ func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 func completePromptNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	cfg, err := config.Load()
 	if err != nil {
-		// Fall back to embedded prompts
-		names := listEmbeddedYAMLNames(resources.PromptsFS(), "prompts")
-		return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	infos, err := loader.ListAllPrompts()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	if cfg.IsEmbedded() {
-		// Use embedded resources directly
-		names = listEmbeddedYAMLNames(resources.PromptsFS(), "prompts")
-	} else {
-		names = listYAMLNames(cfg.GetPromptDirs())
+	for _, info := range infos {
+		names = append(names, info.Name)
 	}
-
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
-}
-
-// completeCopyLocations returns a completion function for copy source/destination.
-func completeCopyLocations(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	locations := []string{
-		"embedded\tEmbedded default fragments and prompts",
-		"e\tAlias for embedded",
-		"project\t.scm in current project",
-		"p\tAlias for project",
-	}
-
-	var matches []string
-	for _, loc := range locations {
-		name := strings.Split(loc, "\t")[0]
-		if strings.HasPrefix(name, toComplete) {
-			matches = append(matches, loc)
-		}
-	}
-
-	// Also allow file paths
-	return matches, cobra.ShellCompDirectiveDefault
 }
 
 // filterPrefix returns only strings that start with the given prefix.

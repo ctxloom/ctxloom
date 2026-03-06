@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,6 +31,7 @@ type Profile struct {
 	Name        string            `yaml:"-"`                      // Derived from filename
 	Path        string            `yaml:"-"`                      // Full path to the file
 	Description string            `yaml:"description,omitempty"`
+	Default     bool              `yaml:"default,omitempty"`      // Whether this is a default profile
 	Parents     []string          `yaml:"parents,omitempty"`      // Parent profiles to inherit from
 	Tags        []string          `yaml:"tags,omitempty"`         // Fragment tags to include
 
@@ -38,8 +40,7 @@ type Profile struct {
 	// Full URLs: "https://github.com/user/repo@v1/bundles/name"
 	Bundles []string `yaml:"bundles,omitempty"`
 
-	Variables  map[string]string `yaml:"variables,omitempty"`
-	Generators []string          `yaml:"generators,omitempty"` // Plugin binaries that output context
+	Variables map[string]string `yaml:"variables,omitempty"`
 }
 
 // ContentRef represents a parsed content reference.
@@ -230,11 +231,29 @@ func (r ContentRef) LocalBundlePath() string {
 // Loader handles loading profiles from .scm/profiles directories.
 type Loader struct {
 	dirs []string
+	fs   afero.Fs
+}
+
+// LoaderOption is a functional option for configuring a Loader.
+type LoaderOption func(*Loader)
+
+// WithFS sets a custom filesystem implementation (for testing).
+func WithFS(fs afero.Fs) LoaderOption {
+	return func(l *Loader) {
+		l.fs = fs
+	}
 }
 
 // NewLoader creates a new profile loader.
-func NewLoader(dirs []string) *Loader {
-	return &Loader{dirs: dirs}
+func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
+	l := &Loader{
+		dirs: dirs,
+		fs:   afero.NewOsFs(),
+	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l
 }
 
 // List returns all available profiles (searches subdirectories recursively).
@@ -243,18 +262,19 @@ func (l *Loader) List() ([]*Profile, error) {
 	seen := make(map[string]bool)
 
 	for _, dir := range l.dirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
+		exists, err := afero.DirExists(l.fs, dir)
+		if err != nil || !exists {
 			continue
 		}
 
-		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil // Skip directories we can't read
 			}
-			if d.IsDir() {
+			if info.IsDir() {
 				return nil
 			}
-			name := d.Name()
+			name := info.Name()
 			if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
 				return nil
 			}
@@ -291,6 +311,22 @@ func (l *Loader) List() ([]*Profile, error) {
 	return profiles, nil
 }
 
+// GetDefaults returns the names of profiles that have default: true.
+func (l *Loader) GetDefaults() []string {
+	profiles, err := l.List()
+	if err != nil {
+		return nil
+	}
+
+	var defaults []string
+	for _, p := range profiles {
+		if p.Default {
+			defaults = append(defaults, p.Name)
+		}
+	}
+	return defaults
+}
+
 // Load loads a profile by name (supports subdirectory paths like "github/profile-name").
 func (l *Loader) Load(name string) (*Profile, error) {
 	// Convert forward slashes to OS-specific separator for file lookup
@@ -299,7 +335,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	for _, dir := range l.dirs {
 		for _, ext := range []string{".yaml", ".yml"} {
 			path := filepath.Join(dir, osName+ext)
-			if _, err := os.Stat(path); err == nil {
+			if _, err := l.fs.Stat(path); err == nil {
 				profile, err := l.loadFile(path)
 				if err != nil {
 					return nil, err
@@ -319,7 +355,7 @@ func (l *Loader) Exists(name string) bool {
 }
 
 func (l *Loader) loadFile(path string) (*Profile, error) {
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +376,7 @@ func (l *Loader) Save(profile *Profile) error {
 
 	// Use first directory for writes
 	dir := l.dirs[0]
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := l.fs.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create profiles directory: %w", err)
 	}
 
@@ -356,7 +392,7 @@ func (l *Loader) Save(profile *Profile) error {
 		return fmt.Errorf("failed to marshal profile: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := afero.WriteFile(l.fs, path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write profile: %w", err)
 	}
 
@@ -370,7 +406,7 @@ func (l *Loader) Delete(name string) error {
 	if err != nil {
 		return err
 	}
-	return os.Remove(profile.Path)
+	return l.fs.Remove(profile.Path)
 }
 
 // GetProfileDirs returns profile directories from SCM paths.
@@ -386,7 +422,7 @@ func GetProfileDirs(scmPaths []string) []string {
 }
 
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
-// Returns fragments, bundles, bundleItems, generators, tags, mcpServers.
+// Returns bundles, tags, and variables.
 func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*ResolvedProfile, error) {
 	if visited == nil {
 		visited = make(map[string]bool)
@@ -417,7 +453,6 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 	// Then apply this profile's settings (overrides parents)
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
-	resolved.Generators = appendUnique(resolved.Generators, profile.Generators...)
 	for k, v := range profile.Variables {
 		resolved.Variables[k] = v
 	}
@@ -427,17 +462,15 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.
 type ResolvedProfile struct {
-	Bundles    []string          // All bundle references
-	Tags       []string
-	Generators []string
-	Variables  map[string]string
+	Bundles   []string // All bundle references
+	Tags      []string
+	Variables map[string]string
 }
 
 // Merge adds items from another resolved profile.
 func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
-	r.Generators = appendUnique(r.Generators, other.Generators...)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v

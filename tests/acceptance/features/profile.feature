@@ -160,38 +160,6 @@ Feature: Profile management
     And the output should contain "keep-bundle"
     And the output should not contain "old-bundle"
 
-  Scenario: Update profile adds generator
-    Given a profile file "add-gen" with:
-      """
-      description: Will add generator
-      bundles:
-        - some-bundle
-      """
-    When I run scm "profile update add-gen --add-generator my-generator"
-    Then the exit code should be 0
-    And the output should contain "Added generator"
-    When I run scm "profile show add-gen"
-    Then the exit code should be 0
-    And the output should contain "my-generator"
-
-  Scenario: Update profile removes generator
-    Given a profile file "remove-gen" with:
-      """
-      description: Has generators
-      bundles:
-        - some-bundle
-      generators:
-        - keep-generator
-        - remove-generator
-      """
-    When I run scm "profile update remove-gen --remove-generator remove-generator"
-    Then the exit code should be 0
-    And the output should contain "Removed generator"
-    When I run scm "profile show remove-gen"
-    Then the exit code should be 0
-    And the output should contain "keep-generator"
-    And the output should not contain "remove-generator"
-
   Scenario: Update profile adds parent
     Given a profile file "base-profile" with:
       """
@@ -275,15 +243,4 @@ Feature: Profile management
     When I run scm "profile remove nonexistent"
     Then the exit code should be 1
     And the output should contain "not found"
-
-  # ============================================================================
-  # Profile with Generators
-  # ============================================================================
-
-  Scenario: Add profile with generators
-    When I run scm "profile add with-gen -b bundle -g my-generator"
-    Then the exit code should be 0
-    When I run scm "profile show with-gen"
-    Then the exit code should be 0
-    And the output should contain "my-generator"
 

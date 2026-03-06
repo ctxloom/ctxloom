@@ -21,7 +21,7 @@
           "items": {
             "type": "string"
           },
-          "examples": [["~/.scm/plugins", ".scm/plugins"]]
+          "examples": [["/home/user/.scm/plugins", ".scm/plugins"]]
         },
         "plugins": {
           "type": "object",
@@ -90,14 +90,6 @@
           "type": "string",
           "description": "Default profile to load when no profile is specified"
         },
-        "generators": {
-          "type": "array",
-          "description": "Generators always run",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
         "use_distilled": {
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
@@ -105,40 +97,41 @@
       },
       "additionalProperties": false
     },
-    "generators": {
-      "type": "object",
-      "description": "Context generators that produce dynamic content",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["command"],
-        "properties": {
-          "description": {
-            "type": "string",
-            "description": "Human-readable description of what this generator produces"
-          },
-          "command": {
-            "type": "string",
-            "description": "Command to execute (can be a path or binary name in PATH)",
-            "minLength": 1
-          },
-          "args": {
-            "type": "array",
-            "description": "Additional arguments for the generator command",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false
-      }
-    },
     "hooks": {
       "$ref": "#/$defs/hooksConfig",
       "description": "Hooks configuration applied globally"
     },
+    "mcp": {
+      "type": "object",
+      "description": "MCP (Model Context Protocol) server configuration",
+      "properties": {
+        "auto_register_scm": {
+          "type": "boolean",
+          "description": "Whether to automatically register SCM's own MCP server (default: true)"
+        },
+        "servers": {
+          "type": "object",
+          "description": "Unified MCP server configurations (applied to all backends)",
+          "additionalProperties": {
+            "$ref": "#/$defs/mcpServer"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Backend-specific MCP server configurations (keyed by backend name)",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/mcpServer"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "profiles": {
       "type": "object",
-      "description": "Named collections of context fragments, variables, and generators",
+      "description": "Named collections of context fragments and variables",
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -183,14 +176,6 @@
               "type": "string"
             }
           },
-          "generators": {
-            "type": "array",
-            "description": "Generators to run for this profile",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
           "hooks": {
             "$ref": "#/$defs/hooksConfig",
             "description": "Hooks configuration for this profile (inherited from parents)"
@@ -201,6 +186,33 @@
     }
   },
   "$defs": {
+    "mcpServer": {
+      "type": "object",
+      "description": "MCP server configuration",
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Command to run the MCP server",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Arguments for the server command",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables for the server",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "hook": {
       "type": "object",
       "description": "A hook definition",

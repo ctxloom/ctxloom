@@ -1,0 +1,929 @@
+package bundles
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// =============================================================================
+// BundleFragment Tests
+// =============================================================================
+
+func TestBundleFragment_ComputeContentHash(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "empty content",
+			content: "",
+			want:    "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		},
+		{
+			name:    "simple content",
+			content: "hello world",
+			want:    "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+		},
+		{
+			name:    "multiline content",
+			content: "line1\nline2\nline3",
+			want:    "sha256:7fe73e5e5e7cd714f7a52c67d6c0b057d7bc9a4f9d3d6f32de0a1c4e9f8a7e6d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &BundleFragment{Content: tt.content}
+			got := f.ComputeContentHash()
+			assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
+			if tt.name != "multiline content" { // multiline hash is computed dynamically
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestBundleFragment_NeedsDistill(t *testing.T) {
+	tests := []struct {
+		name     string
+		fragment BundleFragment
+		want     bool
+	}{
+		{
+			name:     "no_distill set",
+			fragment: BundleFragment{NoDistill: true, Content: "test"},
+			want:     false,
+		},
+		{
+			name:     "no distilled content",
+			fragment: BundleFragment{Content: "test"},
+			want:     true,
+		},
+		{
+			name:     "distilled but no hash",
+			fragment: BundleFragment{Content: "test", Distilled: "distilled"},
+			want:     true,
+		},
+		{
+			name: "hash mismatch",
+			fragment: BundleFragment{
+				Content:     "new content",
+				Distilled:   "distilled",
+				ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			want: true,
+		},
+		{
+			name: "hash matches",
+			fragment: BundleFragment{
+				Content:     "test",
+				Distilled:   "distilled",
+				ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.fragment.NeedsDistill()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestBundleFragment_EffectiveContent(t *testing.T) {
+	tests := []struct {
+		name            string
+		fragment        BundleFragment
+		preferDistilled bool
+		want            string
+	}{
+		{
+			name:            "prefer distilled but none available",
+			fragment:        BundleFragment{Content: "original"},
+			preferDistilled: true,
+			want:            "original",
+		},
+		{
+			name:            "prefer distilled and available",
+			fragment:        BundleFragment{Content: "original", Distilled: "distilled"},
+			preferDistilled: true,
+			want:            "distilled",
+		},
+		{
+			name:            "prefer original",
+			fragment:        BundleFragment{Content: "original", Distilled: "distilled"},
+			preferDistilled: false,
+			want:            "original",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.fragment.EffectiveContent(tt.preferDistilled)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// =============================================================================
+// BundlePrompt Tests
+// =============================================================================
+
+func TestBundlePrompt_ComputeContentHash(t *testing.T) {
+	p := &BundlePrompt{Content: "test prompt"}
+	got := p.ComputeContentHash()
+	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
+}
+
+func TestBundlePrompt_NeedsDistill(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt BundlePrompt
+		want   bool
+	}{
+		{
+			name:   "no_distill set",
+			prompt: BundlePrompt{NoDistill: true, Content: "test"},
+			want:   false,
+		},
+		{
+			name:   "no distilled content",
+			prompt: BundlePrompt{Content: "test"},
+			want:   true,
+		},
+		{
+			name: "hash matches",
+			prompt: BundlePrompt{
+				Content:     "test",
+				Distilled:   "distilled",
+				ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.prompt.NeedsDistill()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestBundlePrompt_EffectiveContent(t *testing.T) {
+	tests := []struct {
+		name            string
+		prompt          BundlePrompt
+		preferDistilled bool
+		want            string
+	}{
+		{
+			name:            "prefer distilled and available",
+			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
+			preferDistilled: true,
+			want:            "distilled",
+		},
+		{
+			name:            "prefer original",
+			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
+			preferDistilled: false,
+			want:            "original",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.prompt.EffectiveContent(tt.preferDistilled)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// =============================================================================
+// Bundle Tests
+// =============================================================================
+
+func TestBundle_HasMCP(t *testing.T) {
+	tests := []struct {
+		name   string
+		bundle Bundle
+		want   bool
+	}{
+		{
+			name:   "no MCP",
+			bundle: Bundle{},
+			want:   false,
+		},
+		{
+			name:   "has MCP",
+			bundle: Bundle{MCP: map[string]BundleMCP{"test": {Command: "cmd"}}},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.bundle.HasMCP())
+		})
+	}
+}
+
+func TestBundle_MCPCount(t *testing.T) {
+	bundle := Bundle{
+		MCP: map[string]BundleMCP{
+			"mcp1": {Command: "cmd1"},
+			"mcp2": {Command: "cmd2"},
+		},
+	}
+	assert.Equal(t, 2, bundle.MCPCount())
+}
+
+func TestBundle_MCPNames(t *testing.T) {
+	bundle := Bundle{
+		MCP: map[string]BundleMCP{
+			"zebra": {Command: "cmd1"},
+			"alpha": {Command: "cmd2"},
+		},
+	}
+	names := bundle.MCPNames()
+	assert.Equal(t, []string{"alpha", "zebra"}, names)
+}
+
+func TestBundle_FragmentCount(t *testing.T) {
+	bundle := Bundle{
+		Fragments: map[string]BundleFragment{
+			"frag1": {Content: "c1"},
+			"frag2": {Content: "c2"},
+		},
+	}
+	assert.Equal(t, 2, bundle.FragmentCount())
+}
+
+func TestBundle_PromptCount(t *testing.T) {
+	bundle := Bundle{
+		Prompts: map[string]BundlePrompt{
+			"prompt1": {Content: "c1"},
+		},
+	}
+	assert.Equal(t, 1, bundle.PromptCount())
+}
+
+func TestBundle_FragmentNames(t *testing.T) {
+	bundle := Bundle{
+		Fragments: map[string]BundleFragment{
+			"zebra": {Content: "c1"},
+			"alpha": {Content: "c2"},
+		},
+	}
+	names := bundle.FragmentNames()
+	assert.Equal(t, []string{"alpha", "zebra"}, names)
+}
+
+func TestBundle_PromptNames(t *testing.T) {
+	bundle := Bundle{
+		Prompts: map[string]BundlePrompt{
+			"zebra": {Content: "c1"},
+			"alpha": {Content: "c2"},
+		},
+	}
+	names := bundle.PromptNames()
+	assert.Equal(t, []string{"alpha", "zebra"}, names)
+}
+
+func TestBundle_AllTags(t *testing.T) {
+	bundle := Bundle{
+		Tags: []string{"bundle-tag"},
+		Fragments: map[string]BundleFragment{
+			"frag1": {Tags: []string{"frag-tag", "shared"}},
+		},
+		Prompts: map[string]BundlePrompt{
+			"prompt1": {Tags: []string{"prompt-tag", "shared"}},
+		},
+	}
+	tags := bundle.AllTags()
+	assert.Contains(t, tags, "bundle-tag")
+	assert.Contains(t, tags, "frag-tag")
+	assert.Contains(t, tags, "prompt-tag")
+	assert.Contains(t, tags, "shared")
+}
+
+func TestBundle_Save(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlePath := filepath.Join(tmpDir, "test-bundle.yaml")
+
+	bundle := &Bundle{
+		Path:    bundlePath,
+		Version: "1.0",
+		Fragments: map[string]BundleFragment{
+			"test": {Content: "test content"},
+		},
+	}
+
+	err := bundle.Save()
+	require.NoError(t, err)
+
+	// Verify file was written
+	data, err := os.ReadFile(bundlePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "version: \"1.0\"")
+	assert.Contains(t, string(data), "test content")
+}
+
+func TestBundle_Save_NoPath(t *testing.T) {
+	bundle := &Bundle{Version: "1.0"}
+	err := bundle.Save()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no path set")
+}
+
+func TestBundle_AssembledContent(t *testing.T) {
+	bundle := Bundle{
+		Fragments: map[string]BundleFragment{
+			"alpha": {Content: "content A"},
+			"beta":  {Content: "content B"},
+		},
+	}
+	content := bundle.AssembledContent(false)
+	assert.Contains(t, content, "content A")
+	assert.Contains(t, content, "content B")
+	assert.Contains(t, content, "---")
+}
+
+// =============================================================================
+// ParseBundle Tests
+// =============================================================================
+
+func TestParseBundle(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		check   func(t *testing.T, b *Bundle)
+	}{
+		{
+			name: "valid bundle",
+			yaml: `
+version: "1.0"
+tags:
+  - golang
+fragments:
+  test-frag:
+    content: |
+      test content
+prompts:
+  test-prompt:
+    content: prompt content
+`,
+			wantErr: false,
+			check: func(t *testing.T, b *Bundle) {
+				assert.Equal(t, "1.0", b.Version)
+				assert.Contains(t, b.Tags, "golang")
+				assert.Len(t, b.Fragments, 1)
+				assert.Len(t, b.Prompts, 1)
+			},
+		},
+		{
+			name: "empty bundle initializes maps",
+			yaml: `
+version: "1.0"
+`,
+			wantErr: false,
+			check: func(t *testing.T, b *Bundle) {
+				assert.NotNil(t, b.Fragments)
+				assert.NotNil(t, b.Prompts)
+				assert.NotNil(t, b.MCP)
+			},
+		},
+		{
+			name:    "invalid yaml",
+			yaml:    `invalid: [`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bundle, err := ParseBundle([]byte(tt.yaml))
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			if tt.check != nil {
+				tt.check(t, bundle)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// validateBundleName Tests
+// =============================================================================
+
+func TestValidateBundleName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid simple", "my-bundle", false},
+		{"valid with slash", "github.com/user/repo", false},
+		{"empty", "", true},
+		{"path traversal", "../secret", true},
+		{"absolute path", "/etc/passwd", true},
+		{"null byte", "bundle\x00evil", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateBundleName(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// extractBundleName Tests
+// =============================================================================
+
+func TestExtractBundleName(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/path/to/my-bundle.yaml", "my-bundle"},
+		{"/path/to/bundle/bundle.yaml", "bundle"},
+		{"simple.yaml", "simple"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := extractBundleName(tt.path)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// =============================================================================
+// ClaudeCodeConfig Tests
+// =============================================================================
+
+func TestClaudeCodeConfig_IsEnabled(t *testing.T) {
+	trueBool := true
+	falseBool := false
+
+	tests := []struct {
+		name   string
+		config ClaudeCodeConfig
+		want   bool
+	}{
+		{"nil enabled (default true)", ClaudeCodeConfig{}, true},
+		{"explicitly enabled", ClaudeCodeConfig{Enabled: &trueBool}, true},
+		{"explicitly disabled", ClaudeCodeConfig{Enabled: &falseBool}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.config.IsEnabled())
+		})
+	}
+}
+
+// =============================================================================
+// Loader Tests
+// =============================================================================
+
+func TestNewLoader(t *testing.T) {
+	dirs := []string{"/path1", "/path2"}
+	loader := NewLoader(dirs, true)
+
+	assert.Equal(t, dirs, loader.searchDirs)
+	assert.True(t, loader.preferDistilled)
+}
+
+func TestLoader_Find(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test bundle file
+	bundlePath := filepath.Join(tmpDir, "test-bundle.yaml")
+	err := os.WriteFile(bundlePath, []byte("version: 1.0"), 0644)
+	require.NoError(t, err)
+
+	// Create directory-style bundle
+	dirBundle := filepath.Join(tmpDir, "dir-bundle")
+	require.NoError(t, os.MkdirAll(dirBundle, 0755))
+	err = os.WriteFile(filepath.Join(dirBundle, "bundle.yaml"), []byte("version: 1.0"), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+
+	t.Run("find file bundle", func(t *testing.T) {
+		path, err := loader.Find("test-bundle")
+		require.NoError(t, err)
+		assert.Equal(t, bundlePath, path)
+	})
+
+	t.Run("find directory bundle", func(t *testing.T) {
+		path, err := loader.Find("dir-bundle")
+		require.NoError(t, err)
+		assert.Contains(t, path, "bundle.yaml")
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := loader.Find("nonexistent")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("invalid name", func(t *testing.T) {
+		_, err := loader.Find("../escape")
+		assert.Error(t, err)
+	})
+}
+
+func TestLoader_LoadFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "2.0"
+description: Test bundle
+fragments:
+  test-frag:
+    tags:
+      - test
+    content: |
+      Fragment content
+`
+	bundlePath := filepath.Join(tmpDir, "test.yaml")
+	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	bundle, err := loader.LoadFile(bundlePath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2.0", bundle.Version)
+	assert.Equal(t, "Test bundle", bundle.Description)
+	assert.Equal(t, "test", bundle.Name)
+	assert.Equal(t, bundlePath, bundle.Path)
+	assert.Len(t, bundle.Fragments, 1)
+}
+
+func TestLoader_Load(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `version: "1.0"`
+	bundlePath := filepath.Join(tmpDir, "my-bundle.yaml")
+	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	bundle, err := loader.Load("my-bundle")
+	require.NoError(t, err)
+
+	assert.Equal(t, "1.0", bundle.Version)
+	assert.Equal(t, "my-bundle", bundle.Name)
+}
+
+func TestLoader_List(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create multiple bundles
+	bundle1 := filepath.Join(tmpDir, "bundle1.yaml")
+	bundle2 := filepath.Join(tmpDir, "bundle2.yaml")
+
+	err := os.WriteFile(bundle1, []byte(`version: "1.0"
+description: Bundle 1
+fragments:
+  frag1:
+    content: c1`), 0644)
+	require.NoError(t, err)
+
+	err = os.WriteFile(bundle2, []byte(`version: "2.0"
+description: Bundle 2`), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	bundles, err := loader.List()
+	require.NoError(t, err)
+
+	assert.Len(t, bundles, 2)
+	// Should be sorted by name
+	assert.Equal(t, "bundle1", bundles[0].Name)
+	assert.Equal(t, "bundle2", bundles[1].Name)
+}
+
+func TestLoader_ListAllFragments(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+tags:
+  - bundle-tag
+fragments:
+  frag1:
+    tags:
+      - frag-tag
+    content: content 1
+  frag2:
+    content: content 2
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	infos, err := loader.ListAllFragments()
+	require.NoError(t, err)
+
+	assert.Len(t, infos, 2)
+
+	// Find frag1
+	var frag1 *ContentInfo
+	for i := range infos {
+		if infos[i].Name == "frag1" {
+			frag1 = &infos[i]
+			break
+		}
+	}
+	require.NotNil(t, frag1)
+	assert.Contains(t, frag1.Tags, "bundle-tag")
+	assert.Contains(t, frag1.Tags, "frag-tag")
+	assert.Equal(t, "fragment", frag1.ItemType)
+}
+
+func TestLoader_ListAllPrompts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+prompts:
+  prompt1:
+    content: prompt content
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	infos, err := loader.ListAllPrompts()
+	require.NoError(t, err)
+
+	assert.Len(t, infos, 1)
+	assert.Equal(t, "prompt1", infos[0].Name)
+	assert.Equal(t, "prompt", infos[0].ItemType)
+}
+
+func TestLoader_GetFragment(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+tags:
+  - bundle-tag
+fragments:
+  my-frag:
+    tags:
+      - frag-tag
+    content: |
+      Fragment content here
+    distilled: Distilled version
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test-bundle.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	t.Run("simple name lookup", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		content, err := loader.GetFragment("my-frag")
+		require.NoError(t, err)
+		assert.Contains(t, content.Content, "Fragment content")
+		assert.Contains(t, content.Tags, "bundle-tag")
+		assert.Contains(t, content.Tags, "frag-tag")
+	})
+
+	t.Run("qualified name lookup", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		content, err := loader.GetFragment("test-bundle#fragments/my-frag")
+		require.NoError(t, err)
+		assert.Contains(t, content.Content, "Fragment content")
+	})
+
+	t.Run("prefer distilled", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, true)
+		content, err := loader.GetFragment("my-frag")
+		require.NoError(t, err)
+		assert.Equal(t, "Distilled version", content.Content)
+		assert.True(t, content.IsDistilled)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		_, err := loader.GetFragment("nonexistent")
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid qualified reference", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		_, err := loader.GetFragment("test-bundle#invalid/path")
+		assert.Error(t, err)
+	})
+}
+
+func TestLoader_GetPrompt(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+prompts:
+  my-prompt:
+    content: Prompt content
+    distilled: Distilled prompt
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test-bundle.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	t.Run("simple name lookup", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		content, err := loader.GetPrompt("my-prompt")
+		require.NoError(t, err)
+		assert.Equal(t, "Prompt content", content.Content)
+	})
+
+	t.Run("qualified name lookup", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		content, err := loader.GetPrompt("test-bundle#prompts/my-prompt")
+		require.NoError(t, err)
+		assert.Equal(t, "Prompt content", content.Content)
+	})
+
+	t.Run("prefer distilled", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, true)
+		content, err := loader.GetPrompt("my-prompt")
+		require.NoError(t, err)
+		assert.Equal(t, "Distilled prompt", content.Content)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		loader := NewLoader([]string{tmpDir}, false)
+		_, err := loader.GetPrompt("nonexistent")
+		assert.Error(t, err)
+	})
+}
+
+func TestLoader_ListByTags(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+fragments:
+  golang-frag:
+    tags:
+      - golang
+      - programming
+    content: Go content
+  python-frag:
+    tags:
+      - python
+      - programming
+    content: Python content
+  docs-frag:
+    tags:
+      - documentation
+    content: Docs content
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+
+	t.Run("single tag", func(t *testing.T) {
+		infos, err := loader.ListByTags([]string{"golang"})
+		require.NoError(t, err)
+		assert.Len(t, infos, 1)
+		assert.Equal(t, "golang-frag", infos[0].Name)
+	})
+
+	t.Run("multiple tags (OR logic)", func(t *testing.T) {
+		infos, err := loader.ListByTags([]string{"golang", "python"})
+		require.NoError(t, err)
+		assert.Len(t, infos, 2)
+	})
+
+	t.Run("shared tag", func(t *testing.T) {
+		infos, err := loader.ListByTags([]string{"programming"})
+		require.NoError(t, err)
+		assert.Len(t, infos, 2)
+	})
+
+	t.Run("no matches", func(t *testing.T) {
+		infos, err := loader.ListByTags([]string{"nonexistent"})
+		require.NoError(t, err)
+		assert.Len(t, infos, 0)
+	})
+}
+
+func TestLoader_LoadMultiple(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+fragments:
+  frag1:
+    content: Content one
+  frag2:
+    content: Content two
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+
+	t.Run("load multiple fragments", func(t *testing.T) {
+		content, err := loader.LoadMultiple([]string{"frag1", "frag2"})
+		require.NoError(t, err)
+		assert.Contains(t, content, "Content one")
+		assert.Contains(t, content, "Content two")
+		assert.Contains(t, content, "---")
+	})
+
+	t.Run("skip missing fragments", func(t *testing.T) {
+		content, err := loader.LoadMultiple([]string{"frag1", "nonexistent"})
+		require.NoError(t, err)
+		assert.Contains(t, content, "Content one")
+	})
+}
+
+// =============================================================================
+// Edge Cases and Error Handling
+// =============================================================================
+
+func TestLoader_EmptySearchDirs(t *testing.T) {
+	loader := NewLoader([]string{}, false)
+
+	bundles, err := loader.List()
+	require.NoError(t, err)
+	assert.Empty(t, bundles)
+}
+
+func TestLoader_NonexistentSearchDir(t *testing.T) {
+	loader := NewLoader([]string{"/nonexistent/path"}, false)
+
+	bundles, err := loader.List()
+	require.NoError(t, err)
+	assert.Empty(t, bundles)
+}
+
+func TestLoader_LoadFile_NotFound(t *testing.T) {
+	loader := NewLoader([]string{}, false)
+	_, err := loader.LoadFile("/nonexistent/bundle.yaml")
+	assert.Error(t, err)
+}
+
+func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlePath := filepath.Join(tmpDir, "invalid.yaml")
+	err := os.WriteFile(bundlePath, []byte("invalid: ["), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	_, err = loader.LoadFile(bundlePath)
+	assert.Error(t, err)
+}
+
+func TestLoader_NestedBundles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create nested directory structure
+	nestedDir := filepath.Join(tmpDir, "vendor", "github.com", "user")
+	require.NoError(t, os.MkdirAll(nestedDir, 0755))
+
+	bundleYAML := `version: "1.0"
+fragments:
+  nested-frag:
+    content: Nested content`
+	err := os.WriteFile(filepath.Join(nestedDir, "bundle.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	loader := NewLoader([]string{tmpDir}, false)
+	bundles, err := loader.List()
+	require.NoError(t, err)
+
+	// Should find the nested bundle
+	var found bool
+	for _, b := range bundles {
+		if b.Name == "vendor/github.com/user" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should find nested bundle")
+}

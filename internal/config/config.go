@@ -1,53 +1,74 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
 	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/collections"
-	"github.com/benjaminabbitt/scm/internal/fsys"
-	"github.com/benjaminabbitt/scm/internal/gitutil"
-	"github.com/benjaminabbitt/scm/internal/logging"
 	"github.com/benjaminabbitt/scm/internal/profiles"
 	"github.com/benjaminabbitt/scm/internal/remote"
 	"github.com/benjaminabbitt/scm/internal/schema"
-	"github.com/benjaminabbitt/scm/resources"
 )
 
 const (
-	SCMDirName          = ".scm"
-	ConfigFileName      = "config"
-	ContextFragmentsDir = "context-fragments"
-	PromptsDir          = "prompts"
-	BundlesDir          = "bundles"
+	SCMDirName     = ".scm"
+	ConfigFileName = "config"
+	BundlesDir     = "bundles"
 )
 
 // ConfigSource indicates where the configuration was loaded from.
 type ConfigSource int
 
 const (
-	// SourceEmbedded means config was loaded from embedded resources (fallback).
-	SourceEmbedded ConfigSource = iota
 	// SourceProject means config was loaded from a project .scm directory.
-	SourceProject
+	SourceProject ConfigSource = iota
+	// SourceHome means config was loaded from user home ~/.scm directory.
+	SourceHome
 )
 
 // Config holds the SCM configuration.
 type Config struct {
-	LM         LMConfig             `mapstructure:"lm"`
-	Editor     EditorConfig         `mapstructure:"editor"`
-	Defaults   Defaults             `mapstructure:"defaults"`
-	Hooks      HooksConfig          `mapstructure:"hooks"`
-	MCP        MCPConfig            `mapstructure:"mcp"`
-	Profiles   map[string]Profile   `mapstructure:"profiles"`
-	Generators map[string]Generator `mapstructure:"generators"`
-	SCMPaths   []string             // Resolved .scm directory (at most one)
-	Source     ConfigSource         // Where the configuration was loaded from
+	LM       LMConfig           `mapstructure:"lm"`
+	Editor   EditorConfig       `mapstructure:"editor"`
+	Defaults Defaults           `mapstructure:"defaults"`
+	Hooks    HooksConfig        `mapstructure:"hooks"`
+	MCP      MCPConfig          `mapstructure:"mcp"`
+	Profiles map[string]Profile `mapstructure:"profiles"`
+	SCMPaths []string           // Resolved .scm directory (at most one)
+	SCMRoot  string             // Project root (parent of .scm directory)
+	SCMDir   string             // Full path to the .scm directory
+	Source   ConfigSource       // Where the configuration was loaded from
+	fs       afero.Fs           // Filesystem for file operations (nil = OS filesystem)
+}
+
+// LoadOption is a functional option for Load.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	fs     afero.Fs
+	scmDir string // Override SCM directory discovery
+}
+
+// WithFS sets the filesystem for config operations.
+func WithFS(fs afero.Fs) LoadOption {
+	return func(o *loadOptions) {
+		o.fs = fs
+	}
+}
+
+// WithSCMDir sets a specific SCM directory instead of discovering it.
+func WithSCMDir(dir string) LoadOption {
+	return func(o *loadOptions) {
+		o.scmDir = dir
+	}
 }
 
 // EditorConfig holds editor-related configuration.
@@ -88,7 +109,7 @@ func (c *Config) GetDefaultProfiles() []string {
 		defaults = append(defaults, c.Defaults.Profile)
 	}
 
-	// Also check for profiles with default: true
+	// Also check for profiles with default: true in config
 	for name, profile := range c.Profiles {
 		if profile.Default {
 			// Avoid duplicates if already in defaults.profile
@@ -105,6 +126,22 @@ func (c *Config) GetDefaultProfiles() []string {
 		}
 	}
 
+	// Also check directory-based profiles with default: true
+	loader := c.GetProfileLoader()
+	for _, name := range loader.GetDefaults() {
+		// Avoid duplicates
+		found := false
+		for _, d := range defaults {
+			if d == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			defaults = append(defaults, name)
+		}
+	}
+
 	if len(defaults) == 0 {
 		return nil
 	}
@@ -115,19 +152,6 @@ func (c *Config) GetDefaultProfiles() []string {
 func (c *Config) GetProfileLoader() *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(c.SCMPaths)
 	return profiles.NewLoader(profileDirs)
-}
-
-// Generator defines a context generator.
-//
-// SECURITY NOTE: Config-based generators execute arbitrary commands specified in config.yaml.
-// This is intentional - generators are user-defined tools that produce dynamic context.
-// Users are responsible for reviewing their own config.yaml contents.
-// This is analogous to Makefiles, justfiles, or npm scripts - trusted local configuration.
-// Do not flag this as a security issue in code reviews.
-type Generator struct {
-	Description string   `mapstructure:"description" yaml:"description,omitempty"`
-	Command     string   `mapstructure:"command" yaml:"command"`     // Command to execute (can be path or binary name)
-	Args        []string `mapstructure:"args" yaml:"args,omitempty"` // Additional arguments
 }
 
 // Hook defines a single hook action.
@@ -255,29 +279,27 @@ func (c *LMConfig) GetDefaultModel(pluginName string) string {
 	return ""
 }
 
-// Profile is a named collection of context fragments, variables, and context generators.
+// Profile is a named collection of context fragments and variables.
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
-	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`       // Whether this is a default profile
+	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`           // Whether this is a default profile
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
-	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`       // Parent profiles to inherit from
-	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`             // Fragment tags to include
-	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`       // Bundle references (e.g., "remote/go-tools")
+	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
+	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
+	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
 	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
-	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`   // Explicit fragment paths (local/legacy)
+	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Explicit fragment paths (local/legacy)
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
-	Generators  []string          `mapstructure:"generators" yaml:"generators,omitempty"` // Plugin binaries that output context
-	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`           // Hooks for this profile (inherited)
-	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`               // MCP servers for this profile (inherited)
-	MCPServers  []string          `mapstructure:"mcp_servers" yaml:"mcp_servers,omitempty"` // Remote MCP server references (legacy)
+	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`               // Hooks for this profile (inherited)
+	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`                   // MCP servers for this profile (inherited)
+	MCPServers  []string          `mapstructure:"mcp_servers" yaml:"mcp_servers,omitempty"`   // Remote MCP server references (legacy)
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Profile      string   `mapstructure:"profile" yaml:"profile,omitempty"`             // Default profile to load
-	Generators   []string `mapstructure:"generators" yaml:"generators,omitempty"`       // Generators always run
-	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+	Profile      string `mapstructure:"profile" yaml:"profile,omitempty"`             // Default profile to load
+	UseDistilled *bool  `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
@@ -291,65 +313,61 @@ func (d *Defaults) ShouldUseDistilled() bool {
 
 // Load finds and loads configuration from a single source.
 // Priority order (first found wins, no merging):
-//  1. Project .scm directory (at git root)
-//  2. Embedded resources (fallback)
-func Load() (*Config, error) {
+//  1. Project .scm directory (walking up from cwd)
+//  2. User home ~/.scm directory (fallback)
+func Load(opts ...LoadOption) (*Config, error) {
+	// Apply options
+	options := &loadOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Use provided FS or default to OS filesystem
+	fs := options.fs
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+
 	cfg := &Config{
 		LM: LMConfig{
 			Plugins: make(map[string]PluginConfig),
 		},
-		Profiles:   make(map[string]Profile),
-		Generators: make(map[string]Generator),
+		Profiles: make(map[string]Profile),
+		fs:       fs,
 	}
 
 	// Create config validator for schema validation
 	configValidator, err := schema.NewConfigValidator()
 	if err != nil {
-		logging.L().Warn("failed to create config validator",
-			logging.ErrorField(err))
+		zap.L().Warn("failed to create config validator", zap.Error(err))
 		configValidator = nil
 	}
 
-	// Try project .scm directory first
-	scmPath, source := findSCMDir()
-	if scmPath != "" {
-		cfg.SCMPaths = []string{scmPath}
-		cfg.Source = source
+	// Find or use provided .scm directory
+	var scmPath string
+	var source ConfigSource
+	if options.scmDir != "" {
+		scmPath = options.scmDir
+		source = SourceProject
+	} else {
+		scmPath, source = findSCMDir(fs)
+	}
+	cfg.SCMPaths = []string{scmPath}
+	cfg.SCMDir = scmPath
+	cfg.SCMRoot = filepath.Dir(scmPath) // Project root is parent of .scm
+	cfg.Source = source
 
-		configPath := filepath.Join(scmPath, ConfigFileName+".yaml")
-		if err := loadConfigFile(cfg, configPath, configValidator); err != nil {
-			return nil, err
-		}
-		return cfg, nil
-	}
-
-	// Fall back to embedded resources
-	cfg.Source = SourceEmbedded
-	embeddedCfg, err := LoadEmbeddedConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load embedded config: %w", err)
-	}
-
-	// Merge embedded config into cfg with nil checks
-	cfg.LM = embeddedCfg.LM
-	if cfg.LM.Plugins == nil {
-		cfg.LM.Plugins = make(map[string]PluginConfig)
-	}
-	cfg.Defaults = embeddedCfg.Defaults
-	if embeddedCfg.Profiles != nil {
-		cfg.Profiles = embeddedCfg.Profiles
-	}
-	if embeddedCfg.Generators != nil {
-		cfg.Generators = embeddedCfg.Generators
+	configPath := filepath.Join(scmPath, ConfigFileName+".yaml")
+	if err := loadConfigFile(cfg, configPath, configValidator, fs); err != nil {
+		return nil, err
 	}
 
-	logging.L().Debug("using embedded configuration")
 	return cfg, nil
 }
 
 // loadConfigFile loads a config file into the provided Config struct.
-func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigValidator) error {
-	data, err := os.ReadFile(configPath)
+func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigValidator, fs afero.Fs) error {
+	data, err := afero.ReadFile(fs, configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Config file is optional
@@ -366,16 +384,10 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	}
 
 	v := viper.New()
-	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
 
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			return nil
-		}
-		if os.IsNotExist(err) {
-			return nil
-		}
+	// Use ReadConfig instead of ReadInConfig to read from the data we already have
+	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("failed to read config at %s: %w", configPath, err)
 	}
 
@@ -383,71 +395,59 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		return fmt.Errorf("failed to parse config at %s: %w", configPath, err)
 	}
 
-	logging.L().Debug(logging.MsgConfigLoaded, logging.FilePath(configPath))
+	zap.L().Debug("config_loaded", zap.String("path", configPath))
 	return nil
 }
 
-// findSCMDir locates the .scm directory at the git root.
-// Returns the path and source, or empty string if not found.
-func findSCMDir() (string, ConfigSource) {
-	// Try to find git root
+// findSCMDir locates the .scm directory.
+// Priority:
+//  1. Walk up from cwd looking for .scm directory
+//  2. Fall back to user home ~/.scm directory
+// Always returns a path (creates user home .scm if needed).
+func findSCMDir(fs afero.Fs) (string, ConfigSource) {
+	// Try to find project .scm by walking up from cwd
 	pwd, err := os.Getwd()
-	if err != nil {
-		logging.L().Warn("failed to get working directory", logging.ErrorField(err))
-		return "", SourceEmbedded
-	}
-
-	// Check for project .scm at git root
-	gitRoot, err := gitutil.FindRoot(pwd)
 	if err == nil {
-		scmPath := filepath.Join(gitRoot, SCMDirName)
-		if info, err := os.Stat(scmPath); err == nil && info.IsDir() {
-			return scmPath, SourceProject
+		// Walk up the directory tree looking for .scm
+		dir := pwd
+		for {
+			scmPath := filepath.Join(dir, SCMDirName)
+			if info, err := fs.Stat(scmPath); err == nil && info.IsDir() {
+				return scmPath, SourceProject
+			}
+
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				// Reached root
+				break
+			}
+			dir = parent
 		}
 	}
 
-	// No project .scm found, fall back to embedded resources
-	return "", SourceEmbedded
-}
-
-// GetFragmentDirs returns context-fragments directories.
-// For embedded source, returns ["."] (use with GetFragmentFS).
-func (c *Config) GetFragmentDirs() []string {
-	if c.Source == SourceEmbedded {
-		return []string{"."}
-	}
-	var dirs []string
-	for _, scmPath := range c.SCMPaths {
-		fragDir := filepath.Join(scmPath, ContextFragmentsDir)
-		if info, err := os.Stat(fragDir); err == nil && info.IsDir() {
-			dirs = append(dirs, fragDir)
+	// Fall back to user home ~/.scm
+	home, err := os.UserHomeDir()
+	if err != nil {
+		zap.L().Warn("failed to get home directory", zap.Error(err))
+		// Last resort: use cwd
+		if pwd != "" {
+			return filepath.Join(pwd, SCMDirName), SourceProject
 		}
+		return SCMDirName, SourceProject
 	}
-	return dirs
-}
 
-// GetPromptDirs returns prompts directories.
-// For embedded source, returns ["."] (use with GetPromptFS).
-func (c *Config) GetPromptDirs() []string {
-	if c.Source == SourceEmbedded {
-		return []string{"."}
+	homeSCM := filepath.Join(home, SCMDirName)
+
+	// Ensure the directory exists
+	if err := fs.MkdirAll(homeSCM, 0755); err != nil {
+		zap.L().Warn("failed to create home .scm directory", zap.Error(err))
 	}
-	var dirs []string
-	for _, scmPath := range c.SCMPaths {
-		promptDir := filepath.Join(scmPath, PromptsDir)
-		if info, err := os.Stat(promptDir); err == nil && info.IsDir() {
-			dirs = append(dirs, promptDir)
-		}
-	}
-	return dirs
+
+	return homeSCM, SourceHome
 }
 
 // GetBundleDirs returns bundles directories.
-// Bundles are not embedded, so returns empty for embedded source.
 func (c *Config) GetBundleDirs() []string {
-	if c.Source == SourceEmbedded {
-		return nil
-	}
 	var dirs []string
 	for _, scmPath := range c.SCMPaths {
 		bundleDir := filepath.Join(scmPath, BundlesDir)
@@ -458,41 +458,16 @@ func (c *Config) GetBundleDirs() []string {
 	return dirs
 }
 
-// IsEmbedded returns true if using embedded resources (no .scm directory found).
-func (c *Config) IsEmbedded() bool {
-	return c.Source == SourceEmbedded
-}
-
 // SourceName returns a human-readable name for the config source.
 func (c *Config) SourceName() string {
 	switch c.Source {
 	case SourceProject:
 		return "project"
-	case SourceEmbedded:
-		return "embedded"
+	case SourceHome:
+		return "home"
 	default:
 		return "unknown"
 	}
-}
-
-// GetFragmentFS returns an fsys.FS for loading fragments.
-// For embedded source, returns an EmbedFS wrapper.
-// For project/home sources, returns nil (use GetFragmentDirs with OS filesystem).
-func (c *Config) GetFragmentFS() fsys.FS {
-	if c.Source == SourceEmbedded {
-		return fsys.NewEmbedFS(resources.FragmentsFS(), ContextFragmentsDir)
-	}
-	return nil
-}
-
-// GetPromptFS returns an fsys.FS for loading prompts.
-// For embedded source, returns an EmbedFS wrapper.
-// For project/home sources, returns nil (use GetPromptDirs with OS filesystem).
-func (c *Config) GetPromptFS() fsys.FS {
-	if c.Source == SourceEmbedded {
-		return fsys.NewEmbedFS(resources.PromptsFS(), PromptsDir)
-	}
-	return nil
 }
 
 // GetPluginPaths returns the paths where external plugins are searched for.
@@ -509,25 +484,13 @@ func (c *Config) GetPluginPaths() []string {
 	return paths
 }
 
-// GetGeneratorPaths returns the paths where external generators are searched for.
-// Defaults to .scm/generators.
-func (c *Config) GetGeneratorPaths() []string {
-	// Default generator paths from project .scm
-	var paths []string
-	for _, scmPath := range c.SCMPaths {
-		paths = append(paths, filepath.Join(scmPath, "generators"))
-	}
-	return paths
-}
-
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
-	LM         LMConfig             `yaml:"lm"`
-	Editor     EditorConfig         `yaml:"editor,omitempty"`
-	Defaults   Defaults             `yaml:"defaults,omitempty"`
-	Hooks      HooksConfig          `yaml:"hooks,omitempty"`
-	Profiles   map[string]Profile   `yaml:"profiles,omitempty"`
-	Generators map[string]Generator `yaml:"generators,omitempty"`
+	LM       LMConfig           `yaml:"lm"`
+	Editor   EditorConfig       `yaml:"editor,omitempty"`
+	Defaults Defaults           `yaml:"defaults,omitempty"`
+	Hooks    HooksConfig        `yaml:"hooks,omitempty"`
+	Profiles map[string]Profile `yaml:"profiles,omitempty"`
 }
 
 // GetConfigFilePath returns the path to the primary config file.
@@ -539,6 +502,19 @@ func (c *Config) GetConfigFilePath() (string, error) {
 	return filepath.Join(c.SCMPaths[0], ConfigFileName+".yaml"), nil
 }
 
+// getFS returns the filesystem to use for file operations.
+func (c *Config) getFS() afero.Fs {
+	if c.fs != nil {
+		return c.fs
+	}
+	return afero.NewOsFs()
+}
+
+// SetFS sets the filesystem for file operations (useful for testing).
+func (c *Config) SetFS(fs afero.Fs) {
+	c.fs = fs
+}
+
 // Save writes the configuration to the primary config file.
 func (c *Config) Save() error {
 	configPath, err := c.GetConfigFilePath()
@@ -546,23 +522,37 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
+	fs := c.getFS()
+
 	// Read existing config to preserve unknown fields
-	existingData, _ := os.ReadFile(configPath)
+	existingData, _ := afero.ReadFile(fs, configPath)
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
 		yaml.Unmarshal(existingData, &existing)
 	}
 
-	// Update with current values
+	// Update with current values (delete keys when empty to clean up config)
 	existing["lm"] = c.LM
-	if len(c.Defaults.Generators) > 0 {
+
+	if c.Defaults.Profile != "" || c.Defaults.UseDistilled != nil {
 		existing["defaults"] = c.Defaults
+	} else {
+		delete(existing, "defaults")
 	}
+
 	if len(c.Profiles) > 0 {
 		existing["profiles"] = c.Profiles
+	} else {
+		delete(existing, "profiles")
 	}
-	if len(c.Generators) > 0 {
-		existing["generators"] = c.Generators
+
+	// Remove generators key if present (no longer supported)
+	delete(existing, "generators")
+
+	if len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterSCM != nil {
+		existing["mcp"] = c.MCP
+	} else {
+		delete(existing, "mcp")
 	}
 
 	data, err := yaml.Marshal(existing)
@@ -570,47 +560,34 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := afero.WriteFile(fs, configPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	return nil
 }
 
-// LoadEmbedded loads the embedded default configuration, returning nil on error.
-// Use this when you want to check embedded resources without failing.
-func LoadEmbedded() (*Config, error) {
-	return LoadEmbeddedConfig()
-}
-
-// LoadEmbeddedConfig loads the embedded default configuration.
-func LoadEmbeddedConfig() (*Config, error) {
-	data, err := resources.GetEmbeddedConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read embedded config: %w", err)
-	}
-
-	cfg := &Config{
-		Profiles:   make(map[string]Profile),
-		Generators: make(map[string]Generator),
-	}
-
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse embedded config: %w", err)
-	}
-
-	return cfg, nil
-}
-
 // LoadFromDir loads config from a specific .scm directory.
-func LoadFromDir(scmDir string) (*Config, error) {
+func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
+	// Apply options
+	options := &loadOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Use provided FS or default to OS filesystem
+	fs := options.fs
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
+
 	cfg := &Config{
-		Profiles:   make(map[string]Profile),
-		Generators: make(map[string]Generator),
+		Profiles: make(map[string]Profile),
+		fs:       fs,
 	}
 
 	configPath := filepath.Join(scmDir, ConfigFileName+".yaml")
-	data, err := os.ReadFile(configPath)
+	data, err := afero.ReadFile(fs, configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return empty config if no config file exists
@@ -624,6 +601,8 @@ func LoadFromDir(scmDir string) (*Config, error) {
 	}
 
 	cfg.SCMPaths = []string{scmDir}
+	cfg.SCMDir = scmDir
+	cfg.SCMRoot = filepath.Dir(scmDir)
 	return cfg, nil
 }
 
@@ -632,14 +611,6 @@ func LoadFromDir(scmDir string) (*Config, error) {
 func MergeProfiles(target, source map[string]Profile) {
 	for name, profile := range source {
 		target[name] = profile
-	}
-}
-
-// MergeGenerators merges generators from source into target.
-// Source generators override target generators with the same name.
-func MergeGenerators(target, source map[string]Generator) {
-	for name, gen := range source {
-		target[name] = gen
 	}
 }
 
@@ -663,28 +634,6 @@ func CollectFragmentsForProfiles(profiles map[string]Profile, profileNames []str
 	}
 
 	return fragments, nil
-}
-
-// CollectGeneratorsForProfiles returns a deduplicated list of all generators
-// referenced by the specified profiles.
-func CollectGeneratorsForProfiles(profiles map[string]Profile, profileNames []string) []string {
-	seen := collections.NewSet[string]()
-	var generators []string
-
-	for _, name := range profileNames {
-		profile, ok := profiles[name]
-		if !ok {
-			continue
-		}
-		for _, gen := range profile.Generators {
-			if !seen.Has(gen) {
-				seen.Add(gen)
-				generators = append(generators, gen)
-			}
-		}
-	}
-
-	return generators
 }
 
 // CollectBundlesForProfiles returns a deduplicated list of all bundles
@@ -742,17 +691,6 @@ func FilterProfiles(all map[string]Profile, names []string) map[string]Profile {
 	return filtered
 }
 
-// FilterGenerators returns only the specified generators from the full map.
-func FilterGenerators(all map[string]Generator, names []string) map[string]Generator {
-	filtered := make(map[string]Generator)
-	for _, name := range names {
-		if gen, ok := all[name]; ok {
-			filtered[name] = gen
-		}
-	}
-	return filtered
-}
-
 // profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
 type profileBuilder struct {
 	Description string
@@ -760,7 +698,6 @@ type profileBuilder struct {
 	Bundles     collections.Set[string]
 	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
-	Generators  collections.Set[string]
 	Variables   map[string]string
 	Hooks       HooksConfig
 	MCP         MCPConfig
@@ -769,7 +706,6 @@ type profileBuilder struct {
 	bundlesOrder     []string
 	bundleItemsOrder []string
 	fragmentsOrder   []string
-	generatorsOrder  []string
 	// Track seen hooks by key (command+matcher) for deduplication
 	seenHooks collections.Set[string]
 }
@@ -780,7 +716,6 @@ func newProfileBuilder() *profileBuilder {
 		Bundles:     collections.NewSet[string](),
 		BundleItems: collections.NewSet[string](),
 		Fragments:   collections.NewSet[string](),
-		Generators:  collections.NewSet[string](),
 		Variables:   make(map[string]string),
 		Hooks: HooksConfig{
 			Plugins: make(map[string]BackendHooks),
@@ -818,13 +753,6 @@ func (b *profileBuilder) addFragment(frag string) {
 	if !b.Fragments.Has(frag) {
 		b.Fragments.Add(frag)
 		b.fragmentsOrder = append(b.fragmentsOrder, frag)
-	}
-}
-
-func (b *profileBuilder) addGenerator(gen string) {
-	if !b.Generators.Has(gen) {
-		b.Generators.Add(gen)
-		b.generatorsOrder = append(b.generatorsOrder, gen)
 	}
 }
 
@@ -912,7 +840,6 @@ func (b *profileBuilder) toProfile() *Profile {
 		Bundles:     b.bundlesOrder,
 		BundleItems: b.bundleItemsOrder,
 		Fragments:   b.fragmentsOrder,
-		Generators:  b.generatorsOrder,
 		Variables:   b.Variables,
 		Hooks:       b.Hooks,
 		MCP:         b.MCP,
@@ -973,9 +900,6 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 	}
 	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
-	}
-	for _, gen := range profile.Generators {
-		builder.addGenerator(gen)
 	}
 	for k, v := range profile.Variables {
 		builder.Variables[k] = v

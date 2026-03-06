@@ -8,19 +8,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/collections"
 	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/gitutil"
-	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	"github.com/benjaminabbitt/scm/internal/operations"
 	"github.com/benjaminabbitt/scm/internal/profiles"
 	"github.com/benjaminabbitt/scm/internal/remote"
 )
@@ -162,9 +158,7 @@ type pendingPull struct {
 
 // bundleLoader returns a bundle loader configured for the current config.
 func (s *mcpServer) bundleLoader() *bundles.Loader {
-	return bundles.NewLoader(s.cfg.GetBundleDirs(), s.cfg.Defaults.ShouldUseDistilled()).
-		WithLegacyDirs(s.cfg.GetFragmentDirs()).
-		WithLegacyPromptDirs(s.cfg.GetPromptDirs())
+	return bundles.NewLoader(s.cfg.GetBundleDirs(), s.cfg.Defaults.ShouldUseDistilled())
 }
 
 // profileLoader returns a profiles.Loader for directory-based profiles.
@@ -194,7 +188,6 @@ func (s *mcpServer) loadProfile(name string) (*config.Profile, error) {
 		Tags:        dirProfile.Tags,
 		Fragments:   dirProfile.Bundles, // Bundles field contains fragment references
 		Variables:   dirProfile.Variables,
-		Generators:  dirProfile.Generators,
 	}, nil
 }
 
@@ -215,10 +208,9 @@ func (s *mcpServer) resolveProfile(name string) (*config.Profile, error) {
 
 	// Convert to config.Profile
 	return &config.Profile{
-		Tags:       resolved.Tags,
-		Fragments:  resolved.Bundles,
-		Variables:  resolved.Variables,
-		Generators: resolved.Generators,
+		Tags:      resolved.Tags,
+		Fragments: resolved.Bundles,
+		Variables: resolved.Variables,
 	}, nil
 }
 
@@ -511,7 +503,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 						"type":        "string",
 						"description": "Profile name to use (optional)",
 					},
-					"fragments": map[string]interface{}{
+					"bundles": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Additional fragment names to include (optional)",
@@ -602,7 +594,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 		// Profile management
 		{
 			Name:        "create_profile",
-			Description: "Create a new profile with fragments, tags, and/or parent profiles",
+			Description: "Create a new profile with bundles, tags, and/or parent profiles",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"name"},
@@ -620,20 +612,15 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Parent profiles to inherit from (optional)",
 					},
-					"fragments": map[string]interface{}{
+					"bundles": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
-						"description": "Fragment names to include (optional)",
+						"description": "Bundle references to include (optional)",
 					},
 					"tags": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Tags to include fragments by (optional)",
-					},
-					"generators": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]interface{}{"type": "string"},
-						"description": "Generator names to run (optional)",
 					},
 					"default": map[string]interface{}{
 						"type":        "boolean",
@@ -644,7 +631,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 		},
 		{
 			Name:        "update_profile",
-			Description: "Update an existing profile by adding/removing fragments, tags, or parents",
+			Description: "Update an existing profile by adding/removing bundles, tags, or parents",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"name"},
@@ -667,15 +654,15 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Parent profiles to remove (optional)",
 					},
-					"add_fragments": map[string]interface{}{
+					"add_bundles": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
-						"description": "Fragments to add (optional)",
+						"description": "Bundles to add (optional)",
 					},
-					"remove_fragments": map[string]interface{}{
+					"remove_bundles": map[string]interface{}{
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
-						"description": "Fragments to remove (optional)",
+						"description": "Bundles to remove (optional)",
 					},
 					"add_tags": map[string]interface{}{
 						"type":        "array",
@@ -686,16 +673,6 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 						"type":        "array",
 						"items":       map[string]interface{}{"type": "string"},
 						"description": "Tags to remove (optional)",
-					},
-					"add_generators": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]interface{}{"type": "string"},
-						"description": "Generators to add (optional)",
-					},
-					"remove_generators": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]interface{}{"type": "string"},
-						"description": "Generators to remove (optional)",
 					},
 					"default": map[string]interface{}{
 						"type":        "boolean",
@@ -957,33 +934,33 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 	switch params.Name {
 	// Local tools
 	case "list_fragments":
-		result, err = s.toolListFragments(params.Arguments)
+		result, err = s.toolListFragments(ctx, params.Arguments)
 	case "get_fragment":
-		result, err = s.toolGetFragment(params.Arguments)
+		result, err = s.toolGetFragment(ctx, params.Arguments)
 	case "list_profiles":
-		result, err = s.toolListProfiles(params.Arguments)
+		result, err = s.toolListProfiles(ctx, params.Arguments)
 	case "get_profile":
-		result, err = s.toolGetProfile(params.Arguments)
+		result, err = s.toolGetProfile(ctx, params.Arguments)
 	case "assemble_context":
-		result, err = s.toolAssembleContext(params.Arguments)
+		result, err = s.toolAssembleContext(ctx, params.Arguments)
 	case "list_prompts":
-		result, err = s.toolListPrompts(params.Arguments)
+		result, err = s.toolListPrompts(ctx, params.Arguments)
 	case "get_prompt":
-		result, err = s.toolGetPrompt(params.Arguments)
+		result, err = s.toolGetPrompt(ctx, params.Arguments)
 	case "search_content":
-		result, err = s.toolSearchContent(params.Arguments)
+		result, err = s.toolSearchContent(ctx, params.Arguments)
 	// Profile management
 	case "create_profile":
-		result, err = s.toolCreateProfile(params.Arguments)
+		result, err = s.toolCreateProfile(ctx, params.Arguments)
 	case "update_profile":
-		result, err = s.toolUpdateProfile(params.Arguments)
+		result, err = s.toolUpdateProfile(ctx, params.Arguments)
 	case "delete_profile":
-		result, err = s.toolDeleteProfile(params.Arguments)
+		result, err = s.toolDeleteProfile(ctx, params.Arguments)
 	// Fragment management
 	case "create_fragment":
-		result, err = s.toolCreateFragment(params.Arguments)
+		result, err = s.toolCreateFragment(ctx, params.Arguments)
 	case "delete_fragment":
-		result, err = s.toolDeleteFragment(params.Arguments)
+		result, err = s.toolDeleteFragment(ctx, params.Arguments)
 	// Hooks management
 	case "apply_hooks":
 		result, err = s.toolApplyHooks(ctx, params.Arguments)
@@ -1052,7 +1029,7 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 // Tool implementations
 // ============================================================================
 
-func (s *mcpServer) toolListFragments(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolListFragments(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query     string   `json:"query"`
 		Tags      []string `json:"tags"`
@@ -1061,54 +1038,42 @@ func (s *mcpServer) toolListFragments(args json.RawMessage) (interface{}, error)
 	}
 	_ = json.Unmarshal(args, &params)
 
-	loader := s.bundleLoader()
-
-	var infos []bundles.ContentInfo
-	var err error
-
-	if len(params.Tags) > 0 {
-		infos, err = loader.ListByTags(params.Tags)
-	} else {
-		infos, err = loader.ListAllFragments()
-	}
+	result, err := operations.ListFragments(ctx, s.cfg, operations.ListFragmentsRequest{
+		Query:     params.Query,
+		Tags:      params.Tags,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Filter by query if provided
-	if params.Query != "" {
-		query := strings.ToLower(params.Query)
-		var filtered []bundles.ContentInfo
-		for _, info := range infos {
-			if strings.Contains(strings.ToLower(info.Name), query) ||
-				containsTag(info.Tags, query) {
-				filtered = append(filtered, info)
-			}
-		}
-		infos = filtered
+	return map[string]interface{}{
+		"fragments": result.Fragments,
+		"count":     result.Count,
+	}, nil
+}
+
+
+func (s *mcpServer) toolGetFragment(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
 	}
 
-	// Sort results
-	sortContentInfos(infos, params.SortBy, params.SortOrder)
-
-	type fragmentEntry struct {
-		Name   string   `json:"name"`
-		Tags   []string `json:"tags,omitempty"`
-		Source string   `json:"source"`
-	}
-
-	var result []fragmentEntry
-	for _, info := range infos {
-		result = append(result, fragmentEntry{
-			Name:   info.Name,
-			Tags:   info.Tags,
-			Source: info.Source,
-		})
+	result, err := operations.GetFragment(ctx, s.cfg, operations.GetFragmentRequest{
+		Name: params.Name,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"fragments": result,
-		"count":     len(result),
+		"name":    result.Name,
+		"tags":    result.Tags,
+		"content": result.Content,
 	}, nil
 }
 
@@ -1160,32 +1125,7 @@ func sortSlice[T any](s []T, less func(i, j int) bool) {
 	}
 }
 
-func (s *mcpServer) toolGetFragment(args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, err
-	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-
-	loader := s.bundleLoader()
-
-	content, err := loader.GetFragment(params.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]interface{}{
-		"name":    content.Name,
-		"tags":    content.Tags,
-		"content": content.Content,
-	}, nil
-}
-
-func (s *mcpServer) toolListProfiles(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolListProfiles(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query     string `json:"query"`
 		SortBy    string `json:"sort_by"`
@@ -1193,123 +1133,49 @@ func (s *mcpServer) toolListProfiles(args json.RawMessage) (interface{}, error) 
 	}
 	_ = json.Unmarshal(args, &params)
 
-	type profileEntry struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description,omitempty"`
-		Tags        []string `json:"tags,omitempty"`
-		Default     bool     `json:"default,omitempty"`
-		Source      string   `json:"source,omitempty"` // "config" or "directory"
-	}
-
-	var result []profileEntry
-	seen := collections.NewSet[string]()
-	query := strings.ToLower(params.Query)
-	defaultProfile := s.cfg.Defaults.Profile
-
-	// Add config-based profiles first (they take precedence)
-	for name, profile := range s.cfg.Profiles {
-		seen.Add(name)
-		// Filter by query if provided
-		if query != "" {
-			if !strings.Contains(strings.ToLower(name), query) &&
-				!strings.Contains(strings.ToLower(profile.Description), query) {
-				continue
-			}
-		}
-		result = append(result, profileEntry{
-			Name:        name,
-			Description: profile.Description,
-			Tags:        profile.Tags,
-			Default:     name == defaultProfile,
-			Source:      "config",
-		})
-	}
-
-	// Add directory-based profiles
-	loader := s.profileLoader()
-	dirProfiles, err := loader.List()
-	if err == nil {
-		for _, p := range dirProfiles {
-			if seen.Has(p.Name) {
-				continue // Config profiles take precedence
-			}
-			// Filter by query if provided
-			if query != "" {
-				if !strings.Contains(strings.ToLower(p.Name), query) &&
-					!strings.Contains(strings.ToLower(p.Description), query) {
-					continue
-				}
-			}
-			result = append(result, profileEntry{
-				Name:        p.Name,
-				Description: p.Description,
-				Tags:        p.Tags,
-				Default:     p.Name == defaultProfile,
-				Source:      "directory",
-			})
-		}
-	}
-
-	// Sort results
-	sortBy := params.SortBy
-	if sortBy == "" {
-		sortBy = "name"
-	}
-	reverse := params.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
-		sortSlice(result, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(result[i].Name), strings.ToLower(result[j].Name))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "default":
-		sortSlice(result, func(i, j int) bool {
-			if reverse {
-				return !result[i].Default && result[j].Default
-			}
-			return result[i].Default && !result[j].Default
-		})
+	result, err := operations.ListProfiles(ctx, s.cfg, operations.ListProfilesRequest{
+		Query:     params.Query,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"profiles": result,
-		"count":    len(result),
-		"defaults": s.cfg.GetDefaultProfiles(),
+		"profiles": result.Profiles,
+		"count":    result.Count,
+		"defaults": result.Defaults,
 	}, nil
 }
 
-func (s *mcpServer) toolGetProfile(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolGetProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	profile, err := s.loadProfile(params.Name)
+	result, err := operations.GetProfile(ctx, s.cfg, operations.GetProfileRequest{
+		Name: params.Name,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("profile not found: %s", params.Name)
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"name":        params.Name,
-		"description": profile.Description,
-		"parents":     profile.Parents,
-		"tags":        profile.Tags,
-		"fragments":   profile.Fragments,
-		"variables":   profile.Variables,
-		"generators":  profile.Generators,
+		"name":        result.Name,
+		"description": result.Description,
+		"parents":     result.Parents,
+		"tags":        result.Tags,
+		"bundles":     result.Bundles,
+		"variables":   result.Variables,
+		"path":        result.Path,
 	}, nil
 }
 
-func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolAssembleContext(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Profile   string   `json:"profile"`
 		Fragments []string `json:"fragments"`
@@ -1318,85 +1184,14 @@ func (s *mcpServer) toolAssembleContext(args json.RawMessage) (interface{}, erro
 	// Unmarshal errors are non-fatal - use defaults for optional params
 	_ = json.Unmarshal(args, &params)
 
-	loader := s.bundleLoader()
-
-	var allFragments []string
-	profileVars := make(map[string]string)
-
-	profileName := params.Profile
-	var profileNames []string
-	if profileName == "" && len(params.Fragments) == 0 && len(params.Tags) == 0 {
-		profileNames = s.cfg.GetDefaultProfiles()
-	} else if profileName != "" {
-		profileNames = []string{profileName}
-	}
-
-	// Process all profiles
-	for _, pName := range profileNames {
-		// Resolve profile with inheritance (checks both config and directory)
-		profile, err := s.resolveProfile(pName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
-		}
-
-		// Collect variables from profile
-		for k, v := range profile.Variables {
-			profileVars[k] = v
-		}
-
-		if len(profile.Tags) > 0 {
-			taggedInfos, err := loader.ListByTags(profile.Tags)
-			if err != nil {
-				return nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
-			}
-			for _, info := range taggedInfos {
-				allFragments = append(allFragments, info.Name)
-			}
-		}
-
-		allFragments = append(allFragments, profile.Fragments...)
-	}
-
-	allFragments = append(allFragments, params.Fragments...)
-
-	if len(params.Tags) > 0 {
-		taggedInfos, err := loader.ListByTags(params.Tags)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list fragments by tags: %w", err)
-		}
-		for _, info := range taggedInfos {
-			allFragments = append(allFragments, info.Name)
-		}
-	}
-
-	seen := collections.NewSet[string]()
-	var uniqueFragments []string
-	for _, f := range allFragments {
-		if !seen.Has(f) {
-			seen.Add(f)
-			uniqueFragments = append(uniqueFragments, f)
-		}
-	}
-
-	var contextContent string
-	if len(uniqueFragments) > 0 {
-		var err error
-		contextContent, err = loader.LoadMultiple(uniqueFragments)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load fragments: %w", err)
-		}
-		// Apply variable substitution (suppress warnings in MCP context)
-		contextContent = substituteVariables(contextContent, profileVars, func(string) {})
-	}
-
-	return map[string]interface{}{
-		"profiles":         profileNames,
-		"fragments_loaded": uniqueFragments,
-		"context":          contextContent,
-	}, nil
+	return operations.AssembleContext(ctx, s.cfg, operations.AssembleContextRequest{
+		Profile:   params.Profile,
+		Fragments: params.Fragments,
+		Tags:      params.Tags,
+	})
 }
 
-func (s *mcpServer) toolListPrompts(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolListPrompts(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query     string `json:"query"`
 		SortBy    string `json:"sort_by"`
@@ -1404,85 +1199,43 @@ func (s *mcpServer) toolListPrompts(args json.RawMessage) (interface{}, error) {
 	}
 	_ = json.Unmarshal(args, &params)
 
-	loader := s.bundleLoader()
-
-	prompts, err := loader.ListAllPrompts()
+	result, err := operations.ListPrompts(ctx, s.cfg, operations.ListPromptsRequest{
+		Query:     params.Query,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	type promptEntry struct {
-		Name   string `json:"name"`
-		Source string `json:"source"`
-	}
-
-	var result []promptEntry
-	query := strings.ToLower(params.Query)
-	for _, p := range prompts {
-		// Filter by query if provided
-		if query != "" && !strings.Contains(strings.ToLower(p.Name), query) {
-			continue
-		}
-		result = append(result, promptEntry{
-			Name:   p.Name,
-			Source: p.Source,
-		})
-	}
-
-	// Sort results
-	reverse := params.SortOrder == "desc"
-	sortSlice(result, func(i, j int) bool {
-		cmp := strings.Compare(strings.ToLower(result[i].Name), strings.ToLower(result[j].Name))
-		if reverse {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
-
 	return map[string]interface{}{
-		"prompts": result,
-		"count":   len(result),
+		"prompts": result.Prompts,
+		"count":   result.Count,
 	}, nil
 }
 
-func (s *mcpServer) toolGetPrompt(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolGetPrompt(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	loader := s.bundleLoader()
-
-	prompt, err := loader.GetPrompt(params.Name)
+	result, err := operations.GetPrompt(ctx, s.cfg, operations.GetPromptRequest{
+		Name: params.Name,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	content := prompt.Content
-	lines := strings.Split(content, "\n")
-	var cleanedLines []string
-	skipHeader := true
-	for _, line := range lines {
-		if skipHeader && strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		skipHeader = false
-		cleanedLines = append(cleanedLines, line)
-	}
-	content = strings.TrimSpace(strings.Join(cleanedLines, "\n"))
-
 	return map[string]interface{}{
-		"name":    prompt.Name,
-		"content": content,
+		"name":    result.Name,
+		"content": result.Content,
 	}, nil
 }
 
-func (s *mcpServer) toolSearchContent(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolSearchContent(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query     string   `json:"query"`
 		Types     []string `json:"types"`
@@ -1494,182 +1247,23 @@ func (s *mcpServer) toolSearchContent(args json.RawMessage) (interface{}, error)
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Query == "" {
-		return nil, fmt.Errorf("query is required")
-	}
-	if params.Limit <= 0 {
-		params.Limit = 50
-	}
 
-	// Determine which types to search
-	searchTypes := map[string]bool{
-		"fragment":   true,
-		"prompt":     true,
-		"profile":    true,
-		"mcp_server": true,
-	}
-	if len(params.Types) > 0 {
-		searchTypes = make(map[string]bool)
-		for _, t := range params.Types {
-			searchTypes[t] = true
-		}
-	}
-
-	type searchResult struct {
-		Type   string   `json:"type"`
-		Name   string   `json:"name"`
-		Tags   []string `json:"tags,omitempty"`
-		Source string   `json:"source,omitempty"`
-		Match  string   `json:"match,omitempty"` // What matched (name, tag, description)
-	}
-
-	var results []searchResult
-	query := strings.ToLower(params.Query)
-
-	// Search fragments
-	if searchTypes["fragment"] {
-		loader := s.bundleLoader()
-		var infos []bundles.ContentInfo
-		var err error
-		if len(params.Tags) > 0 {
-			infos, err = loader.ListByTags(params.Tags)
-		} else {
-			infos, err = loader.ListAllFragments()
-		}
-		if err == nil {
-			for _, info := range infos {
-				matchType := ""
-				if strings.Contains(strings.ToLower(info.Name), query) {
-					matchType = "name"
-				} else if containsTag(info.Tags, query) {
-					matchType = "tag"
-				}
-				if matchType != "" {
-					results = append(results, searchResult{
-						Type:   "fragment",
-						Name:   info.Name,
-						Tags:   info.Tags,
-						Source: info.Source,
-						Match:  matchType,
-					})
-				}
-			}
-		}
-	}
-
-	// Search prompts
-	if searchTypes["prompt"] {
-		loader := s.bundleLoader()
-		prompts, err := loader.ListAllPrompts()
-		if err == nil {
-			for _, p := range prompts {
-				if strings.Contains(strings.ToLower(p.Name), query) {
-					results = append(results, searchResult{
-						Type:   "prompt",
-						Name:   p.Name,
-						Source: p.Source,
-						Match:  "name",
-					})
-				}
-			}
-		}
-	}
-
-	// Search profiles
-	if searchTypes["profile"] {
-		for name, profile := range s.cfg.Profiles {
-			matchType := ""
-			if strings.Contains(strings.ToLower(name), query) {
-				matchType = "name"
-			} else if strings.Contains(strings.ToLower(profile.Description), query) {
-				matchType = "description"
-			} else if containsTag(profile.Tags, query) {
-				matchType = "tag"
-			}
-			if matchType != "" {
-				results = append(results, searchResult{
-					Type:  "profile",
-					Name:  name,
-					Tags:  profile.Tags,
-					Match: matchType,
-				})
-			}
-		}
-	}
-
-	// Search MCP servers
-	if searchTypes["mcp_server"] {
-		cfg, err := config.Load()
-		if err == nil {
-			for name, srv := range cfg.MCP.Servers {
-				if strings.Contains(strings.ToLower(name), query) ||
-					strings.Contains(strings.ToLower(srv.Command), query) {
-					results = append(results, searchResult{
-						Type:   "mcp_server",
-						Name:   name,
-						Source: srv.Command,
-						Match:  "name",
-					})
-				}
-			}
-		}
-	}
-
-	// Sort results
-	sortBy := params.SortBy
-	if sortBy == "" {
-		sortBy = "relevance" // name matches first, then others
-	}
-	reverse := params.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
-		sortSlice(results, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(results[i].Name), strings.ToLower(results[j].Name))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "type":
-		sortSlice(results, func(i, j int) bool {
-			cmp := strings.Compare(results[i].Type, results[j].Type)
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "relevance":
-		// Name matches first, then tag/description matches
-		sortSlice(results, func(i, j int) bool {
-			scoreI := 0
-			scoreJ := 0
-			if results[i].Match == "name" {
-				scoreI = 2
-			} else if results[i].Match == "tag" {
-				scoreI = 1
-			}
-			if results[j].Match == "name" {
-				scoreJ = 2
-			} else if results[j].Match == "tag" {
-				scoreJ = 1
-			}
-			if reverse {
-				return scoreI < scoreJ
-			}
-			return scoreI > scoreJ
-		})
-	}
-
-	// Apply limit
-	if len(results) > params.Limit {
-		results = results[:params.Limit]
+	result, err := operations.SearchContent(ctx, s.cfg, operations.SearchContentRequest{
+		Query:     params.Query,
+		Types:     params.Types,
+		Tags:      params.Tags,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+		Limit:     params.Limit,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"results": results,
-		"count":   len(results),
-		"query":   params.Query,
+		"results": result.Results,
+		"count":   result.Count,
+		"query":   result.Query,
 	}, nil
 }
 
@@ -1678,31 +1272,14 @@ func (s *mcpServer) toolSearchContent(args json.RawMessage) (interface{}, error)
 // ============================================================================
 
 func (s *mcpServer) toolListRemotes(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	registry, err := remote.NewRegistry("")
+	result, err := operations.ListRemotes(ctx, s.cfg, operations.ListRemotesRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load registry: %w", err)
-	}
-
-	remotes := registry.List()
-
-	type remoteEntry struct {
-		Name    string `json:"name"`
-		URL     string `json:"url"`
-		Version string `json:"version"`
-	}
-
-	var result []remoteEntry
-	for _, r := range remotes {
-		result = append(result, remoteEntry{
-			Name:    r.Name,
-			URL:     r.URL,
-			Version: r.Version,
-		})
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"remotes": result,
-		"count":   len(result),
+		"remotes": result.Remotes,
+		"count":   result.Count,
 	}, nil
 }
 
@@ -1714,103 +1291,19 @@ func (s *mcpServer) toolDiscoverRemotes(ctx context.Context, args json.RawMessag
 	}
 	_ = json.Unmarshal(args, &params)
 
-	if params.Source == "" {
-		params.Source = "all"
-	}
-
-	auth := remote.LoadAuth("")
-
-	var forges []remote.ForgeType
-	switch params.Source {
-	case "github":
-		forges = []remote.ForgeType{remote.ForgeGitHub}
-	case "gitlab":
-		forges = []remote.ForgeType{remote.ForgeGitLab}
-	default:
-		forges = []remote.ForgeType{remote.ForgeGitHub, remote.ForgeGitLab}
-	}
-
-	var wg sync.WaitGroup
-	resultsCh := make(chan []remote.RepoInfo, len(forges))
-	errorsCh := make(chan error, len(forges))
-
-	for _, forge := range forges {
-		wg.Add(1)
-		go func(f remote.ForgeType) {
-			defer wg.Done()
-
-			var fetcher remote.Fetcher
-			var err error
-
-			switch f {
-			case remote.ForgeGitHub:
-				fetcher = remote.NewGitHubFetcher(auth.GitHub)
-			case remote.ForgeGitLab:
-				fetcher, err = remote.NewGitLabFetcher("", auth.GitLab)
-				if err != nil {
-					errorsCh <- fmt.Errorf("GitLab: %w", err)
-					return
-				}
-			}
-
-			repos, err := fetcher.SearchRepos(ctx, params.Query, 30)
-			if err != nil {
-				errorsCh <- fmt.Errorf("%s: %w", f, err)
-				return
-			}
-
-			filtered := repos[:0]
-			for _, r := range repos {
-				if r.Stars >= params.MinStars {
-					filtered = append(filtered, r)
-				}
-			}
-
-			resultsCh <- filtered
-		}(forge)
-	}
-
-	wg.Wait()
-	close(resultsCh)
-	close(errorsCh)
-
-	var allRepos []remote.RepoInfo
-	for repos := range resultsCh {
-		allRepos = append(allRepos, repos...)
-	}
-
-	var errors []string
-	for err := range errorsCh {
-		errors = append(errors, err.Error())
-	}
-
-	type repoEntry struct {
-		Owner       string `json:"owner"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Stars       int    `json:"stars"`
-		URL         string `json:"url"`
-		Forge       string `json:"forge"`
-		AddCommand  string `json:"add_command"`
-	}
-
-	var result []repoEntry
-	for _, r := range allRepos {
-		result = append(result, repoEntry{
-			Owner:       r.Owner,
-			Name:        r.Name,
-			Description: r.Description,
-			Stars:       r.Stars,
-			URL:         r.URL,
-			Forge:       string(r.Forge),
-			AddCommand:  fmt.Sprintf("scm remote add %s %s/%s", r.Owner, r.Owner, r.Name),
-		})
+	result, err := operations.DiscoverRemotes(ctx, s.cfg, operations.DiscoverRemotesRequest{
+		Query:    params.Query,
+		Source:   params.Source,
+		MinStars: params.MinStars,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"repositories": result,
-		"count":        len(result),
-		"errors":       errors,
+		"repositories": result.Repositories,
+		"count":        result.Count,
+		"errors":       result.Errors,
 	}, nil
 }
 
@@ -1823,89 +1316,21 @@ func (s *mcpServer) toolBrowseRemote(ctx context.Context, args json.RawMessage) 
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Remote == "" {
-		return nil, fmt.Errorf("remote is required")
-	}
 
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load registry: %w", err)
-	}
-
-	rem, err := registry.Get(params.Remote)
+	result, err := operations.BrowseRemote(ctx, s.cfg, operations.BrowseRemoteRequest{
+		Remote:   params.Remote,
+		ItemType: params.ItemType,
+		Path:     params.Path,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	auth := remote.LoadAuth("")
-	fetcher, err := remote.NewFetcher(rem.URL, auth)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fetcher: %w", err)
-	}
-
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid remote URL: %w", err)
-	}
-
-	// Determine which types to list (only bundles and profiles supported)
-	var itemTypes []remote.ItemType
-	switch params.ItemType {
-	case "bundle":
-		itemTypes = []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		itemTypes = []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		itemTypes = []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
-
-	type itemEntry struct {
-		Name     string `json:"name"`
-		Type     string `json:"type"`
-		Path     string `json:"path"`
-		IsDir    bool   `json:"is_dir,omitempty"`
-		PullRef  string `json:"pull_ref"`
-	}
-
-	var items []itemEntry
-
-	for _, itemType := range itemTypes {
-		basePath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
-		if params.Path != "" {
-			basePath = filepath.Join(basePath, params.Path)
-		}
-
-		entries, err := fetcher.ListDir(ctx, owner, repo, basePath, "")
-		if err != nil {
-			continue // Directory might not exist for this type
-		}
-
-		for _, e := range entries {
-			name := e.Name
-			if !e.IsDir && strings.HasSuffix(name, ".yaml") {
-				name = strings.TrimSuffix(name, ".yaml")
-			}
-
-			pullPath := name
-			if params.Path != "" {
-				pullPath = params.Path + "/" + name
-			}
-
-			items = append(items, itemEntry{
-				Name:    name,
-				Type:    string(itemType),
-				Path:    pullPath,
-				IsDir:   e.IsDir,
-				PullRef: fmt.Sprintf("%s/%s", params.Remote, pullPath),
-			})
-		}
-	}
-
 	return map[string]interface{}{
-		"remote": params.Remote,
-		"url":    rem.URL,
-		"items":  items,
-		"count":  len(items),
+		"remote": result.Remote,
+		"url":    result.URL,
+		"items":  result.Items,
+		"count":  result.Count,
 	}, nil
 }
 
@@ -1917,106 +1342,51 @@ func (s *mcpServer) toolPreviewRemote(ctx context.Context, args json.RawMessage)
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Reference == "" {
-		return nil, fmt.Errorf("reference is required")
-	}
-	if params.ItemType == "" {
-		return nil, fmt.Errorf("item_type is required")
+
+	result, err := operations.FetchRemoteContent(ctx, s.cfg, operations.FetchRemoteContentRequest{
+		Reference: params.Reference,
+		ItemType:  params.ItemType,
+	})
+	if err != nil {
+		return nil, err
 	}
 
+	// Convert item_type string to remote.ItemType for storage
 	var itemType remote.ItemType
 	switch params.ItemType {
 	case "bundle":
 		itemType = remote.ItemTypeBundle
 	case "profile":
 		itemType = remote.ItemTypeProfile
-	default:
-		return nil, fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", params.ItemType)
 	}
 
-	ref, err := remote.ParseReference(params.Reference)
-	if err != nil {
-		return nil, fmt.Errorf("invalid reference: %w", err)
-	}
-
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load registry: %w", err)
-	}
-
-	rem, err := registry.Get(ref.Remote)
-	if err != nil {
-		return nil, err
-	}
-
-	auth := remote.LoadAuth("")
-	fetcher, err := remote.NewFetcher(rem.URL, auth)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fetcher: %w", err)
-	}
-
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid remote URL: %w", err)
-	}
-
-	// Resolve ref to SHA
-	gitRef := ref.GitRef
-	if gitRef == "" {
-		gitRef, err = fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default branch: %w", err)
-		}
-	}
-
-	sha, err := fetcher.ResolveRef(ctx, owner, repo, gitRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve ref '%s': %w", gitRef, err)
-	}
-
-	// Fetch content
-	filePath := ref.BuildFilePath(itemType, rem.Version)
-	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
-	}
-
-	// Generate pull token (reference pinned to SHA)
-	pullToken := fmt.Sprintf("%s/%s@%s", ref.Remote, ref.Path, sha)
-
-	// Store pending pull
+	// Store pending pull for confirm_pull
 	s.pullMu.Lock()
-	s.pendingPulls[pullToken] = &pendingPull{
-		Reference: pullToken,
+	s.pendingPulls[result.PullToken] = &pendingPull{
+		Reference: result.PullToken,
 		ItemType:  itemType,
-		Content:   content,
-		SHA:       sha,
-		RemoteURL: rem.URL,
+		Content:   []byte(result.Content),
+		SHA:       result.FullSHA,
+		RemoteURL: result.SourceURL,
 	}
 	s.pullMu.Unlock()
 
-	shortSHA := sha
-	if len(sha) > 7 {
-		shortSHA = sha[:7]
-	}
-
 	return map[string]interface{}{
-		"reference":  params.Reference,
-		"item_type":  params.ItemType,
-		"sha":        shortSHA,
-		"full_sha":   sha,
-		"source_url": rem.URL,
-		"file_path":  filePath,
-		"content":    string(content),
-		"pull_token": pullToken,
-		"warning":    "REVIEW THIS CONTENT CAREFULLY. Malicious prompts can override AI safety guidelines, exfiltrate data, or execute unintended actions. Use confirm_pull with the pull_token to install.",
+		"reference":  result.Reference,
+		"item_type":  result.ItemType,
+		"sha":        result.SHA,
+		"full_sha":   result.FullSHA,
+		"source_url": result.SourceURL,
+		"file_path":  result.FilePath,
+		"content":    result.Content,
+		"pull_token": result.PullToken,
+		"warning":    result.Warning,
 	}, nil
 }
 
 func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		PullToken string `json:"pull_token"`
-		Local     bool   `json:"local"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
@@ -2037,55 +1407,24 @@ func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (
 		return nil, fmt.Errorf("invalid or expired pull_token: token must be obtained from preview_remote")
 	}
 
-	// Parse the reference to get path info
-	ref, err := remote.ParseReference(pending.Reference)
+	// Use operations.WriteRemoteItem which uses config's SCM path (the bug fix)
+	result, err := operations.WriteRemoteItem(ctx, s.cfg, operations.WriteRemoteItemRequest{
+		Reference: pending.Reference,
+		ItemType:  string(pending.ItemType),
+		Content:   pending.Content,
+		SHA:       pending.SHA,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("invalid reference in token: %w", err)
-	}
-
-	// Determine local path
-	baseDir := ".scm"
-	if !params.Local {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			baseDir = filepath.Join(homeDir, ".scm")
-		}
-	}
-
-	localPath := ref.LocalPath(baseDir, pending.ItemType)
-
-	// Check for existing file
-	overwritten := false
-	if _, err := os.Stat(localPath); err == nil {
-		overwritten = true
-	}
-
-	// Write file
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	if err := os.WriteFile(localPath, pending.Content, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write file: %w", err)
-	}
-
-	shortSHA := pending.SHA
-	if len(shortSHA) > 7 {
-		shortSHA = shortSHA[:7]
-	}
-
-	action := "installed"
-	if overwritten {
-		action = "updated"
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"status":      action,
-		"reference":   pending.Reference,
-		"item_type":   string(pending.ItemType),
-		"local_path":  localPath,
-		"sha":         shortSHA,
-		"overwritten": overwritten,
+		"status":      result.Status,
+		"reference":   result.Reference,
+		"item_type":   result.ItemType,
+		"local_path":  result.LocalPath,
+		"sha":         result.SHA,
+		"overwritten": result.Overwritten,
 	}, nil
 }
 
@@ -2093,240 +1432,95 @@ func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (
 // Profile management tools
 // ============================================================================
 
-func (s *mcpServer) toolCreateProfile(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolCreateProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name        string   `json:"name"`
 		Description string   `json:"description"`
 		Parents     []string `json:"parents"`
-		Fragments   []string `json:"fragments"`
-		Tags        []string `json:"tags"`
-		Generators  []string `json:"generators"`
-		Default     bool     `json:"default"`
+		Bundles []string `json:"bundles"`
+		Tags    []string `json:"tags"`
+		Default bool     `json:"default"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	// Reload config to ensure freshness
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if _, exists := cfg.Profiles[params.Name]; exists {
-		return nil, fmt.Errorf("profile %q already exists", params.Name)
-	}
-
-	// Validate parents exist
-	for _, parent := range params.Parents {
-		if _, exists := cfg.Profiles[parent]; !exists {
-			return nil, fmt.Errorf("parent profile %q not found", parent)
-		}
-	}
-
-	if cfg.Profiles == nil {
-		cfg.Profiles = make(map[string]config.Profile)
-	}
-
-	cfg.Profiles[params.Name] = config.Profile{
+	result, err := operations.CreateProfile(ctx, s.cfg, operations.CreateProfileRequest{
+		Name:        params.Name,
 		Description: params.Description,
 		Parents:     params.Parents,
+		Bundles:     params.Bundles,
 		Tags:        params.Tags,
-		Fragments:   params.Fragments,
-		Generators:  params.Generators,
+		Default:     params.Default,
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	// Set as default if requested
-	if params.Default {
-		cfg.Defaults.Profile = params.Name
-	}
-
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	// Update local config reference
-	s.cfg = cfg
 
 	return map[string]interface{}{
-		"status":  "created",
-		"profile": params.Name,
+		"status":  result.Status,
+		"profile": result.Profile,
+		"path":    result.Path,
 	}, nil
 }
 
-func (s *mcpServer) toolUpdateProfile(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolUpdateProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
-		Name             string   `json:"name"`
-		Description      *string  `json:"description"`
-		AddParents       []string `json:"add_parents"`
-		RemoveParents    []string `json:"remove_parents"`
-		AddFragments     []string `json:"add_fragments"`
-		RemoveFragments  []string `json:"remove_fragments"`
-		AddTags          []string `json:"add_tags"`
-		RemoveTags       []string `json:"remove_tags"`
-		AddGenerators    []string `json:"add_generators"`
-		RemoveGenerators []string `json:"remove_generators"`
-		Default          *bool    `json:"default"`
+		Name          string   `json:"name"`
+		Description   *string  `json:"description"`
+		AddParents    []string `json:"add_parents"`
+		RemoveParents []string `json:"remove_parents"`
+		AddBundles    []string `json:"add_bundles"`
+		RemoveBundles []string `json:"remove_bundles"`
+		AddTags       []string `json:"add_tags"`
+		RemoveTags    []string `json:"remove_tags"`
+		Default       *bool    `json:"default"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	// Reload config
-	cfg, err := config.Load()
+	result, err := operations.UpdateProfile(ctx, s.cfg, operations.UpdateProfileRequest{
+		Name:          params.Name,
+		Description:   params.Description,
+		AddParents:    params.AddParents,
+		RemoveParents: params.RemoveParents,
+		AddBundles:    params.AddBundles,
+		RemoveBundles: params.RemoveBundles,
+		AddTags:       params.AddTags,
+		RemoveTags:    params.RemoveTags,
+		Default:       params.Default,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
-
-	profile, exists := cfg.Profiles[params.Name]
-	if !exists {
-		return nil, fmt.Errorf("profile %q not found", params.Name)
-	}
-
-	changes := []string{}
-
-	// Update description
-	if params.Description != nil {
-		profile.Description = *params.Description
-		changes = append(changes, "updated description")
-	}
-
-	// Update default flag
-	if params.Default != nil {
-		if *params.Default {
-			cfg.Defaults.Profile = params.Name
-			changes = append(changes, "set as default")
-		} else if cfg.Defaults.Profile == params.Name {
-			cfg.Defaults.Profile = ""
-			changes = append(changes, "unset default")
-		}
-	}
-
-	// Add parents
-	for _, parent := range params.AddParents {
-		if _, exists := cfg.Profiles[parent]; !exists {
-			return nil, fmt.Errorf("parent profile %q not found", parent)
-		}
-		if !contains(profile.Parents, parent) {
-			profile.Parents = append(profile.Parents, parent)
-			changes = append(changes, fmt.Sprintf("added parent: %s", parent))
-		}
-	}
-
-	// Remove parents
-	for _, parent := range params.RemoveParents {
-		if idx := indexOf(profile.Parents, parent); idx >= 0 {
-			profile.Parents = append(profile.Parents[:idx], profile.Parents[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed parent: %s", parent))
-		}
-	}
-
-	// Add fragments
-	for _, f := range params.AddFragments {
-		if !contains(profile.Fragments, f) {
-			profile.Fragments = append(profile.Fragments, f)
-			changes = append(changes, fmt.Sprintf("added fragment: %s", f))
-		}
-	}
-
-	// Remove fragments
-	for _, f := range params.RemoveFragments {
-		if idx := indexOf(profile.Fragments, f); idx >= 0 {
-			profile.Fragments = append(profile.Fragments[:idx], profile.Fragments[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed fragment: %s", f))
-		}
-	}
-
-	// Add tags
-	for _, t := range params.AddTags {
-		if !contains(profile.Tags, t) {
-			profile.Tags = append(profile.Tags, t)
-			changes = append(changes, fmt.Sprintf("added tag: %s", t))
-		}
-	}
-
-	// Remove tags
-	for _, t := range params.RemoveTags {
-		if idx := indexOf(profile.Tags, t); idx >= 0 {
-			profile.Tags = append(profile.Tags[:idx], profile.Tags[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed tag: %s", t))
-		}
-	}
-
-	// Add generators
-	for _, g := range params.AddGenerators {
-		if !contains(profile.Generators, g) {
-			profile.Generators = append(profile.Generators, g)
-			changes = append(changes, fmt.Sprintf("added generator: %s", g))
-		}
-	}
-
-	// Remove generators
-	for _, g := range params.RemoveGenerators {
-		if idx := indexOf(profile.Generators, g); idx >= 0 {
-			profile.Generators = append(profile.Generators[:idx], profile.Generators[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed generator: %s", g))
-		}
-	}
-
-	if len(changes) == 0 {
-		return map[string]interface{}{
-			"status":  "no_changes",
-			"profile": params.Name,
-		}, nil
-	}
-
-	cfg.Profiles[params.Name] = profile
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	s.cfg = cfg
 
 	return map[string]interface{}{
-		"status":  "updated",
-		"profile": params.Name,
-		"changes": changes,
+		"status":  result.Status,
+		"profile": result.Profile,
+		"changes": result.Changes,
+		"path":    result.Path,
 	}, nil
 }
 
-func (s *mcpServer) toolDeleteProfile(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolDeleteProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	cfg, err := config.Load()
+	result, err := operations.DeleteProfile(ctx, s.cfg, operations.DeleteProfileRequest{
+		Name: params.Name,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
-
-	if _, exists := cfg.Profiles[params.Name]; !exists {
-		return nil, fmt.Errorf("profile %q not found", params.Name)
-	}
-
-	delete(cfg.Profiles, params.Name)
-
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	s.cfg = cfg
 
 	return map[string]interface{}{
-		"status":  "deleted",
-		"profile": params.Name,
+		"status":  result.Status,
+		"profile": result.Profile,
 	}, nil
 }
 
@@ -2334,7 +1528,7 @@ func (s *mcpServer) toolDeleteProfile(args json.RawMessage) (interface{}, error)
 // Fragment management tools
 // ============================================================================
 
-func (s *mcpServer) toolCreateFragment(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolCreateFragment(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name    string   `json:"name"`
 		Content string   `json:"content"`
@@ -2344,75 +1538,43 @@ func (s *mcpServer) toolCreateFragment(args json.RawMessage) (interface{}, error
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if params.Content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
 
-	if params.Version == "" {
-		params.Version = "1.0"
-	}
-
-	// Build YAML content
-	frag := map[string]interface{}{
-		"version": params.Version,
-		"content": params.Content,
-	}
-	if len(params.Tags) > 0 {
-		frag["tags"] = params.Tags
-	}
-
-	yamlContent, err := yaml.Marshal(frag)
+	result, err := operations.CreateFragment(ctx, s.cfg, operations.CreateFragmentRequest{
+		Name:    params.Name,
+		Content: params.Content,
+		Tags:    params.Tags,
+		Version: params.Version,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal fragment: %w", err)
-	}
-
-	// Determine path - use project .scm directory
-	fragmentDir := filepath.Join(".scm", config.ContextFragmentsDir)
-	if err := os.MkdirAll(fragmentDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create fragment directory: %w", err)
-	}
-
-	fragmentPath := filepath.Join(fragmentDir, params.Name+".yaml")
-
-	// Check if exists
-	overwritten := false
-	if _, err := os.Stat(fragmentPath); err == nil {
-		overwritten = true
-	}
-
-	if err := os.WriteFile(fragmentPath, yamlContent, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write fragment: %w", err)
-	}
-
-	action := "created"
-	if overwritten {
-		action = "updated"
+		return nil, err
 	}
 
 	return map[string]interface{}{
-		"status":      action,
-		"fragment":    params.Name,
-		"path":        fragmentPath,
-		"overwritten": overwritten,
+		"status":      result.Status,
+		"fragment":    result.Fragment,
+		"path":        result.Path,
+		"overwritten": result.Overwritten,
 	}, nil
 }
 
-func (s *mcpServer) toolDeleteFragment(args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolDeleteFragment(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
+
+	_, err := operations.DeleteFragment(ctx, s.cfg, operations.DeleteFragmentRequest{
+		Name: params.Name,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// Fragments are now part of bundles and cannot be deleted individually
-	return nil, fmt.Errorf("individual fragments cannot be deleted; they are part of bundles. Use bundle management instead")
+	return map[string]interface{}{
+		"status": "deleted",
+	}, nil
 }
 
 // ============================================================================
@@ -2426,113 +1588,15 @@ func (s *mcpServer) toolApplyHooks(ctx context.Context, args json.RawMessage) (i
 	}
 	_ = json.Unmarshal(args, &params)
 
-	if params.Backend == "" {
-		params.Backend = "all"
-	}
-
 	regenerate := true
 	if params.RegenerateContext != nil {
 		regenerate = *params.RegenerateContext
 	}
 
-	// Reload config
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Determine work directory
-	workDir := "."
-	if root, err := gitutil.FindRoot("."); err == nil {
-		workDir = root
-	}
-
-	// Ensure SCM symlink exists
-	if _, err := backends.EnsureSCMSymlink(workDir); err != nil {
-		return nil, fmt.Errorf("failed to create scm symlink: %w", err)
-	}
-
-	var contextHash string
-	if regenerate {
-		// Load fragments from default profiles using bundles
-		loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
-		var allFragments []string
-
-		for _, profileName := range cfg.GetDefaultProfiles() {
-			profile, err := config.ResolveProfile(cfg.Profiles, profileName)
-			if err != nil {
-				continue
-			}
-
-			if len(profile.Tags) > 0 {
-				taggedInfos, _ := loader.ListByTags(profile.Tags)
-				for _, info := range taggedInfos {
-					allFragments = append(allFragments, info.Name)
-				}
-			}
-
-			allFragments = append(allFragments, profile.Fragments...)
-		}
-
-		// Dedupe
-		allFragments = config.DedupeStrings(allFragments)
-
-		// Load and write context
-		if len(allFragments) > 0 {
-			var backendFrags []*backends.Fragment
-			for _, name := range allFragments {
-				content, err := loader.GetFragment(name)
-				if err != nil {
-					continue
-				}
-				backendFrags = append(backendFrags, &backends.Fragment{
-					Name:    content.Name,
-					Content: content.Content,
-				})
-			}
-			if len(backendFrags) > 0 {
-				contextHash, _ = backends.WriteContextFile(workDir, backendFrags)
-			}
-		}
-	}
-
-	applied := []string{}
-
-	// Load MCP servers from profile bundles
-	bundleMCP := cfg.ResolveBundleMCPServers()
-
-	// Apply to backends
-	if params.Backend == "all" || params.Backend == "claude-code" {
-		hooksCfg := &cfg.Hooks
-		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash))
-		}
-		if err := backends.WriteSettings("claude-code", hooksCfg, &cfg.MCP, bundleMCP, workDir); err != nil {
-			return nil, fmt.Errorf("failed to apply claude-code settings: %w", err)
-		}
-		applied = append(applied, "claude-code")
-	}
-
-	if params.Backend == "all" || params.Backend == "gemini" {
-		hooksCfg := &cfg.Hooks
-		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash))
-		}
-		if err := backends.WriteSettings("gemini", hooksCfg, &cfg.MCP, bundleMCP, workDir); err != nil {
-			return nil, fmt.Errorf("failed to apply gemini settings: %w", err)
-		}
-		applied = append(applied, "gemini")
-	}
-
-	result := map[string]interface{}{
-		"status":   "applied",
-		"backends": applied,
-	}
-	if contextHash != "" {
-		result["context_hash"] = contextHash
-	}
-
-	return result, nil
+	return operations.ApplyHooks(ctx, s.cfg, operations.ApplyHooksRequest{
+		Backend:           params.Backend,
+		RegenerateContext: regenerate,
+	})
 }
 
 // ============================================================================
@@ -2547,50 +1611,25 @@ func (s *mcpServer) toolAddRemote(ctx context.Context, args json.RawMessage) (in
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if params.URL == "" {
-		return nil, fmt.Errorf("url is required")
-	}
 
-	registry, err := remote.NewRegistry("")
+	result, err := operations.AddRemote(ctx, s.cfg, operations.AddRemoteRequest{
+		Name: params.Name,
+		URL:  params.URL,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	if err := registry.Add(params.Name, params.URL); err != nil {
 		return nil, err
 	}
 
-	// Verify the remote
-	auth := remote.LoadAuth("")
-	fetcher, err := registry.GetFetcher(params.Name, auth)
-	if err != nil {
-		registry.Remove(params.Name)
-		return nil, fmt.Errorf("failed to create fetcher: %w", err)
+	resp := map[string]interface{}{
+		"status": result.Status,
+		"name":   result.Name,
+		"url":    result.URL,
+	}
+	if result.Warning != "" {
+		resp["warning"] = result.Warning
 	}
 
-	owner, repo, err := remote.ParseRepoURL(params.URL)
-	if err != nil {
-		registry.Remove(params.Name)
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-
-	valid, _ := fetcher.ValidateRepo(ctx, owner, repo)
-
-	rem, _ := registry.Get(params.Name)
-
-	result := map[string]interface{}{
-		"status": "added",
-		"name":   params.Name,
-		"url":    rem.URL,
-	}
-	if !valid {
-		result["warning"] = "repository does not have scm/v1/ directory structure"
-	}
-
-	return result, nil
+	return resp, nil
 }
 
 func (s *mcpServer) toolRemoveRemote(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -2600,22 +1639,17 @@ func (s *mcpServer) toolRemoveRemote(ctx context.Context, args json.RawMessage) 
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	registry, err := remote.NewRegistry("")
+	result, err := operations.RemoveRemote(ctx, s.cfg, operations.RemoveRemoteRequest{
+		Name: params.Name,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	if err := registry.Remove(params.Name); err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"status": "removed",
-		"name":   params.Name,
+		"status": result.Status,
+		"name":   result.Name,
 	}, nil
 }
 
@@ -2624,98 +1658,7 @@ func (s *mcpServer) toolRemoveRemote(ctx context.Context, args json.RawMessage) 
 // ============================================================================
 
 func (s *mcpServer) toolLockDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	baseDir := ".scm"
-
-	lockManager := remote.NewLockfileManager(baseDir)
-	lockfile := &remote.Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]remote.LockEntry),
-		Profiles: make(map[string]remote.LockEntry),
-	}
-
-	itemCount := 0
-
-	// Scan for installed items (bundles and profiles only)
-	for _, itemType := range []remote.ItemType{
-		remote.ItemTypeBundle,
-		remote.ItemTypeProfile,
-	} {
-		var dirName string
-		switch itemType {
-		case remote.ItemTypeBundle:
-			dirName = "bundles"
-		case remote.ItemTypeProfile:
-			dirName = "profiles"
-		}
-
-		itemDir := filepath.Join(baseDir, dirName)
-		entries, err := os.ReadDir(itemDir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-
-			remoteName := entry.Name()
-			remoteDir := filepath.Join(itemDir, remoteName)
-
-			files, _ := filepath.Glob(filepath.Join(remoteDir, "**", "*.yaml"))
-			rootFiles, _ := filepath.Glob(filepath.Join(remoteDir, "*.yaml"))
-			files = append(files, rootFiles...)
-
-			for _, file := range files {
-				content, err := os.ReadFile(file)
-				if err != nil {
-					continue
-				}
-
-				var meta struct {
-					Source remote.SourceMeta `yaml:"_source"`
-				}
-				if err := yaml.Unmarshal(content, &meta); err != nil {
-					continue
-				}
-
-				if meta.Source.SHA == "" {
-					continue
-				}
-
-				relPath, _ := filepath.Rel(filepath.Join(itemDir, remoteName), file)
-				name := strings.TrimSuffix(relPath, ".yaml")
-				ref := fmt.Sprintf("%s/%s", remoteName, name)
-
-				lockEntry := remote.LockEntry{
-					SHA:        meta.Source.SHA,
-					URL:        meta.Source.URL,
-					SCMVersion: meta.Source.Version,
-					FetchedAt:  meta.Source.FetchedAt,
-				}
-
-				lockfile.AddEntry(itemType, ref, lockEntry)
-				itemCount++
-			}
-		}
-	}
-
-	if itemCount == 0 {
-		return map[string]interface{}{
-			"status":  "empty",
-			"message": "No remote items with source metadata found",
-		}, nil
-	}
-
-	if err := lockManager.Save(lockfile); err != nil {
-		return nil, err
-	}
-
-	return map[string]interface{}{
-		"status":     "generated",
-		"path":       lockManager.Path(),
-		"item_count": itemCount,
-	}, nil
+	return operations.LockDependencies(ctx, s.cfg, operations.LockDependenciesRequest{})
 }
 
 func (s *mcpServer) toolInstallDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -2724,156 +1667,13 @@ func (s *mcpServer) toolInstallDependencies(ctx context.Context, args json.RawMe
 	}
 	_ = json.Unmarshal(args, &params)
 
-	lockManager := remote.NewLockfileManager(".scm")
-	lockfile, err := lockManager.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	if lockfile.IsEmpty() {
-		return map[string]interface{}{
-			"status":  "empty",
-			"message": "No entries in lockfile",
-		}, nil
-	}
-
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	auth := remote.LoadAuth("")
-	puller := remote.NewPuller(registry, auth)
-
-	entries := lockfile.AllEntries()
-	installed := 0
-	failed := 0
-	var errors []string
-
-	for _, e := range entries {
-		ref := fmt.Sprintf("%s@%s", e.Ref, e.Entry.SHA[:7])
-
-		opts := remote.PullOptions{
-			Force:    params.Force,
-			ItemType: e.Type,
-		}
-
-		_, err := puller.Pull(ctx, ref, opts)
-		if err != nil {
-			failed++
-			errors = append(errors, fmt.Sprintf("%s: %v", e.Ref, err))
-			continue
-		}
-		installed++
-	}
-
-	result := map[string]interface{}{
-		"status":    "completed",
-		"installed": installed,
-		"failed":    failed,
-		"total":     len(entries),
-	}
-	if len(errors) > 0 {
-		result["errors"] = errors
-	}
-
-	return result, nil
+	return operations.InstallDependencies(ctx, s.cfg, operations.InstallDependenciesRequest{
+		Force: params.Force,
+	})
 }
 
 func (s *mcpServer) toolCheckOutdated(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	lockManager := remote.NewLockfileManager(".scm")
-	lockfile, err := lockManager.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	if lockfile.IsEmpty() {
-		return map[string]interface{}{
-			"status":  "empty",
-			"message": "No entries in lockfile",
-		}, nil
-	}
-
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	auth := remote.LoadAuth("")
-	entries := lockfile.AllEntries()
-
-	type outdatedItem struct {
-		Type      string `json:"type"`
-		Reference string `json:"reference"`
-		LockedSHA string `json:"locked_sha"`
-		LatestSHA string `json:"latest_sha"`
-	}
-
-	var outdated []outdatedItem
-
-	for _, e := range entries {
-		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
-			continue
-		}
-
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			continue
-		}
-
-		fetcher, err := remote.NewFetcher(rem.URL, auth)
-		if err != nil {
-			continue
-		}
-
-		owner, repo, err := remote.ParseRepoURL(rem.URL)
-		if err != nil {
-			continue
-		}
-
-		branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			continue
-		}
-
-		latestSHA, err := fetcher.ResolveRef(ctx, owner, repo, branch)
-		if err != nil {
-			continue
-		}
-
-		if latestSHA != e.Entry.SHA {
-			lockedShort := e.Entry.SHA
-			if len(lockedShort) > 7 {
-				lockedShort = lockedShort[:7]
-			}
-			latestShort := latestSHA
-			if len(latestShort) > 7 {
-				latestShort = latestShort[:7]
-			}
-
-			outdated = append(outdated, outdatedItem{
-				Type:      string(e.Type),
-				Reference: e.Ref,
-				LockedSHA: lockedShort,
-				LatestSHA: latestShort,
-			})
-		}
-	}
-
-	if len(outdated) == 0 {
-		return map[string]interface{}{
-			"status":  "up_to_date",
-			"message": "All items are up to date",
-		}, nil
-	}
-
-	return map[string]interface{}{
-		"status":   "outdated",
-		"count":    len(outdated),
-		"items":    outdated,
-		"total":    len(entries),
-	}, nil
+	return operations.CheckOutdated(ctx, s.cfg, operations.CheckOutdatedRequest{})
 }
 
 // ============================================================================
@@ -2888,82 +1688,11 @@ func (s *mcpServer) toolListMCPServers(ctx context.Context, args json.RawMessage
 	}
 	_ = json.Unmarshal(args, &params)
 
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	type serverEntry struct {
-		Name    string   `json:"name"`
-		Command string   `json:"command"`
-		Args    []string `json:"args,omitempty"`
-		Backend string   `json:"backend"`
-	}
-
-	var servers []serverEntry
-	query := strings.ToLower(params.Query)
-
-	// Unified servers
-	for name, srv := range cfg.MCP.Servers {
-		if query != "" && !strings.Contains(strings.ToLower(name), query) &&
-			!strings.Contains(strings.ToLower(srv.Command), query) {
-			continue
-		}
-		servers = append(servers, serverEntry{
-			Name:    name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			Backend: "unified",
-		})
-	}
-
-	// Backend-specific servers
-	for backend, backendServers := range cfg.MCP.Plugins {
-		for name, srv := range backendServers {
-			if query != "" && !strings.Contains(strings.ToLower(name), query) &&
-				!strings.Contains(strings.ToLower(srv.Command), query) {
-				continue
-			}
-			servers = append(servers, serverEntry{
-				Name:    name,
-				Command: srv.Command,
-				Args:    srv.Args,
-				Backend: backend,
-			})
-		}
-	}
-
-	// Sort results
-	sortBy := params.SortBy
-	if sortBy == "" {
-		sortBy = "name"
-	}
-	reverse := params.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
-		sortSlice(servers, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(servers[i].Name), strings.ToLower(servers[j].Name))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "command":
-		sortSlice(servers, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(servers[i].Command), strings.ToLower(servers[j].Command))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	}
-
-	return map[string]interface{}{
-		"servers":       servers,
-		"count":         len(servers),
-		"auto_register": cfg.MCP.ShouldAutoRegisterSCM(),
-	}, nil
+	return operations.ListMCPServers(ctx, s.cfg, operations.ListMCPServersRequest{
+		Query:     params.Query,
+		SortBy:    params.SortBy,
+		SortOrder: params.SortOrder,
+	})
 }
 
 func (s *mcpServer) toolAddMCPServer(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -2976,62 +1705,23 @@ func (s *mcpServer) toolAddMCPServer(ctx context.Context, args json.RawMessage) 
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if params.Command == "" {
-		return nil, fmt.Errorf("command is required")
-	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	server := config.MCPServer{
+	result, err := operations.AddMCPServer(ctx, s.cfg, operations.AddMCPServerRequest{
+		Name:    params.Name,
 		Command: params.Command,
 		Args:    params.Args,
+		Backend: params.Backend,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if params.Backend == "" || params.Backend == "unified" {
-		if cfg.MCP.Servers == nil {
-			cfg.MCP.Servers = make(map[string]config.MCPServer)
-		}
-		if _, exists := cfg.MCP.Servers[params.Name]; exists {
-			return nil, fmt.Errorf("MCP server %q already exists", params.Name)
-		}
-		cfg.MCP.Servers[params.Name] = server
-	} else {
-		if cfg.MCP.Plugins == nil {
-			cfg.MCP.Plugins = make(map[string]map[string]config.MCPServer)
-		}
-		if cfg.MCP.Plugins[params.Backend] == nil {
-			cfg.MCP.Plugins[params.Backend] = make(map[string]config.MCPServer)
-		}
-		if _, exists := cfg.MCP.Plugins[params.Backend][params.Name]; exists {
-			return nil, fmt.Errorf("MCP server %q already exists for backend %s", params.Name, params.Backend)
-		}
-		cfg.MCP.Plugins[params.Backend][params.Name] = server
+	// Update server's config reference
+	if result.Config != nil {
+		s.cfg = result.Config
 	}
 
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	s.cfg = cfg
-
-	scope := "unified"
-	if params.Backend != "" && params.Backend != "unified" {
-		scope = params.Backend
-	}
-
-	return map[string]interface{}{
-		"status":  "added",
-		"name":    params.Name,
-		"command": params.Command,
-		"backend": scope,
-		"note":    "Run apply_hooks to inject into backend settings",
-	}, nil
+	return result, nil
 }
 
 func (s *mcpServer) toolRemoveMCPServer(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -3042,63 +1732,21 @@ func (s *mcpServer) toolRemoveMCPServer(ctx context.Context, args json.RawMessag
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
-	if params.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
 
-	cfg, err := config.Load()
+	result, err := operations.RemoveMCPServer(ctx, s.cfg, operations.RemoveMCPServerRequest{
+		Name:    params.Name,
+		Backend: params.Backend,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
 
-	removed := false
-	removedFrom := []string{}
-
-	// Remove from unified if no specific backend or if unified specified
-	if params.Backend == "" || params.Backend == "unified" {
-		if _, exists := cfg.MCP.Servers[params.Name]; exists {
-			delete(cfg.MCP.Servers, params.Name)
-			removed = true
-			removedFrom = append(removedFrom, "unified")
-		}
+	// Update server's config reference
+	if result.Config != nil {
+		s.cfg = result.Config
 	}
 
-	// Remove from backend-specific
-	if params.Backend != "" && params.Backend != "unified" {
-		if backendServers, ok := cfg.MCP.Plugins[params.Backend]; ok {
-			if _, exists := backendServers[params.Name]; exists {
-				delete(backendServers, params.Name)
-				removed = true
-				removedFrom = append(removedFrom, params.Backend)
-			}
-		}
-	} else if params.Backend == "" {
-		// If no backend specified, try to remove from all backends
-		for backend, servers := range cfg.MCP.Plugins {
-			if _, exists := servers[params.Name]; exists {
-				delete(servers, params.Name)
-				removed = true
-				removedFrom = append(removedFrom, backend)
-			}
-		}
-	}
-
-	if !removed {
-		return nil, fmt.Errorf("MCP server %q not found", params.Name)
-	}
-
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	s.cfg = cfg
-
-	return map[string]interface{}{
-		"status":       "removed",
-		"name":         params.Name,
-		"removed_from": removedFrom,
-		"note":         "Run apply_hooks to update backend settings",
-	}, nil
+	return result, nil
 }
 
 func (s *mcpServer) toolSetMCPAutoRegister(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -3109,24 +1757,19 @@ func (s *mcpServer) toolSetMCPAutoRegister(ctx context.Context, args json.RawMes
 		return nil, err
 	}
 
-	cfg, err := config.Load()
+	result, err := operations.SetMCPAutoRegister(ctx, s.cfg, operations.SetMCPAutoRegisterRequest{
+		Enabled: params.Enabled,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
 
-	cfg.MCP.AutoRegisterSCM = &params.Enabled
-
-	if err := cfg.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
+	// Update server's config reference
+	if result.Config != nil {
+		s.cfg = result.Config
 	}
 
-	s.cfg = cfg
-
-	return map[string]interface{}{
-		"status":        "updated",
-		"auto_register": params.Enabled,
-		"note":          "Run apply_hooks to update backend settings",
-	}, nil
+	return result, nil
 }
 
 // ============================================================================

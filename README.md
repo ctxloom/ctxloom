@@ -8,12 +8,11 @@ When working with AI coding assistants, you repeatedly provide the same context:
 
 ## The Solution
 
-SCM organizes context into reusable fragments that can be:
-- **Assembled on demand** - Combine fragments for different tasks
-- **Grouped into profiles** - Switch contexts with a single flag (`-p go-developer`)
-- **Shared across teams** - Project-local `.scm/` ensures reproducibility
-- **Token-optimized** - Distill fragments to minimal versions
-- **Dynamically generated** - Generators add git status, file trees, etc.
+SCM organizes context into reusable **bundles** that can be:
+- **Assembled on demand** - Combine bundles and fragments for different tasks
+- **Grouped into profiles** - Switch contexts with a single flag (`-p developer`)
+- **Shared across teams** - Pull bundles from remote repositories (GitHub/GitLab)
+- **Token-optimized** - Distill content to minimal versions
 
 > **Disclaimer**: This is a pre-release project. Much of the code was AI-generated and has not yet been reviewed or cleaned up by a human. It works and is in active use by the author, but architectural improvements, refactoring, bug fixes, and code reduction are likely needed. This is functional and quick, not polished.
 
@@ -21,39 +20,51 @@ SCM organizes context into reusable fragments that can be:
 
 ```bash
 # Install
-just install              # Build and install to ~/.local/bin
+just install              # Build and install to ~/go/bin
 
-# Works immediately with built-in fragments
-scm run -p developer "Help me with this code"
+# Initialize a project
+scm init                  # Create .scm directory in current project
+
+# Create your first bundle
+scm bundle create my-standards
+
+# Run with your context
+scm run -f my-standards "Help me with this code"
 scm run -n                # Preview what context would be sent
-
-# Optional: copy fragments to customize
-scm copy r h              # Copy to ~/.scm/ for personal use
-scm copy r p              # Copy to .scm/ for team sharing
 ```
+
+## Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Bundle** | A YAML file containing related fragments, prompts, and MCP server configs |
+| **Fragment** | A reusable context snippet within a bundle (coding standards, patterns, etc.) |
+| **Prompt** | A saved prompt template within a bundle |
+| **Profile** | A named configuration that references bundles, tags, and variables |
+| **Remote** | A Git repository for sharing bundles and profiles |
 
 ## Usage Examples
 
 ### Common workflows
 
 ```bash
-# Development with language-specific context
-scm run -p go-developer "implement error handling"
-scm run -p python-developer "add type hints"
-scm run -p typescript-developer "refactor to use generics"
+# Run with a profile
+scm run -p developer "implement error handling"
 
-# Code review with multiple perspectives
-scm run -p reviewer "review this pull request"
-
-# Prototyping (no backwards compatibility concerns)
-scm run -p prototype "build this feature"
+# Run with specific bundle fragments
+scm run -f go-tools#fragments/golang "add type hints"
 
 # Combine fragments ad-hoc
-scm run -t security -t golang "audit this code"
-scm run -f patterns/cqrs -f patterns/event-sourcing "design the system"
+scm run -f security#fragments/owasp -f golang#fragments/errors "audit this code"
+
+# Include all fragments with a tag
+scm run -t security "check for vulnerabilities"
+
+# Preview assembled context (dry run)
+scm run -p developer -n
 
 # Switch AI backend
-scm run -P gemini "use Gemini instead of Claude"
+scm run -l gemini "use Gemini instead of Claude"
 ```
 
 ### MCP Usage
@@ -61,255 +72,201 @@ scm run -P gemini "use Gemini instead of Claude"
 <!-- NOTE: This is an intentional example of MCP interaction - do not delete -->
 
 ```
-> ok, lets adopt the go developer and prototype profiles
-and fragment
+> assemble context with the go-developer profile
 
-● scm - assemble_context (MCP)(profile: "go-developer",
-                               fragments: ["patterns/prototyp
-                               e/prototype"])
-  ⎿ {
-      "context": "# Golang Development\n\n## Environment
-     \u0026 Tooling\n\n- **Go Version**: Specify in go.m
-    … +239 lines (ctrl+o to expand)
+● scm - assemble_context (MCP)(profile: "go-developer")
+  ⎿ { "context": "# Golang Development\n..." }
 
+> assemble context with golang and security tags
 
-
-● Done. I've adopted the go-developer profile plus the prototype fragment. Key points now active:
-
-  Go Development:
-  - Go version in go.mod, stdlib testing, godog for acceptance
-  - golangci-lint, gofmt/goimports
-  - zap for structured logging with logmsg/ constants
-  - Error constants in errmsg/
-  - IoC pattern with dependency injection
-
-  Prototype Mode:
-  - No backwards compatibility - ever
-  - Delete deprecated code immediately
-  - Break external dependencies that require compromise
-  - No legacy accommodation, migration paths, or compatibility shims
-  - When something is wrong: delete → rebuild → fix everything that breaks
-
-  Also includes: TDD, code quality, git practices, documentation, security, pushback guidelines.
-
-> cool, lets do a code review with that profile
+● scm - assemble_context (MCP)(tags: ["golang", "security"])
+  ⎿ { "context": "# Golang Development\n# Security..." }
 ```
 
-### Managing fragments
+### Managing bundles
 
 ```bash
-scm fragment list              # List all fragments
-scm fragment list -t golang    # Filter by tag
-scm fragment show security     # View fragment content
-scm fragment edit my-custom    # Create/edit fragment
+scm bundle list                          # List all bundles
+scm bundle show go-tools                 # Show bundle contents
+scm bundle view go-tools                 # View full bundle YAML
+scm bundle view go-tools#fragments/tdd   # View specific fragment content
+scm bundle create my-bundle              # Create a new bundle
+scm bundle edit my-bundle --add-tag golang  # Add tags to bundle
+scm bundle fragment edit my-bundle coding-standards  # Edit fragment content
+scm bundle prompt edit my-bundle review  # Edit prompt content
+scm bundle distill .scm/bundles/*.yaml   # Distill all bundles
 ```
 
-### Saved prompts
+### Managing profiles
 
 ```bash
-scm prompt list                # List saved prompts
-scm prompt show code-review    # View prompt content
-scm run -r code-review         # Run AI with saved prompt
+scm profile list                         # List all profiles
+scm profile show developer               # Show profile details
+scm profile add developer -b go-tools -d "Standard dev context"
+scm profile update developer --add-bundle security-tools
+scm profile remove old-profile
 ```
 
-### Token optimization
+### Remote content
 
 ```bash
-scm distill                    # Compress all fragments and prompts
-scm distill -p go-developer    # Compress fragments for profile
-scm distill --dry-run          # Preview what would be compressed
-scm distill clean              # Clear distilled content
+# Add a remote source
+scm remote add alice alice/scm           # GitHub shorthand
+scm remote add corp https://gitlab.com/corp/scm
+
+# List remotes
+scm remote list
+
+# Pull content from remotes
+scm remote pull alice/go-tools --type bundle
+scm remote pull alice/developer --type profile
+
+# Discover public repositories
+scm remote discover
 ```
 
 ## Configuration
 
-### Fragment format
+### Bundle format
+
+Bundles are YAML files in `.scm/bundles/`:
 
 ```yaml
-version: "1.0"
-author: "username"
+version: "1.0.0"
+description: "Go development standards"
 tags:
   - golang
-  - code-style
-notes: |
-  Human documentation (not sent to AI)
-content: |
-  Your context here. Use {{variable}} for templating.
+  - development
+
+fragments:
+  coding-standards:
+    tags: [golang, style]
+    content: |
+      # Go Coding Standards
+      - Use gofmt for formatting
+      - Follow Effective Go guidelines
+
+  error-handling:
+    tags: [golang, errors]
+    content: |
+      # Error Handling
+      - Always check errors
+      - Wrap errors with context
+
+prompts:
+  code-review:
+    description: "Review Go code for best practices"
+    content: |
+      Review this Go code for adherence to best practices...
+
+mcp:
+  tree-sitter:
+    command: "tree-sitter-mcp"
+    args: ["--stdio"]
 ```
 
-**Distillation fields** (added automatically by `scm distill`):
+**Distillation fields** (added automatically by `scm bundle distill`):
 
 ```yaml
-content_hash: "sha256:..."       # Hash of original content
-distilled: "Compressed version..." # Token-optimized version
-distilled_by: "claude-opus-4-5-20251101"
+fragments:
+  my-fragment:
+    content: "Original content..."
+    content_hash: "sha256:..."
+    distilled: "Compressed version..."
+    distilled_by: "claude-opus-4-5-20251101"
 ```
 
 **Skip distillation** for fragments that must be preserved exactly:
 
 ```yaml
-no_distill: true  # Content will never be distilled
+fragments:
+  critical-rules:
+    no_distill: true
+    content: "Must be sent verbatim..."
 ```
 
-### Profiles
+### Profile format
 
-Built-in profiles for common workflows:
-
-| Profile | Description |
-|---------|-------------|
-| `developer` | Full development context (communication, TDD, code-quality, git, docs, security) |
-| `go-developer` | Developer + Go-specific guidance |
-| `python-developer` | Developer + Python-specific guidance |
-| `rust-developer` | Developer + Rust-specific guidance |
-| `typescript-developer` | Developer + TypeScript-specific guidance |
-| `reviewer` | Code review with architect, domain-expert, concurrency, performance, standards perspectives |
-| `prototype` | Rapid prototyping without backwards compatibility concerns |
-
-> **Warning**: The `prototype` profile/fragment is for early development only. It instructs the AI to aggressively break backwards compatibility. See [prototype fragment documentation](resources/context-fragments/patterns/prototype/README.md) for details. This fragment is not included in any default configuration.
-
-Profiles inherit from others via `parents` and can combine fragments, tags, generators, and variables.
-
-### Tags vs Profiles
-
-Tags and profiles provide complementary ways to organize fragments:
-
-**Tags** are for categorization and discovery:
-- Filter fragments: `scm fragment list -t golang`
-- Copy by tag: `scm copy --from r --to p -t security`
-- Ad-hoc context: `scm run -t golang -t security "review this"`
-
-**Profiles** are for workflow presets:
-- Bundle fragments, tags, generators, and variables
-- Inherit from other profiles via `parents`
-- Set defaults in config: `defaults: { profiles: [developer] }`
-
-Profiles can reference tags (`tags: [golang]`), meaning fragments with matching tags are automatically included.
-
-### Variables (Mustache Templating)
-
-Fragments support [Mustache](https://mustache.github.io/) templating. Use `{{variable}}` in content and provide values via profiles:
+Profiles are YAML files in `.scm/profiles/`:
 
 ```yaml
-# Fragment: my-fragment.yaml
-content: |
-  # {{project_name}} Guidelines
-  This project uses {{language}}.
+description: "Standard development context"
+parents:
+  - base-developer
+bundles:
+  - go-tools
+  - security-tools
+tags:
+  - production
+variables:
+  project_name: "my-project"
 ```
-
-```yaml
-# config.yaml
-profiles:
-  my-project:
-    fragments: [my-fragment]
-    variables:
-      project_name: "SCM"
-      language: "Go"
-```
-
-Variables can also come from fragment `exports` fields or generator output. Undefined variables are left as-is with a warning.
 
 ### config.yaml
 
 ```yaml
 lm:
-  default_plugin: claude-code
   plugins:
     claude-code:
+      default: true
       args: ["--dangerously-skip-permissions"]
     gemini:
       args: ["--yolo"]
 
 defaults:
-  profiles: [developer]
+  profile: developer
   use_distilled: true
-
-profiles:
-  my-profile:
-    description: Custom profile
-    parents: [developer]
-    tags: [my-tag]
-    fragments: [my-fragment]
-    generators: [my-generator]
-    variables:
-      key: value
 ```
+
+### Content reference syntax
+
+Reference content using this syntax:
+
+| Syntax | Description |
+|--------|-------------|
+| `bundle-name` | Entire bundle (all fragments) |
+| `bundle#fragments/name` | Specific fragment from bundle |
+| `bundle#prompts/name` | Specific prompt from bundle |
+| `remote/bundle#fragments/name` | Fragment from remote bundle |
+
+### Variables (Mustache Templating)
+
+Fragments support [Mustache](https://mustache.github.io/) templating:
+
+```yaml
+# In bundle fragment:
+content: |
+  # {{project_name}} Guidelines
+  This project uses {{language}}.
+
+# In profile:
+variables:
+  project_name: "SCM"
+  language: "Go"
+```
+
+Built-in variables available in all templates:
+- `SCM_ROOT` - Project root directory (parent of .scm)
+- `SCM_DIR` - Full path to .scm directory
 
 ### LM plugins
 
-SCM uses plugins to interface with language models. Built-in plugins:
+SCM uses plugins to interface with language models:
 
 | Plugin | CLI | Description |
 |--------|-----|-------------|
-| `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude CLI |
+| `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude CLI (default) |
 | `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini CLI |
 | `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI's Codex CLI (**provisional**) |
 
-> **Note**: The `codex` plugin is provisional and untested. The author does not have a Codex subscription. Command-line arguments are based on public documentation and may need adjustment.
+#### Claude Code Context Integration
 
-#### Claude Code Context Workaround
+The claude-code plugin writes assembled context to files that Claude Code reads:
 
-Claude Code ignores context passed via `--append-system-prompt` after a context reset (e.g., when conversation history is cleared or compacted). To ensure SCM context remains available, the plugin uses a file-based workaround:
+1. Writes context to `.scm/context/[hash].md`
+2. Updates `CLAUDE.md` with a managed section containing the include reference
 
-1. Writes assembled context to `.scm/context.md` in the working directory
-2. Updates `CLAUDE.md` with a managed section containing `@.scm/context.md`
-3. Claude Code's `@file` include syntax reads this on every prompt
-
-The managed section in `CLAUDE.md` is delimited by `<!-- SCM:BEGIN -->` and `<!-- SCM:END -->` markers. SCM only modifies content within these markers, preserving any other content in `CLAUDE.md`.
-
-**Files created:**
-- `.scm/context.md` - Contains the assembled context
-- `CLAUDE.md` - Updated with reference (created if missing)
-
-Consider adding `.scm/context.md` to `.gitignore` if you don't want to track the generated context file.
-
-**Using a different plugin:**
-
-```bash
-# One-time use
-scm run -P gemini "your prompt"
-
-# Set as default in config.yaml
-lm:
-  default_plugin: gemini
-```
-
-**Adding a new plugin:**
-
-Plugins are CLI tools that accept prompts via stdin or arguments. Configure in `config.yaml`:
-
-```yaml
-lm:
-  plugins:
-    my-custom-llm:
-      binary_path: /path/to/llm-cli   # Optional, uses PATH if empty
-      args: ["--some-flag"]
-      env:
-        API_KEY: "..."
-```
-
-The plugin must support `--print` for non-interactive mode and accept a prompt argument.
-
-### Profile inheritance
-
-Profiles can inherit from multiple parents using the `parents` field. Inheritance is resolved depth-first with later values overriding earlier ones.
-
-**Diamond inheritance**: When multiple parents share a common ancestor (e.g., A inherits from B and C, both of which inherit from D), fragments from D are included only once. Order is preserved (first occurrence wins).
-
-### Home directory as git repository
-
-The `~/.scm` directory is automatically initialized as a git repository when you first copy to it. This enables:
-
-1. **Recovery** - Git history lets you recover previous versions of fragments and config
-2. **Sharing** - Push to a remote to sync across machines or share with your team
-
-```bash
-# After copying to home, commit your setup
-cd ~/.scm && git add -A && git commit -m "Initial scm setup"
-
-# Share across machines
-git remote add origin git@github.com:you/scm-config.git
-git push -u origin main
-```
+The managed section is delimited by `<!-- SCM:BEGIN -->` and `<!-- SCM:END -->`. SCM only modifies content within these markers.
 
 ### Config hierarchy
 
@@ -317,80 +274,55 @@ SCM uses a single source (no merging):
 
 1. **Project**: `.scm/` at git repository root (if exists)
 2. **Home**: `~/.scm/` (fallback if no project .scm)
-3. **Embedded**: Built-in resources (fallback if no home .scm)
 
-When in a project with `.scm/`, only that project's config and fragments are used. This ensures reproducibility across team members.
-
-**Embedded mode behavior**: When no `.scm/` directory exists, SCM uses built-in fragments and config. Read operations (`list`, `show`, `run`) work normally. Write operations behave as follows:
-- `fragment edit` / `prompt edit` → creates new file in `~/.scm/`
-- `fragment delete` / `prompt delete` → errors (use `scm copy` first)
-- `distill` → errors (use `scm distill ./resources` for packaging)
+When in a project with `.scm/`, only that project's config and bundles are used.
 
 ## Commands Reference
+
+### `scm init`
+
+Initialize a new .scm directory.
+
+```bash
+scm init              # Create .scm in current directory
+scm init --home       # Create/ensure ~/.scm exists
+```
 
 ### `scm run`
 
 Assemble context and run AI plugin.
 
 ```bash
-scm run [flags] "prompt"
+scm run [flags] [prompt...]
 
 Flags:
   -f, --fragment     Fragment(s) to include (repeatable)
   -t, --tag          Include fragments with tag (repeatable)
   -p, --profile      Use a named profile
-  -P, --plugin       AI plugin (default: claude-code)
+  -l, --plugin       AI plugin (default: claude-code)
   -r, --run-prompt   Run a saved prompt by name
   -n, --dry-run      Preview assembled context
   -q, --quiet        Suppress warnings
       --print        Print response and exit (non-interactive)
+  -v, --verbose      Increase verbosity (repeatable: -v, -vv, -vvv)
 ```
 
-### `scm copy`
+### `scm bundle`
 
-Copy fragments and prompts between locations.
-
-```bash
-scm copy <from> <to> [flags]
-
-# Locations: resources (r), home (h), project (p), or a path
-scm copy r p                     # Copy embedded fragments to project
-scm copy r h                     # Copy embedded fragments to ~/.scm
-scm copy h p                     # Copy home fragments to project
-scm copy p h                     # Sync project changes back to home
-scm copy r ./my-config           # Copy to arbitrary path
-
-# Filter what to copy
-scm copy r p -f security         # Copy specific fragment
-scm copy r p -t golang           # Copy fragments with tag
-scm copy r p --profile go-developer  # Copy fragments for profile
-scm copy r p -p code-review      # Copy specific prompt
-
-# Options
-scm copy r p --force             # Overwrite existing files
-scm copy r p --clear             # Clear destination before copying
-scm copy r p --include-config=false  # Skip config.yaml
-scm copy r p -v                  # Verbose output
-
-# Home directory is initialized as git repo automatically
-# Header behavior:
-#   TO project: adds "DO NOT EDIT" header
-#   FROM project: removes header
-```
-
-**Recommended workflow**: Edit fragments in `~/.scm/`, then use `scm copy h p` to copy them into your project. The copy command adds a "DO NOT EDIT" header to project files, signaling that changes should be made in home and copied over.
-
-### `scm fragment`
-
-Manage context fragments.
+Manage bundles.
 
 ```bash
-scm fragment list              # List all
-scm fragment list -t <tag>     # Filter by tag
-scm fragment show <name>       # Display content
-scm fragment edit <name>       # Edit or create
-scm fragment edit -l <name>    # Create in local .scm
-scm fragment delete <name>     # Remove
+scm bundle list                     # List all bundles
+scm bundle show <name>              # Show bundle contents
+scm bundle view <name[#path]>       # View bundle or item content
+scm bundle create <name>            # Create a new bundle
+scm bundle edit <name>              # Edit bundle metadata (add/remove tags, etc.)
+scm bundle export <name> <dir>      # Export bundle to directory
+scm bundle import <path>            # Import bundle from file
+scm bundle distill <patterns...>    # Distill bundle files
+scm bundle fragment edit <bundle> <fragment>  # Edit fragment content
+scm bundle prompt edit <bundle> <prompt>      # Edit prompt content
+scm bundle mcp edit <bundle> <mcp>            # Edit MCP config
 ```
 
 ### `scm profile`
@@ -398,54 +330,27 @@ scm fragment delete <name>     # Remove
 Manage profiles.
 
 ```bash
-scm profile list
-scm profile show <name>
-scm profile add <name> -f <fragments...> -d "description"
-scm profile update <name> --add-fragment <name>
-scm profile remove <name>
+scm profile list                    # List all profiles
+scm profile show <name>             # Show profile details
+scm profile add <name>              # Create a new profile
+scm profile update <name>           # Update profile (add/remove bundles, parents)
+scm profile remove <name>           # Delete a profile
+scm profile export <name> <dir>     # Export profile to directory
+scm profile import <path>           # Import profile from file
 ```
 
-### `scm prompt`
+### `scm remote`
 
-Manage saved prompts.
+Manage remote sources.
 
 ```bash
-scm prompt list
-scm prompt show <name>
-scm prompt edit <name>
-scm prompt delete <name>
+scm remote add <name> <url>         # Register a remote source
+scm remote remove <name>            # Remove a remote
+scm remote list                     # List configured remotes
+scm remote pull <ref> --type <type> # Pull content from remote
+scm remote discover                 # Find public SCM repositories
+scm remote browse <name>            # Browse remote contents
 ```
-
-### `scm distill`
-
-Create token-optimized versions of fragments.
-
-```bash
-scm distill                    # Distill all fragments and prompts
-scm distill -p <profile>       # Distill fragments for profile
-scm distill -f <fragment>      # Distill specific fragment(s)
-scm distill -P <prompt>        # Distill specific prompt(s)
-scm distill --prompts-only     # Distill only prompts (skip fragments)
-scm distill --skip-prompts     # Distill only fragments (skip prompts)
-scm distill --dry-run          # Preview what would be distilled
-scm distill --force            # Re-distill even if unchanged
-scm distill ./resources        # Distill embedded resources (for packaging)
-scm distill clean              # Clear distilled content
-```
-
-### `scm generator`
-
-Manage context generators (executables that produce dynamic context).
-
-```bash
-scm generator list
-scm generator run <name>
-scm generator add <name> -c <command> -d "description"
-scm generator remove <name>
-```
-
-Built-in generators:
-- `scm-gen-simple` - Runs any command, wraps output as fragment
 
 ### `scm mcp`
 
@@ -455,13 +360,21 @@ Run as MCP (Model Context Protocol) server over stdio.
 scm mcp
 ```
 
-Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `assemble_context`, `list_prompts`, `get_prompt`
+Available MCP tools: `list_fragments`, `get_fragment`, `list_profiles`, `get_profile`, `assemble_context`, `list_prompts`, `get_prompt`, and more.
+
+### `scm mcp-servers`
+
+Manage MCP server configurations for AI tools.
+
+```bash
+scm mcp-servers list                # List configured MCP servers
+scm mcp-servers add <name>          # Add MCP server config
+scm mcp-servers remove <name>       # Remove MCP server config
+```
 
 ### `scm completion`
 
-> **⚠️ Known Issue:** Shell completions currently crash scm. This feature is not yet functional.
-
-Generate shell completion scripts for tab-completion of commands, flags, fragments, profiles, and more.
+Generate shell completion scripts.
 
 ```bash
 scm completion [bash|zsh|fish|powershell]
@@ -471,34 +384,25 @@ scm completion [bash|zsh|fish|powershell]
 ```bash
 source <(scm completion bash)                              # Current session
 scm completion bash > /etc/bash_completion.d/scm           # Permanent (Linux)
-scm completion bash > $(brew --prefix)/etc/bash_completion.d/scm  # Permanent (macOS)
 ```
 
 **Zsh:**
 ```bash
-echo "autoload -U compinit; compinit" >> ~/.zshrc          # Enable if needed
-scm completion zsh > "${fpath[1]}/_scm"                    # Install, then restart shell
+scm completion zsh > "${fpath[1]}/_scm"                    # Install, restart shell
 ```
 
 **Fish:**
 ```fish
-scm completion fish | source                               # Current session
 scm completion fish > ~/.config/fish/completions/scm.fish  # Permanent
-```
-
-**PowerShell:**
-```powershell
-scm completion powershell | Out-String | Invoke-Expression # Current session
-scm completion powershell > scm.ps1                        # Save, then source from profile
 ```
 
 ## MCP Server Setup
 
-SCM can run as an MCP server, allowing AI assistants like Claude Code to access your context fragments and profiles directly during conversations.
+SCM can run as an MCP server, allowing AI assistants to access your context directly.
 
 ### Claude Code Configuration
 
-Add SCM to your Claude Code MCP settings in `~/.claude/settings.json`:
+Add SCM to `~/.claude/settings.json`:
 
 ```json
 {
@@ -511,61 +415,19 @@ Add SCM to your Claude Code MCP settings in `~/.claude/settings.json`:
 }
 ```
 
-Replace `/path/to/scm` with your actual binary location (e.g., `~/.local/bin/scm` or the output of `which scm`).
-
-Restart Claude Code after updating the configuration.
+Replace `/path/to/scm` with your actual binary location (e.g., `~/go/bin/scm`).
 
 ### Available MCP Tools
 
 | Tool | Description |
 |------|-------------|
 | `list_fragments` | List all fragments, optionally filtered by tags |
-| `get_fragment` | Retrieve a specific fragment's content by name |
+| `get_fragment` | Retrieve a specific fragment's content |
 | `list_profiles` | List all configured profiles |
 | `get_profile` | Get detailed profile configuration |
-| `assemble_context` | Combine fragments, profiles, and tags into assembled context |
+| `assemble_context` | Combine fragments, profiles, and tags |
 | `list_prompts` | List all saved prompts |
-| `get_prompt` | Retrieve a specific prompt's content by name |
-
-### Example MCP Interactions
-
-Once configured, you can interact with SCM directly in Claude Code:
-
-```
-> list my available profiles
-
-● scm - list_profiles (MCP)
-  ⎿ developer, go-developer, python-developer, reviewer, prototype...
-
-> assemble context with the go-developer profile
-
-● scm - assemble_context (MCP)(profile: "go-developer")
-  ⎿ { "context": "# Golang Development\n..." }
-
-> assemble context with golang and security tags
-
-● scm - assemble_context (MCP)(tags: ["golang", "security"])
-  ⎿ { "context": "# Golang Development\n# Security..." }
-```
-
-### Working Directory
-
-The MCP server respects SCM's config hierarchy. When Claude Code runs in a project with a `.scm/` directory, that project's fragments and profiles are used. Otherwise, it falls back to `~/.scm/` or embedded resources.
-
-## Generators
-
-Generators are executables that output dynamic context as YAML:
-
-```yaml
-content: |
-  # Git Context
-  Branch: main
-  Status: clean
-exports:
-  git_branch: main
-```
-
-> **Note**: Generators are fully functional and provide a good architectural pattern for dynamic context generation. The `scm-gen-simple` wrapper makes it easy to create generators from any command. Static fragments have proven sufficient for most needs, but generators are available when dynamic context is required.
+| `get_prompt` | Retrieve a specific prompt's content |
 
 ## Environment Variables
 
@@ -581,17 +443,18 @@ exports:
 
 - Go 1.21+
 - [just](https://github.com/casey/just) command runner
+- [protoc](https://grpc.io/docs/protoc-installation/) for plugin protocol
 - AI CLI: [Claude Code](https://claude.ai/code) or [Gemini CLI](https://github.com/google/generative-ai-cli)
 
 ### Building
 
 | Command | Description |
 |---------|-------------|
-| `just build` | Validate, distill, then build all binaries |
+| `just build` | Validate, generate proto, build binary |
 | `just validate` | Validate fragment YAML against JSON schema |
 | `just build-scm` | Build only main binary |
-| `just build-generators` | Build all generator binaries |
 | `just build-static` | Build static binaries (stripped, no CGO) |
+| `just proto` | Generate protobuf code |
 
 ### Testing
 
@@ -614,5 +477,6 @@ exports:
 
 | Command | Description |
 |---------|-------------|
-| `just install` | Build static and install to `~/.local/bin` |
+| `just install` | Build and install to `~/go/bin` |
+| `just install-local` | Build static and install to `~/.local/bin` |
 | `just uninstall` | Remove from `~/.local/bin` |

@@ -38,10 +38,6 @@ With a plugin name argument, sets that plugin as the default.`,
 			return fmt.Errorf("unknown plugin %q; available: %s", name, strings.Join(available, ", "))
 		}
 
-		if cfg.IsEmbedded() {
-			return fmt.Errorf("no .scm directory found; run 'scm copy' to initialize config first")
-		}
-
 		current := cfg.LM.GetDefaultPlugin()
 		if current == name {
 			fmt.Printf("Default plugin is already %s\n", name)

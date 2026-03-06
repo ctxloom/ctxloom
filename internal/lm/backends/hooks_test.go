@@ -1,3 +1,8 @@
+// Hooks tests verify that SCM correctly manages hooks and MCP servers in
+// backend configuration files. This is critical for the context injection
+// system - hooks enable SCM to inject context at session start, and MCP
+// servers expose SCM's tools to AI assistants. Tests ensure user-defined
+// settings are preserved while SCM-managed ones are updated.
 package backends
 
 import (
@@ -7,7 +12,16 @@ import (
 	"testing"
 
 	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// =============================================================================
+// Hash Computation Tests
+// =============================================================================
+// Hash-based identification enables SCM to track which hooks it manages vs
+// user-defined hooks, allowing clean updates without losing user customization.
 
 func TestComputeHookHash(t *testing.T) {
 	h1 := config.Hook{Command: "./test.sh", Matcher: "Bash"}
@@ -28,6 +42,12 @@ func TestComputeHookHash(t *testing.T) {
 		t.Errorf("expected 16 char hash, got %d", len(hash1))
 	}
 }
+
+// =============================================================================
+// Claude Code Hook Writer Tests
+// =============================================================================
+// Claude Code stores hooks in .claude/settings.json and MCP servers in .mcp.json.
+// The split is required for variable expansion (${CLAUDE_PROJECT_DIR}) to work.
 
 func TestClaudeCodeHookWriter_WriteHooks(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -315,12 +335,42 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Settings Writer Factory Tests
+// =============================================================================
+// Factory enables runtime backend selection based on user config.
+
 func TestGetHookWriter(t *testing.T) {
 	if GetHookWriter("claude-code") == nil {
 		t.Error("expected hook writer for claude-code")
 	}
 	if GetHookWriter("unknown-backend") != nil {
 		t.Error("expected nil for unknown backend")
+	}
+}
+
+func TestGetSettingsWriter_AllBackends(t *testing.T) {
+	tests := []struct {
+		name     string
+		backend  string
+		expected bool
+	}{
+		{"claude-code", "claude-code", true},
+		{"gemini", "gemini", true},
+		{"aider", "aider", false},       // No settings support
+		{"unknown", "unknown", false},   // Unknown backend
+		{"empty", "", false},            // Empty string
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writer := GetSettingsWriter(tt.backend, nil)
+			if tt.expected {
+				assert.NotNil(t, writer)
+			} else {
+				assert.Nil(t, writer)
+			}
+		})
 	}
 }
 
@@ -488,5 +538,170 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	if len(mcpServers) != 2 {
 		t.Errorf("expected 2 MCP servers, got %d", len(mcpServers))
 	}
+}
+
+// =============================================================================
+// Gemini Hook Writer Tests
+// =============================================================================
+// Gemini stores settings in .gemini/settings.json with a different format than
+// Claude Code. Tests ensure hooks are written in Gemini's expected structure.
+
+func TestGeminiHookWriter_SettingsPath(t *testing.T) {
+	writer := &GeminiHookWriter{}
+
+	path := writer.SettingsPath("/project")
+	assert.Equal(t, "/project/.gemini/settings.json", path)
+}
+
+func TestGeminiHookWriter_HooksPath(t *testing.T) {
+	writer := &GeminiHookWriter{}
+
+	path := writer.HooksPath("/project")
+	assert.Equal(t, "/project/.gemini/settings.json", path)
+}
+
+func TestGeminiHookWriter_WriteHooks(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &GeminiHookWriter{FS: fs}
+
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			PreTool: []config.Hook{
+				{Command: "./pre-tool.sh", Matcher: "Bash"},
+			},
+			PostTool: []config.Hook{
+				{Command: "./post-tool.sh", Matcher: "Edit"},
+			},
+		},
+	}
+
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err)
+
+	// Verify file was created
+	settingsPath := "/project/.gemini/settings.json"
+	exists, err := afero.Exists(fs, settingsPath)
+	require.NoError(t, err)
+	assert.True(t, exists, "settings.json should be created")
+
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+
+	var settings map[string]interface{}
+	err = json.Unmarshal(data, &settings)
+	require.NoError(t, err)
+
+	// Gemini settings should have hooks key
+	_, hasHooks := settings["hooks"]
+	assert.True(t, hasHooks, "settings should contain hooks")
+}
+
+func TestGeminiHookWriter_PreservesUserSettings(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &GeminiHookWriter{FS: fs}
+
+	// Create existing settings with user config
+	fs.MkdirAll("/project/.gemini", 0755)
+	existingSettings := map[string]interface{}{
+		"userSetting": "preserved",
+		"model":       "gemini-pro",
+	}
+	data, _ := json.Marshal(existingSettings)
+	afero.WriteFile(fs, "/project/.gemini/settings.json", data, 0644)
+
+	// Write SCM hooks
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{{Command: "./start.sh"}},
+		},
+	}
+
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err)
+
+	// Read back and verify user settings preserved
+	data, _ = afero.ReadFile(fs, "/project/.gemini/settings.json")
+	var settings map[string]interface{}
+	json.Unmarshal(data, &settings)
+
+	assert.Equal(t, "preserved", settings["userSetting"])
+	assert.Equal(t, "gemini-pro", settings["model"])
+}
+
+func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &GeminiHookWriter{FS: fs}
+
+	hooks := &config.HooksConfig{}
+	mcp := &config.MCPConfig{
+		Servers: map[string]config.MCPServer{
+			"custom-server": {
+				Command: "custom-mcp",
+				Args:    []string{"--port", "3000"},
+			},
+		},
+	}
+
+	err := writer.WriteSettings(hooks, mcp, nil, "/project")
+	require.NoError(t, err)
+
+	// Verify MCP servers written
+	data, _ := afero.ReadFile(fs, "/project/.gemini/settings.json")
+	var settings map[string]interface{}
+	json.Unmarshal(data, &settings)
+
+	// Gemini should have mcpServers in settings
+	mcpServers, ok := settings["mcpServers"].(map[string]interface{})
+	assert.True(t, ok, "should have mcpServers in settings")
+
+	// SCM server should be added
+	_, hasScm := mcpServers["scm"]
+	assert.True(t, hasScm, "should have scm MCP server")
+
+	// Custom server should be added
+	_, hasCustom := mcpServers["custom-server"]
+	assert.True(t, hasCustom, "should have custom-server")
+}
+
+func TestGeminiHookWriter_WithFS(t *testing.T) {
+	// Verify that FS injection works for isolated testing
+	fs := afero.NewMemMapFs()
+	writer := &GeminiHookWriter{FS: fs}
+
+	cfg := &config.HooksConfig{}
+	err := writer.WriteHooks(cfg, "/project")
+	require.NoError(t, err)
+
+	// Should create .gemini directory
+	exists, _ := afero.DirExists(fs, "/project/.gemini")
+	assert.True(t, exists)
+}
+
+// =============================================================================
+// WriteSettings Function Tests
+// =============================================================================
+// Top-level WriteSettings dispatches to appropriate backend writer.
+
+func TestWriteSettings_UnsupportedBackend(t *testing.T) {
+	// Unsupported backends should silently succeed (no-op)
+	err := WriteSettings("aider", nil, nil, nil, "/project")
+	assert.NoError(t, err)
+}
+
+func TestWriteSettings_WithFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	hooks := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{{Command: "./test.sh"}},
+		},
+	}
+
+	err := WriteSettings("claude-code", hooks, nil, nil, "/project", WithSettingsFS(fs))
+	require.NoError(t, err)
+
+	// Verify settings were written
+	exists, _ := afero.Exists(fs, "/project/.claude/settings.json")
+	assert.True(t, exists)
 }
 

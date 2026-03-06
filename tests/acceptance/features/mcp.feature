@@ -123,13 +123,12 @@ Feature: MCP server
     And the MCP response should contain "count"
 
   Scenario: List profiles returns defined profiles
-    Given a config file with:
+    Given a profile file "developer" with:
       """
-      profiles:
-        developer:
-          description: Developer profile
-          fragments:
-            - code-style
+      name: developer
+      description: Developer profile
+      bundles:
+        - code-style
       """
     When I send MCP tools/call "list_profiles"
     Then the exit code should be 0
@@ -141,16 +140,15 @@ Feature: MCP server
   # ============================================================================
 
   Scenario: Get profile returns configuration
-    Given a config file with:
+    Given a profile file "detailed" with:
       """
-      profiles:
-        detailed:
-          description: A detailed profile
-          fragments:
-            - frag-one
-            - frag-two
-          variables:
-            language: Go
+      name: detailed
+      description: A detailed profile
+      bundles:
+        - frag-one
+        - frag-two
+      variables:
+        language: Go
       """
     When I send MCP tools/call "get_profile" with:
       """
@@ -244,13 +242,12 @@ Feature: MCP server
       content: |
         Profile fragment content.
       """
-    And a config file with:
+    And a profile file "test-profile" with:
       """
-      profiles:
-        test-profile:
-          description: Test
-          fragments:
-            - profile-frag
+      name: test-profile
+      description: Test
+      bundles:
+        - profile-frag
       """
     When I send MCP tools/call "assemble_context" with:
       """
@@ -282,15 +279,14 @@ Feature: MCP server
       content: |
         The language is {{language}}.
       """
-    And a config file with:
+    And a profile file "var-profile" with:
       """
-      profiles:
-        var-profile:
-          description: Variables
-          fragments:
-            - var-frag
-          variables:
-            language: Python
+      name: var-profile
+      description: Variables
+      bundles:
+        - var-frag
+      variables:
+        language: Python
       """
     When I send MCP tools/call "assemble_context" with:
       """
@@ -307,14 +303,13 @@ Feature: MCP server
       content: |
         Default profile context.
       """
-    And a config file with:
+    And a profile file "default-profile" with:
       """
-      profiles:
-        default-profile:
-          default: true
-          description: Default
-          fragments:
-            - default-frag
+      name: default-profile
+      default: true
+      description: Default
+      bundles:
+        - default-frag
       """
     When I send MCP tools/call "assemble_context" with:
       """
@@ -328,19 +323,11 @@ Feature: MCP server
   # ============================================================================
 
   Scenario: Unknown tool returns error
-    Given a config file with:
-      """
-      profiles: {}
-      """
     When I send MCP tools/call "unknown_tool"
     Then the exit code should be 0
     And the MCP response should have error containing "Unknown tool"
 
   Scenario: Assemble context with nonexistent profile returns error
-    Given a config file with:
-      """
-      profiles: {}
-      """
     When I send MCP tools/call "assemble_context" with:
       """
       {"profile": "nonexistent-profile"}

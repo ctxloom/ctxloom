@@ -16,7 +16,6 @@ import (
 	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/config"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
-	"github.com/benjaminabbitt/scm/resources"
 )
 
 var bundleCmd = &cobra.Command{
@@ -258,11 +257,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if cfg.IsEmbedded() {
-		return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
-	}
-
-	// Use first SCM path
+	// Use first SCM path (project or home)
 	bundleDir := filepath.Join(cfg.SCMPaths[0], "bundles")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)
@@ -587,10 +582,6 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if cfg.IsEmbedded() {
-		return fmt.Errorf("no .scm directory found; run 'scm init --local' first")
 	}
 
 	// Verify source exists and is valid
@@ -969,13 +960,25 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// loadDistillPrompt loads the distillation prompt from embedded resources.
+// defaultDistillPrompt is used when no distill prompt is found in bundles.
+const defaultDistillPrompt = `You are a context compression assistant. Compress the following content while preserving all essential information for an AI coding assistant. Remove redundancy, simplify language, use abbreviations where clear, and maintain technical accuracy. Output only the compressed content.`
+
+// loadDistillPrompt loads the distillation prompt from bundles.
 func loadDistillPrompt() (string, error) {
-	data, err := resources.GetPrompt("distill")
+	cfg, err := config.Load()
 	if err != nil {
-		return "", fmt.Errorf("failed to load distill prompt: %w", err)
+		return defaultDistillPrompt, nil
 	}
-	return strings.TrimSpace(string(data)), nil
+
+	// Try to load "distill" prompt from bundles
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	prompt, err := loader.GetPrompt("distill")
+	if err == nil && prompt.Content != "" {
+		return strings.TrimSpace(prompt.Content), nil
+	}
+
+	// Use default prompt
+	return defaultDistillPrompt, nil
 }
 
 // buildSiblingContext creates context about sibling items in a bundle.

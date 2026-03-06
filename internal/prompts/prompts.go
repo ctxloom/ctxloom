@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/benjaminabbitt/scm/internal/collections"
-	"github.com/benjaminabbitt/scm/internal/fsys"
 )
 
 // Prompt represents a YAML-based prompt with metadata and content.
@@ -33,14 +33,14 @@ type PromptInfo struct {
 // Loader finds and loads prompts from directories.
 type Loader struct {
 	searchDirs []string
-	fs         fsys.FS
+	fs         afero.Fs
 }
 
 // LoaderOption is a functional option for configuring a Loader.
 type LoaderOption func(*Loader)
 
 // WithFS sets a custom filesystem implementation (for testing).
-func WithFS(fs fsys.FS) LoaderOption {
+func WithFS(fs afero.Fs) LoaderOption {
 	return func(l *Loader) {
 		l.fs = fs
 	}
@@ -50,7 +50,7 @@ func WithFS(fs fsys.FS) LoaderOption {
 func NewLoader(searchDirs []string, opts ...LoaderOption) *Loader {
 	l := &Loader{
 		searchDirs: searchDirs,
-		fs:         fsys.OS(),
+		fs:         afero.NewOsFs(),
 	}
 	for _, opt := range opts {
 		opt(l)
@@ -85,11 +85,11 @@ func (l *Loader) Find(name string) (string, error) {
 	baseName := filepath.Base(name)
 	for _, dir := range l.searchDirs {
 		var found string
-		l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
+		afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
 				return nil
 			}
-			fileName := d.Name()
+			fileName := info.Name()
 			fileBase := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 			if fileBase == baseName || fileName == baseName {
 				found = path
@@ -117,7 +117,7 @@ func (l *Loader) Load(name string) (*Prompt, error) {
 
 // LoadFile reads and parses a prompt from a file path.
 func (l *Loader) LoadFile(path string) (*Prompt, error) {
-	data, err := l.fs.ReadFile(path)
+	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read prompt: %w", err)
 	}
@@ -166,7 +166,7 @@ func (l *Loader) List() ([]PromptInfo, error) {
 	seen := collections.NewSet[string]()
 
 	for _, dir := range l.searchDirs {
-		err := l.fs.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		err := afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) {
 					return nil
@@ -174,14 +174,14 @@ func (l *Loader) List() ([]PromptInfo, error) {
 				return err
 			}
 
-			if d.IsDir() {
-				if strings.HasPrefix(d.Name(), ".") && path != dir {
+			if info.IsDir() {
+				if strings.HasPrefix(info.Name(), ".") && path != dir {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 
-			name := d.Name()
+			name := info.Name()
 			ext := strings.ToLower(filepath.Ext(name))
 
 			// Accept .yaml, .yml, and .md files

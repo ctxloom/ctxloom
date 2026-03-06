@@ -1,0 +1,23 @@
+# SCM Configuration
+# See https://github.com/benjaminabbitt/scm for documentation
+
+# Language model plugin configuration
+lm:
+  plugins:
+    claude-code:
+      default: true
+
+# Default settings
+defaults: {}
+
+# Uncomment to configure your preferred editor:
+# editor:
+#   command: vim
+#   args: []
+
+# Uncomment to define profiles:
+# profiles:
+#   my-profile:
+#     description: "My custom profile"
+#     tags: []
+#     fragments: []

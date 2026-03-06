@@ -90,7 +90,7 @@ func (m *MockLM) SetExitCode(code int) error {
 }
 
 // WriteConfig updates the mock plugin configuration in .scm/config.yaml.
-// Preserves existing profiles, generators, and other config while updating mock plugin settings.
+// Preserves existing profiles and other config while updating mock plugin settings.
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")
@@ -104,8 +104,7 @@ func (m *MockLM) WriteConfig() error {
 		existingConfig = string(data)
 	}
 
-	// Extract sections to preserve (generators, profiles, defaults)
-	generatorsSection := extractYAMLSection(existingConfig, "generators:")
+	// Extract sections to preserve (profiles, defaults)
 	profilesSection := extractYAMLSection(existingConfig, "profiles:")
 	defaultsSection := extractYAMLSection(existingConfig, "defaults:")
 
@@ -127,10 +126,6 @@ func (m *MockLM) WriteConfig() error {
 	} else {
 		config.WriteString("defaults:\n")
 		config.WriteString("  use_distilled: false\n")
-	}
-
-	if generatorsSection != "" {
-		config.WriteString(generatorsSection)
 	}
 
 	if profilesSection != "" {

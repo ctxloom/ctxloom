@@ -2,16 +2,14 @@ package cmd
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
 var (
@@ -34,86 +32,36 @@ Examples:
   scm remote discover --source github      # Search GitHub only
   scm remote discover --stars 10           # Only repos with 10+ stars`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return err
+		}
+
 		query := ""
 		if len(args) > 0 {
 			query = strings.Join(args, " ")
 		}
 
-		auth := remote.LoadAuth("")
+		fmt.Printf("Searching repositories...")
 
-		// Determine which forges to search
-		var forges []remote.ForgeType
-		switch discoverSource {
-		case "github":
-			forges = []remote.ForgeType{remote.ForgeGitHub}
-		case "gitlab":
-			forges = []remote.ForgeType{remote.ForgeGitLab}
-		default:
-			forges = []remote.ForgeType{remote.ForgeGitHub, remote.ForgeGitLab}
+		result, err := operations.DiscoverRemotes(cmd.Context(), cfg, operations.DiscoverRemotesRequest{
+			Query:    query,
+			Source:   discoverSource,
+			MinStars: discoverStars,
+			Limit:    discoverLimit,
+		})
+		if err != nil {
+			return err
 		}
 
-		// Search forges in parallel
-		var wg sync.WaitGroup
-		resultsCh := make(chan []remote.RepoInfo, len(forges))
-		errorsCh := make(chan error, len(forges))
-
-		for _, forge := range forges {
-			wg.Add(1)
-			go func(f remote.ForgeType) {
-				defer wg.Done()
-
-				var fetcher remote.Fetcher
-				var err error
-
-				switch f {
-				case remote.ForgeGitHub:
-					fmt.Printf("Searching GitHub...")
-					fetcher = remote.NewGitHubFetcher(auth.GitHub)
-				case remote.ForgeGitLab:
-					fmt.Printf("Searching GitLab...")
-					fetcher, err = remote.NewGitLabFetcher("", auth.GitLab)
-					if err != nil {
-						errorsCh <- fmt.Errorf("GitLab: %w", err)
-						return
-					}
-				}
-
-				repos, err := fetcher.SearchRepos(cmd.Context(), query, discoverLimit)
-				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", f, err)
-					fmt.Printf(" error\n")
-					return
-				}
-
-				// Filter by stars
-				filtered := repos[:0]
-				for _, r := range repos {
-					if r.Stars >= discoverStars {
-						filtered = append(filtered, r)
-					}
-				}
-
-				fmt.Printf(" found %d\n", len(filtered))
-				resultsCh <- filtered
-			}(forge)
-		}
-
-		wg.Wait()
-		close(resultsCh)
-		close(errorsCh)
-
-		// Collect results
-		var allRepos []remote.RepoInfo
-		for repos := range resultsCh {
-			allRepos = append(allRepos, repos...)
-		}
+		fmt.Printf(" found %d\n", result.Count)
 
 		// Print errors
-		for err := range errorsCh {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		for _, errMsg := range result.Errors {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", errMsg)
 		}
 
-		if len(allRepos) == 0 {
+		if result.Count == 0 {
 			fmt.Println("\nNo SCM repositories found.")
 			if query != "" {
 				fmt.Printf("Try a different search term or remove the filter.\n")
@@ -126,12 +74,7 @@ Examples:
 		fmt.Printf("  # │ Forge  │ Repository          │ Stars │ Description\n")
 		fmt.Printf("────┼────────┼─────────────────────┼───────┼─────────────────────────────────────\n")
 
-		for i, r := range allRepos {
-			forgeIcon := "GitHub"
-			if r.Forge == remote.ForgeGitLab {
-				forgeIcon = "GitLab"
-			}
-
+		for i, r := range result.Repositories {
 			// Truncate description
 			desc := r.Description
 			if len(desc) > 35 {
@@ -143,14 +86,19 @@ Examples:
 				repoName = repoName[:16] + "..."
 			}
 
+			forgeDisplay := "GitHub"
+			if r.Forge == "gitlab" {
+				forgeDisplay = "GitLab"
+			}
+
 			fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",
-				i+1, forgeIcon, repoName, r.Stars, desc)
+				i+1, forgeDisplay, repoName, r.Stars, desc)
 		}
 
 		fmt.Println()
 
 		// Interactive add
-		if err := interactiveAdd(cmd.Context(), allRepos); err != nil {
+		if err := interactiveAdd(cmd, result.Repositories); err != nil {
 			return err
 		}
 
@@ -159,7 +107,12 @@ Examples:
 }
 
 // interactiveAdd prompts the user to add a discovered repo as a remote.
-func interactiveAdd(ctx context.Context, repos []remote.RepoInfo) error {
+func interactiveAdd(cmd *cobra.Command, repos []operations.RepoEntry) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -191,18 +144,21 @@ func interactiveAdd(ctx context.Context, repos []remote.RepoInfo) error {
 			name = defaultName
 		}
 
-		// Add remote
-		registry, err := remote.NewRegistry("")
+		// Add remote using operations
+		result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+			Name: name,
+			URL:  repo.URL,
+		})
 		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
-		}
-
-		if err := registry.Add(name, repo.URL); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 
-		fmt.Printf("Added remote '%s' → %s\n\n", name, repo.URL)
+		if result.Warning != "" {
+			fmt.Printf("Warning: %s\n", result.Warning)
+		}
+
+		fmt.Printf("Added remote '%s' → %s\n\n", result.Name, result.URL)
 	}
 }
 

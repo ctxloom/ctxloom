@@ -32,24 +32,6 @@ func GetSCMDirs() ([]string, error) {
 	return cfg.SCMPaths, nil
 }
 
-// GetFragmentDirs returns fragment directories from project config.
-func GetFragmentDirs() ([]string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	return cfg.GetFragmentDirs(), nil
-}
-
-// GetPromptDirs returns prompt directories from project config.
-func GetPromptDirs() ([]string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	return cfg.GetPromptDirs(), nil
-}
-
 // GetConfig returns the project configuration.
 func GetConfig() (*config.Config, error) {
 	return config.Load()
@@ -79,7 +61,6 @@ REMOTE CONTENT
 
 CONFIGURATION
   mcp-servers   Manage MCP server configurations
-  generator     Manage context generators
   hook          Hook commands for AI tool integration
   plugin        Manage AI backend plugins
 

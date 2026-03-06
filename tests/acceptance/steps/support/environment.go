@@ -53,13 +53,13 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	}
 
 	// Create home directory structure
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "context-fragments"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "bundles"), 0755); err != nil {
 		env.Cleanup()
-		return nil, fmt.Errorf("failed to create home .scm: %w", err)
+		return nil, fmt.Errorf("failed to create home .scm/bundles: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "prompts"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "profiles"), 0755); err != nil {
 		env.Cleanup()
-		return nil, fmt.Errorf("failed to create home prompts: %w", err)
+		return nil, fmt.Errorf("failed to create home .scm/profiles: %w", err)
 	}
 
 	// Create project directory
@@ -251,8 +251,8 @@ func (e *TestEnvironment) gitEnv() []string {
 // CreateProjectSCM creates the .scm directory structure in the project.
 func (e *TestEnvironment) CreateProjectSCM() error {
 	dirs := []string{
-		filepath.Join(e.ProjectDir, ".scm", "context-fragments"),
-		filepath.Join(e.ProjectDir, ".scm", "prompts"),
+		filepath.Join(e.ProjectDir, ".scm", "bundles"),
+		filepath.Join(e.ProjectDir, ".scm", "profiles"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {

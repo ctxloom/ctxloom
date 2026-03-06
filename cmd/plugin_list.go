@@ -80,8 +80,6 @@ func findExternalPlugins(paths []string) []externalPlugin {
 	seen := collections.NewSet[string]()
 
 	for _, dir := range paths {
-		dir = expandTilde(dir)
-
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue

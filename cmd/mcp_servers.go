@@ -2,12 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
 var mcpServersCmd = &cobra.Command{
@@ -33,52 +32,23 @@ var mcpServersListCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Collect all servers
-		type serverInfo struct {
-			Name    string
-			Command string
-			Args    []string
-			Backend string // "unified" or backend name
-		}
-		var servers []serverInfo
-
-		// Unified servers
-		for name, srv := range cfg.MCP.Servers {
-			servers = append(servers, serverInfo{
-				Name:    name,
-				Command: srv.Command,
-				Args:    srv.Args,
-				Backend: "unified",
-			})
+		result, err := operations.ListMCPServers(cmd.Context(), cfg, operations.ListMCPServersRequest{
+			SortBy: "name",
+		})
+		if err != nil {
+			return err
 		}
 
-		// Backend-specific servers
-		for backend, backendServers := range cfg.MCP.Plugins {
-			for name, srv := range backendServers {
-				servers = append(servers, serverInfo{
-					Name:    name,
-					Command: srv.Command,
-					Args:    srv.Args,
-					Backend: backend,
-				})
-			}
-		}
-
-		if len(servers) == 0 {
+		if result.Count == 0 {
 			fmt.Println("No MCP servers configured.")
 			fmt.Println()
-			fmt.Printf("Auto-register SCM MCP server: %v\n", cfg.MCP.ShouldAutoRegisterSCM())
+			fmt.Printf("Auto-register SCM MCP server: %v\n", result.AutoRegister)
 			fmt.Println("\nUse 'scm mcp-servers add <name> --command <cmd>' to add one.")
 			return nil
 		}
 
-		// Sort by name
-		sort.Slice(servers, func(i, j int) bool {
-			return servers[i].Name < servers[j].Name
-		})
-
 		fmt.Println("MCP Servers:")
-		for _, srv := range servers {
+		for _, srv := range result.Servers {
 			fmt.Printf("  %s\n", srv.Name)
 			fmt.Printf("    Command: %s\n", srv.Command)
 			if len(srv.Args) > 0 {
@@ -87,7 +57,7 @@ var mcpServersListCmd = &cobra.Command{
 			fmt.Printf("    Scope: %s\n", srv.Backend)
 		}
 
-		fmt.Printf("\nAuto-register SCM MCP server: %v\n", cfg.MCP.ShouldAutoRegisterSCM())
+		fmt.Printf("\nAuto-register SCM MCP server: %v\n", result.AutoRegister)
 		return nil
 	},
 }
@@ -120,43 +90,21 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		server := config.MCPServer{
+		result, err := operations.AddMCPServer(cmd.Context(), cfg, operations.AddMCPServerRequest{
+			Name:    name,
 			Command: mcpServersAddCommand,
 			Args:    mcpServersAddArgs,
-		}
-
-		if mcpServersAddBackend == "" || mcpServersAddBackend == "unified" {
-			// Add to unified servers
-			if cfg.MCP.Servers == nil {
-				cfg.MCP.Servers = make(map[string]config.MCPServer)
-			}
-			if _, exists := cfg.MCP.Servers[name]; exists {
-				return fmt.Errorf("MCP server %q already exists (use 'mcp-servers remove' first)", name)
-			}
-			cfg.MCP.Servers[name] = server
-		} else {
-			// Add to backend-specific servers
-			if cfg.MCP.Plugins == nil {
-				cfg.MCP.Plugins = make(map[string]map[string]config.MCPServer)
-			}
-			if cfg.MCP.Plugins[mcpServersAddBackend] == nil {
-				cfg.MCP.Plugins[mcpServersAddBackend] = make(map[string]config.MCPServer)
-			}
-			if _, exists := cfg.MCP.Plugins[mcpServersAddBackend][name]; exists {
-				return fmt.Errorf("MCP server %q already exists for backend %s", name, mcpServersAddBackend)
-			}
-			cfg.MCP.Plugins[mcpServersAddBackend][name] = server
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+			Backend: mcpServersAddBackend,
+		})
+		if err != nil {
+			return err
 		}
 
 		scope := "unified (all backends)"
-		if mcpServersAddBackend != "" && mcpServersAddBackend != "unified" {
-			scope = mcpServersAddBackend + " only"
+		if result.Backend != "" && result.Backend != "unified" {
+			scope = result.Backend + " only"
 		}
-		fmt.Printf("Added MCP server %q (%s)\n", name, scope)
+		fmt.Printf("Added MCP server %q (%s)\n", result.Name, scope)
 		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
 		return nil
 	},
@@ -177,44 +125,21 @@ var mcpServersRemoveCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		removed := false
+		result, err := operations.RemoveMCPServer(cmd.Context(), cfg, operations.RemoveMCPServerRequest{
+			Name:    name,
+			Backend: mcpServersRemoveBackend,
+		})
+		if err != nil {
+			return err
+		}
 
-		if mcpServersRemoveBackend == "" || mcpServersRemoveBackend == "unified" {
-			if _, exists := cfg.MCP.Servers[name]; exists {
-				delete(cfg.MCP.Servers, name)
-				removed = true
+		for _, backend := range result.RemovedFrom {
+			if backend != "unified" {
+				fmt.Printf("Removed from backend: %s\n", backend)
 			}
 		}
 
-		if mcpServersRemoveBackend != "" && mcpServersRemoveBackend != "unified" {
-			if backendServers, ok := cfg.MCP.Plugins[mcpServersRemoveBackend]; ok {
-				if _, exists := backendServers[name]; exists {
-					delete(backendServers, name)
-					removed = true
-				}
-			}
-		}
-
-		// If no specific backend, try all backends
-		if mcpServersRemoveBackend == "" && !removed {
-			for backend, servers := range cfg.MCP.Plugins {
-				if _, exists := servers[name]; exists {
-					delete(servers, name)
-					removed = true
-					fmt.Printf("Removed from backend: %s\n", backend)
-				}
-			}
-		}
-
-		if !removed {
-			return fmt.Errorf("MCP server %q not found", name)
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
-		}
-
-		fmt.Printf("Removed MCP server %q\n", name)
+		fmt.Printf("Removed MCP server %q\n", result.Name)
 		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
 		return nil
 	},
@@ -295,13 +220,15 @@ Examples:
 		// If flags were provided, update the setting
 		if cmd.Flags().Changed("disable") || cmd.Flags().Changed("enable") {
 			enabled := !mcpServersAutoRegisterDisable
-			cfg.MCP.AutoRegisterSCM = &enabled
 
-			if err := cfg.Save(); err != nil {
-				return fmt.Errorf("failed to save config: %w", err)
+			result, err := operations.SetMCPAutoRegister(cmd.Context(), cfg, operations.SetMCPAutoRegisterRequest{
+				Enabled: enabled,
+			})
+			if err != nil {
+				return err
 			}
 
-			if enabled {
+			if result.AutoRegister {
 				fmt.Println("SCM MCP server auto-registration: enabled")
 			} else {
 				fmt.Println("SCM MCP server auto-registration: disabled")

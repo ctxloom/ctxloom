@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cbroglie/mustache"
@@ -37,11 +36,9 @@ var runCmd = &cobra.Command{
 	Short: "Assemble context and run AI",
 	Long: `Assemble context from fragments and execute the configured AI plugin.
 
-Fragments are loaded from a single source (first found):
-  1. <git-root>/.scm/context-fragments/ (project)
-  2. Embedded resources (fallback)
+Fragments are loaded from bundles in .scm/bundles/.
 
-Use --profile/-p to load a predefined set of fragments, variables, and generators.
+Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.
 Additional -f flags will be appended to the profile's fragments.
 
@@ -65,10 +62,8 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Create bundle loader with legacy fragment and prompt support
-		bundleLoader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled()).
-			WithLegacyDirs(cfg.GetFragmentDirs()).
-			WithLegacyPromptDirs(cfg.GetPromptDirs())
+		// Create bundle loader
+		bundleLoader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
 
 		// Determine which plugin to use
 		pluginName := runPlugin
@@ -100,8 +95,11 @@ Examples:
 
 		// Collect content references from profile + flags
 		var allRefs []string
-		var generators []string
 		profileVars := make(map[string]string)
+
+		// Inject built-in SCM variables (available in all templates)
+		profileVars["SCM_ROOT"] = cfg.SCMRoot // Project root (parent of .scm)
+		profileVars["SCM_DIR"] = cfg.SCMDir   // Full path to .scm directory
 
 		// Determine which profiles to use: explicit flag > default from config
 		var profileNames []string
@@ -110,7 +108,6 @@ Examples:
 		} else if len(runFragments) == 0 && len(runTags) == 0 {
 			// No explicit profile, fragments, or tags - use defaults
 			profileNames = cfg.GetDefaultProfiles()
-			generators = append(generators, cfg.Defaults.Generators...)
 		}
 
 		// Create profile loader for .scm/profiles/ directory
@@ -121,14 +118,12 @@ Examples:
 		for _, profileName := range profileNames {
 			var profileTags []string
 			var profileBundles []string
-			var profileGenerators []string
 
 			// First try to load from .scm/profiles/ directory
 			if fileProfile, err := profileLoader.Load(profileName); err == nil {
 				// Profile found in .scm/profiles/
 				profileTags = fileProfile.Tags
 				profileBundles = fileProfile.Bundles
-				profileGenerators = fileProfile.Generators
 				for k, v := range fileProfile.Variables {
 					profileVars[k] = v
 				}
@@ -145,7 +140,6 @@ Examples:
 				for _, frag := range configProfile.Fragments {
 					profileBundles = append(profileBundles, frag)
 				}
-				profileGenerators = configProfile.Generators
 
 				// Collect variables from profile
 				for k, v := range configProfile.Variables {
@@ -194,8 +188,6 @@ Examples:
 					}
 				}
 			}
-
-			generators = append(generators, profileGenerators...)
 		}
 
 		// Append additional refs from -f flags (support # syntax)
@@ -216,9 +208,8 @@ Examples:
 			}
 		}
 
-		// Dedupe refs and generators
+		// Dedupe refs
 		allRefs = config.DedupeStrings(allRefs)
-		generators = config.DedupeStrings(generators)
 
 		// Warn function for reporting non-fatal issues
 		warnFunc := func(msg string) {
@@ -244,25 +235,6 @@ Examples:
 				IsDistilled: content.IsDistilled,
 				DistilledBy: content.DistilledBy,
 			})
-		}
-
-		// Run generators and collect their content
-		var generatorContent []*bundles.LoadedContent
-		if len(generators) > 0 {
-			generatorContent, err = RunGenerators(cfg, generators, runVerbosity, warnFunc)
-			if err != nil {
-				return fmt.Errorf("failed to run generators: %w", err)
-			}
-		}
-
-		// Append generator outputs as fragments
-		for _, content := range generatorContent {
-			if content.Content != "" {
-				protoFragments = append(protoFragments, &pb.Fragment{
-					Name:    content.Name,
-					Content: content.Content,
-				})
-			}
 		}
 
 		// Determine execution mode
@@ -401,9 +373,7 @@ func init() {
 
 // LoadPrompt loads a saved prompt from bundles by name.
 func LoadPrompt(cfg *config.Config, name string) (string, error) {
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled()).
-		WithLegacyDirs(cfg.GetFragmentDirs()).
-		WithLegacyPromptDirs(cfg.GetPromptDirs())
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
 	prompt, err := loader.GetPrompt(name)
 	if err != nil {
 		return "", err
@@ -415,41 +385,51 @@ func LoadPrompt(cfg *config.Config, name string) (string, error) {
 // It warns about undefined variables referenced in the template.
 // Undefined variables are replaced with empty strings.
 func substituteVariables(content string, vars map[string]string, warnFunc func(string)) string {
-	// Find all variable references in the template
-	varPattern := regexp.MustCompile(`\{\{\s*([^}#/!>\s][^}]*?)\s*\}\}`)
-	matches := varPattern.FindAllStringSubmatch(content, -1)
-
-	// Check for undefined variables
-	seen := make(map[string]bool)
-	for _, match := range matches {
-		if len(match) > 1 {
-			varName := strings.TrimSpace(match[1])
-			// Skip mustache section markers
-			if strings.HasPrefix(varName, "#") ||
-				strings.HasPrefix(varName, "/") ||
-				strings.HasPrefix(varName, "!") ||
-				strings.HasPrefix(varName, ">") {
-				continue
-			}
-			if !seen[varName] {
-				seen[varName] = true
-				if _, exists := vars[varName]; !exists {
-					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", varName))
-				}
-			}
-		}
+	// Parse the template using the mustache library (handles delimiter changes correctly)
+	tmpl, err := mustache.ParseString(content)
+	if err != nil {
+		warnFunc(fmt.Sprintf("failed to parse template: %v", err))
+		return content
 	}
+
+	// Check for undefined variables by walking the parsed tags
+	seen := make(map[string]bool)
+	checkTags(tmpl.Tags(), vars, seen, warnFunc)
 
 	data := make(map[string]interface{})
 	for k, v := range vars {
 		data[k] = v
 	}
 
-	rendered, err := mustache.Render(content, data)
+	rendered, err := tmpl.Render(data)
 	if err != nil {
-		warnFunc(fmt.Sprintf("failed to apply template: %v", err))
+		warnFunc(fmt.Sprintf("failed to render template: %v", err))
 		return content
 	}
 
 	return rendered
+}
+
+// checkTags recursively walks mustache tags to find undefined variables.
+func checkTags(tags []mustache.Tag, vars map[string]string, seen map[string]bool, warnFunc func(string)) {
+	for _, tag := range tags {
+		name := tag.Name()
+		tagType := tag.Type()
+
+		// Only check variable tags (types 1 and 2 are Variable and RawVariable)
+		// Section tags (3) and inverted sections (4) also reference variables
+		if tagType == 1 || tagType == 2 || tagType == 3 || tagType == 4 {
+			if !seen[name] {
+				seen[name] = true
+				if _, exists := vars[name]; !exists {
+					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))
+				}
+			}
+		}
+
+		// Recursively check child tags (for sections)
+		if tagType == 3 || tagType == 4 { // Section or InvertedSection
+			checkTags(tag.Tags(), vars, seen, warnFunc)
+		}
+	}
 }

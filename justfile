@@ -9,19 +9,12 @@ version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWit
 validate:
     go run ./cmd/validate
 
-# Build all binaries (main app + generators + plugins)
-build: validate proto build-scm build-generators
+# Build all binaries (main app + plugins)
+build: validate proto build-scm
 
 # Build the main binary
 build-scm:
     go build -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
-
-# Build all generators
-build-generators: build-simple
-
-# Build simple wrapper generator
-build-simple:
-    go build -o bin/scm-gen-simple ./cmd/generators/simple
 
 # ===== Plugin targets =====
 
@@ -51,7 +44,6 @@ plugin-list:
 # Build with verbose output
 build-verbose:
     go build -v -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
-    go build -v -o bin/scm-gen-simple ./cmd/generators/simple
 
 # Run tests
 test:
@@ -79,8 +71,6 @@ test-container:
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -o scm . && \
-        mkdir -p bin && \
-        CGO_ENABLED=0 go build -o bin/scm-gen-simple ./cmd/generators/simple && \
         go test -v ./tests/acceptance/...'
 
 # Clean build artifacts
@@ -114,37 +104,31 @@ install: build
     mkdir -p ~/go/bin
     -rm -f ~/go/bin/scm 2>/dev/null
     cp scm ~/go/bin/
-    cp bin/scm-gen-* ~/go/bin/ 2>/dev/null || true
 
 # Build static and install to ~/.local/bin
 install-local: build-static
     mkdir -p ~/.local/bin
     -pkill -x scm && sleep 0.5
     cp scm ~/.local/bin/
-    cp bin/scm-gen-* ~/.local/bin/
 
 # Build compressed and install to ~/.local/bin
 install-compressed: build-compressed
     mkdir -p ~/.local/bin
     -pkill -x scm && sleep 0.5
     cp scm ~/.local/bin/
-    cp bin/scm-gen-* ~/.local/bin/
 
 # Uninstall from ~/.local/bin
 uninstall:
     rm -f ~/.local/bin/scm
-    rm -f ~/.local/bin/scm-gen-*
 
 # Build static binaries
 build-static: validate proto
     CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
 
 # Compress binaries with UPX (requires upx installed)
 compress:
     @which upx > /dev/null || (echo "upx not installed. Install with: brew install upx (macOS) or apt install upx (Linux)" && exit 1)
     upx --best --lzma scm
-    upx --best --lzma bin/scm-gen-simple
 
 # Build static binaries with UPX compression
 build-compressed: build-static compress

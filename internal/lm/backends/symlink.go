@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 )
 
 const (
@@ -13,25 +15,69 @@ const (
 	SCMBinaryName = "scm"
 )
 
+// symlinkOptions holds configuration for symlink operations.
+type symlinkOptions struct {
+	fs       afero.Fs
+	execPath string // Override for executable path (for testing)
+}
+
+// SymlinkOption is a functional option for symlink operations.
+type SymlinkOption func(*symlinkOptions)
+
+// WithSymlinkFS sets the filesystem to use for symlink operations.
+// Note: For actual symlink creation, use afero.NewOsFs() or a filesystem
+// that supports the Linker interface. MemMapFs does not support symlinks.
+func WithSymlinkFS(fs afero.Fs) SymlinkOption {
+	return func(o *symlinkOptions) {
+		o.fs = fs
+	}
+}
+
+// WithExecPath sets the executable path for testing (skips os.Executable()).
+func WithExecPath(path string) SymlinkOption {
+	return func(o *symlinkOptions) {
+		o.execPath = path
+	}
+}
+
+// applySymlinkOptions applies the given options and returns the configured options.
+func applySymlinkOptions(opts []SymlinkOption) *symlinkOptions {
+	options := &symlinkOptions{
+		fs: afero.NewOsFs(), // default to real filesystem
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+	return options
+}
+
 // EnsureSCMSymlink creates a symlink to the current scm binary at .scm/bin/scm.
 // This allows hooks to call scm without requiring it to be in PATH.
 // workDir is the directory where the .scm/ directory exists.
-func EnsureSCMSymlink(workDir string) (string, error) {
-	// Get the path to the currently running scm binary
-	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
-	}
+// Use WithSymlinkFS and WithExecPath for testing.
+func EnsureSCMSymlink(workDir string, opts ...SymlinkOption) (string, error) {
+	options := applySymlinkOptions(opts)
+	fs := options.fs
 
-	// Resolve symlinks to get the real path
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve executable path: %w", err)
+	// Get the path to the currently running scm binary
+	execPath := options.execPath
+	if execPath == "" {
+		var err error
+		execPath, err = os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("failed to get executable path: %w", err)
+		}
+
+		// Resolve symlinks to get the real path
+		execPath, err = filepath.EvalSymlinks(execPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve executable path: %w", err)
+		}
 	}
 
 	// Ensure .scm/bin directory exists
 	binDir := filepath.Join(workDir, SCMBinDir)
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := fs.MkdirAll(binDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create %s directory: %w", SCMBinDir, err)
 	}
 
@@ -39,25 +85,34 @@ func EnsureSCMSymlink(workDir string) (string, error) {
 	symlinkPath := filepath.Join(binDir, SCMBinaryName)
 
 	// Remove existing symlink if it exists
-	if _, err := os.Lstat(symlinkPath); err == nil {
-		if err := os.Remove(symlinkPath); err != nil {
+	if _, err := fs.Stat(symlinkPath); err == nil {
+		if err := fs.Remove(symlinkPath); err != nil {
 			return "", fmt.Errorf("failed to remove existing symlink: %w", err)
 		}
 	}
 
-	// Create new symlink
-	if err := os.Symlink(execPath, symlinkPath); err != nil {
-		return "", fmt.Errorf("failed to create symlink: %w", err)
+	// Create new symlink - note: symlink creation requires real filesystem
+	// For testing with MemMapFs, use a Linker-compatible fs or accept this limitation
+	linker, ok := fs.(afero.Linker)
+	if ok {
+		if err := linker.SymlinkIfPossible(execPath, symlinkPath); err != nil {
+			return "", fmt.Errorf("failed to create symlink: %w", err)
+		}
+	} else {
+		// Fallback to os.Symlink for filesystems that don't support linking
+		if err := os.Symlink(execPath, symlinkPath); err != nil {
+			return "", fmt.Errorf("failed to create symlink: %w", err)
+		}
 	}
 
 	return symlinkPath, nil
 }
 
 // GetContextInjectionCommand returns the hook command for context injection.
-// Uses ${CLAUDE_PROJECT_DIR} for Claude Code's variable expansion.
+// Uses relative path from project root - works for all backends (Claude Code, Gemini, etc.)
 func GetContextInjectionCommand(hash string) string {
-	// Claude Code expands ${VAR} syntax in hook commands
-	return fmt.Sprintf(`${CLAUDE_PROJECT_DIR}/%s/%s hook inject-context %s`, SCMBinDir, SCMBinaryName, hash)
+	// Use relative path - hooks run from project directory
+	return fmt.Sprintf(`./%s/%s hook inject-context %s`, SCMBinDir, SCMBinaryName, hash)
 }
 
 // GetSCMMCPCommand returns the command (executable path) for the SCM MCP server.

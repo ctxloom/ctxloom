@@ -16,11 +16,13 @@ import (
 	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/config"
 	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
+	"github.com/benjaminabbitt/scm/internal/remote"
 )
 
 var bundleCmd = &cobra.Command{
-	Use:   "bundle",
-	Short: "Manage SCM bundles",
+	Use:    "bundle",
+	Short:  "Manage SCM bundles",
+	Hidden: true, // Use fragment/prompt commands for content management
 	Long: `Manage SCM bundles - versioned collections of fragments, prompts, and MCP servers.
 
 Bundles are the primary content unit in SCM. They group related context fragments,
@@ -63,7 +65,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 
 	if len(bundleInfos) == 0 {
 		fmt.Println("No bundles installed.")
-		fmt.Println("Pull bundles with: scm remote pull <remote>/bundle-name --type bundle")
+		fmt.Println("Install bundles with: scm install <remote>/bundle-name")
 		return nil
 	}
 
@@ -503,6 +505,154 @@ func sliceRemove(slice []string, item string) []string {
 		}
 	}
 	return result
+}
+
+var bundleDeleteForce bool
+
+var bundleDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a bundle",
+	Long: `Delete a bundle from the local .scm/bundles directory.
+
+This permanently removes the bundle file. Use --force to skip confirmation.
+
+Examples:
+  scm bundle delete old-bundle
+  scm bundle delete my-bundle --force`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBundleDelete,
+}
+
+func runBundleDelete(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return fmt.Errorf("no bundles directory found")
+	}
+
+	loader := bundles.NewLoader(bundleDirs, false)
+	bundle, err := loader.Load(name)
+	if err != nil {
+		return fmt.Errorf("bundle not found: %s", name)
+	}
+
+	// Confirm deletion
+	if !bundleDeleteForce {
+		fmt.Printf("Delete bundle %q at %s? [y/N] ", name, bundle.Path)
+		var confirm string
+		fmt.Scanln(&confirm)
+		if confirm != "y" && confirm != "Y" {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	if err := os.Remove(bundle.Path); err != nil {
+		return fmt.Errorf("failed to delete bundle: %w", err)
+	}
+
+	fmt.Printf("Deleted bundle: %s\n", bundle.Path)
+	return nil
+}
+
+var (
+	bundlePushPR      bool
+	bundlePushBranch  string
+	bundlePushMessage string
+)
+
+var bundlePushCmd = &cobra.Command{
+	Use:   "push <name> [remote]",
+	Short: "Publish a bundle to a remote repository",
+	Long: `Publish a local bundle to a remote repository.
+
+By default, publishes directly to the default branch. Use --pr to create
+a pull request instead.
+
+If no remote is specified, uses the default remote.
+
+Examples:
+  scm bundle push my-bundle
+  scm bundle push my-bundle scm-github
+  scm bundle push my-bundle --pr
+  scm bundle push my-bundle scm-github --message "Add my bundle"`,
+	Args: cobra.RangeArgs(1, 2),
+	RunE: runBundlePush,
+}
+
+func runBundlePush(cmd *cobra.Command, args []string) error {
+	bundleName := args[0]
+	remoteName := ""
+	if len(args) > 1 {
+		remoteName = args[1]
+	}
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Load the bundle
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return fmt.Errorf("no bundles directory found")
+	}
+
+	loader := bundles.NewLoader(bundleDirs, false)
+	bundle, err := loader.Load(bundleName)
+	if err != nil {
+		return fmt.Errorf("bundle not found: %s", bundleName)
+	}
+
+	// Initialize registry
+	registry, err := remote.NewRegistry("")
+	if err != nil {
+		return fmt.Errorf("failed to initialize registry: %w", err)
+	}
+
+	// Use default remote if not specified
+	if remoteName == "" {
+		remoteName = registry.GetDefault()
+		if remoteName == "" {
+			return fmt.Errorf("no remote specified and no default set. Use: scm bundle push <name> <remote>")
+		}
+	}
+
+	auth := remote.LoadAuth("")
+
+	// Build publish options
+	opts := remote.PublishOptions{
+		CreatePR: bundlePushPR,
+		Branch:   bundlePushBranch,
+		Message:  bundlePushMessage,
+		ItemType: remote.ItemTypeBundle,
+	}
+
+	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
+
+	result, err := remote.Publish(cmd.Context(), bundle.Path, remoteName, opts, registry, auth)
+	if err != nil {
+		return err
+	}
+
+	if result.PRURL != "" {
+		fmt.Printf("Created pull request: %s\n", result.PRURL)
+	} else {
+		action := "Created"
+		if !result.Created {
+			action = "Updated"
+		}
+		fmt.Printf("%s %s\n", action, result.Path)
+		fmt.Printf("Commit: %s\n", result.SHA[:7])
+	}
+
+	return nil
 }
 
 var bundleExportCmd = &cobra.Command{
@@ -1473,6 +1623,8 @@ func init() {
 	bundleCmd.AddCommand(bundleViewCmd)
 	bundleCmd.AddCommand(bundleCreateCmd)
 	bundleCmd.AddCommand(bundleEditCmd)
+	bundleCmd.AddCommand(bundleDeleteCmd)
+	bundleCmd.AddCommand(bundlePushCmd)
 	bundleCmd.AddCommand(bundleExportCmd)
 	bundleCmd.AddCommand(bundleImportCmd)
 	bundleCmd.AddCommand(bundleDistillCmd)
@@ -1490,6 +1642,10 @@ func init() {
 	bundleMCPCmd.AddCommand(bundleMCPEditCmd)
 
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
+	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
+	bundlePushCmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")
+	bundlePushCmd.Flags().StringVar(&bundlePushBranch, "branch", "", "Target branch (default: repository default)")
+	bundlePushCmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
 	bundleViewCmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
 

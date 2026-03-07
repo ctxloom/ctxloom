@@ -46,6 +46,7 @@ type ListRemotesRequest struct {
 type ListRemotesResult struct {
 	Remotes []RemoteEntry `json:"remotes"`
 	Count   int           `json:"count"`
+	Default string        `json:"default,omitempty"`
 }
 
 // ListRemotes returns all configured remotes.
@@ -68,6 +69,7 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 	result := &ListRemotesResult{
 		Remotes: make([]RemoteEntry, 0, len(remotes)),
 		Count:   len(remotes),
+		Default: registry.GetDefault(),
 	}
 
 	for _, r := range remotes {

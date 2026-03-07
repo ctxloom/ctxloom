@@ -21,6 +21,10 @@ type PullOptions struct {
 	// Force skips the confirmation prompt but still displays content.
 	Force bool
 
+	// Blind skips both confirmation prompt AND content display.
+	// Use this for automated/batch operations. Implies Force.
+	Blind bool
+
 	// LocalDir overrides the default .scm directory path.
 	LocalDir string
 
@@ -306,27 +310,37 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	// Require interactive terminal unless force
-	if !opts.Force && !p.terminalChecker.IsTerminalReader(opts.Stdin) {
+	// Blind mode implies Force (skip prompts and content display)
+	effectiveForce := opts.Force || opts.Blind
+
+	// Warn when using blind mode
+	if opts.Blind {
+		_, _ = fmt.Fprintf(opts.Stdout, "⚠️  Blind mode: skipping security review for %s\n", refStr)
+	}
+
+	// Require interactive terminal unless force/blind
+	if !effectiveForce && !p.terminalChecker.IsTerminalReader(opts.Stdin) {
 		return nil, fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
 	}
 
-	// Always display security warning and content
-	shortSHA := sha
-	if len(sha) > 7 {
-		shortSHA = sha[:7]
+	// Display security warning and content (unless blind)
+	if !opts.Blind {
+		shortSHA := sha
+		if len(sha) > 7 {
+			shortSHA = sha[:7]
+		}
+
+		// Parse content to get type-specific security warning
+		secure, err := ParseSecureContent(opts.ItemType, content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse content: %w", err)
+		}
+
+		displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
 	}
 
-	// Parse content to get type-specific security warning
-	secure, err := ParseSecureContent(opts.ItemType, content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse content: %w", err)
-	}
-
-	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
-
-	// Prompt for confirmation unless force
-	if !opts.Force {
+	// Prompt for confirmation unless force/blind
+	if !effectiveForce {
 		confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Install this item?")
 		if err != nil {
 			return nil, fmt.Errorf("failed to read confirmation: %w", err)
@@ -599,7 +613,7 @@ func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Rem
 }
 
 // transformProfileContent converts canonical URLs in a profile to local names.
-// Updates the lockfile with mappings for the bundle references.
+// The actual lockfile entries are created when bundles are pulled (via cascade or manually).
 func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, error) {
 	// Parse the profile
 	var rawProfile map[string]interface{}
@@ -618,16 +632,14 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 		return content, nil // Not a list, return as-is
 	}
 
-	// Check if any bundles need transformation
+	// Check if any bundles need transformation (canonical URLs)
 	needsTransform := false
 	for _, b := range bundles {
 		bundleStr, ok := b.(string)
 		if !ok {
 			continue
 		}
-		if strings.HasPrefix(bundleStr, "https://") ||
-			strings.HasPrefix(bundleStr, "http://") ||
-			strings.HasPrefix(bundleStr, "git@") {
+		if IsCanonicalRef(bundleStr) {
 			needsTransform = true
 			break
 		}
@@ -640,11 +652,6 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 	// Transform the bundles
 	_, _ = fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
 
-	lockfile, err := p.lockfileManager.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load lockfile: %w", err)
-	}
-
 	transformedBundles := make([]string, 0, len(bundles))
 
 	for _, b := range bundles {
@@ -654,15 +661,19 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 		}
 
 		// Check if this is a canonical URL
-		if !strings.HasPrefix(bundleStr, "https://") &&
-			!strings.HasPrefix(bundleStr, "http://") &&
-			!strings.HasPrefix(bundleStr, "git@") {
-			// Already local, keep as-is
-			transformedBundles = append(transformedBundles, bundleStr)
+		if !IsCanonicalRef(bundleStr) {
+			// Already local - normalize to ensure consistent format
+			// (strips version suffixes, normalizes paths)
+			local, err := ToLocalRef(bundleStr)
+			if err != nil {
+				transformedBundles = append(transformedBundles, bundleStr)
+			} else {
+				transformedBundles = append(transformedBundles, local)
+			}
 			continue
 		}
 
-		// Parse the URL to extract components
+		// For canonical URLs, we need to register the remote first
 		// Handle item path suffix (e.g., #fragments/name)
 		var itemPath string
 		urlPart := bundleStr
@@ -679,6 +690,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 		}
 
 		// Get or create a local remote for this URL
+		// This is essential: it ensures the remote is registered so cascade pull can find it
 		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL, parsed.Version)
 		if err != nil {
 			_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
@@ -686,28 +698,11 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 			continue
 		}
 
-		// Build local name: remoteName/path
-		localName := fmt.Sprintf("%s/%s", localRemote.Name, parsed.Path)
-
-		// Update lockfile with mapping
-		entry := LockEntry{
-			URL:              parsed.URL,
-			SCMVersion:       parsed.Version,
-			RequestedVersion: parsed.ContentVersion,
-			// SHA will be filled in when the bundle is actually pulled
-		}
-		lockfile.AddEntry(ItemTypeBundle, localName, entry)
-
-		// Build local reference with item path if present
-		localRef := localName + itemPath
+		// Build local reference: remoteName/path with item path if present
+		localRef := fmt.Sprintf("%s/%s%s", localRemote.Name, parsed.Path, itemPath)
 
 		_, _ = fmt.Fprintf(w, "  %s -> %s\n", bundleStr, localRef)
 		transformedBundles = append(transformedBundles, localRef)
-	}
-
-	// Save updated lockfile
-	if err := p.lockfileManager.Save(lockfile); err != nil {
-		return nil, fmt.Errorf("failed to save lockfile: %w", err)
 	}
 
 	// Update the profile with transformed bundles

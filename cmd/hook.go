@@ -5,8 +5,9 @@ import (
 )
 
 var hookCmd = &cobra.Command{
-	Use:   "hook",
-	Short: "Hook commands for AI tool integration",
+	Use:    "hook",
+	Short:  "Hook commands for AI tool integration",
+	Hidden: true, // Internal command - called by AI tools, not directly by users
 	Long: `Hook commands are invoked by AI tools (Claude Code, Gemini CLI, etc.)
 during their lifecycle events. These commands are not intended for direct user invocation.`,
 }

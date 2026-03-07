@@ -114,8 +114,8 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	// Generate pull token (reference pinned to SHA)
-	pullToken := fmt.Sprintf("%s/%s@%s", ref.Remote, ref.Path, sha)
+	// Generate pull token (item_type:reference@SHA for re-fetch capability)
+	pullToken := fmt.Sprintf("%s:%s/%s@%s", req.ItemType, ref.Remote, ref.Path, sha)
 
 	shortSHA := sha
 	if len(sha) > 7 {
@@ -223,6 +223,7 @@ type PullItemRequest struct {
 	Reference string `json:"reference"`
 	ItemType  string `json:"item_type"` // "bundle" or "profile"
 	Force     bool   `json:"force"`
+	Blind     bool   `json:"blind"` // Skip security review display (implies Force)
 	Cascade   bool   `json:"cascade"`
 
 	// Registry is an optional pre-configured registry (for testing).
@@ -279,6 +280,7 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 	opts := remote.PullOptions{
 		LocalDir: baseDir, // THIS IS THE BUG FIX
 		Force:    req.Force,
+		Blind:    req.Blind,
 		ItemType: itemType,
 		Cascade:  req.Cascade,
 	}

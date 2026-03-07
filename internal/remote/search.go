@@ -187,4 +187,5 @@ type SearchResult struct {
 	Entry       ManifestEntry // Matched entry
 	RemoteURL   string        // URL of the remote repo
 	MatchedTags []string      // Which tags matched (for highlighting)
+	ItemType    ItemType      // Type of item (bundle or profile)
 }

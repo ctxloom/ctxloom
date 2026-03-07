@@ -1,9 +1,9 @@
 # Default recipe
 default: build
 
-# Get version from versionator
+# Get version from versionator (with fallback for CI without versionator)
 # Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}"`
+version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
 
 # Validate fragment YAML files against JSON schema
 validate:

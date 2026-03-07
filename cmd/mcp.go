@@ -1604,7 +1604,7 @@ func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (
 		return nil, fmt.Errorf("pull_token is required")
 	}
 
-	// Get pending pull
+	// Get pending pull from memory (fast path)
 	s.pullMu.Lock()
 	pending, ok := s.pendingPulls[params.PullToken]
 	if ok {
@@ -1612,8 +1612,13 @@ func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (
 	}
 	s.pullMu.Unlock()
 
+	// If not in memory (e.g., server restarted), re-fetch using token
+	// Token format: item_type:remote/path@sha
 	if !ok {
-		return nil, fmt.Errorf("invalid or expired pull_token: token must be obtained from preview_remote")
+		pending, ok = s.refetchFromToken(ctx, params.PullToken)
+		if !ok {
+			return nil, fmt.Errorf("invalid pull_token format: expected item_type:remote/path@sha")
+		}
 	}
 
 	// Use operations.WriteRemoteItem which uses config's SCM path (the bug fix)
@@ -1635,6 +1640,49 @@ func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (
 		"sha":         result.SHA,
 		"overwritten": result.Overwritten,
 	}, nil
+}
+
+// refetchFromToken parses a pull_token and re-fetches the content.
+// Token format: item_type:remote/path@sha
+func (s *mcpServer) refetchFromToken(ctx context.Context, token string) (*pendingPull, bool) {
+	// Parse token: item_type:remote/path@sha
+	colonIdx := strings.Index(token, ":")
+	if colonIdx == -1 {
+		return nil, false
+	}
+
+	itemType := token[:colonIdx]
+	rest := token[colonIdx+1:]
+
+	// Validate item type
+	if itemType != "bundle" && itemType != "profile" {
+		return nil, false
+	}
+
+	// The rest is remote/path@sha - use as reference for FetchRemoteContent
+	result, err := operations.FetchRemoteContent(ctx, s.cfg, operations.FetchRemoteContentRequest{
+		Reference: rest,
+		ItemType:  itemType,
+	})
+	if err != nil {
+		return nil, false
+	}
+
+	var remoteItemType remote.ItemType
+	switch itemType {
+	case "bundle":
+		remoteItemType = remote.ItemTypeBundle
+	case "profile":
+		remoteItemType = remote.ItemTypeProfile
+	}
+
+	return &pendingPull{
+		Reference: token,
+		ItemType:  remoteItemType,
+		Content:   []byte(result.Content),
+		SHA:       result.FullSHA,
+		RemoteURL: result.SourceURL,
+	}, true
 }
 
 // ============================================================================

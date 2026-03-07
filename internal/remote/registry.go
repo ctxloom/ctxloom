@@ -14,10 +14,11 @@ import (
 // Registry manages configured remote sources.
 // It persists remotes to .scm/remotes.yaml.
 type Registry struct {
-	mu         sync.RWMutex
-	remotes    map[string]*Remote
-	configPath string
-	fs         afero.Fs
+	mu            sync.RWMutex
+	remotes       map[string]*Remote
+	defaultRemote string
+	configPath    string
+	fs            afero.Fs
 }
 
 // RegistryOption is a functional option for configuring a Registry.
@@ -59,6 +60,7 @@ func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 // Only contains remotes-related fields to avoid overwriting other config.
 type configFile struct {
 	Remotes map[string]Remote `yaml:"remotes,omitempty"`
+	Default string            `yaml:"default,omitempty"`
 	Auth    AuthConfig        `yaml:"auth,omitempty"`
 	Replace map[string]string `yaml:"replace,omitempty"`
 	Vendor  bool              `yaml:"vendor,omitempty"`
@@ -81,6 +83,8 @@ func (r *Registry) load() error {
 		remote.Name = name
 		r.remotes[name] = &remote
 	}
+
+	r.defaultRemote = cfg.Default
 
 	return nil
 }
@@ -109,6 +113,13 @@ func (r *Registry) save() error {
 		existingRaw["remotes"] = remotesMap
 	} else {
 		delete(existingRaw, "remotes")
+	}
+
+	// Update default remote
+	if r.defaultRemote != "" {
+		existingRaw["default"] = r.defaultRemote
+	} else {
+		delete(existingRaw, "default")
 	}
 
 	// Ensure directory exists
@@ -337,6 +348,34 @@ func (r *Registry) SetVersion(name, version string) error {
 
 	remote.Version = version
 
+	return r.save()
+}
+
+// GetDefault returns the default remote name, or empty string if not set.
+func (r *Registry) GetDefault() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.defaultRemote
+}
+
+// SetDefault sets the default remote.
+// Returns error if the remote doesn't exist.
+func (r *Registry) SetDefault(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Allow clearing the default
+	if name == "" {
+		r.defaultRemote = ""
+		return r.save()
+	}
+
+	// Verify remote exists
+	if _, ok := r.remotes[name]; !ok {
+		return fmt.Errorf("remote not found: %s", name)
+	}
+
+	r.defaultRemote = name
 	return r.save()
 }
 

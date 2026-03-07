@@ -10,7 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/operations"
 	"github.com/benjaminabbitt/scm/internal/profiles"
+	"github.com/benjaminabbitt/scm/internal/remote"
 )
 
 var profileCmd = &cobra.Command{
@@ -85,21 +87,21 @@ var profileListCmd = &cobra.Command{
 }
 
 var (
-	profileAddParents     []string
-	profileAddBundles     []string
-	profileAddDescription string
+	profileCreateParents     []string
+	profileCreateBundles     []string
+	profileCreateDescription string
 )
 
-var profileAddCmd = &cobra.Command{
-	Use:   "add <name>",
-	Short: "Add a new profile",
-	Long: `Add a new profile with bundles and/or parents.
+var profileCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a new profile",
+	Long: `Create a new profile with bundles and/or parents.
 
 Bundle references use full URLs:
   https://github.com/user/repo@v1/bundles/name    # Bundle from remote
 
 Example:
-  scm profile add developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
+  scm profile create developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -107,7 +109,7 @@ Example:
 			return cmd.Help()
 		}
 
-		if len(profileAddParents) == 0 && len(profileAddBundles) == 0 {
+		if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
 			return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
 		}
 
@@ -125,11 +127,11 @@ Example:
 		loader := profiles.NewLoader(profileDirs)
 
 		if loader.Exists(name) {
-			return fmt.Errorf("profile %q already exists (use 'profile remove' first)", name)
+			return fmt.Errorf("profile %q already exists (use 'profile delete' first)", name)
 		}
 
 		// Validate parent profiles exist
-		for _, parent := range profileAddParents {
+		for _, parent := range profileCreateParents {
 			if !loader.Exists(parent) {
 				return fmt.Errorf("parent profile %q not found", parent)
 			}
@@ -137,9 +139,9 @@ Example:
 
 		profile := &profiles.Profile{
 			Name:        name,
-			Description: profileAddDescription,
-			Parents:     profileAddParents,
-			Bundles:     profileAddBundles,
+			Description: profileCreateDescription,
+			Parents:     profileCreateParents,
+			Bundles:     profileCreateBundles,
 		}
 
 		if err := loader.Save(profile); err != nil {
@@ -147,11 +149,11 @@ Example:
 		}
 
 		var parts []string
-		if len(profileAddParents) > 0 {
-			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileAddParents, ", ")))
+		if len(profileCreateParents) > 0 {
+			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))
 		}
-		if len(profileAddBundles) > 0 {
-			parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileAddBundles, ", ")))
+		if len(profileCreateBundles) > 0 {
+			parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
 		}
 		fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
 		fmt.Printf("Saved to: %s\n", profile.Path)
@@ -159,10 +161,9 @@ Example:
 	},
 }
 
-var profileRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
-	Aliases: []string{"rm"},
-	Short:   "Remove a profile",
+var profileDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a profile",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -183,10 +184,10 @@ var profileRemoveCmd = &cobra.Command{
 		loader := profiles.NewLoader(profileDirs)
 
 		if err := loader.Delete(name); err != nil {
-			return fmt.Errorf("failed to remove profile: %w", err)
+			return fmt.Errorf("failed to delete profile: %w", err)
 		}
 
-		fmt.Printf("Removed profile %q\n", name)
+		fmt.Printf("Deleted profile %q\n", name)
 		return nil
 	},
 }
@@ -262,14 +263,14 @@ var profileShowCmd = &cobra.Command{
 }
 
 var profileUpdateCmd = &cobra.Command{
-	Use:   "update <name>",
-	Short: "Update a profile",
-	Long: `Update an existing profile by adding or removing items.
+	Use:   "modify <name>",
+	Short: "Modify a profile's configuration",
+	Long: `Modify an existing profile by adding or removing items.
 
 Examples:
-  scm profile update go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
-  scm profile update developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
-  scm profile update developer -d "New description"`,
+  scm profile modify go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
+  scm profile modify developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
+  scm profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -354,7 +355,7 @@ Examples:
 			return fmt.Errorf("failed to save profile: %w", err)
 		}
 
-		fmt.Printf("Updated profile %q\n", name)
+		fmt.Printf("Modified profile %q\n", name)
 		return nil
 	},
 }
@@ -366,6 +367,159 @@ var (
 	profileUpdateRemoveBundles []string
 	profileUpdateDescription   string
 )
+
+var (
+	profilePushPR      bool
+	profilePushBranch  string
+	profilePushMessage string
+)
+
+var profilePushCmd = &cobra.Command{
+	Use:   "push <name> [remote]",
+	Short: "Publish a profile to a remote repository",
+	Long: `Publish a local profile to a remote repository.
+
+By default, publishes directly to the default branch. Use --pr to create
+a pull request instead.
+
+If no remote is specified, uses the default remote.
+
+Examples:
+  scm profile push my-profile
+  scm profile push my-profile scm-github
+  scm profile push my-profile --pr
+  scm profile push my-profile scm-github --message "Add my profile"`,
+	Args: cobra.RangeArgs(1, 2),
+	RunE: runProfilePush,
+}
+
+func runProfilePush(cmd *cobra.Command, args []string) error {
+	profileName := args[0]
+	remoteName := ""
+	if len(args) > 1 {
+		remoteName = args[1]
+	}
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Load the profile
+	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	if len(profileDirs) == 0 {
+		return fmt.Errorf("no profiles directory found")
+	}
+
+	loader := profiles.NewLoader(profileDirs)
+	profile, err := loader.Load(profileName)
+	if err != nil {
+		return fmt.Errorf("profile not found: %s", profileName)
+	}
+
+	// Initialize registry
+	registry, err := remote.NewRegistry("")
+	if err != nil {
+		return fmt.Errorf("failed to initialize registry: %w", err)
+	}
+
+	// Use default remote if not specified
+	if remoteName == "" {
+		remoteName = registry.GetDefault()
+		if remoteName == "" {
+			return fmt.Errorf("no remote specified and no default set. Use: scm profile push <name> <remote>")
+		}
+	}
+
+	auth := remote.LoadAuth("")
+
+	// Build publish options
+	opts := remote.PublishOptions{
+		CreatePR: profilePushPR,
+		Branch:   profilePushBranch,
+		Message:  profilePushMessage,
+		ItemType: remote.ItemTypeProfile,
+	}
+
+	fmt.Printf("Publishing profile %q to %s...\n", profileName, remoteName)
+
+	result, err := remote.Publish(cmd.Context(), profile.Path, remoteName, opts, registry, auth)
+	if err != nil {
+		return err
+	}
+
+	if result.PRURL != "" {
+		fmt.Printf("Created pull request: %s\n", result.PRURL)
+	} else {
+		action := "Created"
+		if !result.Created {
+			action = "Updated"
+		}
+		fmt.Printf("%s %s\n", action, result.Path)
+		fmt.Printf("Commit: %s\n", result.SHA[:7])
+	}
+
+	return nil
+}
+
+var profileEditCmd = &cobra.Command{
+	Use:   "edit <name>",
+	Short: "Edit a profile",
+	Long: `Edit a profile's YAML file using your configured editor.
+
+Examples:
+  scm profile edit my-profile`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return editProfileFile(args[0])
+	},
+}
+
+var (
+	profileInstallForce bool
+	profileInstallBlind bool
+)
+
+var profileInstallCmd = &cobra.Command{
+	Use:   "install <reference>",
+	Short: "Install a profile from remote",
+	Long: `Install a profile from a remote repository.
+
+Reference formats:
+  scm-github/developer                    # Profile from default remote path
+  https://github.com/user/repo@v1/profiles/developer   # Full URL
+
+Examples:
+  scm profile install scm-github/developer
+  scm profile install scm-github/architect`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		result, err := operations.PullItem(cmd.Context(), cfg, operations.PullItemRequest{
+			Reference: args[0],
+			ItemType:  "profile",
+			Force:     profileInstallForce,
+			Blind:     profileInstallBlind,
+		})
+		if err != nil {
+			return err
+		}
+
+		action := "Installed"
+		if result.Overwritten {
+			action = "Updated"
+		}
+
+		fmt.Printf("%s profile: %s\n", action, result.LocalPath)
+		fmt.Printf("SHA: %s\n", result.SHA[:7])
+
+		return nil
+	},
+}
 
 var profileExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
@@ -484,16 +638,23 @@ func init() {
 	rootCmd.AddCommand(profileCmd)
 
 	profileCmd.AddCommand(profileListCmd)
-	profileCmd.AddCommand(profileAddCmd)
-	profileCmd.AddCommand(profileRemoveCmd)
+	profileCmd.AddCommand(profileCreateCmd)
+	profileCmd.AddCommand(profileDeleteCmd)
 	profileCmd.AddCommand(profileShowCmd)
+	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
+	profileCmd.AddCommand(profileInstallCmd)
+	profileCmd.AddCommand(profilePushCmd)
 	profileCmd.AddCommand(profileExportCmd)
 	profileCmd.AddCommand(profileImportCmd)
 
-	profileAddCmd.Flags().StringSliceVar(&profileAddParents, "parent", nil, "Parent profile URL(s) to inherit from")
-	profileAddCmd.Flags().StringSliceVarP(&profileAddBundles, "bundle", "b", nil, "Bundle URL(s) to include")
-	profileAddCmd.Flags().StringVarP(&profileAddDescription, "description", "d", "", "Description of the profile")
+	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile URL(s) to inherit from")
+	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
+	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
+
+	profilePushCmd.Flags().BoolVar(&profilePushPR, "pr", false, "Create a pull request instead of pushing directly")
+	profilePushCmd.Flags().StringVar(&profilePushBranch, "branch", "", "Target branch (default: repository default)")
+	profilePushCmd.Flags().StringVarP(&profilePushMessage, "message", "m", "", "Commit message")
 
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile URL(s) to remove")
@@ -503,14 +664,19 @@ func init() {
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
+	profileInstallCmd.Flags().BoolVarP(&profileInstallForce, "force", "f", false, "Skip confirmation prompts")
+	profileInstallCmd.Flags().BoolVar(&profileInstallBlind, "blind", false, "Skip security review display")
+
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames
-	profileRemoveCmd.ValidArgsFunction = completeProfileNames
+	profileDeleteCmd.ValidArgsFunction = completeProfileNames
+	profileEditCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
+	profilePushCmd.ValidArgsFunction = completeProfileNames
 	profileExportCmd.ValidArgsFunction = completeProfileNames
 
 	// Register flag completions
-	_ = profileAddCmd.RegisterFlagCompletionFunc("parent", completeProfileNames)
+	_ = profileCreateCmd.RegisterFlagCompletionFunc("parent", completeProfileNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-parent", completeProfileNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-parent", completeProfileNames)
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
+var remoteInstallForce bool
+
 var remoteLockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Generate lockfile from installed remote items",
@@ -23,8 +25,9 @@ Examples:
 }
 
 var remoteInstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install items from lockfile",
+	Use:    "install",
+	Short:  "Install items from lockfile",
+	Hidden: true, // Use top-level 'scm install' instead
 	Long: `Install all items specified in the lockfile (.scm/lock.yaml).
 
 This is useful for CI/CD pipelines and setting up new development environments
@@ -37,8 +40,9 @@ Examples:
 }
 
 var remoteOutdatedCmd = &cobra.Command{
-	Use:   "outdated",
-	Short: "Show items with newer versions available",
+	Use:    "outdated",
+	Short:  "Show items with newer versions available",
+	Hidden: true, // Use 'scm update' to check for outdated items
 	Long: `Check if any locked items have newer versions available.
 
 Compares locked SHAs against the latest commits on the default branch
@@ -62,7 +66,7 @@ func runRemoteLock(cmd *cobra.Command, args []string) error {
 
 	if result.Status == "empty" {
 		fmt.Println("No remote items with source metadata found.")
-		fmt.Println("Pull items with: scm remote [bundles|profiles] pull <remote>/<name>")
+		fmt.Println("Install items with: scm install <remote>/<name>")
 		return nil
 	}
 
@@ -79,7 +83,7 @@ func runRemoteInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := operations.InstallDependencies(cmd.Context(), cfg, operations.InstallDependenciesRequest{
-		Force: pullForce,
+		Force: remoteInstallForce,
 	})
 	if err != nil {
 		return err
@@ -142,7 +146,7 @@ func runRemoteOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Update with: scm remote [bundles|profiles] pull <reference>")
+	fmt.Println("Update with: scm install <reference> --force")
 
 	return nil
 }
@@ -152,6 +156,6 @@ func init() {
 	remoteCmd.AddCommand(remoteInstallCmd)
 	remoteCmd.AddCommand(remoteOutdatedCmd)
 
-	remoteInstallCmd.Flags().BoolVarP(&pullForce, "force", "f", false,
+	remoteInstallCmd.Flags().BoolVarP(&remoteInstallForce, "force", "f", false,
 		"Skip confirmation prompts")
 }

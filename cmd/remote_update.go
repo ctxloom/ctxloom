@@ -2,14 +2,21 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
+	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/remote"
 )
 
 var updateApply bool
+var updateForce bool
+var updateCleanup bool
+var updateBlind bool
 
 var remoteUpdateCmd = &cobra.Command{
 	Use:   "update [reference]",
@@ -23,7 +30,9 @@ Examples:
   scm remote update                       # Check all for updates
   scm remote update alice/security        # Check specific item
   scm remote update --apply               # Apply all available updates
-  scm remote update alice/security --apply # Update specific item`,
+  scm remote update alice/security --apply # Update specific item
+  scm remote update --apply --force       # Apply all updates without prompts
+  scm remote update --apply --cleanup     # Also remove items deleted from remote`,
 	RunE: runRemoteUpdate,
 }
 
@@ -118,6 +127,8 @@ func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, 
 	puller := remote.NewPuller(registry, auth)
 	opts := remote.PullOptions{
 		ItemType: itemType,
+		Force:    updateForce,
+		Blind:    updateBlind,
 	}
 
 	result, err := puller.Pull(cmd.Context(), refStr, opts)
@@ -142,18 +153,27 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 	}
 
 	entries := lockfile.AllEntries()
-	fmt.Printf("Checking %d items for updates...\n\n", len(entries))
 
 	type updateInfo struct {
-		Type      remote.ItemType
-		Ref       string
+		Type       remote.ItemType
+		Ref        string
 		CurrentSHA string
 		LatestSHA  string
 	}
 
-	var updates []updateInfo
+	var profileUpdates []updateInfo
+	var bundleUpdates []updateInfo
+	skippedEmpty := 0
+
+	fmt.Printf("Checking %d items for updates...\n\n", len(entries))
 
 	for _, e := range entries {
+		// Skip entries with empty SHA (incomplete lockfile entries)
+		if e.Entry.SHA == "" {
+			skippedEmpty++
+			continue
+		}
+
 		ref, err := remote.ParseReference(e.Ref)
 		if err != nil {
 			continue
@@ -186,25 +206,46 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 		}
 
 		if latestSHA != e.Entry.SHA {
-			updates = append(updates, updateInfo{
+			info := updateInfo{
 				Type:       e.Type,
 				Ref:        e.Ref,
 				CurrentSHA: e.Entry.SHA,
 				LatestSHA:  latestSHA,
-			})
+			}
+			// Separate profiles from bundles
+			if e.Type == remote.ItemTypeProfile {
+				profileUpdates = append(profileUpdates, info)
+			} else {
+				bundleUpdates = append(bundleUpdates, info)
+			}
 		}
 	}
 
-	if len(updates) == 0 {
+	if skippedEmpty > 0 {
+		fmt.Printf("Skipped %d entries with empty SHA (run 'scm remote lock' to clean up)\n\n", skippedEmpty)
+	}
+
+	totalUpdates := len(profileUpdates) + len(bundleUpdates)
+	if totalUpdates == 0 {
 		fmt.Println("All items are up to date!")
 		return nil
 	}
 
-	fmt.Printf("Found %d items with updates available:\n\n", len(updates))
+	fmt.Printf("Found %d items with updates available:\n\n", totalUpdates)
 
-	for _, u := range updates {
-		fmt.Printf("  %s %s\n", u.Type, u.Ref)
-		fmt.Printf("    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
+	if len(profileUpdates) > 0 {
+		fmt.Println("Profiles:")
+		for _, u := range profileUpdates {
+			fmt.Printf("  %s\n", u.Ref)
+			fmt.Printf("    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
+		}
+	}
+	if len(bundleUpdates) > 0 {
+		fmt.Println("Bundles:")
+		for _, u := range bundleUpdates {
+			fmt.Printf("  %s\n", u.Ref)
+			fmt.Printf("    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
+		}
 	}
 
 	if !updateApply {
@@ -212,41 +253,268 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 		return nil
 	}
 
-	// Apply updates
+	// Apply updates - profiles first, then bundles
 	fmt.Println("\nApplying updates...")
 	puller := remote.NewPuller(registry, auth)
 
 	updated := 0
 	failed := 0
+	var removedFromRemote []updateInfo
 
-	for _, u := range updates {
-		fmt.Printf("\nUpdating %s...\n", u.Ref)
+	// Update profiles first (they may change bundle references)
+	if len(profileUpdates) > 0 {
+		fmt.Println("\n--- Updating profiles first ---")
+		for _, u := range profileUpdates {
+			fmt.Printf("\nUpdating %s...\n", u.Ref)
 
-		opts := remote.PullOptions{
-			ItemType: u.Type,
-		}
-
-		result, err := puller.Pull(cmd.Context(), u.Ref, opts)
-		if err != nil {
-			if strings.Contains(err.Error(), "cancelled") {
-				fmt.Println("  Skipped")
-			} else {
-				fmt.Printf("  Error: %v\n", err)
-				failed++
+			opts := remote.PullOptions{
+				ItemType: u.Type,
+				Force:    updateForce,
+				Blind:    updateBlind,
+				Cascade:  true, // Pull new bundles referenced by profile
 			}
-			continue
+
+			result, err := puller.Pull(cmd.Context(), u.Ref, opts)
+			if err != nil {
+				if strings.Contains(err.Error(), "cancelled") {
+					fmt.Println("  Skipped")
+				} else if strings.Contains(err.Error(), "file not found") || strings.Contains(err.Error(), "404") {
+					fmt.Println("  Removed from remote (no longer exists)")
+					removedFromRemote = append(removedFromRemote, u)
+				} else {
+					fmt.Printf("  Error: %v\n", err)
+					failed++
+				}
+				continue
+			}
+
+			fmt.Printf("  Updated to %s\n", shortSHA(result.SHA))
+			updated++
+		}
+	}
+
+	// Update bundles
+	if len(bundleUpdates) > 0 {
+		fmt.Println("\n--- Updating bundles ---")
+		for _, u := range bundleUpdates {
+			fmt.Printf("\nUpdating %s...\n", u.Ref)
+
+			opts := remote.PullOptions{
+				ItemType: u.Type,
+				Force:    updateForce,
+				Blind:    updateBlind,
+			}
+
+			result, err := puller.Pull(cmd.Context(), u.Ref, opts)
+			if err != nil {
+				if strings.Contains(err.Error(), "cancelled") {
+					fmt.Println("  Skipped")
+				} else if strings.Contains(err.Error(), "file not found") || strings.Contains(err.Error(), "404") {
+					fmt.Println("  Removed from remote (no longer exists)")
+					removedFromRemote = append(removedFromRemote, u)
+				} else {
+					fmt.Printf("  Error: %v\n", err)
+					failed++
+				}
+				continue
+			}
+
+			fmt.Printf("  Updated to %s\n", shortSHA(result.SHA))
+			updated++
+		}
+	}
+
+	// Handle items removed from remote
+	if len(removedFromRemote) > 0 {
+		fmt.Printf("\n--- Items removed from remote ---\n")
+		fmt.Println("The following items no longer exist on the remote:")
+		for _, item := range removedFromRemote {
+			fmt.Printf("  - %s %s\n", item.Type, item.Ref)
 		}
 
-		fmt.Printf("  Updated to %s\n", shortSHA(result.SHA))
-		updated++
+		if updateCleanup {
+			fmt.Println("\nCleaning up local files...")
+			cleaned := 0
+			for _, item := range removedFromRemote {
+				// Delete local file
+				localPath := filepath.Join(".scm", item.Type.DirName(), strings.Replace(item.Ref, "/", string(filepath.Separator), 1)+".yaml")
+				if err := os.Remove(localPath); err != nil {
+					if !os.IsNotExist(err) {
+						fmt.Printf("  Warning: failed to remove %s: %v\n", localPath, err)
+					}
+				} else {
+					fmt.Printf("  Removed: %s\n", localPath)
+					cleaned++
+				}
+
+				// Remove from lockfile
+				lockfile.RemoveEntry(item.Type, item.Ref)
+			}
+
+			// Save updated lockfile
+			if cleaned > 0 {
+				if err := lockManager.Save(lockfile); err != nil {
+					fmt.Printf("  Warning: failed to update lockfile: %v\n", err)
+				} else {
+					fmt.Printf("  Updated lockfile (removed %d entries)\n", cleaned)
+				}
+			}
+		} else {
+			fmt.Println("\nUse --cleanup to remove these local files automatically.")
+		}
 	}
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
+
+	// Check for bundle issues (orphans, missing, invalid)
+	if len(profileUpdates) > 0 {
+		analysis := analyzeBundleReferences(lockfile)
+
+		// Show warnings first
+		for _, warn := range analysis.Warnings {
+			fmt.Printf("Warning: %s\n", warn)
+		}
+
+		// Show invalid references
+		if len(analysis.Invalid) > 0 {
+			fmt.Printf("\n--- Invalid bundle references ---\n")
+			fmt.Println("The following bundle references are malformed:")
+			for _, inv := range analysis.Invalid {
+				fmt.Printf("  - %s\n", inv)
+			}
+		}
+
+		// Show missing bundles
+		if len(analysis.Missing) > 0 {
+			fmt.Printf("\n--- Missing bundles ---\n")
+			fmt.Println("The following bundles are referenced but not installed:")
+			for _, missing := range analysis.Missing {
+				fmt.Printf("  - %s\n", missing)
+			}
+			fmt.Println("\nPull missing bundles with: scm remote bundles pull <name>")
+		}
+
+		// Show orphaned bundles
+		if len(analysis.Orphans) > 0 {
+			fmt.Printf("\n--- Orphaned bundles ---\n")
+			fmt.Println("The following bundles are no longer referenced by any profile:")
+			for _, orphan := range analysis.Orphans {
+				fmt.Printf("  - %s\n", orphan)
+			}
+			fmt.Println("\nTo remove orphaned bundles, delete them manually from .scm/bundles/")
+			fmt.Println("Then run 'scm remote lock' to update the lockfile.")
+		}
+	}
+
+	// Check for nonexistent default profiles
+	missingDefaults := checkDefaultProfiles()
+	if len(missingDefaults) > 0 {
+		fmt.Printf("\n--- Nonexistent default profiles ---\n")
+		fmt.Println("The following default profiles do not exist:")
+		for _, name := range missingDefaults {
+			fmt.Printf("  - %s\n", name)
+		}
+		fmt.Println("\nUpdate your scm.yaml to fix the defaults.profiles list.")
+	}
 
 	// Regenerate lockfile
 	fmt.Println("\nRun 'scm remote lock' to update the lockfile.")
 
 	return nil
+}
+
+// bundleAnalysis contains the results of analyzing bundle references.
+type bundleAnalysis struct {
+	Orphans  []string          // Bundles in lockfile but not referenced by any profile
+	Missing  []string          // Bundles referenced by profiles but not in lockfile
+	Invalid  []string          // Invalid bundle references that couldn't be parsed
+	Warnings []string          // Non-fatal warnings encountered during analysis
+}
+
+// analyzeBundleReferences checks for orphaned, missing, and invalid bundle references.
+func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
+	result := &bundleAnalysis{}
+
+	// Collect all bundle references from all profiles
+	referencedBundles := make(map[string]bool)
+
+	// Scan local profile files
+	profileDir := filepath.Join(".scm", "profiles")
+	err := filepath.Walk(profileDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// Warn but continue walking
+			result.Warnings = append(result.Warnings, fmt.Sprintf("error accessing %s: %v", path, err))
+			return nil
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("error reading %s: %v", path, err))
+			return nil
+		}
+
+		var profile struct {
+			Bundles []string `yaml:"bundles"`
+		}
+		if err := yaml.Unmarshal(content, &profile); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("invalid YAML in %s: %v", path, err))
+			return nil
+		}
+
+		for _, bundle := range profile.Bundles {
+			if bundle == "" {
+				continue
+			}
+
+			// Strip any item path suffix (e.g., #fragments/name)
+			bundleRef := bundle
+			if idx := strings.Index(bundle, "#"); idx != -1 {
+				bundleRef = bundle[:idx]
+			}
+
+			// Validate the reference format (should contain "/")
+			if !strings.Contains(bundleRef, "/") {
+				result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
+				continue
+			}
+
+			// Normalize canonical URLs to local names for comparison
+			// e.g., https://github.com/owner/scm-github@v1/bundles/name -> scm-github/name
+			ref, err := remote.ParseReference(bundleRef)
+			if err == nil && ref.IsCanonical {
+				bundleRef = ref.ToLocalName()
+			}
+
+			referencedBundles[bundleRef] = true
+		}
+		return nil
+	})
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("error walking profiles directory: %v", err))
+	}
+
+	// Find bundles in lockfile not referenced by any profile (orphans)
+	for ref := range lockfile.Bundles {
+		if !referencedBundles[ref] {
+			result.Orphans = append(result.Orphans, ref)
+		}
+	}
+
+	// Find bundles referenced by profiles but not in lockfile (missing)
+	for ref := range referencedBundles {
+		if _, exists := lockfile.Bundles[ref]; !exists {
+			// Check if the bundle file exists locally at the local name path
+			bundlePath := filepath.Join(".scm", "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
+			if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
+				result.Missing = append(result.Missing, ref)
+			}
+		}
+	}
+
+	return result
 }
 
 func shortSHA(sha string) string {
@@ -256,9 +524,46 @@ func shortSHA(sha string) string {
 	return sha
 }
 
+// checkDefaultProfiles returns names of default profiles that don't exist.
+func checkDefaultProfiles() []string {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil // Can't check if config won't load
+	}
+
+	defaultProfiles := cfg.GetDefaultProfiles()
+	if len(defaultProfiles) == 0 {
+		return nil
+	}
+
+	var missing []string
+	profileLoader := cfg.GetProfileLoader()
+
+	for _, name := range defaultProfiles {
+		// Check if profile exists in config
+		if _, exists := cfg.Profiles[name]; exists {
+			continue
+		}
+
+		// Check if profile exists as a file
+		_, err := profileLoader.Load(name)
+		if err != nil {
+			missing = append(missing, name)
+		}
+	}
+
+	return missing
+}
+
 func init() {
 	remoteCmd.AddCommand(remoteUpdateCmd)
 
 	remoteUpdateCmd.Flags().BoolVar(&updateApply, "apply", false,
 		"Apply available updates")
+	remoteUpdateCmd.Flags().BoolVar(&updateForce, "force", false,
+		"Skip confirmation prompts when applying updates")
+	remoteUpdateCmd.Flags().BoolVar(&updateBlind, "blind", false,
+		"Skip security review display (implies --force)")
+	remoteUpdateCmd.Flags().BoolVar(&updateCleanup, "cleanup", false,
+		"Remove local files for items deleted from remote")
 }

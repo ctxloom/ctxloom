@@ -44,36 +44,32 @@ var rootCmd = &cobra.Command{
 
 QUICK START
   scm run -p developer "explain this code"    Run with a profile
-  scm run -f coding-standards "review"        Run with specific fragments
-  scm bundle list                             List installed bundles
-  scm profile list                            List available profiles
+  scm fragment install scm-github/core        Install a fragment bundle
+  scm fragment edit core#fragments/coding     Edit a fragment
 
-CORE COMMANDS
+CONTENT COMMANDS
+  fragment      Manage fragments (list, show, create, delete, edit, install)
+  prompt        Manage prompts (list, show, create, delete, edit, install)
+  profile       Manage profiles (list, show, create, delete, edit, install)
+
+INFRASTRUCTURE
+  remote        Manage remotes (add, remove, list, sync, lock, update)
+  mcp           Manage MCP server configs (list, add, remove, show)
+
+WORKFLOW
   run           Assemble context and run AI
-  bundle        Manage bundles (fragments, prompts, MCP servers)
-  profile       Manage profiles (named fragment collections)
-  mcp           Run as MCP server or manage MCP server configs
-
-REMOTE CONTENT
-  remote add    Register a remote source (GitHub/GitLab)
-  remote pull   Pull profiles or bundles from remotes
-  remote list   List configured remote sources
-
-CONFIGURATION
-  hook          Hook commands for AI tool integration
-  plugin        Manage AI backend plugins
 
 KEY CONCEPTS
-  Bundles     Versioned collections of fragments, prompts, and MCP configs
   Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Profiles    Named sets of bundles/fragments with variables
-  Remotes     Git repositories for sharing content
+  Prompts     Saved prompts for common tasks
+  Profiles    Named configurations combining bundles and variables
+  Bundles     YAML files containing fragments/prompts (internal format)
+  Remotes     Git repositories for sharing content (GitHub/GitLab)
 
-CONTENT REFERENCE SYNTAX
-  bundle-name                      Entire bundle (all fragments)
-  bundle-name#fragments/name       Specific fragment from bundle
-  bundle-name#prompts/name         Specific prompt from bundle
-  remote/bundle#fragments/name     Fragment from remote bundle
+REFERENCE SYNTAX
+  bundle#fragments/name           Specific fragment from bundle
+  bundle#prompts/name             Specific prompt from bundle
+  remote/bundle                   Bundle from a remote repository
 
 Run 'scm <command> --help' for details on any command.`,
 }

@@ -169,7 +169,7 @@ func TestFetchRemoteContentResult_Warning(t *testing.T) {
 		SourceURL:  "https://github.com/test/repo",
 		FilePath:   "scm/v1/bundles/my-bundle.yaml",
 		Content:    "test: content",
-		PullToken:  "test/my-bundle@abc123def456789",
+		PullToken:  "bundle:test/my-bundle@abc123def456789",
 		Warning:    "REVIEW THIS CONTENT CAREFULLY. Malicious prompts can override AI safety guidelines, exfiltrate data, or execute unintended actions. Use confirm_pull with the pull_token to install.",
 		RemoteName: "test",
 	}
@@ -445,7 +445,7 @@ fragments:
 	assert.Equal(t, "https://github.com/test/scm", result.SourceURL)
 	assert.Equal(t, "scm/v1/bundles/my-bundle.yaml", result.FilePath)
 	assert.Contains(t, result.Content, "Security guidelines")
-	assert.Equal(t, "test-remote/my-bundle@abc123def456789fedcba", result.PullToken)
+	assert.Equal(t, "bundle:test-remote/my-bundle@abc123def456789fedcba", result.PullToken)
 	assert.Contains(t, result.Warning, "REVIEW THIS CONTENT CAREFULLY")
 	assert.Equal(t, "test-remote", result.RemoteName)
 

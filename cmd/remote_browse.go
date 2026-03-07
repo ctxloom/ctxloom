@@ -10,57 +10,66 @@ import (
 	"github.com/benjaminabbitt/scm/internal/operations"
 )
 
-var browseRecursive bool
+var (
+	browseRecursive bool
+	browseType      string
+)
 
-var remoteBundlesBrowseCmd = &cobra.Command{
+var remoteBrowseCmd = &cobra.Command{
 	Use:   "browse <remote>",
-	Short: "List available bundles in a remote",
-	Long: `List bundles available in a remote repository.
+	Short: "Browse bundles and profiles in a remote",
+	Long: `List bundles and profiles available in a remote repository.
+
+By default shows both bundles and profiles. Use --type to filter.
 
 Examples:
-  scm remote bundles browse alice
-  scm remote bundles browse alice --recursive`,
+  scm remote browse scm-github
+  scm remote browse scm-github --type bundle
+  scm remote browse scm-github --type profile`,
 	Args: cobra.ExactArgs(1),
-	RunE: runRemoteBrowse("bundle"),
+	RunE: runRemoteBrowse,
 }
 
-var remoteProfilesBrowseCmd = &cobra.Command{
-	Use:   "browse <remote>",
-	Short: "List available profiles in a remote",
-	Long: `List profiles available in a remote repository.
+func runRemoteBrowse(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
 
-Examples:
-  scm remote profiles browse alice
-  scm remote profiles browse alice --recursive`,
-	Args: cobra.ExactArgs(1),
-	RunE: runRemoteBrowse("profile"),
-}
+	remoteName := args[0]
 
-// runRemoteBrowse returns a RunE function for browsing items of the specified type.
-func runRemoteBrowse(itemType string) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
+	// Determine which types to browse
+	types := []string{"bundle", "profile"}
+	if browseType != "" {
+		types = []string{browseType}
+	}
 
+	totalCount := 0
+
+	for _, itemType := range types {
 		result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
-			Remote:    args[0],
+			Remote:    remoteName,
 			ItemType:  itemType,
 			Recursive: browseRecursive,
 		})
 		if err != nil {
-			return err
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to browse %ss: %v\n", itemType, err)
+			continue
 		}
 
 		if result.Count == 0 {
-			fmt.Printf("No %ss found in %s\n", itemType, result.Remote)
-			return nil
+			continue
 		}
+
+		totalCount += result.Count
 
 		// Display results
 		title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
-		fmt.Printf("%s in %s (%s):\n\n", title, result.Remote, result.URL)
+		if len(types) > 1 {
+			fmt.Printf("\n%s:\n", title)
+		} else {
+			fmt.Printf("%s in %s (%s):\n\n", title, result.Remote, result.URL)
+		}
 
 		// Sort entries by path
 		items := result.Items
@@ -71,25 +80,24 @@ func runRemoteBrowse(itemType string) func(*cobra.Command, []string) error {
 		for _, item := range items {
 			fmt.Printf("  %s\n", item.PullRef)
 		}
+	}
 
-		fmt.Println()
-		fmt.Printf("Pull with: scm remote %ss pull %s/<name>\n", itemType, result.Remote)
-
+	if totalCount == 0 {
+		fmt.Printf("No bundles or profiles found in %s\n", remoteName)
 		return nil
 	}
+
+	fmt.Println()
+	fmt.Println("Install with: scm install <reference>")
+
+	return nil
 }
 
 func init() {
-	// Add browse to bundle and profile commands
-	remoteBundlesCmd.AddCommand(remoteBundlesBrowseCmd)
-	remoteProfilesCmd.AddCommand(remoteProfilesBrowseCmd)
+	remoteCmd.AddCommand(remoteBrowseCmd)
 
-	// Flags for browse commands
-	for _, cmd := range []*cobra.Command{
-		remoteBundlesBrowseCmd,
-		remoteProfilesBrowseCmd,
-	} {
-		cmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
-			"List items in subdirectories")
-	}
+	remoteBrowseCmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
+		"List items in subdirectories")
+	remoteBrowseCmd.Flags().StringVarP(&browseType, "type", "t", "",
+		"Filter by type: bundle or profile")
 }

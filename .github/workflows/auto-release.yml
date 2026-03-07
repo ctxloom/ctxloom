@@ -44,6 +44,11 @@ jobs:
       - name: Bump patch version
         run: |
           versionator patch increment
+          # versionator v0.0.4 strips the v prefix, so re-add it
+          VERSION=$(cat VERSION)
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            echo "v$VERSION" > VERSION
+          fi
           echo "New version: $(cat VERSION)"
 
       - name: Get new version

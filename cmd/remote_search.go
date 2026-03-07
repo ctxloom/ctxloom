@@ -13,10 +13,14 @@ import (
 	"github.com/benjaminabbitt/scm/internal/remote"
 )
 
-var remoteBundlesSearchCmd = &cobra.Command{
+var searchType string
+
+var remoteSearchCmd = &cobra.Command{
 	Use:   "search <query>",
-	Short: "Search for bundles across configured remotes",
-	Long: `Search for bundles across all configured remotes.
+	Short: "Search for bundles and profiles across remotes",
+	Long: `Search for bundles and profiles across all configured remotes.
+
+By default searches both bundles and profiles. Use --type to filter.
 
 Query syntax:
   Plain text         Full-text search on name and description
@@ -27,110 +31,109 @@ Query syntax:
   version:spec       Version constraint
 
 Examples:
-  scm remote bundles search go-tools
-  scm remote bundles search "tag:golang/testing"
-  scm remote bundles search "tag:security author:alice"`,
+  scm remote search golang
+  scm remote search "tag:golang/testing"
+  scm remote search security --type bundle
+  scm remote search "tag:enterprise author:alice"`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: runRemoteSearch(remote.ItemTypeBundle),
+	RunE: runRemoteSearch,
 }
 
-var remoteProfilesSearchCmd = &cobra.Command{
-	Use:   "search <query>",
-	Short: "Search for profiles across configured remotes",
-	Long: `Search for profiles across all configured remotes.
+func runRemoteSearch(cmd *cobra.Command, args []string) error {
+	queryStr := strings.Join(args, " ")
+	query := remote.ParseSearchQuery(queryStr)
 
-Query syntax is the same as bundle search.
+	registry, err := remote.NewRegistry("")
+	if err != nil {
+		return fmt.Errorf("failed to initialize registry: %w", err)
+	}
 
-Examples:
-  scm remote profiles search security
-  scm remote profiles search "tag:enterprise"`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runRemoteSearch(remote.ItemTypeProfile),
-}
+	remotes := registry.List()
+	if len(remotes) == 0 {
+		fmt.Println("No remotes configured. Add one with: scm remote add <name> <url>")
+		return nil
+	}
 
-// runRemoteSearch returns a RunE function for searching items of the specified type.
-func runRemoteSearch(itemType remote.ItemType) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		queryStr := strings.Join(args, " ")
-		query := remote.ParseSearchQuery(queryStr)
+	auth := remote.LoadAuth("")
 
-		registry, err := remote.NewRegistry("")
-		if err != nil {
-			return fmt.Errorf("failed to initialize registry: %w", err)
-		}
+	// Determine which types to search
+	types := []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
+	if searchType == "bundle" {
+		types = []remote.ItemType{remote.ItemTypeBundle}
+	} else if searchType == "profile" {
+		types = []remote.ItemType{remote.ItemTypeProfile}
+	}
 
-		remotes := registry.List()
-		if len(remotes) == 0 {
-			fmt.Println("No remotes configured. Add one with: scm remote add <name> <url>")
-			return nil
-		}
+	// Search all remotes and types in parallel
+	var wg sync.WaitGroup
+	resultsCh := make(chan []remote.SearchResult, len(remotes)*len(types))
+	errorsCh := make(chan error, len(remotes)*len(types))
 
-		auth := remote.LoadAuth("")
-
-		// Search all remotes in parallel
-		var wg sync.WaitGroup
-		resultsCh := make(chan []remote.SearchResult, len(remotes))
-		errorsCh := make(chan error, len(remotes))
-
-		for _, rem := range remotes {
+	for _, rem := range remotes {
+		for _, itemType := range types {
 			wg.Add(1)
-			go func(r *remote.Remote) {
+			go func(r *remote.Remote, t remote.ItemType) {
 				defer wg.Done()
 
-				results, err := searchRemote(cmd.Context(), r, itemType, query, auth)
+				results, err := searchRemote(cmd.Context(), r, t, query, auth)
 				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", r.Name, err)
+					errorsCh <- fmt.Errorf("%s (%s): %w", r.Name, t, err)
 					return
 				}
 				resultsCh <- results
-			}(rem)
+			}(rem, itemType)
 		}
+	}
 
-		wg.Wait()
-		close(resultsCh)
-		close(errorsCh)
+	wg.Wait()
+	close(resultsCh)
+	close(errorsCh)
 
-		// Collect results
-		var allResults []remote.SearchResult
-		for results := range resultsCh {
-			allResults = append(allResults, results...)
-		}
+	// Collect results
+	var allResults []remote.SearchResult
+	for results := range resultsCh {
+		allResults = append(allResults, results...)
+	}
 
-		// Print errors
-		for err := range errorsCh {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-		}
+	// Print errors
+	for err := range errorsCh {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
 
-		if len(allResults) == 0 {
-			fmt.Printf("No %s found matching: %s\n", itemType.Plural(), queryStr)
-			return nil
-		}
-
-		// Display results
-		fmt.Printf("Found %d %s matching: %s\n\n", len(allResults), itemType.Plural(), queryStr)
-		fmt.Printf("  %-12s │ %-20s │ %-30s │ %s\n", "Remote", "Name", "Tags", "Author")
-		fmt.Printf("──────────────┼──────────────────────┼────────────────────────────────┼────────────\n")
-
-		for _, r := range allResults {
-			tags := strings.Join(r.Entry.Tags, ", ")
-			if len(tags) > 28 {
-				tags = tags[:25] + "..."
-			}
-
-			name := r.Entry.Name
-			if len(name) > 18 {
-				name = name[:15] + "..."
-			}
-
-			fmt.Printf("  %-12s │ %-20s │ %-30s │ %s\n",
-				r.Remote, name, tags, r.Entry.Author)
-		}
-
-		fmt.Println()
-		fmt.Printf("Pull with: scm remote %s pull <remote>/<name>\n", itemType.Plural())
-
+	if len(allResults) == 0 {
+		fmt.Printf("No results found matching: %s\n", queryStr)
 		return nil
 	}
+
+	// Display results
+	fmt.Printf("Found %d results matching: %s\n\n", len(allResults), queryStr)
+	fmt.Printf("  %-8s │ %-12s │ %-20s │ %-25s │ %s\n", "Type", "Remote", "Name", "Tags", "Author")
+	fmt.Printf("──────────┼──────────────┼──────────────────────┼───────────────────────────┼────────────\n")
+
+	for _, r := range allResults {
+		tags := strings.Join(r.Entry.Tags, ", ")
+		if len(tags) > 23 {
+			tags = tags[:20] + "..."
+		}
+
+		name := r.Entry.Name
+		if len(name) > 18 {
+			name = name[:15] + "..."
+		}
+
+		itemType := "bundle"
+		if r.ItemType == remote.ItemTypeProfile {
+			itemType = "profile"
+		}
+
+		fmt.Printf("  %-8s │ %-12s │ %-20s │ %-25s │ %s\n",
+			itemType, r.Remote, name, tags, r.Entry.Author)
+	}
+
+	fmt.Println()
+	fmt.Println("Install with: scm install <remote>/<name>")
+
+	return nil
 }
 
 // searchRemote searches a single remote for matching items.
@@ -185,6 +188,7 @@ func searchManifest(rem *remote.Remote, content []byte, itemType remote.ItemType
 				Remote:    rem.Name,
 				Entry:     entry,
 				RemoteURL: rem.URL,
+				ItemType:  itemType,
 			})
 		}
 	}
@@ -220,6 +224,7 @@ func searchDirectory(ctx context.Context, fetcher remote.Fetcher, rem *remote.Re
 				Remote:    rem.Name,
 				Entry:     manifestEntry,
 				RemoteURL: rem.URL,
+				ItemType:  itemType,
 			})
 		}
 	}
@@ -228,7 +233,8 @@ func searchDirectory(ctx context.Context, fetcher remote.Fetcher, rem *remote.Re
 }
 
 func init() {
-	// Add search to bundle and profile commands
-	remoteBundlesCmd.AddCommand(remoteBundlesSearchCmd)
-	remoteProfilesCmd.AddCommand(remoteProfilesSearchCmd)
+	remoteCmd.AddCommand(remoteSearchCmd)
+
+	remoteSearchCmd.Flags().StringVarP(&searchType, "type", "t", "",
+		"Filter by type: bundle or profile")
 }

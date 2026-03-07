@@ -274,7 +274,7 @@ func (c *ClaudeContext) Provide(workDir string, fragments []*Fragment) error {
 func (c *ClaudeContext) Clear(workDir string) error {
 	if c.contextHash != "" {
 		contextPath := filepath.Join(workDir, SCMContextSubdir, c.contextHash+".md")
-		os.Remove(contextPath)
+		_ = os.Remove(contextPath)
 		c.contextHash = ""
 	}
 	return nil

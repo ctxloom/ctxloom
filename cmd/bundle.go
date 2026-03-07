@@ -1433,7 +1433,7 @@ func editInEditor(cfg *config.Config, content, filename string) (string, error) 
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Get editor command
 	editor := cfg.Editor.Command

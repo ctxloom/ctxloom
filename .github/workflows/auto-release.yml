@@ -33,7 +33,7 @@ jobs:
 
       - name: Install versionator
         run: |
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
           chmod +x /usr/local/bin/versionator
 
       - name: Get current version
@@ -44,11 +44,6 @@ jobs:
       - name: Bump patch version
         run: |
           versionator patch increment
-          # versionator v0.0.4 strips the v prefix, so re-add it
-          VERSION=$(cat VERSION)
-          if [[ ! "$VERSION" =~ ^v ]]; then
-            echo "v$VERSION" > VERSION
-          fi
           echo "New version: $(cat VERSION)"
 
       - name: Get new version

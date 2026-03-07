@@ -25,7 +25,7 @@ jobs:
           # Install just
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
           # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
           chmod +x /usr/local/bin/versionator
           # Install buf
           curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
@@ -76,7 +76,7 @@ jobs:
           # Install just
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
           # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
           chmod +x /usr/local/bin/versionator
           # Install buf
           curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
@@ -109,7 +109,7 @@ jobs:
           # Install just
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
           # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
           chmod +x /usr/local/bin/versionator
           # Install buf
           curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf

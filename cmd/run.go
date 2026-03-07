@@ -179,8 +179,11 @@ Examples:
 						for fragName := range bundle.Fragments {
 							allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", bundlePath, fragName))
 						}
+					} else if contentRef.IsURL {
+						// Canonical URL bundle not found - give clear error with suggestion
+						return fmt.Errorf("bundle not installed: %s\n\nTry running: scm remote bundles pull %s", ref, bundlePath)
 					} else {
-						// Bundle not found - treat as simple fragment name
+						// Non-URL bundle not found - treat as simple fragment name
 						// GetFragment will search bundles and legacy dirs
 						allRefs = append(allRefs, ref)
 					}
@@ -221,7 +224,9 @@ Examples:
 		for _, ref := range allRefs {
 			content, err := bundleLoader.GetFragment(ref)
 			if err != nil {
-				return fmt.Errorf("fragment not found: %s", ref)
+				// Warn and skip missing fragments (fault tolerance)
+				warnFunc(fmt.Sprintf("fragment not found: %s (skipping)", ref))
+				continue
 			}
 			// Apply variable substitution
 			renderedContent := substituteVariables(content.Content, profileVars, warnFunc)
@@ -233,6 +238,12 @@ Examples:
 				IsDistilled: content.IsDistilled,
 				DistilledBy: content.DistilledBy,
 			})
+		}
+
+		// If user explicitly requested fragments (-f flags) but none loaded, that's an error
+		// This catches the case where all explicitly requested fragments are missing
+		if len(runFragments) > 0 && len(protoFragments) == 0 {
+			return fmt.Errorf("no fragments loaded: all requested fragments not found")
 		}
 
 		// Determine execution mode

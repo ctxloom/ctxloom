@@ -102,15 +102,15 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 		response.WriteString(customResponse)
 	} else {
 		// Default echo behavior
-		response.WriteString(fmt.Sprintf("[mock] mode=%d\n", req.Mode))
-		response.WriteString(fmt.Sprintf("[mock] fragments=%d\n", len(b.fragments)))
+		_, _ = fmt.Fprintf(&response, "[mock] mode=%d\n", req.Mode)
+		_, _ = fmt.Fprintf(&response, "[mock] fragments=%d\n", len(b.fragments))
 
 		if contextStr != "" {
-			response.WriteString(fmt.Sprintf("[mock] context_length=%d\n", len(contextStr)))
+			_, _ = fmt.Fprintf(&response, "[mock] context_length=%d\n", len(contextStr))
 		}
 
 		if promptContent != "" {
-			response.WriteString(fmt.Sprintf("[mock] prompt=%s\n", promptContent))
+			_, _ = fmt.Fprintf(&response, "[mock] prompt=%s\n", promptContent)
 		}
 
 		// For distillation testing, return a compressed version

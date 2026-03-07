@@ -533,15 +533,15 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 		_, _ = fmt.Fprint(w, contentStr)
 	}
 
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "─────────────────── CONTENT END ─────────────────────")
-	fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "─────────────────── CONTENT END ─────────────────────")
+	_, _ = fmt.Fprintln(w, "")
 }
 
 // promptConfirmation asks the user for yes/no confirmation.
 // Default is NO - user must explicitly type 'y' or 'yes'.
 func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
-	fmt.Fprintf(w, "%s [y/N]: ", prompt)
+	_, _ = fmt.Fprintf(w, "%s [y/N]: ", prompt)
 
 	scanner := bufio.NewScanner(r)
 	if !scanner.Scan() {
@@ -638,7 +638,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 	}
 
 	// Transform the bundles
-	fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
+	_, _ = fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
 
 	lockfile, err := p.lockfileManager.Load()
 	if err != nil {
@@ -673,7 +673,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 
 		parsed, err := ParseReference(urlPart)
 		if err != nil {
-			fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", bundleStr, err)
+			_, _ = fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", bundleStr, err)
 			transformedBundles = append(transformedBundles, bundleStr)
 			continue
 		}
@@ -681,7 +681,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 		// Get or create a local remote for this URL
 		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL, parsed.Version)
 		if err != nil {
-			fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
+			_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
 			transformedBundles = append(transformedBundles, bundleStr)
 			continue
 		}
@@ -701,7 +701,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 		// Build local reference with item path if present
 		localRef := localName + itemPath
 
-		fmt.Fprintf(w, "  %s -> %s\n", bundleStr, localRef)
+		_, _ = fmt.Fprintf(w, "  %s -> %s\n", bundleStr, localRef)
 		transformedBundles = append(transformedBundles, localRef)
 	}
 

@@ -392,7 +392,7 @@ func setupBundleTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	fs.MkdirAll("/project/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/project/.scm/bundles", 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -422,7 +422,7 @@ prompts:
       # Refactoring
       Refactor this code for clarity
 `
-	afero.WriteFile(fs, "/project/.scm/bundles/test-bundle.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/bundles/test-bundle.yaml", []byte(bundleContent), 0644)
 
 	// Create another bundle
 	anotherBundle := `version: "1.0"
@@ -431,7 +431,7 @@ fragments:
     tags: ["python", "scripting"]
     content: Python development tips
 `
-	afero.WriteFile(fs, "/project/.scm/bundles/another.yaml", []byte(anotherBundle), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/bundles/another.yaml", []byte(anotherBundle), 0644)
 
 	loader := bundles.NewLoader([]string{"/project/.scm/bundles"}, false, bundles.WithFS(fs))
 	return fs, loader

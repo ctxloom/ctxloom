@@ -403,7 +403,7 @@ func TestWriteRemoteItem_CreatesDirectories(t *testing.T) {
 func setupPullTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	fs.MkdirAll("/project/.scm", 0755)
+	_ = fs.MkdirAll("/project/.scm", 0755)
 
 	registry, err := remote.NewRegistry("/project/.scm/remotes.yaml", remote.WithRegistryFS(fs))
 	require.NoError(t, err)

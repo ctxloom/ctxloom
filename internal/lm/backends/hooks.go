@@ -170,16 +170,6 @@ type claudeCodeHook struct {
 	SCM     string `json:"_scm,omitempty"` // Hash identifying SCM-managed hooks
 }
 
-// unifiedEventToClaudeCode maps unified event names to Claude Code event names.
-var unifiedEventToClaudeCode = map[string]string{
-	"pre_tool":       "PreToolUse",
-	"post_tool":      "PostToolUse",
-	"session_start":  "SessionStart",
-	"session_end":    "SessionEnd",
-	"pre_shell":      "PreToolUse", // Maps to PreToolUse with Bash matcher
-	"post_file_edit": "PostToolUse", // Maps to PostToolUse with Edit|Write matcher
-}
-
 // WriteSettings implements SettingsWriter for Claude Code.
 // Hooks are written to .claude/settings.json
 // MCP servers are written to .mcp.json (where variable expansion works)
@@ -279,7 +269,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	output := make(map[string]interface{})
 	for k, v := range settings.Other {
 		var val interface{}
-		json.Unmarshal(v, &val)
+		_ = json.Unmarshal(v, &val)
 		output[k] = val
 	}
 
@@ -680,7 +670,7 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 	output := make(map[string]interface{})
 	for k, v := range settings.Other {
 		var val interface{}
-		json.Unmarshal(v, &val)
+		_ = json.Unmarshal(v, &val)
 		output[k] = val
 	}
 

@@ -167,9 +167,7 @@ func (f *FragmentBuilder) String() string {
 	// Build content from context builder
 	var contentParts []string
 	for _, s := range f.context.sections {
-		for _, c := range s.content {
-			contentParts = append(contentParts, c)
-		}
+		contentParts = append(contentParts, s.content...)
 	}
 
 	// Content section

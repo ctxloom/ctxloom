@@ -105,7 +105,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 
 	// Create existing settings with user hooks (no _scm field)
 	claudeDir := filepath.Join(tmpDir, ".claude")
-	os.MkdirAll(claudeDir, 0755)
+	_ = os.MkdirAll(claudeDir, 0755)
 
 	existingSettings := map[string]interface{}{
 		"hooks": map[string]interface{}{
@@ -125,7 +125,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 		"otherSetting": "preserved",
 	}
 	data, _ := json.Marshal(existingSettings)
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
 	// Write SCM hooks
 	cfg := &config.HooksConfig{
@@ -146,7 +146,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	data, _ = os.ReadFile(settingsPath)
 
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	// otherSetting should be preserved
 	if settings["otherSetting"] != "preserved" {
@@ -176,7 +176,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 
 	// Create existing settings with SCM hooks (_scm field present)
 	claudeDir := filepath.Join(tmpDir, ".claude")
-	os.MkdirAll(claudeDir, 0755)
+	_ = os.MkdirAll(claudeDir, 0755)
 
 	existingSettings := map[string]interface{}{
 		"hooks": map[string]interface{}{
@@ -195,7 +195,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(existingSettings)
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
 	// Write new SCM hooks
 	cfg := &config.HooksConfig{
@@ -216,7 +216,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	data, _ = os.ReadFile(settingsPath)
 
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	hooks := settings["hooks"].(map[string]interface{})
 	preToolUse := hooks["PreToolUse"].([]interface{})
@@ -258,7 +258,7 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 	data, _ := os.ReadFile(settingsPath)
 
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	hooks := settings["hooks"].(map[string]interface{})
 
@@ -323,7 +323,7 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	data, _ := os.ReadFile(settingsPath)
 
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	hooks := settings["hooks"].(map[string]interface{})
 
@@ -420,7 +420,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
 	if data, err := os.ReadFile(settingsPath); err == nil {
 		var settings map[string]interface{}
-		json.Unmarshal(data, &settings)
+		_ = json.Unmarshal(data, &settings)
 		if _, ok := settings["mcpServers"]; ok {
 			t.Error("settings.json should NOT contain mcpServers (they belong in .mcp.json)")
 		}
@@ -447,7 +447,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	}
 
 	data, _ := json.MarshalIndent(existingMCP, "", "  ")
-	os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
 	// Write hooks with SCM config
 	cfg := &config.HooksConfig{}
@@ -461,7 +461,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	data, _ = os.ReadFile(mcpPath)
 
 	var mcpConfig map[string]interface{}
-	json.Unmarshal(data, &mcpConfig)
+	_ = json.Unmarshal(data, &mcpConfig)
 
 	mcpServers := mcpConfig["mcpServers"].(map[string]interface{})
 
@@ -502,7 +502,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	}
 
 	data, _ := json.MarshalIndent(existingMCP, "", "  ")
-	os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
 	// Write hooks - should update SCM server
 	cfg := &config.HooksConfig{}
@@ -516,7 +516,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	data, _ = os.ReadFile(mcpPath)
 
 	var mcpConfig map[string]interface{}
-	json.Unmarshal(data, &mcpConfig)
+	_ = json.Unmarshal(data, &mcpConfig)
 
 	mcpServers := mcpConfig["mcpServers"].(map[string]interface{})
 
@@ -601,13 +601,13 @@ func TestGeminiHookWriter_PreservesUserSettings(t *testing.T) {
 	writer := &GeminiHookWriter{FS: fs}
 
 	// Create existing settings with user config
-	fs.MkdirAll("/project/.gemini", 0755)
+	_ = fs.MkdirAll("/project/.gemini", 0755)
 	existingSettings := map[string]interface{}{
 		"userSetting": "preserved",
 		"model":       "gemini-pro",
 	}
 	data, _ := json.Marshal(existingSettings)
-	afero.WriteFile(fs, "/project/.gemini/settings.json", data, 0644)
+	_ = afero.WriteFile(fs, "/project/.gemini/settings.json", data, 0644)
 
 	// Write SCM hooks
 	cfg := &config.HooksConfig{
@@ -622,7 +622,7 @@ func TestGeminiHookWriter_PreservesUserSettings(t *testing.T) {
 	// Read back and verify user settings preserved
 	data, _ = afero.ReadFile(fs, "/project/.gemini/settings.json")
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	assert.Equal(t, "preserved", settings["userSetting"])
 	assert.Equal(t, "gemini-pro", settings["model"])
@@ -648,7 +648,7 @@ func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
 	// Verify MCP servers written
 	data, _ := afero.ReadFile(fs, "/project/.gemini/settings.json")
 	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
+	_ = json.Unmarshal(data, &settings)
 
 	// Gemini should have mcpServers in settings
 	mcpServers, ok := settings["mcpServers"].(map[string]interface{})

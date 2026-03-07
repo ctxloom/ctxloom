@@ -338,7 +338,7 @@ func setupProfileTestFS(t *testing.T) (afero.Fs, *profiles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create profiles directory
-	fs.MkdirAll("/project/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/project/.scm/profiles", 0755)
 
 	// Create test profiles
 	baseProfile := `description: Base development profile
@@ -348,7 +348,7 @@ tags:
 bundles:
   - core
 `
-	afero.WriteFile(fs, "/project/.scm/profiles/base.yaml", []byte(baseProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/profiles/base.yaml", []byte(baseProfile), 0644)
 
 	goDevProfile := `description: Go developer profile
 parents:
@@ -362,7 +362,7 @@ bundles:
 variables:
   GOPROXY: "https://proxy.golang.org"
 `
-	afero.WriteFile(fs, "/project/.scm/profiles/go-developer.yaml", []byte(goDevProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/profiles/go-developer.yaml", []byte(goDevProfile), 0644)
 
 	frontendProfile := `description: Frontend developer profile
 tags:
@@ -372,7 +372,7 @@ bundles:
   - react
   - typescript
 `
-	afero.WriteFile(fs, "/project/.scm/profiles/frontend.yaml", []byte(frontendProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/profiles/frontend.yaml", []byte(frontendProfile), 0644)
 
 	loader := profiles.NewLoader([]string{"/project/.scm/profiles"}, profiles.WithFS(fs))
 	return fs, loader

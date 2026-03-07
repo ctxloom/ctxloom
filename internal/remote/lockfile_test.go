@@ -507,12 +507,11 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 }
 
 func TestLockfileManager_Load_ReadError(t *testing.T) {
-	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists
 	baseFs := afero.NewMemMapFs()
 	_ = afero.WriteFile(baseFs, "/test/lock.yaml", []byte("version: 1\n"), 0000)
-	fs = afero.NewReadOnlyFs(baseFs)
+	fs := afero.NewReadOnlyFs(baseFs)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	_, err := manager.Load()

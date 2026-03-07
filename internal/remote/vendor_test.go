@@ -71,8 +71,8 @@ func TestVendorManager_GetVendored(t *testing.T) {
 
 	// Create vendored file
 	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "alice", "security.yaml")
-	os.MkdirAll(filepath.Dir(vendorPath), 0755)
-	os.WriteFile(vendorPath, content, 0644)
+	_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
+	_ = os.WriteFile(vendorPath, content, 0644)
 
 	// Get vendored content
 	got, err := manager.GetVendored(ItemTypeBundle, ref)
@@ -105,8 +105,8 @@ func TestVendorManager_NestedPath(t *testing.T) {
 
 	// Create vendored file with nested path
 	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "alice", "lang", "go", "testing.yaml")
-	os.MkdirAll(filepath.Dir(vendorPath), 0755)
-	os.WriteFile(vendorPath, content, 0644)
+	_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
+	_ = os.WriteFile(vendorPath, content, 0644)
 
 	if !manager.HasVendored(ItemTypeBundle, ref) {
 		t.Error("expected HasVendored to return true for nested path")
@@ -134,8 +134,8 @@ func TestVendorManager_DifferentItemTypes(t *testing.T) {
 	// Create files for different types (bundles and profiles only)
 	for _, itemType := range []ItemType{ItemTypeBundle, ItemTypeProfile} {
 		vendorPath := filepath.Join(manager.VendorDir(), itemType.DirName(), "alice", "test.yaml")
-		os.MkdirAll(filepath.Dir(vendorPath), 0755)
-		os.WriteFile(vendorPath, []byte(string(itemType)), 0644)
+		_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
+		_ = os.WriteFile(vendorPath, []byte(string(itemType)), 0644)
 	}
 
 	// Verify each type is found correctly

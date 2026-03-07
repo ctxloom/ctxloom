@@ -1,13 +1,13 @@
 package backends
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/benjaminabbitt/scm/internal/ptyrunner"
-	"golang.org/x/net/context"
 )
 
 // BaseBackend provides common functionality for all AI backends.

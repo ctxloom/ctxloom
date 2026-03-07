@@ -274,9 +274,9 @@ func TestWriteCommandFilesCleanup(t *testing.T) {
 	scmDir := filepath.Join(tmpDir, ".claude", "commands", "scm")
 
 	// Create a stale file
-	os.MkdirAll(scmDir, 0755)
+	_ = os.MkdirAll(scmDir, 0755)
 	stalePath := filepath.Join(scmDir, "stale.md")
-	os.WriteFile(stalePath, []byte("stale content"), 0644)
+	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
 
 	// Write new commands (empty list - should still clean up)
 	prompts := []*bundles.LoadedContent{
@@ -308,9 +308,9 @@ func TestWriteCommandFilesEmptyPrompts(t *testing.T) {
 	scmDir := filepath.Join(tmpDir, ".claude", "commands", "scm")
 
 	// Pre-create directory with file
-	os.MkdirAll(scmDir, 0755)
+	_ = os.MkdirAll(scmDir, 0755)
 	stalePath := filepath.Join(scmDir, "stale.md")
-	os.WriteFile(stalePath, []byte("stale content"), 0644)
+	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
 
 	// Write with no prompts
 	err := WriteCommandFiles(tmpDir, nil)

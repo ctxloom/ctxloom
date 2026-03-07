@@ -59,7 +59,7 @@ func TestReplaceManager_Remove(t *testing.T) {
 	}
 
 	// Add and remove
-	manager.Add("alice/security", localFile)
+	_ = manager.Add("alice/security", localFile)
 	if err := manager.Remove("alice/security"); err != nil {
 		t.Fatalf("Remove failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestReplaceManager_List(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	localFile := filepath.Join(tmpDir, "local.yaml")
-	os.WriteFile(localFile, []byte("test"), 0644)
+	_ = os.WriteFile(localFile, []byte("test"), 0644)
 
 	manager, err := NewReplaceManager(configPath)
 	if err != nil {
@@ -94,8 +94,8 @@ func TestReplaceManager_List(t *testing.T) {
 	}
 
 	// Add items
-	manager.Add("alice/security", localFile)
-	manager.Add("bob/other", localFile)
+	_ = manager.Add("alice/security", localFile)
+	_ = manager.Add("bob/other", localFile)
 
 	list = manager.List()
 	if len(list) != 2 {
@@ -118,7 +118,7 @@ func TestReplaceManager_LoadReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manager.Add("alice/security", localFile)
+	_ = manager.Add("alice/security", localFile)
 
 	// Load replaced content
 	loaded, err := manager.LoadReplaced("alice/security")
@@ -158,11 +158,11 @@ func TestReplaceManager_Persistence(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	localFile := filepath.Join(tmpDir, "local.yaml")
-	os.WriteFile(localFile, []byte("test"), 0644)
+	_ = os.WriteFile(localFile, []byte("test"), 0644)
 
 	// Create manager and add replace
 	manager1, _ := NewReplaceManager(configPath)
-	manager1.Add("alice/security", localFile)
+	_ = manager1.Add("alice/security", localFile)
 
 	// Create new manager and verify persistence
 	manager2, _ := NewReplaceManager(configPath)

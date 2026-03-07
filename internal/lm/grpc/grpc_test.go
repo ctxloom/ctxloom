@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"testing"
 
 	"github.com/benjaminabbitt/scm/internal/lm/backends"
@@ -257,7 +258,7 @@ func TestAIPluginGRPC_GRPCClient(t *testing.T) {
 	// GRPCClient requires a connection, but we can verify it doesn't panic
 	// with nil broker (broker is only used for advanced scenarios)
 	// Passing nil conn creates a client wrapper around a nil connection
-	result, err := plugin.GRPCClient(nil, nil, nil)
+	result, err := plugin.GRPCClient(context.TODO(), nil, nil)
 
 	// The function creates a client wrapper even with nil conn
 	// The actual RPC calls would fail, but creation succeeds

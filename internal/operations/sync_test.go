@@ -100,7 +100,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	}
 
 	// Create the profiles directory
-	fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
 
 	bundles, profiles, err := collectRemoteReferences(cfg, nil, fs)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 	}
 
 	// Create the profiles directory
-	fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS: fs,
@@ -193,11 +193,11 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 	}
 
 	// Create necessary directories
-	fs.MkdirAll("/test/.scm/profiles", 0755)
-	fs.MkdirAll("/test/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/bundles", 0755)
 
 	// Create registry with test remote
-	afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
@@ -249,12 +249,12 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	}
 
 	// Create necessary directories and existing bundle
-	fs.MkdirAll("/test/.scm/profiles", 0755)
-	fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
@@ -302,12 +302,12 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 	}
 
 	// Create necessary directories and existing bundle
-	fs.MkdirAll("/test/.scm/profiles", 0755)
-	fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
@@ -362,11 +362,11 @@ func TestCheckMissingDependencies(t *testing.T) {
 	}
 
 	// Create directories
-	fs.MkdirAll("/test/.scm/profiles", 0755)
-	fs.MkdirAll("/test/.scm/bundles/github", 0755)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
 
 	// Install one bundle
-	afero.WriteFile(fs, "/test/.scm/bundles/github/security.yaml", []byte("version: 1"), 0644)
+	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/security.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -401,9 +401,9 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	}
 
 	// Create directories and install bundle
-	fs.MkdirAll("/test/.scm/profiles", 0755)
-	fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -443,7 +443,7 @@ func TestSyncOnStartup(t *testing.T) {
 	}
 
 	// Create profiles directory
-	fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
 
 	// With only local bundles, should return up_to_date or empty
 	result, err := SyncOnStartup(context.Background(), cfg)

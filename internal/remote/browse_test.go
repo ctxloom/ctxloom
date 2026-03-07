@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"testing"
 )
 
@@ -62,7 +63,7 @@ func TestMockFetcher_ListDir(t *testing.T) {
 	fetcher := newMockFetcher()
 
 	// Test empty directory listing
-	entries, err := fetcher.ListDir(nil, "owner", "repo", "path", "ref")
+	entries, err := fetcher.ListDir(context.TODO(), "owner", "repo", "path", "ref")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

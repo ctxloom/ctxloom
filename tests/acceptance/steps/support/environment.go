@@ -54,24 +54,24 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 
 	// Create home directory structure
 	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "bundles"), 0755); err != nil {
-		env.Cleanup()
+		_ = env.Cleanup()
 		return nil, fmt.Errorf("failed to create home .scm/bundles: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "profiles"), 0755); err != nil {
-		env.Cleanup()
+		_ = env.Cleanup()
 		return nil, fmt.Errorf("failed to create home .scm/profiles: %w", err)
 	}
 
 	// Create project directory
 	if err := os.MkdirAll(env.ProjectDir, 0755); err != nil {
-		env.Cleanup()
+		_ = env.Cleanup()
 		return nil, fmt.Errorf("failed to create project dir: %w", err)
 	}
 
 	// Find the scm binary
 	env.SCMBinary, err = env.findSCMBinary()
 	if err != nil {
-		env.Cleanup()
+		_ = env.Cleanup()
 		return nil, fmt.Errorf("failed to find scm binary: %w", err)
 	}
 

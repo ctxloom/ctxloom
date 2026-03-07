@@ -15,10 +15,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/operations"
-	"github.com/benjaminabbitt/scm/internal/profiles"
 	"github.com/benjaminabbitt/scm/internal/remote"
 )
 
@@ -380,64 +378,6 @@ type pendingPull struct {
 	Content   []byte          `json:"content"`
 	SHA       string          `json:"sha"`
 	RemoteURL string          `json:"remote_url"`
-}
-
-// bundleLoader returns a bundle loader configured for the current config.
-func (s *mcpServer) bundleLoader() *bundles.Loader {
-	return bundles.NewLoader(s.cfg.GetBundleDirs(), s.cfg.Defaults.ShouldUseDistilled())
-}
-
-// profileLoader returns a profiles.Loader for directory-based profiles.
-func (s *mcpServer) profileLoader() *profiles.Loader {
-	return s.cfg.GetProfileLoader()
-}
-
-// loadProfile loads a profile by name, checking both config map and directory.
-// Config map profiles take precedence over directory-based profiles.
-func (s *mcpServer) loadProfile(name string) (*config.Profile, error) {
-	// First check config map
-	if profile, ok := s.cfg.Profiles[name]; ok {
-		return &profile, nil
-	}
-
-	// Fall back to directory-based profile
-	loader := s.profileLoader()
-	dirProfile, err := loader.Load(name)
-	if err != nil {
-		return nil, fmt.Errorf("unknown profile: %s", name)
-	}
-
-	// Convert profiles.Profile to config.Profile
-	return &config.Profile{
-		Description: dirProfile.Description,
-		Parents:     dirProfile.Parents,
-		Tags:        dirProfile.Tags,
-		Fragments:   dirProfile.Bundles, // Bundles field contains fragment references
-		Variables:   dirProfile.Variables,
-	}, nil
-}
-
-// resolveProfile resolves a profile with inheritance, checking both sources.
-func (s *mcpServer) resolveProfile(name string) (*config.Profile, error) {
-	// First try config-based resolution
-	profile, err := config.ResolveProfile(s.cfg.Profiles, name)
-	if err == nil {
-		return profile, nil
-	}
-
-	// Fall back to directory-based resolution
-	loader := s.profileLoader()
-	resolved, err := loader.ResolveProfile(name, nil)
-	if err != nil {
-		return nil, fmt.Errorf("unknown profile: %s", name)
-	}
-
-	// Convert to config.Profile
-	return &config.Profile{
-		Tags:      resolved.Tags,
-		Fragments: resolved.Bundles,
-		Variables: resolved.Variables,
-	}, nil
 }
 
 func (s *mcpServer) run(ctx context.Context) error {
@@ -1394,54 +1334,6 @@ func (s *mcpServer) toolGetFragment(ctx context.Context, args json.RawMessage) (
 	}, nil
 }
 
-// containsTag checks if any tag contains the query string.
-func containsTag(tags []string, query string) bool {
-	for _, tag := range tags {
-		if strings.Contains(strings.ToLower(tag), query) {
-			return true
-		}
-	}
-	return false
-}
-
-// sortContentInfos sorts content infos by the specified field and order.
-func sortContentInfos(infos []bundles.ContentInfo, sortBy, sortOrder string) {
-	if sortBy == "" {
-		sortBy = "name"
-	}
-	reverse := sortOrder == "desc"
-
-	switch sortBy {
-	case "name":
-		sortSlice(infos, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(infos[i].Name), strings.ToLower(infos[j].Name))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "source":
-		sortSlice(infos, func(i, j int) bool {
-			cmp := strings.Compare(infos[i].Source, infos[j].Source)
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	}
-}
-
-// sortSlice is a helper that sorts a slice using a comparison function.
-func sortSlice[T any](s []T, less func(i, j int) bool) {
-	for i := 0; i < len(s)-1; i++ {
-		for j := i + 1; j < len(s); j++ {
-			if less(j, i) {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
-}
-
 func (s *mcpServer) toolListProfiles(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query     string `json:"query"`
@@ -2131,24 +2023,3 @@ func (s *mcpServer) toolSetMCPAutoRegister(ctx context.Context, args json.RawMes
 	return result, nil
 }
 
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(slice []string, item string) int {
-	for i, s := range slice {
-		if s == item {
-			return i
-		}
-	}
-	return -1
-}

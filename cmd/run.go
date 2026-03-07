@@ -137,9 +137,7 @@ Examples:
 				profileTags = configProfile.Tags
 				profileBundles = append(configProfile.Bundles, configProfile.BundleItems...)
 				// Also include legacy fragments field
-				for _, frag := range configProfile.Fragments {
-					profileBundles = append(profileBundles, frag)
-				}
+				profileBundles = append(profileBundles, configProfile.Fragments...)
 
 				// Collect variables from profile
 				for k, v := range configProfile.Variables {

@@ -85,7 +85,7 @@ func (l *Loader) Find(name string) (string, error) {
 	baseName := filepath.Base(name)
 	for _, dir := range l.searchDirs {
 		var found string
-		afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
+		_ = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}

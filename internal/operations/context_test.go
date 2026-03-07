@@ -126,7 +126,7 @@ func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	fs.MkdirAll("/project/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/project/.scm/bundles", 0755)
 
 	// Create test bundle with fragments
 	bundleContent := `version: "1.0"
@@ -156,7 +156,7 @@ fragments:
       Project: {{project_name}}
       Version: {{version}}
 `
-	afero.WriteFile(fs, "/project/.scm/bundles/dev.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/bundles/dev.yaml", []byte(bundleContent), 0644)
 
 	loader := bundles.NewLoader([]string{"/project/.scm/bundles"}, false, bundles.WithFS(fs))
 	return fs, loader

@@ -38,7 +38,7 @@ func TestFindSourceContextFile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			for name, content := range tc.files {
-				afero.WriteFile(fs, "/work/"+name, []byte(content), 0644)
+				_ = afero.WriteFile(fs, "/work/"+name, []byte(content), 0644)
 			}
 
 			file, _, err := findSourceContextFile(fs, "/work")
@@ -108,7 +108,7 @@ func TestWriteContextFile_UpdatesExisting(t *testing.T) {
 	oldContent := buildDerivedHeader("llm.md", "claude-code") + "old content"
 	newContent := buildDerivedHeader("llm.md", "claude-code") + "new content"
 
-	afero.WriteFile(fs, "/work/CLAUDE.md", []byte(oldContent), 0644)
+	_ = afero.WriteFile(fs, "/work/CLAUDE.md", []byte(oldContent), 0644)
 
 	status, err := writeContextFile(fs, "/work/CLAUDE.md", newContent, "llm.md")
 	if err != nil {
@@ -123,7 +123,7 @@ func TestWriteContextFile_SkipsUnchanged(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	content := buildDerivedHeader("llm.md", "claude-code") + "content"
 
-	afero.WriteFile(fs, "/work/CLAUDE.md", []byte(content), 0644)
+	_ = afero.WriteFile(fs, "/work/CLAUDE.md", []byte(content), 0644)
 
 	status, err := writeContextFile(fs, "/work/CLAUDE.md", content, "llm.md")
 	if err != nil {
@@ -139,7 +139,7 @@ func TestWriteContextFile_SkipsUserFile(t *testing.T) {
 	userContent := "# My Custom CLAUDE.md\n\nUser's own instructions."
 	newContent := buildDerivedHeader("llm.md", "claude-code") + "scm content"
 
-	afero.WriteFile(fs, "/work/CLAUDE.md", []byte(userContent), 0644)
+	_ = afero.WriteFile(fs, "/work/CLAUDE.md", []byte(userContent), 0644)
 
 	status, err := writeContextFile(fs, "/work/CLAUDE.md", newContent, "llm.md")
 	if err != nil {
@@ -158,7 +158,7 @@ func TestWriteContextFile_SkipsUserFile(t *testing.T) {
 
 func TestTransformContext_NoSourceFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	fs.MkdirAll("/work/.scm", 0755)
+	_ = fs.MkdirAll("/work/.scm", 0755)
 
 	cfg := &config.Config{
 		SCMRoot: "/work",
@@ -175,8 +175,8 @@ func TestTransformContext_NoSourceFile(t *testing.T) {
 
 func TestTransformContext_GeneratesFiles(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	fs.MkdirAll("/work/.scm", 0755)
-	afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
+	_ = fs.MkdirAll("/work/.scm", 0755)
+	_ = afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
 
 	cfg := &config.Config{
 		SCMRoot: "/work",
@@ -212,7 +212,7 @@ func TestTransformContext_GeneratesFiles(t *testing.T) {
 
 func TestTransformContext_UnknownBackend(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	afero.WriteFile(fs, "/work/llm.md", []byte("content"), 0644)
+	_ = afero.WriteFile(fs, "/work/llm.md", []byte("content"), 0644)
 
 	cfg := &config.Config{
 		SCMRoot: "/work",
@@ -235,9 +235,9 @@ func TestTransformContext_UnknownBackend(t *testing.T) {
 
 func TestTransformContext_WarnsOnUserManagedFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
+	_ = afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
 	// Create a user-managed CLAUDE.md (no SCM:MANAGED marker)
-	afero.WriteFile(fs, "/work/CLAUDE.md", []byte("# My custom instructions"), 0644)
+	_ = afero.WriteFile(fs, "/work/CLAUDE.md", []byte("# My custom instructions"), 0644)
 
 	cfg := &config.Config{
 		SCMRoot: "/work",

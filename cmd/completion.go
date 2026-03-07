@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -72,50 +70,6 @@ PowerShell:
 	},
 }
 
-// listYAMLNames quickly lists YAML file names from directories without loading content.
-// This is much faster than loader.List() for completion purposes.
-func listYAMLNames(dirs []string) []string {
-	seen := make(map[string]bool)
-	var names []string
-
-	for _, dir := range dirs {
-		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil // Skip errors silently for completion
-			}
-			if d.IsDir() {
-				if strings.HasPrefix(d.Name(), ".") && path != dir {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-
-			name := d.Name()
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext != ".yaml" && ext != ".yml" {
-				return nil
-			}
-			if strings.HasPrefix(name, ".") {
-				return nil
-			}
-
-			relPath, err := filepath.Rel(dir, path)
-			if err != nil {
-				return nil
-			}
-			fragName := strings.TrimSuffix(relPath, ext)
-
-			if !seen[fragName] {
-				seen[fragName] = true
-				names = append(names, fragName)
-			}
-			return nil
-		})
-	}
-
-	sort.Strings(names)
-	return names
-}
 
 // completeFragmentNames returns a completion function for fragment names.
 func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

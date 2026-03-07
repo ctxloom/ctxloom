@@ -13,8 +13,8 @@ func TestNewRegistry(t *testing.T) {
 	t.Run("creates registry with default path", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		oldDir, _ := os.Getwd()
-		os.Chdir(tmpDir)
-		defer os.Chdir(oldDir)
+		_ = os.Chdir(tmpDir)
+		defer func() { _ = os.Chdir(oldDir) }()
 
 		registry, err := NewRegistry("")
 		require.NoError(t, err)
@@ -274,9 +274,9 @@ func TestRegistry_List(t *testing.T) {
 		assert.Empty(t, list)
 	})
 
-	registry.Add("zebra", "https://github.com/z/z")
-	registry.Add("alpha", "https://github.com/a/a")
-	registry.Add("mike", "https://github.com/m/m")
+	_ = registry.Add("zebra", "https://github.com/z/z")
+	_ = registry.Add("alpha", "https://github.com/a/a")
+	_ = registry.Add("mike", "https://github.com/m/m")
 
 	t.Run("returns sorted list", func(t *testing.T) {
 		list := registry.List()
@@ -296,7 +296,7 @@ func TestRegistry_Has(t *testing.T) {
 
 	assert.False(t, registry.Has("test"))
 
-	registry.Add("test", "https://github.com/owner/repo")
+	_ = registry.Add("test", "https://github.com/owner/repo")
 	assert.True(t, registry.Has("test"))
 }
 
@@ -307,7 +307,7 @@ func TestRegistry_FindByURL(t *testing.T) {
 	registry, err := NewRegistry(configPath)
 	require.NoError(t, err)
 
-	registry.Add("github-test", "https://github.com/owner/repo")
+	_ = registry.Add("github-test", "https://github.com/owner/repo")
 
 	t.Run("finds existing URL", func(t *testing.T) {
 		name, found := registry.FindByURL("https://github.com/owner/repo")
@@ -335,7 +335,7 @@ func TestRegistry_SetVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("updates existing remote version", func(t *testing.T) {
-		registry.Add("test", "https://github.com/owner/repo")
+		_ = registry.Add("test", "https://github.com/owner/repo")
 
 		err = registry.SetVersion("test", "v2")
 		require.NoError(t, err)
@@ -358,7 +358,7 @@ func TestRegistry_GetOrCreateByURL(t *testing.T) {
 		registry, err := NewRegistry(configPath)
 		require.NoError(t, err)
 
-		registry.Add("existing", "https://github.com/owner/repo")
+		_ = registry.Add("existing", "https://github.com/owner/repo")
 
 		remote, err := registry.GetOrCreateByURL("https://github.com/owner/repo", "v1")
 		require.NoError(t, err)
@@ -385,7 +385,7 @@ func TestRegistry_GetOrCreateByURL(t *testing.T) {
 		registry, err := NewRegistry(configPath)
 		require.NoError(t, err)
 
-		registry.Add("repo", "https://github.com/first/repo")
+		_ = registry.Add("repo", "https://github.com/first/repo")
 
 		remote, err := registry.GetOrCreateByURL("https://github.com/second/repo", "v1")
 		require.NoError(t, err)
@@ -400,8 +400,8 @@ func TestRegistry_Persistence(t *testing.T) {
 	// Create and populate registry
 	registry1, err := NewRegistry(configPath)
 	require.NoError(t, err)
-	registry1.Add("test1", "https://github.com/owner/repo1")
-	registry1.Add("test2", "https://github.com/owner/repo2")
+	_ = registry1.Add("test1", "https://github.com/owner/repo1")
+	_ = registry1.Add("test2", "https://github.com/owner/repo2")
 
 	// Create new registry from same file
 	registry2, err := NewRegistry(configPath)

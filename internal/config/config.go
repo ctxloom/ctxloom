@@ -615,7 +615,7 @@ func (c *Config) Save() error {
 	existingData, _ := afero.ReadFile(fs, configPath)
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
-		yaml.Unmarshal(existingData, &existing)
+		_ = yaml.Unmarshal(existingData, &existing)
 	}
 
 	// Update with current values (delete keys when empty to clean up config)

@@ -15,10 +15,10 @@ import (
 func setupTestFS(dirs []string, files map[string][]byte) afero.Fs {
 	mfs := afero.NewMemMapFs()
 	for _, dir := range dirs {
-		mfs.MkdirAll(dir, 0755)
+		_ = mfs.MkdirAll(dir, 0755)
 	}
 	for path, content := range files {
-		afero.WriteFile(mfs, path, content, 0644)
+		_ = afero.WriteFile(mfs, path, content, 0644)
 	}
 	return mfs
 }

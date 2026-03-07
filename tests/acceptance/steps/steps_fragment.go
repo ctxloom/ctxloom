@@ -100,11 +100,7 @@ func addFragmentToBundle(bundlePath, name, rawContent string, isHome bool) error
 		bundle.Fragments = make(map[string]testFragment)
 	}
 
-	bundle.Fragments[name] = testFragment{
-		Tags:      input.Tags,
-		Content:   input.Content,
-		NoDistill: input.NoDistill,
-	}
+	bundle.Fragments[name] = testFragment(input)
 
 	data, err := yaml.Marshal(bundle)
 	if err != nil {
@@ -148,7 +144,7 @@ func addPromptToBundle(bundlePath, name, rawContent string, isHome bool) error {
 		bundle.Prompts = make(map[string]testPrompt)
 	}
 
-	bundle.Prompts[name] = testPrompt{Content: input.Content}
+	bundle.Prompts[name] = testPrompt(input)
 
 	data, err := yaml.Marshal(bundle)
 	if err != nil {

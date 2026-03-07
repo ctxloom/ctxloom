@@ -336,7 +336,7 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 
 	// Create registry with a remote
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	registry.Add("alice", "https://github.com/alice/scm")
+	_ = registry.Add("alice", "https://github.com/alice/scm")
 
 	// Create mock fetcher
 	mf := newMockFetcher()
@@ -366,7 +366,7 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	registry.Add("alice", "https://github.com/alice/scm")
+	_ = registry.Add("alice", "https://github.com/alice/scm")
 
 	mf := newMockFetcher()
 	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: test\n")
@@ -402,7 +402,7 @@ func TestPuller_Pull_WithReplaceDirective(t *testing.T) {
 
 	// Create replace manager with directive
 	rm, _ := NewReplaceManager("/test", WithReplaceFS(fs))
-	rm.Add("alice/security", "/local/security.yaml")
+	_ = rm.Add("alice/security", "/local/security.yaml")
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 

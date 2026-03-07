@@ -1021,7 +1021,7 @@ func TestReference_ToCanonical(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create registry with alice remote
 			registry, _ := NewRegistry("")
-			registry.Add("alice", "https://github.com/alice/scm")
+			_ = registry.Add("alice", "https://github.com/alice/scm")
 
 			result, err := tt.ref.ToCanonical(registry, tt.itemType)
 			if tt.wantErr {
@@ -1046,7 +1046,7 @@ func TestReference_ToCanonical(t *testing.T) {
 func TestReference_MustCanonical(t *testing.T) {
 	t.Run("succeeds for valid remote", func(t *testing.T) {
 		registry, _ := NewRegistry("")
-		registry.Add("alice", "https://github.com/alice/scm")
+		_ = registry.Add("alice", "https://github.com/alice/scm")
 
 		ref := &Reference{
 			Remote:      "alice",

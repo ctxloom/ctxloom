@@ -31,7 +31,7 @@ func buildMCPRequest(method string, params string) string {
 
 func iSendMCPInitializeRequest() error {
 	req := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	TestEnv.RunSCMWithStdin(req+"\n", "mcp")
+	_ = TestEnv.RunSCMWithStdin(req+"\n", "mcp")
 	return nil
 }
 
@@ -40,7 +40,7 @@ func iSendMCPToolsListRequest() error {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	listReq := buildMCPRequest("tools/list", "")
 	input := initReq + "\n" + listReq + "\n"
-	TestEnv.RunSCMWithStdin(input, "mcp")
+	_ = TestEnv.RunSCMWithStdin(input, "mcp")
 	return nil
 }
 
@@ -49,7 +49,7 @@ func iSendMCPToolsCallWith(toolName string, args *godog.DocString) error {
 	callParams := fmt.Sprintf(`{"name":"%s","arguments":%s}`, toolName, args.Content)
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	TestEnv.RunSCMWithStdin(input, "mcp")
+	_ = TestEnv.RunSCMWithStdin(input, "mcp")
 	return nil
 }
 
@@ -58,7 +58,7 @@ func iSendMCPToolsCallNoArgs(toolName string) error {
 	callParams := fmt.Sprintf(`{"name":"%s","arguments":{}}`, toolName)
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	TestEnv.RunSCMWithStdin(input, "mcp")
+	_ = TestEnv.RunSCMWithStdin(input, "mcp")
 	return nil
 }
 

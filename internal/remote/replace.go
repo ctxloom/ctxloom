@@ -74,7 +74,7 @@ func (m *ReplaceManager) save() error {
 	var existingRaw map[string]interface{}
 	data, err := afero.ReadFile(m.fs, m.configPath)
 	if err == nil {
-		yaml.Unmarshal(data, &existingRaw)
+		_ = yaml.Unmarshal(data, &existingRaw)
 	}
 	if existingRaw == nil {
 		existingRaw = make(map[string]interface{})

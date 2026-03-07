@@ -91,7 +91,7 @@ func (r *Registry) save() error {
 	var existingRaw map[string]interface{}
 	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err == nil {
-		yaml.Unmarshal(data, &existingRaw)
+		_ = yaml.Unmarshal(data, &existingRaw)
 	}
 	if existingRaw == nil {
 		existingRaw = make(map[string]interface{})

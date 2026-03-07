@@ -15,14 +15,14 @@ func iRunSCM(args string) error {
 	parts := splitArgs(args)
 
 	// Run the command but don't return the error - let assertion steps check results
-	TestEnv.RunSCM(parts...)
+	_ = TestEnv.RunSCM(parts...)
 	return nil
 }
 
 func iRunSCMWithArgs(args *godog.DocString) error {
 	parts := splitArgs(args.Content)
 	// Run the command but don't return the error - let assertion steps check results
-	TestEnv.RunSCM(parts...)
+	_ = TestEnv.RunSCM(parts...)
 	return nil
 }
 

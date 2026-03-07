@@ -188,7 +188,7 @@ func setupSearchTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	fs.MkdirAll("/project/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/project/.scm/bundles", 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -216,7 +216,7 @@ prompts:
     content: |
       Refactor this code
 `
-	afero.WriteFile(fs, "/project/.scm/bundles/dev-tools.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, "/project/.scm/bundles/dev-tools.yaml", []byte(bundleContent), 0644)
 
 	loader := bundles.NewLoader([]string{"/project/.scm/bundles"}, false, bundles.WithFS(fs))
 	return fs, loader

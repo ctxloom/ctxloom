@@ -236,7 +236,6 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var bundleCreateName string
 var bundleCreateDesc string
 
 var bundleCreateCmd = &cobra.Command{
@@ -1134,7 +1133,6 @@ func cleanDistilledOutput(content string) string {
 			foundPreamble = true
 			if idx := strings.Index(content, "\n"); idx != -1 {
 				content = strings.TrimSpace(content[idx+1:])
-				lower = strings.ToLower(content)
 			}
 			break
 		}

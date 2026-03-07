@@ -36,7 +36,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		}
 
 		if err := steps.TestEnv.Setup(); err != nil {
-			steps.TestEnv.Cleanup()
+			_ = steps.TestEnv.Cleanup()
 			return ctx, err
 		}
 

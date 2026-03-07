@@ -136,14 +136,14 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		var err error
 		fetcher, err = registry.GetFetcher(req.Name, auth)
 		if err != nil {
-			registry.Remove(req.Name)
+			_ = registry.Remove(req.Name)
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
 	}
 
 	owner, repo, err := remote.ParseRepoURL(req.URL)
 	if err != nil {
-		registry.Remove(req.Name)
+		_ = registry.Remove(req.Name)
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 

@@ -19,7 +19,7 @@ func main() {
 		logger, _ = cfg.Build()
 	}
 	zap.ReplaceGlobals(logger)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	cmd.Execute()
 }

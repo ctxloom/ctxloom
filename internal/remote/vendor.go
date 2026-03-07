@@ -12,7 +12,6 @@ import (
 // VendorManager handles vendoring remote dependencies locally.
 type VendorManager struct {
 	baseDir        string
-	configPath     string
 	fs             afero.Fs
 	fetcherFactory FetcherFactory
 }
@@ -85,7 +84,7 @@ func (m *VendorManager) SetVendorMode(enabled bool) error {
 	var existingRaw map[string]interface{}
 	data, err := afero.ReadFile(m.fs, configPath)
 	if err == nil {
-		yaml.Unmarshal(data, &existingRaw)
+		_ = yaml.Unmarshal(data, &existingRaw)
 	}
 	if existingRaw == nil {
 		existingRaw = make(map[string]interface{})

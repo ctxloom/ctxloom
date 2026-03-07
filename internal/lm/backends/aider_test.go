@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -150,6 +151,6 @@ func TestAider_BuildArgs_Combined(t *testing.T) {
 // TestAider_Cleanup_NoError verifies that Cleanup returns nil (no cleanup needed).
 func TestAider_Cleanup_NoError(t *testing.T) {
 	backend := NewAider()
-	err := backend.Cleanup(nil)
+	err := backend.Cleanup(context.TODO())
 	assert.NoError(t, err)
 }

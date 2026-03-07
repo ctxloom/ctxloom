@@ -47,9 +47,8 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 			case <-done:
 				return
 			case <-resizeCh:
-				if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-					// Ignore resize errors
-				}
+				// Ignore resize errors - best effort terminal resizing
+				_ = pty.InheritSize(os.Stdin, ptmx)
 			}
 		}
 	}()
@@ -61,7 +60,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
 		if err == nil {
-			defer term.Restore(int(os.Stdin.Fd()), oldState)
+			defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 		}
 	}
 
@@ -85,7 +84,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 					case <-done:
 						return
 					default:
-						ptmx.Write(buf[:n])
+						_, _ = ptmx.Write(buf[:n])
 					}
 				}
 			}
@@ -95,9 +94,9 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	// Copy PTY output to stdout
 	var stdoutBuf bytes.Buffer
 	if stdout != nil {
-		io.Copy(io.MultiWriter(stdout, &stdoutBuf), ptmx)
+		_, _ = io.Copy(io.MultiWriter(stdout, &stdoutBuf), ptmx)
 	} else {
-		io.Copy(&stdoutBuf, ptmx)
+		_, _ = io.Copy(&stdoutBuf, ptmx)
 	}
 
 	// Wait for command to finish

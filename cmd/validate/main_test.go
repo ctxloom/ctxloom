@@ -25,7 +25,7 @@ func TestRun_NoConfigFile(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	err = run()
 	assert.NoError(t, err)
@@ -39,7 +39,7 @@ func TestRun_ValidConfig(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	// Create .scm directory and valid config
 	require.NoError(t, os.MkdirAll(".scm", 0755))
@@ -63,7 +63,7 @@ func TestRun_InvalidYAMLSyntax(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	require.NoError(t, os.MkdirAll(".scm", 0755))
 	invalidYAML := `
@@ -84,7 +84,7 @@ func TestRun_SchemaViolation(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	require.NoError(t, os.MkdirAll(".scm", 0755))
 	// Use an invalid type for default_profiles (should be array, not string)
@@ -105,7 +105,7 @@ func TestRun_EmptyObjectConfig(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	require.NoError(t, os.MkdirAll(".scm", 0755))
 	// Schema requires an object, so {} is minimal valid config
@@ -122,7 +122,7 @@ func TestRun_NullConfig(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	require.NoError(t, os.MkdirAll(".scm", 0755))
 	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(""), 0644))
@@ -140,7 +140,7 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, err)
 	tmpDir := t.TempDir()
 	require.NoError(t, os.Chdir(tmpDir))
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 
 	require.NoError(t, os.MkdirAll(".scm", 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(".scm", "bundles"), 0755))

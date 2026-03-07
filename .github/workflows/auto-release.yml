@@ -39,17 +39,17 @@ jobs:
       - name: Get current version
         id: current
         run: |
-          echo "version=$(versionator version -t '{{Prefix}}{{MajorMinorPatch}}')" >> $GITHUB_OUTPUT
+          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
 
       - name: Bump patch version
         run: |
           versionator patch increment
-          echo "New version: $(versionator version -t '{{Prefix}}{{MajorMinorPatch}}')"
+          echo "New version: $(cat VERSION)"
 
       - name: Get new version
         id: new
         run: |
-          echo "version=$(versionator version -t '{{Prefix}}{{MajorMinorPatch}}')" >> $GITHUB_OUTPUT
+          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
 
       - name: Commit version bump
         run: |

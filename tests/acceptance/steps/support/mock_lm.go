@@ -114,9 +114,9 @@ func (m *MockLM) WriteConfig() error {
 	config.WriteString("    mock:\n")
 	config.WriteString("      args: []\n")
 	config.WriteString("      env:\n")
-	config.WriteString(fmt.Sprintf("        scm_mock_record_file: \"%s\"\n", m.RecordedInputPath))
-	config.WriteString(fmt.Sprintf("        scm_mock_response: \"%s\"\n", escapeYAMLString(m.Response)))
-	config.WriteString(fmt.Sprintf("        scm_mock_exit_code: \"%d\"\n", m.ExitCode))
+	_, _ = fmt.Fprintf(&config, "        scm_mock_record_file: \"%s\"\n", m.RecordedInputPath)
+	_, _ = fmt.Fprintf(&config, "        scm_mock_response: \"%s\"\n", escapeYAMLString(m.Response))
+	_, _ = fmt.Fprintf(&config, "        scm_mock_exit_code: \"%d\"\n", m.ExitCode)
 
 	// Always set llm_plugin to mock
 	config.WriteString("defaults:\n")

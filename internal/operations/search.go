@@ -205,14 +205,16 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		sort.Slice(results, func(i, j int) bool {
 			scoreI := 0
 			scoreJ := 0
-			if results[i].Match == "name" {
+			switch results[i].Match {
+			case "name":
 				scoreI = 2
-			} else if results[i].Match == "tag" {
+			case "tag":
 				scoreI = 1
 			}
-			if results[j].Match == "name" {
+			switch results[j].Match {
+			case "name":
 				scoreJ = 2
-			} else if results[j].Match == "tag" {
+			case "tag":
 				scoreJ = 1
 			}
 			if reverse {

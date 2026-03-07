@@ -95,14 +95,15 @@ func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, 
 		}
 	}
 
-	if currentSHA == "" {
+	switch {
+	case currentSHA == "":
 		fmt.Printf("%s not found in lockfile, checking latest version...\n", refStr)
 		// Default to bundle if not in lockfile
 		itemType = remote.ItemTypeBundle
-	} else if currentSHA == latestSHA {
+	case currentSHA == latestSHA:
 		fmt.Printf("%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
 		return nil
-	} else {
+	default:
 		fmt.Printf("%s has update available:\n", refStr)
 		fmt.Printf("  Current: %s\n", shortSHA(currentSHA))
 		fmt.Printf("  Latest:  %s\n", shortSHA(latestSHA))

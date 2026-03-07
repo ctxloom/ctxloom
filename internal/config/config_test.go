@@ -410,16 +410,9 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore environment
-			origVisual := os.Getenv("VISUAL")
-			origEditor := os.Getenv("EDITOR")
-			defer func() {
-				os.Setenv("VISUAL", origVisual)
-				os.Setenv("EDITOR", origEditor)
-			}()
-
-			os.Setenv("VISUAL", tt.visual)
-			os.Setenv("EDITOR", tt.editor)
+			// Use t.Setenv for automatic cleanup
+			t.Setenv("VISUAL", tt.visual)
+			t.Setenv("EDITOR", tt.editor)
 
 			cmd, args := tt.config.GetEditorCommand()
 			assert.Equal(t, tt.wantCmd, cmd)

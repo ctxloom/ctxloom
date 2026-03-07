@@ -293,7 +293,7 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 		return "", fmt.Errorf("failed to create/update file: %w", err)
 	}
 
-	return result.Commit.GetSHA(), nil
+	return result.GetSHA(), nil
 }
 
 // CreatePullRequest creates a pull request.

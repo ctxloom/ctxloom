@@ -359,8 +359,8 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		// Show diff
 		existingContent, _ := afero.ReadFile(p.fs, localPath)
 		if string(existingContent) != string(content) {
-			fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
-			fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
+			_, _ = fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
+			_, _ = fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
 			if !opts.Force {
 				confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Overwrite existing file?")
 				if err != nil {
@@ -527,10 +527,10 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 
 		if err := cmd.Run(); err != nil {
 			// Fallback to direct output
-			fmt.Fprint(w, contentStr)
+			_, _ = fmt.Fprint(w, contentStr)
 		}
 	} else {
-		fmt.Fprint(w, contentStr)
+		_, _ = fmt.Fprint(w, contentStr)
 	}
 
 	fmt.Fprintln(w, "")

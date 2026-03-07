@@ -193,7 +193,7 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 	}
 
 	// Use injected puller or create new one
-	var puller Puller = req.Puller
+	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth("")
 		puller = remote.NewPuller(registry, auth)

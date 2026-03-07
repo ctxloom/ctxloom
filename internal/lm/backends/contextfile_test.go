@@ -153,8 +153,7 @@ func TestReadContextFileAndDelete(t *testing.T) {
 		testFile := filepath.Join(contextDir, "test.md")
 		require.NoError(t, os.WriteFile(testFile, []byte("Content to read"), 0644))
 
-		os.Setenv(SCMContextFileEnv, testFile)
-		defer os.Unsetenv(SCMContextFileEnv)
+		t.Setenv(SCMContextFileEnv, testFile)
 
 		content, err := ReadContextFileAndDelete(tmpDir)
 		require.NoError(t, err)
@@ -167,7 +166,7 @@ func TestReadContextFileAndDelete(t *testing.T) {
 
 	t.Run("returns empty when env var not set", func(t *testing.T) {
 		// No env var means no context injection configured
-		os.Unsetenv(SCMContextFileEnv)
+		t.Setenv(SCMContextFileEnv, "")
 
 		content, err := ReadContextFileAndDelete(".")
 		require.NoError(t, err)
@@ -176,8 +175,7 @@ func TestReadContextFileAndDelete(t *testing.T) {
 
 	t.Run("returns empty for non-existent file", func(t *testing.T) {
 		// Missing file is gracefully handled - context may have been deleted
-		os.Setenv(SCMContextFileEnv, "/nonexistent/path/file.md")
-		defer os.Unsetenv(SCMContextFileEnv)
+		t.Setenv(SCMContextFileEnv, "/nonexistent/path/file.md")
 
 		content, err := ReadContextFileAndDelete(".")
 		require.NoError(t, err)
@@ -194,8 +192,7 @@ func TestReadContextFileAndDelete(t *testing.T) {
 		require.NoError(t, os.WriteFile(testFile, []byte("Relative content"), 0644))
 
 		// Set relative path
-		os.Setenv(SCMContextFileEnv, filepath.Join(SCMContextSubdir, "relative.md"))
-		defer os.Unsetenv(SCMContextFileEnv)
+		t.Setenv(SCMContextFileEnv, filepath.Join(SCMContextSubdir, "relative.md"))
 
 		content, err := ReadContextFileAndDelete(tmpDir)
 		require.NoError(t, err)

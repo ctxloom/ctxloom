@@ -135,15 +135,15 @@ func (p *ProfileDeps) PullDeps(ctx context.Context, refs []RemoteRef, opts PullO
 		return result, nil
 	}
 
-	fmt.Fprintf(opts.Stdout, "\nProfile requires %d remote dependencies:\n", len(uncached))
+	_, _ = fmt.Fprintf(opts.Stdout, "\nProfile requires %d remote dependencies:\n", len(uncached))
 	for _, ref := range uncached {
-		fmt.Fprintf(opts.Stdout, "  • %s (%s)\n", ref.Ref, ref.ItemType)
+		_, _ = fmt.Fprintf(opts.Stdout, "  • %s (%s)\n", ref.Ref, ref.ItemType)
 	}
-	fmt.Fprintln(opts.Stdout)
+	_, _ = fmt.Fprintln(opts.Stdout)
 
 	// Pull each dependency
 	for _, ref := range uncached {
-		fmt.Fprintf(opts.Stdout, "Pulling %s...\n", ref.Ref)
+		_, _ = fmt.Fprintf(opts.Stdout, "Pulling %s...\n", ref.Ref)
 
 		pullOpts := PullOptions{
 			Force:    opts.Force,
@@ -157,17 +157,17 @@ func (p *ProfileDeps) PullDeps(ctx context.Context, refs []RemoteRef, opts PullO
 		if err != nil {
 			if strings.Contains(err.Error(), "cancelled") {
 				result.Skipped = append(result.Skipped, ref.Ref)
-				fmt.Fprintf(opts.Stdout, "  Skipped: %s\n", ref.Ref)
+				_, _ = fmt.Fprintf(opts.Stdout, "  Skipped: %s\n", ref.Ref)
 			} else {
 				result.Failed = append(result.Failed, ref.Ref)
 				result.Errors = append(result.Errors, err)
-				fmt.Fprintf(opts.Stdout, "  Error: %v\n", err)
+				_, _ = fmt.Fprintf(opts.Stdout, "  Error: %v\n", err)
 			}
 			continue
 		}
 
 		result.Pulled = append(result.Pulled, ref.Ref)
-		fmt.Fprintf(opts.Stdout, "  ✓ Pulled %s\n", ref.Ref)
+		_, _ = fmt.Fprintf(opts.Stdout, "  ✓ Pulled %s\n", ref.Ref)
 	}
 
 	// Check if any critical deps failed

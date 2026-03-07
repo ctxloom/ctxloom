@@ -88,7 +88,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	}
 
 	// Initialize puller
-	var puller Puller = req.Puller
+	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
 		puller = remote.NewPuller(registry, auth)

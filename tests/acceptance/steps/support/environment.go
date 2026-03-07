@@ -166,7 +166,7 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 	} else {
 		e.originalEnv[key] = "\x00" // Marker for "was not set"
 	}
-	os.Setenv(key, value)
+	_ = os.Setenv(key, value)
 }
 
 // Cleanup removes the test environment and restores original env vars.
@@ -174,9 +174,9 @@ func (e *TestEnvironment) Cleanup() error {
 	// Restore original environment
 	for key, value := range e.originalEnv {
 		if value == "\x00" {
-			os.Unsetenv(key)
+			_ = os.Unsetenv(key)
 		} else {
-			os.Setenv(key, value)
+			_ = os.Setenv(key, value)
 		}
 	}
 

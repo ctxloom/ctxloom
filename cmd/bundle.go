@@ -546,7 +546,7 @@ func runBundleDelete(cmd *cobra.Command, args []string) error {
 	if !bundleDeleteForce {
 		fmt.Printf("Delete bundle %q at %s? [y/N] ", name, bundle.Path)
 		var confirm string
-		fmt.Scanln(&confirm)
+		_, _ = fmt.Scanln(&confirm)
 		if confirm != "y" && confirm != "Y" {
 			fmt.Println("Cancelled.")
 			return nil

@@ -53,7 +53,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 			Recursive: browseRecursive,
 		})
 		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to browse %ss: %v\n", itemType, err)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to browse %ss: %v\n", itemType, err)
 			continue
 		}
 

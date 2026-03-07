@@ -57,11 +57,14 @@ func runRemoteSearch(cmd *cobra.Command, args []string) error {
 	auth := remote.LoadAuth("")
 
 	// Determine which types to search
-	types := []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	if searchType == "bundle" {
+	var types []remote.ItemType
+	switch searchType {
+	case "bundle":
 		types = []remote.ItemType{remote.ItemTypeBundle}
-	} else if searchType == "profile" {
+	case "profile":
 		types = []remote.ItemType{remote.ItemTypeProfile}
+	default:
+		types = []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
 	}
 
 	// Search all remotes and types in parallel

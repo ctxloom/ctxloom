@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -10,6 +11,16 @@ import (
 	"github.com/benjaminabbitt/scm/internal/operations"
 	"github.com/benjaminabbitt/scm/internal/remote"
 )
+
+// titleCase capitalizes the first letter of a string.
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
 
 // ItemType distinguishes between fragments and prompts.
 type ItemType string
@@ -84,7 +95,7 @@ func listItems(itemType ItemType, bundleFilter string) error {
 		infos = filtered
 	}
 
-	fmt.Printf("%ss (%d):\n\n", strings.Title(string(itemType)), len(infos))
+	fmt.Printf("%ss (%d):\n\n", titleCase(string(itemType)), len(infos))
 	currentBundle := ""
 	for _, info := range infos {
 		if info.Bundle != currentBundle {
@@ -313,12 +324,12 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 	}
 
 	if noDistill {
-		fmt.Printf("%s %q is marked as no_distill\n", strings.Title(string(itemType)), itemName)
+		fmt.Printf("%s %q is marked as no_distill\n", titleCase(string(itemType)), itemName)
 		return nil
 	}
 
 	if !force && !needsDistill {
-		fmt.Printf("%s %q is already distilled and unchanged\n", strings.Title(string(itemType)), itemName)
+		fmt.Printf("%s %q is already distilled and unchanged\n", titleCase(string(itemType)), itemName)
 		return nil
 	}
 

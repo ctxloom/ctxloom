@@ -53,7 +53,7 @@ jobs:
         run: just proto
 
       - name: Run unit tests
-        run: just test
+        run: go test -race -coverprofile=coverage.out $(go list ./... | grep -v /tests/acceptance)
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

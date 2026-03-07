@@ -60,7 +60,7 @@ func (b *Cline) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr
 
 	args := b.buildArgs(req)
 	if req.Verbosity >= 16 {
-		fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
+		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
 	}
 
 	var exitCode int32

@@ -413,11 +413,11 @@ func (s *mcpServer) sendResponse(resp *mcpResponse) {
 	data, err := json.Marshal(resp)
 	if err != nil {
 		// Marshal error - send a minimal error response
-		fmt.Fprintf(os.Stderr, "MCP: failed to marshal response: %v\n", err)
-		fmt.Fprintln(s.writer, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal marshal error"}}`)
+		_, _ = fmt.Fprintf(os.Stderr, "MCP: failed to marshal response: %v\n", err)
+		_, _ = fmt.Fprintln(s.writer, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal marshal error"}}`)
 		return
 	}
-	fmt.Fprintln(s.writer, string(data))
+	_, _ = fmt.Fprintln(s.writer, string(data))
 }
 
 func (s *mcpServer) sendError(id interface{}, code int, message string) {

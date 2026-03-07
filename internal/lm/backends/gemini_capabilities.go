@@ -204,7 +204,7 @@ func (c *GeminiContext) Provide(workDir string, fragments []*Fragment) error {
 func (c *GeminiContext) Clear(workDir string) error {
 	if c.contextHash != "" {
 		contextPath := SCMContextSubdir + "/" + c.contextHash + ".md"
-		os.Remove(contextPath)
+		_ = os.Remove(contextPath)
 		c.contextHash = ""
 	}
 	return nil

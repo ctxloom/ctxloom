@@ -1,22 +1,14 @@
 package remote
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLoadAuth_GitHubToken(t *testing.T) {
-	// Clear any existing tokens
-	os.Unsetenv("GITHUB_TOKEN")
-	os.Unsetenv("GH_TOKEN")
-	os.Unsetenv("GITLAB_TOKEN")
-	os.Unsetenv("GL_TOKEN")
-
 	t.Run("GITHUB_TOKEN", func(t *testing.T) {
-		os.Setenv("GITHUB_TOKEN", "gh-token-123")
-		defer os.Unsetenv("GITHUB_TOKEN")
+		t.Setenv("GITHUB_TOKEN", "gh-token-123")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "gh-token-123", auth.GitHub)
@@ -24,20 +16,15 @@ func TestLoadAuth_GitHubToken(t *testing.T) {
 	})
 
 	t.Run("GH_TOKEN", func(t *testing.T) {
-		os.Setenv("GH_TOKEN", "gh-short-token")
-		defer os.Unsetenv("GH_TOKEN")
+		t.Setenv("GH_TOKEN", "gh-short-token")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "gh-short-token", auth.GitHub)
 	})
 
 	t.Run("GH_TOKEN overrides GITHUB_TOKEN", func(t *testing.T) {
-		os.Setenv("GITHUB_TOKEN", "first-token")
-		os.Setenv("GH_TOKEN", "second-token")
-		defer func() {
-			os.Unsetenv("GITHUB_TOKEN")
-			os.Unsetenv("GH_TOKEN")
-		}()
+		t.Setenv("GITHUB_TOKEN", "first-token")
+		t.Setenv("GH_TOKEN", "second-token")
 
 		auth := LoadAuth("")
 		// GH_TOKEN is checked after GITHUB_TOKEN, so it wins
@@ -46,14 +33,8 @@ func TestLoadAuth_GitHubToken(t *testing.T) {
 }
 
 func TestLoadAuth_GitLabToken(t *testing.T) {
-	os.Unsetenv("GITHUB_TOKEN")
-	os.Unsetenv("GH_TOKEN")
-	os.Unsetenv("GITLAB_TOKEN")
-	os.Unsetenv("GL_TOKEN")
-
 	t.Run("GITLAB_TOKEN", func(t *testing.T) {
-		os.Setenv("GITLAB_TOKEN", "gl-token-456")
-		defer os.Unsetenv("GITLAB_TOKEN")
+		t.Setenv("GITLAB_TOKEN", "gl-token-456")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "gl-token-456", auth.GitLab)
@@ -61,20 +42,15 @@ func TestLoadAuth_GitLabToken(t *testing.T) {
 	})
 
 	t.Run("GL_TOKEN", func(t *testing.T) {
-		os.Setenv("GL_TOKEN", "gl-short-token")
-		defer os.Unsetenv("GL_TOKEN")
+		t.Setenv("GL_TOKEN", "gl-short-token")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "gl-short-token", auth.GitLab)
 	})
 
 	t.Run("GL_TOKEN overrides GITLAB_TOKEN", func(t *testing.T) {
-		os.Setenv("GITLAB_TOKEN", "first-gl-token")
-		os.Setenv("GL_TOKEN", "second-gl-token")
-		defer func() {
-			os.Unsetenv("GITLAB_TOKEN")
-			os.Unsetenv("GL_TOKEN")
-		}()
+		t.Setenv("GITLAB_TOKEN", "first-gl-token")
+		t.Setenv("GL_TOKEN", "second-gl-token")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "second-gl-token", auth.GitLab)
@@ -82,11 +58,6 @@ func TestLoadAuth_GitLabToken(t *testing.T) {
 }
 
 func TestLoadAuth_NoTokens(t *testing.T) {
-	os.Unsetenv("GITHUB_TOKEN")
-	os.Unsetenv("GH_TOKEN")
-	os.Unsetenv("GITLAB_TOKEN")
-	os.Unsetenv("GL_TOKEN")
-
 	auth := LoadAuth("")
 	assert.Empty(t, auth.GitHub)
 	assert.Empty(t, auth.GitLab)

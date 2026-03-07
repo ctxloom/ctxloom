@@ -36,7 +36,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	defer close(done)
 
 	// Ensure PTY is closed when we're done
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	// Handle terminal resize
 	resizeCh := make(chan os.Signal, 1)

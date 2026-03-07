@@ -11,6 +11,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// =============================================================================
+// Config Package Tests
+// =============================================================================
+//
+// This package manages SCM configuration: profiles, hooks, MCP servers, and
+// plugin settings. Configuration is loaded from YAML files and supports
+// inheritance through parent profiles.
+//
+// KEY CONCEPTS:
+// - Profiles: Named collections of fragments, tags, and settings
+// - Hooks: Commands executed before/after AI tool calls
+// - MCP servers: External processes providing AI capabilities
+// - Inheritance: Child profiles inherit and override parent settings
+//
+// IMPORTANT BEHAVIORS:
+// - Profile inheritance is depth-first, parents processed in order
+// - Hooks are deduplicated by command+matcher combination
+// - MCP servers can be scoped to specific backends (claude-code, gemini)
+// - Config is fault-tolerant: invalid entries warn but don't block startup
+//
+// =============================================================================
+
+// =============================================================================
+// Default Plugin Tests
+// =============================================================================
+// The default LLM plugin determines which AI backend is used when none is
+// explicitly specified. Falls back to claude-code for backwards compatibility.
+
 func TestGetDefaultLLMPlugin(t *testing.T) {
 	t.Run("returns configured plugin", func(t *testing.T) {
 		cfg := &Config{
@@ -33,6 +61,15 @@ func TestSetDefaultLLMPlugin(t *testing.T) {
 	assert.Equal(t, "gemini", cfg.Defaults.LLMPlugin)
 }
 
+// =============================================================================
+// Profile Resolution Tests
+// =============================================================================
+// Profile resolution handles inheritance chains and merges settings from
+// parent profiles. This enables composition of reusable profile fragments.
+
+// TestResolveProfile_HooksInheritance verifies hooks are inherited from parents.
+// Hooks defined in parent profiles apply to child profiles unless overridden.
+// This enables shared tool hooks (linting, formatting) across profiles.
 func TestResolveProfile_HooksInheritance(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
@@ -75,6 +112,10 @@ func TestResolveProfile_HooksInheritance(t *testing.T) {
 	}
 }
 
+// TestResolveProfile_HooksDeduplication verifies duplicate hooks are merged.
+// NON-OBVIOUS: A hook is considered duplicate if BOTH command AND matcher match.
+// This prevents the same hook from running multiple times when inherited
+// through multiple parent chains (diamond inheritance problem).
 func TestResolveProfile_HooksDeduplication(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {

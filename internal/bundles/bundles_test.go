@@ -10,8 +10,31 @@ import (
 )
 
 // =============================================================================
+// Bundles Package Tests
+// =============================================================================
+//
+// This package manages context bundles - collections of fragments, prompts,
+// and MCP server configurations that provide AI context.
+//
+// KEY CONCEPTS:
+// - Bundles are YAML files containing fragments (context) and prompts (templates)
+// - Fragments can be distilled (compressed) to reduce token usage
+// - Content hashes enable incremental distillation (only re-distill changed content)
+// - Tags enable filtering and profile assembly
+//
+// IMPORTANT BEHAVIORS:
+// - IsDistilled flag requires BOTH preference AND availability (AND logic)
+// - Tags are inherited: bundle tags + item-specific tags are merged
+// - Qualified references (bundle#fragments/name) bypass search, direct lookup
+// - Search is case-sensitive and order-dependent (first match wins)
+//
+// =============================================================================
+
+// =============================================================================
 // BundleFragment Tests
 // =============================================================================
+// BundleFragment represents a single context fragment within a bundle.
+// Fragments support distillation (AI-compressed versions) for token efficiency.
 
 func TestBundleFragment_ComputeContentHash(t *testing.T) {
 	tests := []struct {
@@ -683,6 +706,13 @@ prompts:
 	assert.Equal(t, "prompt", infos[0].ItemType)
 }
 
+// =============================================================================
+// GetFragment Tests
+// =============================================================================
+// GetFragment retrieves fragments by name, supporting both simple names
+// (searched across all bundles) and qualified names (bundle#fragments/name).
+// Tags are inherited from both bundle and fragment levels.
+
 func TestLoader_GetFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -738,6 +768,76 @@ fragments:
 	})
 }
 
+// TestLoader_GetFragment_IsDistilledFlag verifies the IsDistilled flag follows
+// the same AND logic as prompts: requires BOTH preferDistilled=true AND
+// non-empty distilled content.
+//
+// NON-OBVIOUS: A fragment with preferDistilled=true but empty Distilled field
+// returns IsDistilled=false. The flag reflects actual usage, not preference.
+func TestLoader_GetFragment_IsDistilledFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+fragments:
+  has-distilled:
+    content: Original fragment
+    distilled: Distilled fragment
+  no-distilled:
+    content: Original only
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "bundle.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		fragName        string
+		preferDistilled bool
+		wantIsDistilled bool
+		wantContent     string
+	}{
+		{
+			name:            "prefer distilled with content",
+			fragName:        "has-distilled",
+			preferDistilled: true,
+			wantIsDistilled: true,
+			wantContent:     "Distilled fragment",
+		},
+		{
+			name:            "prefer distilled without content",
+			fragName:        "no-distilled",
+			preferDistilled: true,
+			wantIsDistilled: false,
+			wantContent:     "Original only",
+		},
+		{
+			name:            "prefer original with distilled available",
+			fragName:        "has-distilled",
+			preferDistilled: false,
+			wantIsDistilled: false,
+			wantContent:     "Original fragment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader([]string{tmpDir}, tt.preferDistilled)
+			content, err := loader.GetFragment(tt.fragName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled)
+			assert.Equal(t, tt.wantContent, content.Content)
+		})
+	}
+}
+
+// =============================================================================
+// GetPrompt Tests
+// =============================================================================
+// GetPrompt retrieves prompts by name with distillation preference.
+// The IsDistilled flag in the result indicates whether distilled content was
+// actually used - this requires BOTH preferDistilled=true AND distilled content
+// to exist. This is critical for UI/logging to accurately report content source.
+
 func TestLoader_GetPrompt(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -747,6 +847,8 @@ prompts:
   my-prompt:
     content: Prompt content
     distilled: Distilled prompt
+  no-distilled:
+    content: Original only
 `
 	err := os.WriteFile(filepath.Join(tmpDir, "test-bundle.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
@@ -777,6 +879,83 @@ prompts:
 		_, err := loader.GetPrompt("nonexistent")
 		assert.Error(t, err)
 	})
+}
+
+// TestLoader_GetPrompt_IsDistilledFlag verifies the IsDistilled flag is set
+// correctly based on the combination of preferDistilled setting AND actual
+// distilled content availability.
+//
+// EDGE CASE: IsDistilled requires BOTH conditions to be true. If either
+// preferDistilled is false OR distilled content is empty, IsDistilled must
+// be false. This prevents false reporting of distilled usage.
+func TestLoader_GetPrompt_IsDistilledFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	bundleYAML := `
+version: "1.0"
+prompts:
+  has-distilled:
+    content: Original
+    distilled: Distilled
+  no-distilled:
+    content: Original only
+`
+	err := os.WriteFile(filepath.Join(tmpDir, "bundle.yaml"), []byte(bundleYAML), 0644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		promptName      string
+		preferDistilled bool
+		wantIsDistilled bool
+		wantContent     string
+		reason          string
+	}{
+		{
+			name:            "prefer distilled with distilled content available",
+			promptName:      "has-distilled",
+			preferDistilled: true,
+			wantIsDistilled: true,
+			wantContent:     "Distilled",
+			reason:          "Both conditions met: preference AND availability",
+		},
+		{
+			name:            "prefer distilled but no distilled content",
+			promptName:      "no-distilled",
+			preferDistilled: true,
+			wantIsDistilled: false,
+			wantContent:     "Original only",
+			reason:          "Preference set but no distilled content exists - must use original",
+		},
+		{
+			name:            "prefer original even with distilled available",
+			promptName:      "has-distilled",
+			preferDistilled: false,
+			wantIsDistilled: false,
+			wantContent:     "Original",
+			reason:          "User explicitly prefers original content",
+		},
+		{
+			name:            "prefer original with no distilled",
+			promptName:      "no-distilled",
+			preferDistilled: false,
+			wantIsDistilled: false,
+			wantContent:     "Original only",
+			reason:          "Neither preference nor availability - straightforward original",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader([]string{tmpDir}, tt.preferDistilled)
+			content, err := loader.GetPrompt(tt.promptName)
+			require.NoError(t, err, "prompt should be found")
+			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled,
+				"IsDistilled mismatch: %s", tt.reason)
+			assert.Equal(t, tt.wantContent, content.Content,
+				"Content mismatch: %s", tt.reason)
+		})
+	}
 }
 
 func TestLoader_ListByTags(t *testing.T) {
@@ -865,29 +1044,42 @@ fragments:
 // =============================================================================
 // Edge Cases and Error Handling
 // =============================================================================
+// These tests verify graceful degradation under unusual conditions.
+// SCM should be fault-tolerant - misconfiguration shouldn't crash the system.
 
+// TestLoader_EmptySearchDirs verifies the loader handles no search directories.
+// FAULT TOLERANCE: Empty config should not error, just return no bundles.
 func TestLoader_EmptySearchDirs(t *testing.T) {
 	loader := NewLoader([]string{}, false)
 
 	bundles, err := loader.List()
-	require.NoError(t, err)
+	require.NoError(t, err, "empty dirs should not error")
 	assert.Empty(t, bundles)
 }
 
+// TestLoader_NonexistentSearchDir verifies missing directories are skipped.
+// FAULT TOLERANCE: Invalid paths in config should be silently ignored.
+// This enables portable configs that reference optional bundle locations.
 func TestLoader_NonexistentSearchDir(t *testing.T) {
 	loader := NewLoader([]string{"/nonexistent/path"}, false)
 
 	bundles, err := loader.List()
-	require.NoError(t, err)
+	require.NoError(t, err, "nonexistent dir should not error")
 	assert.Empty(t, bundles)
 }
 
+// TestLoader_LoadFile_NotFound verifies proper error on missing files.
+// Unlike directory searches, explicit file loads SHOULD error - the user
+// specifically requested a file that doesn't exist.
 func TestLoader_LoadFile_NotFound(t *testing.T) {
 	loader := NewLoader([]string{}, false)
 	_, err := loader.LoadFile("/nonexistent/bundle.yaml")
-	assert.Error(t, err)
+	assert.Error(t, err, "explicit file load should error when not found")
 }
 
+// TestLoader_LoadFile_InvalidYAML verifies malformed bundles are rejected.
+// Unlike missing files, corrupt bundles indicate a real problem that
+// the user needs to fix.
 func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlePath := filepath.Join(tmpDir, "invalid.yaml")
@@ -896,9 +1088,13 @@ func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 
 	loader := NewLoader([]string{tmpDir}, false)
 	_, err = loader.LoadFile(bundlePath)
-	assert.Error(t, err)
+	assert.Error(t, err, "invalid YAML should error")
 }
 
+// TestLoader_NestedBundles verifies deep directory structures are traversed.
+// NON-OBVIOUS: Bundle names preserve the relative path structure.
+// A bundle at vendor/github.com/user/bundle.yaml gets name "vendor/github.com/user".
+// This enables namespacing and prevents collisions between remote sources.
 func TestLoader_NestedBundles(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -925,5 +1121,5 @@ fragments:
 			break
 		}
 	}
-	assert.True(t, found, "should find nested bundle")
+	assert.True(t, found, "should find nested bundle with path-based name")
 }

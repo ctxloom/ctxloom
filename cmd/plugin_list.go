@@ -41,7 +41,7 @@ var pluginListCmd = &cobra.Command{
 		// Find external plugins
 		externalPlugins := findExternalPlugins(cfg.GetPluginPaths())
 
-		defaultPlugin := cfg.LM.GetDefaultPlugin()
+		defaultPlugin := cfg.GetDefaultLLMPlugin()
 
 		// Print built-in plugins
 		fmt.Println("Built-in plugins:")

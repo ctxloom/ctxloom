@@ -1,3 +1,7 @@
+// Context assembly tests verify the core SCM functionality of combining
+// fragments, profiles, and variables into a single context document for
+// AI consumption. These tests ensure that context is assembled correctly
+// from multiple sources and that variable substitution works as expected.
 package operations
 
 import (
@@ -26,6 +30,16 @@ func (m *mockProfileLoader) ResolveProfile(name string, visited map[string]bool)
 	return nil, errors.New("profile not found")
 }
 
+// =============================================================================
+// AssembleContextRequest Tests
+//
+// These tests verify that request objects correctly capture user intent for
+// context assembly, enabling proper fragment selection and variable binding.
+// =============================================================================
+
+// TestAssembleContextRequest_Defaults verifies that a zero-value request has
+// sensible defaults (empty collections, no profile). This ensures callers
+// can create requests incrementally without unexpected behavior.
 func TestAssembleContextRequest_Defaults(t *testing.T) {
 	req := AssembleContextRequest{}
 

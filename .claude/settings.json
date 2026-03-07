@@ -5,9 +5,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.scm/bin/scm hook inject-context d2a4211751778d4d",
+            "command": "./.scm/bin/scm hook inject-context a95666e43b2e1e40",
             "timeout": 60,
-            "_scm": "b14120523f9a7549"
+            "_scm": "9ab0fa911f621ef4"
           }
         ]
       }

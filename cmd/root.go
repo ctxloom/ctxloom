@@ -52,7 +52,7 @@ CORE COMMANDS
   run           Assemble context and run AI
   bundle        Manage bundles (fragments, prompts, MCP servers)
   profile       Manage profiles (named fragment collections)
-  mcp           Run as MCP server for AI tool integration
+  mcp           Run as MCP server or manage MCP server configs
 
 REMOTE CONTENT
   remote add    Register a remote source (GitHub/GitLab)
@@ -60,7 +60,6 @@ REMOTE CONTENT
   remote list   List configured remote sources
 
 CONFIGURATION
-  mcp-servers   Manage MCP server configurations
   hook          Hook commands for AI tool integration
   plugin        Manage AI backend plugins
 

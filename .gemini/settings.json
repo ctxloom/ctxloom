@@ -1,27 +1,11 @@
 {
   "mcpServers": {
-    "mcp-tasks": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-tasks"
-      ],
-      "_scm": "bundle:mcp-tasks"
-    },
     "scm": {
       "command": "./.scm/bin/scm",
       "args": [
         "mcp"
       ],
       "_scm": "scm-auto"
-    },
-    "sequential-thinking": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sequential-thinking"
-      ],
-      "_scm": "bundle:sequential-thinking"
     }
   }
 }

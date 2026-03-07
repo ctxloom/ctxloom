@@ -1,3 +1,32 @@
+// Package operations tests verify the MCP server management operations.
+//
+// MCP (Model Context Protocol) servers are external processes that extend AI
+// capabilities with tools like filesystem access, search, and integrations.
+// These tests verify CRUD operations on MCP server configuration.
+//
+// # Architecture Notes
+//
+// MCP servers can be configured at two levels:
+//   - Unified: Servers shared across all LLM backends (stored in mcp.servers)
+//   - Backend-specific: Servers only available to one backend (stored in mcp.plugins.<backend>)
+//
+// The backend parameter controls where servers are stored:
+//   - "" or "unified": The unified servers map
+//   - "claude-code", "gemini": Backend-specific maps
+//
+// # Test Injection Patterns
+//
+// Tests use two patterns for config injection:
+//   - TestConfig: Passes an in-memory config struct (for unit tests)
+//   - FS + SCMDir: Passes a virtual filesystem and path (for integration tests)
+//
+// Both patterns avoid touching the real filesystem or user's SCM config.
+//
+// # NON-OBVIOUS Behavior
+//
+// Remove operations with empty backend (Backend="") remove the server from
+// ALL locations - unified AND all backend-specific maps. This is intentional
+// for cleanup but can be surprising if you only expected unified removal.
 package operations
 
 import (
@@ -11,6 +40,8 @@ import (
 	"github.com/benjaminabbitt/scm/internal/config"
 )
 
+// TestMCPServerEntry_Fields verifies the MCPServerEntry struct stores all
+// expected fields for representing an MCP server in list results.
 func TestMCPServerEntry_Fields(t *testing.T) {
 	entry := MCPServerEntry{
 		Name:    "my-server",
@@ -203,8 +234,16 @@ func TestMCPBackendValues(t *testing.T) {
 	}
 }
 
-// ========== Integration tests with injected config ==========
+// ==========================================================================
+// Integration tests with injected config
+// ==========================================================================
+//
+// The following tests exercise the full operation logic using TestConfig
+// injection. This allows testing sorting, filtering, and CRUD operations
+// without filesystem access.
 
+// createTestMCPConfig creates a config with servers in both unified and
+// backend-specific locations for testing queries and sorting.
 func createTestMCPConfig() *config.Config {
 	return &config.Config{
 		SCMPaths: []string{"/project/.scm"},
@@ -406,6 +445,8 @@ func TestAddMCPServer_SpecificBackend(t *testing.T) {
 	assert.Contains(t, cfg.MCP.Plugins["claude-code"], "claude-specific")
 }
 
+// TestAddMCPServer_ValidationErrors verifies that required fields are enforced.
+// Both name and command are required - the server won't function without them.
 func TestAddMCPServer_ValidationErrors(t *testing.T) {
 	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
 
@@ -443,6 +484,12 @@ func TestAddMCPServer_ValidationErrors(t *testing.T) {
 	}
 }
 
+// TestAddMCPServer_AlreadyExists verifies that duplicate server names are rejected.
+// This prevents accidental overwriting of existing server configurations.
+//
+// NON-OBVIOUS: The duplicate check is per-location. A server named "foo" can
+// exist in unified AND in claude-code backend simultaneously. The check only
+// fails when adding to the same location where the name already exists.
 func TestAddMCPServer_AlreadyExists(t *testing.T) {
 	cfg := &config.Config{
 		SCMPaths: []string{"/project/.scm"},
@@ -487,6 +534,12 @@ func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude-code")
 }
 
+// TestAddMCPServer_BackendNilMaps verifies that nil maps are initialized on demand.
+// Users shouldn't need to pre-create empty maps in their config - the operation
+// handles this automatically.
+//
+// This is part of SCM's fault-tolerant philosophy: work with whatever state
+// the config is in, don't require perfect setup.
 func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	// Test that nil Plugins map is initialized
 	cfg := &config.Config{
@@ -591,6 +644,14 @@ func TestRemoveMCPServer_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+// TestRemoveMCPServer_FromAllBackends verifies the "remove from everywhere" behavior.
+//
+// NON-OBVIOUS: When Backend is empty (""), the remove operation searches
+// ALL locations and removes the server from EVERY place it's found. This is
+// the "nuclear option" for cleanup when a server name appears in multiple places.
+//
+// The RemovedFrom slice in the result tells you where it was actually removed from,
+// which can be more than one location.
 func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	cfg := &config.Config{
 		SCMPaths: []string{"/project/.scm"},
@@ -702,6 +763,15 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "auto_register_scm: true")
 }
 
+// ==========================================================================
+// Filesystem-based integration tests
+// ==========================================================================
+//
+// The following tests use FS + SCMDir injection to test the full save/load
+// cycle with a virtual filesystem. This verifies that config changes are
+// properly persisted to YAML.
+
+// TestAddMCPServer_WithFS verifies the complete add flow including config save.
 func TestAddMCPServer_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	scmDir := "/project/.scm"
@@ -733,6 +803,14 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "npx")
 }
 
+// TestAddMCPServer_WithFS_InvalidYAML demonstrates SCM's fault-tolerant behavior.
+//
+// NON-OBVIOUS: When config.yaml contains invalid YAML, the config loader does NOT
+// fail. Instead, it returns an empty config with warnings. This allows the
+// operation to proceed - the user's session isn't blocked by a config typo.
+//
+// The warnings are captured in result.Config.Warnings for user visibility.
+// This is core to SCM's philosophy: never block the user from their LLM.
 func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	scmDir := "/project/.scm"

@@ -27,7 +27,7 @@ With a plugin name argument, sets that plugin as the default.`,
 		}
 
 		if len(args) == 0 {
-			fmt.Println(cfg.LM.GetDefaultPlugin())
+			fmt.Println(cfg.GetDefaultLLMPlugin())
 			return nil
 		}
 
@@ -38,13 +38,13 @@ With a plugin name argument, sets that plugin as the default.`,
 			return fmt.Errorf("unknown plugin %q; available: %s", name, strings.Join(available, ", "))
 		}
 
-		current := cfg.LM.GetDefaultPlugin()
+		current := cfg.GetDefaultLLMPlugin()
 		if current == name {
 			fmt.Printf("Default plugin is already %s\n", name)
 			return nil
 		}
 
-		cfg.LM.SetDefaultPlugin(name)
+		cfg.SetDefaultLLMPlugin(name)
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}

@@ -31,11 +31,11 @@ func aProjectWithMlcmInitialized() error {
 func aHomeDirectoryWithMlcmConfig() error {
 	// Home .scm is already created by NewTestEnvironment
 	// Create a minimal config
-	config := `lm:
+	config := `llm:
   plugins:
-    claude-code:
-      default: true
+    claude-code: {}
 defaults:
+  llm_plugin: claude-code
   use_distilled: false
 `
 	return TestEnv.WriteHomeFile(".scm/config.yaml", config)

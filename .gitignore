@@ -13,6 +13,9 @@ bin/
 go.work
 go.work.sum
 
+# Generated protobuf (source .proto files are kept)
+*.pb.go
+
 # Local config
 .scm/
 .mcp.json

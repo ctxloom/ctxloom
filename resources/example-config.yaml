@@ -4,11 +4,11 @@
 # Language model plugin configuration
 llm:
   plugins:
-    claude-code:
-      default: true
+    claude-code: {}
 
 # Default settings
-defaults: {}
+defaults:
+  llm_plugin: claude-code
 
 # Uncomment to configure your preferred editor:
 # editor:

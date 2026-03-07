@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,63 +24,288 @@ import (
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
-	Short: "Run as MCP server over stdio",
-	Long: `Run scm as an MCP (Model Context Protocol) server over stdio.
+	Short: "Run as MCP server or manage MCP server configurations",
+	Long: `Run scm as an MCP (Model Context Protocol) server, or manage MCP server configurations.
 
-This allows AI agents to interact with scm functionality using standard MCP tool calls.
+When called without subcommands, runs SCM as an MCP server over stdio.
+Subcommands manage external MCP server configurations that are injected into backend settings.
 
-Available tools:
-  Context:
-  - list_fragments: List available context fragments
-  - get_fragment: Get a fragment's content by name
-  - create_fragment: Create a new context fragment
-  - delete_fragment: Delete a local fragment
-  - assemble_context: Assemble context from profile/fragments/tags
+RUNNING AS MCP SERVER:
+  scm mcp              Run as MCP server over stdio
+  scm mcp serve        Alias for running as MCP server
 
-  Profiles:
-  - list_profiles: List configured profiles
-  - get_profile: Get a profile's configuration
-  - create_profile: Create a new profile
-  - update_profile: Update an existing profile
-  - delete_profile: Delete a profile
+  Available tools when running as server:
+    Context: list_fragments, get_fragment, create_fragment, delete_fragment, assemble_context
+    Profiles: list_profiles, get_profile, create_profile, update_profile, delete_profile
+    Prompts: list_prompts, get_prompt
+    Search: search_content
+    Hooks: apply_hooks
+    MCP Servers: list_mcp_servers, add_mcp_server, remove_mcp_server, set_mcp_auto_register
+    Remotes: list_remotes, add_remote, remove_remote, discover_remotes, browse_remote, preview_remote, confirm_pull
+    Lockfile: lock_dependencies, install_dependencies, check_outdated
 
-  Prompts:
-  - list_prompts: List saved prompts
-  - get_prompt: Get a prompt's content by name
-
-  Search:
-  - search_content: Search across all content types (fragments, prompts, profiles, MCP servers)
-
-  Hooks:
-  - apply_hooks: Apply/reapply SCM hooks to backend configs
-
-  MCP Servers:
-  - list_mcp_servers: List configured MCP servers
-  - add_mcp_server: Add an MCP server to config
-  - remove_mcp_server: Remove an MCP server from config
-  - set_mcp_auto_register: Enable/disable SCM MCP auto-registration
-
-  Remotes:
-  - list_remotes: List configured remote sources
-  - add_remote: Register a new remote source
-  - remove_remote: Remove a remote source
-  - discover_remotes: Search GitHub/GitLab for SCM repositories
-  - browse_remote: List items available in a remote
-  - preview_remote: Preview content before pulling
-  - confirm_pull: Install a previewed item
-
-  Lockfile:
-  - lock_dependencies: Generate lockfile from installed items
-  - install_dependencies: Install items from lockfile
-  - check_outdated: Check for newer versions
-
-Example:
-  scm mcp`,
+MANAGING MCP SERVERS:
+  scm mcp list         List configured MCP servers
+  scm mcp add          Add an MCP server configuration
+  scm mcp remove       Remove an MCP server configuration
+  scm mcp show         Show details of an MCP server
+  scm mcp auto-register Configure auto-registration of SCM's MCP server`,
 	RunE: runMCPServer,
+}
+
+// MCP subcommands for managing MCP server configurations
+
+var mcpServeCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Run as MCP server over stdio",
+	Long:  `Run scm as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'scm mcp' without subcommands.`,
+	RunE:  runMCPServer,
+}
+
+var mcpListCmd = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List configured MCP servers",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		result, err := operations.ListMCPServers(cmd.Context(), cfg, operations.ListMCPServersRequest{
+			SortBy: "name",
+		})
+		if err != nil {
+			return err
+		}
+
+		if result.Count == 0 {
+			fmt.Println("No MCP servers configured.")
+			fmt.Println()
+			fmt.Printf("Auto-register SCM MCP server: %v\n", result.AutoRegister)
+			fmt.Println("\nUse 'scm mcp add <name> --command <cmd>' to add one.")
+			return nil
+		}
+
+		fmt.Println("MCP Servers:")
+		for _, srv := range result.Servers {
+			fmt.Printf("  %s\n", srv.Name)
+			fmt.Printf("    Command: %s\n", srv.Command)
+			if len(srv.Args) > 0 {
+				fmt.Printf("    Args: %s\n", strings.Join(srv.Args, " "))
+			}
+			fmt.Printf("    Scope: %s\n", srv.Backend)
+		}
+
+		fmt.Printf("\nAuto-register SCM MCP server: %v\n", result.AutoRegister)
+		return nil
+	},
+}
+
+var (
+	mcpAddCommand string
+	mcpAddArgs    []string
+	mcpAddBackend string
+)
+
+var mcpAddCmd = &cobra.Command{
+	Use:   "add <name>",
+	Short: "Add an MCP server configuration",
+	Long: `Add an MCP server to be injected into backend settings.
+
+Examples:
+  scm mcp add my-server --command "npx my-mcp-server"
+  scm mcp add tools --command "python" --args "-m,mcp_tools"
+  scm mcp add claude-only --command "./server" --backend claude-code`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		if mcpAddCommand == "" {
+			return fmt.Errorf("--command is required")
+		}
+
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		result, err := operations.AddMCPServer(cmd.Context(), cfg, operations.AddMCPServerRequest{
+			Name:    name,
+			Command: mcpAddCommand,
+			Args:    mcpAddArgs,
+			Backend: mcpAddBackend,
+		})
+		if err != nil {
+			return err
+		}
+
+		scope := "unified (all backends)"
+		if result.Backend != "" && result.Backend != "unified" {
+			scope = result.Backend + " only"
+		}
+		fmt.Printf("Added MCP server %q (%s)\n", result.Name, scope)
+		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+		return nil
+	},
+}
+
+var mcpRemoveBackend string
+
+var mcpRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm"},
+	Short:   "Remove an MCP server configuration",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		result, err := operations.RemoveMCPServer(cmd.Context(), cfg, operations.RemoveMCPServerRequest{
+			Name:    name,
+			Backend: mcpRemoveBackend,
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, backend := range result.RemovedFrom {
+			if backend != "unified" {
+				fmt.Printf("Removed from backend: %s\n", backend)
+			}
+		}
+
+		fmt.Printf("Removed MCP server %q\n", result.Name)
+		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+		return nil
+	},
+}
+
+var mcpShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "Show details of an MCP server configuration",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		// Check unified servers
+		if srv, ok := cfg.MCP.Servers[name]; ok {
+			fmt.Printf("MCP Server: %s\n", name)
+			fmt.Printf("Scope: unified (all backends)\n")
+			fmt.Printf("Command: %s\n", srv.Command)
+			if len(srv.Args) > 0 {
+				fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
+			}
+			if len(srv.Env) > 0 {
+				fmt.Println("Environment:")
+				for k, v := range srv.Env {
+					fmt.Printf("  %s=%s\n", k, v)
+				}
+			}
+			return nil
+		}
+
+		// Check backend-specific servers
+		for backend, servers := range cfg.MCP.Plugins {
+			if srv, ok := servers[name]; ok {
+				fmt.Printf("MCP Server: %s\n", name)
+				fmt.Printf("Scope: %s only\n", backend)
+				fmt.Printf("Command: %s\n", srv.Command)
+				if len(srv.Args) > 0 {
+					fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
+				}
+				if len(srv.Env) > 0 {
+					fmt.Println("Environment:")
+					for k, v := range srv.Env {
+						fmt.Printf("  %s=%s\n", k, v)
+					}
+				}
+				return nil
+			}
+		}
+
+		return fmt.Errorf("MCP server %q not found", name)
+	},
+}
+
+var mcpAutoRegisterDisable bool
+
+var mcpAutoRegisterCmd = &cobra.Command{
+	Use:   "auto-register",
+	Short: "Configure auto-registration of SCM's MCP server",
+	Long: `Configure whether SCM automatically registers its own MCP server.
+
+When enabled (default), SCM injects its own MCP server into backend settings,
+allowing AI agents to access SCM tools (fragments, profiles, prompts, etc.).
+
+Examples:
+  scm mcp auto-register           # Show current setting
+  scm mcp auto-register --disable # Disable auto-registration
+  scm mcp auto-register --enable  # Enable auto-registration (default)`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		// If flags were provided, update the setting
+		if cmd.Flags().Changed("disable") || cmd.Flags().Changed("enable") {
+			enabled := !mcpAutoRegisterDisable
+
+			result, err := operations.SetMCPAutoRegister(cmd.Context(), cfg, operations.SetMCPAutoRegisterRequest{
+				Enabled: enabled,
+			})
+			if err != nil {
+				return err
+			}
+
+			if result.AutoRegister {
+				fmt.Println("SCM MCP server auto-registration: enabled")
+			} else {
+				fmt.Println("SCM MCP server auto-registration: disabled")
+			}
+			fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+			return nil
+		}
+
+		// Show current setting
+		fmt.Printf("SCM MCP server auto-registration: %v\n", cfg.MCP.ShouldAutoRegisterSCM())
+		return nil
+	},
 }
 
 func init() {
 	rootCmd.AddCommand(mcpCmd)
+
+	// Add subcommands
+	mcpCmd.AddCommand(mcpServeCmd)
+	mcpCmd.AddCommand(mcpListCmd)
+	mcpCmd.AddCommand(mcpAddCmd)
+	mcpCmd.AddCommand(mcpRemoveCmd)
+	mcpCmd.AddCommand(mcpShowCmd)
+	mcpCmd.AddCommand(mcpAutoRegisterCmd)
+
+	// Flags for add command
+	mcpAddCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
+	mcpAddCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
+	mcpAddCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, gemini, or unified)")
+	_ = mcpAddCmd.MarkFlagRequired("command")
+
+	// Flags for remove command
+	mcpRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove server from")
+
+	// Flags for auto-register command
+	mcpAutoRegisterCmd.Flags().BoolVar(&mcpAutoRegisterDisable, "disable", false, "Disable SCM MCP server auto-registration")
+	mcpAutoRegisterCmd.Flags().Bool("enable", false, "Enable SCM MCP server auto-registration")
 }
 
 // MCP JSON-RPC types
@@ -285,13 +511,58 @@ func (s *mcpServer) handleRequest(ctx context.Context, req *mcpRequest) *mcpResp
 func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 	cfg, err := config.Load()
 	if err != nil {
-		return &mcpResponse{
-			JSONRPC: "2.0",
-			ID:      req.ID,
-			Error:   &mcpError{Code: -32603, Message: "Failed to load config: " + err.Error()},
+		// Log the error but continue with an empty config
+		fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config: %v\n", err)
+		cfg = &config.Config{
+			LM:       config.LMConfig{Plugins: make(map[string]config.PluginConfig)},
+			Profiles: make(map[string]config.Profile),
+			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
 		}
 	}
 	s.cfg = cfg
+
+	// Output any warnings collected during config loading
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", warning)
+	}
+
+	// Auto-sync dependencies on startup if enabled (blocking, graceful failure)
+	if cfg.Sync.ShouldAutoSync() {
+		fmt.Fprintf(os.Stderr, "SCM: syncing remote bundles and profiles from config...\n")
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		result, err := operations.SyncOnStartup(syncCtx, cfg)
+		syncCancel()
+		if err != nil {
+			// Log but don't fail - missing deps will be handled when accessed
+			fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+		} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
+			fmt.Fprintf(os.Stderr, "SCM: %s\n", result.Message)
+		} else if result.Errors > 0 {
+			fmt.Fprintf(os.Stderr, "SCM: warning: sync completed with %d errors\n", result.Errors)
+		}
+	}
+
+	// Transform llm.md/scm.md to backend-specific context files (blocking, graceful failure)
+	ctxResult, err := operations.TransformContextOnStartup(context.Background(), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "SCM: warning: context transform failed: %v\n", err)
+	} else if ctxResult.Status == "no_source" {
+		// No llm.md or scm.md - that's fine, just skip silently
+	} else {
+		if len(ctxResult.Errors) > 0 {
+			for _, e := range ctxResult.Errors {
+				fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", e)
+			}
+		}
+		// Warn about user-managed context files
+		for _, w := range ctxResult.Warnings {
+			fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", w)
+		}
+		if ctxResult.Message != "" && !strings.HasPrefix(ctxResult.Message, "Context files up to date") {
+			// Only log when there are actual changes
+			fmt.Fprintf(os.Stderr, "SCM: %s\n", ctxResult.Message)
+		}
+	}
 
 	return &mcpResponse{
 		JSONRPC: "2.0",
@@ -904,6 +1175,47 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				"properties": map[string]interface{}{},
 			},
 		},
+		// Sync management
+		{
+			Name:        "sync_dependencies",
+			Description: "Sync remote bundles and profiles referenced in config. Automatically fetches missing dependencies, updates lockfile, and applies hooks.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"profiles": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Specific profiles to sync (default: all profiles)",
+					},
+					"force": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Re-pull even if already installed (default: false)",
+					},
+					"lock": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Update lockfile after sync (default: true)",
+					},
+					"apply_hooks": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Apply hooks after sync (default: true)",
+					},
+				},
+			},
+		},
+		{
+			Name:        "check_missing_dependencies",
+			Description: "Check which remote dependencies are not installed locally",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"profiles": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Specific profiles to check (default: all profiles)",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -996,6 +1308,11 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolInstallDependencies(ctx, params.Arguments)
 	case "check_outdated":
 		result, err = s.toolCheckOutdated(ctx, params.Arguments)
+	// Sync management
+	case "sync_dependencies":
+		result, err = s.toolSyncDependencies(ctx, params.Arguments)
+	case "check_missing_dependencies":
+		result, err = s.toolCheckMissingDependencies(ctx, params.Arguments)
 	default:
 		return &mcpResponse{
 			JSONRPC: "2.0",
@@ -1674,6 +1991,48 @@ func (s *mcpServer) toolInstallDependencies(ctx context.Context, args json.RawMe
 
 func (s *mcpServer) toolCheckOutdated(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	return operations.CheckOutdated(ctx, s.cfg, operations.CheckOutdatedRequest{})
+}
+
+// ============================================================================
+// Sync management tools
+// ============================================================================
+
+func (s *mcpServer) toolSyncDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Profiles   []string `json:"profiles"`
+		Force      bool     `json:"force"`
+		Lock       *bool    `json:"lock"`
+		ApplyHooks *bool    `json:"apply_hooks"`
+	}
+	_ = json.Unmarshal(args, &params)
+
+	// Default to true for lock and apply_hooks
+	lock := true
+	if params.Lock != nil {
+		lock = *params.Lock
+	}
+	applyHooks := true
+	if params.ApplyHooks != nil {
+		applyHooks = *params.ApplyHooks
+	}
+
+	return operations.SyncDependencies(ctx, s.cfg, operations.SyncDependenciesRequest{
+		Profiles:   params.Profiles,
+		Force:      params.Force,
+		Lock:       lock,
+		ApplyHooks: applyHooks,
+	})
+}
+
+func (s *mcpServer) toolCheckMissingDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Profiles []string `json:"profiles"`
+	}
+	_ = json.Unmarshal(args, &params)
+
+	return operations.CheckMissingDependencies(ctx, s.cfg, operations.CheckMissingDependenciesRequest{
+		Profiles: params.Profiles,
+	})
 }
 
 // ============================================================================

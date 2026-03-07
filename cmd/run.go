@@ -68,7 +68,7 @@ Examples:
 		// Determine which plugin to use
 		pluginName := runPlugin
 		if pluginName == "" {
-			pluginName = cfg.LM.GetDefaultPlugin()
+			pluginName = cfg.GetDefaultLLMPlugin()
 		}
 
 		// Verify the backend exists

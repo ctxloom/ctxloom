@@ -1,3 +1,33 @@
+// Package profiles tests verify profile parsing, resolution, and inheritance.
+//
+// Profiles are named collections of bundles, tags, and variables that define
+// what context gets loaded for an AI session. They support inheritance through
+// the `parents` field, enabling composition and reuse.
+//
+// # Content Reference Format
+//
+// SCM uses a flexible reference format to identify bundles and their contents:
+//
+//	"bundle-name"                       → Local bundle
+//	"remote/bundle-name"                → Remote bundle via short name
+//	"https://github.com/user/repo"      → Remote bundle via URL
+//	"bundle#fragments/name"             → Specific fragment within bundle
+//	"bundle#prompts/name"               → Specific prompt within bundle
+//	"bundle#mcp/name"                   → Specific MCP server within bundle
+//
+// # Profile Inheritance
+//
+// Profiles can inherit from parents using the `parents` field:
+//   - Bundles are accumulated (child adds to parent's bundles)
+//   - Tags are accumulated (child adds to parent's tags)
+//   - Variables are merged (child overrides parent values)
+//   - Circular references are detected and rejected
+//
+// # Test Injection Patterns
+//
+// Tests use two approaches for filesystem injection:
+//   - Real filesystem with t.TempDir() for integration tests
+//   - afero.MemMapFs with WithFS() option for unit tests
 package profiles
 
 import (
@@ -10,6 +40,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// =============================================================================
+// ContentRef Parsing Tests
+// =============================================================================
+//
+// These tests verify that content references are correctly parsed into their
+// component parts. The parser must handle local bundles, remote shortnames,
+// full URLs (HTTPS and SSH), and item specifiers (#fragments/name, etc.)
+
+// TestParseContentRef verifies parsing of various reference formats.
 func TestParseContentRef(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -166,6 +205,9 @@ func TestParseContentRef(t *testing.T) {
 	}
 }
 
+// TestContentRefMethods verifies the ContentRef helper methods for type checking.
+// These methods are convenience wrappers for determining what type of content
+// a reference points to.
 func TestContentRefMethods(t *testing.T) {
 	tests := []struct {
 		input      string
@@ -236,7 +278,12 @@ func TestContentRef_LocalBundlePath(t *testing.T) {
 // =============================================================================
 // Loader Tests
 // =============================================================================
+//
+// The Loader provides CRUD operations for profile YAML files. It searches
+// through multiple directories (SCM paths) and handles both .yaml and .yml
+// extensions.
 
+// TestNewLoader verifies that the loader stores the provided directories.
 func TestNewLoader(t *testing.T) {
 	dirs := []string{"/path1", "/path2"}
 	loader := NewLoader(dirs)
@@ -267,6 +314,11 @@ default: true
 	assert.Equal(t, "profile2", profiles[1].Name)
 }
 
+// TestLoader_List_WithSubdirectories verifies profile naming with nested paths.
+//
+// NON-OBVIOUS: When profiles are in subdirectories (e.g., vendor/profile.yaml),
+// the profile name includes the path (e.g., "vendor/remote"). This allows
+// namespacing of profiles by source/vendor without conflicts.
 func TestLoader_List_WithSubdirectories(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -457,7 +509,16 @@ func TestGetProfileDirs_NoProfilesDir(t *testing.T) {
 // =============================================================================
 // ResolveProfile Tests
 // =============================================================================
+//
+// ResolveProfile flattens the inheritance tree into a single effective profile.
+// This is where parent bundles/tags/variables are merged with child values.
 
+// TestLoader_ResolveProfile verifies the inheritance merge behavior.
+//
+// Key semantics:
+//   - Bundles: Child bundles APPEND to parent bundles (parent first)
+//   - Tags: Child tags APPEND to parent tags
+//   - Variables: Child values OVERRIDE parent values (last wins)
 func TestLoader_ResolveProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -507,6 +568,11 @@ variables:
 	assert.Equal(t, "child-only", resolved.Variables["new_var"])
 }
 
+// TestLoader_ResolveProfile_CircularReference verifies circular dependency detection.
+//
+// This is a safety check - without it, a circular reference like A→B→A would
+// cause infinite recursion. The resolver tracks visited profiles and fails
+// if it encounters one it's already processing.
 func TestLoader_ResolveProfile_CircularReference(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -552,7 +618,17 @@ func TestLoader_ResolveProfile_ParentNotFound(t *testing.T) {
 // =============================================================================
 // ResolvedProfile.Merge Tests
 // =============================================================================
+//
+// Merge combines two resolved profiles. This is used when multiple profiles
+// are active simultaneously (e.g., multiple default profiles).
 
+// TestResolvedProfile_Merge verifies the merge semantics.
+//
+// NON-OBVIOUS: For variables, the FIRST profile wins (r1.Merge(r2) keeps r1's
+// value for shared keys). This differs from parent inheritance where child
+// overrides parent. The distinction:
+//   - Inheritance: child → parent (child wins)
+//   - Merge: profile1 + profile2 (first wins)
 func TestResolvedProfile_Merge(t *testing.T) {
 	r1 := &ResolvedProfile{
 		Bundles:   []string{"b1"},

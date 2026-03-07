@@ -1,3 +1,34 @@
+// Package operations tests for ApplyHooks verify the hook application system.
+//
+// Hooks are the glue between SCM configuration and LLM backend settings files.
+// ApplyHooks transforms SCM's unified hook config into backend-specific formats
+// (e.g., .claude/settings.json, .gemini/settings.json) and regenerates context.
+//
+// # What ApplyHooks Does
+//
+//  1. Reads SCM config (hooks, MCP servers, profiles)
+//  2. Writes backend-specific settings files with hooks
+//  3. Writes .mcp.json with MCP server configs
+//  4. Optionally regenerates context file from active profiles
+//  5. Creates symlink to SCM binary for backend access
+//
+// # Test Injection Patterns
+//
+// Tests inject dependencies to avoid real filesystem operations:
+//   - ConfigLoader: Function returning mock config instead of reading disk
+//   - FS: afero virtual filesystem for settings file writes
+//   - SkipSymlink: Disables symlink creation (MemMapFs doesn't support symlinks)
+//   - WorkDir: Explicit working directory instead of git root detection
+//   - BundleLoaderFS: Separate FS for bundle reading in context regeneration
+//
+// # Fault Tolerance
+//
+// Context regeneration is intentionally fault-tolerant:
+//   - Missing bundles/fragments produce warnings, not errors
+//   - Unresolvable parent profiles are skipped
+//   - The hook application still succeeds even if context has issues
+//
+// This ensures the user's LLM session starts even with partial config problems.
 package operations
 
 import (
@@ -14,6 +45,13 @@ import (
 	"github.com/benjaminabbitt/scm/internal/config"
 	"github.com/benjaminabbitt/scm/internal/lm/backends"
 )
+
+// ==========================================================================
+// Request/Result struct tests
+// ==========================================================================
+//
+// These tests verify the data structures used for hook operations.
+// They ensure default values and field presence.
 
 func TestApplyHooksRequest_Defaults(t *testing.T) {
 	req := ApplyHooksRequest{}
@@ -92,7 +130,15 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 	assert.Equal(t, "/usr/bin/scm", req.ExecPath)
 }
 
-// TestWriteSettings_ClaudeCode tests writing Claude Code settings with FS injection.
+// ==========================================================================
+// WriteSettings tests
+// ==========================================================================
+//
+// WriteSettings is the lower-level function that creates backend-specific
+// settings files. ApplyHooks calls this internally.
+
+// TestWriteSettings_ClaudeCode verifies Claude Code settings file creation.
+// Claude Code reads .claude/settings.json for hooks, customization, etc.
 func TestWriteSettings_ClaudeCode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -163,7 +209,14 @@ func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestWriteSettings_PreservesExistingSettings tests that existing user settings are preserved.
+// TestWriteSettings_PreservesExistingSettings verifies that user customizations survive.
+//
+// NON-OBVIOUS: When SCM writes hooks to settings.json, it MERGES with existing
+// content rather than overwriting. User's custom settings (like theme preferences)
+// are preserved. Only SCM-managed sections (hooks, MCP servers) are updated.
+//
+// This is important because users may have manually configured settings that
+// they don't want SCM to destroy on each hook application.
 func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -195,7 +248,15 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 	assert.Contains(t, string(content), "hooks")
 }
 
-// TestWriteContextFile tests context file writing with FS injection.
+// ==========================================================================
+// Context file tests
+// ==========================================================================
+//
+// Context files are the assembled markdown content that gets fed to the LLM.
+// They contain fragments from profiles, deduplicated and ordered.
+
+// TestWriteContextFile verifies that fragments are assembled into a context file.
+// The file is stored in .scm/context/{hash}.md where hash is content-based.
 func TestWriteContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -261,7 +322,15 @@ func TestEnsureSCMSymlink_CreatesBinDir(t *testing.T) {
 	assert.True(t, info.IsDir())
 }
 
-// TestApplyHooks_ClaudeCodeOnly tests applying hooks to Claude Code backend only.
+// ==========================================================================
+// ApplyHooks integration tests
+// ==========================================================================
+//
+// These tests verify the full ApplyHooks operation with mock config loaders.
+// They cover backend selection, context regeneration, and error handling.
+
+// TestApplyHooks_ClaudeCodeOnly verifies backend-specific hook application.
+// When Backend="claude-code", only Claude settings are written.
 func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
@@ -471,7 +540,15 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	assert.Contains(t, string(content), "test-cmd")
 }
 
-// TestApplyHooks_RegenerateContextEmpty tests that regenerate context works with no profiles.
+// ==========================================================================
+// Context regeneration tests
+// ==========================================================================
+//
+// These tests verify that ApplyHooks properly regenerates context when
+// RegenerateContext=true. The context is assembled from active profiles.
+
+// TestApplyHooks_RegenerateContextEmpty verifies no crash with empty profiles.
+// An empty context hash is returned when there's nothing to assemble.
 func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
@@ -591,7 +668,13 @@ fragments:
 	assert.NotEmpty(t, result.ContextHash)
 }
 
-// TestApplyHooks_RegenerateContextUnresolvedProfile tests regenerateContext with profile that can't be resolved.
+// TestApplyHooks_RegenerateContextUnresolvedProfile demonstrates fault tolerance.
+//
+// FAULT TOLERANCE: When a profile references a non-existent parent profile,
+// that profile is skipped rather than failing the entire operation. Other
+// profiles continue to be processed normally.
+//
+// This allows users to keep working even if their config has reference errors.
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	scmDir := filepath.Join(tmpDir, ".scm")
@@ -640,7 +723,16 @@ fragments:
 	assert.NotEmpty(t, result.ContextHash)
 }
 
-// TestApplyHooks_RegenerateContextMissingFragment tests regenerateContext with missing fragment.
+// TestApplyHooks_RegenerateContextMissingFragment demonstrates partial success.
+//
+// FAULT TOLERANCE: When a profile references a fragment that doesn't exist,
+// that fragment is skipped. Other fragments in the same profile are still
+// assembled into the context.
+//
+// This handles cases like:
+//   - Remote bundle not yet synced
+//   - Fragment renamed but profile not updated
+//   - Typo in fragment reference
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 	scmDir := filepath.Join(tmpDir, ".scm")

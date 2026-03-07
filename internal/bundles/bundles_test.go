@@ -145,6 +145,12 @@ func TestBundleFragment_EffectiveContent(t *testing.T) {
 			preferDistilled: false,
 			want:            "original",
 		},
+		{
+			name:            "no_distill true falls back to content",
+			fragment:        BundleFragment{Content: "original", Distilled: "distilled", NoDistill: true},
+			preferDistilled: true,
+			want:            "original",
+		},
 	}
 
 	for _, tt := range tests {
@@ -217,6 +223,12 @@ func TestBundlePrompt_EffectiveContent(t *testing.T) {
 			name:            "prefer original",
 			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
 			preferDistilled: false,
+			want:            "original",
+		},
+		{
+			name:            "no_distill true falls back to content",
+			prompt:          BundlePrompt{Content: "original", Distilled: "distilled", NoDistill: true},
+			preferDistilled: true,
 			want:            "original",
 		},
 	}

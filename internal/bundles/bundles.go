@@ -94,8 +94,9 @@ func (f *BundleFragment) NeedsDistill() bool {
 }
 
 // EffectiveContent returns distilled content if available and preferred.
+// Falls back to original content if distilled is empty or NoDistill is true.
 func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
-	if preferDistilled && f.Distilled != "" {
+	if preferDistilled && f.Distilled != "" && !f.NoDistill {
 		return f.Distilled
 	}
 	return f.Content
@@ -122,8 +123,9 @@ func (p *BundlePrompt) NeedsDistill() bool {
 }
 
 // EffectiveContent returns distilled content if available and preferred.
+// Falls back to original content if distilled is empty or NoDistill is true.
 func (p *BundlePrompt) EffectiveContent(preferDistilled bool) string {
-	if preferDistilled && p.Distilled != "" {
+	if preferDistilled && p.Distilled != "" && !p.NoDistill {
 		return p.Distilled
 	}
 	return p.Content

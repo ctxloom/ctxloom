@@ -19,6 +19,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install just and protoc
+        run: |
+          apt-get update && apt-get install -y curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install protoc
+          PROTOC_VERSION=25.1
+          curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
+          rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -31,6 +45,9 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Generate protobuf code
+        run: just proto
 
       - name: Run unit tests
         run: go test -race -coverprofile=coverage.out ./...
@@ -52,6 +69,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install just and protoc
+        run: |
+          apt-get update && apt-get install -y curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install protoc
+          PROTOC_VERSION=25.1
+          curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
+          rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Generate protobuf code
+        run: just proto
+
       - name: Install golangci-lint
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin latest
@@ -72,9 +106,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install git
+      - name: Install git, just, and protoc
         run: |
-          apt-get update && apt-get install -y git
+          apt-get update && apt-get install -y git curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install protoc
+          PROTOC_VERSION=25.1
+          curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
+          rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -92,11 +136,11 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Validate schemas
-        run: go run ./cmd/validate
+      - name: Generate protobuf code
+        run: just proto
 
-      - name: Distill resources
-        run: go run . distill ./resources
+      - name: Validate schemas
+        run: just validate
 
       - name: Build static binaries
         env:

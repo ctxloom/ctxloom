@@ -987,9 +987,9 @@ func loadDistillPrompt() (string, error) {
 func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 	var ctx strings.Builder
 
-	ctx.WriteString(fmt.Sprintf("Bundle: %s", bundle.Description))
+	_, _ = fmt.Fprintf(&ctx, "Bundle: %s", bundle.Description)
 	if bundle.Version != "" {
-		ctx.WriteString(fmt.Sprintf(" (v%s)", bundle.Version))
+		_, _ = fmt.Fprintf(&ctx, " (v%s)", bundle.Version)
 	}
 	ctx.WriteString("\n")
 
@@ -1011,7 +1011,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 			if len(firstLine) > 60 {
 				firstLine = firstLine[:57] + "..."
 			}
-			ctx.WriteString(fmt.Sprintf("- %s: %s\n", name, firstLine))
+			_, _ = fmt.Fprintf(&ctx, "- %s: %s\n", name, firstLine)
 		}
 		ctx.WriteString("\n")
 	}

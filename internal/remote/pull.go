@@ -190,7 +190,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	// Check for replace directive first
 	if p.replaceManager != nil {
 		if localPath, ok := p.replaceManager.Get(refStr); ok {
-			fmt.Fprintf(opts.Stdout, "Using local replace: %s → %s\n", refStr, localPath)
+			_, _ = fmt.Fprintf(opts.Stdout, "Using local replace: %s → %s\n", refStr, localPath)
 			replacedContent, err := p.replaceManager.LoadReplaced(refStr)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load replaced file: %w", err)
@@ -213,7 +213,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 			if err != nil {
 				return nil, fmt.Errorf("failed to load vendored file: %w", err)
 			}
-			fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
+			_, _ = fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
 			return &PullResult{
 				LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.Remote, ref.Path+".yaml"),
 				SHA:         "vendored",
@@ -270,8 +270,8 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	// Check for retracted version
 	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, version, ref, opts.ItemType)
 	if retracted {
-		fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
-		fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
+		_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
+		_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
 		if !opts.Force {
 			confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
 			if err != nil {
@@ -417,18 +417,18 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 		return nil, nil
 	}
 
-	fmt.Fprintf(opts.Stdout, "\nProfile references %d bundles:\n", len(profile.Bundles))
+	_, _ = fmt.Fprintf(opts.Stdout, "\nProfile references %d bundles:\n", len(profile.Bundles))
 	for _, bundle := range profile.Bundles {
-		fmt.Fprintf(opts.Stdout, "  - %s\n", bundle)
+		_, _ = fmt.Fprintf(opts.Stdout, "  - %s\n", bundle)
 	}
-	fmt.Fprintln(opts.Stdout)
+	_, _ = fmt.Fprintln(opts.Stdout)
 
 	var pulled []string
 	for _, bundleRef := range profile.Bundles {
 		// Check if already exists locally
 		ref, err := ParseReference(bundleRef)
 		if err != nil {
-			fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
+			_, _ = fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
 			continue
 		}
 
@@ -439,12 +439,12 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 		localPath := ref.LocalPath(baseDir, ItemTypeBundle)
 
 		if _, err := p.fs.Stat(localPath); err == nil {
-			fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
+			_, _ = fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
 			continue
 		}
 
 		// Pull the bundle
-		fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
+		_, _ = fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
 		bundleOpts := PullOptions{
 			Force:    opts.Force,
 			LocalDir: opts.LocalDir,
@@ -457,14 +457,14 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 		_, err = p.Pull(ctx, bundleRef, bundleOpts)
 		if err != nil {
 			if strings.Contains(err.Error(), "cancelled") {
-				fmt.Fprintf(opts.Stdout, "    Skipped\n")
+				_, _ = fmt.Fprintf(opts.Stdout, "    Skipped\n")
 				continue
 			}
 			return pulled, fmt.Errorf("failed to pull bundle %s: %w", bundleRef, err)
 		}
 
 		pulled = append(pulled, bundleRef)
-		fmt.Fprintf(opts.Stdout, "    Done\n")
+		_, _ = fmt.Fprintf(opts.Stdout, "    Done\n")
 	}
 
 	return pulled, nil
@@ -474,19 +474,19 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, filePath string, content []byte, secure SecureContent, tc TerminalChecker) {
 	warning := secure.SecurityWarning()
 
-	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "┌─────────────────────────────────────────────────────────────────┐")
-	fmt.Fprintf(w, "│  ⚠️  WARNING: %-50s│\n", warning.Title)
-	fmt.Fprintln(w, "│                                                                 │")
-	fmt.Fprintf(w, "│  %-62s│\n", warning.Context)
-	fmt.Fprintln(w, "│  Malicious content can:                                         │")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "┌─────────────────────────────────────────────────────────────────┐")
+	_, _ = fmt.Fprintf(w, "│  ⚠️  WARNING: %-50s│\n", warning.Title)
+	_, _ = fmt.Fprintln(w, "│                                                                 │")
+	_, _ = fmt.Fprintf(w, "│  %-62s│\n", warning.Context)
+	_, _ = fmt.Fprintln(w, "│  Malicious content can:                                         │")
 	for _, risk := range warning.Risks {
-		fmt.Fprintf(w, "│    • %-58s│\n", risk)
+		_, _ = fmt.Fprintf(w, "│    • %-58s│\n", risk)
 	}
-	fmt.Fprintln(w, "│                                                                 │")
-	fmt.Fprintln(w, "│  REVIEW THE FULL CONTENT BELOW BEFORE ACCEPTING                │")
-	fmt.Fprintln(w, "└─────────────────────────────────────────────────────────────────┘")
-	fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "│                                                                 │")
+	_, _ = fmt.Fprintln(w, "│  REVIEW THE FULL CONTENT BELOW BEFORE ACCEPTING                │")
+	_, _ = fmt.Fprintln(w, "└─────────────────────────────────────────────────────────────────┘")
+	_, _ = fmt.Fprintln(w, "")
 
 	// Source info
 	fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)

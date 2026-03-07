@@ -19,13 +19,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install protoc
+      - name: Install build tools
         run: |
           apt-get update && apt-get install -y curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          chmod +x /usr/local/bin/versionator
+          # Install protoc
           PROTOC_VERSION=25.1
           curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
           unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
           rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
@@ -43,13 +50,10 @@ jobs:
         run: go mod download
 
       - name: Generate protobuf code
-        run: |
-          protoc --go_out=. --go_opt=paths=source_relative \
-                 --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-                 internal/lm/grpc/plugin.proto
+        run: just proto
 
       - name: Run unit tests
-        run: go test -race -coverprofile=coverage.out ./...
+        run: just test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -68,28 +72,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install protoc
+      - name: Install build tools
         run: |
           apt-get update && apt-get install -y curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          chmod +x /usr/local/bin/versionator
+          # Install protoc
           PROTOC_VERSION=25.1
           curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
           unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
           rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-      - name: Generate protobuf code
-        run: |
-          protoc --go_out=. --go_opt=paths=source_relative \
-                 --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-                 internal/lm/grpc/plugin.proto
-
-      - name: Install golangci-lint
-        run: |
+          # Install golangci-lint
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin latest
 
+      - name: Generate protobuf code
+        run: just proto
+
       - name: Run golangci-lint
-        run: golangci-lint run --timeout=5m
+        run: just lint
 
   build-and-acceptance:
     name: Build & Acceptance Tests
@@ -104,13 +110,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install git and protoc
+      - name: Install build tools
         run: |
           apt-get update && apt-get install -y git curl unzip
+          # Install just
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          # Install versionator
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.4/versionator-linux-amd64 -o /usr/local/bin/versionator
+          chmod +x /usr/local/bin/versionator
+          # Install protoc
           PROTOC_VERSION=25.1
           curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip
           unzip protoc-${PROTOC_VERSION}-linux-x86_64.zip -d /usr/local
           rm protoc-${PROTOC_VERSION}-linux-x86_64.zip
+          # Install Go protoc plugins
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
@@ -130,22 +143,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Generate protobuf code
-        run: |
-          protoc --go_out=. --go_opt=paths=source_relative \
-                 --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-                 internal/lm/grpc/plugin.proto
-
-      - name: Validate schemas
-        run: go run ./cmd/validate
-
-      - name: Build static binaries
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version=ci-${GITHUB_SHA::8}" -o scm .
-          mkdir -p bin
-          go build -ldflags="-s -w" -o bin/scm-gen-simple ./cmd/generators/simple
+      - name: Build
+        run: just build
 
       - name: Add binaries to PATH
         run: |
@@ -153,7 +152,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
       - name: Run acceptance tests
-        run: go test -v ./tests/acceptance/...
+        run: just test-acceptance
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

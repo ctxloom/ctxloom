@@ -3,11 +3,10 @@ package backends
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/benjaminabbitt/scm/internal/ptyrunner"
 )
 
 // BaseBackend provides common functionality for all AI backends.
@@ -71,18 +70,35 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	return env
 }
 
-// RunInteractive runs a command in interactive mode using a PTY.
+// RunInteractive runs a command in interactive mode.
+// The command inherits the terminal directly from the parent process.
 func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr interface{ Write([]byte) (int, error) }) (int32, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
 	cmd.Dir = b.WorkDir()
 	cmd.Env = b.BuildEnv(env)
 
-	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
+	// Inherit terminal directly - child gets the real TTY
+	cmd.Stdin = os.Stdin
+	if stdout != nil {
+		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	if stderr != nil {
+		cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+
+	err := cmd.Run()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return int32(exitErr.ExitCode()), nil
+		}
 		return 1, fmt.Errorf("failed to run %s: %w", b.name, err)
 	}
 
-	return int32(result.ExitCode), nil
+	return 0, nil
 }
 
 // RunNonInteractive runs a command in non-interactive mode.
@@ -91,12 +107,27 @@ func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env 
 	cmd.Dir = b.WorkDir()
 	cmd.Env = b.BuildEnv(env)
 
-	result, err := ptyrunner.RunNonInteractive(ctx, cmd, stdout, stderr)
+	cmd.Stdin = os.Stdin
+	if stdout != nil {
+		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+	if stderr != nil {
+		cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+
+	err := cmd.Run()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return int32(exitErr.ExitCode()), nil
+		}
 		return 1, fmt.Errorf("failed to run %s: %w", b.name, err)
 	}
 
-	return int32(result.ExitCode), nil
+	return 0, nil
 }
 
 // AssembleContext combines fragments into a single context string.

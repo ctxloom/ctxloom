@@ -13,6 +13,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -22,7 +23,7 @@ builds:
 # UPX compression for smaller binaries
 upx:
   - enabled: true
-    goos: [linux, darwin]  # Windows UPX support can be problematic
+    goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true
@@ -30,6 +31,9 @@ upx:
 archives:
   - id: default
     format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
     # Include binaries in each archive
     builds:
       - scm
@@ -72,11 +76,6 @@ release:
 
     ### Installation
 
-    **Homebrew (macOS/Linux):**
-    ```bash
-    brew install benjaminabbitt/tap/scm
-    ```
-
     **Go Install:**
     ```bash
     go install github.com/benjaminabbitt/scm@v{{.Version}}
@@ -84,26 +83,3 @@ release:
 
     **Manual Download:**
     Download the appropriate archive for your platform below.
-
-# Homebrew Tap configuration
-brews:
-  - name: scm
-    ids:
-      - default
-    repository:
-      owner: benjaminabbitt
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
-    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-    directory: Formula
-    homepage: "https://github.com/benjaminabbitt/scm"
-    description: "Sophisticated Context Management - Manage context fragments for AI coding assistants"
-    license: "MIT"
-    install: |
-      bin.install "scm"
-    test: |
-      system "#{bin}/scm", "version"

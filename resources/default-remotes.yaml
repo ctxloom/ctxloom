@@ -2,6 +2,6 @@
 # Pre-configured remotes for common SCM bundles and profiles
 
 remotes:
-  scm-github:
-    url: https://github.com/benjaminabbitt/scm-github
+  scm-main:
+    url: https://github.com/sophisticiatedContextManager/scm-main
     version: v1

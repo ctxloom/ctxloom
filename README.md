@@ -1,4 +1,4 @@
-# SCM - Sophisticated Context Management
+# SCM - Sophisticated Context Manager
 
 A CLI tool for managing context fragments and prompts for AI coding assistants.
 
@@ -52,10 +52,10 @@ scm run -n                # Preview what context would be sent
 scm run -p developer "implement error handling"
 
 # Run with specific bundle fragments
-scm run -f go-tools#fragments/golang "add type hints"
+scm run -f python-tools#fragments/typing "add type hints"
 
 # Combine fragments ad-hoc
-scm run -f security#fragments/owasp -f golang#fragments/errors "audit this code"
+scm run -f security#fragments/owasp -f python#fragments/errors "audit this code"
 
 # Include all fragments with a tag
 scm run -t security "check for vulnerabilities"
@@ -72,26 +72,26 @@ scm run -l gemini "use Gemini instead of Claude"
 <!-- NOTE: This is an intentional example of MCP interaction - do not delete -->
 
 ```
-> assemble context with the go-developer profile
+> assemble context with the scm-main/python-developer profile
 
-● scm - assemble_context (MCP)(profile: "go-developer")
-  ⎿ { "context": "# Golang Development\n..." }
+● scm - assemble_context (MCP)(profile: "scm-main/python-developer")
+  ⎿ { "context": "# Python Development\n..." }
 
-> assemble context with golang and security tags
+> assemble context with python and security tags
 
-● scm - assemble_context (MCP)(tags: ["golang", "security"])
-  ⎿ { "context": "# Golang Development\n# Security..." }
+● scm - assemble_context (MCP)(tags: ["python", "security"])
+  ⎿ { "context": "# Python Development\n# Security..." }
 ```
 
 ### Managing bundles
 
 ```bash
-scm bundle list                          # List all bundles
-scm bundle show go-tools                 # Show bundle contents
-scm bundle view go-tools                 # View full bundle YAML
-scm bundle view go-tools#fragments/tdd   # View specific fragment content
-scm bundle create my-bundle              # Create a new bundle
-scm bundle edit my-bundle --add-tag golang  # Add tags to bundle
+scm bundle list                            # List all bundles
+scm bundle show python-tools               # Show bundle contents
+scm bundle view python-tools               # View full bundle YAML
+scm bundle view python-tools#fragments/tdd # View specific fragment content
+scm bundle create my-bundle                # Create a new bundle
+scm bundle edit my-bundle --add-tag python # Add tags to bundle
 scm bundle fragment edit my-bundle coding-standards  # Edit fragment content
 scm bundle prompt edit my-bundle review  # Edit prompt content
 scm bundle distill .scm/bundles/*.yaml   # Distill all bundles
@@ -100,9 +100,9 @@ scm bundle distill .scm/bundles/*.yaml   # Distill all bundles
 ### Managing profiles
 
 ```bash
-scm profile list                         # List all profiles
-scm profile show developer               # Show profile details
-scm profile add developer -b go-tools -d "Standard dev context"
+scm profile list                            # List all profiles
+scm profile show developer                  # Show profile details
+scm profile add developer -b python-tools -d "Standard dev context"
 scm profile update developer --add-bundle security-tools
 scm profile remove old-profile
 ```
@@ -110,16 +110,20 @@ scm profile remove old-profile
 ### Remote content
 
 ```bash
-# Add a remote source
-scm remote add alice alice/scm           # GitHub shorthand
+# scm-main is pre-configured after 'scm init'
+# Use profiles directly:
+scm run -p scm-main/python-developer "help with Python code"
+
+# Pull content from remotes
+scm remote pull scm-main/testing --type bundle
+scm remote pull scm-main/python-developer --type profile
+
+# Add additional remotes
+scm remote add myteam myorg/scm-team     # GitHub shorthand
 scm remote add corp https://gitlab.com/corp/scm
 
 # List remotes
 scm remote list
-
-# Pull content from remotes
-scm remote pull alice/go-tools --type bundle
-scm remote pull alice/developer --type profile
 
 # Discover public repositories
 scm remote discover
@@ -133,31 +137,31 @@ Bundles are YAML files in `.scm/bundles/`:
 
 ```yaml
 version: "1.0.0"
-description: "Go development standards"
+description: "Python development standards"
 tags:
-  - golang
+  - python
   - development
 
 fragments:
   coding-standards:
-    tags: [golang, style]
+    tags: [python, style]
     content: |
-      # Go Coding Standards
-      - Use gofmt for formatting
-      - Follow Effective Go guidelines
+      # Python Coding Standards
+      - Use ruff for formatting and linting
+      - Follow PEP 8 guidelines
 
   error-handling:
-    tags: [golang, errors]
+    tags: [python, errors]
     content: |
       # Error Handling
-      - Always check errors
-      - Wrap errors with context
+      - Use specific exception types
+      - Add context when re-raising
 
 prompts:
   code-review:
-    description: "Review Go code for best practices"
+    description: "Review Python code for best practices"
     content: |
-      Review this Go code for adherence to best practices...
+      Review this Python code for adherence to best practices...
 
 mcp:
   tree-sitter:
@@ -192,10 +196,9 @@ Profiles are YAML files in `.scm/profiles/`:
 ```yaml
 description: "Standard development context"
 parents:
-  - base-developer
+  - scm-main/python-developer  # Inherit from remote profile
 bundles:
-  - go-tools
-  - security-tools
+  - my-custom-bundle           # Add local bundles
 tags:
   - production
 variables:
@@ -241,8 +244,8 @@ content: |
 
 # In profile:
 variables:
-  project_name: "SCM"
-  language: "Go"
+  project_name: "my-app"
+  language: "Python"
 ```
 
 Built-in variables available in all templates:

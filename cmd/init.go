@@ -83,7 +83,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
-	// Create remotes.yaml with default remote (scm-github)
+	// Create remotes.yaml with default remote (scm-main)
 	remotesPath := filepath.Join(scmDir, "remotes.yaml")
 	remotesContent, err := resources.GetDefaultRemotes()
 	if err != nil {

@@ -1,5 +1,5 @@
 # SCM Configuration
-# See https://github.com/benjaminabbitt/scm for documentation
+# See https://github.com/sophisticiatedContextManager/scm for documentation
 
 # Language model plugin configuration
 llm:
@@ -9,15 +9,32 @@ llm:
 # Default settings
 defaults:
   llm_plugin: claude-code
+  # Uncomment to set default profiles from scm-main:
+  # profiles:
+  #   - scm-main/go-developer
+  #   - scm-main/python-developer
+  #   - scm-main/rust-developer
+  #   - scm-main/typescript-web-developer
 
 # Uncomment to configure your preferred editor:
 # editor:
 #   command: vim
 #   args: []
 
-# Uncomment to define profiles:
+# Available profiles from scm-main:
+#   - scm-main/go-developer           (Go backend development)
+#   - scm-main/go-code-reviewer       (Go code review)
+#   - scm-main/python-developer       (Python development)
+#   - scm-main/python-code-reviewer   (Python code review)
+#   - scm-main/rust-developer         (Rust systems development)
+#   - scm-main/rust-code-reviewer     (Rust code review)
+#   - scm-main/typescript-web-developer (TypeScript/React web development)
+
+# Define custom profiles:
 # profiles:
 #   my-profile:
 #     description: "My custom profile"
-#     tags: []
-#     fragments: []
+#     parents:
+#       - scm-main/go-developer
+#     bundles:
+#       - my-custom-bundle

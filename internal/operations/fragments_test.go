@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 func TestCreateFragment_CreatesNewFragment(t *testing.T) {

@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/profiles"
 )
 
 // mockProfileLoader is a mock ProfileLoader for testing.

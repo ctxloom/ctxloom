@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/profiles"
 )
 
 var editCmd = &cobra.Command{

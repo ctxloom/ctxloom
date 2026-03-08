@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 // LockUpdate represents a lockfile entry that needs to be added/updated

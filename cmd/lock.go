@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/operations"
+	"github.com/SophisticatedContextManager/scm/internal/operations"
 )
 
 var lockCmd = &cobra.Command{

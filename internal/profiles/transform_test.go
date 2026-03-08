@@ -3,7 +3,7 @@ package profiles
 import (
 	"testing"
 
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

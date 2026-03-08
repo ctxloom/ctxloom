@@ -6,9 +6,9 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/lm/backends"
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
 )
 
 var pluginServeCmd = &cobra.Command{

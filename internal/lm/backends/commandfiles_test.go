@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {

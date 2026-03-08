@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 // getBaseDir returns the SCM directory from config, defaulting to ".scm".

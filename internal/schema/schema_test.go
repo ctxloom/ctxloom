@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/benjaminabbitt/scm/resources"
+	"github.com/SophisticatedContextManager/scm/resources"
 )
 
 func TestNewValidator(t *testing.T) {

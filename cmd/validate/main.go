@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/benjaminabbitt/scm/internal/schema"
+	"github.com/SophisticatedContextManager/scm/internal/schema"
 )
 
 func main() {

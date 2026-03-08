@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

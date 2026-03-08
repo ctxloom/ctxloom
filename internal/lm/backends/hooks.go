@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/spf13/afero"
 )
 

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/ptyrunner"
+	"github.com/SophisticatedContextManager/scm/internal/ptyrunner"
 )
 
 // BaseBackend provides common functionality for all AI backends.

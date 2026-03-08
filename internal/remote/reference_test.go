@@ -145,8 +145,8 @@ func TestParseReference_HTTPS(t *testing.T) {
 		},
 		{
 			name:     "nested path",
-			input:    "https://github.com/benjaminabbitt/scm-github@v1/bundles/golang/testing",
-			wantURL:  "https://github.com/benjaminabbitt/scm-github",
+			input:    "https://github.com/SophisticatedContextManager/scm-github@v1/bundles/golang/testing",
+			wantURL:  "https://github.com/SophisticatedContextManager/scm-github",
 			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "golang/testing",
@@ -507,7 +507,7 @@ func TestReference_LocalPath(t *testing.T) {
 		{
 			name: "canonical HTTPS bundle",
 			ref: Reference{
-				URL:         "https://github.com/benjaminabbitt/scm-github",
+				URL:         "https://github.com/SophisticatedContextManager/scm-github",
 				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
@@ -515,7 +515,7 @@ func TestReference_LocalPath(t *testing.T) {
 			},
 			baseDir:  ".scm",
 			itemType: ItemTypeProfile, // Should be ignored for canonical
-			want:     ".scm/bundles/github.com/benjaminabbitt/scm-github/core-practices.yaml",
+			want:     ".scm/bundles/github.com/SophisticatedContextManager/scm-github/core-practices.yaml",
 		},
 		{
 			name: "canonical SSH profile",

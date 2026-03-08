@@ -40,8 +40,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.

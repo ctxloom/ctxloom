@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 // FragmentEntry represents a fragment in operation results.

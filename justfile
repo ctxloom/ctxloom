@@ -14,7 +14,7 @@ build: validate proto build-scm
 
 # Build the main binary
 build-scm:
-    go build -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
+    go build -ldflags "-X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
 
 # ===== Plugin targets =====
 
@@ -38,7 +38,7 @@ plugin-list:
 
 # Build with verbose output
 build-verbose:
-    go build -v -ldflags "-X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
+    go build -v -ldflags "-X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
 
 # Run all tests (builds scm first for acceptance tests)
 test: build-scm
@@ -62,11 +62,29 @@ test-acceptance-tags TAGS:
 
 # Run all tests in container (matches CI environment)
 test-container:
-    docker run --rm -v "$(pwd):/app" -w /app golang:1.24 sh -c '\
+    docker run --rm -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -o scm . && \
         go test -v ./tests/acceptance/...'
+
+# ===== Mutation testing =====
+
+# Run mutation tests with gremlins (requires gremlins installed)
+mutate *ARGS:
+    gremlins unleash {{ARGS}}
+
+# Run mutation tests on specific package
+mutate-pkg PKG *ARGS:
+    gremlins unleash ./{{PKG}}/... {{ARGS}}
+
+# Install gremlins
+mutate-install:
+    go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+# Run mutation tests in container
+mutate-container:
+    docker run --rm -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
 
 # Clean build artifacts
 clean:
@@ -118,7 +136,7 @@ uninstall:
 
 # Build static binaries
 build-static: validate proto
-    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/benjaminabbitt/scm/cmd.Version={{version}}" -o scm .
+    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
 
 # Compress binaries with UPX (requires upx installed)
 compress:

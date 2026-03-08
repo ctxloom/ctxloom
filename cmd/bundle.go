@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/config"
-	pb "github.com/benjaminabbitt/scm/internal/lm/grpc"
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 var bundleCmd = &cobra.Command{

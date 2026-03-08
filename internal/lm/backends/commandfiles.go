@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
 
 // SCMCommandsDir is the subdirectory within .claude/commands/ for SCM-generated commands.

@@ -1,8 +1,9 @@
-module github.com/benjaminabbitt/scm
+module github.com/SophisticatedContextManager/scm
 
-go 1.24.0
+go 1.26.0
 
 require (
+	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/cbroglie/mustache v1.4.0
 	github.com/cucumber/godog v0.15.1
 	github.com/go-git/go-git/v5 v5.16.4
@@ -26,7 +27,6 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/aymanbagabas/go-pty v0.2.2 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect

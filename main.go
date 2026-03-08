@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/benjaminabbitt/scm/cmd"
+	"github.com/SophisticatedContextManager/scm/cmd"
 )
 
 func main() {

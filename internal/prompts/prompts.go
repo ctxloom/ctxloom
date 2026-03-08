@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/collections"
+	"github.com/SophisticatedContextManager/scm/internal/collections"
 )
 
 // Prompt represents a YAML-based prompt with metadata and content.

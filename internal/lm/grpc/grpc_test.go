@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 )

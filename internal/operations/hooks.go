@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/gitutil"
-	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/gitutil"
+	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 	"github.com/spf13/afero"
 )
 

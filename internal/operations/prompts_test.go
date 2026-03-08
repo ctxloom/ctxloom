@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
 
 func TestPromptEntry_Fields(t *testing.T) {

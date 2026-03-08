@@ -3,7 +3,7 @@ package backends
 import (
 	"os"
 
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 // GeminiLifecycle implements LifecycleHandler for Gemini using hooks.

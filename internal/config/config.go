@@ -11,11 +11,11 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/bundles"
-	"github.com/benjaminabbitt/scm/internal/collections"
-	"github.com/benjaminabbitt/scm/internal/profiles"
-	"github.com/benjaminabbitt/scm/internal/remote"
-	"github.com/benjaminabbitt/scm/internal/schema"
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/collections"
+	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/schema"
 )
 
 const (

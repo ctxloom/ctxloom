@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/benjaminabbitt/scm/internal/gitutil"
-	"github.com/benjaminabbitt/scm/internal/lm/backends"
+	"github.com/SophisticatedContextManager/scm/internal/gitutil"
+	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 )
 
 // HookOutput represents the JSON output format for AI tool hooks.

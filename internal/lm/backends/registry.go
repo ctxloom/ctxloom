@@ -1,7 +1,7 @@
 package backends
 
 import (
-	"github.com/benjaminabbitt/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 // Configurable is an interface for backends that can be configured with plugin settings.

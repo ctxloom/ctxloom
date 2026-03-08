@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/benjaminabbitt/scm/internal/config"
-	"github.com/benjaminabbitt/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/profiles"
 )
 
 // ProfileEntry represents a profile in operation results.

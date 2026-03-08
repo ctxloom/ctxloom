@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/benjaminabbitt/scm/internal/operations"
-	"github.com/benjaminabbitt/scm/internal/profiles"
-	"github.com/benjaminabbitt/scm/internal/remote"
+	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 var profileCmd = &cobra.Command{

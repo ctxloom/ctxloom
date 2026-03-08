@@ -90,8 +90,8 @@ jobs:
       - name: Run golangci-lint
         run: just lint
 
-  build-and-acceptance:
-    name: Build & Acceptance Tests
+  build-and-integration:
+    name: Build & Integration Tests
     runs-on: ubuntu-latest
     container:
       image: golang:1.26
@@ -139,8 +139,8 @@ jobs:
           echo "$GITHUB_WORKSPACE" >> $GITHUB_PATH
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
-      - name: Run acceptance tests
-        run: just test-acceptance
+      - name: Run integration tests
+        run: just test-integration
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -150,3 +150,43 @@ jobs:
             scm
             bin/scm-gen-*
           retention-days: 7
+
+  mutation:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.26
+    needs: [test]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run mutation tests (PR - diff only)
+        if: github.event_name == 'pull_request'
+        run: gremlins unleash --diff origin/${{ github.base_ref }}
+
+      - name: Run mutation tests (push - full)
+        if: github.event_name == 'push'
+        run: gremlins unleash

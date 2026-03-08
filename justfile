@@ -52,13 +52,9 @@ test-verbose:
 test-coverage:
     go test -cover ./...
 
-# Run acceptance tests (requires scm binary)
-test-acceptance: build-scm
-    go test -v ./tests/acceptance/...
-
-# Run acceptance tests with specific tags
-test-acceptance-tags TAGS:
-    go test -v ./tests/acceptance/... -godog.tags="{{TAGS}}"
+# Run integration tests (requires scm binary)
+test-integration: build-scm
+    go test -v ./tests/integration/...
 
 # Run all tests in container (matches CI environment)
 test-container:
@@ -66,7 +62,7 @@ test-container:
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -o scm . && \
-        go test -v ./tests/acceptance/...'
+        go test -v ./tests/integration/...'
 
 # ===== Mutation testing =====
 

@@ -1,4 +1,4 @@
-package support
+package testenv
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ type TestEnvironment struct {
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
 	// Create root temp directory
-	root, err := os.MkdirTemp("", "scm-acceptance-*")
+	root, err := os.MkdirTemp("", "scm-integration-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp root: %w", err)
 	}

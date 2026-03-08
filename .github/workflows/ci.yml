@@ -167,8 +167,11 @@ jobs:
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install gremlins
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+      - name: Install gremlins and buf
+        run: |
+          go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
+          chmod +x /usr/local/bin/buf
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -182,6 +185,9 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Generate protobuf code
+        run: buf generate
 
       - name: Run mutation tests (PR - diff only)
         if: github.event_name == 'pull_request'

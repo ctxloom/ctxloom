@@ -29,7 +29,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pty: %w", err)
 	}
-	defer ptty.Close()
+	defer func() { _ = ptty.Close() }()
 
 	// Create command using PTY
 	c := ptty.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)

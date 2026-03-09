@@ -351,6 +351,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigCh
 		cancel()
+		// Close stdin to unblock any pending reads
+		_ = os.Stdin.Close()
 	}()
 
 	server := &mcpServer{
@@ -391,7 +393,11 @@ func (s *mcpServer) run(ctx context.Context) error {
 	go func() {
 		for {
 			line, err := s.reader.ReadBytes('\n')
-			lineCh <- readResult{line, err}
+			select {
+			case lineCh <- readResult{line, err}:
+			case <-ctx.Done():
+				return
+			}
 			if err != nil {
 				return
 			}
@@ -405,6 +411,10 @@ func (s *mcpServer) run(ctx context.Context) error {
 		case result := <-lineCh:
 			if result.err != nil {
 				if result.err == io.EOF {
+					return nil
+				}
+				// Stdin closed (expected on shutdown)
+				if ctx.Err() != nil {
 					return nil
 				}
 				return result.err

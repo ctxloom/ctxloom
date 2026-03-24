@@ -511,6 +511,98 @@ func TestExtractBundleName(t *testing.T) {
 }
 
 // =============================================================================
+// NormalizeBundleName Tests
+// =============================================================================
+// NormalizeBundleName converts paths with git hosting prefixes to canonical
+// repo/bundle format. This enables consistent naming regardless of how bundles
+// were installed (direct clone vs remote pull).
+
+func TestNormalizeBundleName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		// Git hosting paths should be normalized
+		{
+			name:  "github.com with owner and bundle path",
+			input: "github.com/owner/scm-github/go-development",
+			want:  "scm-github/go-development",
+		},
+		{
+			name:  "github.com with owner and repo only",
+			input: "github.com/owner/scm-github",
+			want:  "scm-github",
+		},
+		{
+			name:  "gitlab.com with group and bundle path",
+			input: "gitlab.com/group/repo/core/fragments",
+			want:  "repo/core/fragments",
+		},
+		{
+			name:  "bitbucket.org with owner and repo",
+			input: "bitbucket.org/team/shared-context/utils",
+			want:  "shared-context/utils",
+		},
+
+		// Already canonical or local paths should be unchanged
+		{
+			name:  "already canonical format",
+			input: "scm-github/go-development",
+			want:  "scm-github/go-development",
+		},
+		{
+			name:  "local bundle name",
+			input: "local-bundle",
+			want:  "local-bundle",
+		},
+		{
+			name:  "simple name",
+			input: "go-tools",
+			want:  "go-tools",
+		},
+
+		// Edge cases
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "nested local path",
+			input: "vendor/bundles/go-tools",
+			want:  "vendor/bundles/go-tools",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeBundleName(tt.input)
+			assert.Equal(t, tt.want, got, "NormalizeBundleName(%q)", tt.input)
+		})
+	}
+}
+
+// TestNormalizeBundleName_Idempotent verifies that normalizing an already
+// normalized name returns the same result.
+func TestNormalizeBundleName_Idempotent(t *testing.T) {
+	inputs := []string{
+		"scm-github/go-development",
+		"repo/bundle",
+		"simple-bundle",
+		"",
+	}
+
+	for _, input := range inputs {
+		t.Run(input, func(t *testing.T) {
+			first := NormalizeBundleName(input)
+			second := NormalizeBundleName(first)
+			assert.Equal(t, first, second, "normalizing should be idempotent")
+		})
+	}
+}
+
+// =============================================================================
 // ClaudeCodeConfig Tests
 // =============================================================================
 

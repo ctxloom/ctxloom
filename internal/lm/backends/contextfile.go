@@ -55,13 +55,24 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	options := applyContextOptions(opts)
 	fs := options.fs
 
-	// Assemble the context content
+	// Assemble the context content, deduplicating by content hash.
+	// This prevents duplicate content even when the same fragment exists
+	// in multiple bundles or is referenced through different paths.
 	var parts []string
+	seenContent := make(map[string]bool)
 	for _, f := range fragments {
 		if f.Content == "" {
 			continue
 		}
-		parts = append(parts, strings.TrimSpace(f.Content))
+		content := strings.TrimSpace(f.Content)
+		// Compute hash of content to detect duplicates
+		h := sha256.Sum256([]byte(content))
+		contentHash := hex.EncodeToString(h[:])
+		if seenContent[contentHash] {
+			continue
+		}
+		seenContent[contentHash] = true
+		parts = append(parts, content)
 	}
 
 	if len(parts) == 0 {
@@ -70,6 +81,14 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	}
 
 	content := strings.Join(parts, "\n\n---\n\n")
+
+	// Warn if context exceeds recommended size threshold.
+	// Research suggests >16KB causes coherence degradation in LLM context.
+	const maxRecommendedSize = 16 * 1024 // 16KB
+	if len(content) > maxRecommendedSize {
+		fmt.Fprintf(os.Stderr, "SCM: warning: assembled context is %dKB (recommended max: 16KB)\n", len(content)/1024)
+		fmt.Fprintf(os.Stderr, "SCM: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments\n")
+	}
 
 	// Generate hash-based filename from content
 	hash := sha256.Sum256([]byte(content))

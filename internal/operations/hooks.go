@@ -102,6 +102,18 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		if err := backends.WriteSettings("claude-code", hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
 			return nil, fmt.Errorf("failed to apply claude-code settings: %w", err)
 		}
+
+		// Write slash commands from prompts
+		var bundleOpts []bundles.LoaderOption
+		if req.BundleLoaderFS != nil {
+			bundleOpts = append(bundleOpts, bundles.WithFS(req.BundleLoaderFS))
+		}
+		if prompts := loadPromptsForCommands(freshCfg, bundleOpts); len(prompts) > 0 {
+			if err := backends.WriteCommandFiles(workDir, prompts); err != nil {
+				return nil, fmt.Errorf("failed to write slash commands: %w", err)
+			}
+		}
+
 		applied = append(applied, "claude-code")
 	}
 
@@ -121,6 +133,31 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		Backends:    applied,
 		ContextHash: contextHash,
 	}, nil
+}
+
+// loadPromptsForCommands loads all prompts from bundles for slash command export.
+func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*bundles.LoadedContent {
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return nil
+	}
+
+	loader := bundles.NewLoader(bundleDirs, cfg.Defaults.ShouldUseDistilled(), opts...)
+	infos, err := loader.ListAllPrompts()
+	if err != nil {
+		return nil
+	}
+
+	var prompts []*bundles.LoadedContent
+	for _, info := range infos {
+		content, err := loader.GetPrompt(info.Name)
+		if err != nil {
+			continue
+		}
+		prompts = append(prompts, content)
+	}
+
+	return prompts
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

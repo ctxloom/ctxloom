@@ -542,6 +542,17 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 		}
 	}
 
+	// Apply hooks (including slash command generation) - graceful failure
+	hooksResult, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+		Backend:           "claude-code",
+		RegenerateContext: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", err)
+	} else if hooksResult.Status == "applied" {
+		// Successfully applied - don't log unless verbose
+	}
+
 	return &mcpResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,

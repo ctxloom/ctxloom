@@ -107,6 +107,75 @@ func TestWriteContextFile(t *testing.T) {
 
 		assert.Equal(t, hash1, hash2)
 	})
+
+	t.Run("deduplicates identical content from multiple fragments", func(t *testing.T) {
+		// When the same fragment content exists in multiple bundles (e.g., due to
+		// duplicate bundle installations), it should only appear once in the output.
+		// This is critical for avoiding wasted tokens from duplicate context.
+		tmpDir := t.TempDir()
+		duplicateContent := "# Go Testing\n\nThis is testing content."
+		fragments := []*Fragment{
+			{Name: "testing", Content: duplicateContent},
+			{Name: "other/testing", Content: duplicateContent}, // Same content, different name
+			{Name: "unique", Content: "Unique content here"},
+		}
+
+		hash, err := WriteContextFile(tmpDir, fragments)
+		require.NoError(t, err)
+
+		content, err := ReadContextFile(tmpDir, hash)
+		require.NoError(t, err)
+
+		// Count occurrences - duplicate content should only appear once
+		count := countOccurrences(content, "# Go Testing")
+		assert.Equal(t, 1, count, "duplicate content should only appear once")
+
+		// Unique content should still be present
+		assert.Contains(t, content, "Unique content here")
+	})
+
+	t.Run("preserves fragments with different content", func(t *testing.T) {
+		// Different content should all be preserved even if names are similar
+		tmpDir := t.TempDir()
+		fragments := []*Fragment{
+			{Name: "frag1", Content: "Content A"},
+			{Name: "frag2", Content: "Content B"},
+			{Name: "frag3", Content: "Content C"},
+		}
+
+		hash, err := WriteContextFile(tmpDir, fragments)
+		require.NoError(t, err)
+
+		content, err := ReadContextFile(tmpDir, hash)
+		require.NoError(t, err)
+
+		assert.Contains(t, content, "Content A")
+		assert.Contains(t, content, "Content B")
+		assert.Contains(t, content, "Content C")
+	})
+}
+
+// countOccurrences counts non-overlapping occurrences of substr in s.
+func countOccurrences(s, substr string) int {
+	count := 0
+	for {
+		idx := len(s) - len(s)
+		if idx = indexString(s, substr); idx == -1 {
+			break
+		}
+		count++
+		s = s[idx+len(substr):]
+	}
+	return count
+}
+
+func indexString(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 // =============================================================================

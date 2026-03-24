@@ -9,12 +9,47 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
+
+// gitHostPattern matches paths that start with a git hosting domain.
+// Examples: github.com/owner/repo, gitlab.com/group/project
+var gitHostPattern = regexp.MustCompile(`^(github\.com|gitlab\.com|bitbucket\.org)/[^/]+/([^/]+)(?:/(.+))?$`)
+
+// NormalizeBundleName converts a bundle path to its canonical repo/bundle format.
+// This ensures consistent naming regardless of how the bundle was installed.
+//
+// Input formats:
+//   - github.com/owner/scm-github/go-development → scm-github/go-development
+//   - gitlab.com/group/repo/core → repo/core
+//   - scm-github/go-development → scm-github/go-development (unchanged)
+//   - local-bundle → local-bundle (unchanged)
+//
+// The canonical format is: repo-name/bundle-path
+func NormalizeBundleName(name string) string {
+	if name == "" {
+		return name
+	}
+
+	// Check if path starts with a git hosting domain
+	if matches := gitHostPattern.FindStringSubmatch(name); matches != nil {
+		// matches[2] = repo name, matches[3] = remaining path (may be empty)
+		repoName := matches[2]
+		remainingPath := matches[3]
+		if remainingPath != "" {
+			return repoName + "/" + remainingPath
+		}
+		return repoName
+	}
+
+	// Already in canonical format or local bundle
+	return name
+}
 
 // Bundle represents a versioned collection of related content.
 // All items within a bundle share the same version.
@@ -61,16 +96,17 @@ type BundleFragment struct {
 
 // BundlePrompt defines a prompt within a bundle.
 type BundlePrompt struct {
-	Description  string   `yaml:"description,omitempty"`
-	Tags         []string `yaml:"tags,omitempty"`
-	Variables    []string `yaml:"variables,omitempty"`
-	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
-	Content      string   `yaml:"content"`
-	ContentHash  string   `yaml:"content_hash,omitempty"`
-	Distilled    string   `yaml:"distilled,omitempty"`
-	DistilledBy  string   `yaml:"distilled_by,omitempty"`
-	NoDistill    bool     `yaml:"no_distill,omitempty"`
+	Description  string        `yaml:"description,omitempty"`
+	Tags         []string      `yaml:"tags,omitempty"`
+	Variables    []string      `yaml:"variables,omitempty"`
+	Notes        string        `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Content      string        `yaml:"content"`
+	ContentHash  string        `yaml:"content_hash,omitempty"`
+	Distilled    string        `yaml:"distilled,omitempty"`
+	DistilledBy  string        `yaml:"distilled_by,omitempty"`
+	NoDistill    bool          `yaml:"no_distill,omitempty"`
+	Plugins      PluginsConfig `yaml:"plugins,omitempty"` // Plugin-specific settings (e.g., claude-code skill config)
 }
 
 // ComputeContentHash computes SHA256 hash of the content.
@@ -341,7 +377,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				bundlePath := filepath.Join(path, "bundle.yaml")
 				if _, err := l.fs.Stat(bundlePath); err == nil {
 					relPath, _ := filepath.Rel(dir, path)
-					bundleName := filepath.ToSlash(relPath)
+					bundleName := NormalizeBundleName(filepath.ToSlash(relPath))
 					if seen[bundleName] {
 						return nil
 					}
@@ -358,7 +394,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			// Check for .yaml files (bundle files)
 			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
 				relPath, _ := filepath.Rel(dir, path)
-				bundleName := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
+				bundleName := NormalizeBundleName(strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml"))
 				if seen[bundleName] {
 					return nil
 				}
@@ -563,7 +599,8 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 		}
 
 		for name, prompt := range bundle.Prompts {
-			key := bundle.Name + "/" + name
+			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
+			key := bundleInfo.Name + "/" + name
 			if seen[key] {
 				continue
 			}
@@ -572,9 +609,9 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 				Name:     name,
 				FileName: name + ".yaml",
 				Path:     bundleInfo.Path,
-				Source:   bundle.Name,
+				Source:   bundleInfo.Name,
 				Tags:     append(bundle.Tags, prompt.Tags...),
-				Bundle:   bundle.Name,
+				Bundle:   bundleInfo.Name,
 				ItemType: "prompt",
 			})
 		}
@@ -677,6 +714,7 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 			Content:     prompt.EffectiveContent(l.preferDistilled),
 			IsDistilled: l.preferDistilled && prompt.Distilled != "",
 			DistilledBy: prompt.DistilledBy,
+			Plugins:     prompt.Plugins,
 		}, nil
 	}
 
@@ -700,6 +738,7 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 				Content:     prompt.EffectiveContent(l.preferDistilled),
 				IsDistilled: l.preferDistilled && prompt.Distilled != "",
 				DistilledBy: prompt.DistilledBy,
+				Plugins:     prompt.Plugins,
 			}, nil
 		}
 	}

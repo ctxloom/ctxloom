@@ -3,11 +3,11 @@ package operations
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/cbroglie/mustache"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/collections"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/profiles"
 )
@@ -38,13 +38,15 @@ type AssembleContextResult struct {
 }
 
 // AssembleContext assembles context from a profile, fragments, and/or tags.
+// Fragments are sorted using bookend strategy based on priority:
+// highest priority at start, second-highest at end, rest in middle.
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
 
-	var allFragments []string
+	var allFragments []config.FragmentRef
 	profileVars := make(map[string]string)
 
 	profileName := req.Profile
@@ -68,44 +70,47 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 			profileVars[k] = v
 		}
 
+		// Add fragments from tags (priority 0)
 		if len(profile.Tags) > 0 {
 			taggedInfos, err := loader.ListByTags(profile.Tags)
 			if err != nil {
 				return nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
 			}
 			for _, info := range taggedInfos {
-				allFragments = append(allFragments, info.Name)
+				allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
 			}
 		}
 
+		// Add explicit fragments with their priorities
 		allFragments = append(allFragments, profile.Fragments...)
 	}
 
-	allFragments = append(allFragments, req.Fragments...)
+	// Add request fragments (priority 0)
+	for _, f := range req.Fragments {
+		allFragments = append(allFragments, config.FragmentRef{Name: f, Priority: 0})
+	}
 
+	// Add fragments from request tags (priority 0)
 	if len(req.Tags) > 0 {
 		taggedInfos, err := loader.ListByTags(req.Tags)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list fragments by tags: %w", err)
 		}
 		for _, info := range taggedInfos {
-			allFragments = append(allFragments, info.Name)
+			allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
 		}
 	}
 
-	seen := collections.NewSet[string]()
-	var uniqueFragments []string
-	for _, f := range allFragments {
-		if !seen.Has(f) {
-			seen.Add(f)
-			uniqueFragments = append(uniqueFragments, f)
-		}
-	}
+	// Deduplicate, keeping highest priority for each fragment
+	uniqueFragments := dedupeFragmentRefs(allFragments)
+
+	// Sort using bookend strategy for "lost in the middle" optimization
+	orderedNames := sortFragmentsByPriority(uniqueFragments)
 
 	var contextContent string
-	if len(uniqueFragments) > 0 {
+	if len(orderedNames) > 0 {
 		var err error
-		contextContent, err = loader.LoadMultiple(uniqueFragments)
+		contextContent, err = loader.LoadMultiple(orderedNames)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load fragments: %w", err)
 		}
@@ -115,9 +120,75 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	return &AssembleContextResult{
 		Profiles:        profileNames,
-		FragmentsLoaded: uniqueFragments,
+		FragmentsLoaded: orderedNames,
 		Context:         contextContent,
 	}, nil
+}
+
+// dedupeFragmentRefs removes duplicates, keeping the highest priority for each fragment.
+func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
+	priorities := make(map[string]int)
+	order := make(map[string]int) // Track first occurrence order
+
+	for i, f := range fragments {
+		if existing, ok := priorities[f.Name]; ok {
+			if f.Priority > existing {
+				priorities[f.Name] = f.Priority
+			}
+		} else {
+			priorities[f.Name] = f.Priority
+			order[f.Name] = i
+		}
+	}
+
+	// Build result maintaining original order for same priority
+	result := make([]config.FragmentRef, 0, len(priorities))
+	for name, priority := range priorities {
+		result = append(result, config.FragmentRef{Name: name, Priority: priority})
+	}
+
+	// Sort by original order (for stable output when priorities are equal)
+	slices.SortFunc(result, func(a, b config.FragmentRef) int {
+		return order[a.Name] - order[b.Name]
+	})
+
+	return result
+}
+
+// sortFragmentsByPriority arranges fragments using bookend strategy:
+// Highest priority at start, second-highest at end, rest fill middle (descending).
+// This addresses the "lost in the middle" problem where LLMs poorly attend to middle content.
+func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
+	if len(fragments) == 0 {
+		return nil
+	}
+
+	// Sort by priority descending
+	sorted := slices.Clone(fragments)
+	slices.SortStableFunc(sorted, func(a, b config.FragmentRef) int {
+		return b.Priority - a.Priority // Descending
+	})
+
+	// For 1-2 fragments, just return in priority order
+	if len(sorted) <= 2 {
+		names := make([]string, len(sorted))
+		for i, f := range sorted {
+			names[i] = f.Name
+		}
+		return names
+	}
+
+	// Bookend placement: [highest, middle..., second-highest]
+	result := make([]string, len(sorted))
+	result[0] = sorted[0].Name             // Highest priority at start
+	result[len(result)-1] = sorted[1].Name // Second-highest at end
+
+	// Fill middle with remaining (already sorted descending)
+	for i := 2; i < len(sorted); i++ {
+		result[i-1] = sorted[i].Name
+	}
+
+	return result
 }
 
 // resolveProfile resolves a profile from config or directory.
@@ -141,9 +212,15 @@ func resolveProfile(cfg *config.Config, name string, profileLoaderFunc func() Pr
 	}
 
 	// Convert to config.Profile
+	// Convert string bundles to FragmentRef (priority 0 from directory profiles)
+	fragments := make([]config.FragmentRef, len(resolved.Bundles))
+	for i, b := range resolved.Bundles {
+		fragments[i] = config.FragmentRef{Name: b, Priority: 0}
+	}
+
 	return &config.Profile{
 		Tags:      resolved.Tags,
-		Fragments: resolved.Bundles,
+		Fragments: fragments,
 		Variables: resolved.Variables,
 	}, nil
 }

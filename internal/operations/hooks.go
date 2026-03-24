@@ -164,7 +164,7 @@ func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...backends.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles
 	loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled(), bundleOpts...)
-	var allFragments []string
+	var allFragments []config.FragmentRef
 
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		profile, err := config.ResolveProfile(cfg.Profiles, profileName)
@@ -172,26 +172,29 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			continue
 		}
 
+		// Add fragments from tags (priority 0)
 		if len(profile.Tags) > 0 {
 			taggedInfos, _ := loader.ListByTags(profile.Tags)
 			for _, info := range taggedInfos {
-				allFragments = append(allFragments, info.Name)
+				allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
 			}
 		}
 
+		// Add explicit fragments with their priorities
 		allFragments = append(allFragments, profile.Fragments...)
 	}
 
-	// Dedupe
-	allFragments = config.DedupeStrings(allFragments)
+	// Dedupe and sort using bookend strategy
+	uniqueFragments := dedupeFragmentRefs(allFragments)
+	allFragmentNames := sortFragmentsByPriority(uniqueFragments)
 
 	// Load and write context
-	if len(allFragments) == 0 {
+	if len(allFragmentNames) == 0 {
 		return "", nil
 	}
 
 	var backendFrags []*backends.Fragment
-	for _, name := range allFragments {
+	for _, name := range allFragmentNames {
 		content, err := loader.GetFragment(name)
 		if err != nil {
 			continue

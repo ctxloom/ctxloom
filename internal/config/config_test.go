@@ -600,8 +600,8 @@ func TestMergeProfiles(t *testing.T) {
 
 func TestCollectFragmentsForProfiles(t *testing.T) {
 	profiles := map[string]Profile{
-		"profile1": {Fragments: []string{"frag1", "frag2"}},
-		"profile2": {Fragments: []string{"frag2", "frag3"}},
+		"profile1": {Fragments: []FragmentRef{{Name: "frag1"}, {Name: "frag2"}}},
+		"profile2": {Fragments: []FragmentRef{{Name: "frag2"}, {Name: "frag3"}}},
 	}
 
 	t.Run("collects and deduplicates", func(t *testing.T) {
@@ -1133,12 +1133,12 @@ func TestConfig_GetProfileLoader(t *testing.T) {
 func TestResolveProfile_FragmentsAndBundleItems(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Fragments:   []string{"frag1", "frag2"},
+			Fragments:   []FragmentRef{{Name: "frag1"}, {Name: "frag2"}},
 			BundleItems: []string{"bundle#item1"},
 		},
 		"child": {
 			Parents:     []string{"base"},
-			Fragments:   []string{"frag2", "frag3"}, // frag2 duplicate
+			Fragments:   []FragmentRef{{Name: "frag2"}, {Name: "frag3"}}, // frag2 duplicate
 			BundleItems: []string{"bundle#item1", "bundle#item2"},
 		},
 	}
@@ -1146,8 +1146,12 @@ func TestResolveProfile_FragmentsAndBundleItems(t *testing.T) {
 	resolved, err := ResolveProfile(profiles, "child")
 	require.NoError(t, err)
 
-	// Fragments should be deduplicated
-	assert.Equal(t, []string{"frag1", "frag2", "frag3"}, resolved.Fragments)
+	// Fragments should be deduplicated (extract names for comparison)
+	var fragNames []string
+	for _, f := range resolved.Fragments {
+		fragNames = append(fragNames, f.Name)
+	}
+	assert.Equal(t, []string{"frag1", "frag2", "frag3"}, fragNames)
 
 	// BundleItems should be deduplicated
 	assert.Equal(t, []string{"bundle#item1", "bundle#item2"}, resolved.BundleItems)

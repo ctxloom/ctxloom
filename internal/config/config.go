@@ -282,6 +282,41 @@ func (c *LMConfig) GetDefaultModel(pluginName string) string {
 	return ""
 }
 
+// FragmentRef references a fragment with optional priority for context ordering.
+// Higher priority fragments are placed at the beginning/end of context (bookend strategy)
+// to address the "lost in the middle" problem where LLMs poorly attend to middle content.
+type FragmentRef struct {
+	Name     string `yaml:"name"`
+	Priority int    `yaml:"priority,omitempty"` // Higher = more important (default: 0)
+}
+
+// UnmarshalYAML supports both string and struct formats for backward compatibility.
+// Examples:
+//
+//	fragments:
+//	  - go-style              # String format, priority defaults to 0
+//	  - name: testing
+//	    priority: 10          # Struct format with explicit priority
+func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		f.Name = node.Value
+		f.Priority = 0
+		return nil
+	}
+	// Struct format
+	type plain FragmentRef
+	return node.Decode((*plain)(f))
+}
+
+// MarshalYAML outputs as string if priority is 0, otherwise as struct.
+func (f FragmentRef) MarshalYAML() (interface{}, error) {
+	if f.Priority == 0 {
+		return f.Name, nil
+	}
+	type plain FragmentRef
+	return plain(f), nil
+}
+
 // Profile is a named collection of context fragments and variables.
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
@@ -292,7 +327,7 @@ type Profile struct {
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
 	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
 	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
-	Fragments   []string          `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Explicit fragment paths (local/legacy)
+	Fragments   []FragmentRef     `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`               // Hooks for this profile (inherited)
 	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`                   // MCP servers for this profile (inherited)
@@ -727,9 +762,9 @@ func CollectFragmentsForProfiles(profiles map[string]Profile, profileNames []str
 			return nil, fmt.Errorf("unknown profile: %s", name)
 		}
 		for _, frag := range profile.Fragments {
-			if !seen.Has(frag) {
-				seen.Add(frag)
-				fragments = append(fragments, frag)
+			if !seen.Has(frag.Name) {
+				seen.Add(frag.Name)
+				fragments = append(fragments, frag.Name)
 			}
 		}
 	}
@@ -806,18 +841,21 @@ type profileBuilder struct {
 	tagsOrder        []string
 	bundlesOrder     []string
 	bundleItemsOrder []string
-	fragmentsOrder   []string
+	fragmentsOrder   []FragmentRef
+	// Track fragment priorities (keep highest when same fragment referenced multiple times)
+	fragmentPriorities map[string]int
 	// Track seen hooks by key (command+matcher) for deduplication
 	seenHooks collections.Set[string]
 }
 
 func newProfileBuilder() *profileBuilder {
 	return &profileBuilder{
-		Tags:        collections.NewSet[string](),
-		Bundles:     collections.NewSet[string](),
-		BundleItems: collections.NewSet[string](),
-		Fragments:   collections.NewSet[string](),
-		Variables:   make(map[string]string),
+		Tags:               collections.NewSet[string](),
+		Bundles:            collections.NewSet[string](),
+		BundleItems:        collections.NewSet[string](),
+		Fragments:          collections.NewSet[string](),
+		Variables:          make(map[string]string),
+		fragmentPriorities: make(map[string]int),
 		Hooks: HooksConfig{
 			Plugins: make(map[string]BackendHooks),
 		},
@@ -850,10 +888,21 @@ func (b *profileBuilder) addBundleItem(item string) {
 	}
 }
 
-func (b *profileBuilder) addFragment(frag string) {
-	if !b.Fragments.Has(frag) {
-		b.Fragments.Add(frag)
+func (b *profileBuilder) addFragment(frag FragmentRef) {
+	if !b.Fragments.Has(frag.Name) {
+		b.Fragments.Add(frag.Name)
 		b.fragmentsOrder = append(b.fragmentsOrder, frag)
+		b.fragmentPriorities[frag.Name] = frag.Priority
+	} else if frag.Priority > b.fragmentPriorities[frag.Name] {
+		// Update priority if higher (child profile can override parent's priority)
+		b.fragmentPriorities[frag.Name] = frag.Priority
+		// Update the priority in fragmentsOrder
+		for i := range b.fragmentsOrder {
+			if b.fragmentsOrder[i].Name == frag.Name {
+				b.fragmentsOrder[i].Priority = frag.Priority
+				break
+			}
+		}
 	}
 }
 

@@ -233,7 +233,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 			"go-dev": {
 				Description: "Go developer profile",
 				Tags:        []string{"go"},
-				Fragments:   []string{"dev#fragments/testing-guidelines"},
+				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
 			},
 		},
 	}
@@ -256,7 +256,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 		Profiles: map[string]config.Profile{
 			"project": {
 				Description: "Project profile",
-				Fragments:   []string{"dev#fragments/variable-content"},
+				Fragments:   []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
 				Variables: map[string]string{
 					"project_name": "MyProject",
 					"version":      "1.0.0",
@@ -571,4 +571,98 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, result.Context, "DirProject")
 	assert.Contains(t, result.Context, "2.0.0")
+}
+
+// =============================================================================
+// Bookend Sorting Tests
+// =============================================================================
+
+func TestSortFragmentsByPriority_BookendStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []config.FragmentRef
+		expected []string
+	}{
+		{
+			name:     "empty",
+			input:    []config.FragmentRef{},
+			expected: nil,
+		},
+		{
+			name:     "single fragment",
+			input:    []config.FragmentRef{{Name: "a", Priority: 5}},
+			expected: []string{"a"},
+		},
+		{
+			name:     "two fragments",
+			input:    []config.FragmentRef{{Name: "low", Priority: 1}, {Name: "high", Priority: 10}},
+			expected: []string{"high", "low"}, // Sorted by priority desc
+		},
+		{
+			name: "three fragments - bookend",
+			input: []config.FragmentRef{
+				{Name: "low", Priority: 1},
+				{Name: "med", Priority: 5},
+				{Name: "high", Priority: 10},
+			},
+			// Bookend: [highest, middle..., second-highest]
+			// high(10) at start, med(5) at end, low(1) in middle
+			expected: []string{"high", "low", "med"},
+		},
+		{
+			name: "five fragments - full bookend",
+			input: []config.FragmentRef{
+				{Name: "e", Priority: 1},
+				{Name: "d", Priority: 2},
+				{Name: "c", Priority: 3},
+				{Name: "b", Priority: 4},
+				{Name: "a", Priority: 5},
+			},
+			// Sorted desc: a(5), b(4), c(3), d(2), e(1)
+			// Bookend: a at start, b at end, c,d,e fill middle
+			expected: []string{"a", "c", "d", "e", "b"},
+		},
+		{
+			name: "same priority - stable order",
+			input: []config.FragmentRef{
+				{Name: "first", Priority: 0},
+				{Name: "second", Priority: 0},
+				{Name: "third", Priority: 0},
+			},
+			// All same priority, bookend still applies
+			expected: []string{"first", "third", "second"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sortFragmentsByPriority(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDedupeFragmentRefs_KeepsHighestPriority(t *testing.T) {
+	input := []config.FragmentRef{
+		{Name: "a", Priority: 5},
+		{Name: "b", Priority: 3},
+		{Name: "a", Priority: 10}, // Higher priority for 'a'
+		{Name: "c", Priority: 1},
+		{Name: "b", Priority: 2}, // Lower priority for 'b', should be ignored
+	}
+
+	result := dedupeFragmentRefs(input)
+
+	// Should have 3 unique fragments
+	assert.Len(t, result, 3)
+
+	// Find each and check priorities
+	priorities := make(map[string]int)
+	for _, f := range result {
+		priorities[f.Name] = f.Priority
+	}
+
+	assert.Equal(t, 10, priorities["a"], "should keep higher priority for 'a'")
+	assert.Equal(t, 3, priorities["b"], "should keep first (higher) priority for 'b'")
+	assert.Equal(t, 1, priorities["c"])
 }

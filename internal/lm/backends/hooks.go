@@ -557,14 +557,14 @@ type geminiSettings struct {
 // geminiHook represents a single hook in Gemini CLI format.
 type geminiHook struct {
 	Command string `json:"command,omitempty"`
-	SCM     string `json:"_scm,omitempty"` // Hash identifying SCM-managed hooks
+	SCM     string `json:"-"` // Internal marker for SCM-managed hooks (not serialized - Gemini CLI rejects unknown fields)
 }
 
 // geminiMCPServer represents an MCP server in Gemini CLI format.
 type geminiMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
-	SCM     string   `json:"_scm,omitempty"` // Marker for SCM-managed servers
+	SCM     string   `json:"-"` // Internal marker for SCM-managed servers (not serialized - Gemini CLI rejects unknown fields)
 }
 
 // SettingsPath returns the path to Gemini's settings.json file.
@@ -693,12 +693,15 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 	return afero.WriteFile(fs, path, data, 0644)
 }
 
-// removeScmHooks removes all hooks with _scm field from settings.
+// removeScmHooks removes SCM-managed hooks from settings.
+// Since _scm is not serialized to JSON (Gemini CLI rejects unknown fields),
+// we identify SCM hooks by checking if the command contains "scm" and "inject-context".
 func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
 	for eventName, hooks := range settings.Hooks {
 		var filteredHooks []geminiHook
 		for _, hook := range hooks {
-			if hook.SCM == "" {
+			// Keep hooks that are NOT SCM-managed
+			if !isScmManagedHook(hook.Command) {
 				filteredHooks = append(filteredHooks, hook)
 			}
 		}
@@ -708,6 +711,12 @@ func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
 			delete(settings.Hooks, eventName)
 		}
 	}
+}
+
+// isScmManagedHook returns true if the hook command appears to be SCM-managed.
+func isScmManagedHook(command string) bool {
+	// SCM inject-context hooks contain both "scm" and "inject-context"
+	return strings.Contains(command, "scm") && strings.Contains(command, "inject-context")
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.
@@ -752,13 +761,12 @@ func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h
 	settings.Hooks[eventName] = append(settings.Hooks[eventName], hook)
 }
 
-// removeScmMCPServers removes all MCP servers with _scm field from settings.
+// removeScmMCPServers removes SCM-managed MCP servers from settings.
+// Since _scm is not serialized to JSON (Gemini CLI rejects unknown fields),
+// we track SCM-managed servers by the well-known name "scm".
 func (w *GeminiHookWriter) removeScmMCPServers(settings *geminiSettings) {
-	for name, server := range settings.MCPServers {
-		if server.SCM != "" {
-			delete(settings.MCPServers, name)
-		}
-	}
+	// Remove the well-known SCM server name
+	delete(settings.MCPServers, SCMMCPServerName)
 }
 
 // addMCPServers adds MCP servers from config to settings.

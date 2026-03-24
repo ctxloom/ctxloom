@@ -619,7 +619,7 @@ fragments:
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default:   true,
-					Fragments: []string{"test#fragments/my-fragment"},
+					Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
 				},
 			},
 		}, nil
@@ -667,7 +667,7 @@ fragments:
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default:   true,
-					Fragments: []string{"test#fragments/fallback"},
+					Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
 				},
 				// This profile will be in the default list but references a parent that doesn't exist
 				"broken-profile": {
@@ -725,7 +725,10 @@ fragments:
 				"default": {
 					Default: true,
 					// Reference both existing and non-existing fragments
-					Fragments: []string{"test#fragments/existing", "test#fragments/nonexistent"},
+					Fragments: []config.FragmentRef{
+						{Name: "test#fragments/existing"},
+						{Name: "test#fragments/nonexistent"},
+					},
 				},
 			},
 		}, nil

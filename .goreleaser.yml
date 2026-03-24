@@ -3,6 +3,11 @@ version: 2
 
 project_name: scm
 
+before:
+  hooks:
+    - go mod tidy
+    - go run ./scripts/genman
+
 builds:
   # Main scm binary
   - id: scm
@@ -45,6 +50,7 @@ archives:
     files:
       - LICENSE*
       - README.md
+      - man/man1/*.1
 
 checksum:
   name_template: 'checksums.txt'
@@ -83,3 +89,9 @@ release:
 
     **Manual Download:**
     Download the appropriate archive for your platform below.
+
+    **Man Pages:**
+    Man pages are included in the archive. Install with:
+    ```bash
+    sudo cp man/man1/*.1 /usr/local/share/man/man1/
+    ```

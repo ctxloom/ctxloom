@@ -85,7 +85,7 @@ mutate-container:
 # Clean build artifacts
 clean:
     rm -f scm
-    rm -rf bin/
+    rm -rf bin/ man/
     go clean
 
 # Install dependencies
@@ -141,6 +141,16 @@ compress:
 
 # Build static binaries with UPX compression
 build-compressed: build-static compress
+
+# Generate man pages
+man:
+    go run ./scripts/genman
+
+# Install man pages (Linux/macOS)
+man-install: man
+    @mkdir -p ~/.local/share/man/man1
+    cp man/man1/*.1 ~/.local/share/man/man1/
+    @echo "Man pages installed. Run 'man scm' to view."
 
 # Show help
 help:

@@ -2,6 +2,9 @@
 scm
 bin/
 
+# Generated man pages
+man/
+
 # Go
 *.exe
 *.exe~

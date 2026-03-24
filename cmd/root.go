@@ -74,6 +74,11 @@ REFERENCE SYNTAX
 Run 'scm <command> --help' for details on any command.`,
 }
 
+// GetRootCmd returns the root command for documentation generation.
+func GetRootCmd() *cobra.Command {
+	return rootCmd
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		// Check for ExitError to preserve specific exit codes

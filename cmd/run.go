@@ -262,12 +262,12 @@ Examples:
 			}
 		}
 
-		// Determine work directory: git root if in repo, home directory otherwise
+		// Determine work directory: git root if in repo, current directory otherwise
 		workDir := ""
 		if root, err := gitutil.FindRoot("."); err == nil {
 			workDir = root
-		} else if home, err := os.UserHomeDir(); err == nil {
-			workDir = home
+		} else if cwd, err := os.Getwd(); err == nil {
+			workDir = cwd
 		}
 
 		// Build request

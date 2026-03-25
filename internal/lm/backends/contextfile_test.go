@@ -159,8 +159,8 @@ func TestWriteContextFile(t *testing.T) {
 func countOccurrences(s, substr string) int {
 	count := 0
 	for {
-		idx := len(s) - len(s)
-		if idx = indexString(s, substr); idx == -1 {
+		idx := indexString(s, substr)
+		if idx == -1 {
 			break
 		}
 		count++

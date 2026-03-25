@@ -549,9 +549,8 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", err)
-	} else if hooksResult.Status == "applied" {
-		// Successfully applied - don't log unless verbose
 	}
+	_ = hooksResult // Successfully applied - don't log unless verbose
 
 	return &mcpResponse{
 		JSONRPC: "2.0",

@@ -160,7 +160,8 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 			require.NoError(t, err)
 
 			var parsed map[string]any
-			json.Unmarshal([]byte(result.Content), &parsed)
+			err = json.Unmarshal([]byte(result.Content), &parsed)
+			require.NoError(t, err)
 
 			if tt.shouldKeep {
 				assert.Equal(t, tt.value, parsed["value"],

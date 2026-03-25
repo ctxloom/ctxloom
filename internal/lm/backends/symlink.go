@@ -38,13 +38,20 @@ func SetExecutablePathForTesting(path string) {
 
 // GetContextInjectionCommand returns the hook command for context injection.
 // Uses absolute path to the current scm binary.
-func GetContextInjectionCommand(hash string) string {
+// workDir is the project directory where the context file lives.
+func GetContextInjectionCommand(hash, workDir string) string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
 		// Fallback to "scm" if we can't get the path (shouldn't happen)
 		execPath = "scm"
 	}
-	return fmt.Sprintf(`%s hook inject-context %s`, execPath, hash)
+	// Include --project flag with absolute path to ensure hook finds the context file
+	// even when Claude Code runs from a different working directory
+	absWorkDir := workDir
+	if abs, err := filepath.Abs(workDir); err == nil {
+		absWorkDir = abs
+	}
+	return fmt.Sprintf(`%s hook inject-context --project %s %s`, execPath, absWorkDir, hash)
 }
 
 // GetSCMMCPCommand returns the command (executable path) for the SCM MCP server.

@@ -151,6 +151,7 @@ type claudeCodeMCPConfig struct {
 type claudeCodeMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
+	Cwd     string   `json:"cwd,omitempty"` // Working directory for the server
 	SCM     string   `json:"_scm,omitempty"` // Marker identifying SCM-managed servers
 }
 
@@ -551,7 +552,8 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 		mcpConfig.MCPServers[SCMMCPServerName] = claudeCodeMCPServer{
 			Command: GetSCMMCPCommand(),
 			Args:    GetSCMMCPArgs(),
-			SCM:     "scm-auto", // Marker for auto-registered SCM server
+			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findSCMDir works
+			SCM:     "scm-auto",              // Marker for auto-registered SCM server
 		}
 	}
 
@@ -895,9 +897,10 @@ const ContextInjectionTimeout = 60
 
 // NewContextInjectionHook creates a hook for context injection using the symlinked scm binary.
 // hash is the context file hash to pass to the inject-context command.
-func NewContextInjectionHook(hash string) config.Hook {
+// workDir is the project directory where the context file lives.
+func NewContextInjectionHook(hash, workDir string) config.Hook {
 	return config.Hook{
-		Command: GetContextInjectionCommand(hash),
+		Command: GetContextInjectionCommand(hash, workDir),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
 	}

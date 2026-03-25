@@ -83,7 +83,7 @@ func (l *ClaudeLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, c
 
 	// Auto-register context injection hook with the context hash
 	if contextHash != "" {
-		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, NewContextInjectionHook(contextHash))
+		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
 	}
 
 	// Merge top-level hooks and MCP

@@ -23,6 +23,8 @@ type HookSpecificOutput struct {
 	AdditionalContext string `json:"additionalContext,omitempty"`
 }
 
+var injectContextProject string
+
 var hookInjectContextCmd = &cobra.Command{
 	Use:   "inject-context <hash>",
 	Short: "Inject session context for AI tool hooks",
@@ -57,10 +59,15 @@ Output format (JSON to stdout):
 			}
 		}()
 
-		// Determine work directory (git root or current directory)
-		workDir := "."
-		if root, err := gitutil.FindRoot("."); err == nil {
-			workDir = root
+		// Determine work directory from --project flag, git root, or current directory
+		workDir := injectContextProject
+		if workDir == "" {
+			// Fallback to git root or current directory
+			if root, err := gitutil.FindRoot("."); err == nil {
+				workDir = root
+			} else {
+				workDir = "."
+			}
 		}
 
 		// Read context file by hash
@@ -92,5 +99,6 @@ Output format (JSON to stdout):
 }
 
 func init() {
+	hookInjectContextCmd.Flags().StringVar(&injectContextProject, "project", "", "Project directory (defaults to git root or current directory)")
 	hookCmd.AddCommand(hookInjectContextCmd)
 }

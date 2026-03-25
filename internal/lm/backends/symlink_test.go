@@ -24,28 +24,32 @@ func TestGetContextInjectionCommand(t *testing.T) {
 	tests := []struct {
 		name     string
 		hash     string
+		workDir  string
 		expected string
 	}{
 		{
-			name:     "standard hash",
+			name:     "standard hash with absolute workDir",
 			hash:     "abc123def456",
-			expected: "/usr/local/bin/scm hook inject-context abc123def456",
+			workDir:  "/home/user/project",
+			expected: "/usr/local/bin/scm hook inject-context --project /home/user/project abc123def456",
 		},
 		{
 			name:     "short hash",
 			hash:     "abc",
-			expected: "/usr/local/bin/scm hook inject-context abc",
+			workDir:  "/project",
+			expected: "/usr/local/bin/scm hook inject-context --project /project abc",
 		},
 		{
 			name:     "empty hash",
 			hash:     "",
-			expected: "/usr/local/bin/scm hook inject-context ",
+			workDir:  "/project",
+			expected: "/usr/local/bin/scm hook inject-context --project /project ",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetContextInjectionCommand(tt.hash)
+			result := GetContextInjectionCommand(tt.hash, tt.workDir)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

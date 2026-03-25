@@ -97,7 +97,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	if backend == "all" || backend == "claude-code" {
 		hooksCfg := &freshCfg.Hooks
 		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash))
+			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
 		}
 		if err := backends.WriteSettings("claude-code", hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
 			return nil, fmt.Errorf("failed to apply claude-code settings: %w", err)
@@ -120,7 +120,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	if backend == "all" || backend == "gemini" {
 		hooksCfg := &freshCfg.Hooks
 		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash))
+			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
 		}
 		if err := backends.WriteSettings("gemini", hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
 			return nil, fmt.Errorf("failed to apply gemini settings: %w", err)

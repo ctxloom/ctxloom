@@ -886,6 +886,21 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 						"type":        "boolean",
 						"description": "Set as default profile (optional)",
 					},
+					"exclude_fragments": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Fragment names to exclude (optional)",
+					},
+					"exclude_prompts": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Prompt names to exclude (optional)",
+					},
+					"exclude_mcp": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "MCP server names to exclude (optional)",
+					},
 				},
 			},
 		},
@@ -937,6 +952,36 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 					"default": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Set as default profile (optional)",
+					},
+					"add_exclude_fragments": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Fragment names to add to exclusion list (optional)",
+					},
+					"remove_exclude_fragments": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Fragment names to remove from exclusion list (optional)",
+					},
+					"add_exclude_prompts": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Prompt names to add to exclusion list (optional)",
+					},
+					"remove_exclude_prompts": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Prompt names to remove from exclusion list (optional)",
+					},
+					"add_exclude_mcp": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "MCP server names to add to exclusion list (optional)",
+					},
+					"remove_exclude_mcp": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "MCP server names to remove from exclusion list (optional)",
 					},
 				},
 			},
@@ -1740,24 +1785,30 @@ func (s *mcpServer) refetchFromToken(ctx context.Context, token string) (*pendin
 
 func (s *mcpServer) toolCreateProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Parents     []string `json:"parents"`
-		Bundles []string `json:"bundles"`
-		Tags    []string `json:"tags"`
-		Default bool     `json:"default"`
+		Name             string   `json:"name"`
+		Description      string   `json:"description"`
+		Parents          []string `json:"parents"`
+		Bundles          []string `json:"bundles"`
+		Tags             []string `json:"tags"`
+		Default          bool     `json:"default"`
+		ExcludeFragments []string `json:"exclude_fragments"`
+		ExcludePrompts   []string `json:"exclude_prompts"`
+		ExcludeMCP       []string `json:"exclude_mcp"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
 
 	result, err := operations.CreateProfile(ctx, s.cfg, operations.CreateProfileRequest{
-		Name:        params.Name,
-		Description: params.Description,
-		Parents:     params.Parents,
-		Bundles:     params.Bundles,
-		Tags:        params.Tags,
-		Default:     params.Default,
+		Name:             params.Name,
+		Description:      params.Description,
+		Parents:          params.Parents,
+		Bundles:          params.Bundles,
+		Tags:             params.Tags,
+		Default:          params.Default,
+		ExcludeFragments: params.ExcludeFragments,
+		ExcludePrompts:   params.ExcludePrompts,
+		ExcludeMCP:       params.ExcludeMCP,
 	})
 	if err != nil {
 		return nil, err
@@ -1772,30 +1823,42 @@ func (s *mcpServer) toolCreateProfile(ctx context.Context, args json.RawMessage)
 
 func (s *mcpServer) toolUpdateProfile(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
-		Name          string   `json:"name"`
-		Description   *string  `json:"description"`
-		AddParents    []string `json:"add_parents"`
-		RemoveParents []string `json:"remove_parents"`
-		AddBundles    []string `json:"add_bundles"`
-		RemoveBundles []string `json:"remove_bundles"`
-		AddTags       []string `json:"add_tags"`
-		RemoveTags    []string `json:"remove_tags"`
-		Default       *bool    `json:"default"`
+		Name                   string   `json:"name"`
+		Description            *string  `json:"description"`
+		AddParents             []string `json:"add_parents"`
+		RemoveParents          []string `json:"remove_parents"`
+		AddBundles             []string `json:"add_bundles"`
+		RemoveBundles          []string `json:"remove_bundles"`
+		AddTags                []string `json:"add_tags"`
+		RemoveTags             []string `json:"remove_tags"`
+		Default                *bool    `json:"default"`
+		AddExcludeFragments    []string `json:"add_exclude_fragments"`
+		RemoveExcludeFragments []string `json:"remove_exclude_fragments"`
+		AddExcludePrompts      []string `json:"add_exclude_prompts"`
+		RemoveExcludePrompts   []string `json:"remove_exclude_prompts"`
+		AddExcludeMCP          []string `json:"add_exclude_mcp"`
+		RemoveExcludeMCP       []string `json:"remove_exclude_mcp"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return nil, err
 	}
 
 	result, err := operations.UpdateProfile(ctx, s.cfg, operations.UpdateProfileRequest{
-		Name:          params.Name,
-		Description:   params.Description,
-		AddParents:    params.AddParents,
-		RemoveParents: params.RemoveParents,
-		AddBundles:    params.AddBundles,
-		RemoveBundles: params.RemoveBundles,
-		AddTags:       params.AddTags,
-		RemoveTags:    params.RemoveTags,
-		Default:       params.Default,
+		Name:                   params.Name,
+		Description:            params.Description,
+		AddParents:             params.AddParents,
+		RemoveParents:          params.RemoveParents,
+		AddBundles:             params.AddBundles,
+		RemoveBundles:          params.RemoveBundles,
+		AddTags:                params.AddTags,
+		RemoveTags:             params.RemoveTags,
+		Default:                params.Default,
+		AddExcludeFragments:    params.AddExcludeFragments,
+		RemoveExcludeFragments: params.RemoveExcludeFragments,
+		AddExcludePrompts:      params.AddExcludePrompts,
+		RemoveExcludePrompts:   params.RemoveExcludePrompts,
+		AddExcludeMCP:          params.AddExcludeMCP,
+		RemoveExcludeMCP:       params.RemoveExcludeMCP,
 	})
 	if err != nil {
 		return nil, err

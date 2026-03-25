@@ -41,6 +41,11 @@ type Profile struct {
 	Bundles []string `yaml:"bundles,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`
+
+	// Exclusions - items to filter out after inheritance resolution
+	ExcludeFragments []string `yaml:"exclude_fragments,omitempty"`
+	ExcludePrompts   []string `yaml:"exclude_prompts,omitempty"`
+	ExcludeMCP       []string `yaml:"exclude_mcp,omitempty"`
 }
 
 // ContentRef represents a parsed content reference.
@@ -421,9 +426,25 @@ func GetProfileDirs(scmPaths []string) []string {
 	return dirs
 }
 
+// maxProfileDepth prevents stack overflow from deeply nested or malformed configurations.
+// This matches the limit used in config.ResolveProfile for consistency.
+const maxProfileDepth = 64
+
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
 // Returns bundles, tags, and variables.
+// Uses the same algorithm as config.ResolveProfile for consistency:
+// - Clones visited set for each parent to handle diamond inheritance correctly
+// - Enforces depth limit to prevent stack overflow
 func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*ResolvedProfile, error) {
+	return l.resolveProfileRecursive(name, visited, 0)
+}
+
+func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int) (*ResolvedProfile, error) {
+	// Check depth limit (consistent with config.ResolveProfile)
+	if depth > maxProfileDepth {
+		return nil, fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
+	}
+
 	if visited == nil {
 		visited = make(map[string]bool)
 	}
@@ -441,9 +462,13 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 		Variables: make(map[string]string),
 	}
 
-	// First resolve parents
+	// Resolve parents first (depth-first)
+	// Clone visited map for each parent to handle diamond inheritance correctly.
+	// This allows shared ancestors to be resolved through different paths.
 	for _, parent := range profile.Parents {
-		parentResolved, err := l.ResolveProfile(parent, visited)
+		// Clone visited map for this parent branch
+		parentVisited := cloneVisited(visited)
+		parentResolved, err := l.resolveProfileRecursive(parent, parentVisited, depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 		}
@@ -458,6 +483,15 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 	}
 
 	return resolved, nil
+}
+
+// cloneVisited creates a copy of the visited map for branch isolation.
+func cloneVisited(visited map[string]bool) map[string]bool {
+	clone := make(map[string]bool, len(visited))
+	for k, v := range visited {
+		clone[k] = v
+	}
+	return clone
 }
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.

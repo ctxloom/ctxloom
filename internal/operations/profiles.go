@@ -158,6 +158,11 @@ type CreateProfileRequest struct {
 	Tags        []string `json:"tags"`
 	Default     bool     `json:"default"`
 
+	// Exclusions
+	ExcludeFragments []string `json:"exclude_fragments"`
+	ExcludePrompts   []string `json:"exclude_prompts"`
+	ExcludeMCP       []string `json:"exclude_mcp"`
+
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *profiles.Loader `json:"-"`
 }
@@ -193,11 +198,14 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	}
 
 	profile := &profiles.Profile{
-		Name:        req.Name,
-		Description: req.Description,
-		Parents:     req.Parents,
-		Bundles:     req.Bundles,
-		Tags:        req.Tags,
+		Name:             req.Name,
+		Description:      req.Description,
+		Parents:          req.Parents,
+		Bundles:          req.Bundles,
+		Tags:             req.Tags,
+		ExcludeFragments: req.ExcludeFragments,
+		ExcludePrompts:   req.ExcludePrompts,
+		ExcludeMCP:       req.ExcludeMCP,
 	}
 
 	if err := loader.Save(profile); err != nil {
@@ -230,6 +238,14 @@ type UpdateProfileRequest struct {
 	AddTags       []string `json:"add_tags"`
 	RemoveTags    []string `json:"remove_tags"`
 	Default       *bool    `json:"default"`
+
+	// Exclusion management
+	AddExcludeFragments    []string `json:"add_exclude_fragments"`
+	RemoveExcludeFragments []string `json:"remove_exclude_fragments"`
+	AddExcludePrompts      []string `json:"add_exclude_prompts"`
+	RemoveExcludePrompts   []string `json:"remove_exclude_prompts"`
+	AddExcludeMCP          []string `json:"add_exclude_mcp"`
+	RemoveExcludeMCP       []string `json:"remove_exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *profiles.Loader `json:"-"`
@@ -326,6 +342,54 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		if idx := indexOf(profile.Tags, t); idx >= 0 {
 			profile.Tags = append(profile.Tags[:idx], profile.Tags[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed tag: %s", t))
+		}
+	}
+
+	// Add exclude fragments
+	for _, f := range req.AddExcludeFragments {
+		if !contains(profile.ExcludeFragments, f) {
+			profile.ExcludeFragments = append(profile.ExcludeFragments, f)
+			changes = append(changes, fmt.Sprintf("added exclude fragment: %s", f))
+		}
+	}
+
+	// Remove exclude fragments
+	for _, f := range req.RemoveExcludeFragments {
+		if idx := indexOf(profile.ExcludeFragments, f); idx >= 0 {
+			profile.ExcludeFragments = append(profile.ExcludeFragments[:idx], profile.ExcludeFragments[idx+1:]...)
+			changes = append(changes, fmt.Sprintf("removed exclude fragment: %s", f))
+		}
+	}
+
+	// Add exclude prompts
+	for _, p := range req.AddExcludePrompts {
+		if !contains(profile.ExcludePrompts, p) {
+			profile.ExcludePrompts = append(profile.ExcludePrompts, p)
+			changes = append(changes, fmt.Sprintf("added exclude prompt: %s", p))
+		}
+	}
+
+	// Remove exclude prompts
+	for _, p := range req.RemoveExcludePrompts {
+		if idx := indexOf(profile.ExcludePrompts, p); idx >= 0 {
+			profile.ExcludePrompts = append(profile.ExcludePrompts[:idx], profile.ExcludePrompts[idx+1:]...)
+			changes = append(changes, fmt.Sprintf("removed exclude prompt: %s", p))
+		}
+	}
+
+	// Add exclude MCP
+	for _, m := range req.AddExcludeMCP {
+		if !contains(profile.ExcludeMCP, m) {
+			profile.ExcludeMCP = append(profile.ExcludeMCP, m)
+			changes = append(changes, fmt.Sprintf("added exclude mcp: %s", m))
+		}
+	}
+
+	// Remove exclude MCP
+	for _, m := range req.RemoveExcludeMCP {
+		if idx := indexOf(profile.ExcludeMCP, m); idx >= 0 {
+			profile.ExcludeMCP = append(profile.ExcludeMCP[:idx], profile.ExcludeMCP[idx+1:]...)
+			changes = append(changes, fmt.Sprintf("removed exclude mcp: %s", m))
 		}
 	}
 

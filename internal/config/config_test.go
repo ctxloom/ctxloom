@@ -362,6 +362,113 @@ func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
 }
 
 // =============================================================================
+// Profile Exclusion Tests
+// =============================================================================
+// Tests for fragment, prompt, and MCP server exclusion functionality.
+// Exclusions accumulate through inheritance (cannot un-exclude).
+
+func TestResolveProfile_ExcludeFragments(t *testing.T) {
+	profiles := map[string]Profile{
+		"parent": {
+			Fragments: []FragmentRef{
+				{Name: "frag-a"},
+				{Name: "frag-b"},
+				{Name: "frag-c"},
+			},
+		},
+		"child": {
+			Parents:          []string{"parent"},
+			ExcludeFragments: []string{"frag-b"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	// Should have frag-a and frag-c, but not frag-b
+	fragNames := make([]string, len(resolved.Fragments))
+	for i, f := range resolved.Fragments {
+		fragNames[i] = f.Name
+	}
+	assert.Contains(t, fragNames, "frag-a")
+	assert.Contains(t, fragNames, "frag-c")
+	assert.NotContains(t, fragNames, "frag-b")
+}
+
+func TestResolveProfile_ExcludeMCP(t *testing.T) {
+	profiles := map[string]Profile{
+		"parent": {
+			MCP: MCPConfig{
+				Servers: map[string]MCPServer{
+					"server-a": {Command: "cmd-a"},
+					"server-b": {Command: "cmd-b"},
+					"server-c": {Command: "cmd-c"},
+				},
+			},
+		},
+		"child": {
+			Parents:    []string{"parent"},
+			ExcludeMCP: []string{"server-b"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	// Should have server-a and server-c, but not server-b
+	assert.Contains(t, resolved.MCP.Servers, "server-a")
+	assert.Contains(t, resolved.MCP.Servers, "server-c")
+	assert.NotContains(t, resolved.MCP.Servers, "server-b")
+}
+
+func TestResolveProfile_ExclusionsAccumulate(t *testing.T) {
+	profiles := map[string]Profile{
+		"grandparent": {
+			Fragments:        []FragmentRef{{Name: "frag-a"}, {Name: "frag-b"}, {Name: "frag-c"}},
+			ExcludeFragments: []string{"frag-a"},
+		},
+		"parent": {
+			Parents:          []string{"grandparent"},
+			ExcludeFragments: []string{"frag-b"},
+		},
+		"child": {
+			Parents: []string{"parent"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	// Both frag-a and frag-b should be excluded (accumulated from grandparent and parent)
+	fragNames := make([]string, len(resolved.Fragments))
+	for i, f := range resolved.Fragments {
+		fragNames[i] = f.Name
+	}
+	assert.NotContains(t, fragNames, "frag-a")
+	assert.NotContains(t, fragNames, "frag-b")
+	assert.Contains(t, fragNames, "frag-c")
+}
+
+func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
+	profiles := map[string]Profile{
+		"child": {
+			Fragments:        []FragmentRef{{Name: "frag-a"}},
+			ExcludeFragments: []string{"frag-b"},
+			ExcludePrompts:   []string{"prompt-a"},
+			ExcludeMCP:       []string{"server-a"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	// Exclusion lists should be preserved in resolved profile
+	assert.Contains(t, resolved.ExcludeFragments, "frag-b")
+	assert.Contains(t, resolved.ExcludePrompts, "prompt-a")
+	assert.Contains(t, resolved.ExcludeMCP, "server-a")
+}
+
+// =============================================================================
 // GetEditorCommand Tests
 // =============================================================================
 

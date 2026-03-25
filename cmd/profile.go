@@ -257,6 +257,24 @@ var profileShowCmd = &cobra.Command{
 				fmt.Printf("  %s: %s\n", k, v)
 			}
 		}
+		if len(p.ExcludeFragments) > 0 {
+			fmt.Println("Excluded fragments:")
+			for _, f := range p.ExcludeFragments {
+				fmt.Printf("  - %s\n", f)
+			}
+		}
+		if len(p.ExcludePrompts) > 0 {
+			fmt.Println("Excluded prompts:")
+			for _, pr := range p.ExcludePrompts {
+				fmt.Printf("  - %s\n", pr)
+			}
+		}
+		if len(p.ExcludeMCP) > 0 {
+			fmt.Println("Excluded MCP servers:")
+			for _, m := range p.ExcludeMCP {
+				fmt.Printf("  - %s\n", m)
+			}
+		}
 
 		return nil
 	},
@@ -346,6 +364,72 @@ Examples:
 			}
 		}
 
+		// Add exclude fragments
+		for _, f := range profileUpdateAddExcludeFragments {
+			if !slices.Contains(p.ExcludeFragments, f) {
+				p.ExcludeFragments = append(p.ExcludeFragments, f)
+				fmt.Printf("Added exclude fragment: %s\n", f)
+				modified = true
+			} else {
+				fmt.Printf("Fragment already excluded: %s\n", f)
+			}
+		}
+
+		// Remove exclude fragments
+		for _, f := range profileUpdateRemoveExcludeFragments {
+			if idx := slices.Index(p.ExcludeFragments, f); idx >= 0 {
+				p.ExcludeFragments = slices.Delete(p.ExcludeFragments, idx, idx+1)
+				fmt.Printf("Removed exclude fragment: %s\n", f)
+				modified = true
+			} else {
+				fmt.Printf("Fragment not excluded: %s\n", f)
+			}
+		}
+
+		// Add exclude prompts
+		for _, pr := range profileUpdateAddExcludePrompts {
+			if !slices.Contains(p.ExcludePrompts, pr) {
+				p.ExcludePrompts = append(p.ExcludePrompts, pr)
+				fmt.Printf("Added exclude prompt: %s\n", pr)
+				modified = true
+			} else {
+				fmt.Printf("Prompt already excluded: %s\n", pr)
+			}
+		}
+
+		// Remove exclude prompts
+		for _, pr := range profileUpdateRemoveExcludePrompts {
+			if idx := slices.Index(p.ExcludePrompts, pr); idx >= 0 {
+				p.ExcludePrompts = slices.Delete(p.ExcludePrompts, idx, idx+1)
+				fmt.Printf("Removed exclude prompt: %s\n", pr)
+				modified = true
+			} else {
+				fmt.Printf("Prompt not excluded: %s\n", pr)
+			}
+		}
+
+		// Add exclude MCP
+		for _, m := range profileUpdateAddExcludeMCP {
+			if !slices.Contains(p.ExcludeMCP, m) {
+				p.ExcludeMCP = append(p.ExcludeMCP, m)
+				fmt.Printf("Added exclude MCP: %s\n", m)
+				modified = true
+			} else {
+				fmt.Printf("MCP already excluded: %s\n", m)
+			}
+		}
+
+		// Remove exclude MCP
+		for _, m := range profileUpdateRemoveExcludeMCP {
+			if idx := slices.Index(p.ExcludeMCP, m); idx >= 0 {
+				p.ExcludeMCP = slices.Delete(p.ExcludeMCP, idx, idx+1)
+				fmt.Printf("Removed exclude MCP: %s\n", m)
+				modified = true
+			} else {
+				fmt.Printf("MCP not excluded: %s\n", m)
+			}
+		}
+
 		if !modified {
 			fmt.Println("No changes made.")
 			return nil
@@ -361,11 +445,17 @@ Examples:
 }
 
 var (
-	profileUpdateAddParents    []string
-	profileUpdateRemoveParents []string
-	profileUpdateAddBundles    []string
-	profileUpdateRemoveBundles []string
-	profileUpdateDescription   string
+	profileUpdateAddParents            []string
+	profileUpdateRemoveParents         []string
+	profileUpdateAddBundles            []string
+	profileUpdateRemoveBundles         []string
+	profileUpdateDescription           string
+	profileUpdateAddExcludeFragments   []string
+	profileUpdateRemoveExcludeFragments []string
+	profileUpdateAddExcludePrompts     []string
+	profileUpdateRemoveExcludePrompts  []string
+	profileUpdateAddExcludeMCP         []string
+	profileUpdateRemoveExcludeMCP      []string
 )
 
 var (
@@ -661,6 +751,12 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeFragments, "exclude-fragment", nil, "Fragment name(s) to exclude")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeFragments, "include-fragment", nil, "Fragment name(s) to stop excluding")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludePrompts, "exclude-prompt", nil, "Prompt name(s) to exclude")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludePrompts, "include-prompt", nil, "Prompt name(s) to stop excluding")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeMCP, "exclude-mcp", nil, "MCP server name(s) to exclude")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeMCP, "include-mcp", nil, "MCP server name(s) to stop excluding")
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 

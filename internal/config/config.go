@@ -332,6 +332,11 @@ type Profile struct {
 	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`               // Hooks for this profile (inherited)
 	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`                   // MCP servers for this profile (inherited)
 	MCPServers  []string          `mapstructure:"mcp_servers" yaml:"mcp_servers,omitempty"`   // Remote MCP server references (legacy)
+
+	// Exclusions - items to filter out after inheritance resolution
+	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`
+	ExcludePrompts   []string `mapstructure:"exclude_prompts" yaml:"exclude_prompts,omitempty"`
+	ExcludeMCP       []string `mapstructure:"exclude_mcp" yaml:"exclude_mcp,omitempty"`
 }
 
 // Defaults holds default settings applied when no explicit values are specified.
@@ -846,6 +851,10 @@ type profileBuilder struct {
 	fragmentPriorities map[string]int
 	// Track seen hooks by key (command+matcher) for deduplication
 	seenHooks collections.Set[string]
+	// Exclusion sets - accumulate through inheritance
+	ExcludeFragments collections.Set[string]
+	ExcludePrompts   collections.Set[string]
+	ExcludeMCP       collections.Set[string]
 }
 
 func newProfileBuilder() *profileBuilder {
@@ -863,7 +872,10 @@ func newProfileBuilder() *profileBuilder {
 			Servers: make(map[string]MCPServer),
 			Plugins: make(map[string]map[string]MCPServer),
 		},
-		seenHooks: collections.NewSet[string](),
+		seenHooks:        collections.NewSet[string](),
+		ExcludeFragments: collections.NewSet[string](),
+		ExcludePrompts:   collections.NewSet[string](),
+		ExcludeMCP:       collections.NewSet[string](),
 	}
 }
 
@@ -984,15 +996,38 @@ func (b *profileBuilder) mergeHooks(source HooksConfig) {
 }
 
 func (b *profileBuilder) toProfile() *Profile {
+	// Filter excluded fragments
+	var filteredFragments []FragmentRef
+	for _, frag := range b.fragmentsOrder {
+		if !b.ExcludeFragments.Has(frag.Name) {
+			filteredFragments = append(filteredFragments, frag)
+		}
+	}
+
+	// Filter excluded MCP servers
+	filteredMCP := b.MCP
+	if len(b.ExcludeMCP.Items()) > 0 && filteredMCP.Servers != nil {
+		filteredServers := make(map[string]MCPServer)
+		for name, server := range filteredMCP.Servers {
+			if !b.ExcludeMCP.Has(name) {
+				filteredServers[name] = server
+			}
+		}
+		filteredMCP.Servers = filteredServers
+	}
+
 	return &Profile{
-		Description: b.Description,
-		Tags:        b.tagsOrder,
-		Bundles:     b.bundlesOrder,
-		BundleItems: b.bundleItemsOrder,
-		Fragments:   b.fragmentsOrder,
-		Variables:   b.Variables,
-		Hooks:       b.Hooks,
-		MCP:         b.MCP,
+		Description:      b.Description,
+		Tags:             b.tagsOrder,
+		Bundles:          b.bundlesOrder,
+		BundleItems:      b.bundleItemsOrder,
+		Fragments:        filteredFragments,
+		Variables:        b.Variables,
+		Hooks:            b.Hooks,
+		MCP:              filteredMCP,
+		ExcludeFragments: b.ExcludeFragments.Items(),
+		ExcludePrompts:   b.ExcludePrompts.Items(),
+		ExcludeMCP:       b.ExcludeMCP.Items(),
 	}
 }
 
@@ -1060,6 +1095,17 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 
 	// Merge MCP config (later wins for same server names)
 	builder.mergeMCP(profile.MCP)
+
+	// Accumulate exclusions (exclusions always win - cannot un-exclude)
+	for _, frag := range profile.ExcludeFragments {
+		builder.ExcludeFragments.Add(frag)
+	}
+	for _, prompt := range profile.ExcludePrompts {
+		builder.ExcludePrompts.Add(prompt)
+	}
+	for _, mcp := range profile.ExcludeMCP {
+		builder.ExcludeMCP.Add(mcp)
+	}
 
 	// Set description from the leaf profile (will be overwritten by each child)
 	builder.Description = profile.Description

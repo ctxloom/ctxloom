@@ -96,8 +96,9 @@ Manage profiles.
 | Command | Flags | Arguments | Description |
 |---------|-------|-----------|-------------|
 | `list` | | | List all profiles |
-| `show` | | `<name>` | Show profile details |
+| `show` | | `<name>` | Show profile details and exclusions |
 | `create` | `--parent`, `-b`, `-d` | `<name>` | Create new profile |
+| `modify` | See below | `<name>` | Modify profile configuration |
 | `delete` | | `<name>` | Delete profile |
 | `edit` | | `<name>` | Edit profile in editor |
 | `install` | | `<reference>` | Install from remote |
@@ -107,8 +108,24 @@ Manage profiles.
 | Flag | Description |
 |------|-------------|
 | `--parent` | Parent profiles to inherit from (repeatable) |
-| `-b, --bundles` | Bundle references to include (repeatable) |
+| `-b, --bundle` | Bundle references to include (repeatable) |
 | `-d, --description` | Profile description |
+
+### Modify Flags
+
+| Flag | Description |
+|------|-------------|
+| `--add-parent` | Add parent profile (repeatable) |
+| `--remove-parent` | Remove parent profile (repeatable) |
+| `--add-bundle` | Add bundle reference (repeatable) |
+| `--remove-bundle` | Remove bundle reference (repeatable) |
+| `-d, --description` | Update description |
+| `--exclude-fragment` | Add fragment to exclusion list (repeatable) |
+| `--include-fragment` | Remove fragment from exclusion list (repeatable) |
+| `--exclude-prompt` | Add prompt to exclusion list (repeatable) |
+| `--include-prompt` | Remove prompt from exclusion list (repeatable) |
+| `--exclude-mcp` | Add MCP server to exclusion list (repeatable) |
+| `--include-mcp` | Remove MCP server from exclusion list (repeatable) |
 
 ### Examples
 
@@ -117,6 +134,8 @@ scm profile list
 scm profile show developer
 scm profile create my-profile -b python-tools -d "My dev profile"
 scm profile create child --parent base --parent security -b extras
+scm profile modify developer --exclude-fragment verbose-logging
+scm profile modify developer --include-mcp slow-server
 scm profile edit my-profile
 scm profile install scm-main/python-developer
 ```

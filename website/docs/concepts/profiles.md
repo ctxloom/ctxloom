@@ -122,7 +122,90 @@ variables:
 - **Bundles merge**: No duplicates
 - **Tags merge**: Combined from all parents
 - **Variables merge**: Child overrides parent values
+- **Exclusions accumulate**: Cannot un-exclude what a parent excluded
 - **Circular detection**: SCM errors on circular references
+
+## Excluding Content
+
+Profiles can exclude fragments, prompts, or MCP servers inherited from parents:
+
+```yaml
+# developer.yaml
+description: "Lightweight developer profile"
+parents:
+  - full-context            # Inherit everything
+exclude_fragments:
+  - verbose-logging         # But skip these fragments
+  - deprecated-style
+exclude_prompts:
+  - review-nitpick          # Skip this prompt
+exclude_mcp:
+  - slow-server             # Don't include this MCP server
+```
+
+### Managing Exclusions
+
+```bash
+# Add an exclusion
+scm profile modify developer --exclude-fragment verbose-logging
+
+# Remove an exclusion (stop excluding)
+scm profile modify developer --include-fragment verbose-logging
+
+# View exclusions
+scm profile show developer
+```
+
+### Via MCP Tools
+
+```json
+{
+  "tool": "update_profile",
+  "arguments": {
+    "name": "developer",
+    "add_exclude_fragments": ["verbose-logging"],
+    "remove_exclude_mcp": ["slow-server"]
+  }
+}
+```
+
+### Exclusion Inheritance
+
+Exclusions accumulate through the inheritance chain - a child profile cannot "un-exclude" something excluded by a parent. This keeps the mental model simple: exclusions always win.
+
+## Fragment Priority
+
+Fragments can have priorities that control their position in assembled context. This addresses the "Lost in the Middle" problem where LLMs attend poorly to middle content.
+
+```yaml
+# In profile
+fragments:
+  - name: critical-rules
+    priority: 10            # Highest priority -> placed at start
+  - name: best-practices
+    priority: 5             # Second highest -> placed at end
+  - coding-standards        # No priority (defaults to 0) -> middle
+```
+
+### Bookend Strategy
+
+SCM uses a "bookend" placement strategy based on LLM attention research:
+
+| Position | Content | Why |
+|----------|---------|-----|
+| **Start** | Highest priority | Primacy effect - best attention |
+| **End** | Second highest priority | Recency effect - good attention |
+| **Middle** | Lower priorities | Weaker attention, less critical content |
+
+### Setting Priorities
+
+```bash
+# Priorities are set in profile YAML
+# Edit directly:
+scm profile edit developer
+```
+
+Or via the MCP tool when the profile uses inline fragment definitions.
 
 ## Default Profiles
 

@@ -66,10 +66,40 @@ Distillation uses AI to compress content while preserving meaning:
 
 ## How It Works
 
+SCM uses a hybrid compression approach:
+
+### AST-Based Compression (Code & JSON)
+
+For structured content, SCM uses tree-sitter AST parsing for fast, deterministic compression:
+
+| Content Type | Strategy |
+|--------------|----------|
+| **Go, Python, JS, TS, Rust** | Preserve signatures, elide function bodies |
+| **JSON** | Preserve structure, truncate low-entropy values |
+
+This approach is:
+- **Fast**: No API calls, instant compression
+- **Deterministic**: Same input always produces same output
+- **Structure-preserving**: Maintains navigational breadcrumbs
+
+### LLM-Based Compression (Prose)
+
+For prose and documentation, SCM falls back to LLM compression:
+
 1. **Original content** is analyzed by an AI model
 2. **Key information** is extracted and condensed
 3. **Distilled version** is stored alongside the original
 4. **Content hash** tracks when re-distillation is needed
+
+### Compression Router
+
+When you distill content, SCM automatically routes to the best strategy:
+
+```
+Code file (.go, .py, .js, etc.) → AST compression
+JSON file → JSON structure compression
+Markdown/prose → LLM compression
+```
 
 ## Distilling Fragments
 

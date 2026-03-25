@@ -119,6 +119,9 @@ Create a new profile with bundles, tags, and/or parent profiles.
 | `tags` | string[] | No | Tags to include fragments by |
 | `parents` | string[] | No | Parent profiles to inherit from |
 | `default` | boolean | No | Set as default profile |
+| `exclude_fragments` | string[] | No | Fragment names to exclude |
+| `exclude_prompts` | string[] | No | Prompt names to exclude |
+| `exclude_mcp` | string[] | No | MCP server names to exclude |
 
 **Example:**
 ```json
@@ -129,6 +132,7 @@ Create a new profile with bundles, tags, and/or parent profiles.
     "description": "Go development with testing focus",
     "bundles": ["go-development", "testing"],
     "parents": ["base-developer"],
+    "exclude_fragments": ["verbose-logging"],
     "default": true
   }
 }
@@ -151,6 +155,12 @@ Update an existing profile by adding/removing bundles, tags, or parents.
 | `add_parents` | string[] | No | Parent profiles to add |
 | `remove_parents` | string[] | No | Parent profiles to remove |
 | `default` | boolean | No | Set as default profile |
+| `add_exclude_fragments` | string[] | No | Add fragments to exclusion list |
+| `remove_exclude_fragments` | string[] | No | Remove fragments from exclusion list |
+| `add_exclude_prompts` | string[] | No | Add prompts to exclusion list |
+| `remove_exclude_prompts` | string[] | No | Remove prompts from exclusion list |
+| `add_exclude_mcp` | string[] | No | Add MCP servers to exclusion list |
+| `remove_exclude_mcp` | string[] | No | Remove MCP servers from exclusion list |
 
 ### delete_profile
 

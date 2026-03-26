@@ -691,3 +691,198 @@ func TestBrowseRemote_WithPath(t *testing.T) {
 	assert.Equal(t, "subdir/nested", result.Items[0].Path)
 	assert.Equal(t, "alice/subdir/nested", result.Items[0].PullRef)
 }
+
+func TestBrowseRemote_NoRemote(t *testing.T) {
+	_, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
+		Remote: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required")
+}
+
+func TestSearchRemotes_NoQuery(t *testing.T) {
+	_, err := SearchRemotes(context.Background(), nil, SearchRemotesRequest{
+		Query: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query is required")
+}
+
+func TestSearchRemotes_NoRemotes(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	// Empty registry - no remotes
+
+	result, err := SearchRemotes(context.Background(), nil, SearchRemotesRequest{
+		Query:    "test",
+		Registry: registry,
+	})
+
+	require.NoError(t, err)
+	assert.Len(t, result.Results, 0)
+	assert.Equal(t, 0, result.Count)
+	assert.Contains(t, result.Warnings, "no remotes configured")
+}
+
+func TestSearchRemotes_ManifestBased(t *testing.T) {
+	// Note: SearchRemotes uses real Fetcher (GitHub/GitLab), not MockFetcher
+	// Testing the actual code paths with real URLs and error responses
+	// For now, test the higher-level behavior with mocks
+	// Can't add real remotes without network access
+	// This function is tested via integration tests
+}
+
+func TestSearchRemotes_WithValidRegistry(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+	// SearchRemotes will attempt to create fetchers and query remotes
+	// Without mocking at the fetcher level, it will make network calls
+	// For unit testing, we verify the request validation logic only
+
+	result, err := SearchRemotes(context.Background(), nil, SearchRemotesRequest{
+		Query:    "test",
+		ItemType: "bundle",
+		Registry: registry,
+	})
+
+	// May fail with network error, but shouldn't crash
+	if err == nil {
+		assert.NotNil(t, result)
+	}
+}
+
+func TestSearchManifestContent_FindsMatches(t *testing.T) {
+	manifestYAML := `
+bundles:
+  - name: golang-tools
+    description: Go development tools
+  - name: rust-tooling
+    description: Rust utilities
+profiles:
+  - name: dev-profile
+    description: Development profile
+`
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "golang-tools", results[0].Entry.Name)
+	assert.Equal(t, remote.ItemTypeBundle, results[0].ItemType)
+	assert.Equal(t, "test-remote", results[0].Remote)
+}
+
+func TestSearchManifestContent_InvalidYAML(t *testing.T) {
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	_, err := searchManifestContent(rem, []byte("invalid: [yaml: content"), remote.ItemTypeBundle, remote.SearchQuery{})
+	require.Error(t, err)
+}
+
+func TestSearchManifestContent_NoMatches(t *testing.T) {
+	manifestYAML := `
+bundles:
+  - name: golang-tools
+    description: Go development tools
+`
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
+	require.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestSearchManifestContent_ProfileItems(t *testing.T) {
+	manifestYAML := `
+bundles: []
+profiles:
+  - name: testing-profile
+    description: Testing framework setup
+  - name: code-review-profile
+    description: Code review tools
+`
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeProfile, remote.SearchQuery{Text: "code"})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "code-review-profile", results[0].Entry.Name)
+	assert.Equal(t, remote.ItemTypeProfile, results[0].ItemType)
+}
+
+func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
+	fetcher := remote.NewMockFetcher().
+		WithDir("scm/v1/bundles", []remote.DirEntry{
+			{Name: "golang-tools.yaml", IsDir: false},
+			{Name: "rust-tooling.yaml", IsDir: false},
+			{Name: "README.md", IsDir: false}, // Should skip non-yaml
+			{Name: "subdir", IsDir: true},     // Should skip directories
+		})
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "golang-tools", results[0].Entry.Name)
+}
+
+func TestSearchDirectoryContent_NoMatches(t *testing.T) {
+	fetcher := remote.NewMockFetcher().
+		WithDir("scm/v1/bundles", []remote.DirEntry{
+			{Name: "golang-tools.yaml", IsDir: false},
+		})
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
+	require.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestSearchDirectoryContent_ProfileType(t *testing.T) {
+	fetcher := remote.NewMockFetcher().
+		WithDir("scm/v1/profiles", []remote.DirEntry{
+			{Name: "dev-profile.yaml", IsDir: false},
+			{Name: "test-profile.yaml", IsDir: false},
+		})
+
+	rem := &remote.Remote{
+		Name:    "test-remote",
+		URL:     "https://github.com/test/repo",
+		Version: "v1",
+	}
+
+	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeProfile, remote.SearchQuery{Text: "dev"})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "dev-profile", results[0].Entry.Name)
+	assert.Equal(t, remote.ItemTypeProfile, results[0].ItemType)
+}

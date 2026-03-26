@@ -1,0 +1,257 @@
+# Container justfile - runs inside devcontainer with CGO dependencies
+# This file is mounted over justfile when running via `just dev-*` targets
+#
+# Build modes:
+# - Static builds: memory, vectors (no CGO), treesitter (CGO but static-linkable)
+# - Self-contained: ONNX runtime embedded in binary
+
+# Get version from versionator (with fallback)
+version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
+
+# Static linking flags for builds that support it
+static_ldflags := "-linkmode external -extldflags '-static -pthread'"
+
+# Disable VCS stamping (git may not work inside container)
+buildvcs := "-buildvcs=false"
+
+# Trimpath for reproducible builds and smaller binaries
+trimpath := "-trimpath"
+
+# ONNX runtime version
+onnx_version := "1.20.1"
+
+# Embedded library destination directory
+onnx_lib_dir := "internal/memory/vectordb/onnxlib"
+
+# Default recipe
+default: build
+
+# ===== ONNX Runtime Download (Multi-Platform) =====
+
+# Download ONNX runtime for Linux x64
+_download-onnx-linux-amd64:
+    #!/usr/bin/env bash
+    set -e
+    DST="{{onnx_lib_dir}}/libonnxruntime.so"
+    if [ -f "$DST" ]; then exit 0; fi
+    echo "Downloading ONNX runtime for linux/amd64..."
+    URL="https://github.com/microsoft/onnxruntime/releases/download/v{{onnx_version}}/onnxruntime-linux-x64-{{onnx_version}}.tgz"
+    curl -sL "$URL" | tar -xzf - --strip-components=2 -C "{{onnx_lib_dir}}" "onnxruntime-linux-x64-{{onnx_version}}/lib/libonnxruntime.so.{{onnx_version}}"
+    mv "{{onnx_lib_dir}}/libonnxruntime.so.{{onnx_version}}" "$DST"
+
+# Download ONNX runtime for Linux arm64
+_download-onnx-linux-arm64:
+    #!/usr/bin/env bash
+    set -e
+    DST="{{onnx_lib_dir}}/libonnxruntime.so"
+    if [ -f "$DST" ]; then exit 0; fi
+    echo "Downloading ONNX runtime for linux/arm64..."
+    URL="https://github.com/microsoft/onnxruntime/releases/download/v{{onnx_version}}/onnxruntime-linux-aarch64-{{onnx_version}}.tgz"
+    curl -sL "$URL" | tar -xzf - --strip-components=2 -C "{{onnx_lib_dir}}" "onnxruntime-linux-aarch64-{{onnx_version}}/lib/libonnxruntime.so.{{onnx_version}}"
+    mv "{{onnx_lib_dir}}/libonnxruntime.so.{{onnx_version}}" "$DST"
+
+# Download ONNX runtime for Windows x64
+_download-onnx-windows-amd64:
+    #!/usr/bin/env bash
+    set -e
+    DST="{{onnx_lib_dir}}/onnxruntime.dll"
+    if [ -f "$DST" ]; then exit 0; fi
+    echo "Downloading ONNX runtime for windows/amd64..."
+    URL="https://github.com/microsoft/onnxruntime/releases/download/v{{onnx_version}}/onnxruntime-win-x64-{{onnx_version}}.zip"
+    TMP=$(mktemp -d)
+    curl -sL "$URL" -o "$TMP/onnx.zip"
+    unzip -q -j "$TMP/onnx.zip" "onnxruntime-win-x64-{{onnx_version}}/lib/onnxruntime.dll" -d "{{onnx_lib_dir}}"
+    rm -rf "$TMP"
+
+# Download ONNX runtime for macOS x64
+_download-onnx-darwin-amd64:
+    #!/usr/bin/env bash
+    set -e
+    DST="{{onnx_lib_dir}}/libonnxruntime.dylib"
+    if [ -f "$DST" ]; then exit 0; fi
+    echo "Downloading ONNX runtime for darwin/amd64..."
+    URL="https://github.com/microsoft/onnxruntime/releases/download/v{{onnx_version}}/onnxruntime-osx-x86_64-{{onnx_version}}.tgz"
+    curl -sL "$URL" | tar -xzf - --strip-components=2 -C "{{onnx_lib_dir}}" "onnxruntime-osx-x86_64-{{onnx_version}}/lib/libonnxruntime.{{onnx_version}}.dylib"
+    mv "{{onnx_lib_dir}}/libonnxruntime.{{onnx_version}}.dylib" "$DST"
+
+# Download ONNX runtime for macOS arm64
+_download-onnx-darwin-arm64:
+    #!/usr/bin/env bash
+    set -e
+    DST="{{onnx_lib_dir}}/libonnxruntime.dylib"
+    if [ -f "$DST" ]; then exit 0; fi
+    echo "Downloading ONNX runtime for darwin/arm64..."
+    URL="https://github.com/microsoft/onnxruntime/releases/download/v{{onnx_version}}/onnxruntime-osx-arm64-{{onnx_version}}.tgz"
+    curl -sL "$URL" | tar -xzf - --strip-components=2 -C "{{onnx_lib_dir}}" "onnxruntime-osx-arm64-{{onnx_version}}/lib/libonnxruntime.{{onnx_version}}.dylib"
+    mv "{{onnx_lib_dir}}/libonnxruntime.{{onnx_version}}.dylib" "$DST"
+
+# Prepare ONNX runtime for current platform (auto-detect)
+_prepare-onnx:
+    #!/usr/bin/env bash
+    set -e
+    # Use pre-installed library from container if available
+    if [ -f "/opt/onnxruntime/lib/libonnxruntime.so.{{onnx_version}}" ]; then
+        DST="{{onnx_lib_dir}}/libonnxruntime.so"
+        if [ ! -f "$DST" ]; then
+            echo "Copying ONNX runtime from container..."
+            cp "/opt/onnxruntime/lib/libonnxruntime.so.{{onnx_version}}" "$DST"
+        fi
+    else
+        # Download for current platform
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64) ARCH="arm64" ;;
+        esac
+        just _download-onnx-${OS}-${ARCH}
+    fi
+
+# Clean downloaded ONNX libraries
+clean-onnx:
+    rm -f {{onnx_lib_dir}}/libonnxruntime.so
+    rm -f {{onnx_lib_dir}}/onnxruntime.dll
+    rm -f {{onnx_lib_dir}}/libonnxruntime.dylib
+
+# ===== Build targets =====
+
+# Build with all features (memory + vectors + onnx + treesitter) - self-contained
+build: _prepare-onnx validate proto
+    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx,treesitter" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm .
+
+# Build with memory feature only (no CGO) - static
+build-memory:
+    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} -tags "memory" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm .
+
+# Build with memory + vectors (simple embedder, no CGO) - static
+build-vectors:
+    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} -tags "memory,vectors" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm .
+
+# Build with memory + vectors + ONNX - self-contained
+build-onnx: _prepare-onnx
+    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm .
+
+# Build with tree-sitter code compression - static
+build-treesitter:
+    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}} {{static_ldflags}}" \
+        -o scm .
+
+# Build with all CGO features - self-contained
+build-full: _prepare-onnx
+    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx,treesitter" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm .
+
+# ===== Cross-compilation targets =====
+
+# Build for Linux amd64
+build-linux-amd64: _download-onnx-linux-amd64
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=1 \
+        go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm-linux-amd64 .
+
+# Build for Linux arm64
+build-linux-arm64: _download-onnx-linux-arm64
+    GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc \
+        go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm-linux-arm64 .
+
+# Build for Windows amd64 (requires mingw-w64)
+# Note: Windows uses LoadLibrary instead of dlopen, so no -ldl needed
+build-windows-amd64: _download-onnx-windows-amd64
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
+        CGO_LDFLAGS="-lm" \
+        go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm-windows-amd64.exe .
+
+# Build for macOS amd64 (requires osxcross)
+# Note: macOS has dlopen built into libSystem, no -ldl needed
+build-darwin-amd64: _download-onnx-darwin-amd64
+    GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 CC=o64-clang CXX=o64-clang++ \
+        CGO_LDFLAGS="-lm" \
+        go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm-darwin-amd64 .
+
+# Build for macOS arm64 (requires osxcross)
+# Note: macOS has dlopen built into libSystem, no -ldl needed
+build-darwin-arm64: _download-onnx-darwin-arm64
+    GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 CC=oa64-clang CXX=oa64-clang++ \
+        CGO_LDFLAGS="-lm" \
+        go build {{buildvcs}} {{trimpath}} -tags "memory,vectors,onnx" \
+        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -o scm-darwin-arm64 .
+
+# Build all platforms
+build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64
+
+# ===== UPX Compression =====
+
+# Compress Linux amd64 binary with UPX
+compress-linux-amd64:
+    upx --best --lzma scm-linux-amd64
+
+# Compress Linux arm64 binary with UPX
+compress-linux-arm64:
+    upx --best --lzma scm-linux-arm64
+
+# Compress Windows binary with UPX
+compress-windows-amd64:
+    upx --best --lzma scm-windows-amd64.exe
+
+# Note: UPX doesn't support macOS binaries well (code signing issues)
+# macOS binaries are not compressed
+
+# Compress all compressible binaries
+compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
+
+# Compress the main scm binary (for local dev)
+compress:
+    upx --best --lzma scm
+
+# Build and compress all platforms
+release: build-all compress-all
+
+# ===== Testing =====
+
+# Run tests with all feature tags
+test:
+    go test -tags "memory,vectors" -race -coverprofile=coverage.out ./...
+
+# Run tests with ONNX (requires native libs)
+test-onnx:
+    CGO_ENABLED=1 go test -tags "memory,vectors,onnx" -race ./...
+
+# ===== Validation =====
+
+# Validate fragment YAML files
+validate:
+    go run ./cmd/validate
+
+# Generate protobuf code
+proto:
+    buf generate
+
+# Lint code
+lint:
+    golangci-lint run
+
+# Format code
+fmt:
+    go fmt ./...
+
+# Tidy dependencies
+tidy:
+    go mod tidy

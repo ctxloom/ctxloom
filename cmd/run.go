@@ -15,7 +15,7 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/gitutil"
 	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/SophisticatedContextManager/scm/internal/operations"
 )
 
 var (
@@ -62,9 +62,6 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Create bundle loader
-		bundleLoader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
-
 		// Determine which plugin to use
 		pluginName := runPlugin
 		if pluginName == "" {
@@ -83,175 +80,53 @@ Examples:
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
 		if prompt == "" && runSavedPrompt != "" {
-			savedPrompt, err := LoadPrompt(cfg, runSavedPrompt)
+			loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
+			promptObj, err := loader.GetPrompt(runSavedPrompt)
 			if err != nil {
 				return fmt.Errorf("failed to load prompt: %w", err)
 			}
-			prompt = savedPrompt
+			prompt = promptObj.Content
 		}
 		if prompt == "" && len(args) > 0 {
 			prompt = strings.Join(args, " ")
 		}
 
-		// Collect content references from profile + flags
-		var allRefs []string
-		profileVars := make(map[string]string)
-
-		// Inject built-in SCM variables (available in all templates)
-		profileVars["SCM_ROOT"] = cfg.SCMRoot // Project root (parent of .scm)
-		profileVars["SCM_DIR"] = cfg.SCMDir   // Full path to .scm directory
-
-		// Determine which profiles to use: explicit flag > default from config
-		var profileNames []string
-		if runProfile != "" {
-			profileNames = []string{runProfile}
-		} else if len(runFragments) == 0 && len(runTags) == 0 {
-			// No explicit profile, fragments, or tags - use defaults
-			profileNames = cfg.GetDefaultProfiles()
-		}
-
-		// Create profile loader for .scm/profiles/ directory
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
-		profileLoader := profiles.NewLoader(profileDirs)
-
-		// Process all profiles (supports multiple default profiles)
-		for _, profileName := range profileNames {
-			var profileTags []string
-			var profileBundles []string
-
-			// First try to load from .scm/profiles/ directory
-			if fileProfile, err := profileLoader.Load(profileName); err == nil {
-				// Profile found in .scm/profiles/
-				profileTags = fileProfile.Tags
-				profileBundles = fileProfile.Bundles
-				for k, v := range fileProfile.Variables {
-					profileVars[k] = v
-				}
-			} else {
-				// Fall back to config.yaml profiles
-				configProfile, err := config.ResolveProfile(cfg.Profiles, profileName)
-				if err != nil {
-					return fmt.Errorf("failed to resolve profile %q: %w", profileName, err)
-				}
-
-				profileTags = configProfile.Tags
-				profileBundles = append(configProfile.Bundles, configProfile.BundleItems...)
-				// Also include legacy fragments field (extract names from FragmentRef)
-				for _, f := range configProfile.Fragments {
-					profileBundles = append(profileBundles, f.Name)
-				}
-
-				// Collect variables from profile
-				for k, v := range configProfile.Variables {
-					profileVars[k] = v
-				}
-			}
-
-			// Include fragments matching profile tags
-			if len(profileTags) > 0 {
-				taggedInfos, err := bundleLoader.ListByTags(profileTags)
-				if err != nil {
-					return fmt.Errorf("failed to list fragments by profile tags: %w", err)
-				}
-				for _, info := range taggedInfos {
-					if info.Bundle != "" {
-						// Bundle fragment - use bundle#fragments/name syntax
-						allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", info.Bundle, info.Name))
-					} else {
-						// Legacy fragment - use simple name
-						allRefs = append(allRefs, info.Name)
-					}
-				}
-			}
-
-			// Process bundle references (already in correct format)
-			for _, ref := range profileBundles {
-				contentRef := profiles.ParseContentRef(ref)
-				if contentRef.IsFragment() {
-					// Specific fragment reference (bundle#fragments/name) - use as-is
-					allRefs = append(allRefs, ref)
-				} else if contentRef.IsBundle() {
-					// Could be a full bundle or a simple fragment name
-					// Try to load as bundle first, using local path for URLs
-					bundlePath := contentRef.LocalBundlePath()
-					bundle, err := bundleLoader.Load(bundlePath)
-					if err == nil {
-						// It's a bundle - expand to all fragments
-						// Use the full bundle path for fragment references so they can be found
-						for fragName := range bundle.Fragments {
-							allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", bundlePath, fragName))
-						}
-					} else if contentRef.IsURL {
-						// Canonical URL bundle not found - give clear error with suggestion
-						return fmt.Errorf("bundle not installed: %s\n\nTry running: scm remote bundles pull %s", ref, bundlePath)
-					} else {
-						// Non-URL bundle not found - treat as simple fragment name
-						// GetFragment will search bundles and legacy dirs
-						allRefs = append(allRefs, ref)
-					}
-				}
-			}
-		}
-
-		// Append additional refs from -f flags (support # syntax)
-		allRefs = append(allRefs, runFragments...)
-
-		// Append fragments matching specified tags
-		if len(runTags) > 0 {
-			taggedInfos, err := bundleLoader.ListByTags(runTags)
-			if err != nil {
-				return fmt.Errorf("failed to list fragments by tags: %w", err)
-			}
-			for _, info := range taggedInfos {
-				if info.Bundle != "" {
-					allRefs = append(allRefs, fmt.Sprintf("%s#fragments/%s", info.Bundle, info.Name))
-				} else {
-					allRefs = append(allRefs, info.Name)
-				}
-			}
-		}
-
-		// Dedupe refs
-		allRefs = config.DedupeStrings(allRefs)
-
-		// Warn function for reporting non-fatal issues
-		warnFunc := func(msg string) {
-			if !runSuppressWarnings {
-				fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
-			}
-		}
-
-		// Load all referenced content from bundles
-		var protoFragments []*pb.Fragment
-		for _, ref := range allRefs {
-			content, err := bundleLoader.GetFragment(ref)
-			if err != nil {
-				// Warn and skip missing fragments (fault tolerance)
-				warnFunc(fmt.Sprintf("fragment not found: %s (skipping)", ref))
-				continue
-			}
-			// Apply variable substitution
-			renderedContent := substituteVariables(content.Content, profileVars, warnFunc)
-			protoFragments = append(protoFragments, &pb.Fragment{
-				Name:        content.Name,
-				Version:     content.Version,
-				Tags:        content.Tags,
-				Content:     renderedContent,
-				IsDistilled: content.IsDistilled,
-				DistilledBy: content.DistilledBy,
-			})
+		// Assemble context using operations
+		ctx := context.Background()
+		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
+			Profile:   runProfile,
+			Fragments: runFragments,
+			Tags:      runTags,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to assemble context: %w", err)
 		}
 
 		// If user explicitly requested fragments (-f flags) but none loaded, that's an error
-		// This catches the case where all explicitly requested fragments are missing
-		if len(runFragments) > 0 && len(protoFragments) == 0 {
+		if len(runFragments) > 0 && len(ctxResult.FragmentsLoaded) == 0 {
 			return fmt.Errorf("no fragments loaded: all requested fragments not found")
+		}
+
+		// Convert context content to proto fragments
+		var protoFragments []*pb.Fragment
+		if ctxResult.Context != "" {
+			// Split context into individual fragments for display
+			// In the actual implementation, we'll keep it as a single assembled fragment
+			protoFragments = append(protoFragments, &pb.Fragment{
+				Content: ctxResult.Context,
+			})
 		}
 
 		// Determine execution mode
 		mode := pb.ExecutionMode_INTERACTIVE
 		if runPrint {
 			mode = pb.ExecutionMode_ONESHOT
+		}
+
+		// Determine model to use: plugin config > global default
+		model := pluginCfg.Model
+		if model == "" {
+			model = cfg.GetDefaultLLMModel()
 		}
 
 		// Build prompt fragment
@@ -280,6 +155,7 @@ Examples:
 				Mode:        mode,
 				Env:         pluginCfg.Env,
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
+				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},
 		}
 
@@ -287,24 +163,27 @@ Examples:
 		if runDryRun {
 			fmt.Println("=== Plugin ===")
 			fmt.Println(pluginName)
-			fmt.Println("\n=== Fragments ===")
-			if len(protoFragments) > 0 {
-				for _, f := range protoFragments {
-					fmt.Printf("\n--- %s", f.Name)
-					if f.Version != "" {
-						fmt.Printf(" (v%s)", f.Version)
-					}
-					if f.IsDistilled {
-						fmt.Printf(" [distilled by %s]", f.DistilledBy)
-					}
-					if len(f.Tags) > 0 {
-						fmt.Printf(" tags:%v", f.Tags)
-					}
-					fmt.Println(" ---")
-					fmt.Println(f.Content)
+			fmt.Println("\n=== Profiles ===")
+			if len(ctxResult.Profiles) > 0 {
+				for _, p := range ctxResult.Profiles {
+					fmt.Printf("  %s\n", p)
+				}
+			} else {
+				fmt.Println("(no profiles)")
+			}
+			fmt.Println("\n=== Fragments Loaded ===")
+			if len(ctxResult.FragmentsLoaded) > 0 {
+				for _, f := range ctxResult.FragmentsLoaded {
+					fmt.Printf("  %s\n", f)
 				}
 			} else {
 				fmt.Println("(no fragments)")
+			}
+			fmt.Println("\n=== Assembled Context ===")
+			if ctxResult.Context != "" {
+				fmt.Println(ctxResult.Context)
+			} else {
+				fmt.Println("(no context)")
 			}
 			fmt.Println("\n=== Prompt ===")
 			if prompt != "" {
@@ -315,20 +194,6 @@ Examples:
 			// Show context file that would be written
 			fmt.Println("\n=== Context File ===")
 			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, backends.SCMContextSubdir))
-			if len(protoFragments) > 0 {
-				var parts []string
-				for _, f := range protoFragments {
-					if f.Content != "" {
-						parts = append(parts, strings.TrimSpace(f.Content))
-					}
-				}
-				if len(parts) > 0 {
-					contextContent := "<!-- DO NOT EDIT: This file is auto-generated by `scm run`. Edit source fragments instead. -->\n\n" +
-						strings.Join(parts, "\n\n---\n\n")
-					fmt.Println("\nContent:")
-					fmt.Println(contextContent)
-				}
-			}
 			return nil
 		}
 
@@ -380,16 +245,6 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
-}
-
-// LoadPrompt loads a saved prompt from bundles by name.
-func LoadPrompt(cfg *config.Config, name string) (string, error) {
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
-	prompt, err := loader.GetPrompt(name)
-	if err != nil {
-		return "", err
-	}
-	return prompt.Content, nil
 }
 
 // substituteVariables applies mustache templating to content using the provided variables.

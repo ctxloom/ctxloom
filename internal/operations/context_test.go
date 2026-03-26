@@ -535,7 +535,7 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown profile")
+	assert.Contains(t, err.Error(), "profile nonexistent-profile")
 }
 
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {

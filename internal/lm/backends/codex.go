@@ -1,18 +1,23 @@
 package backends
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 )
 
 // Codex implements the Backend interface for OpenAI Codex CLI.
-//
-// DISCLAIMER: This plugin is untested and provided on a best-effort basis.
 type Codex struct {
 	BaseBackend
 	context *CLIContextProvider
+	history *CodexSessionHistory
 }
 
 // NewCodex creates a new Codex backend with default settings.
@@ -22,6 +27,7 @@ func NewCodex() *Codex {
 		context:     &CLIContextProvider{},
 	}
 	b.BinaryPath = "codex"
+	b.history = &CodexSessionHistory{backend: b}
 	return b
 }
 
@@ -36,6 +42,9 @@ func (b *Codex) Context() ContextProvider { return b.context }
 
 // MCP returns nil - Codex doesn't support MCP servers.
 func (b *Codex) MCP() MCPManager { return nil }
+
+// History returns the session history accessor.
+func (b *Codex) History() SessionHistory { return b.history }
 
 // Setup prepares the backend for execution.
 func (b *Codex) Setup(ctx context.Context, req *SetupRequest) error {
@@ -102,4 +111,205 @@ func (b *Codex) buildArgs(req *ExecuteRequest, quiet bool) []string {
 	}
 
 	return args
+}
+
+// CodexSessionHistory implements SessionHistory for Codex CLI.
+// Reads from ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+type CodexSessionHistory struct {
+	backend *Codex
+}
+
+// GetCurrentSession returns the current/most recent session transcript.
+func (h *CodexSessionHistory) GetCurrentSession(workDir string) (*Session, error) {
+	sessions, err := h.ListSessions(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no sessions found")
+	}
+
+	// Return most recent
+	return h.GetSession(workDir, sessions[0].ID)
+}
+
+// ListSessions returns available session metadata.
+func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error) {
+	sessionsDir, err := h.getSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionMeta
+
+	// Walk through YYYY/MM/DD structure
+	err = filepath.Walk(sessionsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors, continue walking
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasPrefix(info.Name(), "rollout-") || !strings.HasSuffix(info.Name(), ".jsonl") {
+			return nil
+		}
+
+		// Use relative path from sessions dir as ID
+		relPath, _ := filepath.Rel(sessionsDir, path)
+		sessions = append(sessions, SessionMeta{
+			ID:        relPath,
+			StartTime: info.ModTime(),
+		})
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	// Sort by time, most recent first
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].StartTime.After(sessions[j].StartTime)
+	})
+
+	return sessions, nil
+}
+
+// GetSession returns a specific session by ID.
+func (h *CodexSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
+	sessionsDir, err := h.getSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	sessionPath := filepath.Join(sessionsDir, sessionID)
+	return h.parseSessionFile(sessionPath)
+}
+
+// getSessionsDir returns the Codex sessions directory.
+func (h *CodexSessionHistory) getSessionsDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	// Check CODEX_HOME env var first
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(homeDir, ".codex")
+	}
+
+	sessionsDir := filepath.Join(codexHome, "sessions")
+	if _, err := os.Stat(sessionsDir); err != nil {
+		return "", fmt.Errorf("sessions directory not found: %s", sessionsDir)
+	}
+
+	return sessionsDir, nil
+}
+
+// parseSessionFile reads and parses a Codex session JSONL file.
+func (h *CodexSessionHistory) parseSessionFile(path string) (*Session, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	session := &Session{
+		ID:      filepath.Base(path),
+		Entries: []SessionEntry{},
+	}
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		entry, err := h.parseEntry(line)
+		if err != nil {
+			continue // Skip malformed entries
+		}
+		if entry != nil {
+			session.Entries = append(session.Entries, *entry)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan session file: %w", err)
+	}
+
+	// Set start/end times from entries
+	if len(session.Entries) > 0 {
+		session.StartTime = session.Entries[0].Timestamp
+		session.EndTime = session.Entries[len(session.Entries)-1].Timestamp
+	}
+
+	return session, nil
+}
+
+// codexEntry represents a raw entry from Codex's rollout JSONL.
+type codexEntry struct {
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content"`
+	ToolName  string          `json:"tool_name"`
+	ToolInput json.RawMessage `json:"tool_input"`
+	Output    string          `json:"output"`
+	IsError   bool            `json:"is_error"`
+}
+
+// parseEntry converts a Codex JSONL entry to a normalized SessionEntry.
+func (h *CodexSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
+	var raw codexEntry
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return nil, err
+	}
+
+	entry := &SessionEntry{}
+
+	// Parse timestamp
+	if raw.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339, raw.Timestamp); err == nil {
+			entry.Timestamp = t
+		}
+	}
+
+	// Map Codex entry types to normalized types
+	switch raw.Type {
+	case "message":
+		switch raw.Role {
+		case "user":
+			entry.Type = EntryTypeUser
+			entry.Content = raw.Content
+		case "assistant":
+			entry.Type = EntryTypeAssistant
+			entry.Content = raw.Content
+		default:
+			return nil, nil
+		}
+
+	case "tool_use", "codex.tool_decision":
+		entry.Type = EntryTypeToolUse
+		entry.ToolName = raw.ToolName
+		entry.ToolInput = raw.ToolInput
+
+	case "tool_result", "codex.tool_result":
+		entry.Type = EntryTypeToolResult
+		entry.ToolName = raw.ToolName
+		entry.ToolOutput = raw.Output
+		entry.IsError = raw.IsError
+
+	default:
+		// Skip unknown types
+		return nil, nil
+	}
+
+	return entry, nil
 }

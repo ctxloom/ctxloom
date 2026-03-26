@@ -2,7 +2,9 @@ package backends
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"time"
 )
 
 // ExecutionMode defines how the backend should execute.
@@ -44,6 +46,7 @@ type Backend interface {
 	Skills() SkillRegistry       // User-invokable actions
 	Context() ContextProvider    // Getting context into the LLM
 	MCP() MCPManager             // MCP server registration
+	History() SessionHistory     // Conversation history access
 
 	// Execution lifecycle
 	Setup(ctx context.Context, req *SetupRequest) error
@@ -137,6 +140,55 @@ type MCPManager interface {
 	// Flush writes all pending MCP configuration changes.
 	Flush(workDir string) error
 }
+
+// SessionHistory provides access to the LLM's conversation history.
+// Implementation varies by backend: JSONL files (Claude/Codex), JSON files (Gemini), etc.
+type SessionHistory interface {
+	// GetCurrentSession returns the current/most recent session transcript.
+	GetCurrentSession(workDir string) (*Session, error)
+	// ListSessions returns available session metadata.
+	ListSessions(workDir string) ([]SessionMeta, error)
+	// GetSession returns a specific session by ID.
+	GetSession(workDir string, sessionID string) (*Session, error)
+}
+
+// Session represents a conversation session with normalized entries.
+type Session struct {
+	ID        string
+	StartTime time.Time
+	EndTime   time.Time
+	Entries   []SessionEntry
+}
+
+// SessionMeta contains metadata about a session without full content.
+type SessionMeta struct {
+	ID         string
+	StartTime  time.Time
+	EndTime    time.Time
+	EntryCount int
+}
+
+// SessionEntry represents a single turn in the conversation.
+type SessionEntry struct {
+	Timestamp  time.Time
+	Type       SessionEntryType
+	Content    string          // Text content for user/assistant messages
+	ToolName   string          // For tool_use/tool_result entries
+	ToolInput  json.RawMessage // For tool_use entries
+	ToolOutput string          // For tool_result entries
+	IsError    bool            // For tool_result entries
+}
+
+// SessionEntryType identifies the type of session entry.
+type SessionEntryType string
+
+const (
+	EntryTypeUser       SessionEntryType = "user"
+	EntryTypeAssistant  SessionEntryType = "assistant"
+	EntryTypeToolUse    SessionEntryType = "tool_use"
+	EntryTypeToolResult SessionEntryType = "tool_result"
+	EntryTypeSystem     SessionEntryType = "system"
+)
 
 // SetupRequest contains everything needed to prepare the backend before execution.
 type SetupRequest struct {

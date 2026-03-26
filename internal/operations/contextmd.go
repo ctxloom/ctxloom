@@ -24,8 +24,6 @@ var BackendTargetFiles = map[string]string{
 	"gemini":      "GEMINI.md",
 	"cursor":      ".cursorrules",
 	"windsurf":    ".windsurfrules",
-	"cline":       ".clinerules",
-	"aider":       "CONVENTIONS.md",
 	"codex":       "AGENTS.md",
 }
 
@@ -218,6 +216,15 @@ func writeContextFile(fs afero.Fs, targetPath, content, sourceFile string) (stri
 
 // TransformContextOnStartup is a convenience function for startup.
 // It transforms context files with graceful error handling.
+// If context.regeneration is set to "deferred", this skips transformation
+// and returns a special status indicating deferred mode.
 func TransformContextOnStartup(ctx context.Context, cfg *config.Config) (*TransformContextResult, error) {
+	// Check if context regeneration is deferred
+	if cfg.Context.IsDeferred() {
+		return &TransformContextResult{
+			Status:  "deferred",
+			Message: "Context regeneration deferred - use vector database for semantic retrieval",
+		}, nil
+	}
 	return TransformContext(ctx, cfg, TransformContextRequest{})
 }

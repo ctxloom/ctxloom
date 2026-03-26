@@ -7,6 +7,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -642,6 +643,45 @@ func TestFetchRemoteContent_NestedPath(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "scm/v1/bundles/golang/best-practices.yaml", result.FilePath)
+}
+
+func TestFetchRemoteContent_GetDefaultBranchError(t *testing.T) {
+	registry, _ := setupPullTestRegistry(t)
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	require.NoError(t, registry.Add("test-remote", "https://github.com/test/scm"))
+
+	// Create fetcher that errors on GetDefaultBranch
+	fetcher := remote.NewMockFetcher().
+		WithFile("scm/v1/bundles/my-bundle.yaml", []byte("content"))
+	fetcher.DefaultBrErr = fmt.Errorf("failed to get default branch")
+
+	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
+		Reference: "test-remote/my-bundle", // No git ref specified
+		ItemType:  "bundle",
+		Registry:  registry,
+		Fetcher:   fetcher,
+	})
+
+	// Should get error about missing default branch
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "default branch")
+}
+
+func TestFetchRemoteContent_ParseRefError(t *testing.T) {
+	registry, _ := setupPullTestRegistry(t)
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	// Invalid reference format
+	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
+		Reference: "invalid ref format",
+		ItemType:  "bundle",
+		Registry:  registry,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
 }
 
 // =============================================================================

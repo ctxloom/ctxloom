@@ -42,6 +42,8 @@ type Config struct {
 	Sync     SyncConfig         `mapstructure:"sync"`
 	Hooks    HooksConfig        `mapstructure:"hooks"`
 	MCP      MCPConfig          `mapstructure:"mcp"`
+	Memory   MemoryConfig       `mapstructure:"memory"`
+	Context  ContextConfig      `mapstructure:"context"`
 	Profiles map[string]Profile `mapstructure:"profiles"`
 	SCMPaths []string           // Resolved .scm directory (at most one)
 	SCMRoot  string             // Project root (parent of .scm directory)
@@ -146,6 +148,12 @@ func (c *Config) GetDefaultLLMPlugin() string {
 		return c.Defaults.LLMPlugin
 	}
 	return "claude-code"
+}
+
+// GetDefaultLLMModel returns the default LLM model name.
+// Returns empty string if not configured (backend will use its own default).
+func (c *Config) GetDefaultLLMModel() string {
+	return c.Defaults.LLMModel
 }
 
 // SetDefaultLLMPlugin sets the default LLM plugin name.
@@ -342,7 +350,8 @@ type Profile struct {
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
 	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`           // Default profiles to load (supports multiple)
-	LLMPlugin    string   `mapstructure:"llm_plugin" yaml:"llm_plugin,omitempty"`       // Default LLM plugin name
+	LLMPlugin    string   `mapstructure:"llm_plugin" yaml:"llm_plugin,omitempty"`       // Default LLM plugin name (e.g., "claude-code", "gemini")
+	LLMModel     string   `mapstructure:"llm_model" yaml:"llm_model,omitempty"`         // Default LLM model (e.g., "opus", "sonnet", "haiku")
 	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
 
@@ -386,6 +395,150 @@ func (s *SyncConfig) ShouldApplyHooks() bool {
 		return true
 	}
 	return *s.ApplyHooks
+}
+
+// ContextRegenMode specifies when to regenerate context files.
+type ContextRegenMode string
+
+const (
+	// ContextRegenEager regenerates context files on startup and file changes.
+	// This is the default behavior.
+	ContextRegenEager ContextRegenMode = "eager"
+
+	// ContextRegenDeferred skips automatic context regeneration.
+	// Instead, uses vector database for semantic retrieval and injects
+	// a reminder to query memory for relevant context.
+	ContextRegenDeferred ContextRegenMode = "deferred"
+)
+
+// ContextConfig holds configuration for context file generation and management.
+type ContextConfig struct {
+	// Regeneration controls when context files are regenerated.
+	// "eager" (default) - regenerate on startup and file changes
+	// "deferred" - skip regeneration, use vector database for retrieval
+	Regeneration ContextRegenMode `mapstructure:"regeneration" yaml:"regeneration,omitempty"`
+}
+
+// GetRegenMode returns the context regeneration mode.
+// Defaults to "eager" if not set.
+func (c *ContextConfig) GetRegenMode() ContextRegenMode {
+	if c.Regeneration == "" {
+		return ContextRegenEager
+	}
+	return c.Regeneration
+}
+
+// IsDeferred returns true if context regeneration is deferred.
+func (c *ContextConfig) IsDeferred() bool {
+	return c.GetRegenMode() == ContextRegenDeferred
+}
+
+// MemoryConfig holds configuration for the session memory system.
+// This is a workaround feature for external compaction when native
+// LLM compaction is insufficient. Build with -tags memory to enable.
+type MemoryConfig struct {
+	// Enabled controls whether the memory system is active.
+	// Defaults to false.
+	Enabled bool `mapstructure:"enabled" yaml:"enabled,omitempty"`
+
+	// Logging configures session conversation logging.
+	Logging MemoryLoggingConfig `mapstructure:"logging" yaml:"logging,omitempty"`
+
+	// Compaction configures external compaction settings.
+	Compaction MemoryCompactionConfig `mapstructure:"compaction" yaml:"compaction,omitempty"`
+
+	// Vectors configures vector database settings.
+	// Requires build with -tags vectors.
+	Vectors MemoryVectorsConfig `mapstructure:"vectors" yaml:"vectors,omitempty"`
+
+	// LoadOnStart controls whether to load recent memory on session start.
+	// Defaults to true if enabled.
+	LoadOnStart *bool `mapstructure:"load_on_start" yaml:"load_on_start,omitempty"`
+}
+
+// MemoryLoggingConfig configures session logging.
+type MemoryLoggingConfig struct {
+	// ToolResultMax is the maximum characters for tool result summaries.
+	// Defaults to 500.
+	ToolResultMax int `mapstructure:"tool_result_max" yaml:"tool_result_max,omitempty"`
+
+	// ExcludeTools lists tools whose results should not be logged.
+	ExcludeTools []string `mapstructure:"exclude_tools" yaml:"exclude_tools,omitempty"`
+}
+
+// MemoryCompactionConfig configures external compaction.
+type MemoryCompactionConfig struct {
+	// Plugin specifies which LLM plugin to use for distillation.
+	// Defaults to "claude-code".
+	Plugin string `mapstructure:"plugin" yaml:"plugin,omitempty"`
+
+	// Model specifies the model to use within the plugin.
+	// Examples: "haiku", "sonnet", "opus" for claude-code.
+	// Defaults to "haiku".
+	Model string `mapstructure:"model" yaml:"model,omitempty"`
+
+	// ChunkSize is the target tokens per chunk.
+	// Defaults to 8000.
+	ChunkSize int `mapstructure:"chunk_size" yaml:"chunk_size,omitempty"`
+}
+
+// MemoryVectorsConfig configures vector database settings.
+type MemoryVectorsConfig struct {
+	// Enabled controls whether vector search is active.
+	// Requires build with -tags vectors.
+	Enabled bool `mapstructure:"enabled" yaml:"enabled,omitempty"`
+
+	// ModelPath is the path to the ONNX embedding model.
+	// Defaults to ~/.scm/models/all-MiniLM-L6-v2.onnx
+	ModelPath string `mapstructure:"model_path" yaml:"model_path,omitempty"`
+}
+
+// ShouldLoadOnStart returns whether to load memory on session start.
+// Defaults to true if memory is enabled.
+func (m *MemoryConfig) ShouldLoadOnStart() bool {
+	if !m.Enabled {
+		return false
+	}
+	if m.LoadOnStart == nil {
+		return true
+	}
+	return *m.LoadOnStart
+}
+
+// GetCompactionPlugin returns the plugin to use for compaction.
+// Defaults to "claude-code".
+func (m *MemoryConfig) GetCompactionPlugin() string {
+	if m.Compaction.Plugin == "" {
+		return "claude-code"
+	}
+	return m.Compaction.Plugin
+}
+
+// GetCompactionModel returns the model to use for compaction.
+// Defaults to "haiku".
+func (m *MemoryConfig) GetCompactionModel() string {
+	if m.Compaction.Model == "" {
+		return "haiku"
+	}
+	return m.Compaction.Model
+}
+
+// GetChunkSize returns the target chunk size for compaction.
+// Defaults to 8000 tokens.
+func (m *MemoryConfig) GetChunkSize() int {
+	if m.Compaction.ChunkSize <= 0 {
+		return 8000
+	}
+	return m.Compaction.ChunkSize
+}
+
+// GetToolResultMax returns the max size for tool result summaries.
+// Defaults to 500.
+func (m *MemoryConfig) GetToolResultMax() int {
+	if m.Logging.ToolResultMax <= 0 {
+		return 500
+	}
+	return m.Logging.ToolResultMax
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
@@ -652,10 +805,16 @@ func (c *Config) Save() error {
 	fs := c.getFS()
 
 	// Read existing config to preserve unknown fields
-	existingData, _ := afero.ReadFile(fs, configPath)
+	existingData, err := afero.ReadFile(fs, configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read existing config: %w", err)
+	}
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
-		_ = yaml.Unmarshal(existingData, &existing)
+		if err := yaml.Unmarshal(existingData, &existing); err != nil {
+			// Warn but continue - fault tolerance principle: don't block operations
+			fmt.Fprintf(os.Stderr, "SCM: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
+		}
 	}
 
 	// Update with current values (delete keys when empty to clean up config)

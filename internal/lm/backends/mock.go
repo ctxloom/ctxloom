@@ -42,6 +42,9 @@ func (b *Mock) Context() ContextProvider { return nil }
 // MCP returns nil - Mock doesn't support MCP servers.
 func (b *Mock) MCP() MCPManager { return nil }
 
+// History returns nil - Mock doesn't support session history.
+func (b *Mock) History() SessionHistory { return &NilSessionHistory{} }
+
 // Setup prepares the backend for execution.
 func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)

@@ -1,9 +1,29 @@
 package backends
 
+import "fmt"
+
 // CLIContextProvider implements ContextProvider for backends that inject context via CLI arguments.
 // Context is stored in memory and retrieved during command building.
 type CLIContextProvider struct {
 	assembledContext string
+}
+
+// NilSessionHistory is a no-op SessionHistory for backends that don't support history access.
+type NilSessionHistory struct{}
+
+// GetCurrentSession returns an error indicating history is not supported.
+func (h *NilSessionHistory) GetCurrentSession(workDir string) (*Session, error) {
+	return nil, fmt.Errorf("session history not supported by this backend")
+}
+
+// ListSessions returns an empty list.
+func (h *NilSessionHistory) ListSessions(workDir string) ([]SessionMeta, error) {
+	return nil, nil
+}
+
+// GetSession returns an error indicating history is not supported.
+func (h *NilSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
+	return nil, fmt.Errorf("session history not supported by this backend")
 }
 
 // Provide assembles context fragments and stores them for later retrieval.

@@ -527,7 +527,9 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 
 	_, _ = fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
 
-	// Use pager for long content if terminal
+	// Use pager for long content if terminal.
+	// Security note: PAGER is user-controlled. This is standard Unix behavior
+	// but users should be aware that PAGER could execute arbitrary commands.
 	if lineCount > 50 && tc.IsTerminalWriter(w) {
 		pager := os.Getenv("PAGER")
 		if pager == "" {

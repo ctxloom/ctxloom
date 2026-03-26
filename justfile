@@ -5,43 +5,35 @@ default: build
 # Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
 version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
 
-# Validate fragment YAML files against JSON schema
-validate:
-    go run ./cmd/validate
+# Build the main binary with all features (delegates to devcontainer)
+build: dev-image
+    just _run build
 
-# Build all binaries (main app + plugins)
-build: validate proto build-scm
+# Compress binary with UPX (delegates to devcontainer)
+compress: dev-image
+    just _run compress
 
-# Build the main binary
-build-scm:
-    go build -ldflags "-X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
+# Build and compress (delegates to devcontainer)
+build-compressed: build compress
 
-# ===== Plugin targets =====
+# Validate fragment YAML files (delegates to devcontainer)
+validate: dev-image
+    just _run validate
 
-# Generate protobuf code using buf
-proto:
-    buf generate
-
-# Check buf is installed
-proto-check:
-    @which buf > /dev/null || (echo "buf not installed. Install with: brew install bufbuild/buf/buf" && exit 1)
-
-# Install buf (alternative to brew)
-proto-tools:
-    @echo "Install buf from https://buf.build/docs/installation"
+# Generate protobuf code (delegates to devcontainer)
+proto: dev-image
+    just _run proto
 
 # List available plugins
 plugin-list:
     ./scm plugin list
 
-# ===== End plugin targets =====
-
-# Build with verbose output
+# Build with verbose output (local, for debugging)
 build-verbose:
     go build -v -ldflags "-X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
 
 # Run all tests (builds scm first for acceptance tests)
-test: build-scm
+test: build
     go test -race -coverprofile=coverage.out ./...
 
 # Run tests with verbose output
@@ -53,7 +45,7 @@ test-coverage:
     go test -cover ./...
 
 # Run integration tests (requires scm binary)
-test-integration: build-scm
+test-integration: build
     go test -v -tags integration ./tests/integration/...
 
 # Run all tests in container (matches CI environment)
@@ -108,20 +100,8 @@ lint:
 run *ARGS:
     go run . {{ARGS}}
 
-# Build and install to ~/go/bin (default Go binary location)
-install: build
-    mkdir -p ~/go/bin
-    -rm -f ~/go/bin/scm 2>/dev/null
-    cp scm ~/go/bin/
-
-# Build static and install to ~/.local/bin
-install-local: build-static
-    mkdir -p ~/.local/bin
-    -pkill -x scm && sleep 0.5
-    cp scm ~/.local/bin/
-
-# Build compressed and install to ~/.local/bin
-install-compressed: build-compressed
+# Build, compress, and install to ~/.local/bin
+install: build-compressed
     mkdir -p ~/.local/bin
     -pkill -x scm && sleep 0.5
     cp scm ~/.local/bin/
@@ -129,18 +109,6 @@ install-compressed: build-compressed
 # Uninstall from ~/.local/bin
 uninstall:
     rm -f ~/.local/bin/scm
-
-# Build static binaries
-build-static: validate proto
-    CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
-
-# Compress binaries with UPX (requires upx installed)
-compress:
-    @which upx > /dev/null || (echo "upx not installed. Install with: brew install upx (macOS) or apt install upx (Linux)" && exit 1)
-    upx --best --lzma scm
-
-# Build static binaries with UPX compression
-build-compressed: build-static compress
 
 # Generate man pages
 man:
@@ -354,3 +322,67 @@ container-clean: container-clean-agents container-clean-langs
 # List all scm container images
 container-list:
     @podman images | grep -E "scm-(agent|lsp)" | sort
+
+# ===== Devcontainer overlay pattern =====
+# Runs targets inside devcontainer with CGO dependencies (libtokenizers, ONNX runtime)
+# Uses justfile.container which is mounted over justfile inside container
+
+# Container runtime (docker or podman)
+container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
+
+# Devcontainer image name
+devcontainer_image := "scm-devcontainer"
+
+# Build devcontainer image
+dev-image:
+    {{container_cmd}} build -t {{devcontainer_image}}:latest -f .devcontainer/Dockerfile .
+
+# Internal helper: run just target inside devcontainer
+# Mounts justfile.container as /workspace/justfile (overlay pattern)
+_run +ARGS:
+    #!/usr/bin/env bash
+    if [ -n "$DEVCONTAINER" ]; then
+        # Already inside container, run directly
+        just {{ARGS}}
+    else
+        # Run in container with justfile overlay
+        {{container_cmd}} run --rm \
+            -v "$(pwd):/workspace" \
+            -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+            -w /workspace \
+            {{devcontainer_image}}:latest \
+            just {{ARGS}}
+    fi
+
+# Build with all CGO features (static, inside devcontainer)
+dev-build: dev-image
+    just _run build
+
+# Build with ONNX support (static, inside devcontainer)
+dev-build-onnx: dev-image
+    just _run build-onnx
+
+# Build with tree-sitter (static, inside devcontainer)
+dev-build-treesitter: dev-image
+    just _run build-treesitter
+
+# Build with all features (static, inside devcontainer)
+dev-build-full: dev-image
+    just _run build-full
+
+# Run tests with ONNX (inside devcontainer)
+dev-test-onnx: dev-image
+    just _run test-onnx
+
+# Run any target inside devcontainer
+dev +ARGS: dev-image
+    just _run {{ARGS}}
+
+# Shell into devcontainer for debugging
+dev-shell: dev-image
+    {{container_cmd}} run --rm -it \
+        -v "$(pwd):/workspace" \
+        -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+        -w /workspace \
+        {{devcontainer_image}}:latest \
+        bash

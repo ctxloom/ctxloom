@@ -94,7 +94,8 @@ func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env 
 	cmd.Dir = b.WorkDir()
 	cmd.Env = b.BuildEnv(env)
 
-	cmd.Stdin = os.Stdin
+	// Don't attach stdin - non-interactive mode should not wait for input
+	cmd.Stdin = nil
 	if stdout != nil {
 		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
 	} else {

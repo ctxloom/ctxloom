@@ -51,7 +51,7 @@ func GetContextInjectionCommand(hash, workDir string) string {
 	if abs, err := filepath.Abs(workDir); err == nil {
 		absWorkDir = abs
 	}
-	return fmt.Sprintf(`%s hook inject-context --project %s %s`, execPath, absWorkDir, hash)
+	return fmt.Sprintf(`"%s" hook inject-context --project "%s" %s`, execPath, absWorkDir, hash)
 }
 
 // GetSCMMCPCommand returns the command (executable path) for the SCM MCP server.

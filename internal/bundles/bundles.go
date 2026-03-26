@@ -491,15 +491,20 @@ func validateBundleName(name string) error {
 	if name == "" {
 		return fmt.Errorf("empty bundle name")
 	}
-	if strings.Contains(name, "..") {
-		return fmt.Errorf("invalid bundle name: path traversal not allowed")
-	}
-	if strings.HasPrefix(name, "/") {
-		return fmt.Errorf("invalid bundle name: absolute paths not allowed")
-	}
+
+	// Check for null bytes first (before any path operations)
 	if strings.ContainsAny(name, "\x00") {
 		return fmt.Errorf("invalid bundle name: null bytes not allowed")
 	}
+
+	// Normalize path first
+	cleaned := filepath.Clean(name)
+
+	// Check for traversal after cleaning (catches "....", "foo/../bar", etc.)
+	if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+		return fmt.Errorf("invalid bundle name: path traversal not allowed")
+	}
+
 	return nil
 }
 
@@ -543,9 +548,21 @@ func (c ClaudeCodeConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
+// GeminiConfig holds configuration for exporting prompts as Gemini CLI slash commands.
+type GeminiConfig struct {
+	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
+	Description string `yaml:"description"` // For /help display
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c GeminiConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 // LMPluginConfig holds LM plugin-specific settings.
 type LMPluginConfig struct {
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
+	Gemini     GeminiConfig     `yaml:"gemini"`
 }
 
 // PluginsConfig holds plugin-specific settings.

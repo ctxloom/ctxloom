@@ -270,3 +270,44 @@ func TestTransformContext_WarnsOnUserManagedFile(t *testing.T) {
 		t.Error("user file was overwritten")
 	}
 }
+
+func TestTransformContextOnStartup_DeferredMode(t *testing.T) {
+	cfg := &config.Config{
+		SCMRoot: "/work",
+		Context: config.ContextConfig{
+			Regeneration: "deferred",
+		},
+	}
+
+	result, err := TransformContextOnStartup(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "deferred" {
+		t.Errorf("got status %q, want 'deferred'", result.Status)
+	}
+	if !strings.Contains(result.Message, "deferred") {
+		t.Errorf("message should mention deferred: %s", result.Message)
+	}
+}
+
+func TestTransformContextOnStartup_RegenerateMode(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_ = afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
+
+	cfg := &config.Config{
+		SCMRoot: "/work",
+		Context: config.ContextConfig{
+			Regeneration: "regenerate",
+		},
+	}
+
+	result, err := TransformContextOnStartup(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// When not deferred, should call TransformContext with empty request
+	if result.Status == "deferred" {
+		t.Errorf("got deferred status, but context is not deferred")
+	}
+}

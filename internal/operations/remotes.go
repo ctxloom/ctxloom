@@ -3,11 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
 
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/remote"
@@ -370,10 +372,11 @@ type BrowseItemEntry struct {
 
 // BrowseRemoteResult contains the contents of a remote repository.
 type BrowseRemoteResult struct {
-	Remote string            `json:"remote"`
-	URL    string            `json:"url"`
-	Items  []BrowseItemEntry `json:"items"`
-	Count  int               `json:"count"`
+	Remote   string            `json:"remote"`
+	URL      string            `json:"url"`
+	Items    []BrowseItemEntry `json:"items"`
+	Count    int               `json:"count"`
+	Warnings []string          `json:"warnings,omitempty"`
 }
 
 // BrowseRemote lists items available in a remote repository.
@@ -423,6 +426,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	}
 
 	var items []BrowseItemEntry
+	var warnings []string
 
 	for _, itemType := range itemTypes {
 		basePath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
@@ -432,7 +436,14 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 
 		entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
 		if err != nil {
-			continue // Directory might not exist for this type
+			// Only warn if it's not a "not found" error (directory genuinely doesn't exist)
+			errStr := err.Error()
+			if !strings.Contains(errStr, "not found") && !strings.Contains(errStr, "404") {
+				warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
+				warnings = append(warnings, warning)
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			}
+			continue
 		}
 
 		for _, e := range entries {
@@ -457,10 +468,11 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	}
 
 	return &BrowseRemoteResult{
-		Remote: req.Remote,
-		URL:    rem.URL,
-		Items:  items,
-		Count:  len(items),
+		Remote:   req.Remote,
+		URL:      rem.URL,
+		Items:    items,
+		Count:    len(items),
+		Warnings: warnings,
 	}, nil
 }
 
@@ -490,6 +502,233 @@ func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, path, r
 			}
 		} else if strings.HasSuffix(entry.Name, ".yaml") {
 			results = append(results, entry)
+		}
+	}
+
+	return results, nil
+}
+
+// SearchRemotesRequest contains parameters for searching across all remotes.
+type SearchRemotesRequest struct {
+	Query    string `json:"query"`
+	ItemType string `json:"item_type"` // "bundle", "profile", or empty for both
+
+	// Registry is an optional pre-configured registry (for testing).
+	Registry *remote.Registry `json:"-"`
+}
+
+// SearchRemoteEntry represents a search result from a remote.
+type SearchRemoteEntry struct {
+	Remote      string   `json:"remote"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Tags        []string `json:"tags,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Author      string   `json:"author,omitempty"`
+	PullRef     string   `json:"pull_ref"`
+}
+
+// SearchRemotesResult contains search results from all remotes.
+type SearchRemotesResult struct {
+	Results  []SearchRemoteEntry `json:"results"`
+	Count    int                 `json:"count"`
+	Query    string              `json:"query"`
+	Warnings []string            `json:"warnings,omitempty"`
+}
+
+// SearchRemotes searches for bundles and profiles across all configured remotes.
+func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesRequest) (*SearchRemotesResult, error) {
+	if req.Query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+
+	registry := req.Registry
+	if registry == nil {
+		var err error
+		registry, err = getRegistry(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load registry: %w", err)
+		}
+	}
+
+	remotes := registry.List()
+	if len(remotes) == 0 {
+		return &SearchRemotesResult{
+			Results:  []SearchRemoteEntry{},
+			Count:    0,
+			Query:    req.Query,
+			Warnings: []string{"no remotes configured"},
+		}, nil
+	}
+
+	baseDir := getBaseDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+
+	// Determine which types to search
+	var types []remote.ItemType
+	switch req.ItemType {
+	case "bundle", "fragment":
+		types = []remote.ItemType{remote.ItemTypeBundle}
+	case "profile":
+		types = []remote.ItemType{remote.ItemTypeProfile}
+	default:
+		types = []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
+	}
+
+	query := remote.ParseSearchQuery(req.Query)
+
+	// Search all remotes and types in parallel
+	var wg sync.WaitGroup
+	resultsCh := make(chan []remote.SearchResult, len(remotes)*len(types))
+	warningsCh := make(chan string, len(remotes)*len(types))
+
+	for _, rem := range remotes {
+		for _, itemType := range types {
+			wg.Add(1)
+			go func(r *remote.Remote, t remote.ItemType) {
+				defer wg.Done()
+
+				results, err := searchSingleRemote(ctx, r, t, query, auth)
+				if err != nil {
+					warningsCh <- fmt.Sprintf("%s (%s): %v", r.Name, t, err)
+					return
+				}
+				resultsCh <- results
+			}(rem, itemType)
+		}
+	}
+
+	wg.Wait()
+	close(resultsCh)
+	close(warningsCh)
+
+	// Collect results
+	var allResults []remote.SearchResult
+	for results := range resultsCh {
+		allResults = append(allResults, results...)
+	}
+
+	var warnings []string
+	for w := range warningsCh {
+		warnings = append(warnings, w)
+	}
+
+	// Convert to response format
+	entries := make([]SearchRemoteEntry, 0, len(allResults))
+	for _, r := range allResults {
+		itemType := "bundle"
+		if r.ItemType == remote.ItemTypeProfile {
+			itemType = "profile"
+		}
+
+		entries = append(entries, SearchRemoteEntry{
+			Remote:      r.Remote,
+			Name:        r.Entry.Name,
+			Type:        itemType,
+			Tags:        r.Entry.Tags,
+			Description: r.Entry.Description,
+			Author:      r.Entry.Author,
+			PullRef:     fmt.Sprintf("%s/%s", r.Remote, r.Entry.Name),
+		})
+	}
+
+	return &SearchRemotesResult{
+		Results:  entries,
+		Count:    len(entries),
+		Query:    req.Query,
+		Warnings: warnings,
+	}, nil
+}
+
+// searchSingleRemote searches a single remote for matching items.
+func searchSingleRemote(ctx context.Context, rem *remote.Remote, itemType remote.ItemType, query remote.SearchQuery, auth remote.AuthConfig) ([]remote.SearchResult, error) {
+	fetcher, err := remote.NewFetcher(rem.URL, auth)
+	if err != nil {
+		return nil, err
+	}
+
+	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get default branch
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to fetch manifest first (faster)
+	manifestPath := fmt.Sprintf("scm/%s/manifest.yaml", rem.Version)
+	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
+	if err == nil {
+		return searchManifestContent(rem, manifestContent, itemType, query)
+	}
+
+	// Fall back to directory listing
+	return searchDirectoryContent(ctx, fetcher, rem, owner, repo, branch, itemType, query)
+}
+
+// searchManifestContent searches the manifest for matching items.
+func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
+	var manifest remote.Manifest
+	if err := yaml.Unmarshal(content, &manifest); err != nil {
+		return nil, err
+	}
+
+	var entries []remote.ManifestEntry
+	switch itemType {
+	case remote.ItemTypeBundle:
+		entries = manifest.Bundles
+	case remote.ItemTypeProfile:
+		entries = manifest.Profiles
+	}
+
+	var results []remote.SearchResult
+	for _, entry := range entries {
+		if remote.MatchesQuery(entry, query) {
+			results = append(results, remote.SearchResult{
+				Remote:    rem.Name,
+				Entry:     entry,
+				RemoteURL: rem.URL,
+				ItemType:  itemType,
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// searchDirectoryContent searches by listing directory contents.
+func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
+	dirPath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
+
+	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []remote.SearchResult
+	for _, entry := range entries {
+		if entry.IsDir || !strings.HasSuffix(entry.Name, ".yaml") {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name, ".yaml")
+
+		// Create a minimal manifest entry for matching
+		manifestEntry := remote.ManifestEntry{
+			Name: name,
+		}
+
+		// Only do text matching without fetching full content
+		if remote.MatchesQuery(manifestEntry, query) {
+			results = append(results, remote.SearchResult{
+				Remote:    rem.Name,
+				Entry:     manifestEntry,
+				RemoteURL: rem.URL,
+				ItemType:  itemType,
+			})
 		}
 	}
 

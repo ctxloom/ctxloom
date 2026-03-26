@@ -1,11 +1,10 @@
 {
   "mcpServers": {
     "scm": {
-      "command": "./.scm/bin/scm",
+      "command": "/usr/bin/scm",
       "args": [
         "mcp"
-      ],
-      "_scm": "scm-auto"
+      ]
     }
   }
 }

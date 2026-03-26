@@ -47,7 +47,7 @@ func TestAvailablePluginNames_IncludesBuiltIns(t *testing.T) {
 	expected := map[string]bool{
 		"claude-code": false,
 		"gemini":      false,
-		"aider":       false,
+		"codex":       false,
 	}
 
 	for _, name := range names {

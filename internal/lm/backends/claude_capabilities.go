@@ -1,8 +1,14 @@
 package backends
 
 import (
+	"bufio"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
@@ -291,4 +297,241 @@ func (c *ClaudeContext) GetContextFilePath() string {
 		return ""
 	}
 	return filepath.Join(SCMContextSubdir, c.contextHash+".md")
+}
+
+// ClaudeSessionHistory implements SessionHistory for Claude Code.
+// Reads from ~/.claude/projects/<hash>/session.jsonl
+type ClaudeSessionHistory struct {
+	backend *ClaudeCode
+}
+
+// GetCurrentSession returns the current/most recent session transcript.
+func (h *ClaudeSessionHistory) GetCurrentSession(workDir string) (*Session, error) {
+	sessions, err := h.ListSessions(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no sessions found")
+	}
+
+	// Return most recent (ListSessions is sorted by time descending)
+	return h.GetSession(workDir, sessions[0].ID)
+}
+
+// ListSessions returns available session metadata.
+func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]SessionMeta, error) {
+	projectDir, err := h.findProjectDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Look for session files in the project directory
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read project directory: %w", err)
+	}
+
+	var sessions []SessionMeta
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		sessions = append(sessions, SessionMeta{
+			ID:        strings.TrimSuffix(entry.Name(), ".jsonl"),
+			StartTime: info.ModTime(), // Approximate - would need to read file for exact
+		})
+	}
+
+	// Sort by time, most recent first
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].StartTime.After(sessions[j].StartTime)
+	})
+
+	return sessions, nil
+}
+
+// GetSession returns a specific session by ID.
+func (h *ClaudeSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
+	projectDir, err := h.findProjectDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionPath := filepath.Join(projectDir, sessionID+".jsonl")
+	return h.parseSessionFile(sessionPath)
+}
+
+// findProjectDir finds the Claude project directory for the given workDir.
+// Claude Code converts paths by replacing / with - and prefixing with -.
+// Example: /home/user/project -> -home-user-project
+func (h *ClaudeSessionHistory) findProjectDir(workDir string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	absPath, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Claude Code converts paths: /home/user/project -> -home-user-project
+	projectName := strings.ReplaceAll(absPath, string(filepath.Separator), "-")
+
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
+	if _, err := os.Stat(projectDir); err != nil {
+		return "", fmt.Errorf("project directory not found: %s", projectDir)
+	}
+
+	return projectDir, nil
+}
+
+// findSessionFile finds the main session file for the workDir.
+func (h *ClaudeSessionHistory) findSessionFile(workDir string) (string, error) {
+	projectDir, err := h.findProjectDir(workDir)
+	if err != nil {
+		return "", err
+	}
+
+	// Claude Code uses session.jsonl as the main session file
+	sessionPath := filepath.Join(projectDir, "session.jsonl")
+	if _, err := os.Stat(sessionPath); err != nil {
+		return "", fmt.Errorf("session file not found: %s", sessionPath)
+	}
+
+	return sessionPath, nil
+}
+
+// parseSessionFile reads and parses a Claude session JSONL file.
+func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	session := &Session{
+		ID:      filepath.Base(path),
+		Entries: []SessionEntry{},
+	}
+
+	scanner := bufio.NewScanner(file)
+	// Increase buffer size for potentially large tool outputs
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		entry, err := h.parseEntry(line)
+		if err != nil {
+			// Skip malformed entries
+			continue
+		}
+		if entry != nil {
+			session.Entries = append(session.Entries, *entry)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan session file: %w", err)
+	}
+
+	// Set start/end times from entries
+	if len(session.Entries) > 0 {
+		session.StartTime = session.Entries[0].Timestamp
+		session.EndTime = session.Entries[len(session.Entries)-1].Timestamp
+	}
+
+	return session, nil
+}
+
+// claudeEntry represents a raw entry from Claude's session.jsonl.
+type claudeEntry struct {
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp"`
+	Message   json.RawMessage `json:"message"`
+	// Tool-related fields
+	ToolUseID string          `json:"tool_use_id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
+	Output    string          `json:"output"`
+	IsError   bool            `json:"is_error"`
+}
+
+// parseEntry converts a Claude JSONL entry to a normalized SessionEntry.
+func (h *ClaudeSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
+	var raw claudeEntry
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return nil, err
+	}
+
+	entry := &SessionEntry{}
+
+	// Parse timestamp
+	if raw.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339, raw.Timestamp); err == nil {
+			entry.Timestamp = t
+		}
+	}
+
+	// Map Claude entry types to normalized types
+	switch raw.Type {
+	case "user", "human":
+		entry.Type = EntryTypeUser
+		// Extract content from message if present
+		if len(raw.Message) > 0 {
+			var msg struct {
+				Content string `json:"content"`
+			}
+			if json.Unmarshal(raw.Message, &msg) == nil {
+				entry.Content = msg.Content
+			} else {
+				// Try as plain string
+				var content string
+				if json.Unmarshal(raw.Message, &content) == nil {
+					entry.Content = content
+				}
+			}
+		}
+
+	case "assistant":
+		entry.Type = EntryTypeAssistant
+		if len(raw.Message) > 0 {
+			var msg struct {
+				Content string `json:"content"`
+			}
+			if json.Unmarshal(raw.Message, &msg) == nil {
+				entry.Content = msg.Content
+			}
+		}
+
+	case "tool_use":
+		entry.Type = EntryTypeToolUse
+		entry.ToolName = raw.Name
+		entry.ToolInput = raw.Input
+
+	case "tool_result":
+		entry.Type = EntryTypeToolResult
+		entry.ToolName = raw.Name
+		entry.ToolOutput = raw.Output
+		entry.IsError = raw.IsError
+
+	default:
+		// Unknown type - skip
+		return nil, nil
+	}
+
+	return entry, nil
 }

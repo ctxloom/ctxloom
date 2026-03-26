@@ -68,8 +68,18 @@ Learn more: [Concepts](https://scm.abbitt.me/concepts/bundles)
 
 ### Building
 
+Two build variants are available:
+
+| Build | Command | Size | Description |
+|-------|---------|------|-------------|
+| **Standard** | `just build` | ~27MB | All features except tree-sitter code compression |
+| **Full** | `just build-scm-full` | ~31MB | Includes tree-sitter AST compression (requires CGO) |
+
+Most users should use the standard build. The full build adds tree-sitter for AST-aware code compression when distilling fragments.
+
 ```bash
-just build          # Validate, generate proto, build binary
+just build          # Standard build (recommended)
+just build-scm-full # Full build with tree-sitter
 just test           # Run all tests
 just lint           # Lint code
 just install        # Build and install to ~/go/bin

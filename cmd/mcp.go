@@ -9,15 +9,27 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
+
+// vectorDBReminder is injected into session memory when context regeneration is deferred.
+// It reminds the LLM to use the query_memory tool for semantic retrieval of historical context.
+const vectorDBReminder = `## Memory System Active
+
+Context regeneration is set to "deferred" mode. Instead of regenerating context files on startup,
+use the **query_memory** tool to retrieve relevant historical context semantically.
+
+**Available memory tools:**
+- query_memory: Search past session memory for relevant context (semantic search)
+- index_session: Index a session log into the vector database for future retrieval
+
+When you need context about past work, decisions, or conversations, use query_memory with a
+descriptive query to find relevant information from previous sessions.`
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
@@ -38,8 +50,8 @@ RUNNING AS MCP SERVER:
     Search: search_content
     Hooks: apply_hooks
     MCP Servers: list_mcp_servers, add_mcp_server, remove_mcp_server, set_mcp_auto_register
-    Remotes: list_remotes, add_remote, remove_remote, discover_remotes, browse_remote, preview_remote, confirm_pull
-    Lockfile: lock_dependencies, install_dependencies, check_outdated
+    Remotes: list_remotes, add_remote, remove_remote, search_remotes, browse_remote, pull_remote
+    Sync: sync_dependencies
 
 MANAGING MCP SERVERS:
   scm mcp list         List configured MCP servers
@@ -356,29 +368,18 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}()
 
 	server := &mcpServer{
-		reader:       bufio.NewReader(os.Stdin),
-		writer:       os.Stdout,
-		pendingPulls: make(map[string]*pendingPull),
+		reader: bufio.NewReader(os.Stdin),
+		writer: os.Stdout,
 	}
 
 	return server.run(ctx)
 }
 
 type mcpServer struct {
-	reader       *bufio.Reader
-	writer       io.Writer
-	cfg          *config.Config
-	pendingPulls map[string]*pendingPull // token -> pending pull info
-	pullMu       sync.RWMutex
-}
-
-// pendingPull stores preview data awaiting confirmation.
-type pendingPull struct {
-	Reference string          `json:"reference"` // remote/path@SHA
-	ItemType  remote.ItemType `json:"item_type"`
-	Content   []byte          `json:"content"`
-	SHA       string          `json:"sha"`
-	RemoteURL string          `json:"remote_url"`
+	reader        *bufio.Reader
+	writer        io.Writer
+	cfg           *config.Config
+	sessionMemory string // Loaded distilled memory from previous session
 }
 
 type readResult struct {
@@ -499,6 +500,16 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 	}
 	s.cfg = cfg
 
+	// Load distilled memory from previous session (no-op if disabled)
+	// SCM Memory: Load point - easily removable when native compaction improves
+	loadedMemory, err := memoryLoadRecent(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "SCM: warning: failed to load session memory: %v\n", err)
+	} else if loadedMemory != "" {
+		s.sessionMemory = loadedMemory
+		fmt.Fprintf(os.Stderr, "SCM: loaded memory from previous session (%d chars)\n", len(loadedMemory))
+	}
+
 	// Output any warnings collected during config loading
 	for _, warning := range cfg.Warnings {
 		fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", warning)
@@ -526,6 +537,14 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 		fmt.Fprintf(os.Stderr, "SCM: warning: context transform failed: %v\n", err)
 	} else if ctxResult.Status == "no_source" {
 		// No llm.md or scm.md - that's fine, just skip silently
+	} else if ctxResult.Status == "deferred" {
+		// Context regeneration is deferred - inject reminder to use vector database
+		fmt.Fprintf(os.Stderr, "SCM: context regeneration deferred - use query_memory for semantic retrieval\n")
+		// Append vector database reminder to session memory
+		if s.sessionMemory != "" {
+			s.sessionMemory += "\n\n"
+		}
+		s.sessionMemory += vectorDBReminder
 	} else {
 		if len(ctxResult.Errors) > 0 {
 			for _, e := range ctxResult.Errors {
@@ -570,6 +589,7 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 
 func (s *mcpServer) handleToolsList(req *mcpRequest) *mcpResponse {
 	tools := append(s.getLocalTools(), s.getRemoteTools()...)
+	tools = append(tools, s.getMemoryTools()...)
 
 	return &mcpResponse{
 		JSONRPC: "2.0",
@@ -588,6 +608,25 @@ func (s *mcpServer) getRemoteTools() []mcpToolInfo {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "search_remotes",
+			Description: "Search for bundles and profiles across ALL configured remotes. Use this when looking for a fragment or profile by name without knowing which remote contains it.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"query"},
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Search query - can be a name, tag (tag:foo), author (author:name), or plain text",
+					},
+					"item_type": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"bundle", "fragment", "profile"},
+						"description": "Type of items to search for (default: all)",
+					},
+				},
 			},
 		},
 		{
@@ -636,34 +675,20 @@ func (s *mcpServer) getRemoteTools() []mcpToolInfo {
 			},
 		},
 		{
-			Name:        "preview_remote",
-			Description: "Preview content of a remote item before pulling. Returns a pull_token for confirm_pull.",
+			Name:        "pull_remote",
+			Description: "Pull (install) a bundle or profile from a remote repository. Fetches and installs in one step.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"reference", "item_type"},
 				"properties": map[string]interface{}{
 					"reference": map[string]interface{}{
 						"type":        "string",
-						"description": "Remote reference (e.g., 'github/general/tdd' or 'github/security@v1.0.0')",
+						"description": "Remote reference (e.g., 'remote-name/bundle-name' or 'remote-name/bundle-name@v1.0.0')",
 					},
 					"item_type": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"fragment", "prompt", "profile"},
-						"description": "Type of item to preview",
-					},
-				},
-			},
-		},
-		{
-			Name:        "confirm_pull",
-			Description: "Install a previously previewed item using the pull_token from preview_remote",
-			InputSchema: map[string]interface{}{
-				"type":     "object",
-				"required": []string{"pull_token"},
-				"properties": map[string]interface{}{
-					"pull_token": map[string]interface{}{
-						"type":        "string",
-						"description": "Token from preview_remote response",
+						"enum":        []string{"bundle", "fragment", "profile"},
+						"description": "Type of item to pull",
 					},
 				},
 			},
@@ -1178,36 +1203,6 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				},
 			},
 		},
-		// Lockfile management
-		{
-			Name:        "lock_dependencies",
-			Description: "Generate a lockfile from currently installed remote items for reproducible installations",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
-			Name:        "install_dependencies",
-			Description: "Install all items from the lockfile",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"force": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Skip confirmation prompts (default: false)",
-					},
-				},
-			},
-		},
-		{
-			Name:        "check_outdated",
-			Description: "Check if any locked items have newer versions available",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
 		// Sync management
 		{
 			Name:        "sync_dependencies",
@@ -1231,20 +1226,6 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 					"apply_hooks": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Apply hooks after sync (default: true)",
-					},
-				},
-			},
-		},
-		{
-			Name:        "check_missing_dependencies",
-			Description: "Check which remote dependencies are not installed locally",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"profiles": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]interface{}{"type": "string"},
-						"description": "Specific profiles to check (default: all profiles)",
 					},
 				},
 			},
@@ -1312,14 +1293,14 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 	// Remote tools
 	case "list_remotes":
 		result, err = s.toolListRemotes(ctx, params.Arguments)
+	case "search_remotes":
+		result, err = s.toolSearchRemotes(ctx, params.Arguments)
 	case "discover_remotes":
 		result, err = s.toolDiscoverRemotes(ctx, params.Arguments)
 	case "browse_remote":
 		result, err = s.toolBrowseRemote(ctx, params.Arguments)
-	case "preview_remote":
-		result, err = s.toolPreviewRemote(ctx, params.Arguments)
-	case "confirm_pull":
-		result, err = s.toolConfirmPull(ctx, params.Arguments)
+	case "pull_remote":
+		result, err = s.toolPullRemote(ctx, params.Arguments)
 	// Remote management
 	case "add_remote":
 		result, err = s.toolAddRemote(ctx, params.Arguments)
@@ -1335,17 +1316,21 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 	case "set_mcp_auto_register":
 		result, err = s.toolSetMCPAutoRegister(ctx, params.Arguments)
 	// Lockfile management
-	case "lock_dependencies":
-		result, err = s.toolLockDependencies(ctx, params.Arguments)
-	case "install_dependencies":
-		result, err = s.toolInstallDependencies(ctx, params.Arguments)
-	case "check_outdated":
-		result, err = s.toolCheckOutdated(ctx, params.Arguments)
 	// Sync management
 	case "sync_dependencies":
 		result, err = s.toolSyncDependencies(ctx, params.Arguments)
-	case "check_missing_dependencies":
-		result, err = s.toolCheckMissingDependencies(ctx, params.Arguments)
+	// Memory tools (no-op stubs when built without memory tag)
+	case "compact_session":
+		result, err = s.toolCompactSession(ctx, params.Arguments)
+	case "get_session_memory":
+		result, err = s.toolGetSessionMemory(ctx, params.Arguments)
+	case "list_sessions":
+		result, err = s.toolListSessions(ctx, params.Arguments)
+	// Vector tools (no-op stubs when built without vectors tag)
+	case "query_memory":
+		result, err = s.toolQueryMemory(ctx, params.Arguments)
+	case "index_session":
+		result, err = s.toolIndexSession(ctx, params.Arguments)
 	default:
 		return &mcpResponse{
 			JSONRPC: "2.0",
@@ -1355,11 +1340,12 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 	}
 
 	if err != nil {
+		errText := "Error: " + err.Error()
 		return &mcpResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: mcpToolResult{
-				Content: []mcpContent{{Type: "text", Text: "Error: " + err.Error()}},
+				Content: []mcpContent{{Type: "text", Text: errText}},
 				IsError: true,
 			},
 		}
@@ -1585,6 +1571,31 @@ func (s *mcpServer) toolListRemotes(ctx context.Context, args json.RawMessage) (
 	}, nil
 }
 
+func (s *mcpServer) toolSearchRemotes(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Query    string `json:"query"`
+		ItemType string `json:"item_type"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	result, err := operations.SearchRemotes(ctx, s.cfg, operations.SearchRemotesRequest{
+		Query:    params.Query,
+		ItemType: params.ItemType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"results":  result.Results,
+		"count":    result.Count,
+		"query":    result.Query,
+		"warnings": result.Warnings,
+	}, nil
+}
+
 func (s *mcpServer) toolDiscoverRemotes(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Query    string `json:"query"`
@@ -1636,7 +1647,7 @@ func (s *mcpServer) toolBrowseRemote(ctx context.Context, args json.RawMessage) 
 	}, nil
 }
 
-func (s *mcpServer) toolPreviewRemote(ctx context.Context, args json.RawMessage) (interface{}, error) {
+func (s *mcpServer) toolPullRemote(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Reference string `json:"reference"`
 		ItemType  string `json:"item_type"`
@@ -1645,137 +1656,41 @@ func (s *mcpServer) toolPreviewRemote(ctx context.Context, args json.RawMessage)
 		return nil, err
 	}
 
-	result, err := operations.FetchRemoteContent(ctx, s.cfg, operations.FetchRemoteContentRequest{
+	// Normalize item_type (fragment -> bundle)
+	itemType := params.ItemType
+	if itemType == "fragment" {
+		itemType = "bundle"
+	}
+
+	// Fetch the content
+	fetchResult, err := operations.FetchRemoteContent(ctx, s.cfg, operations.FetchRemoteContentRequest{
 		Reference: params.Reference,
-		ItemType:  params.ItemType,
+		ItemType:  itemType,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert item_type string to remote.ItemType for storage
-	var itemType remote.ItemType
-	switch params.ItemType {
-	case "bundle":
-		itemType = remote.ItemTypeBundle
-	case "profile":
-		itemType = remote.ItemTypeProfile
-	}
-
-	// Store pending pull for confirm_pull
-	s.pullMu.Lock()
-	s.pendingPulls[result.PullToken] = &pendingPull{
-		Reference: result.PullToken,
+	// Write immediately
+	writeResult, err := operations.WriteRemoteItem(ctx, s.cfg, operations.WriteRemoteItemRequest{
+		Reference: fetchResult.PullToken,
 		ItemType:  itemType,
-		Content:   []byte(result.Content),
-		SHA:       result.FullSHA,
-		RemoteURL: result.SourceURL,
-	}
-	s.pullMu.Unlock()
-
-	return map[string]interface{}{
-		"reference":  result.Reference,
-		"item_type":  result.ItemType,
-		"sha":        result.SHA,
-		"full_sha":   result.FullSHA,
-		"source_url": result.SourceURL,
-		"file_path":  result.FilePath,
-		"content":    result.Content,
-		"pull_token": result.PullToken,
-		"warning":    result.Warning,
-	}, nil
-}
-
-func (s *mcpServer) toolConfirmPull(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		PullToken string `json:"pull_token"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return nil, err
-	}
-	if params.PullToken == "" {
-		return nil, fmt.Errorf("pull_token is required")
-	}
-
-	// Get pending pull from memory (fast path)
-	s.pullMu.Lock()
-	pending, ok := s.pendingPulls[params.PullToken]
-	if ok {
-		delete(s.pendingPulls, params.PullToken)
-	}
-	s.pullMu.Unlock()
-
-	// If not in memory (e.g., server restarted), re-fetch using token
-	// Token format: item_type:remote/path@sha
-	if !ok {
-		pending, ok = s.refetchFromToken(ctx, params.PullToken)
-		if !ok {
-			return nil, fmt.Errorf("invalid pull_token format: expected item_type:remote/path@sha")
-		}
-	}
-
-	// Use operations.WriteRemoteItem which uses config's SCM path (the bug fix)
-	result, err := operations.WriteRemoteItem(ctx, s.cfg, operations.WriteRemoteItemRequest{
-		Reference: pending.Reference,
-		ItemType:  string(pending.ItemType),
-		Content:   pending.Content,
-		SHA:       pending.SHA,
+		Content:   []byte(fetchResult.Content),
+		SHA:       fetchResult.FullSHA,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"status":      result.Status,
-		"reference":   result.Reference,
-		"item_type":   result.ItemType,
-		"local_path":  result.LocalPath,
-		"sha":         result.SHA,
-		"overwritten": result.Overwritten,
+		"status":      writeResult.Status,
+		"reference":   writeResult.Reference,
+		"item_type":   writeResult.ItemType,
+		"local_path":  writeResult.LocalPath,
+		"sha":         writeResult.SHA,
+		"source_url":  fetchResult.SourceURL,
+		"overwritten": writeResult.Overwritten,
 	}, nil
-}
-
-// refetchFromToken parses a pull_token and re-fetches the content.
-// Token format: item_type:remote/path@sha
-func (s *mcpServer) refetchFromToken(ctx context.Context, token string) (*pendingPull, bool) {
-	// Parse token: item_type:remote/path@sha
-	colonIdx := strings.Index(token, ":")
-	if colonIdx == -1 {
-		return nil, false
-	}
-
-	itemType := token[:colonIdx]
-	rest := token[colonIdx+1:]
-
-	// Validate item type
-	if itemType != "bundle" && itemType != "profile" {
-		return nil, false
-	}
-
-	// The rest is remote/path@sha - use as reference for FetchRemoteContent
-	result, err := operations.FetchRemoteContent(ctx, s.cfg, operations.FetchRemoteContentRequest{
-		Reference: rest,
-		ItemType:  itemType,
-	})
-	if err != nil {
-		return nil, false
-	}
-
-	var remoteItemType remote.ItemType
-	switch itemType {
-	case "bundle":
-		remoteItemType = remote.ItemTypeBundle
-	case "profile":
-		remoteItemType = remote.ItemTypeProfile
-	}
-
-	return &pendingPull{
-		Reference: token,
-		ItemType:  remoteItemType,
-		Content:   []byte(result.Content),
-		SHA:       result.FullSHA,
-		RemoteURL: result.SourceURL,
-	}, true
 }
 
 // ============================================================================
@@ -2022,29 +1937,6 @@ func (s *mcpServer) toolRemoveRemote(ctx context.Context, args json.RawMessage) 
 }
 
 // ============================================================================
-// Lockfile management tools
-// ============================================================================
-
-func (s *mcpServer) toolLockDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	return operations.LockDependencies(ctx, s.cfg, operations.LockDependenciesRequest{})
-}
-
-func (s *mcpServer) toolInstallDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Force bool `json:"force"`
-	}
-	_ = json.Unmarshal(args, &params)
-
-	return operations.InstallDependencies(ctx, s.cfg, operations.InstallDependenciesRequest{
-		Force: params.Force,
-	})
-}
-
-func (s *mcpServer) toolCheckOutdated(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	return operations.CheckOutdated(ctx, s.cfg, operations.CheckOutdatedRequest{})
-}
-
-// ============================================================================
 // Sync management tools
 // ============================================================================
 
@@ -2072,17 +1964,6 @@ func (s *mcpServer) toolSyncDependencies(ctx context.Context, args json.RawMessa
 		Force:      params.Force,
 		Lock:       lock,
 		ApplyHooks: applyHooks,
-	})
-}
-
-func (s *mcpServer) toolCheckMissingDependencies(ctx context.Context, args json.RawMessage) (interface{}, error) {
-	var params struct {
-		Profiles []string `json:"profiles"`
-	}
-	_ = json.Unmarshal(args, &params)
-
-	return operations.CheckMissingDependencies(ctx, s.cfg, operations.CheckMissingDependenciesRequest{
-		Profiles: params.Profiles,
 	})
 }
 

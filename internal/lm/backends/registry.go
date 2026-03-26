@@ -1,6 +1,8 @@
 package backends
 
 import (
+	"os/exec"
+
 	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
@@ -51,14 +53,43 @@ func Exists(name string) bool {
 	return ok
 }
 
+// BinaryPathProvider is implemented by backends that expose their binary path.
+type BinaryPathProvider interface {
+	GetBinaryPath() string
+}
+
+// GetBinaryPath returns the binary path from BaseBackend.
+// This implements BinaryPathProvider.
+func (b *BaseBackend) GetBinaryPath() string {
+	return b.BinaryPath
+}
+
+// GetDefaultBinary returns the default binary name for a backend by instantiating it.
+func GetDefaultBinary(name string) string {
+	backend := Get(name)
+	if backend == nil {
+		return ""
+	}
+	if provider, ok := backend.(BinaryPathProvider); ok {
+		return provider.GetBinaryPath()
+	}
+	return ""
+}
+
+// IsAvailable returns true if the backend's default binary is installed and in PATH.
+func IsAvailable(name string) bool {
+	binary := GetDefaultBinary(name)
+	if binary == "" {
+		return false
+	}
+	_, err := exec.LookPath(binary)
+	return err == nil
+}
+
 func init() {
 	// Register all built-in backends
 	Register("claude-code", func() Backend { return NewClaudeCode() })
 	Register("gemini", func() Backend { return NewGemini() })
-	Register("aider", func() Backend { return NewAider() })
-	Register("cline", func() Backend { return NewCline() })
 	Register("codex", func() Backend { return NewCodex() })
-	Register("goose", func() Backend { return NewGoose() })
-	Register("q", func() Backend { return NewQDeveloper() })
 	Register("mock", func() Backend { return NewMock() })
 }

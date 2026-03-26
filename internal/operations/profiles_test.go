@@ -897,6 +897,78 @@ tags:
 	assert.NotContains(t, cfg.Defaults.Profiles, "base")
 }
 
+func TestUpdateProfile_AddExcludeFragments(t *testing.T) {
+	tmpDir := t.TempDir()
+	profilesDir := filepath.Join(tmpDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	profile := `description: Test profile
+exclude_fragments:
+  - existing-exclude
+`
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{}
+
+	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
+		Name:                   "test",
+		AddExcludeFragments:    []string{"new-exclude"},
+		RemoveExcludeFragments: []string{"existing-exclude"},
+		Loader:                 loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "updated", result.Status)
+	assert.Contains(t, result.Changes, "added exclude fragment: new-exclude")
+	assert.Contains(t, result.Changes, "removed exclude fragment: existing-exclude")
+}
+
+func TestUpdateProfile_AddExcludePrompts(t *testing.T) {
+	tmpDir := t.TempDir()
+	profilesDir := filepath.Join(tmpDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	profile := `description: Test profile`
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{}
+
+	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
+		Name:                 "test",
+		AddExcludePrompts:    []string{"prompt1"},
+		RemoveExcludePrompts: []string{},
+		Loader:               loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "updated", result.Status)
+	assert.Contains(t, result.Changes, "added exclude prompt: prompt1")
+}
+
+func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
+	tmpDir := t.TempDir()
+	profilesDir := filepath.Join(tmpDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	profile := `description: Test profile`
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{}
+
+	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
+		Name:          "test",
+		AddExcludeMCP: []string{"server1"},
+		Loader:        loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "updated", result.Status)
+	assert.Contains(t, result.Changes, "added exclude mcp: server1")
+}
+
 func TestDeleteProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
 	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}

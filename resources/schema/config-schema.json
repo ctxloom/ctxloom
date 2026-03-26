@@ -95,6 +95,10 @@
           "type": "string",
           "description": "Default LLM plugin to use (e.g., 'claude-code', 'gemini')"
         },
+        "llm_model": {
+          "type": "string",
+          "description": "Default LLM model to use within the plugin (e.g., 'opus', 'sonnet', 'haiku')"
+        },
         "use_distilled": {
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
@@ -130,6 +134,82 @@
               "$ref": "#/$defs/mcpServer"
             }
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory": {
+      "type": "object",
+      "description": "Session memory configuration (experimental)",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to enable session memory logging",
+          "default": false
+        },
+        "logging": {
+          "type": "object",
+          "description": "Logging configuration for session memory",
+          "properties": {
+            "tool_result_max": {
+              "type": "integer",
+              "description": "Maximum characters to log from tool results",
+              "default": 500
+            },
+            "exclude_tools": {
+              "type": "array",
+              "description": "Tools to exclude from logging",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "compaction": {
+          "type": "object",
+          "description": "Compaction settings for session memory",
+          "properties": {
+            "plugin": {
+              "type": "string",
+              "description": "LLM plugin to use for distillation",
+              "default": "claude-code",
+              "examples": ["claude-code", "gemini"]
+            },
+            "model": {
+              "type": "string",
+              "description": "Model to use within the plugin for distillation",
+              "default": "haiku",
+              "examples": ["haiku", "sonnet", "flash"]
+            },
+            "chunk_size": {
+              "type": "integer",
+              "description": "Target token count per chunk",
+              "default": 8000
+            }
+          },
+          "additionalProperties": false
+        },
+        "vectors": {
+          "type": "object",
+          "description": "Vector database configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether to enable vector search",
+              "default": false
+            },
+            "model_path": {
+              "type": "string",
+              "description": "Path to the ONNX embedding model"
+            }
+          },
+          "additionalProperties": false
+        },
+        "load_on_start": {
+          "type": "boolean",
+          "description": "Whether to load recent memory on session start",
+          "default": true
         }
       },
       "additionalProperties": false

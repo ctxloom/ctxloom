@@ -9,10 +9,35 @@ before:
     - go run ./scripts/genman
 
 builds:
-  # Main scm binary - CGO enabled for tree-sitter AST compression
+  # Standard build - includes memory and vectors (no CGO required)
+  # Recommended for most users
   - id: scm
     main: ./main.go
     binary: scm
+    tags:
+      - memory
+      - vectors
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{.Version}}
+
+  # Full build - includes memory, vectors, and tree-sitter (31MB)
+  # Requires CGO and cross-compilers
+  - id: scm-full
+    main: ./main.go
+    binary: scm
+    tags:
+      - memory
+      - vectors
+      - treesitter
     env:
       - CGO_ENABLED=1
       # Cross-compiler environment variables (provided by goreleaser-cross image)
@@ -41,19 +66,26 @@ builds:
 
 # UPX compression for smaller binaries
 upx:
-  - enabled: true
+  - ids: [scm]
+    enabled: true
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    compress: best
+    lzma: true
+  - ids: [scm-full]
+    enabled: true
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true
 
 archives:
+  # Light build archives (default, recommended)
   - id: default
     format: tar.gz
     format_overrides:
       - goos: windows
         format: zip
-    # Include binaries in each archive
     builds:
       - scm
     name_template: >-
@@ -61,6 +93,24 @@ archives:
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
+    files:
+      - LICENSE*
+      - README.md
+      - man/man1/*.1
+
+  # Full build archives (with tree-sitter)
+  - id: full
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    builds:
+      - scm-full
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}_full
     files:
       - LICENSE*
       - README.md
@@ -93,6 +143,16 @@ release:
     ## SCM v{{.Version}}
 
     Sophisticated Context Management - Manage context fragments for AI coding assistants.
+
+    ### Which Build?
+
+    | Build | Size | Features |
+    |-------|------|----------|
+    | **Standard** (`scm_*`) | ~10MB | Memory, vector search (simple embedder) |
+    | **Full** (`scm_*_full`) | ~12MB | + Tree-sitter AST code compression |
+
+    Both builds include memory logging and semantic search.
+    The full build adds AST-based code compression (requires CGO).
 
     ### Installation
 

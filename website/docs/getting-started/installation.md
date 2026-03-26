@@ -58,12 +58,26 @@ sudo mv scm /usr/local/bin/
 
 ## Build from Source
 
-For development or to get the latest unreleased features:
+For development or to get the latest unreleased features.
+
+### Which Build?
+
+SCM offers two build variants:
+
+| Build | Size | CGO | Best For |
+|-------|------|-----|----------|
+| **Standard** | ~27MB | No | Most users - includes all core features |
+| **Full** | ~31MB | Yes | Users who need AST-based code compression |
+
+**Standard build** includes everything except tree-sitter code compression. This is the recommended build for most users.
+
+**Full build** adds tree-sitter for AST-aware code compression when distilling context fragments. This requires CGO and C compilers, making cross-compilation more complex.
 
 ### Prerequisites
 
 - Go 1.21+
 - [just](https://github.com/casey/just) command runner (optional)
+- C compiler (only for full build)
 
 ### Clone and Build
 
@@ -72,21 +86,28 @@ For development or to get the latest unreleased features:
 git clone https://github.com/benjaminabbitt/scm.git
 cd scm
 
-# Option 1: Using just
-just install
+# Standard build (recommended)
+just build
+# or: go build -ldflags "-s -w" -o scm .
 
-# Option 2: Using go directly
-go build -o scm .
+# Full build with tree-sitter
+just build-scm-full
+# or: go build -tags treesitter -ldflags "-s -w" -o scm .
+
+# Install
 sudo mv scm /usr/local/bin/
 ```
 
-### Build Options
+### Build Commands
 
 | Command | Description |
 |---------|-------------|
+| `just build` | Standard build (no CGO, smaller) |
+| `just build-scm-full` | Full build with tree-sitter (requires CGO) |
 | `just install` | Build and install to `~/go/bin` |
 | `just install-local` | Build static and install to `~/.local/bin` |
-| `just uninstall` | Remove from `~/.local/bin` |
+| `just test` | Run tests (standard) |
+| `just test -tags treesitter` | Run all tests including tree-sitter |
 
 ## Verify Installation
 

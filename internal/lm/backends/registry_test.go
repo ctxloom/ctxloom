@@ -1,6 +1,6 @@
 // Backend registry tests verify that all supported LM backends are registered
 // and accessible. The registry enables SCM to work with multiple AI coding
-// assistants (Claude Code, Gemini CLI, Aider, etc.) through a unified interface.
+// assistants (Claude Code, Gemini CLI, Codex) through a unified interface.
 package backends
 
 import (
@@ -20,11 +20,7 @@ func TestRegistry_GetBuiltinBackends(t *testing.T) {
 	builtinNames := []string{
 		"claude-code",
 		"gemini",
-		"aider",
-		"cline",
 		"codex",
-		"goose",
-		"q",
 		"mock",
 	}
 
@@ -53,7 +49,7 @@ func TestRegistry_Exists(t *testing.T) {
 func TestRegistry_List(t *testing.T) {
 	// List enables help output and tab completion
 	names := List()
-	assert.GreaterOrEqual(t, len(names), 8) // At least the builtin backends
+	assert.GreaterOrEqual(t, len(names), 4) // At least the builtin backends
 
 	sort.Strings(names)
 	assert.Contains(t, names, "claude-code")

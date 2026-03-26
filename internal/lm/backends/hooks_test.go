@@ -357,7 +357,7 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 	}{
 		{"claude-code", "claude-code", true},
 		{"gemini", "gemini", true},
-		{"aider", "aider", false},       // No settings support
+		{"codex", "codex", false},       // No settings support
 		{"unknown", "unknown", false},   // Unknown backend
 		{"empty", "", false},            // Empty string
 	}
@@ -684,7 +684,7 @@ func TestGeminiHookWriter_WithFS(t *testing.T) {
 
 func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 	// Unsupported backends should silently succeed (no-op)
-	err := WriteSettings("aider", nil, nil, nil, "/project")
+	err := WriteSettings("codex", nil, nil, nil, "/project")
 	assert.NoError(t, err)
 }
 

@@ -287,7 +287,10 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	output := make(map[string]interface{})
 	for k, v := range settings.Other {
 		var val interface{}
-		_ = json.Unmarshal(v, &val)
+		if err := json.Unmarshal(v, &val); err != nil {
+			w.warn("failed to preserve setting %q: %v", k, err)
+			continue // Skip corrupted field
+		}
 		output[k] = val
 	}
 
@@ -738,13 +741,21 @@ func (w *GeminiHookWriter) loadSettings(path string) (*geminiSettings, error) {
 	return settings, nil
 }
 
+// warn outputs a warning message to stderr.
+func (w *GeminiHookWriter) warn(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "SCM: warning: "+format+"\n", args...)
+}
+
 // saveSettings writes settings back to settings.json.
 func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) error {
 	// Build output map starting with preserved fields
 	output := make(map[string]interface{})
 	for k, v := range settings.Other {
 		var val interface{}
-		_ = json.Unmarshal(v, &val)
+		if err := json.Unmarshal(v, &val); err != nil {
+			w.warn("failed to preserve setting %q: %v", k, err)
+			continue // Skip corrupted field
+		}
 		output[k] = val
 	}
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
@@ -13,8 +14,10 @@ import (
 type Gemini struct {
 	BaseBackend
 	lifecycle *GeminiLifecycle
+	skills    *GeminiSkills
 	context   *GeminiContext
 	mcp       *GeminiMCPManager
+	history   *GeminiSessionHistory
 }
 
 // NewGemini creates a new Gemini backend with default settings.
@@ -24,8 +27,10 @@ func NewGemini() *Gemini {
 	}
 	b.BinaryPath = "gemini"
 	b.lifecycle = &GeminiLifecycle{backend: b}
+	b.skills = &GeminiSkills{backend: b}
 	b.context = &GeminiContext{backend: b}
 	b.mcp = &GeminiMCPManager{backend: b}
+	b.history = &GeminiSessionHistory{backend: b}
 	return b
 }
 
@@ -34,9 +39,9 @@ func (b *Gemini) Lifecycle() LifecycleHandler {
 	return b.lifecycle
 }
 
-// Skills returns nil - Gemini doesn't support skills/slash commands.
+// Skills returns the skill registry (slash commands).
 func (b *Gemini) Skills() SkillRegistry {
-	return nil
+	return b.skills
 }
 
 // Context returns the context provider (file + hook).
@@ -49,6 +54,11 @@ func (b *Gemini) MCP() MCPManager {
 	return b.mcp
 }
 
+// History returns the session history accessor.
+func (b *Gemini) History() SessionHistory {
+	return b.history
+}
+
 // Setup prepares the backend for execution.
 func (b *Gemini) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
@@ -56,6 +66,13 @@ func (b *Gemini) Setup(ctx context.Context, req *SetupRequest) error {
 	// Provide context via the context provider
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
 		return fmt.Errorf("failed to provide context: %w", err)
+	}
+
+	// Write skills from prompts
+	if prompts := b.loadPrompts(); len(prompts) > 0 {
+		if err := b.skills.RegisterFromContent(b.WorkDir(), prompts); err != nil {
+			return fmt.Errorf("failed to register skills: %w", err)
+		}
 	}
 
 	// Load and merge hooks from config
@@ -137,4 +154,34 @@ func (b *Gemini) buildArgs(req *ExecuteRequest) []string {
 	}
 
 	return args
+}
+
+// loadPrompts loads all prompts from bundles for slash command export.
+func (b *Gemini) loadPrompts() []*bundles.LoadedContent {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return nil
+	}
+
+	loader := bundles.NewLoader(bundleDirs, cfg.Defaults.ShouldUseDistilled())
+	infos, err := loader.ListAllPrompts()
+	if err != nil {
+		return nil
+	}
+
+	var prompts []*bundles.LoadedContent
+	for _, info := range infos {
+		content, err := loader.GetPrompt(info.Name)
+		if err != nil {
+			continue
+		}
+		prompts = append(prompts, content)
+	}
+
+	return prompts
 }

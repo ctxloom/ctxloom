@@ -12,6 +12,14 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/profiles"
 )
 
+// Mustache tag types from cbroglie/mustache.
+const (
+	tagVariable        = 1
+	tagRawVariable     = 2
+	tagSection         = 3
+	tagInvertedSection = 4
+)
+
 // ProfileLoader interface for resolving profiles from directory (allows mocking in tests).
 type ProfileLoader interface {
 	ResolveProfile(name string, visited map[string]bool) (*profiles.ResolvedProfile, error)
@@ -208,7 +216,7 @@ func resolveProfile(cfg *config.Config, name string, profileLoaderFunc func() Pr
 	}
 	resolved, err := loader.ResolveProfile(name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("unknown profile: %s", name)
+		return nil, fmt.Errorf("profile %s: %w", name, err)
 	}
 
 	// Convert to config.Profile
@@ -258,9 +266,8 @@ func checkTags(tags []mustache.Tag, vars map[string]string, seen map[string]bool
 		name := tag.Name()
 		tagType := tag.Type()
 
-		// Only check variable tags (types 1 and 2 are Variable and RawVariable)
-		// Section tags (3) and inverted sections (4) also reference variables
-		if tagType == 1 || tagType == 2 || tagType == 3 || tagType == 4 {
+		// Check variable tags and section tags that reference variables
+		if tagType == tagVariable || tagType == tagRawVariable || tagType == tagSection || tagType == tagInvertedSection {
 			if !seen[name] {
 				seen[name] = true
 				if _, exists := vars[name]; !exists {
@@ -270,8 +277,7 @@ func checkTags(tags []mustache.Tag, vars map[string]string, seen map[string]bool
 		}
 
 		// Recursively check nested tags (only sections have children)
-		// Type 3 = Section, Type 4 = Inverted Section
-		if tagType == 3 || tagType == 4 {
+		if tagType == tagSection || tagType == tagInvertedSection {
 			if children := tag.Tags(); len(children) > 0 {
 				checkTags(children, vars, seen, warnFunc)
 			}

@@ -463,3 +463,430 @@ func TestProfile_Show_Nonexistent(t *testing.T) {
 
 	assert.NotEqual(t, 0, env.LastExitCode())
 }
+
+// =============================================================================
+// Bundle Command - Critical Paths
+// =============================================================================
+
+func TestBundle_List_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("bundle", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}
+
+func TestBundle_List_WithBundles(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Create a bundle with a fragment
+	bundleContent := `version: "1.0"
+fragments:
+  test-frag:
+    tags:
+      - test
+    content: |
+      Test content
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/test-bundle.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "test-bundle")
+}
+
+func TestBundle_Show(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+fragments:
+  frag1:
+    tags:
+      - tag1
+    content: |
+      Content 1
+  frag2:
+    tags:
+      - tag2
+    content: |
+      Content 2
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/show-test.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "show", "show-test")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "frag1")
+	assert.Contains(t, output, "frag2")
+}
+
+func TestBundle_Show_Nonexistent(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("bundle", "show", "nonexistent")
+
+	assert.NotEqual(t, 0, env.LastExitCode())
+}
+
+func TestBundle_Create(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("bundle", "create", "my-bundle")
+
+	assert.Equal(t, 0, env.LastExitCode())
+
+	// Verify bundle file was created
+	content, err := env.ReadFile(".scm/bundles/my-bundle.yaml")
+	require.NoError(t, err)
+	assert.Contains(t, content, "version:")
+	assert.Contains(t, content, "fragments:")
+}
+
+func TestBundle_Create_WithDescription(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("bundle", "create", "desc-bundle", "--description", "A test bundle")
+
+	assert.Equal(t, 0, env.LastExitCode())
+
+	content, err := env.ReadFile(".scm/bundles/desc-bundle.yaml")
+	require.NoError(t, err)
+	assert.Contains(t, content, "description: A test bundle")
+}
+
+func TestBundle_FragmentList(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+fragments:
+  frag1:
+    tags:
+      - test
+    content: |
+      Content 1
+  frag2:
+    tags:
+      - test
+    content: |
+      Content 2
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/test.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "fragment", "list", "test")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "frag1")
+	assert.Contains(t, output, "frag2")
+}
+
+func TestBundle_PromptList(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+prompts:
+  prompt1:
+    content: |
+      Prompt content 1
+  prompt2:
+    content: |
+      Prompt content 2
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/prompt-bundle.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "prompt", "list", "prompt-bundle")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "prompt1")
+	assert.Contains(t, output, "prompt2")
+}
+
+func TestBundle_View(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+fragments:
+  display-frag:
+    content: |
+      This is the content to display
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/view-test.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "view", "view-test#fragments/display-frag")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "This is the content to display")
+}
+
+func TestBundle_Export(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+fragments:
+  export-frag:
+    tags:
+      - export
+    content: |
+      Export content
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/export-test.yaml", bundleContent))
+
+	_ = env.RunSCM("bundle", "export", "export-test", "-o", "exported.tar.gz")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}
+
+// =============================================================================
+// Fragment Command - Critical Paths
+// =============================================================================
+
+func TestFragment_List_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("fragment", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}
+
+func TestFragment_List_WithFragments(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "frag1", []string{"tag1"}, "Content 1")
+	writeFragment(t, env, "frag2", []string{"tag2"}, "Content 2")
+
+	_ = env.RunSCM("fragment", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "frag1")
+	assert.Contains(t, output, "frag2")
+}
+
+func TestFragment_Show(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "show-frag", []string{"test"}, "Test content for show")
+
+	_ = env.RunSCM("fragment", "show", "local#fragments/show-frag")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "show-frag")
+	assert.Contains(t, output, "Test content for show")
+}
+
+func TestFragment_Show_Nonexistent(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("fragment", "show", "nonexistent")
+
+	assert.NotEqual(t, 0, env.LastExitCode())
+}
+
+func TestFragment_Create(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("fragment", "create", "new-frag", "New fragment content")
+
+	assert.Equal(t, 0, env.LastExitCode())
+
+	// Verify fragment was created in local bundle
+	_ = env.RunSCM("fragment", "show", "local#fragments/new-frag")
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "New fragment content")
+}
+
+func TestFragment_Create_WithTags(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("fragment", "create", "tagged-frag", "Content", "-t", "tag1", "-t", "tag2")
+
+	assert.Equal(t, 0, env.LastExitCode())
+
+	_ = env.RunSCM("fragment", "show", "local#fragments/tagged-frag")
+	output := env.LastOutput()
+	assert.Contains(t, output, "tag1")
+	assert.Contains(t, output, "tag2")
+}
+
+func TestFragment_Search(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "golang-tips", []string{"golang"}, "Go best practices and tips")
+	writeFragment(t, env, "python-tips", []string{"python"}, "Python best practices")
+
+	_ = env.RunSCM("fragment", "search", "tips")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "golang-tips")
+	assert.Contains(t, output, "python-tips")
+}
+
+func TestFragment_Search_ByTag(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "golang-1", []string{"golang", "backend"}, "Go content 1")
+	writeFragment(t, env, "golang-2", []string{"golang", "frontend"}, "Go content 2")
+	writeFragment(t, env, "python-1", []string{"python"}, "Python content")
+
+	_ = env.RunSCM("fragment", "search", "-t", "golang")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "golang-1")
+	assert.Contains(t, output, "golang-2")
+	assert.NotContains(t, output, "python-1")
+}
+
+// =============================================================================
+// Prompt Command - Critical Paths
+// =============================================================================
+
+func TestPrompt_List_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("prompt", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}
+
+func TestPrompt_List_WithPrompts(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+prompts:
+  analyze:
+    content: |
+      Analyze the following:
+  summarize:
+    content: |
+      Summarize the following:
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/prompts.yaml", bundleContent))
+
+	_ = env.RunSCM("prompt", "list")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "analyze")
+	assert.Contains(t, output, "summarize")
+}
+
+func TestPrompt_Show(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+prompts:
+  test-prompt:
+    content: |
+      This is a test prompt with detailed instructions.
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/prompt-test.yaml", bundleContent))
+
+	_ = env.RunSCM("prompt", "show", "prompt-test#prompts/test-prompt")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "test prompt with detailed instructions")
+}
+
+// =============================================================================
+// Search Command - Critical Paths
+// =============================================================================
+
+func TestSearch_Fragments(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "redis-cache", []string{"cache"}, "Redis caching strategies and best practices")
+	writeFragment(t, env, "memcached-guide", []string{"cache"}, "Memcached setup and tuning")
+
+	_ = env.RunSCM("search", "cache")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "redis-cache")
+	assert.Contains(t, output, "memcached-guide")
+}
+
+func TestSearch_Prompts(t *testing.T) {
+	env := setupTestEnv(t)
+
+	bundleContent := `version: "1.0"
+prompts:
+  code-review:
+    content: |
+      Review this code for quality, performance and security
+  document:
+    content: |
+      Generate documentation for this code
+`
+	require.NoError(t, env.WriteFile(".scm/bundles/search-prompts.yaml", bundleContent))
+
+	_ = env.RunSCM("search", "code")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "code-review")
+}
+
+func TestSearch_WithTags(t *testing.T) {
+	env := setupTestEnv(t)
+
+	writeFragment(t, env, "go-concurrency", []string{"golang", "concurrency"}, "Go concurrency patterns")
+	writeFragment(t, env, "go-generics", []string{"golang", "generics"}, "Go generics guide")
+	writeFragment(t, env, "rust-concurrency", []string{"rust", "concurrency"}, "Rust async/await")
+
+	_ = env.RunSCM("search", "-t", "concurrency")
+
+	assert.Equal(t, 0, env.LastExitCode())
+	output := env.LastOutput()
+	assert.Contains(t, output, "go-concurrency")
+	assert.Contains(t, output, "rust-concurrency")
+	assert.NotContains(t, output, "go-generics")
+}
+
+// =============================================================================
+// Init Command
+// =============================================================================
+
+func TestInit_CreatesProjectStructure(t *testing.T) {
+	env, err := testenv.NewTestEnvironment()
+	require.NoError(t, err)
+	require.NoError(t, env.Setup())
+	t.Cleanup(func() { _ = env.Cleanup() })
+
+	_ = env.RunSCM("init")
+
+	assert.Equal(t, 0, env.LastExitCode())
+
+	// Verify directory structure was created
+	_, err = env.ReadFile(".scm/config.yaml")
+	// Config file may or may not exist initially
+	_, err = env.ReadFile(".scm/profiles/.gitkeep")
+	// Verify at least one of these exists
+	profilesDir, _ := env.ReadFile(".scm/profiles/")
+	bundlesDir, _ := env.ReadFile(".scm/bundles/")
+	assert.True(t, profilesDir != "" || bundlesDir != "", "Expected .scm/profiles or .scm/bundles directory to exist")
+}
+
+// =============================================================================
+// Config Command
+// =============================================================================
+
+func TestConfig_Show(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("config", "show")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}
+
+func TestConfig_Get(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.RunSCM("config", "get", "defaults")
+
+	assert.Equal(t, 0, env.LastExitCode())
+}

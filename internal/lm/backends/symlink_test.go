@@ -31,19 +31,25 @@ func TestGetContextInjectionCommand(t *testing.T) {
 			name:     "standard hash with absolute workDir",
 			hash:     "abc123def456",
 			workDir:  "/home/user/project",
-			expected: "/usr/local/bin/scm hook inject-context --project /home/user/project abc123def456",
+			expected: `"/usr/local/bin/scm" hook inject-context --project "/home/user/project" abc123def456`,
 		},
 		{
 			name:     "short hash",
 			hash:     "abc",
 			workDir:  "/project",
-			expected: "/usr/local/bin/scm hook inject-context --project /project abc",
+			expected: `"/usr/local/bin/scm" hook inject-context --project "/project" abc`,
 		},
 		{
 			name:     "empty hash",
 			hash:     "",
 			workDir:  "/project",
-			expected: "/usr/local/bin/scm hook inject-context --project /project ",
+			expected: `"/usr/local/bin/scm" hook inject-context --project "/project" `,
+		},
+		{
+			name:     "path with spaces",
+			hash:     "abc123",
+			workDir:  "/home/user/my project",
+			expected: `"/usr/local/bin/scm" hook inject-context --project "/home/user/my project" abc123`,
 		},
 	}
 

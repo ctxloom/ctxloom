@@ -274,6 +274,41 @@ func TestDeleteFragment_ValidationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "name is required")
 }
 
+func TestDeleteFragment_EmptyFragmentsList(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	// Create a bundle with no fragments section
+	bundleContent := `version: "1.0"`
+	require.NoError(t, fs.MkdirAll("/project/.scm/bundles", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/project/.scm/bundles/local.yaml", []byte(bundleContent), 0644))
+
+	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
+		Name: "test-frag",
+		FS:   fs,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestDeleteFragment_ParseError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+
+	// Create a bundle with invalid YAML
+	require.NoError(t, fs.MkdirAll("/project/.scm/bundles", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/project/.scm/bundles/local.yaml", []byte("invalid: yaml: content:"), 0644))
+
+	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
+		Name: "test-frag",
+		FS:   fs,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse")
+}
+
 func TestGetFragment_ValidationError(t *testing.T) {
 	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
 

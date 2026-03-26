@@ -91,6 +91,9 @@ func Execute() {
 }
 
 func init() {
+	// Enable --version flag
+	rootCmd.Version = Version
+
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
 	// 1. Project .scm/config.yaml
 	// 2. Embedded resources

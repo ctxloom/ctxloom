@@ -17,6 +17,7 @@ type ClaudeCode struct {
 	skills    *ClaudeSkills
 	context   *ClaudeContext
 	mcp       *ClaudeMCPManager
+	history   *ClaudeSessionHistory
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
@@ -29,6 +30,7 @@ func NewClaudeCode() *ClaudeCode {
 	b.skills = &ClaudeSkills{backend: b}
 	b.context = &ClaudeContext{backend: b}
 	b.mcp = &ClaudeMCPManager{backend: b}
+	b.history = &ClaudeSessionHistory{backend: b}
 	return b
 }
 
@@ -63,6 +65,11 @@ func (b *ClaudeCode) Context() ContextProvider {
 // MCP returns the MCP server manager.
 func (b *ClaudeCode) MCP() MCPManager {
 	return b.mcp
+}
+
+// History returns the session history accessor.
+func (b *ClaudeCode) History() SessionHistory {
+	return b.history
 }
 
 // Setup prepares the backend for execution.

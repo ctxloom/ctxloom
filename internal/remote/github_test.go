@@ -712,3 +712,180 @@ func TestRealGitHubClient_ServiceAccessors(t *testing.T) {
 		assert.NotNil(t, prs)
 	})
 }
+
+func TestGitHubFetcher_401Retry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("retries without auth on 401", func(t *testing.T) {
+		// First call returns 401, second succeeds
+		callCount := 0
+		content := "test file content"
+		encoded := base64.StdEncoding.EncodeToString([]byte(content))
+
+		mainMock := newMockGitHubClient()
+		mainMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			callCount++
+			if callCount == 1 {
+				// First call - 401 error
+				return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("Bad credentials")
+			}
+			// Second call - success with fallback client
+			return &github.RepositoryContent{
+				Type:    github.String("file"),
+				Content: github.String(encoded),
+			}, nil, nil, nil
+		}
+
+		fallbackMock := newMockGitHubClient()
+		fallbackMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			// Fallback succeeds
+			return &github.RepositoryContent{
+				Type:    github.String("file"),
+				Content: github.String(encoded),
+			}, nil, nil, nil
+		}
+
+		fetcher := &GitHubFetcher{
+			client:   mainMock,
+			fallback: fallbackMock,
+			hasToken: true,
+		}
+
+		result, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.NoError(t, err)
+		assert.Equal(t, content, string(result))
+		assert.Equal(t, 1, callCount)
+	})
+
+	t.Run("no retry without fallback client", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("Bad credentials")
+		}
+
+		fetcher := &GitHubFetcher{
+			client:   mock,
+			fallback: nil,
+			hasToken: false,
+		}
+
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to fetch file")
+	})
+
+	t.Run("detects 401 error from response status", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("unauthorized")
+		}
+
+		fallbackMock := newMockGitHubClient()
+		fallbackMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			content := "public content"
+			encoded := base64.StdEncoding.EncodeToString([]byte(content))
+			return &github.RepositoryContent{
+				Type:    github.String("file"),
+				Content: github.String(encoded),
+			}, nil, nil, nil
+		}
+
+		fetcher := &GitHubFetcher{
+			client:   mock,
+			fallback: fallbackMock,
+			hasToken: true,
+		}
+
+		result, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.NoError(t, err)
+		assert.Equal(t, "public content", string(result))
+	})
+}
+
+func TestGitHubFetcher_ListDir_401Retry(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("retries ListDir on 401", func(t *testing.T) {
+		mainMock := newMockGitHubClient()
+		mainMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusUnauthorized}}, errors.New("Bad credentials")
+		}
+
+		fallbackMock := newMockGitHubClient()
+		fallbackMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, []*github.RepositoryContent{
+				{Type: github.String("file"), Name: github.String("test.yaml"), SHA: github.String("abc123")},
+			}, nil, nil
+		}
+
+		fetcher := &GitHubFetcher{
+			client:   mainMock,
+			fallback: fallbackMock,
+			hasToken: true,
+		}
+
+		entries, err := fetcher.ListDir(ctx, "owner", "repo", "path", "")
+		require.NoError(t, err)
+		assert.Len(t, entries, 1)
+		assert.Equal(t, "test.yaml", entries[0].Name)
+	})
+}
+
+func TestGitHubFetcher_OtherErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("500 server error", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}}, errors.New("server error")
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to fetch file")
+	})
+
+	t.Run("403 Forbidden", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusForbidden}}, errors.New("forbidden")
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to fetch file")
+	})
+
+	t.Run("rate limit (429)", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return nil, nil, &github.Response{Response: &http.Response{StatusCode: 429}}, errors.New("rate limited")
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to fetch file")
+	})
+}
+
+func TestGitHubFetcher_InvalidFileContent(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("invalid base64 encoding", func(t *testing.T) {
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return &github.RepositoryContent{
+				Type:    github.String("file"),
+				Content: github.String("not valid base64!!!"),
+			}, nil, nil, nil
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode file content")
+	})
+}

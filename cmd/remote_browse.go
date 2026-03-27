@@ -23,9 +23,9 @@ var remoteBrowseCmd = &cobra.Command{
 By default shows both bundles and profiles. Use --type to filter.
 
 Examples:
-  scm remote browse scm-github
-  scm remote browse scm-github --type bundle
-  scm remote browse scm-github --type profile`,
+  scm remote browse scm-main
+  scm remote browse scm-main --type bundle
+  scm remote browse scm-main --type profile`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteBrowse,
 }

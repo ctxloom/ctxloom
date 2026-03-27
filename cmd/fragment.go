@@ -17,7 +17,7 @@ Examples:
   scm fragment show core#fragments/tdd           # Show fragment content
   scm fragment edit core#fragments/tdd           # Edit fragment content
   scm fragment create my-bundle coding-standards # Create new fragment
-  scm fragment install scm-github/core           # Install bundle from remote`,
+  scm fragment install scm-main/core           # Install bundle from remote`,
 }
 
 var fragmentListCmd = &cobra.Command{
@@ -132,12 +132,12 @@ This pulls the entire bundle (which contains fragments, prompts, etc.)
 from the specified remote.
 
 Reference formats:
-  scm-github/core                    # Bundle from default remote path
+  scm-main/core                    # Bundle from default remote path
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  scm fragment install scm-github/core
-  scm fragment install scm-github/go-development`,
+  scm fragment install scm-main/core
+  scm fragment install scm-main/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], fragmentInstallForce, fragmentInstallBlind)
@@ -160,7 +160,7 @@ to the specified remote.
 
 Examples:
   scm fragment push my-bundle
-  scm fragment push my-bundle scm-github
+  scm fragment push my-bundle scm-main
   scm fragment push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {

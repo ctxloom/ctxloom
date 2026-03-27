@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/operations"
 )
@@ -1682,7 +1683,7 @@ func (s *mcpServer) toolPullRemote(ctx context.Context, args json.RawMessage) (i
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"status":      writeResult.Status,
 		"reference":   writeResult.Reference,
 		"item_type":   writeResult.ItemType,
@@ -1690,7 +1691,17 @@ func (s *mcpServer) toolPullRemote(ctx context.Context, args json.RawMessage) (i
 		"sha":         writeResult.SHA,
 		"source_url":  fetchResult.SourceURL,
 		"overwritten": writeResult.Overwritten,
-	}, nil
+	}
+
+	// Extract installation instructions from bundle
+	if itemType == "bundle" {
+		bundle, parseErr := bundles.ParseBundle([]byte(fetchResult.Content))
+		if parseErr == nil && bundle.Installation != "" {
+			result["installation"] = bundle.Installation
+		}
+	}
+
+	return result, nil
 }
 
 // ============================================================================

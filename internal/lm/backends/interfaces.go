@@ -17,12 +17,13 @@ const (
 
 // Fragment represents a context fragment or prompt with metadata.
 type Fragment struct {
-	Name        string
-	Version     string
-	Tags        []string
-	Content     string
-	IsDistilled bool
-	DistilledBy string
+	Name         string
+	Version      string
+	Tags         []string
+	Content      string
+	Installation string // Setup/installation instructions for tooling
+	IsDistilled  bool
+	DistilledBy  string
 }
 
 // ModelInfo contains information about the model used for the response.
@@ -209,6 +210,7 @@ type ExecuteRequest struct {
 	DryRun      bool
 	AutoApprove bool
 	Temperature float32
+	SkipSetup   bool // Minimal mode - skip hooks/skills/context in backend
 }
 
 // ExecuteResult contains the outcome of execution.

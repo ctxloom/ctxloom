@@ -44,7 +44,7 @@ var rootCmd = &cobra.Command{
 
 QUICK START
   scm run -p developer "explain this code"    Run with a profile
-  scm fragment install scm-github/core        Install a fragment bundle
+  scm fragment install scm-main/core        Install a fragment bundle
   scm fragment edit core#fragments/coding     Edit a fragment
 
 CONTENT COMMANDS

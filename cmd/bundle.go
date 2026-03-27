@@ -580,9 +580,9 @@ If no remote is specified, uses the default remote.
 
 Examples:
   scm bundle push my-bundle
-  scm bundle push my-bundle scm-github
+  scm bundle push my-bundle scm-main
   scm bundle push my-bundle --pr
-  scm bundle push my-bundle scm-github --message "Add my bundle"`,
+  scm bundle push my-bundle scm-main --message "Add my bundle"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runBundlePush,
 }
@@ -661,11 +661,11 @@ var bundleExportCmd = &cobra.Command{
 	Short: "Export a bundle to a directory",
 	Long: `Export a bundle from .scm/bundles to an arbitrary directory.
 
-Useful for publishing bundles to a shared repository like scm-github.
+Useful for publishing bundles to a shared repository like scm-main.
 The bundle is copied as-is, preserving all content including distilled versions.
 
 Examples:
-  scm bundle export go-tools ../scm-github/scm/v1/bundles
+  scm bundle export go-tools ../scm-main/scm/v1/bundles
   scm bundle export my-bundle ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleExport,
@@ -723,7 +723,7 @@ The bundle is copied into the local .scm/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:
-  scm bundle import ../scm-github/scm/v1/bundles/go-tools.yaml
+  scm bundle import ../scm-main/scm/v1/bundles/go-tools.yaml
   scm bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,

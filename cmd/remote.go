@@ -31,7 +31,7 @@ Discovery:
 Examples:
   scm remote add alice alice/scm
   scm remote search "golang testing"
-  scm remote browse scm-github`,
+  scm remote browse scm-main`,
 }
 
 var remoteAddCmd = &cobra.Command{
@@ -141,7 +141,7 @@ Use --clear to remove the default.
 
 Examples:
   scm remote default              # Show current default
-  scm remote default scm-github   # Set default to scm-github
+  scm remote default scm-main   # Set default to scm-main
   scm remote default --clear      # Clear the default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRemoteDefault,

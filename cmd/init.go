@@ -335,8 +335,39 @@ func (p *initPrompts) promptPersonalRepo() (string, error) {
 	return repo, nil
 }
 
-// generateConfig creates a config.yaml with the selected engine.
-func generateConfig(engine string) []byte {
+// promptMemory asks if the user wants to enable session memory.
+// Memory allows saving/resuming conversations across sessions.
+// Default is yes (press Enter).
+func (p *initPrompts) promptMemory() (bool, error) {
+	fmt.Print("\nEnable session memory? (lets you /save and resume context) [Y/n]: ")
+	input, err := p.readCleanLine()
+	if err != nil {
+		return true, err // default to enabled on error
+	}
+
+	input = strings.ToLower(input)
+	// Default (empty) or explicit yes = enabled
+	if input == "" || input == "y" || input == "yes" {
+		return true, nil
+	}
+	return false, nil
+}
+
+// generateConfig creates a config.yaml with the selected engine and options.
+func generateConfig(engine string, enableMemory bool) []byte {
+	memorySection := ""
+	if enableMemory {
+		memorySection = `
+# Session memory - save/resume conversations
+memory:
+  enabled: true
+  load_on_start: true
+  compaction:
+    model: haiku
+    plugin: ` + engine + `
+`
+	}
+
 	return []byte(fmt.Sprintf(`# SCM Configuration
 # See https://github.com/SophisticatedContextManager/scm for documentation
 
@@ -353,11 +384,11 @@ defaults:
 # MCP server configuration
 mcp:
   auto_register_scm: true
-`, engine, engine))
+%s`, engine, engine, memorySection))
 }
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
-const profileDiscoveryPrompt = `Welcome to SCM! I'll help you discover and set up context profiles for your development workflow.
+const profileDiscoveryPrompt = `Welcome to SCM! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
 
 **First, scan the current directory** for project indicators like:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
@@ -365,19 +396,29 @@ const profileDiscoveryPrompt = `Welcome to SCM! I'll help you discover and set u
 - .github/, .gitlab-ci.yml, and other CI/CD configs
 - Framework-specific files (next.config.js, vite.config.ts, etc.)
 
-Based on what you find, suggest matching profiles from the scm-main remote.
+Based on what you find, suggest matching content from **all configured remotes**.
 
-**Tools available:**
+**Tools to use:**
 - Use Bash/Glob to scan the directory structure
-- Use browse_remote to explore profiles in scm-main
-- Use search_remotes to find profiles matching specific tags or names
+- Use list_remotes to see all configured remotes
+- Use search_remotes to find matching profiles, bundles (fragments/prompts) across ALL remotes
+  - Search by tags: "tag:golang", "tag:react", "tag:docker"
+  - Search by text: "security", "testing", "ci-cd"
+- Use browse_remote to explore specific remotes in detail
 
 **After scanning**, present your findings:
 1. What project type/stack you detected
-2. Which profiles would be a good fit
-3. Ask the user to confirm or adjust your suggestions
+2. Matching content from each remote:
+   - **Profiles**: Development workflow configurations
+   - **Bundles**: Collections of fragments (context) and prompts (reusable commands)
+3. Ask the user which items to install
 
-If you'd prefer to skip this setup, just say "skip" and configure profiles manually later.`
+**Example workflow:**
+1. Detect go.mod → search for "tag:golang" across all remotes
+2. Detect Dockerfile → search for "tag:docker" and "tag:container"
+3. Present all matches grouped by remote, let user choose
+
+If you'd prefer to skip this setup, just say "skip" and configure manually later.`
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
@@ -466,6 +507,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Determine selected engine
 	selectedEngine := initEngine
 	var personalRepo string
+	enableMemory := true // default to enabled
 
 	// Check engine availability
 	if selectedEngine == "" {
@@ -504,6 +546,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		} else {
 			personalRepo = repo
 		}
+
+		// 3. Memory (default yes)
+		memEnabled, err := prompts.promptMemory()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "SCM: warning: failed to read memory selection: %v\n", err)
+		} else {
+			enableMemory = memEnabled
+		}
 	}
 
 	// Default to first available engine if not selected
@@ -529,9 +579,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create config.yaml with selected engine
+	// Create config.yaml with selected engine and options
 	configPath := filepath.Join(scmDir, "config.yaml")
-	configContent := generateConfig(selectedEngine)
+	configContent := generateConfig(selectedEngine, enableMemory)
 	if err := os.WriteFile(configPath, configContent, 0644); err != nil {
 		return fmt.Errorf("failed to create config.yaml: %w", err)
 	}
@@ -548,6 +598,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Initialized SCM directory: %s\n", scmDir)
 	fmt.Printf("Default AI engine: %s\n", selectedEngine)
+	if enableMemory {
+		fmt.Println("Session memory: enabled (use /save to save context)")
+	}
 
 	// Add personal remote if provided
 	if personalRepo != "" {

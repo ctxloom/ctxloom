@@ -17,7 +17,7 @@ Examples:
   scm prompt show core#prompts/code-review     # Show prompt content
   scm prompt edit core#prompts/code-review     # Edit prompt content
   scm prompt create my-bundle code-review      # Create new prompt
-  scm prompt install scm-github/core           # Install bundle from remote`,
+  scm prompt install scm-main/core           # Install bundle from remote`,
 }
 
 var promptListCmd = &cobra.Command{
@@ -132,12 +132,12 @@ This pulls the entire bundle (which contains prompts, fragments, etc.)
 from the specified remote.
 
 Reference formats:
-  scm-github/core                    # Bundle from default remote path
+  scm-main/core                    # Bundle from default remote path
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  scm prompt install scm-github/core
-  scm prompt install scm-github/go-development`,
+  scm prompt install scm-main/core
+  scm prompt install scm-main/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], promptInstallForce, promptInstallBlind)
@@ -160,7 +160,7 @@ to the specified remote.
 
 Examples:
   scm prompt push my-bundle
-  scm prompt push my-bundle scm-github
+  scm prompt push my-bundle scm-main
   scm prompt push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {

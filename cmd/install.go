@@ -35,14 +35,14 @@ The type is auto-detected from the reference format or by checking
 if a local bundle/profile with that name exists.
 
 Reference formats:
-  scm-github/core                                    # Uses default remote
+  scm-main/core                                    # Uses default remote
   https://github.com/owner/repo@v1/bundles/core      # Full URL
   github:bundles/core@v1.0.0                         # Legacy format
 
 Examples:
   scm install                           # Install all from lockfile
-  scm install scm-github/core           # Install a bundle
-  scm install scm-github/developer      # Install a profile
+  scm install scm-main/core           # Install a bundle
+  scm install scm-main/developer      # Install a profile
   scm install --force                   # Skip confirmation prompts
   scm install --dry-run                 # Show what would be installed`,
 	Args: cobra.MaximumNArgs(1),
@@ -194,7 +194,7 @@ func detectItemType(cfg *config.Config, reference string) string {
 		return "profile"
 	}
 
-	// For remote references like "scm-github/foo", we can't easily tell
+	// For remote references like "scm-main/foo", we can't easily tell
 	// Try to infer from local existence if it's a simple name
 	if !strings.Contains(reference, "/") && !strings.Contains(reference, ":") {
 		// Simple name - check if it exists locally as a profile or bundle

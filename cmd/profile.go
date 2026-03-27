@@ -476,9 +476,9 @@ If no remote is specified, uses the default remote.
 
 Examples:
   scm profile push my-profile
-  scm profile push my-profile scm-github
+  scm profile push my-profile scm-main
   scm profile push my-profile --pr
-  scm profile push my-profile scm-github --message "Add my profile"`,
+  scm profile push my-profile scm-main --message "Add my profile"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runProfilePush,
 }
@@ -576,12 +576,12 @@ var profileInstallCmd = &cobra.Command{
 	Long: `Install a profile from a remote repository.
 
 Reference formats:
-  scm-github/developer                    # Profile from default remote path
+  scm-main/developer                    # Profile from default remote path
   https://github.com/user/repo@v1/profiles/developer   # Full URL
 
 Examples:
-  scm profile install scm-github/developer
-  scm profile install scm-github/architect`,
+  scm profile install scm-main/developer
+  scm profile install scm-main/architect`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -616,10 +616,10 @@ var profileExportCmd = &cobra.Command{
 	Short: "Export a profile to a directory",
 	Long: `Export a profile from .scm/profiles to an arbitrary directory.
 
-Useful for publishing profiles to a shared repository like scm-github.
+Useful for publishing profiles to a shared repository like scm-main.
 
 Examples:
-  scm profile export architect ../scm-github/scm/v1/profiles
+  scm profile export architect ../scm-main/scm/v1/profiles
   scm profile export my-profile ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runProfileExport,
@@ -676,7 +676,7 @@ var profileImportCmd = &cobra.Command{
 Use --force to overwrite an existing profile.
 
 Examples:
-  scm profile import ../scm-github/scm/v1/profiles/architect.yaml
+  scm profile import ../scm-main/scm/v1/profiles/architect.yaml
   scm profile import ./my-profile.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileImport,

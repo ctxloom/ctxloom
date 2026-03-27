@@ -56,11 +56,12 @@ func NormalizeBundleName(name string) string {
 // Each fragment and prompt is distilled individually with bundle context.
 type Bundle struct {
 	// Metadata
-	Version     string   `yaml:"version"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Author      string   `yaml:"author,omitempty"`
-	Description string   `yaml:"description,omitempty"`
-	Notes       string   `yaml:"notes,omitempty"` // Human-readable, not sent to AI
+	Version      string   `yaml:"version"`
+	Tags         []string `yaml:"tags,omitempty"`
+	Author       string   `yaml:"author,omitempty"`
+	Description  string   `yaml:"description,omitempty"`
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup instructions, shown on install
 
 	// Content maps (keyed by name)
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`
@@ -78,7 +79,7 @@ type BundleMCP struct {
 	Args         []string          `yaml:"args,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty"`
 	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 }
 
 // BundleFragment defines a fragment within a bundle.
@@ -86,7 +87,7 @@ type BundleFragment struct {
 	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
 	Variables    []string `yaml:"variables,omitempty"`    // Template variables
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string   `yaml:"content"`
 	ContentHash  string   `yaml:"content_hash,omitempty"`
 	Distilled    string   `yaml:"distilled,omitempty"`
@@ -100,7 +101,7 @@ type BundlePrompt struct {
 	Tags         []string      `yaml:"tags,omitempty"`
 	Variables    []string      `yaml:"variables,omitempty"`
 	Notes        string        `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string        `yaml:"content"`
 	ContentHash  string        `yaml:"content_hash,omitempty"`
 	Distilled    string        `yaml:"distilled,omitempty"`
@@ -524,14 +525,15 @@ func extractBundleName(path string) string {
 // LoadedContent represents content loaded at runtime, ready to send to LLM.
 // This is the runtime representation of fragments/prompts from bundles.
 type LoadedContent struct {
-	Name        string            // Full name (bundle/item)
-	Version     string            // Bundle version
-	Tags        []string          // Combined tags
-	Content     string            // The actual content
-	IsDistilled bool              // Whether distilled version was used
-	DistilledBy string            // Model that created distillation
-	Exports     map[string]string // Exported variables (from generators)
-	Plugins     PluginsConfig     // Plugin-specific settings
+	Name         string            // Full name (bundle/item)
+	Version      string            // Bundle version
+	Tags         []string          // Combined tags
+	Content      string            // The actual content
+	Installation string            // Setup/installation instructions for tooling
+	IsDistilled  bool              // Whether distilled version was used
+	DistilledBy  string            // Model that created distillation
+	Exports      map[string]string // Exported variables (from generators)
+	Plugins      PluginsConfig     // Plugin-specific settings
 }
 
 // ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
@@ -682,12 +684,13 @@ func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
 		}
 
 		return &LoadedContent{
-			Name:        fmt.Sprintf("%s/%s", bundle.Name, fragName),
-			Version:     bundle.Version,
-			Tags:        append(bundle.Tags, frag.Tags...),
-			Content:     frag.EffectiveContent(l.preferDistilled),
-			IsDistilled: l.preferDistilled && frag.Distilled != "",
-			DistilledBy: frag.DistilledBy,
+			Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
+			Version:      bundle.Version,
+			Tags:         append(bundle.Tags, frag.Tags...),
+			Content:      frag.EffectiveContent(l.preferDistilled),
+			Installation: frag.Installation,
+			IsDistilled:  l.preferDistilled && frag.Distilled != "",
+			DistilledBy:  frag.DistilledBy,
 		}, nil
 	}
 
@@ -705,12 +708,13 @@ func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
 
 		if frag, ok := bundle.Fragments[name]; ok {
 			return &LoadedContent{
-				Name:        fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:     bundle.Version,
-				Tags:        append(bundle.Tags, frag.Tags...),
-				Content:     frag.EffectiveContent(l.preferDistilled),
-				IsDistilled: l.preferDistilled && frag.Distilled != "",
-				DistilledBy: frag.DistilledBy,
+				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
+				Version:      bundle.Version,
+				Tags:         append(bundle.Tags, frag.Tags...),
+				Content:      frag.EffectiveContent(l.preferDistilled),
+				Installation: frag.Installation,
+				IsDistilled:  l.preferDistilled && frag.Distilled != "",
+				DistilledBy:  frag.DistilledBy,
 			}, nil
 		}
 	}
@@ -744,13 +748,14 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 		}
 
 		return &LoadedContent{
-			Name:        fmt.Sprintf("%s/%s", bundle.Name, promptName),
-			Version:     bundle.Version,
-			Tags:        append(bundle.Tags, prompt.Tags...),
-			Content:     prompt.EffectiveContent(l.preferDistilled),
-			IsDistilled: l.preferDistilled && prompt.Distilled != "",
-			DistilledBy: prompt.DistilledBy,
-			Plugins:     prompt.Plugins,
+			Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
+			Version:      bundle.Version,
+			Tags:         append(bundle.Tags, prompt.Tags...),
+			Content:      prompt.EffectiveContent(l.preferDistilled),
+			Installation: prompt.Installation,
+			IsDistilled:  l.preferDistilled && prompt.Distilled != "",
+			DistilledBy:  prompt.DistilledBy,
+			Plugins:      prompt.Plugins,
 		}, nil
 	}
 
@@ -768,13 +773,14 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 
 		if prompt, ok := bundle.Prompts[name]; ok {
 			return &LoadedContent{
-				Name:        fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:     bundle.Version,
-				Tags:        append(bundle.Tags, prompt.Tags...),
-				Content:     prompt.EffectiveContent(l.preferDistilled),
-				IsDistilled: l.preferDistilled && prompt.Distilled != "",
-				DistilledBy: prompt.DistilledBy,
-				Plugins:     prompt.Plugins,
+				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
+				Version:      bundle.Version,
+				Tags:         append(bundle.Tags, prompt.Tags...),
+				Content:      prompt.EffectiveContent(l.preferDistilled),
+				Installation: prompt.Installation,
+				IsDistilled:  l.preferDistilled && prompt.Distilled != "",
+				DistilledBy:  prompt.DistilledBy,
+				Plugins:      prompt.Plugins,
 			}, nil
 		}
 	}

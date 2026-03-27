@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
@@ -240,6 +241,7 @@ type PullItemResult struct {
 	SHA           string   `json:"sha"`
 	Overwritten   bool     `json:"overwritten"`
 	CascadePulled []string `json:"cascade_pulled,omitempty"`
+	Installation  string   `json:"installation,omitempty"` // Setup instructions for the user
 }
 
 // PullItem performs a direct pull operation using the existing Puller.
@@ -290,10 +292,27 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		return nil, err
 	}
 
-	return &PullItemResult{
+	pullResult := &PullItemResult{
 		LocalPath:     result.LocalPath,
 		SHA:           result.SHA,
 		Overwritten:   result.Overwritten,
 		CascadePulled: result.CascadePulled,
-	}, nil
+	}
+
+	// Extract installation instructions from pulled bundle
+	if itemType == remote.ItemTypeBundle && result.LocalPath != "" {
+		fs := req.FS
+		if fs == nil {
+			fs = afero.NewOsFs()
+		}
+		data, readErr := afero.ReadFile(fs, result.LocalPath)
+		if readErr == nil {
+			bundle, parseErr := bundles.ParseBundle(data)
+			if parseErr == nil && bundle.Installation != "" {
+				pullResult.Installation = bundle.Installation
+			}
+		}
+	}
+
+	return pullResult, nil
 }

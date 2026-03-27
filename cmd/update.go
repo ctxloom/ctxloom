@@ -32,7 +32,7 @@ By default, updates are applied. Use --dry-run to only show what would be update
 Examples:
   scm update                        # Update all items
   scm update --dry-run              # Show available updates without applying
-  scm update scm-github/core        # Update specific item
+  scm update scm-main/core        # Update specific item
   scm update --force                # Skip confirmation prompts
   scm update --cleanup              # Also remove items deleted from remote`,
 	RunE: runUpdate,

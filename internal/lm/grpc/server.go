@@ -64,16 +64,17 @@ func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
 		verbosity = opts.Verbosity
 	}
 
-	setupReq := &backends.SetupRequest{
-		WorkDir:   workDir,
-		Fragments: convertFragments(req.Fragments),
-		Env:       env,
-		Verbosity: verbosity,
-	}
-
-	// Setup the backend
-	if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
-		return err
+	// Setup the backend (skip for distillation/minimal mode)
+	if !opts.GetSkipSetup() {
+		setupReq := &backends.SetupRequest{
+			WorkDir:   workDir,
+			Fragments: convertFragments(req.Fragments),
+			Env:       env,
+			Verbosity: verbosity,
+		}
+		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
+			return err
+		}
 	}
 
 	// Build execute request from RunRequest
@@ -86,6 +87,7 @@ func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
 		DryRun:      opts.DryRun,
 		AutoApprove: opts.AutoApprove,
 		Temperature: opts.Temperature,
+		SkipSetup:   opts.GetSkipSetup(),
 	}
 
 	// Execute the backend

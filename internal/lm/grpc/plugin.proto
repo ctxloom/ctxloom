@@ -49,6 +49,7 @@ message RunOptions {
   string model = 7;       // Model to use (e.g., "opus", "gpt-4", "claude-3-sonnet")
   float temperature = 8;  // Creativity level 0.0-1.0 (0=deterministic)
   uint32 max_tokens = 9;  // Maximum response tokens (0=default)
+  bool skip_setup = 10;   // Skip context/hooks/skills setup (for distillation)
 }
 
 enum ExecutionMode {

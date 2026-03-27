@@ -233,16 +233,36 @@ func (s *ClaudeSkills) RegisterFromContent(workDir string, contents []*bundles.L
 	return WriteCommandFiles(workDir, contents)
 }
 
-// Clear removes all SCM-managed skills.
+// Clear removes all SCM-managed skills using the manifest.
 func (s *ClaudeSkills) Clear(workDir string) error {
-	scmDir := filepath.Join(workDir, ".claude", "commands", SCMCommandsDir)
-	return os.RemoveAll(scmDir)
+	commandsDir := filepath.Join(workDir, ".claude", "commands")
+	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
+
+	// Clean up old subdirectory style (migration)
+	_ = os.RemoveAll(filepath.Join(commandsDir, "scm"))
+
+	// Read manifest and remove tracked files
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, name := range strings.Split(string(data), "\n") {
+		if name = strings.TrimSpace(name); name != "" {
+			os.Remove(filepath.Join(commandsDir, name))
+		}
+	}
+
+	return os.Remove(manifestPath)
 }
 
-// List returns registered skill names.
+// List returns registered skill names from the manifest.
 func (s *ClaudeSkills) List(workDir string) ([]string, error) {
-	scmDir := filepath.Join(workDir, ".claude", "commands", SCMCommandsDir)
-	entries, err := os.ReadDir(scmDir)
+	manifestPath := filepath.Join(workDir, ".claude", "commands", ".scm-manifest")
+	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -251,9 +271,12 @@ func (s *ClaudeSkills) List(workDir string) ([]string, error) {
 	}
 
 	var names []string
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".md" {
-			name := entry.Name()[:len(entry.Name())-3] // Remove .md
+	for _, line := range strings.Split(string(data), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			// Remove .md extension
+			if strings.HasSuffix(name, ".md") {
+				name = name[:len(name)-3]
+			}
 			names = append(names, name)
 		}
 	}
@@ -419,7 +442,7 @@ func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
 	defer file.Close()
 
 	session := &Session{
-		ID:      filepath.Base(path),
+		ID:      strings.TrimSuffix(filepath.Base(path), ".jsonl"),
 		Entries: []SessionEntry{},
 	}
 

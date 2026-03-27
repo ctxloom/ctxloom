@@ -175,6 +175,16 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 		args = append(args, "--print")
 	}
 
+	// Minimal mode for distillation - skip all unnecessary startup
+	if req.SkipSetup {
+		args = append(args,
+			"--tools", "",                // Disable all tools
+			"--disable-slash-commands",   // No slash commands
+			"--no-session-persistence",   // Don't save session
+			"--setting-sources", "",      // Skip settings files
+		)
+	}
+
 	if prompt := GetPromptContent(req.Prompt); prompt != "" {
 		args = append(args, prompt)
 	}

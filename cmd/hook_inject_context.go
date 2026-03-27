@@ -78,6 +78,15 @@ Output format (JSON to stdout):
 			content = ""
 		}
 
+		// Load session memory from previous distilled session (if available)
+		sessionMemory := loadSessionMemoryForHook(workDir)
+		if sessionMemory != "" {
+			if content != "" {
+				content += "\n\n"
+			}
+			content += sessionMemory
+		}
+
 		// Build output
 		output := HookOutput{}
 		if content != "" {

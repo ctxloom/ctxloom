@@ -437,6 +437,19 @@ func (c *ContextConfig) IsDeferred() bool {
 	return c.GetRegenMode() == ContextRegenDeferred
 }
 
+// MemoryMode defines how memory management behaves.
+type MemoryMode string
+
+const (
+	// MemoryModeEager proactively compacts during the session via PostToolUse hooks.
+	// Distilled content is loaded on session start.
+	MemoryModeEager MemoryMode = "eager"
+
+	// MemoryModeLazy only compacts on explicit /save.
+	// Uses vector DB for retrieval - injects instructions to query memory when needed.
+	MemoryModeLazy MemoryMode = "lazy"
+)
+
 // MemoryConfig holds configuration for the session memory system.
 // This is a workaround feature for external compaction when native
 // LLM compaction is insufficient. Build with -tags memory to enable.
@@ -444,6 +457,12 @@ type MemoryConfig struct {
 	// Enabled controls whether the memory system is active.
 	// Defaults to false.
 	Enabled bool `mapstructure:"enabled" yaml:"enabled,omitempty"`
+
+	// Mode controls memory behavior: "eager" or "lazy".
+	// Eager: auto-compacts during session, loads distilled content on start.
+	// Lazy: only compacts on explicit /save, uses vector DB for retrieval.
+	// Defaults to "lazy".
+	Mode MemoryMode `mapstructure:"mode" yaml:"mode,omitempty"`
 
 	// Logging configures session conversation logging.
 	Logging MemoryLoggingConfig `mapstructure:"logging" yaml:"logging,omitempty"`
@@ -456,7 +475,7 @@ type MemoryConfig struct {
 	Vectors MemoryVectorsConfig `mapstructure:"vectors" yaml:"vectors,omitempty"`
 
 	// LoadOnStart controls whether to load recent memory on session start.
-	// Defaults to true if enabled.
+	// Defaults to true if enabled and mode is eager.
 	LoadOnStart *bool `mapstructure:"load_on_start" yaml:"load_on_start,omitempty"`
 }
 
@@ -497,16 +516,36 @@ type MemoryVectorsConfig struct {
 	ModelPath string `mapstructure:"model_path" yaml:"model_path,omitempty"`
 }
 
+// GetMode returns the memory mode. Defaults to lazy.
+func (m *MemoryConfig) GetMode() MemoryMode {
+	if m.Mode == "" {
+		return MemoryModeLazy
+	}
+	return m.Mode
+}
+
+// IsEager returns true if memory mode is eager.
+func (m *MemoryConfig) IsEager() bool {
+	return m.GetMode() == MemoryModeEager
+}
+
+// IsLazy returns true if memory mode is lazy.
+func (m *MemoryConfig) IsLazy() bool {
+	return m.GetMode() == MemoryModeLazy
+}
+
 // ShouldLoadOnStart returns whether to load memory on session start.
-// Defaults to true if memory is enabled.
+// Defaults to true if memory is enabled AND mode is eager.
+// In lazy mode, defaults to false (uses vector DB instead).
 func (m *MemoryConfig) ShouldLoadOnStart() bool {
 	if !m.Enabled {
 		return false
 	}
-	if m.LoadOnStart == nil {
-		return true
+	if m.LoadOnStart != nil {
+		return *m.LoadOnStart
 	}
-	return *m.LoadOnStart
+	// Default: load on start only in eager mode
+	return m.IsEager()
 }
 
 // GetCompactionPlugin returns the plugin to use for compaction.

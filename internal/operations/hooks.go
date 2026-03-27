@@ -136,19 +136,22 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 }
 
 // loadPromptsForCommands loads all prompts from bundles for slash command export.
+// Also includes built-in SCM prompts like saveandclear.
 func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*bundles.LoadedContent {
+	// Start with built-in prompts (always included)
+	prompts := getBuiltinPrompts(cfg)
+
 	bundleDirs := cfg.GetBundleDirs()
 	if len(bundleDirs) == 0 {
-		return nil
+		return prompts
 	}
 
 	loader := bundles.NewLoader(bundleDirs, cfg.Defaults.ShouldUseDistilled(), opts...)
 	infos, err := loader.ListAllPrompts()
 	if err != nil {
-		return nil
+		return prompts
 	}
 
-	var prompts []*bundles.LoadedContent
 	for _, info := range infos {
 		content, err := loader.GetPrompt(info.Name)
 		if err != nil {
@@ -159,6 +162,65 @@ func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*
 
 	return prompts
 }
+
+// getBuiltinPrompts returns SCM's built-in slash command prompts.
+func getBuiltinPrompts(cfg *config.Config) []*bundles.LoadedContent {
+	var prompts []*bundles.LoadedContent
+
+	// /save - compact session to memory
+	// Only include if memory is enabled
+	if cfg.Memory.Enabled {
+		enabled := true
+
+		// Choose prompt based on mode
+		var promptContent string
+		if cfg.Memory.IsEager() {
+			promptContent = saveEagerPrompt
+		} else {
+			promptContent = saveLazyPrompt
+		}
+
+		save := &bundles.LoadedContent{
+			Name:    "save",
+			Version: "1.0.0",
+			Tags:    []string{"memory", "session"},
+			Content: promptContent,
+		}
+		save.Plugins.LM.ClaudeCode.Enabled = &enabled
+		save.Plugins.LM.ClaudeCode.Description = "Compact current session to memory"
+		prompts = append(prompts, save)
+	}
+
+	return prompts
+}
+
+// saveEagerPrompt is used when memory.mode is "eager".
+// Distilled content is auto-loaded on next session start.
+const saveEagerPrompt = `Save the current session context to memory.
+
+Use the SCM MCP tool "compact_session" to save the current session:
+- This distills the conversation into key decisions, context, and learnings
+- The distilled content will be automatically loaded on your next session
+
+After compaction completes, inform the user:
+"Session saved to memory. The distilled context will be loaded automatically on your next session. Run /clear if you want to start fresh now."`
+
+// saveLazyPrompt is used when memory.mode is "lazy".
+// Uses vector DB for retrieval instead of auto-loading.
+const saveLazyPrompt = `Save the current session context to memory.
+
+Execute these steps in order:
+
+1. Use the SCM MCP tool "compact_session" to save the current session:
+   - This distills the conversation into key decisions, context, and learnings
+
+2. Use the SCM MCP tool "index_session" to add the distilled content to the vector database:
+   - This enables semantic search across your session history
+
+After indexing completes, inform the user:
+"Session saved to memory. Run /clear if you want to start fresh. To continue where you left off in a new session, just ask and I'll search my memory for relevant context using the query_memory tool."
+
+The user can then ask questions like "What were we working on?" or "Continue from before" and you should use the "query_memory" MCP tool to retrieve relevant context from previous sessions.`
 
 // regenerateContext loads fragments from default profiles and writes the context file.
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...backends.ContextFileOption) (string, error) {
@@ -200,8 +262,9 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			continue
 		}
 		backendFrags = append(backendFrags, &backends.Fragment{
-			Name:    content.Name,
-			Content: content.Content,
+			Name:         content.Name,
+			Content:      content.Content,
+			Installation: content.Installation,
 		})
 	}
 

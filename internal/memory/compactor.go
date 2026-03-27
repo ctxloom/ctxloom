@@ -280,6 +280,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	defer client.Kill()
 
 	// Build request with model specified in options
+	// SkipSetup=true for minimal startup (no hooks/skills/context)
 	req := &pb.RunRequest{
 		Prompt: &pb.Fragment{
 			Content: fmt.Sprintf("<session_log>\n%s\n</session_log>", chunk),
@@ -291,6 +292,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 			AutoApprove: true,
 			Mode:        pb.ExecutionMode_ONESHOT,
 			Model:       c.config.Model, // e.g., "haiku", "sonnet"
+			SkipSetup:   true,           // Minimal mode for distillation
 		},
 	}
 

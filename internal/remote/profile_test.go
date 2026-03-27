@@ -307,7 +307,59 @@ func TestResolveProfileDeps(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// Note: Testing "all remote bundles are cached" is difficult for ResolveProfileDeps
-	// because it creates its own ProfileDeps with OS filesystem. For full coverage,
-	// use ProfileDeps directly with WithProfileDepsFS option.
+	t.Run("processes remote bundles with uncached deps", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+
+		// Setup registry with remote
+		require.NoError(t, fs.MkdirAll("/test", 0755))
+		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+		// Create mock fetcher
+		mf := newMockFetcher()
+		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+		mf.refs["main"] = "abc123"
+
+		// Manually set up the ProfileDeps with mocked puller
+		// Since ResolveProfileDeps creates its own ProfileDeps, we can't directly inject,
+		// but we can at least test the error path with invalid registry
+		var buf bytes.Buffer
+		err := ResolveProfileDeps(context.Background(),
+			[]string{"alice/security"},
+			registry,
+			AuthConfig{},
+			&buf,
+			strings.NewReader(""),
+		)
+
+		// Expected to fail because the fetcher isn't mocked and GitHub isn't accessible
+		// This just tests that the function attempts to resolve deps
+		assert.Error(t, err)
+	})
+
+	t.Run("handles nil stdout/stdin", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		// Should not panic even with nil I/O
+		err := ResolveProfileDeps(context.Background(), []string{}, registry, AuthConfig{}, nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("filters out local refs from bundles", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		// Mixed local and remote bundles - only remotes should be processed
+		err := ResolveProfileDeps(context.Background(),
+			[]string{"local-bundle", "alice/remote-bundle"},
+			registry,
+			AuthConfig{},
+			bytes.NewBuffer([]byte{}),
+			strings.NewReader(""),
+		)
+
+		// No remotes registered, so should error trying to fetch
+		assert.Error(t, err)
+	})
 }

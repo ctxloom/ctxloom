@@ -34,6 +34,7 @@ const sidebars: SidebarsConfig = {
         'guides/hooks',
         'guides/sharing',
         'guides/distillation',
+        'guides/memory',
         'guides/adhoc-context',
         'guides/workflows',
       ],

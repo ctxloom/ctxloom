@@ -11,18 +11,25 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
 
-// SCMCommandsDir is the subdirectory within .claude/commands/ for SCM-generated commands.
-const SCMCommandsDir = "scm"
-
 // WriteCommandFiles generates Claude Code slash command files from prompts.
-// It deletes the .claude/commands/scm/ directory and regenerates it fresh.
+// Files are written directly to .claude/commands/ (e.g., save.md -> /save).
+// SCM tracks which files it manages via a manifest to clean up stale commands.
 // Only prompts with ClaudeCode.IsEnabled() == true are exported.
 func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
-	scmDir := filepath.Join(workDir, ".claude", "commands", SCMCommandsDir)
+	commandsDir := filepath.Join(workDir, ".claude", "commands")
+	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
 
-	// Clean slate - remove and recreate
-	if err := os.RemoveAll(scmDir); err != nil {
-		return fmt.Errorf("remove scm commands dir: %w", err)
+	// Clean up old subdirectory style (migration)
+	oldScmDir := filepath.Join(commandsDir, "scm")
+	_ = os.RemoveAll(oldScmDir)
+
+	// Read existing manifest and clean up tracked files
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		for _, name := range strings.Split(string(data), "\n") {
+			if name = strings.TrimSpace(name); name != "" {
+				os.Remove(filepath.Join(commandsDir, name))
+			}
+		}
 	}
 
 	// Check if we have any prompts to export
@@ -34,33 +41,36 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
 		}
 	}
 
-	// Only create directory if we have prompts to export
 	if !hasExportable {
+		os.Remove(manifestPath)
 		return nil
 	}
 
-	if err := os.MkdirAll(scmDir, 0755); err != nil {
-		return fmt.Errorf("create scm commands dir: %w", err)
+	if err := os.MkdirAll(commandsDir, 0755); err != nil {
+		return fmt.Errorf("create commands dir: %w", err)
 	}
 
+	var manifest []string
 	for _, p := range prompts {
 		if !p.Plugins.LM.ClaudeCode.IsEnabled() {
 			continue // Explicitly disabled
 		}
 
 		md := TransformToClaudeCommand(p)
-		path := filepath.Join(scmDir, p.Name+".md")
-
-		// Ensure parent directory exists for nested prompt names
-		if dir := filepath.Dir(path); dir != scmDir {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("create command subdir %s: %w", dir, err)
-			}
-		}
+		// Replace path separators with dashes for nested names
+		safeName := strings.ReplaceAll(p.Name, "/", "-")
+		filename := safeName + ".md"
+		path := filepath.Join(commandsDir, filename)
 
 		if err := os.WriteFile(path, []byte(md), 0644); err != nil {
 			return fmt.Errorf("write command %s: %w", p.Name, err)
 		}
+		manifest = append(manifest, filename)
+	}
+
+	// Write manifest for cleanup on next run
+	if err := os.WriteFile(manifestPath, []byte(strings.Join(manifest, "\n")), 0644); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
 	}
 
 	return nil

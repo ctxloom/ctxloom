@@ -426,6 +426,98 @@ func TestPuller_Pull_WithReplaceDirective(t *testing.T) {
 	assert.Contains(t, stdout.String(), "Using local replace")
 }
 
+func TestPuller_Pull_WithVendorDirective(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	// Create vendor config
+	require.NoError(t, fs.MkdirAll(".scm/vendor/bundles/alice", 0755))
+	require.NoError(t, afero.WriteFile(fs, ".scm/vendor/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, ".scm/config.yaml", []byte("vendor: true\n"), 0644))
+
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	vm := NewVendorManager(".scm", WithVendorFS(fs))
+	_ = vm.SetVendorMode(true)
+
+	puller := NewPuller(registry, AuthConfig{},
+		WithPullerFS(fs),
+		WithVendorManager(vm),
+	)
+
+	var stdout bytes.Buffer
+	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+		Force:    true,
+		LocalDir: ".scm",
+		ItemType: ItemTypeBundle,
+		Stdout:   &stdout,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "vendored", result.SHA)
+	assert.Contains(t, stdout.String(), "Using vendored")
+}
+
+func TestPuller_Pull_BlindMode(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+	// Mock fetcher
+	mf := newMockFetcher()
+	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.refs["main"] = "abc123"
+
+	puller := NewPuller(registry, AuthConfig{},
+		WithPullerFS(fs),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithLockfileManager(NewLockfileManager(".scm", WithLockfileFS(fs))),
+		WithTerminalChecker(&mockTerminalChecker{isReader: false}),
+	)
+
+	var stdout bytes.Buffer
+	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+		Blind:    true,
+		LocalDir: ".scm",
+		ItemType: ItemTypeBundle,
+		Stdout:   &stdout,
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Contains(t, stdout.String(), "Blind mode")
+}
+
+func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+
+	// Mock fetcher
+	mf := newMockFetcher()
+	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.refs["main"] = "abc123"
+
+	tc := &mockTerminalChecker{isReader: true, isWriter: true}
+	puller := NewPuller(registry, AuthConfig{},
+		WithPullerFS(fs),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithTerminalChecker(tc),
+		WithLockfileManager(NewLockfileManager(".scm", WithLockfileFS(fs))),
+	)
+
+	// Call with nil Stdout and Stdin - should use defaults
+	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+		Force:    true,
+		LocalDir: ".scm",
+		ItemType: ItemTypeBundle,
+		Stdout:   nil, // Should default to os.Stdout
+		Stdin:    nil, // Should default to os.Stdin
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "abc123", result.SHA)
+}
+
 func TestDefaultTerminalChecker(t *testing.T) {
 	checker := &defaultTerminalChecker{}
 
@@ -707,5 +799,148 @@ func TestTransformProfileContent(t *testing.T) {
 		require.NoError(t, err)
 		// Should preserve the #fragments/tdd suffix
 		assert.Contains(t, string(result), "#fragments/tdd")
+	})
+}
+
+func TestPuller_WriteContent(t *testing.T) {
+	t.Run("writes content to default directory", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+		)
+
+		ref := &Reference{
+			Remote: "alice",
+			Path:   "security",
+			GitRef: "v1.0.0",
+		}
+
+		content := []byte("test content\n")
+		opts := PullOptions{LocalDir: ""}
+
+		err := puller.writeContent(ref, opts, content, "abc123")
+
+		require.NoError(t, err)
+		exists, err := afero.Exists(fs, ".scm/bundles/alice/security.yaml")
+		require.NoError(t, err)
+		assert.True(t, exists)
+
+		savedContent, err := afero.ReadFile(fs, ".scm/bundles/alice/security.yaml")
+		require.NoError(t, err)
+		assert.Equal(t, content, savedContent)
+	})
+
+	t.Run("writes content to custom directory", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+		)
+
+		ref := &Reference{
+			Remote: "alice",
+			Path:   "security",
+			GitRef: "v1.0.0",
+		}
+
+		content := []byte("custom content\n")
+		opts := PullOptions{LocalDir: "/custom"}
+
+		err := puller.writeContent(ref, opts, content, "abc123")
+
+		require.NoError(t, err)
+		exists, err := afero.Exists(fs, "/custom/bundles/alice/security.yaml")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("creates parent directories", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+		)
+
+		ref := &Reference{
+			Remote: "alice",
+			Path:   "deep/nested/security",
+			GitRef: "v1.0.0",
+		}
+
+		content := []byte("nested content\n")
+		opts := PullOptions{LocalDir: "/test"}
+
+		err := puller.writeContent(ref, opts, content, "abc123")
+
+		require.NoError(t, err)
+		exists, err := afero.Exists(fs, "/test/bundles/alice/deep/nested/security.yaml")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+}
+
+func TestPuller_UpdateLockfile(t *testing.T) {
+	t.Run("records entry in lockfile", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(".scm", 0755))
+
+		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+
+		// Initialize empty lockfile
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
+
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+			WithLockfileManager(lm),
+		)
+
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/scm", Version: "v1"}
+
+		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
+
+		require.NoError(t, err)
+
+		// Verify lockfile was updated
+		loaded, err := lm.Load()
+		require.NoError(t, err)
+		entry, ok := loaded.Bundles["alice/security"]
+		assert.True(t, ok)
+		assert.Equal(t, "abc123def456", entry.SHA)
+		assert.Equal(t, "v1.0.0", entry.RequestedVersion)
+		assert.Equal(t, "https://github.com/alice/scm", entry.URL)
+	})
+
+	t.Run("handles multiple entries", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(".scm", 0755))
+
+		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
+
+		puller := NewPuller(registry, AuthConfig{},
+			WithPullerFS(fs),
+			WithLockfileManager(lm),
+		)
+
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/scm", Version: "v1"}
+
+		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
+		require.NoError(t, err)
+
+		err = puller.updateLockfile("alice/testing", ItemTypeBundle, rem, "def456", "v2.0.0")
+		require.NoError(t, err)
+
+		loaded, err := lm.Load()
+		require.NoError(t, err)
+		assert.Len(t, loaded.Bundles, 2)
+		assert.Contains(t, loaded.Bundles, "alice/security")
+		assert.Contains(t, loaded.Bundles, "alice/testing")
 	})
 }

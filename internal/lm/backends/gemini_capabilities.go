@@ -18,6 +18,9 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
+// geminiSCMCommandsDir is the subdirectory for SCM-managed Gemini commands.
+const geminiSCMCommandsDir = "scm"
+
 // GeminiCommand represents a Gemini CLI slash command in TOML format.
 type GeminiCommand struct {
 	Description string `toml:"description,omitempty"`
@@ -281,13 +284,13 @@ func (s *GeminiSkills) RegisterFromContent(workDir string, contents []*bundles.L
 
 // Clear removes all SCM-managed skills.
 func (s *GeminiSkills) Clear(workDir string) error {
-	scmDir := filepath.Join(workDir, ".gemini", "commands", SCMCommandsDir)
+	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
 	return os.RemoveAll(scmDir)
 }
 
 // List returns registered skill names.
 func (s *GeminiSkills) List(workDir string) ([]string, error) {
-	scmDir := filepath.Join(workDir, ".gemini", "commands", SCMCommandsDir)
+	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
 	entries, err := os.ReadDir(scmDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -310,7 +313,7 @@ func (s *GeminiSkills) List(workDir string) ([]string, error) {
 // It deletes the .gemini/commands/scm/ directory and regenerates it fresh.
 // Only prompts with Gemini.IsEnabled() == true are exported.
 func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
-	scmDir := filepath.Join(workDir, ".gemini", "commands", SCMCommandsDir)
+	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
 
 	// Clean slate - remove and recreate
 	if err := os.RemoveAll(scmDir); err != nil {

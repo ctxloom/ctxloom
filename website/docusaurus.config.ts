@@ -11,7 +11,7 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://scm.abbitt.me',
+  url: 'https://sophisticatedcontextmanager.dev',
   baseUrl: '/',
 
   organizationName: 'SophisticatedContextManager',

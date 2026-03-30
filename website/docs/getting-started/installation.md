@@ -36,11 +36,11 @@ Download precompiled binaries from the [releases page](https://github.com/benjam
 
 ```bash
 # Apple Silicon (M1/M2/M3)
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_0.0.8_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_darwin_arm64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 
 # Intel
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_0.0.8_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_darwin_amd64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 ```
 
@@ -48,11 +48,11 @@ sudo mv scm /usr/local/bin/
 
 ```bash
 # x86_64
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_0.0.8_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_linux_amd64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 
 # ARM64
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_0.0.8_linux_arm64.tar.gz | tar xz
+curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_linux_arm64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 ```
 
@@ -60,24 +60,11 @@ sudo mv scm /usr/local/bin/
 
 For development or to get the latest unreleased features.
 
-### Which Build?
-
-SCM offers two build variants:
-
-| Build | Size | CGO | Best For |
-|-------|------|-----|----------|
-| **Standard** | ~27MB | No | Most users - includes all core features |
-| **Full** | ~31MB | Yes | Users who need AST-based code compression |
-
-**Standard build** includes everything except tree-sitter code compression. This is the recommended build for most users.
-
-**Full build** adds tree-sitter for AST-aware code compression when distilling context fragments. This requires CGO and C compilers, making cross-compilation more complex.
-
 ### Prerequisites
 
 - Go 1.21+
 - [just](https://github.com/casey/just) command runner (optional)
-- C compiler (only for full build)
+- C compiler (required for CGO/tree-sitter support)
 
 ### Clone and Build
 
@@ -86,13 +73,9 @@ SCM offers two build variants:
 git clone https://github.com/benjaminabbitt/scm.git
 cd scm
 
-# Standard build (recommended)
+# Build
 just build
 # or: go build -ldflags "-s -w" -o scm .
-
-# Full build with tree-sitter
-just build-scm-full
-# or: go build -tags treesitter -ldflags "-s -w" -o scm .
 
 # Install
 sudo mv scm /usr/local/bin/
@@ -102,12 +85,10 @@ sudo mv scm /usr/local/bin/
 
 | Command | Description |
 |---------|-------------|
-| `just build` | Standard build (no CGO, smaller) |
-| `just build-scm-full` | Full build with tree-sitter (requires CGO) |
+| `just build` | Build SCM binary |
 | `just install` | Build and install to `~/go/bin` |
-| `just install-local` | Build static and install to `~/.local/bin` |
-| `just test` | Run tests (standard) |
-| `just test -tags treesitter` | Run all tests including tree-sitter |
+| `just install-local` | Build and install to `~/.local/bin` |
+| `just test` | Run all tests |
 
 ## Verify Installation
 
@@ -117,7 +98,7 @@ scm --version
 
 Expected output:
 ```
-scm version 0.0.8
+scm version 0.2.0
 ```
 
 ## Shell Completion

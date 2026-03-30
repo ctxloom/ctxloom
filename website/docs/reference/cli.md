@@ -211,6 +211,30 @@ scm mcp remove tree-sitter
 scm mcp auto-register --disable
 ```
 
+## scm memory
+
+Manage session memory.
+
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `check` | | Show current session size and threshold status |
+| `compact` | `--session`, `--model` | Compact session to distilled summary |
+| `list` | `--backend` | List sessions with compaction status |
+| `load` | `--model` | Load and distill a specific session |
+| `query` | `--limit` | Semantic search across session history |
+
+### Examples
+
+```bash
+scm memory check                         # Check session size
+scm memory compact                       # Compact current session
+scm memory compact --session abc123      # Compact specific session
+scm memory list                          # List all sessions
+scm memory list --backend gemini         # List Gemini sessions
+scm memory load abc123def                # Load specific session
+scm memory query "authentication flow"  # Search session history
+```
+
 ## scm completion
 
 Generate shell completion scripts.

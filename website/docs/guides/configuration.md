@@ -196,3 +196,33 @@ The `lock.yaml` records installed remote items for reproducible installations:
 scm remote lock        # Generate lockfile
 scm remote sync        # Sync from lockfile
 ```
+
+## Memory Configuration
+
+Session memory preserves context across conversations:
+
+```yaml
+memory:
+  enabled: true                # Enable session memory
+  mode: lazy                   # lazy or eager
+
+  compaction:
+    plugin: claude-code        # LLM plugin for distillation
+    model: haiku               # Model (fast + cheap)
+    chunk_size: 8000           # Tokens per chunk
+
+  load_on_start: false         # Auto-load on session start (eager mode)
+
+  vectors:
+    enabled: true              # Enable vector search
+    model_path: ~/.scm/models/all-MiniLM-L6-v2.onnx
+```
+
+### Memory Modes
+
+| Mode | Behavior |
+|------|----------|
+| `lazy` | Manual compaction via `/save`. Vector DB for retrieval. |
+| `eager` | Same as lazy, but auto-loads distilled memory on session start. |
+
+See [Memory Guide](/guides/memory) for usage details.

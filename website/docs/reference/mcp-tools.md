@@ -474,6 +474,105 @@ Apply/reapply SCM hooks to backend configuration files (`.claude/settings.json`,
 
 ---
 
+## Session Memory Tools
+
+These tools manage session memory for context preservation across conversations. See the [Memory Guide](/guides/memory) for usage details.
+
+### compact_session
+
+Compact current or specified session log into a distilled summary.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `session_id` | string | No | Session ID to compact (defaults to current session) |
+| `model` | string | No | LLM model for distillation (default: haiku) |
+| `backend` | string | No | Backend to read from: `claude-code` or `gemini` (default: `claude-code`) |
+
+### get_session_memory
+
+Get the distilled memory from a previous session that was loaded at startup.
+
+**Parameters:** None
+
+### list_sessions
+
+List all sessions from the backend with their compaction status.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `backend` | string | No | Backend to list from: `claude-code` or `gemini` (default: `claude-code`) |
+
+### load_session
+
+Distill and load context from a specific session.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `session_id` | string | Yes | Session ID to load |
+| `backend` | string | No | Backend to read from (default: `claude-code`) |
+| `model` | string | No | LLM model for distillation if needed |
+
+### recover_session
+
+Recover context from the current session after `/clear`. Uses stable process ID tracking to find the previous session automatically.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `session_id` | string | No | Session ID to recover (auto-detected if not provided) |
+| `backend` | string | No | Backend to read from (default: `claude-code`) |
+| `model` | string | No | LLM model for distillation if needed |
+
+### get_previous_session
+
+Get the previous session's distilled content by looking up the session registry. This is the primary tool for recovering context after `/clear`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `model` | string | No | LLM model for distillation if needed |
+
+### browse_session_history
+
+Browse recent sessions with AI-generated summaries. Shows sessions from the last 3 days with a brief description of each.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `backend` | string | No | Backend to browse: `claude-code` or `gemini` (default: `claude-code`) |
+
+### index_session
+
+Index a session to the vector database for semantic search.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `session_id` | string | Yes | Session ID to index |
+
+### query_memory
+
+Semantic search across session history using vector similarity.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `query` | string | Yes | Search query |
+| `limit` | integer | No | Maximum results (default: 5) |
+
+---
+
 ## Using MCP Tools
 
 ### With Claude Code

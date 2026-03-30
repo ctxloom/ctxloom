@@ -18,7 +18,8 @@ SCM organizes context into reusable **bundles** that can be:
 - **Assembled on demand** - Combine bundles and fragments for different tasks
 - **Grouped into profiles** - Switch contexts with a single flag (`-p developer`)
 - **Shared across teams** - Pull bundles from remote repositories (GitHub/GitLab)
-- **Token-optimized** - Distill content to minimal versions
+- **Token-optimized** - Distill content to minimal versions using AST-aware compression
+- **Preserved across sessions** - Save and recover context with session memory
 
 :::note Pre-release
 This is a pre-release project. It works and is in active use, but architectural improvements and refactoring are ongoing.

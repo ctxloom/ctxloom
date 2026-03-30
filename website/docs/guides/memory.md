@@ -186,7 +186,7 @@ Session memory provides these MCP tools:
 ### Example: Manual Compaction
 
 ```
-Use compact_session to save our current progress
+Session's getting long, compact it
 ```
 
 ### Example: Load Specific Session

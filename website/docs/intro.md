@@ -11,7 +11,7 @@ sidebar_position: 1
 
 - **Save hours per week** - Write context once, reuse across all sessions
 - **Consistent across projects** - Store your standards in a git repo, pull into any project
-- **Share across team** - Same mechanism - everyone pulls from shared remotes
+- **Share across team** - Pull from shared remotes, or check `.scm/` into your repo (some subdirs should be gitignored)
 - **Load only what's relevant** - Tags and profiles select context per task, keeping unrelated fragments out of the context window
 - **Dynamic loading** - Need a fragment mid-session? MCP tools search local and remote, then load on demand
 - **Never lose progress** - Session memory survives `/clear`

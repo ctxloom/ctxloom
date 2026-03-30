@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/spf13/afero"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
@@ -139,11 +140,17 @@ func (s *GeminiSkills) List(workDir string) ([]string, error) {
 // WriteGeminiCommandFiles generates Gemini CLI slash command files from prompts.
 // It deletes the .gemini/commands/scm/ directory and regenerates it fresh.
 // Only prompts with Gemini.IsEnabled() == true are exported.
-func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
+func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
+	options := &commandFileOptions{fs: afero.NewOsFs()}
+	for _, opt := range opts {
+		opt(options)
+	}
+	fs := options.fs
+
 	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
 
 	// Clean slate - remove and recreate
-	if err := os.RemoveAll(scmDir); err != nil {
+	if err := fs.RemoveAll(scmDir); err != nil {
 		return fmt.Errorf("remove scm commands dir: %w", err)
 	}
 
@@ -161,7 +168,7 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent) e
 		return nil
 	}
 
-	if err := os.MkdirAll(scmDir, 0755); err != nil {
+	if err := fs.MkdirAll(scmDir, 0755); err != nil {
 		return fmt.Errorf("create scm commands dir: %w", err)
 	}
 
@@ -179,12 +186,12 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent) e
 
 		// Ensure parent directory exists for nested prompt names
 		if dir := filepath.Dir(path); dir != scmDir {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := fs.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("create command subdir %s: %w", dir, err)
 			}
 		}
 
-		if err := os.WriteFile(path, tomlData, 0644); err != nil {
+		if err := afero.WriteFile(fs, path, tomlData, 0644); err != nil {
 			return fmt.Errorf("write command %s: %w", p.Name, err)
 		}
 	}
@@ -215,14 +222,38 @@ func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
 type GeminiSessionHistory struct {
 	backend  *Gemini
 	registry *BaseSessionRegistry
+	fs       afero.Fs
+	homeDir  string // Override home directory for testing
+}
+
+// GeminiSessionHistoryOption configures GeminiSessionHistory.
+type GeminiSessionHistoryOption func(*GeminiSessionHistory)
+
+// WithGeminiSessionFS sets a custom filesystem for testing.
+func WithGeminiSessionFS(fs afero.Fs) GeminiSessionHistoryOption {
+	return func(h *GeminiSessionHistory) {
+		h.fs = fs
+	}
+}
+
+// WithGeminiSessionHomeDir sets a custom home directory for testing.
+func WithGeminiSessionHomeDir(dir string) GeminiSessionHistoryOption {
+	return func(h *GeminiSessionHistory) {
+		h.homeDir = dir
+	}
 }
 
 // NewGeminiSessionHistory creates a new Gemini session history handler.
-func NewGeminiSessionHistory(backend *Gemini) *GeminiSessionHistory {
-	return &GeminiSessionHistory{
+func NewGeminiSessionHistory(backend *Gemini, opts ...GeminiSessionHistoryOption) *GeminiSessionHistory {
+	h := &GeminiSessionHistory{
 		backend:  backend,
 		registry: NewBaseSessionRegistry("gemini-session-registry.json"),
+		fs:       afero.NewOsFs(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
@@ -276,9 +307,13 @@ func (h *GeminiSessionHistory) GetSessionByPath(path string) (*Session, error) {
 
 // findProjectDir finds the Gemini project directory for the given workDir.
 func (h *GeminiSessionHistory) findProjectDir(workDir string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+	homeDir := h.homeDir
+	if homeDir == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
 	}
 
 	// Gemini uses SHA256 hash of the absolute path
@@ -291,7 +326,7 @@ func (h *GeminiSessionHistory) findProjectDir(workDir string) (string, error) {
 	projectHash := hex.EncodeToString(hash[:])
 
 	projectDir := filepath.Join(homeDir, ".gemini", "tmp", projectHash)
-	if _, err := os.Stat(projectDir); err != nil {
+	if _, err := h.fs.Stat(projectDir); err != nil {
 		return "", fmt.Errorf("project directory not found: %s", projectDir)
 	}
 
@@ -300,7 +335,7 @@ func (h *GeminiSessionHistory) findProjectDir(workDir string) (string, error) {
 
 // listChatFiles returns session metadata for all chat files, sorted by time (most recent first).
 func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, error) {
-	entries, err := os.ReadDir(chatsDir)
+	entries, err := afero.ReadDir(h.fs, chatsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -314,14 +349,9 @@ func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, er
 			continue
 		}
 
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
 		sessions = append(sessions, SessionMeta{
 			ID:        strings.TrimSuffix(entry.Name(), ".json"),
-			StartTime: info.ModTime(), // Approximate
+			StartTime: entry.ModTime(), // Approximate
 		})
 	}
 
@@ -335,7 +365,7 @@ func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, er
 
 // parseSessionFile reads and parses a Gemini session JSON file.
 func (h *GeminiSessionHistory) parseSessionFile(path string) (*Session, error) {
-	data, err := os.ReadFile(path)
+	data, err := afero.ReadFile(h.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}

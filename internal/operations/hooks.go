@@ -3,11 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/gitutil"
 	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/SophisticatedContextManager/scm/resources"
 	"github.com/spf13/afero"
 )
 
@@ -110,6 +112,11 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	// Apply to each backend
 	for _, backendName := range backendNames {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		hooksCfg := &freshCfg.Hooks
 		if contextHash != "" {
 			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
@@ -121,7 +128,8 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 		// Write command files (each backend handles its own format)
 		if len(prompts) > 0 {
-			if err := backends.WriteCommandFilesFor(backendName, workDir, prompts); err != nil {
+			cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(fs)}
+			if err := backends.WriteCommandFilesFor(backendName, workDir, prompts, cmdOpts...); err != nil {
 				return nil, fmt.Errorf("failed to write %s commands: %w", backendName, err)
 			}
 		}
@@ -165,10 +173,70 @@ func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*
 }
 
 // getBuiltinPrompts returns SCM's built-in slash command prompts.
-// Currently returns empty - built-in commands like /recover and /loadctx
-// are defined in .claude/commands/ files, not here.
+// These are embedded in the SCM binary and always available.
 func getBuiltinPrompts(_ *config.Config) []*bundles.LoadedContent {
-	return nil
+	names, err := resources.ListBuiltinCommands()
+	if err != nil {
+		return nil
+	}
+
+	var prompts []*bundles.LoadedContent
+	for _, name := range names {
+		content, err := resources.GetBuiltinCommand(name)
+		if err != nil {
+			continue
+		}
+
+		description, body := parseMarkdownFrontmatter(string(content))
+		prompts = append(prompts, &bundles.LoadedContent{
+			Name:    name,
+			Content: body,
+			Plugins: bundles.PluginsConfig{
+				LM: bundles.LMPluginConfig{
+					ClaudeCode: bundles.ClaudeCodeConfig{
+						Description: description,
+					},
+					Gemini: bundles.GeminiConfig{
+						Description: description,
+					},
+				},
+			},
+		})
+	}
+	return prompts
+}
+
+// parseMarkdownFrontmatter extracts description from YAML frontmatter and returns body.
+// Expects format: ---\ndescription: ...\n---\nbody
+func parseMarkdownFrontmatter(content string) (description, body string) {
+	if !strings.HasPrefix(content, "---\n") {
+		return "", content
+	}
+
+	// Find the closing ---
+	rest := content[4:] // Skip opening "---\n"
+	endIdx := strings.Index(rest, "\n---")
+	if endIdx == -1 {
+		return "", content
+	}
+
+	frontmatter := rest[:endIdx]
+	body = strings.TrimPrefix(rest[endIdx+4:], "\n")
+
+	// Parse description from frontmatter (simple key: value parsing)
+	for _, line := range strings.Split(frontmatter, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "description:") {
+			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			// Remove surrounding quotes if present
+			if len(description) >= 2 && description[0] == '"' && description[len(description)-1] == '"' {
+				description = description[1 : len(description)-1]
+			}
+			break
+		}
+	}
+
+	return description, body
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

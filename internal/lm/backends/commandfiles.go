@@ -3,22 +3,36 @@ package backends
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/spf13/afero"
 )
+
+// CommandFileOption configures command file writing.
+type CommandFileOption func(*commandFileOptions)
+
+type commandFileOptions struct {
+	fs afero.Fs
+}
+
+// WithCommandFS sets the filesystem for command file operations.
+func WithCommandFS(fs afero.Fs) CommandFileOption {
+	return func(o *commandFileOptions) {
+		o.fs = fs
+	}
+}
 
 // WriteCommandFilesFor writes command files for the specified backend.
 // It dispatches to the appropriate backend-specific writer.
-func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent) error {
+func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
 	switch backendName {
 	case "claude-code":
-		return WriteCommandFiles(workDir, prompts)
+		return WriteCommandFiles(workDir, prompts, opts...)
 	case "gemini":
-		return WriteGeminiCommandFiles(workDir, prompts)
+		return WriteGeminiCommandFiles(workDir, prompts, opts...)
 	default:
 		// Backend doesn't support command files, silently succeed
 		return nil
@@ -29,19 +43,25 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 // Files are written directly to .claude/commands/ (e.g., save.md -> /save).
 // SCM tracks which files it manages via a manifest to clean up stale commands.
 // Only prompts with ClaudeCode.IsEnabled() == true are exported.
-func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
+func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
+	options := &commandFileOptions{fs: afero.NewOsFs()}
+	for _, opt := range opts {
+		opt(options)
+	}
+	fs := options.fs
+
 	commandsDir := filepath.Join(workDir, ".claude", "commands")
 	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
 
 	// Clean up old subdirectory style (migration)
 	oldScmDir := filepath.Join(commandsDir, "scm")
-	_ = os.RemoveAll(oldScmDir)
+	_ = fs.RemoveAll(oldScmDir)
 
 	// Read existing manifest and clean up tracked files
-	if data, err := os.ReadFile(manifestPath); err == nil {
+	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
 		for _, name := range strings.Split(string(data), "\n") {
 			if name = strings.TrimSpace(name); name != "" {
-				os.Remove(filepath.Join(commandsDir, name))
+				fs.Remove(filepath.Join(commandsDir, name))
 			}
 		}
 	}
@@ -56,11 +76,11 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
 	}
 
 	if !hasExportable {
-		os.Remove(manifestPath)
+		fs.Remove(manifestPath)
 		return nil
 	}
 
-	if err := os.MkdirAll(commandsDir, 0755); err != nil {
+	if err := fs.MkdirAll(commandsDir, 0755); err != nil {
 		return fmt.Errorf("create commands dir: %w", err)
 	}
 
@@ -76,14 +96,14 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent) error {
 		filename := safeName + ".md"
 		path := filepath.Join(commandsDir, filename)
 
-		if err := os.WriteFile(path, []byte(md), 0644); err != nil {
+		if err := afero.WriteFile(fs, path, []byte(md), 0644); err != nil {
 			return fmt.Errorf("write command %s: %w", p.Name, err)
 		}
 		manifest = append(manifest, filename)
 	}
 
 	// Write manifest for cleanup on next run
-	if err := os.WriteFile(manifestPath, []byte(strings.Join(manifest, "\n")), 0644); err != nil {
+	if err := afero.WriteFile(fs, manifestPath, []byte(strings.Join(manifest, "\n")), 0644); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 

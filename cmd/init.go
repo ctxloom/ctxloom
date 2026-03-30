@@ -468,9 +468,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if already exists
+	alreadyExists := false
 	if info, err := os.Stat(scmDir); err == nil && info.IsDir() {
+		alreadyExists = true
 		fmt.Printf("SCM directory already exists: %s\n", scmDir)
-		return nil
 	}
 
 	// Determine if interactive mode
@@ -480,130 +481,155 @@ func runInit(cmd *cobra.Command, args []string) error {
 	selectedEngine := initEngine
 	var personalRepo string
 
-	// Check engine availability
-	if selectedEngine == "" {
-		primary, secondary := getAvailableEngines()
-		if len(primary) == 0 && len(secondary) == 0 {
-			fmt.Fprintln(os.Stderr, "No AI engines detected.")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Install one of the following to get started:")
-			fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-			fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Then run 'scm init' again.")
-			return errNoEngines
+	// If directory already exists, get engine from existing config
+	if alreadyExists {
+		cfg, err := config.Load()
+		if err == nil && cfg.Defaults.LLMPlugin != "" {
+			selectedEngine = cfg.Defaults.LLMPlugin
 		}
 	}
 
-	if interactive && selectedEngine == "" {
-		prompts := newInitPrompts()
-
-		// 1. Engine selection
-		engine, err := prompts.promptEngineSelection()
-		if err != nil {
-			if err == errNoEngines {
-				return err // Already printed message above
+	// Only do setup if directory doesn't exist
+	if !alreadyExists {
+		// Check engine availability
+		if selectedEngine == "" {
+			primary, secondary := getAvailableEngines()
+			if len(primary) == 0 && len(secondary) == 0 {
+				fmt.Fprintln(os.Stderr, "No AI engines detected.")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Install one of the following to get started:")
+				fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
+				fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Then run 'scm init' again.")
+				return errNoEngines
 			}
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to read engine selection: %v\n", err)
-			selectedEngine = "claude-code" // fallback
-		} else {
-			selectedEngine = engine
 		}
 
-		// 2. Personal repo (optional)
-		repo, err := prompts.promptPersonalRepo()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to read repo selection: %v\n", err)
+		if interactive && selectedEngine == "" {
+			prompts := newInitPrompts()
+
+			// 1. Engine selection
+			engine, err := prompts.promptEngineSelection()
+			if err != nil {
+				if err == errNoEngines {
+					return err // Already printed message above
+				}
+				fmt.Fprintf(os.Stderr, "SCM: warning: failed to read engine selection: %v\n", err)
+				selectedEngine = "claude-code" // fallback
 			} else {
-			personalRepo = repo
+				selectedEngine = engine
+			}
+
+			// 2. Personal repo (optional)
+			repo, err := prompts.promptPersonalRepo()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "SCM: warning: failed to read repo selection: %v\n", err)
+			} else {
+				personalRepo = repo
+			}
+		}
+
+		// Default to first available engine if not selected
+		if selectedEngine == "" {
+			primary, _ := getAvailableEngines()
+			if len(primary) > 0 {
+				selectedEngine = primary[0]
+			} else {
+				selectedEngine = "claude-code" // shouldn't reach here due to check above
+			}
+		}
+
+		// Create the directory structure
+		dirs := []string{
+			scmDir,
+			filepath.Join(scmDir, "profiles"),
+			filepath.Join(scmDir, "bundles"),
+		}
+
+		for _, dir := range dirs {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			}
+		}
+
+		// Create config.yaml with selected engine and options
+		configPath := filepath.Join(scmDir, "config.yaml")
+		configContent := generateConfig(selectedEngine)
+		if err := os.WriteFile(configPath, configContent, 0644); err != nil {
+			return fmt.Errorf("failed to create config.yaml: %w", err)
+		}
+
+		// Create remotes.yaml with default remote (scm-main)
+		remotesPath := filepath.Join(scmDir, "remotes.yaml")
+		remotesContent, err := resources.GetDefaultRemotes()
+		if err != nil {
+			return fmt.Errorf("failed to read default remotes: %w", err)
+		}
+		if err := os.WriteFile(remotesPath, remotesContent, 0644); err != nil {
+			return fmt.Errorf("failed to create remotes.yaml: %w", err)
+		}
+
+		fmt.Printf("Initialized SCM directory: %s\n", scmDir)
+		fmt.Printf("Default AI engine: %s\n", selectedEngine)
+
+		// Add personal remote if provided
+		if personalRepo != "" {
+			cfg, loadErr := config.Load()
+			if loadErr != nil {
+				fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config for remote: %v\n", loadErr)
+			} else {
+				_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+					Name: "personal",
+					URL:  personalRepo,
+				})
+				if addErr != nil {
+					fmt.Fprintf(os.Stderr, "SCM: warning: failed to add personal remote: %v\n", addErr)
+				} else {
+					fmt.Printf("Added personal remote: %s\n", personalRepo)
+				}
+			}
+		}
+
+		// Apply hooks to register MCP server
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config: %v\n", err)
+		} else {
+			result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+				Backend:           "all",
+				RegenerateContext: false,
+			})
+			if applyErr != nil {
+				fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", applyErr)
+			} else {
+				fmt.Printf("Applied hooks for: %v\n", result.Backends)
+			}
+		}
+
+		// Update .gitignore to exclude .scm/memory/ (session logs)
+		if err := ensureGitignoreEntry(filepath.Dir(scmDir)); err != nil {
+			fmt.Fprintf(os.Stderr, "SCM: warning: failed to update .gitignore: %v\n", err)
 		}
 	}
 
-	// Default to first available engine if not selected
+	// Default to first available engine if still not set (for existing dirs without config)
 	if selectedEngine == "" {
 		primary, _ := getAvailableEngines()
 		if len(primary) > 0 {
 			selectedEngine = primary[0]
 		} else {
-			selectedEngine = "claude-code" // shouldn't reach here due to check above
+			selectedEngine = "claude-code"
 		}
-	}
-
-	// Create the directory structure
-	dirs := []string{
-		scmDir,
-		filepath.Join(scmDir, "profiles"),
-		filepath.Join(scmDir, "bundles"),
-	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	// Create config.yaml with selected engine and options
-	configPath := filepath.Join(scmDir, "config.yaml")
-	configContent := generateConfig(selectedEngine)
-	if err := os.WriteFile(configPath, configContent, 0644); err != nil {
-		return fmt.Errorf("failed to create config.yaml: %w", err)
-	}
-
-	// Create remotes.yaml with default remote (scm-main)
-	remotesPath := filepath.Join(scmDir, "remotes.yaml")
-	remotesContent, err := resources.GetDefaultRemotes()
-	if err != nil {
-		return fmt.Errorf("failed to read default remotes: %w", err)
-	}
-	if err := os.WriteFile(remotesPath, remotesContent, 0644); err != nil {
-		return fmt.Errorf("failed to create remotes.yaml: %w", err)
-	}
-
-	fmt.Printf("Initialized SCM directory: %s\n", scmDir)
-	fmt.Printf("Default AI engine: %s\n", selectedEngine)
-
-	// Add personal remote if provided
-	if personalRepo != "" {
-		cfg, loadErr := config.Load()
-		if loadErr != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config for remote: %v\n", loadErr)
-		} else {
-			_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-				Name: "personal",
-				URL:  personalRepo,
-			})
-			if addErr != nil {
-				fmt.Fprintf(os.Stderr, "SCM: warning: failed to add personal remote: %v\n", addErr)
-			} else {
-				fmt.Printf("Added personal remote: %s\n", personalRepo)
-			}
-		}
-	}
-
-	// Apply hooks to register MCP server
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config: %v\n", err)
-	} else {
-		result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
-			Backend:           "all",
-			RegenerateContext: false,
-		})
-		if applyErr != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", applyErr)
-		} else {
-			fmt.Printf("Applied hooks for: %v\n", result.Backends)
-		}
-	}
-
-	// Update .gitignore to exclude .scm/memory/ (session logs)
-	if err := ensureGitignoreEntry(filepath.Dir(scmDir)); err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to update .gitignore: %v\n", err)
 	}
 
 	// Auto-launch AI with profile discovery prompt (interactive only)
 	if interactive && !initSkipLaunch {
-		fmt.Printf("\nLaunching %s to help you discover profiles...\n", selectedEngine)
+		if alreadyExists {
+			fmt.Printf("\nLaunching %s to help you discover profiles...\n", selectedEngine)
+		} else {
+			fmt.Printf("\nLaunching %s to help you discover profiles...\n", selectedEngine)
+		}
 		fmt.Println("(Use Ctrl+C to exit the AI session when done)")
 		fmt.Println()
 

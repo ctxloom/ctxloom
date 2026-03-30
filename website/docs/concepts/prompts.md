@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Prompts
 
-A **prompt** is a saved prompt template within a bundle. Prompts help standardize common AI interactions and are automatically exposed as **skills** (slash commands) in Claude Code.
+A **prompt** is a saved prompt template within a bundle. Prompts help standardize common AI interactions and are automatically exposed as **slash commands** in both Claude Code and Gemini CLI.
 
 ## Prompt Structure
 
@@ -34,15 +34,19 @@ prompts:
       - Testability
 ```
 
-## Claude Code Skills Integration
+## Slash Command Integration
 
-**Prompts are automatically exposed as Claude Code skills.** When you define a prompt, it becomes available as a slash command:
+**Prompts are automatically exposed as slash commands.** When you define a prompt, it becomes available in your AI CLI:
 
 ```bash
-# In Claude Code, use the prompt as a skill:
+# Claude Code or Gemini CLI:
 /code-review
 /refactor
 ```
+
+SCM writes command files to the appropriate location:
+- **Claude Code**: `.claude/commands/scm/*.md`
+- **Gemini CLI**: `.gemini/commands/scm/*.toml`
 
 ### Skill Configuration
 

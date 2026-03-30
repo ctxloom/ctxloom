@@ -20,7 +20,7 @@ sidebar_position: 1
 | Capability | Description |
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
-| **Slash Commands** | Prompts become `/skills` in Claude Code automatically |
+| **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
 | **Session Memory** | `/save` to persist context, recover after `/clear` |
 | **Remote Sync** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |

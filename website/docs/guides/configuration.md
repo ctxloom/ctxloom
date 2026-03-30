@@ -199,26 +199,13 @@ scm remote sync        # Sync from lockfile
 
 ## Memory Configuration
 
-Session memory preserves context across conversations:
+Session memory is always enabled. Compaction settings can be customized in `defaults:`:
 
 ```yaml
-memory:
-  enabled: true                # Enable session memory
-  mode: lazy                   # lazy or eager
-
-  compaction:
-    plugin: claude-code        # LLM plugin for distillation
-    model: haiku               # Model (fast + cheap)
-    chunk_size: 8000           # Tokens per chunk
-
-  load_on_start: false         # Auto-load on session start (eager mode)
+defaults:
+  compaction_plugin: claude-code  # LLM plugin for distillation
+  compaction_model: haiku         # Model (fast + cheap)
+  compaction_chunks: 8000         # Tokens per chunk
 ```
-
-### Memory Modes
-
-| Mode | Behavior |
-|------|----------|
-| `lazy` | Distillation on demand when recovering. |
-| `eager` | Same as lazy, but auto-loads distilled memory on session start. |
 
 See [Memory Guide](/guides/memory) for usage details.

@@ -14,8 +14,6 @@ const (
 	SessionsDir = "sessions"
 	// DistilledDir is the subdirectory for compacted summaries.
 	DistilledDir = "distilled"
-	// VectorsDir is the subdirectory for vector database.
-	VectorsDir = "vectors"
 )
 
 // LoadSessionLog loads all entries from a session log file.

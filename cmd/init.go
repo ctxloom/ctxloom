@@ -69,7 +69,7 @@ func isInteractiveTerminal() bool {
 }
 
 // ensureGitignoreEntry adds SCM memory directory to .gitignore if not already present.
-// This keeps session logs and vector DB local (machine-specific, potentially large).
+// This keeps session logs local (machine-specific, potentially large).
 func ensureGitignoreEntry(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	memoryEntry := ".scm/memory/"
@@ -338,39 +338,8 @@ func (p *initPrompts) promptPersonalRepo() (string, error) {
 	return repo, nil
 }
 
-// promptMemory asks if the user wants to enable session memory.
-// Memory allows saving/resuming conversations across sessions.
-// Default is yes (press Enter).
-func (p *initPrompts) promptMemory() (bool, error) {
-	fmt.Print("\nEnable session memory? (lets you /save and resume context) [Y/n]: ")
-	input, err := p.readCleanLine()
-	if err != nil {
-		return true, err // default to enabled on error
-	}
-
-	input = strings.ToLower(input)
-	// Default (empty) or explicit yes = enabled
-	if input == "" || input == "y" || input == "yes" {
-		return true, nil
-	}
-	return false, nil
-}
-
 // generateConfig creates a config.yaml with the selected engine and options.
-func generateConfig(engine string, enableMemory bool) []byte {
-	memorySection := ""
-	if enableMemory {
-		memorySection = `
-# Session memory - save/resume conversations
-memory:
-  enabled: true
-  load_on_start: true
-  compaction:
-    model: haiku
-    plugin: ` + engine + `
-`
-	}
-
+func generateConfig(engine string) []byte {
 	return []byte(fmt.Sprintf(`# SCM Configuration
 # See https://github.com/SophisticatedContextManager/scm for documentation
 
@@ -387,7 +356,7 @@ defaults:
 # MCP server configuration
 mcp:
   auto_register_scm: true
-%s`, engine, engine, memorySection))
+`, engine, engine))
 }
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
@@ -510,7 +479,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Determine selected engine
 	selectedEngine := initEngine
 	var personalRepo string
-	enableMemory := true // default to enabled
 
 	// Check engine availability
 	if selectedEngine == "" {
@@ -546,16 +514,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		repo, err := prompts.promptPersonalRepo()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "SCM: warning: failed to read repo selection: %v\n", err)
-		} else {
+			} else {
 			personalRepo = repo
-		}
-
-		// 3. Memory (default yes)
-		memEnabled, err := prompts.promptMemory()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to read memory selection: %v\n", err)
-		} else {
-			enableMemory = memEnabled
 		}
 	}
 
@@ -584,7 +544,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Create config.yaml with selected engine and options
 	configPath := filepath.Join(scmDir, "config.yaml")
-	configContent := generateConfig(selectedEngine, enableMemory)
+	configContent := generateConfig(selectedEngine)
 	if err := os.WriteFile(configPath, configContent, 0644); err != nil {
 		return fmt.Errorf("failed to create config.yaml: %w", err)
 	}
@@ -601,9 +561,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Initialized SCM directory: %s\n", scmDir)
 	fmt.Printf("Default AI engine: %s\n", selectedEngine)
-	if enableMemory {
-		fmt.Println("Session memory: enabled (use /save to save context)")
-	}
 
 	// Add personal remote if provided
 	if personalRepo != "" {
@@ -639,7 +596,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update .gitignore to exclude .scm/memory/ (session logs and vector DB)
+	// Update .gitignore to exclude .scm/memory/ (session logs)
 	if err := ensureGitignoreEntry(filepath.Dir(scmDir)); err != nil {
 		fmt.Fprintf(os.Stderr, "SCM: warning: failed to update .gitignore: %v\n", err)
 	}

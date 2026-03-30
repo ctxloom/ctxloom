@@ -233,7 +233,7 @@ func TransformContextOnStartup(ctx context.Context, cfg *config.Config) (*Transf
 	if cfg.Context.IsDeferred() {
 		return &TransformContextResult{
 			Status:  "deferred",
-			Message: "Context regeneration deferred - use vector database for semantic retrieval",
+			Message: "Context regeneration deferred - manage context files manually",
 		}, nil
 	}
 	return TransformContext(ctx, cfg, TransformContextRequest{})

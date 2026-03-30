@@ -18,19 +18,6 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/operations"
 )
 
-// vectorDBReminder is injected into session memory when context regeneration is deferred.
-// It reminds the LLM to use the query_memory tool for semantic retrieval of historical context.
-const vectorDBReminder = `## Memory System Active
-
-Context regeneration is set to "deferred" mode. Instead of regenerating context files on startup,
-use the **query_memory** tool to retrieve relevant historical context semantically.
-
-**Available memory tools:**
-- query_memory: Search past session memory for relevant context (semantic search)
-- index_session: Index a session log into the vector database for future retrieval
-
-When you need context about past work, decisions, or conversations, use query_memory with a
-descriptive query to find relevant information from previous sessions.`
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
@@ -377,10 +364,9 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 }
 
 type mcpServer struct {
-	reader        *bufio.Reader
-	writer        io.Writer
-	cfg           *config.Config
-	sessionMemory string // Loaded distilled memory from previous session
+	reader *bufio.Reader
+	writer io.Writer
+	cfg    *config.Config
 }
 
 type readResult struct {
@@ -502,16 +488,6 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 	}
 	s.cfg = cfg
 
-	// Load distilled memory from previous session (no-op if disabled)
-	// SCM Memory: Load point - easily removable when native compaction improves
-	loadedMemory, err := memoryLoadRecent(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to load session memory: %v\n", err)
-	} else if loadedMemory != "" {
-		s.sessionMemory = loadedMemory
-		fmt.Fprintf(os.Stderr, "SCM: loaded memory from previous session (%d chars)\n", len(loadedMemory))
-	}
-
 	// Output any warnings collected during config loading
 	for _, warning := range cfg.Warnings {
 		fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", warning)
@@ -540,13 +516,8 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 	} else if ctxResult.Status == "no_source" {
 		// No llm.md or scm.md - that's fine, just skip silently
 	} else if ctxResult.Status == "deferred" {
-		// Context regeneration is deferred - inject reminder to use vector database
-		fmt.Fprintf(os.Stderr, "SCM: context regeneration deferred - use query_memory for semantic retrieval\n")
-		// Append vector database reminder to session memory
-		if s.sessionMemory != "" {
-			s.sessionMemory += "\n\n"
-		}
-		s.sessionMemory += vectorDBReminder
+		// Context regeneration is deferred - that's fine
+		fmt.Fprintf(os.Stderr, "SCM: context regeneration deferred\n")
 	} else {
 		if len(ctxResult.Errors) > 0 {
 			for _, e := range ctxResult.Errors {
@@ -1321,11 +1292,9 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 	// Sync management
 	case "sync_dependencies":
 		result, err = s.toolSyncDependencies(ctx, params.Arguments)
-	// Memory tools (no-op stubs when built without memory tag)
+	// Memory tools
 	case "compact_session":
 		result, err = s.toolCompactSession(ctx, params.Arguments)
-	case "get_session_memory":
-		result, err = s.toolGetSessionMemory(ctx, params.Arguments)
 	case "list_sessions":
 		result, err = s.toolListSessions(ctx, params.Arguments)
 	case "load_session":
@@ -1336,11 +1305,6 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolBrowseSessionHistory(ctx, params.Arguments)
 	case "get_previous_session":
 		result, err = s.toolGetPreviousSession(ctx, params.Arguments)
-	// Vector tools (no-op stubs when built without vectors tag)
-	case "query_memory":
-		result, err = s.toolQueryMemory(ctx, params.Arguments)
-	case "index_session":
-		result, err = s.toolIndexSession(ctx, params.Arguments)
 	default:
 		return &mcpResponse{
 			JSONRPC: "2.0",

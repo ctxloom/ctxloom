@@ -30,24 +30,9 @@ When working on long sessions, you'll eventually approach context window limits.
 2. **Recover** context from the previous session after `/clear`
 3. **Browse** session history to find and load specific sessions
 
-## Configuration
-
-Enable memory in your `config.yaml`:
-
-```yaml
-memory:
-  enabled: true
-  mode: lazy          # or "eager"
-```
-
-### Memory Modes
-
-| Mode | Behavior |
-|------|----------|
-| **lazy** (default) | Distillation on demand when recovering. |
-| **eager** | Same as lazy, but auto-loads distilled memory on session start. |
-
 ## Usage
+
+Session memory is always enabled - no configuration required.
 
 ### The `/recover` Command
 
@@ -150,7 +135,7 @@ Memory is stored in:
 ```bash
 # Morning: Write code with Claude
 scm run --plugin claude-code "implement the auth module"
-/save  # Distills to .scm/memory/distilled/
+# When done, compact the session (or let it auto-compact on context limit)
 
 # Afternoon: Review with Gemini
 scm run --plugin gemini
@@ -176,7 +161,6 @@ Session memory provides these MCP tools:
 | Tool | Description |
 |------|-------------|
 | `compact_session` | Compact current or specified session |
-| `get_session_memory` | Get distilled content loaded at startup |
 | `list_sessions` | List available sessions with compaction status |
 | `load_session` | Distill and load a specific session by ID |
 | `recover_session` | Recover context after `/clear` using process tracking |
@@ -209,20 +193,13 @@ Use browse_session_history to show me recent sessions
 
 ## Advanced Configuration
 
-### Compaction Settings
+Compaction settings can be customized in `defaults:`:
 
 ```yaml
-memory:
-  enabled: true
-  mode: lazy
-
-  compaction:
-    plugin: claude-code     # LLM plugin for distillation
-    model: haiku            # Model to use (fast + cheap)
-    chunk_size: 8000        # Tokens per chunk
-
-  # Control session start behavior
-  load_on_start: false      # Don't auto-load (lazy mode default)
+defaults:
+  compaction_plugin: claude-code  # LLM plugin for distillation
+  compaction_model: haiku         # Model to use (fast + cheap)
+  compaction_chunks: 8000         # Tokens per chunk
 ```
 
 ## CLI Commands

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -261,10 +259,10 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine plugin and model for distillation
-	plugin := cfg.Memory.GetCompactionPlugin()
+	plugin := cfg.GetCompactionPlugin()
 	model := compactModel
 	if model == "" {
-		model = cfg.Memory.GetCompactionModel()
+		model = cfg.GetCompactionModel()
 	}
 
 	// Determine backend to read session from
@@ -284,7 +282,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		Plugin:    plugin,
 		Model:     model,
 		Backend:   backend,
-		ChunkSize: cfg.Memory.GetChunkSize(),
+		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: compactSession,
 		WorkDir:   workDir,
 		OutputDir: getMemoryDir(cfg),
@@ -374,14 +372,14 @@ func runMemoryCheck(cmd *cobra.Command, args []string) error {
 	fmt.Println("Status: COMPACTING (above threshold)")
 
 	// Trigger compaction
-	plugin := cfg.Memory.GetCompactionPlugin()
-	model := cfg.Memory.GetCompactionModel()
+	plugin := cfg.GetCompactionPlugin()
+	model := cfg.GetCompactionModel()
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Plugin:    plugin,
 		Model:     model,
 		Backend:   backendName,
-		ChunkSize: cfg.Memory.GetChunkSize(),
+		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: session.ID,
 		WorkDir:   workDir,
 		OutputDir: getMemoryDir(cfg),
@@ -400,12 +398,6 @@ func runMemoryCheck(cmd *cobra.Command, args []string) error {
 		result.TotalTokensOut,
 		100*(1-float64(result.TotalTokensOut)/float64(result.TotalTokensIn)))
 
-	// Index to vector DB if enabled
-	if err := indexSessionToVectorDB(cfg, result.SessionID); err != nil {
-		// Log warning but don't fail - vector indexing is optional
-		fmt.Fprintf(os.Stderr, "warning: vector indexing failed: %v\n", err)
-	}
-
 	return nil
 }
 
@@ -423,36 +415,3 @@ func formatSize(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// memoryLoadRecent loads the most recent distilled session for context injection.
-// This is called during MCP initialization when memory.load_on_start is true.
-func memoryLoadRecent(cfg *config.Config) (string, error) {
-	if cfg == nil || !cfg.Memory.ShouldLoadOnStart() {
-		return "", nil
-	}
-
-	memoryDir := getMemoryDir(cfg)
-
-	// Get distilled sessions
-	sessions, err := memory.ListDistilledSessions(memoryDir)
-	if err != nil || len(sessions) == 0 {
-		return "", nil
-	}
-
-	// Sort and get most recent
-	sort.Strings(sessions)
-	mostRecent := sessions[len(sessions)-1]
-
-	// Load distilled content
-	distilled, err := memory.LoadDistilledSession(memoryDir, mostRecent)
-	if err != nil {
-		return "", err
-	}
-
-	// Format for context injection
-	var builder strings.Builder
-	builder.WriteString("# Previous Session Context\n\n")
-	builder.WriteString(fmt.Sprintf("*Session: %s*\n\n", distilled.SessionID))
-	builder.WriteString(distilled.Content)
-
-	return builder.String(), nil
-}

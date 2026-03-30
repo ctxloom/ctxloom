@@ -19,6 +19,8 @@ sidebar_position: 1
 
 :::note Why not just CLAUDE.md?
 Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. SCM separates concerns: your standards in a personal remote, project context in `.scm/`, team standards in shared remotes. Plus, SCM distills fragments and prompts using AST-aware compression, reducing token usage by 70-90%.
+
+**You can still use CLAUDE.md** - SCM complements rather than replaces native context files. Use CLAUDE.md for project-specific instructions, SCM for reusable standards.
 :::
 
 ## What SCM Does
@@ -149,10 +151,6 @@ defaults:
   llm_plugin: claude-code
   profiles:
     - scm-main/go-developer
-
-memory:
-  enabled: true
-  mode: lazy
 ```
 
 ## Next Steps

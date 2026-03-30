@@ -490,12 +490,6 @@ Compact current or specified session log into a distilled summary.
 | `model` | string | No | LLM model for distillation (default: haiku) |
 | `backend` | string | No | Backend to read from: `claude-code` or `gemini` (default: `claude-code`) |
 
-### get_session_memory
-
-Get the distilled memory from a previous session that was loaded at startup.
-
-**Parameters:** None
-
 ### list_sessions
 
 List all sessions from the backend with their compaction status.

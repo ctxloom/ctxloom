@@ -50,14 +50,6 @@ func (s *mcpServer) getMemoryTools() []mcpToolInfo {
 			},
 		},
 		{
-			Name:        "get_session_memory",
-			Description: "Get the distilled memory from a previous session that was loaded at startup",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
 			Name:        "list_sessions",
 			Description: "List all sessions from the backend with their compaction status",
 			InputSchema: map[string]interface{}{
@@ -141,9 +133,6 @@ func (s *mcpServer) getMemoryTools() []mcpToolInfo {
 		},
 	})
 
-	// Add vector search tool (available when built with vectors tag)
-	tools = append(tools, getVectorTools()...)
-
 	return tools
 }
 
@@ -157,10 +146,10 @@ func (s *mcpServer) toolCompactSession(ctx context.Context, args json.RawMessage
 	_ = json.Unmarshal(args, &params)
 
 	// Determine plugin and model for distillation
-	plugin := s.cfg.Memory.GetCompactionPlugin()
+	plugin := s.cfg.GetCompactionPlugin()
 	model := params.Model
 	if model == "" {
-		model = s.cfg.Memory.GetCompactionModel()
+		model = s.cfg.GetCompactionModel()
 	}
 
 	// Determine backend to read session from
@@ -182,7 +171,7 @@ func (s *mcpServer) toolCompactSession(ctx context.Context, args json.RawMessage
 		Plugin:    plugin,
 		Model:     model,
 		Backend:   backend,
-		ChunkSize: s.cfg.Memory.GetChunkSize(),
+		ChunkSize: s.cfg.GetCompactionChunkSize(),
 		SessionID: params.SessionID,
 		WorkDir:   workDir,
 		OutputDir: memoryDir,
@@ -205,22 +194,6 @@ func (s *mcpServer) toolCompactSession(ctx context.Context, args json.RawMessage
 		"reduction":        fmt.Sprintf("%.0f%%", 100*(1-float64(result.TotalTokensOut)/float64(result.TotalTokensIn))),
 		"duration":         result.Duration.String(),
 		"output_path":      result.DistilledPath,
-	}, nil
-}
-
-// toolGetSessionMemory returns the loaded session memory.
-func (s *mcpServer) toolGetSessionMemory(_ context.Context, _ json.RawMessage) (interface{}, error) {
-	if s.sessionMemory == "" {
-		return map[string]interface{}{
-			"loaded":  false,
-			"message": "No session memory loaded. Enable memory.load_on_start in config and ensure distilled sessions exist.",
-		}, nil
-	}
-
-	return map[string]interface{}{
-		"loaded":  true,
-		"content": s.sessionMemory,
-		"chars":   len(s.sessionMemory),
 	}, nil
 }
 
@@ -373,14 +346,14 @@ func (s *mcpServer) toolLoadSession(ctx context.Context, args json.RawMessage) (
 	// Determine model for distillation
 	model := params.Model
 	if model == "" {
-		model = s.cfg.Memory.GetCompactionModel()
+		model = s.cfg.GetCompactionModel()
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    s.cfg.Memory.GetCompactionPlugin(),
+		Plugin:    s.cfg.GetCompactionPlugin(),
 		Model:     model,
 		Backend:   backendName,
-		ChunkSize: s.cfg.Memory.GetChunkSize(),
+		ChunkSize: s.cfg.GetCompactionChunkSize(),
 		SessionID: targetSessionID,
 		WorkDir:   workDir,
 		OutputDir: memoryDir,
@@ -520,8 +493,8 @@ func (s *mcpServer) toolBrowseSessionHistory(ctx context.Context, args json.RawM
 	}
 
 	memoryDir := s.getMemoryDir()
-	model := s.cfg.Memory.GetCompactionModel()
-	plugin := s.cfg.Memory.GetCompactionPlugin()
+	model := s.cfg.GetCompactionModel()
+	plugin := s.cfg.GetCompactionPlugin()
 
 	type sessionWithEssence struct {
 		ID        string `json:"id"`
@@ -645,14 +618,14 @@ func (s *mcpServer) toolGetPreviousSession(ctx context.Context, args json.RawMes
 
 	model := params.Model
 	if model == "" {
-		model = s.cfg.Memory.GetCompactionModel()
+		model = s.cfg.GetCompactionModel()
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    s.cfg.Memory.GetCompactionPlugin(),
+		Plugin:    s.cfg.GetCompactionPlugin(),
 		Model:     model,
 		Backend:   backendName,
-		ChunkSize: s.cfg.Memory.GetChunkSize(),
+		ChunkSize: s.cfg.GetCompactionChunkSize(),
 		SessionID: prevSessionID,
 		WorkDir:   workDir,
 		OutputDir: memoryDir,

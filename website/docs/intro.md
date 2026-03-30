@@ -10,13 +10,13 @@ sidebar_position: 1
 **Stop repeating yourself to AI.** Every session you re-explain your coding standards, patterns, and preferences. SCM solves this:
 
 - **Save hours per week** - Write context once, reuse across all sessions
-- **Consistent across projects** - Personal repo (`~/.scm`) follows you everywhere
-- **Share across team** - Pull bundles from GitHub, everyone gets the same context
+- **Consistent across projects** - Store your standards in a git repo, pull into any project
+- **Share across team** - Same mechanism - everyone pulls from shared remotes
 - **Never lose progress** - Session memory survives `/clear`
 - **Portable context** - Write code with Claude, review with Gemini, same context
 
 :::note Why not just CLAUDE.md?
-Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. SCM separates concerns: personal standards in `~/.scm`, project context in `.scm/`, team standards via remote repositories. Plus, SCM distills fragments and prompts using AST-aware compression, reducing token usage by 70-90%.
+Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. SCM separates concerns: your standards in a personal remote, project context in `.scm/`, team standards in shared remotes. Plus, SCM distills fragments and prompts using AST-aware compression, reducing token usage by 70-90%.
 :::
 
 ## What SCM Does

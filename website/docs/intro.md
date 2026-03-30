@@ -12,6 +12,7 @@ sidebar_position: 1
 - **Save hours per week** - Write context once, reuse across all sessions
 - **Consistent across projects** - Store your standards in a git repo, pull into any project
 - **Share across team** - Same mechanism - everyone pulls from shared remotes
+- **Load only what's relevant** - Tags and profiles select context per task, keeping unrelated fragments out of the context window
 - **Never lose progress** - Session memory survives `/clear`
 - **Portable context** - Write code with Claude, review with Gemini, same context
 

@@ -119,13 +119,10 @@ SCM reads the raw JSONL transcript from disk and uses a separate LLM (default: H
 ## Installation
 
 ```bash
-# Homebrew
-brew install benjaminabbitt/tap/scm
+# Go install
+go install github.com/SophisticatedContextManager/scm@latest
 
-# Go
-go install github.com/benjaminabbitt/scm@latest
-
-# Or download from releases
+# Or download from GitHub releases
 ```
 
 ## Running

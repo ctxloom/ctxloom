@@ -6,20 +6,12 @@ sidebar_position: 1
 
 Choose the installation method that works best for you.
 
-## Homebrew (Recommended)
-
-The easiest way to install on macOS or Linux:
-
-```bash
-brew install benjaminabbitt/tap/scm
-```
-
-## Go Install
+## Go Install (Recommended)
 
 If you have Go 1.21+ installed:
 
 ```bash
-go install github.com/benjaminabbitt/scm@latest
+go install github.com/SophisticatedContextManager/scm@latest
 ```
 
 Make sure `~/go/bin` is in your PATH:
@@ -30,17 +22,17 @@ export PATH=$PATH:$(go env GOPATH)/bin
 
 ## Download Binary
 
-Download precompiled binaries from the [releases page](https://github.com/benjaminabbitt/scm/releases).
+Download precompiled binaries from the [releases page](https://github.com/SophisticatedContextManager/scm/releases).
 
 ### macOS
 
 ```bash
 # Apple Silicon (M1/M2/M3)
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/SophisticatedContextManager/scm/releases/latest/download/scm_darwin_arm64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 
 # Intel
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/SophisticatedContextManager/scm/releases/latest/download/scm_darwin_amd64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 ```
 
@@ -48,11 +40,11 @@ sudo mv scm /usr/local/bin/
 
 ```bash
 # x86_64
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/SophisticatedContextManager/scm/releases/latest/download/scm_linux_amd64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 
 # ARM64
-curl -L https://github.com/benjaminabbitt/scm/releases/latest/download/scm_linux_arm64.tar.gz | tar xz
+curl -L https://github.com/SophisticatedContextManager/scm/releases/latest/download/scm_linux_arm64.tar.gz | tar xz
 sudo mv scm /usr/local/bin/
 ```
 
@@ -70,7 +62,7 @@ For development or to get the latest unreleased features.
 
 ```bash
 # Clone the repository
-git clone https://github.com/benjaminabbitt/scm.git
+git clone https://github.com/SophisticatedContextManager/scm.git
 cd scm
 
 # Build
@@ -114,8 +106,8 @@ source <(scm completion bash)
 # Permanent (Linux)
 scm completion bash > /etc/bash_completion.d/scm
 
-# Permanent (macOS with Homebrew)
-scm completion bash > $(brew --prefix)/etc/bash_completion.d/scm
+# Permanent (macOS)
+scm completion bash > /usr/local/etc/bash_completion.d/scm
 ```
 
 ### Zsh
@@ -139,16 +131,10 @@ scm completion powershell | Out-String | Invoke-Expression
 
 ## Updating
 
-### Homebrew
-
-```bash
-brew upgrade scm
-```
-
 ### Go Install
 
 ```bash
-go install github.com/benjaminabbitt/scm@latest
+go install github.com/SophisticatedContextManager/scm@latest
 ```
 
 ### Binary

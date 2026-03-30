@@ -249,7 +249,7 @@ scm completion [bash|zsh|fish|powershell]
 ```bash
 source <(scm completion bash)                    # Current session
 scm completion bash > /etc/bash_completion.d/scm # Permanent (Linux)
-scm completion bash > $(brew --prefix)/etc/bash_completion.d/scm # macOS
+scm completion bash > /usr/local/etc/bash_completion.d/scm       # macOS
 ```
 
 **Zsh:**

@@ -13,7 +13,7 @@ sidebar_position: 1
 - **Consistent across projects** - Store your standards in a git repo, pull into any project
 - **Share across team** - Same mechanism - everyone pulls from shared remotes
 - **Load only what's relevant** - Tags and profiles select context per task, keeping unrelated fragments out of the context window
-- **Dynamic loading** - Need a fragment mid-session? MCP tools find it and load it on demand
+- **Dynamic loading** - Need a fragment mid-session? MCP tools search local and remote, then load on demand
 - **Never lose progress** - Session memory survives `/clear`
 - **Portable context** - Write code with Claude, review with Gemini, same context
 

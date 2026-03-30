@@ -30,7 +30,7 @@ func TestNewGemini_DefaultValues(t *testing.T) {
 }
 
 // TestNewGemini_CapabilitiesCorrect verifies that Gemini has the expected
-// capabilities - it supports lifecycle, context, MCP, and skills.
+// capabilities - it supports lifecycle, context, MCP, skills, and history.
 func TestNewGemini_CapabilitiesCorrect(t *testing.T) {
 	backend := NewGemini()
 
@@ -38,6 +38,7 @@ func TestNewGemini_CapabilitiesCorrect(t *testing.T) {
 	assert.NotNil(t, backend.Skills(), "Gemini should support skills/slash commands")
 	assert.NotNil(t, backend.Context(), "Gemini should support context injection")
 	assert.NotNil(t, backend.MCP(), "Gemini should support MCP servers")
+	assert.NotNil(t, backend.History(), "Gemini should support session history")
 }
 
 // TestNewGemini_SupportedModes verifies that Gemini supports both interactive

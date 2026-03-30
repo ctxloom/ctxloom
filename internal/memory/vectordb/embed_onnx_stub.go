@@ -1,4 +1,4 @@
-//go:build memory && vectors && !onnx
+//go:build vectors && !onnx
 
 package vectordb
 

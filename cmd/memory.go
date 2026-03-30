@@ -1,5 +1,3 @@
-//go:build memory
-
 package cmd
 
 import (
@@ -357,7 +355,7 @@ func runMemoryCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get session file size
-	sessionPath := getSessionFilePath(backendName, workDir, session.ID)
+	sessionPath := history.TranscriptPathFromHook(workDir, session.ID, "")
 	info, err := os.Stat(sessionPath)
 	if err != nil {
 		return fmt.Errorf("stat session file: %w", err)
@@ -409,28 +407,6 @@ func runMemoryCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// getSessionFilePath returns the path to a session file.
-func getSessionFilePath(backend, workDir, sessionID string) string {
-	switch backend {
-	case "claude-code":
-		// Claude Code stores sessions in ~/.claude/projects/<hash>/<session>.jsonl
-		// Session ID may or may not include .jsonl extension
-		projectHash := hashProjectDir(workDir)
-		if !strings.HasSuffix(sessionID, ".jsonl") {
-			sessionID = sessionID + ".jsonl"
-		}
-		return filepath.Join(os.Getenv("HOME"), ".claude", "projects", projectHash, sessionID)
-	default:
-		return ""
-	}
-}
-
-// hashProjectDir returns the project directory hash used by Claude Code.
-func hashProjectDir(dir string) string {
-	// Claude Code uses a specific format: -home-user-path-to-project
-	return strings.ReplaceAll(dir, "/", "-")
 }
 
 // formatSize formats a byte count as a human-readable string.

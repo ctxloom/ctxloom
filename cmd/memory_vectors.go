@@ -1,4 +1,4 @@
-//go:build memory && vectors
+//go:build vectors
 
 package cmd
 

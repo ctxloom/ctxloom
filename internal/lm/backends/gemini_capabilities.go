@@ -15,7 +15,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 // geminiSCMCommandsDir is the subdirectory for SCM-managed Gemini commands.
@@ -28,220 +27,48 @@ type GeminiCommand struct {
 }
 
 // GeminiLifecycle implements LifecycleHandler for Gemini using hooks.
+// Embeds BaseLifecycle for shared implementation.
 type GeminiLifecycle struct {
+	*BaseLifecycle
 	backend *Gemini
-	hooks   *config.HooksConfig
-	mcp     *config.MCPConfig
 }
 
-// OnSessionStart registers a handler for session start events.
-func (l *GeminiLifecycle) OnSessionStart(workDir string, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Timeout: handler.Timeout,
-	}
-	l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, hook)
-	return nil
-}
-
-// OnSessionEnd registers a handler for session end events.
-func (l *GeminiLifecycle) OnSessionEnd(workDir string, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Timeout: handler.Timeout,
-	}
-	l.hooks.Unified.SessionEnd = append(l.hooks.Unified.SessionEnd, hook)
-	return nil
-}
-
-// OnToolUse registers a handler for tool use events.
-func (l *GeminiLifecycle) OnToolUse(workDir string, event ToolEvent, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Timeout: handler.Timeout,
-	}
-	switch event {
-	case BeforeToolUse:
-		l.hooks.Unified.PreTool = append(l.hooks.Unified.PreTool, hook)
-	case AfterToolUse:
-		l.hooks.Unified.PostTool = append(l.hooks.Unified.PostTool, hook)
-	}
-	return nil
-}
-
-// Clear removes all SCM-managed lifecycle handlers.
-func (l *GeminiLifecycle) Clear(workDir string) error {
-	l.hooks = &config.HooksConfig{
-		Plugins: make(map[string]config.BackendHooks),
-	}
-	l.mcp = &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
-		Plugins: make(map[string]map[string]config.MCPServer),
-	}
-	return WriteSettings(l.backend.Name(), l.hooks, l.mcp, nil, workDir)
-}
-
-// Flush writes accumulated hooks and MCP config to the settings file.
-func (l *GeminiLifecycle) Flush(workDir string) error {
-	if l.hooks == nil && l.mcp == nil {
-		return nil
-	}
-	return WriteSettings(l.backend.Name(), l.hooks, l.mcp, nil, workDir)
-}
-
-// MergeConfigHooks merges hooks and MCP config from the configuration into this lifecycle.
-func (l *GeminiLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, contextHash string) {
-	l.ensureHooks()
-	l.ensureMCP()
-
-	// Auto-register context injection hook with the context hash
-	if contextHash != "" {
-		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
-	}
-
-	// Merge top-level hooks and MCP
-	mergeHooksConfig(l.hooks, &cfg.Hooks)
-	MergeMCPConfig(l.mcp, &cfg.MCP)
-
-	// Merge from default profiles
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
-		if err != nil {
-			continue
-		}
-		mergeHooksConfig(l.hooks, &resolved.Hooks)
-		MergeMCPConfig(l.mcp, &resolved.MCP)
-	}
-}
-
-func (l *GeminiLifecycle) ensureHooks() {
-	if l.hooks == nil {
-		l.hooks = &config.HooksConfig{
-			Plugins: make(map[string]config.BackendHooks),
-		}
-	}
-}
-
-func (l *GeminiLifecycle) ensureMCP() {
-	if l.mcp == nil {
-		l.mcp = &config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
-			Plugins: make(map[string]map[string]config.MCPServer),
-		}
+// NewGeminiLifecycle creates a new Gemini lifecycle handler.
+func NewGeminiLifecycle(backend *Gemini) *GeminiLifecycle {
+	return &GeminiLifecycle{
+		BaseLifecycle: NewBaseLifecycle("gemini"),
+		backend:       backend,
 	}
 }
 
 // GeminiMCPManager implements MCPManager for Gemini CLI.
+// Embeds BaseMCPManager for shared implementation.
 type GeminiMCPManager struct {
+	*BaseMCPManager
 	backend *Gemini
-	servers map[string]MCPServer
 }
 
-// RegisterServer adds an MCP server to the backend configuration.
-func (m *GeminiMCPManager) RegisterServer(workDir string, server MCPServer) error {
-	m.ensureServers()
-	m.servers[server.Name] = server
-	return nil
-}
-
-// UnregisterServer removes an MCP server from the backend configuration.
-func (m *GeminiMCPManager) UnregisterServer(workDir string, name string) error {
-	m.ensureServers()
-	delete(m.servers, name)
-	return nil
-}
-
-// ListServers returns the names of registered MCP servers.
-func (m *GeminiMCPManager) ListServers(workDir string) ([]string, error) {
-	m.ensureServers()
-	names := make([]string, 0, len(m.servers))
-	for name := range m.servers {
-		names = append(names, name)
-	}
-	return names, nil
-}
-
-// GetServer returns the configuration for a specific MCP server.
-func (m *GeminiMCPManager) GetServer(workDir string, name string) (*MCPServer, error) {
-	m.ensureServers()
-	if srv, ok := m.servers[name]; ok {
-		return &srv, nil
-	}
-	return nil, nil
-}
-
-// Clear removes all SCM-managed MCP servers.
-func (m *GeminiMCPManager) Clear(workDir string) error {
-	m.servers = make(map[string]MCPServer)
-	return m.Flush(workDir)
-}
-
-// Flush writes all pending MCP configuration changes.
-func (m *GeminiMCPManager) Flush(workDir string) error {
-	m.ensureServers()
-
-	// Convert to config.MCPConfig
-	mcpCfg := &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
-	}
-	for name, srv := range m.servers {
-		mcpCfg.Servers[name] = config.MCPServer{
-			Command: srv.Command,
-			Args:    srv.Args,
-			Env:     srv.Env,
-		}
-	}
-
-	// Write settings (hooks are nil, just MCP)
-	return WriteSettings(m.backend.Name(), nil, mcpCfg, nil, workDir)
-}
-
-func (m *GeminiMCPManager) ensureServers() {
-	if m.servers == nil {
-		m.servers = make(map[string]MCPServer)
+// NewGeminiMCPManager creates a new Gemini MCP manager.
+func NewGeminiMCPManager(backend *Gemini) *GeminiMCPManager {
+	return &GeminiMCPManager{
+		BaseMCPManager: NewBaseMCPManager("gemini"),
+		backend:        backend,
 	}
 }
 
 // GeminiContext implements ContextProvider for Gemini using file + hook.
+// Embeds BaseContextProvider for shared implementation.
 type GeminiContext struct {
-	backend     *Gemini
-	contextHash string
+	*BaseContextProvider
+	backend *Gemini
 }
 
-// Provide writes context to a file that the session start hook will read.
-func (c *GeminiContext) Provide(workDir string, fragments []*Fragment) error {
-	hash, err := WriteContextFile(workDir, fragments)
-	if err != nil {
-		return err
+// NewGeminiContext creates a new Gemini context provider.
+func NewGeminiContext(backend *Gemini) *GeminiContext {
+	return &GeminiContext{
+		BaseContextProvider: NewBaseContextProvider(),
+		backend:             backend,
 	}
-	c.contextHash = hash
-	return nil
-}
-
-// Clear removes the context file.
-func (c *GeminiContext) Clear(workDir string) error {
-	if c.contextHash != "" {
-		contextPath := SCMContextSubdir + "/" + c.contextHash + ".md"
-		_ = os.Remove(contextPath)
-		c.contextHash = ""
-	}
-	return nil
-}
-
-// GetContextHash returns the hash of the current context file.
-func (c *GeminiContext) GetContextHash() string {
-	return c.contextHash
-}
-
-// GetContextFilePath returns the path to the context file (for env var).
-func (c *GeminiContext) GetContextFilePath() string {
-	if c.contextHash == "" {
-		return ""
-	}
-	return SCMContextSubdir + "/" + c.contextHash + ".md"
 }
 
 // GeminiSkills implements SkillRegistry for Gemini CLI using slash commands.
@@ -386,7 +213,16 @@ func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
 // GeminiSessionHistory implements SessionHistory for Gemini CLI.
 // Reads from ~/.gemini/tmp/<hash>/chats/*.json
 type GeminiSessionHistory struct {
-	backend *Gemini
+	backend  *Gemini
+	registry *BaseSessionRegistry
+}
+
+// NewGeminiSessionHistory creates a new Gemini session history handler.
+func NewGeminiSessionHistory(backend *Gemini) *GeminiSessionHistory {
+	return &GeminiSessionHistory{
+		backend:  backend,
+		registry: NewBaseSessionRegistry("gemini-session-registry.json"),
+	}
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
@@ -431,6 +267,11 @@ func (h *GeminiSessionHistory) GetSession(workDir string, sessionID string) (*Se
 
 	sessionPath := filepath.Join(projectDir, "chats", sessionID+".json")
 	return h.parseSessionFile(sessionPath)
+}
+
+// GetSessionByPath returns a session by its transcript file path.
+func (h *GeminiSessionHistory) GetSessionByPath(path string) (*Session, error) {
+	return h.parseSessionFile(path)
 }
 
 // findProjectDir finds the Gemini project directory for the given workDir.
@@ -533,18 +374,9 @@ type geminiRawSession struct {
 
 // geminiMessage represents a message in Gemini's session.
 type geminiMessage struct {
-	Role      string          `json:"role"` // "user", "model"
-	Content   string          `json:"content"`
-	Timestamp string          `json:"timestamp"`
-	ToolCalls []geminiToolUse `json:"tool_calls,omitempty"`
-}
-
-// geminiToolUse represents a tool call in Gemini's session.
-type geminiToolUse struct {
-	Name   string          `json:"name"`
-	Input  json.RawMessage `json:"input"`
-	Output string          `json:"output"`
-	Error  bool            `json:"error"`
+	Role      string `json:"role"` // "user", "model"
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
 }
 
 // convertMessage converts a Gemini message to a normalized SessionEntry.
@@ -573,4 +405,22 @@ func (h *GeminiSessionHistory) convertMessage(msg geminiMessage) *SessionEntry {
 	}
 
 	return entry
+}
+
+// TranscriptPathFromHook returns the transcript path from hook input.
+// For Gemini, the hook provides the path directly.
+func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
+	return transcriptPath
+}
+
+// RegisterSession records a session for the given SCM run (by PID).
+// Delegates to BaseSessionRegistry for shared implementation with file locking.
+func (h *GeminiSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
+	return h.registry.RegisterSession(workDir, pid, transcriptPath)
+}
+
+// GetPreviousSession returns the session before the current one for /clear recovery.
+// Delegates to BaseSessionRegistry for shared implementation with file locking.
+func (h *GeminiSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
+	return h.registry.GetPreviousSession(workDir, pid, h.parseSessionFile)
 }

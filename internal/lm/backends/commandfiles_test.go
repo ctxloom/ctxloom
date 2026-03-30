@@ -238,19 +238,19 @@ func TestWriteCommandFiles(t *testing.T) {
 	}
 
 	// Check that enabled prompts are exported
-	reviewPath := filepath.Join(tmpDir, ".claude", "commands", "scm", "review.md")
+	reviewPath := filepath.Join(tmpDir, ".claude", "commands", "review.md")
 	if _, err := os.Stat(reviewPath); os.IsNotExist(err) {
 		t.Error("expected review.md to be created")
 	}
 
 	// Check that simple (default enabled) is exported
-	simplePath := filepath.Join(tmpDir, ".claude", "commands", "scm", "simple.md")
+	simplePath := filepath.Join(tmpDir, ".claude", "commands", "simple.md")
 	if _, err := os.Stat(simplePath); os.IsNotExist(err) {
 		t.Error("expected simple.md to be created")
 	}
 
 	// Check that disabled prompt is NOT exported
-	disabledPath := filepath.Join(tmpDir, ".claude", "commands", "scm", "disabled.md")
+	disabledPath := filepath.Join(tmpDir, ".claude", "commands", "disabled.md")
 	if _, err := os.Stat(disabledPath); !os.IsNotExist(err) {
 		t.Error("expected disabled.md to NOT be created")
 	}
@@ -271,14 +271,16 @@ func TestWriteCommandFiles(t *testing.T) {
 
 func TestWriteCommandFilesCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".claude", "commands", "scm")
+	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
+	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
 
-	// Create a stale file
-	_ = os.MkdirAll(scmDir, 0755)
-	stalePath := filepath.Join(scmDir, "stale.md")
+	// Create directory with a tracked file and manifest
+	_ = os.MkdirAll(commandsDir, 0755)
+	stalePath := filepath.Join(commandsDir, "stale.md")
 	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
+	_ = os.WriteFile(manifestPath, []byte("stale.md"), 0644)
 
-	// Write new commands (empty list - should still clean up)
+	// Write new commands - should clean up stale file via manifest
 	prompts := []*bundles.LoadedContent{
 		{
 			Name:    "new",
@@ -291,13 +293,13 @@ func TestWriteCommandFilesCleanup(t *testing.T) {
 		t.Fatalf("WriteCommandFiles failed: %v", err)
 	}
 
-	// Stale file should be gone
+	// Stale file should be gone (cleaned up via manifest)
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Error("expected stale.md to be removed")
 	}
 
 	// New file should exist
-	newPath := filepath.Join(scmDir, "new.md")
+	newPath := filepath.Join(commandsDir, "new.md")
 	if _, err := os.Stat(newPath); os.IsNotExist(err) {
 		t.Error("expected new.md to be created")
 	}
@@ -305,12 +307,14 @@ func TestWriteCommandFilesCleanup(t *testing.T) {
 
 func TestWriteCommandFilesEmptyPrompts(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".claude", "commands", "scm")
+	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
+	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
 
-	// Pre-create directory with file
-	_ = os.MkdirAll(scmDir, 0755)
-	stalePath := filepath.Join(scmDir, "stale.md")
+	// Pre-create directory with tracked file and manifest
+	_ = os.MkdirAll(commandsDir, 0755)
+	stalePath := filepath.Join(commandsDir, "stale.md")
 	_ = os.WriteFile(stalePath, []byte("stale content"), 0644)
+	_ = os.WriteFile(manifestPath, []byte("stale.md"), 0644)
 
 	// Write with no prompts
 	err := WriteCommandFiles(tmpDir, nil)
@@ -318,7 +322,7 @@ func TestWriteCommandFilesEmptyPrompts(t *testing.T) {
 		t.Fatalf("WriteCommandFiles failed: %v", err)
 	}
 
-	// Directory should be removed (or at least stale file gone)
+	// Stale file should be removed (cleaned up via manifest)
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Error("expected stale.md to be removed")
 	}

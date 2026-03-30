@@ -72,17 +72,28 @@ func WriteHooks(backendName string, cfg *config.HooksConfig, projectDir string) 
 	return WriteSettings(backendName, cfg, nil, nil, projectDir)
 }
 
+// settingsWriterRegistry maps backend names to their settings writer constructors.
+var settingsWriterRegistry = map[string]func(afero.Fs) SettingsWriter{
+	"claude-code": func(fs afero.Fs) SettingsWriter { return &ClaudeCodeHookWriter{FS: fs} },
+	"gemini":      func(fs afero.Fs) SettingsWriter { return &GeminiHookWriter{FS: fs} },
+}
+
 // GetSettingsWriter returns a SettingsWriter for the named backend, or nil if not supported.
 // If fs is provided, it will be used for filesystem operations; otherwise the OS filesystem is used.
 func GetSettingsWriter(name string, fs afero.Fs) SettingsWriter {
-	switch name {
-	case "claude-code":
-		return &ClaudeCodeHookWriter{FS: fs}
-	case "gemini":
-		return &GeminiHookWriter{FS: fs}
-	default:
-		return nil
+	if constructor, ok := settingsWriterRegistry[name]; ok {
+		return constructor(fs)
 	}
+	return nil
+}
+
+// BackendsWithSettings returns the names of all backends that support settings.
+func BackendsWithSettings() []string {
+	names := make([]string, 0, len(settingsWriterRegistry))
+	for name := range settingsWriterRegistry {
+		names = append(names, name)
+	}
+	return names
 }
 
 // GetHookWriter returns a SettingsWriter for the named backend, or nil if not supported.

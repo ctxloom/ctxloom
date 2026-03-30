@@ -11,187 +11,35 @@ import (
 	"time"
 
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.
+// Embeds BaseLifecycle for shared implementation.
 type ClaudeLifecycle struct {
+	*BaseLifecycle
 	backend *ClaudeCode
-	hooks   *config.HooksConfig
-	mcp     *config.MCPConfig
 }
 
-// OnSessionStart registers a handler for session start events.
-func (l *ClaudeLifecycle) OnSessionStart(workDir string, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Type:    "command",
-		Timeout: handler.Timeout,
-	}
-	l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, hook)
-	return nil
-}
-
-// OnSessionEnd registers a handler for session end events.
-func (l *ClaudeLifecycle) OnSessionEnd(workDir string, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Type:    "command",
-		Timeout: handler.Timeout,
-	}
-	l.hooks.Unified.SessionEnd = append(l.hooks.Unified.SessionEnd, hook)
-	return nil
-}
-
-// OnToolUse registers a handler for tool use events.
-func (l *ClaudeLifecycle) OnToolUse(workDir string, event ToolEvent, handler EventHandler) error {
-	l.ensureHooks()
-	hook := config.Hook{
-		Command: handler.Command,
-		Type:    "command",
-		Timeout: handler.Timeout,
-	}
-	switch event {
-	case BeforeToolUse:
-		l.hooks.Unified.PreTool = append(l.hooks.Unified.PreTool, hook)
-	case AfterToolUse:
-		l.hooks.Unified.PostTool = append(l.hooks.Unified.PostTool, hook)
-	}
-	return nil
-}
-
-// Clear removes all SCM-managed lifecycle handlers.
-func (l *ClaudeLifecycle) Clear(workDir string) error {
-	l.hooks = &config.HooksConfig{
-		Plugins: make(map[string]config.BackendHooks),
-	}
-	l.mcp = &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
-		Plugins: make(map[string]map[string]config.MCPServer),
-	}
-	return WriteSettings(l.backend.Name(), l.hooks, l.mcp, nil, workDir)
-}
-
-// Flush writes accumulated hooks and MCP config to the settings file.
-func (l *ClaudeLifecycle) Flush(workDir string) error {
-	if l.hooks == nil && l.mcp == nil {
-		return nil
-	}
-	return WriteSettings(l.backend.Name(), l.hooks, l.mcp, nil, workDir)
-}
-
-// MergeConfigHooks merges hooks and MCP config from the configuration into this lifecycle.
-func (l *ClaudeLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, contextHash string) {
-	l.ensureHooks()
-	l.ensureMCP()
-
-	// Auto-register context injection hook with the context hash
-	if contextHash != "" {
-		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
-	}
-
-	// Merge top-level hooks and MCP
-	mergeHooksConfig(l.hooks, &cfg.Hooks)
-	MergeMCPConfig(l.mcp, &cfg.MCP)
-
-	// Merge from default profiles
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
-		if err != nil {
-			continue
-		}
-		mergeHooksConfig(l.hooks, &resolved.Hooks)
-		MergeMCPConfig(l.mcp, &resolved.MCP)
-	}
-}
-
-func (l *ClaudeLifecycle) ensureHooks() {
-	if l.hooks == nil {
-		l.hooks = &config.HooksConfig{
-			Plugins: make(map[string]config.BackendHooks),
-		}
-	}
-}
-
-func (l *ClaudeLifecycle) ensureMCP() {
-	if l.mcp == nil {
-		l.mcp = &config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
-			Plugins: make(map[string]map[string]config.MCPServer),
-		}
+// NewClaudeLifecycle creates a new Claude lifecycle handler.
+func NewClaudeLifecycle(backend *ClaudeCode) *ClaudeLifecycle {
+	return &ClaudeLifecycle{
+		BaseLifecycle: NewBaseLifecycle("claude-code"),
+		backend:       backend,
 	}
 }
 
 // ClaudeMCPManager implements MCPManager for Claude Code.
+// Embeds BaseMCPManager for shared implementation.
 type ClaudeMCPManager struct {
+	*BaseMCPManager
 	backend *ClaudeCode
-	servers map[string]MCPServer
 }
 
-// RegisterServer adds an MCP server to the backend configuration.
-func (m *ClaudeMCPManager) RegisterServer(workDir string, server MCPServer) error {
-	m.ensureServers()
-	m.servers[server.Name] = server
-	return nil
-}
-
-// UnregisterServer removes an MCP server from the backend configuration.
-func (m *ClaudeMCPManager) UnregisterServer(workDir string, name string) error {
-	m.ensureServers()
-	delete(m.servers, name)
-	return nil
-}
-
-// ListServers returns the names of registered MCP servers.
-func (m *ClaudeMCPManager) ListServers(workDir string) ([]string, error) {
-	m.ensureServers()
-	names := make([]string, 0, len(m.servers))
-	for name := range m.servers {
-		names = append(names, name)
-	}
-	return names, nil
-}
-
-// GetServer returns the configuration for a specific MCP server.
-func (m *ClaudeMCPManager) GetServer(workDir string, name string) (*MCPServer, error) {
-	m.ensureServers()
-	if srv, ok := m.servers[name]; ok {
-		return &srv, nil
-	}
-	return nil, nil
-}
-
-// Clear removes all SCM-managed MCP servers.
-func (m *ClaudeMCPManager) Clear(workDir string) error {
-	m.servers = make(map[string]MCPServer)
-	return m.Flush(workDir)
-}
-
-// Flush writes all pending MCP configuration changes.
-func (m *ClaudeMCPManager) Flush(workDir string) error {
-	m.ensureServers()
-
-	// Convert to config.MCPConfig
-	mcpCfg := &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
-	}
-	for name, srv := range m.servers {
-		mcpCfg.Servers[name] = config.MCPServer{
-			Command: srv.Command,
-			Args:    srv.Args,
-			Env:     srv.Env,
-		}
-	}
-
-	// Write settings (hooks are nil, just MCP)
-	return WriteSettings(m.backend.Name(), nil, mcpCfg, nil, workDir)
-}
-
-func (m *ClaudeMCPManager) ensureServers() {
-	if m.servers == nil {
-		m.servers = make(map[string]MCPServer)
+// NewClaudeMCPManager creates a new Claude MCP manager.
+func NewClaudeMCPManager(backend *ClaudeCode) *ClaudeMCPManager {
+	return &ClaudeMCPManager{
+		BaseMCPManager: NewBaseMCPManager("claude-code"),
+		backend:        backend,
 	}
 }
 
@@ -284,48 +132,33 @@ func (s *ClaudeSkills) List(workDir string) ([]string, error) {
 }
 
 // ClaudeContext implements ContextProvider for Claude Code using file + hook.
+// Embeds BaseContextProvider for shared implementation.
 type ClaudeContext struct {
-	backend     *ClaudeCode
-	contextHash string
+	*BaseContextProvider
+	backend *ClaudeCode
 }
 
-// Provide writes context to a file that the session start hook will read.
-func (c *ClaudeContext) Provide(workDir string, fragments []*Fragment) error {
-	hash, err := WriteContextFile(workDir, fragments)
-	if err != nil {
-		return err
+// NewClaudeContext creates a new Claude context provider.
+func NewClaudeContext(backend *ClaudeCode) *ClaudeContext {
+	return &ClaudeContext{
+		BaseContextProvider: NewBaseContextProvider(),
+		backend:             backend,
 	}
-	c.contextHash = hash
-	return nil
-}
-
-// Clear removes the context file.
-func (c *ClaudeContext) Clear(workDir string) error {
-	if c.contextHash != "" {
-		contextPath := filepath.Join(workDir, SCMContextSubdir, c.contextHash+".md")
-		_ = os.Remove(contextPath)
-		c.contextHash = ""
-	}
-	return nil
-}
-
-// GetContextHash returns the hash of the current context file.
-func (c *ClaudeContext) GetContextHash() string {
-	return c.contextHash
-}
-
-// GetContextFilePath returns the path to the context file (for env var).
-func (c *ClaudeContext) GetContextFilePath() string {
-	if c.contextHash == "" {
-		return ""
-	}
-	return filepath.Join(SCMContextSubdir, c.contextHash+".md")
 }
 
 // ClaudeSessionHistory implements SessionHistory for Claude Code.
 // Reads from ~/.claude/projects/<hash>/session.jsonl
 type ClaudeSessionHistory struct {
-	backend *ClaudeCode
+	backend  *ClaudeCode
+	registry *BaseSessionRegistry
+}
+
+// NewClaudeSessionHistory creates a new Claude session history handler.
+func NewClaudeSessionHistory(backend *ClaudeCode) *ClaudeSessionHistory {
+	return &ClaudeSessionHistory{
+		backend:  backend,
+		registry: NewBaseSessionRegistry("claude-session-registry.json"),
+	}
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
@@ -390,6 +223,11 @@ func (h *ClaudeSessionHistory) GetSession(workDir string, sessionID string) (*Se
 
 	sessionPath := filepath.Join(projectDir, sessionID+".jsonl")
 	return h.parseSessionFile(sessionPath)
+}
+
+// GetSessionByPath returns a session by its transcript file path.
+func (h *ClaudeSessionHistory) GetSessionByPath(path string) (*Session, error) {
+	return h.parseSessionFile(path)
 }
 
 // findProjectDir finds the Claude project directory for the given workDir.
@@ -557,4 +395,34 @@ func (h *ClaudeSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 	}
 
 	return entry, nil
+}
+
+// TranscriptPathFromHook computes the transcript path from hook input.
+// For Claude, we compute the path from sessionID + workDir.
+func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
+	if sessionID == "" {
+		return ""
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	absPath, err := filepath.Abs(workDir)
+	if err != nil {
+		return ""
+	}
+	projectName := strings.ReplaceAll(absPath, string(filepath.Separator), "-")
+	return filepath.Join(homeDir, ".claude", "projects", projectName, sessionID+".jsonl")
+}
+
+// RegisterSession records a session transcript path for the given SCM run (by PID).
+// Delegates to BaseSessionRegistry for shared implementation with file locking.
+func (h *ClaudeSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
+	return h.registry.RegisterSession(workDir, pid, transcriptPath)
+}
+
+// GetPreviousSession returns the session before the current one for /clear recovery.
+// Delegates to BaseSessionRegistry for shared implementation with file locking.
+func (h *ClaudeSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
+	return h.registry.GetPreviousSession(workDir, pid, h.parseSessionFile)
 }

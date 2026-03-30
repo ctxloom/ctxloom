@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
 	"github.com/SophisticatedContextManager/scm/internal/config"
 )
 
@@ -26,11 +25,11 @@ func NewClaudeCode() *ClaudeCode {
 		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
 	}
 	b.BinaryPath = "claude"
-	b.lifecycle = &ClaudeLifecycle{backend: b}
+	b.lifecycle = NewClaudeLifecycle(b)
 	b.skills = &ClaudeSkills{backend: b}
-	b.context = &ClaudeContext{backend: b}
-	b.mcp = &ClaudeMCPManager{backend: b}
-	b.history = &ClaudeSessionHistory{backend: b}
+	b.context = NewClaudeContext(b)
+	b.mcp = NewClaudeMCPManager(b)
+	b.history = NewClaudeSessionHistory(b)
 	return b
 }
 
@@ -45,6 +44,11 @@ func (b *ClaudeCode) Configure(cfg *config.PluginConfig) {
 	for k, v := range cfg.Env {
 		b.Env[k] = v
 	}
+}
+
+// ContextFileName returns the target file for context injection.
+func (b *ClaudeCode) ContextFileName() string {
+	return "CLAUDE.md"
 }
 
 // Lifecycle returns the lifecycle handler (hooks).
@@ -82,7 +86,7 @@ func (b *ClaudeCode) Setup(ctx context.Context, req *SetupRequest) error {
 	}
 
 	// Write skills from prompts
-	if prompts := b.loadPrompts(); len(prompts) > 0 {
+	if prompts := LoadPrompts(); len(prompts) > 0 {
 		if err := b.skills.RegisterFromContent(b.WorkDir(), prompts); err != nil {
 			return fmt.Errorf("failed to register skills: %w", err)
 		}
@@ -192,32 +196,3 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 	return args
 }
 
-// loadPrompts loads all prompts from bundles for slash command export.
-func (b *ClaudeCode) loadPrompts() []*bundles.LoadedContent {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil
-	}
-
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return nil
-	}
-
-	loader := bundles.NewLoader(bundleDirs, cfg.Defaults.ShouldUseDistilled())
-	infos, err := loader.ListAllPrompts()
-	if err != nil {
-		return nil
-	}
-
-	var prompts []*bundles.LoadedContent
-	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
-		if err != nil {
-			continue
-		}
-		prompts = append(prompts, content)
-	}
-
-	return prompts
-}

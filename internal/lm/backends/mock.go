@@ -30,6 +30,9 @@ func NewMock() *Mock {
 	}
 }
 
+// ContextFileName returns empty - Mock doesn't use context files.
+func (b *Mock) ContextFileName() string { return "" }
+
 // Lifecycle returns nil - Mock doesn't support lifecycle hooks.
 func (b *Mock) Lifecycle() LifecycleHandler { return nil }
 
@@ -44,6 +47,7 @@ func (b *Mock) MCP() MCPManager { return nil }
 
 // History returns nil - Mock doesn't support session history.
 func (b *Mock) History() SessionHistory { return &NilSessionHistory{} }
+
 
 // Setup prepares the backend for execution.
 func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {

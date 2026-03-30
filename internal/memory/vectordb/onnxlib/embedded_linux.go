@@ -1,4 +1,4 @@
-//go:build memory && vectors && onnx && linux
+//go:build vectors && onnx && linux
 
 package onnxlib
 

@@ -24,6 +24,9 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new .scm directory",
+	Annotations: map[string]string{
+		AnnotationLLMWrapper: "true",
+	},
 	Long: `Initialize a new .scm directory in the current working directory.
 
 This creates a marker directory that SCM uses to identify a project root.

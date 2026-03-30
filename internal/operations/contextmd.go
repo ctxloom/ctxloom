@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 )
 
 // SourceContextFiles are the files SCM looks for as the source of truth.
@@ -18,13 +19,21 @@ var SourceContextFiles = []string{"llm.md", "scm.md"}
 // PreferredSourceFile is the default source file name when creating new.
 const PreferredSourceFile = "llm.md"
 
-// BackendTargetFiles maps backend names to their expected context file names.
-var BackendTargetFiles = map[string]string{
-	"claude-code": "CLAUDE.md",
-	"gemini":      "GEMINI.md",
-	"cursor":      ".cursorrules",
-	"windsurf":    ".windsurfrules",
-	"codex":       "AGENTS.md",
+// ideContextFiles maps IDE names to their context file names.
+// These are not full backends, just context file targets.
+var ideContextFiles = map[string]string{
+	"cursor":   ".cursorrules",
+	"windsurf": ".windsurfrules",
+}
+
+// BackendTargetFiles returns all known backend/IDE context file mappings.
+// This combines registered backends with IDE-specific targets.
+func BackendTargetFiles() map[string]string {
+	result := backends.ContextFileNames()
+	for k, v := range ideContextFiles {
+		result[k] = v
+	}
+	return result
 }
 
 // TransformContextRequest contains parameters for transforming context files.
@@ -82,33 +91,34 @@ func TransformContext(ctx context.Context, cfg *config.Config, req TransformCont
 	result.SourceFile = sourceFile
 
 	// Determine which backends to generate for
-	backends := req.Backends
-	if len(backends) == 0 {
+	backendNames := req.Backends
+	if len(backendNames) == 0 {
 		// Use configured plugins from config
-		backends = cfg.LM.GetConfiguredPlugins()
+		backendNames = cfg.LM.GetConfiguredPlugins()
 	}
 
 	// Generate for each backend
-	for _, backend := range backends {
-		targetFile, ok := BackendTargetFiles[backend]
+	targetFiles := BackendTargetFiles()
+	for _, backendName := range backendNames {
+		targetFile, ok := targetFiles[backendName]
 		if !ok {
-			result.Errors = append(result.Errors, fmt.Sprintf("unknown backend: %s", backend))
+			result.Errors = append(result.Errors, fmt.Sprintf("unknown backend: %s", backendName))
 			continue
 		}
 
 		// Transform content through plugin (echo for now)
-		transformed := transformForBackend(sourceContent, backend, sourceFile)
+		transformed := transformForBackend(sourceContent, backendName, sourceFile)
 
 		// Write to target file
 		targetPath := filepath.Join(workDir, targetFile)
 		genResult, err := writeContextFile(fs, targetPath, transformed, sourceFile)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", backend, err))
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", backendName, err))
 			continue
 		}
 
 		result.Generated = append(result.Generated, GeneratedContextFile{
-			Backend: backend,
+			Backend: backendName,
 			Target:  targetFile,
 			Status:  genResult,
 		})

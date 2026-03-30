@@ -40,6 +40,9 @@ type Backend interface {
 	Version() string
 	SupportedModes() []ExecutionMode
 
+	// Configuration
+	ContextFileName() string // Target file for context (e.g., "CLAUDE.md", "GEMINI.md")
+
 	// Capability accessors - return nil if not supported.
 	// These are CONCEPTS, not implementations. The returned objects
 	// handle backend-specific details internally.
@@ -47,7 +50,7 @@ type Backend interface {
 	Skills() SkillRegistry       // User-invokable actions
 	Context() ContextProvider    // Getting context into the LLM
 	MCP() MCPManager             // MCP server registration
-	History() SessionHistory     // Conversation history access
+	History() SessionHistory     // Conversation history and /clear recovery
 
 	// Execution lifecycle
 	Setup(ctx context.Context, req *SetupRequest) error
@@ -142,15 +145,30 @@ type MCPManager interface {
 	Flush(workDir string) error
 }
 
-// SessionHistory provides access to the LLM's conversation history.
-// Implementation varies by backend: JSONL files (Claude/Codex), JSON files (Gemini), etc.
+// SessionHistory provides access to the LLM's conversation history and tracks
+// sessions for /clear recovery. Combines reading transcripts with tracking
+// which sessions belong to which SCM run.
+// Implementation varies by backend: JSONL files (Claude), JSON files (Gemini), etc.
 type SessionHistory interface {
+	// Reading sessions
 	// GetCurrentSession returns the current/most recent session transcript.
 	GetCurrentSession(workDir string) (*Session, error)
 	// ListSessions returns available session metadata.
 	ListSessions(workDir string) ([]SessionMeta, error)
 	// GetSession returns a specific session by ID.
 	GetSession(workDir string, sessionID string) (*Session, error)
+	// GetSessionByPath returns a session by its transcript file path.
+	GetSessionByPath(path string) (*Session, error)
+
+	// Tracking for /clear recovery
+	// TranscriptPathFromHook extracts or computes the transcript path from hook input.
+	// Claude: computes path from sessionID + workDir
+	// Gemini: returns transcriptPath directly
+	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
+	// RegisterSession records a session transcript path for the given SCM run (by PID).
+	RegisterSession(workDir string, pid int, transcriptPath string) error
+	// GetPreviousSession returns the session before the current one for recovery.
+	GetPreviousSession(workDir string, pid int) (*Session, error)
 }
 
 // Session represents a conversation session with normalized entries.

@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/SophisticatedContextManager/scm/internal/ptyrunner"
 )
 
@@ -140,4 +142,35 @@ func GetPromptContent(prompt *Fragment) string {
 		return prompt.Content
 	}
 	return ""
+}
+
+// LoadPrompts loads all prompts from bundles for slash command export.
+// This is shared logic used by multiple backends.
+func LoadPrompts() []*bundles.LoadedContent {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return nil
+	}
+
+	loader := bundles.NewLoader(bundleDirs, cfg.Defaults.ShouldUseDistilled())
+	infos, err := loader.ListAllPrompts()
+	if err != nil {
+		return nil
+	}
+
+	var prompts []*bundles.LoadedContent
+	for _, info := range infos {
+		content, err := loader.GetPrompt(info.Name)
+		if err != nil {
+			continue
+		}
+		prompts = append(prompts, content)
+	}
+
+	return prompts
 }

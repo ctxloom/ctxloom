@@ -1,5 +1,3 @@
-//go:build memory
-
 package vectordb
 
 import (

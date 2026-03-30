@@ -1,4 +1,4 @@
-//go:build memory && vectors && onnx
+//go:build vectors && onnx
 
 // Package onnxlib provides embedded ONNX runtime library loading.
 // The library is embedded in the binary and extracted to memory (Linux)

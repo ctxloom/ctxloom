@@ -93,39 +93,40 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// Load MCP servers from profile bundles
 	bundleMCP := freshCfg.ResolveBundleMCPServers()
 
-	// Apply to backends
-	if backend == "all" || backend == "claude-code" {
+	// Load prompts for command files (shared across backends)
+	var bundleOpts []bundles.LoaderOption
+	if req.BundleLoaderFS != nil {
+		bundleOpts = append(bundleOpts, bundles.WithFS(req.BundleLoaderFS))
+	}
+	prompts := loadPromptsForCommands(freshCfg, bundleOpts)
+
+	// Determine which backends to apply
+	var backendNames []string
+	if backend == "all" {
+		backendNames = backends.BackendsWithSettings()
+	} else {
+		backendNames = []string{backend}
+	}
+
+	// Apply to each backend
+	for _, backendName := range backendNames {
 		hooksCfg := &freshCfg.Hooks
 		if contextHash != "" {
 			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
 		}
-		if err := backends.WriteSettings("claude-code", hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
-			return nil, fmt.Errorf("failed to apply claude-code settings: %w", err)
+
+		if err := backends.WriteSettings(backendName, hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
+			return nil, fmt.Errorf("failed to apply %s settings: %w", backendName, err)
 		}
 
-		// Write slash commands from prompts
-		var bundleOpts []bundles.LoaderOption
-		if req.BundleLoaderFS != nil {
-			bundleOpts = append(bundleOpts, bundles.WithFS(req.BundleLoaderFS))
-		}
-		if prompts := loadPromptsForCommands(freshCfg, bundleOpts); len(prompts) > 0 {
-			if err := backends.WriteCommandFiles(workDir, prompts); err != nil {
-				return nil, fmt.Errorf("failed to write slash commands: %w", err)
+		// Write command files (each backend handles its own format)
+		if len(prompts) > 0 {
+			if err := backends.WriteCommandFilesFor(backendName, workDir, prompts); err != nil {
+				return nil, fmt.Errorf("failed to write %s commands: %w", backendName, err)
 			}
 		}
 
-		applied = append(applied, "claude-code")
-	}
-
-	if backend == "all" || backend == "gemini" {
-		hooksCfg := &freshCfg.Hooks
-		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
-		}
-		if err := backends.WriteSettings("gemini", hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
-			return nil, fmt.Errorf("failed to apply gemini settings: %w", err)
-		}
-		applied = append(applied, "gemini")
+		applied = append(applied, backendName)
 	}
 
 	return &ApplyHooksResult{

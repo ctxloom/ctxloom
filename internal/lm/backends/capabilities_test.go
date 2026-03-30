@@ -3,6 +3,8 @@ package backends
 import (
 	"testing"
 
+	"github.com/spf13/afero"
+
 	"github.com/SophisticatedContextManager/scm/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,27 +16,18 @@ import (
 
 // TestClaudeLifecycle_New verifies proper initialization
 func TestClaudeLifecycle_New(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-		hooks:   &config.HooksConfig{},
-		mcp:     &config.MCPConfig{},
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	assert.NotNil(t, lifecycle)
 	assert.Equal(t, backend, lifecycle.backend)
+	assert.NotNil(t, lifecycle.BaseLifecycle)
 }
 
 // TestClaudeLifecycle_OnSessionStart verifies session start handler registration
 func TestClaudeLifecycle_OnSessionStart(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo test",
@@ -44,19 +37,16 @@ func TestClaudeLifecycle_OnSessionStart(t *testing.T) {
 	err := lifecycle.OnSessionStart("/tmp", handler)
 	require.NoError(t, err)
 
-	// Verify hook was added
-	assert.NotNil(t, lifecycle.hooks)
-	assert.Len(t, lifecycle.hooks.Unified.SessionStart, 1)
+	// Verify hook was added via GetHooks()
+	hooks := lifecycle.GetHooks()
+	assert.NotNil(t, hooks)
+	assert.Len(t, hooks.Unified.SessionStart, 1)
 }
 
 // TestClaudeLifecycle_OnSessionEnd verifies session end handler registration
 func TestClaudeLifecycle_OnSessionEnd(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo cleanup",
@@ -66,18 +56,15 @@ func TestClaudeLifecycle_OnSessionEnd(t *testing.T) {
 	err := lifecycle.OnSessionEnd("/tmp", handler)
 	require.NoError(t, err)
 
-	assert.NotNil(t, lifecycle.hooks)
-	assert.Len(t, lifecycle.hooks.Unified.SessionEnd, 1)
+	hooks := lifecycle.GetHooks()
+	assert.NotNil(t, hooks)
+	assert.Len(t, hooks.Unified.SessionEnd, 1)
 }
 
 // TestClaudeLifecycle_OnToolUse verifies tool use handler registration
 func TestClaudeLifecycle_OnToolUse(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo tool",
@@ -87,65 +74,42 @@ func TestClaudeLifecycle_OnToolUse(t *testing.T) {
 	t.Run("before tool use", func(t *testing.T) {
 		err := lifecycle.OnToolUse("/tmp", BeforeToolUse, handler)
 		require.NoError(t, err)
-		assert.Len(t, lifecycle.hooks.Unified.PreTool, 1)
+		hooks := lifecycle.GetHooks()
+		assert.Len(t, hooks.Unified.PreTool, 1)
 	})
 
 	t.Run("after tool use", func(t *testing.T) {
-		lifecycle.hooks = &config.HooksConfig{}
-		err := lifecycle.OnToolUse("/tmp", AfterToolUse, handler)
+		// Create fresh lifecycle for independent test
+		lifecycle2 := NewClaudeLifecycle(backend)
+		err := lifecycle2.OnToolUse("/tmp", AfterToolUse, handler)
 		require.NoError(t, err)
-		assert.Len(t, lifecycle.hooks.Unified.PostTool, 1)
+		hooks := lifecycle2.GetHooks()
+		assert.Len(t, hooks.Unified.PostTool, 1)
 	})
 }
 
 // TestClaudeLifecycle_Clear verifies handlers can be cleared
 func TestClaudeLifecycle_Clear(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-		hooks: &config.HooksConfig{
-			Unified: config.UnifiedHooks{
-				SessionStart: []config.Hook{
-					{Command: "echo test"},
-				},
-			},
-			Plugins: make(map[string]config.BackendHooks),
-		},
-		mcp: &config.MCPConfig{
-			Servers: map[string]config.MCPServer{},
-			Plugins: make(map[string]map[string]config.MCPServer),
-		},
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
+
+	// Add some hooks first
+	_ = lifecycle.OnSessionStart("/tmp", EventHandler{Command: "echo test"})
 
 	// Note: Clear will try to write to settings, which may fail in test
 	// We're just verifying it resets internal state
 	lifecycle.Clear("/tmp")
-	assert.NotNil(t, lifecycle.hooks)
-	assert.NotNil(t, lifecycle.mcp)
+	hooks := lifecycle.GetHooks()
+	assert.NotNil(t, hooks)
 }
 
 // TestClaudeLifecycle_Flush verifies hooks and MCP are flushed
 func TestClaudeLifecycle_Flush(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-		hooks: &config.HooksConfig{
-			Unified: config.UnifiedHooks{
-				SessionStart: []config.Hook{
-					{Command: "echo test"},
-				},
-			},
-			Plugins: make(map[string]config.BackendHooks),
-		},
-		mcp: &config.MCPConfig{
-			Servers: map[string]config.MCPServer{},
-			Plugins: make(map[string]map[string]config.MCPServer),
-		},
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
+
+	// Add some hooks
+	_ = lifecycle.OnSessionStart("/tmp", EventHandler{Command: "echo test"})
 
 	// Flush will attempt file I/O; we're verifying it doesn't panic
 	_ = lifecycle.Flush("/tmp")
@@ -157,27 +121,18 @@ func TestClaudeLifecycle_Flush(t *testing.T) {
 
 // TestGeminiLifecycle_New verifies proper initialization
 func TestGeminiLifecycle_New(t *testing.T) {
-	backend := &Gemini{
-		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
-	}
-	lifecycle := &GeminiLifecycle{
-		backend: backend,
-		hooks:   &config.HooksConfig{},
-		mcp:     &config.MCPConfig{},
-	}
+	backend := NewGemini()
+	lifecycle := NewGeminiLifecycle(backend)
 
 	assert.NotNil(t, lifecycle)
 	assert.Equal(t, backend, lifecycle.backend)
+	assert.NotNil(t, lifecycle.BaseLifecycle)
 }
 
 // TestGeminiLifecycle_OnSessionStart verifies session start handler registration
 func TestGeminiLifecycle_OnSessionStart(t *testing.T) {
-	backend := &Gemini{
-		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
-	}
-	lifecycle := &GeminiLifecycle{
-		backend: backend,
-	}
+	backend := NewGemini()
+	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo test",
@@ -187,18 +142,15 @@ func TestGeminiLifecycle_OnSessionStart(t *testing.T) {
 	err := lifecycle.OnSessionStart("/tmp", handler)
 	require.NoError(t, err)
 
-	assert.NotNil(t, lifecycle.hooks)
-	assert.Len(t, lifecycle.hooks.Unified.SessionStart, 1)
+	hooks := lifecycle.GetHooks()
+	assert.NotNil(t, hooks)
+	assert.Len(t, hooks.Unified.SessionStart, 1)
 }
 
 // TestGeminiLifecycle_OnSessionEnd verifies session end handler registration
 func TestGeminiLifecycle_OnSessionEnd(t *testing.T) {
-	backend := &Gemini{
-		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
-	}
-	lifecycle := &GeminiLifecycle{
-		backend: backend,
-	}
+	backend := NewGemini()
+	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo cleanup",
@@ -208,18 +160,15 @@ func TestGeminiLifecycle_OnSessionEnd(t *testing.T) {
 	err := lifecycle.OnSessionEnd("/tmp", handler)
 	require.NoError(t, err)
 
-	assert.NotNil(t, lifecycle.hooks)
-	assert.Len(t, lifecycle.hooks.Unified.SessionEnd, 1)
+	hooks := lifecycle.GetHooks()
+	assert.NotNil(t, hooks)
+	assert.Len(t, hooks.Unified.SessionEnd, 1)
 }
 
 // TestGeminiLifecycle_OnToolUse verifies tool use handler registration
 func TestGeminiLifecycle_OnToolUse(t *testing.T) {
-	backend := &Gemini{
-		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
-	}
-	lifecycle := &GeminiLifecycle{
-		backend: backend,
-	}
+	backend := NewGemini()
+	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
 		Command: "echo tool",
@@ -229,14 +178,16 @@ func TestGeminiLifecycle_OnToolUse(t *testing.T) {
 	t.Run("before tool use", func(t *testing.T) {
 		err := lifecycle.OnToolUse("/tmp", BeforeToolUse, handler)
 		require.NoError(t, err)
-		assert.Len(t, lifecycle.hooks.Unified.PreTool, 1)
+		hooks := lifecycle.GetHooks()
+		assert.Len(t, hooks.Unified.PreTool, 1)
 	})
 
 	t.Run("after tool use", func(t *testing.T) {
-		lifecycle.hooks = &config.HooksConfig{}
-		err := lifecycle.OnToolUse("/tmp", AfterToolUse, handler)
+		lifecycle2 := NewGeminiLifecycle(backend)
+		err := lifecycle2.OnToolUse("/tmp", AfterToolUse, handler)
 		require.NoError(t, err)
-		assert.Len(t, lifecycle.hooks.Unified.PostTool, 1)
+		hooks := lifecycle2.GetHooks()
+		assert.Len(t, hooks.Unified.PostTool, 1)
 	})
 }
 
@@ -256,12 +207,8 @@ func TestGeminiCommand_Structure(t *testing.T) {
 // =============================================================================
 
 func TestClaudeMCPManager_RegisterServer(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-	}
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
 
 	server := MCPServer{
 		Name:    "test-server",
@@ -271,42 +218,36 @@ func TestClaudeMCPManager_RegisterServer(t *testing.T) {
 
 	err := manager.RegisterServer("/tmp", server)
 	require.NoError(t, err)
-	assert.NotNil(t, manager.servers)
-	assert.Len(t, manager.servers, 1)
-	assert.Equal(t, server, manager.servers["test-server"])
+
+	servers, _ := manager.ListServers("/tmp")
+	assert.Len(t, servers, 1)
+	assert.Contains(t, servers, "test-server")
 }
 
 func TestClaudeMCPManager_UnregisterServer(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
+
+	// Register first
+	server := MCPServer{
+		Name:    "test-server",
+		Command: "test-cmd",
 	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-		servers: map[string]MCPServer{
-			"test-server": {
-				Name:    "test-server",
-				Command: "test-cmd",
-			},
-		},
-	}
+	_ = manager.RegisterServer("/tmp", server)
 
 	err := manager.UnregisterServer("/tmp", "test-server")
 	require.NoError(t, err)
-	assert.Len(t, manager.servers, 0)
-	assert.NotContains(t, manager.servers, "test-server")
+
+	servers, _ := manager.ListServers("/tmp")
+	assert.Len(t, servers, 0)
 }
 
 func TestClaudeMCPManager_ListServers(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-		servers: map[string]MCPServer{
-			"server1": {Name: "server1"},
-			"server2": {Name: "server2"},
-		},
-	}
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
+
+	_ = manager.RegisterServer("/tmp", MCPServer{Name: "server1"})
+	_ = manager.RegisterServer("/tmp", MCPServer{Name: "server2"})
 
 	names, err := manager.ListServers("/tmp")
 	require.NoError(t, err)
@@ -316,18 +257,15 @@ func TestClaudeMCPManager_ListServers(t *testing.T) {
 }
 
 func TestClaudeMCPManager_GetServer(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
+
 	server := MCPServer{
 		Name:    "test-server",
 		Command: "test-cmd",
 		Args:    []string{"arg1"},
 	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-		servers: map[string]MCPServer{"test-server": server},
-	}
+	_ = manager.RegisterServer("/tmp", server)
 
 	result, err := manager.GetServer("/tmp", "test-server")
 	require.NoError(t, err)
@@ -337,13 +275,8 @@ func TestClaudeMCPManager_GetServer(t *testing.T) {
 }
 
 func TestClaudeMCPManager_GetServer_NotFound(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-		servers: make(map[string]MCPServer),
-	}
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
 
 	result, err := manager.GetServer("/tmp", "nonexistent")
 	require.NoError(t, err)
@@ -351,28 +284,15 @@ func TestClaudeMCPManager_GetServer_NotFound(t *testing.T) {
 }
 
 func TestClaudeMCPManager_Clear(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	manager := &ClaudeMCPManager{
-		backend: backend,
-		servers: map[string]MCPServer{
-			"server1": {Name: "server1"},
-		},
-	}
+	backend := NewClaudeCode()
+	manager := NewClaudeMCPManager(backend)
+
+	_ = manager.RegisterServer("/tmp", MCPServer{Name: "server1"})
 
 	// Clear will attempt file I/O; we're verifying it clears internal state
 	_ = manager.Clear("/tmp")
-	assert.Len(t, manager.servers, 0)
-}
-
-func TestClaudeMCPManager_EnsureServers(t *testing.T) {
-	manager := &ClaudeMCPManager{
-		servers: nil,
-	}
-	manager.ensureServers()
-	assert.NotNil(t, manager.servers)
-	assert.Equal(t, 0, len(manager.servers))
+	servers, _ := manager.ListServers("/tmp")
+	assert.Len(t, servers, 0)
 }
 
 // =============================================================================
@@ -380,9 +300,7 @@ func TestClaudeMCPManager_EnsureServers(t *testing.T) {
 // =============================================================================
 
 func TestClaudeSkills_Register(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
+	backend := NewClaudeCode()
 	skills := &ClaudeSkills{
 		backend: backend,
 	}
@@ -400,9 +318,7 @@ func TestClaudeSkills_Register(t *testing.T) {
 }
 
 func TestClaudeSkills_RegisterAll(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
+	backend := NewClaudeCode()
 	skills := &ClaudeSkills{
 		backend: backend,
 	}
@@ -431,69 +347,43 @@ func TestClaudeSkills_RegisterAll(t *testing.T) {
 // =============================================================================
 
 func TestClaudeContext_GetContextHash(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	context := &ClaudeContext{
-		backend:     backend,
-		contextHash: "abc123def456",
-	}
+	backend := NewClaudeCode()
+	context := NewClaudeContext(backend)
+
+	// Write context to set hash
+	fragments := []*Fragment{{Content: "test content"}}
+	_ = context.Provide("/tmp", fragments)
 
 	hash := context.GetContextHash()
-	assert.Equal(t, "abc123def456", hash)
+	assert.NotEmpty(t, hash)
 }
 
 func TestClaudeContext_GetContextHash_Empty(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	context := &ClaudeContext{
-		backend:     backend,
-		contextHash: "",
-	}
+	backend := NewClaudeCode()
+	context := NewClaudeContext(backend)
 
 	hash := context.GetContextHash()
 	assert.Equal(t, "", hash)
 }
 
-func TestClaudeContext_GetContextFilePath(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	context := &ClaudeContext{
-		backend:     backend,
-		contextHash: "abc123",
-	}
-
-	path := context.GetContextFilePath()
-	assert.Equal(t, ".scm/context/abc123.md", path)
-}
-
 func TestClaudeContext_GetContextFilePath_Empty(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	context := &ClaudeContext{
-		backend:     backend,
-		contextHash: "",
-	}
+	backend := NewClaudeCode()
+	context := NewClaudeContext(backend)
 
 	path := context.GetContextFilePath()
 	assert.Equal(t, "", path)
 }
 
 func TestClaudeContext_Clear(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	context := &ClaudeContext{
-		backend:     backend,
-		contextHash: "abc123",
-	}
+	backend := NewClaudeCode()
+	context := NewClaudeContext(backend)
+
+	// Provide some context first
+	_ = context.Provide("/tmp", []*Fragment{{Content: "test"}})
 
 	err := context.Clear("/tmp")
 	require.NoError(t, err)
-	assert.Equal(t, "", context.contextHash)
+	assert.Equal(t, "", context.GetContextHash())
 }
 
 // =============================================================================
@@ -501,14 +391,8 @@ func TestClaudeContext_Clear(t *testing.T) {
 // =============================================================================
 
 func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-		hooks:   &config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		mcp:     &config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
 		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
@@ -518,18 +402,13 @@ func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "abc123hash")
 
 	// Verify context injection hook was added
-	assert.NotEmpty(t, lifecycle.hooks.Unified.SessionStart)
+	hooks := lifecycle.GetHooks()
+	assert.NotEmpty(t, hooks.Unified.SessionStart)
 }
 
 func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
-	backend := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
-	}
-	lifecycle := &ClaudeLifecycle{
-		backend: backend,
-		hooks:   &config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		mcp:     &config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
-	}
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
 		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
@@ -539,5 +418,93 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
 
 	// Without context hash, SessionStart should remain empty
-	assert.Empty(t, lifecycle.hooks.Unified.SessionStart)
+	hooks := lifecycle.GetHooks()
+	assert.Empty(t, hooks.Unified.SessionStart)
+}
+
+// =============================================================================
+// Base Session Registry Tests
+// =============================================================================
+
+func TestBaseSessionRegistry_New(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	assert.NotNil(t, registry)
+}
+
+func TestBaseSessionRegistry_RegisterSession(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	workDir := "/test/project"
+
+	err := registry.RegisterSession(workDir, 12345, "/path/to/session.jsonl")
+	require.NoError(t, err)
+
+	// Second registration with same path should be idempotent
+	err = registry.RegisterSession(workDir, 12345, "/path/to/session.jsonl")
+	require.NoError(t, err)
+
+	// Verify file was created
+	exists, _ := afero.Exists(fs, "/test/project/.scm/test-registry.json")
+	assert.True(t, exists)
+}
+
+func TestBaseSessionRegistry_GetPreviousSession_NoPrevious(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	workDir := "/test/project"
+
+	// Only one session registered
+	_ = registry.RegisterSession(workDir, 12345, "/path/to/session1.jsonl")
+
+	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
+		return &Session{ID: "test"}, nil
+	})
+	require.NoError(t, err)
+	assert.Nil(t, session) // No previous when only one session exists
+}
+
+func TestBaseSessionRegistry_GetPreviousSession_WithPrevious(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	workDir := "/test/project"
+
+	// Register two sessions
+	_ = registry.RegisterSession(workDir, 12345, "/path/to/session1.jsonl")
+	_ = registry.RegisterSession(workDir, 12345, "/path/to/session2.jsonl")
+
+	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
+		return &Session{ID: path}, nil
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, session)
+	assert.Equal(t, "/path/to/session1.jsonl", session.ID) // Returns the first (previous) session
+}
+
+func TestBaseSessionRegistry_Pruning(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	workDir := "/test/project"
+
+	// Register sessions for many PIDs to trigger pruning
+	for i := 0; i < 150; i++ {
+		_ = registry.RegisterSession(workDir, 10000+i, "/path/to/session.jsonl")
+	}
+
+	// Should still work - pruning keeps maxEntries (100)
+	err := registry.RegisterSession(workDir, 99999, "/path/to/new.jsonl")
+	require.NoError(t, err)
+}
+
+func TestBaseSessionRegistry_EmptyRegistry(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
+	workDir := "/test/project"
+
+	// Get previous session when no sessions exist
+	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
+		return &Session{ID: path}, nil
+	})
+	require.NoError(t, err)
+	assert.Nil(t, session)
 }

@@ -31,6 +31,11 @@ func NewCodex() *Codex {
 	return b
 }
 
+// ContextFileName returns the target file for context injection.
+func (b *Codex) ContextFileName() string {
+	return "AGENTS.md"
+}
+
 // Lifecycle returns nil - Codex doesn't support lifecycle hooks.
 func (b *Codex) Lifecycle() LifecycleHandler { return nil }
 
@@ -312,4 +317,24 @@ func (h *CodexSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 	}
 
 	return entry, nil
+}
+
+// GetSessionByPath returns a session by its full file path.
+func (h *CodexSessionHistory) GetSessionByPath(path string) (*Session, error) {
+	return h.parseSessionFile(path)
+}
+
+// RegisterSession is a no-op for Codex (no registry support yet).
+// TranscriptPathFromHook returns empty string - Codex doesn't support session registration yet.
+func (h *CodexSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
+	return ""
+}
+
+func (h *CodexSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
+	return nil // Silent no-op - Codex doesn't have registry support
+}
+
+// GetPreviousSession returns nil for Codex (no registry support yet).
+func (h *CodexSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
+	return nil, nil // No previous session tracking for Codex
 }

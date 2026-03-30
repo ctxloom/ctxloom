@@ -26,6 +26,26 @@ func (h *NilSessionHistory) GetSession(workDir string, sessionID string) (*Sessi
 	return nil, fmt.Errorf("session history not supported by this backend")
 }
 
+// GetSessionByPath returns an error indicating history is not supported.
+func (h *NilSessionHistory) GetSessionByPath(path string) (*Session, error) {
+	return nil, fmt.Errorf("session history not supported by this backend")
+}
+
+// RegisterSession is a no-op for backends without history support.
+// TranscriptPathFromHook returns empty string - no history support.
+func (h *NilSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
+	return ""
+}
+
+func (h *NilSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
+	return nil // Silent no-op
+}
+
+// GetPreviousSession returns nil for backends without history support.
+func (h *NilSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
+	return nil, nil // No previous session
+}
+
 // Provide assembles context fragments and stores them for later retrieval.
 func (c *CLIContextProvider) Provide(workDir string, fragments []*Fragment) error {
 	c.assembledContext = assembleFragments(fragments)

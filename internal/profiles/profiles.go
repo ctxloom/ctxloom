@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/SophisticatedContextManager/scm/internal/remote"
 )
 
 // Profile represents a named collection of fragments, bundles, and configuration.
@@ -430,6 +432,34 @@ func GetProfileDirs(scmPaths []string) []string {
 // This matches the limit used in config.ResolveProfile for consistency.
 const maxProfileDepth = 64
 
+// toLocalProfileName converts a profile reference to its local name.
+// For URL references (https://, git@, file://), it parses the reference
+// and returns the local path format (e.g., "github.com/owner/repo/name").
+// For simple references, it returns the name unchanged.
+func toLocalProfileName(name string) string {
+	// Check if this is a URL reference
+	if !strings.HasPrefix(name, "https://") &&
+		!strings.HasPrefix(name, "http://") &&
+		!strings.HasPrefix(name, "git@") &&
+		!strings.HasPrefix(name, "file://") {
+		// Not a URL, return as-is
+		return name
+	}
+
+	// Parse the URL reference
+	ref, err := remote.ParseReference(name)
+	if err != nil {
+		// If parsing fails, return the original name
+		// (the Load call will fail with a descriptive error)
+		return name
+	}
+
+	// Convert to local profile name: {remoteName}/{path}
+	// LocalRemoteName() returns something like "github.com/owner/repo"
+	// Path is the profile name like "go-developer"
+	return ref.LocalRemoteName() + "/" + ref.Path
+}
+
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
 // Returns bundles, tags, and variables.
 // Uses the same algorithm as config.ResolveProfile for consistency:
@@ -466,9 +496,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Clone visited map for each parent to handle diamond inheritance correctly.
 	// This allows shared ancestors to be resolved through different paths.
 	for _, parent := range profile.Parents {
+		// Convert URL references to local profile names
+		localParentName := toLocalProfileName(parent)
+
 		// Clone visited map for this parent branch
 		parentVisited := cloneVisited(visited)
-		parentResolved, err := l.resolveProfileRecursive(parent, parentVisited, depth+1)
+		parentResolved, err := l.resolveProfileRecursive(localParentName, parentVisited, depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 		}

@@ -86,6 +86,30 @@ func IsAvailable(name string) bool {
 	return err == nil
 }
 
+// ContextFileName returns the context file name for a backend, or empty string if not found.
+func ContextFileName(name string) string {
+	backend := Get(name)
+	if backend == nil {
+		return ""
+	}
+	return backend.ContextFileName()
+}
+
+// ContextFileNames returns a map of all registered backend names to their context file names.
+// Backends with empty context file names are excluded.
+func ContextFileNames() map[string]string {
+	result := make(map[string]string)
+	for name := range registry {
+		backend := Get(name)
+		if backend != nil {
+			if fileName := backend.ContextFileName(); fileName != "" {
+				result[name] = fileName
+			}
+		}
+	}
+	return result
+}
+
 func init() {
 	// Register all built-in backends
 	Register("claude-code", func() Backend { return NewClaudeCode() })

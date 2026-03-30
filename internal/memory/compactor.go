@@ -1,5 +1,3 @@
-//go:build memory
-
 package memory
 
 import (
@@ -442,3 +440,135 @@ Use this structure:
 ### Key Context
 - [important context for next session]
 `
+
+// EssencesDir is the subdirectory for session essences.
+const EssencesDir = "essences"
+
+// SessionEssence holds a brief summary of a session (few sentences).
+type SessionEssence struct {
+	SessionID   string    `yaml:"session_id"`
+	CreatedAt   time.Time `yaml:"created_at"`
+	Essence     string    `yaml:"essence"`
+	GeneratedAt time.Time `yaml:"generated_at"`
+}
+
+// LoadSessionEssence loads a cached session essence.
+func LoadSessionEssence(memoryDir, sessionID string) (*SessionEssence, error) {
+	path := filepath.Join(memoryDir, EssencesDir, fmt.Sprintf("session-%s.yaml", sessionID))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var essence SessionEssence
+	if err := yaml.Unmarshal(data, &essence); err != nil {
+		return nil, err
+	}
+
+	return &essence, nil
+}
+
+// SaveSessionEssence saves a session essence to cache.
+func SaveSessionEssence(memoryDir string, essence *SessionEssence) error {
+	essencesDir := filepath.Join(memoryDir, EssencesDir)
+	if err := os.MkdirAll(essencesDir, 0755); err != nil {
+		return err
+	}
+
+	data, err := yaml.Marshal(essence)
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(essencesDir, fmt.Sprintf("session-%s.yaml", essence.SessionID))
+	return os.WriteFile(path, data, 0644)
+}
+
+// EssenceConfig holds settings for essence generation.
+type EssenceConfig struct {
+	Plugin    string // LLM plugin to use (e.g., "claude-code")
+	Model     string // Model to use (e.g., "haiku")
+	MemoryDir string // Directory for essence cache
+}
+
+// GenerateSessionEssence creates a brief essence of a session using an LLM.
+// It checks the cache first and only generates if not already cached.
+func GenerateSessionEssence(ctx context.Context, session *backends.Session, config EssenceConfig) (*SessionEssence, error) {
+	// Check cache first
+	if cached, err := LoadSessionEssence(config.MemoryDir, session.ID); err == nil {
+		return cached, nil
+	}
+
+	// Convert session to text (first ~4000 chars for essence)
+	var textBuilder strings.Builder
+	for _, entry := range session.Entries {
+		if entry.Type == backends.EntryTypeUser || entry.Type == backends.EntryTypeAssistant {
+			textBuilder.WriteString(fmt.Sprintf("[%s]: %s\n\n", entry.Type, entry.Content))
+		}
+		if textBuilder.Len() > 4000 {
+			break
+		}
+	}
+	sessionText := textBuilder.String()
+
+	if len(sessionText) == 0 {
+		return &SessionEssence{
+			SessionID:   session.ID,
+			CreatedAt:   session.StartTime,
+			Essence:     "(empty session)",
+			GeneratedAt: time.Now(),
+		}, nil
+	}
+
+	// Generate essence using LLM
+	client, err := pb.NewSelfInvokingClient(config.Plugin, 0)
+	if err != nil {
+		return nil, fmt.Errorf("start plugin: %w", err)
+	}
+	defer client.Kill()
+
+	req := &pb.RunRequest{
+		Prompt: &pb.Fragment{
+			Content: fmt.Sprintf("<session_excerpt>\n%s\n</session_excerpt>", sessionText),
+		},
+		Fragments: []*pb.Fragment{
+			{Content: essencePrompt},
+		},
+		Options: &pb.RunOptions{
+			AutoApprove: true,
+			Mode:        pb.ExecutionMode_ONESHOT,
+			Model:       config.Model,
+			SkipSetup:   true,
+		},
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode, err := client.Run(ctx, req, &stdout, &stderr)
+	if err != nil {
+		return nil, err
+	}
+
+	if exitCode != 0 {
+		return nil, fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
+	}
+
+	essence := &SessionEssence{
+		SessionID:   session.ID,
+		CreatedAt:   session.StartTime,
+		Essence:     strings.TrimSpace(stdout.String()),
+		GeneratedAt: time.Now(),
+	}
+
+	// Cache the essence
+	if err := SaveSessionEssence(config.MemoryDir, essence); err != nil {
+		// Log but don't fail - essence was generated successfully
+		fmt.Fprintf(os.Stderr, "SCM: warning: failed to cache essence: %v\n", err)
+	}
+
+	return essence, nil
+}
+
+// essencePrompt is the system prompt for generating session essences.
+const essencePrompt = `Write a single paragraph (2-3 sentences) capturing the essence of this coding session. What was worked on and what was the outcome? Be direct and specific. No bullet points.
+
+Example: "Implemented user authentication with JWT tokens. Added login/logout endpoints and middleware. Tests passing but password reset still needed."`

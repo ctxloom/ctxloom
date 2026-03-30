@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,13 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/gitutil"
 	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
 )
+
+// HookInput represents the JSON input from AI tool hooks.
+// Claude Code provides session_id; Gemini CLI provides transcript_path directly.
+type HookInput struct {
+	SessionID      string `json:"session_id"`      // Claude Code: session identifier
+	TranscriptPath string `json:"transcript_path"` // Gemini CLI: full path to transcript file
+}
 
 // HookOutput represents the JSON output format for AI tool hooks.
 // This format is compatible with both Claude Code and Gemini CLI SessionStart hooks.
@@ -24,6 +32,7 @@ type HookSpecificOutput struct {
 }
 
 var injectContextProject string
+var injectContextBackend string
 
 var hookInjectContextCmd = &cobra.Command{
 	Use:   "inject-context <hash>",
@@ -59,6 +68,15 @@ Output format (JSON to stdout):
 			}
 		}()
 
+		// Read hook input from stdin (Claude passes session context here)
+		var hookInput HookInput
+		inputData, err := io.ReadAll(os.Stdin)
+		if err == nil && len(inputData) > 0 {
+			if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
+				fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to parse hook input: %v\n", unmarshalErr)
+			}
+		}
+
 		// Determine work directory from --project flag, git root, or current directory
 		workDir := injectContextProject
 		if workDir == "" {
@@ -70,21 +88,27 @@ Output format (JSON to stdout):
 			}
 		}
 
+		// Register session for /clear recovery
+		backend := backends.Get(injectContextBackend)
+		if backend == nil {
+			backend = backends.Get("claude-code") // default
+		}
+		if history := backend.History(); history != nil {
+			transcriptPath := history.TranscriptPathFromHook(workDir, hookInput.SessionID, hookInput.TranscriptPath)
+			if transcriptPath != "" {
+				pid := findSCMWrapperPID()
+				if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
+					fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to register session: %v\n", err)
+				}
+			}
+		}
+
 		// Read context file by hash
 		content, err := backends.ReadContextFile(workDir, hash)
 		if err != nil {
 			// Log to stderr, output empty JSON to stdout
 			fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to read context file: %v\n", err)
 			content = ""
-		}
-
-		// Load session memory from previous distilled session (if available)
-		sessionMemory := loadSessionMemoryForHook(workDir)
-		if sessionMemory != "" {
-			if content != "" {
-				content += "\n\n"
-			}
-			content += sessionMemory
 		}
 
 		// Build output
@@ -109,5 +133,6 @@ Output format (JSON to stdout):
 
 func init() {
 	hookInjectContextCmd.Flags().StringVar(&injectContextProject, "project", "", "Project directory (defaults to git root or current directory)")
+	hookInjectContextCmd.Flags().StringVar(&injectContextBackend, "backend", "claude-code", "Backend type (claude-code or gemini)")
 	hookCmd.AddCommand(hookInjectContextCmd)
 }

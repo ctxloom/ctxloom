@@ -1,4 +1,4 @@
-//go:build !onnx || !memory || !vectors
+//go:build !onnx || !vectors
 
 // Package onnxlib provides embedded ONNX runtime library loading.
 // This stub is used when ONNX support is not compiled in.

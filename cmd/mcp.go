@@ -489,6 +489,7 @@ func (s *mcpServer) handleRequest(ctx context.Context, req *mcpRequest) *mcpResp
 }
 
 func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
+
 	cfg, err := config.Load()
 	if err != nil {
 		// Log the error but continue with an empty config
@@ -1327,6 +1328,14 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolGetSessionMemory(ctx, params.Arguments)
 	case "list_sessions":
 		result, err = s.toolListSessions(ctx, params.Arguments)
+	case "load_session":
+		result, err = s.toolLoadSession(ctx, params.Arguments)
+	case "recover_session":
+		result, err = s.toolRecoverSession(ctx, params.Arguments)
+	case "browse_session_history":
+		result, err = s.toolBrowseSessionHistory(ctx, params.Arguments)
+	case "get_previous_session":
+		result, err = s.toolGetPreviousSession(ctx, params.Arguments)
 	// Vector tools (no-op stubs when built without vectors tag)
 	case "query_memory":
 		result, err = s.toolQueryMemory(ctx, params.Arguments)

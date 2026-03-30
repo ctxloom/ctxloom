@@ -11,6 +11,20 @@ import (
 	"github.com/SophisticatedContextManager/scm/internal/bundles"
 )
 
+// WriteCommandFilesFor writes command files for the specified backend.
+// It dispatches to the appropriate backend-specific writer.
+func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent) error {
+	switch backendName {
+	case "claude-code":
+		return WriteCommandFiles(workDir, prompts)
+	case "gemini":
+		return WriteGeminiCommandFiles(workDir, prompts)
+	default:
+		// Backend doesn't support command files, silently succeed
+		return nil
+	}
+}
+
 // WriteCommandFiles generates Claude Code slash command files from prompts.
 // Files are written directly to .claude/commands/ (e.g., save.md -> /save).
 // SCM tracks which files it manages via a manifest to clean up stale commands.

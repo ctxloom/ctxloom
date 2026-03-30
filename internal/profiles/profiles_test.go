@@ -828,3 +828,183 @@ func TestNewLoader_WithFS(t *testing.T) {
 	assert.NotNil(t, loader)
 	assert.Equal(t, fs, loader.fs)
 }
+
+// =============================================================================
+// toLocalProfileName Tests
+// =============================================================================
+
+func TestToLocalProfileName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple name unchanged",
+			input:    "my-profile",
+			expected: "my-profile",
+		},
+		{
+			name:     "remote/name unchanged",
+			input:    "github/go-developer",
+			expected: "github/go-developer",
+		},
+		{
+			name:     "https URL converted to local path",
+			input:    "https://github.com/owner/repo@v1/profiles/go-developer",
+			expected: "github.com/owner/repo/go-developer",
+		},
+		{
+			name:     "git@ SSH URL converted to local path",
+			input:    "git@github.com:owner/repo@v1/profiles/go-developer",
+			expected: "github.com/owner/repo/go-developer",
+		},
+		{
+			name:     "file:// URL converted to local path",
+			input:    "file:///home/user/scm-content@v1/profiles/test",
+			expected: "user/scm-content/test",
+		},
+		{
+			name:     "nested path in URL",
+			input:    "https://github.com/org/subgroup/repo@v1/profiles/base",
+			expected: "github.com/org/subgroup/repo/base",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := toLocalProfileName(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// =============================================================================
+// URL Parent Resolution Tests
+// =============================================================================
+
+// TestLoader_ResolveProfile_URLParent verifies that URL parent references are
+// resolved to their local storage paths.
+//
+// When a profile has a parent like:
+//   - https://github.com/owner/repo@v1/profiles/base
+//
+// The resolver should look for the profile at:
+//   - .scm/profiles/github.com/owner/repo/base.yaml
+func TestLoader_ResolveProfile_URLParent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	// Create directories
+	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.scm/profiles/github.com/owner/repo", 0755))
+
+	// Create the "remote" parent profile (as if synced from URL)
+	baseProfile := `description: Base Go profile
+bundles:
+  - go-tools
+tags:
+  - golang
+variables:
+  go_version: "1.21"
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/github.com/owner/repo/go-base.yaml",
+		[]byte(baseProfile), 0644))
+
+	// Create child profile that references the parent via URL
+	childProfile := `description: Project profile
+parents:
+  - https://github.com/owner/repo@v1/profiles/go-base
+bundles:
+  - project-tools
+variables:
+  project_name: my-project
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/project-dev.yaml",
+		[]byte(childProfile), 0644))
+
+	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+
+	// Resolve the child profile
+	resolved, err := loader.ResolveProfile("project-dev", nil)
+	require.NoError(t, err)
+
+	// Should have bundles from both profiles
+	assert.Contains(t, resolved.Bundles, "go-tools")
+	assert.Contains(t, resolved.Bundles, "project-tools")
+
+	// Should have tags from parent
+	assert.Contains(t, resolved.Tags, "golang")
+
+	// Should have variables from both (child overrides parent)
+	assert.Equal(t, "1.21", resolved.Variables["go_version"])
+	assert.Equal(t, "my-project", resolved.Variables["project_name"])
+}
+
+// TestLoader_ResolveProfile_URLParentNotSynced verifies error when URL parent
+// hasn't been synced locally.
+func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
+
+	// Create child profile that references an unsynced parent
+	childProfile := `parents:
+  - https://github.com/nonexistent/repo@v1/profiles/missing
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/child.yaml",
+		[]byte(childProfile), 0644))
+
+	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+
+	_, err := loader.ResolveProfile("child", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to resolve parent")
+}
+
+// TestLoader_ResolveProfile_MixedParents verifies resolution with both local
+// and URL parent references.
+func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.scm/profiles/github.com/scm-main/scm", 0755))
+
+	// Local parent
+	localParent := `bundles:
+  - local-tools
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/local-base.yaml",
+		[]byte(localParent), 0644))
+
+	// Remote parent (synced)
+	remoteParent := `bundles:
+  - remote-tools
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/github.com/scm-main/scm/go-base.yaml",
+		[]byte(remoteParent), 0644))
+
+	// Child with both parents
+	childProfile := `parents:
+  - local-base
+  - https://github.com/scm-main/scm@v1/profiles/go-base
+bundles:
+  - child-tools
+`
+	require.NoError(t, afero.WriteFile(fs,
+		"/project/.scm/profiles/mixed.yaml",
+		[]byte(childProfile), 0644))
+
+	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+
+	resolved, err := loader.ResolveProfile("mixed", nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, resolved.Bundles, "local-tools")
+	assert.Contains(t, resolved.Bundles, "remote-tools")
+	assert.Contains(t, resolved.Bundles, "child-tools")
+}

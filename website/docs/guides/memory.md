@@ -6,6 +6,22 @@ sidebar_position: 8
 
 Session memory preserves context across conversations by compacting session history and storing it for future retrieval. This helps maintain continuity when you hit context limits or need to clear your session.
 
+## Why Not Just Use `/compact`?
+
+Claude Code has a built-in `/compact` command, but it's unreliable:
+- It runs inside the same context window it's trying to compress
+- The LLM may lose important details or hallucinate
+- You can't control the compression strategy
+- No persistence - if something goes wrong, context is lost
+
+**SCM's approach is different:**
+
+1. **External processing** - SCM reads the raw session transcript from disk (JSONL files)
+2. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
+3. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
+4. **Persistent storage** - Distilled summaries are saved to `.scm/memory/`
+5. **Reliable recovery** - Process ID tracking ensures you can always find the previous session
+
 ## Overview
 
 When working on long sessions, you'll eventually approach context window limits. Session memory lets you:
@@ -113,19 +129,20 @@ This allows seamless recovery without manually specifying session IDs.
 
 ### Compaction
 
-Session compaction uses an LLM to distill your conversation into key information:
-
-- **Decisions made** - What was decided and why
-- **Context established** - Important background information
-- **Progress achieved** - What was completed
-- **Next steps** - What was planned but not done
+Session compaction happens **outside your session** using a separate LLM call. This is critical - the compaction LLM has access to the full raw transcript, not a degraded context window.
 
 The compaction process:
 
-1. Reads the session transcript (JSONL from Claude/Gemini)
-2. Chunks large sessions (default: 8000 tokens per chunk)
-3. Distills each chunk using a fast model (default: Haiku)
-4. Stores the result in `.scm/memory/`
+1. **Read transcript** - SCM reads the raw JSONL session log from disk
+2. **Chunk** - Large sessions are split (default: 8000 tokens per chunk)
+3. **Distill** - A fast model (default: Haiku) extracts key information:
+   - Decisions made and why
+   - Context established
+   - Progress achieved
+   - Next steps planned
+4. **Store** - Result saved to `.scm/memory/distilled/`
+
+The distilled output is typically 10-20% of the original size while preserving actionable information.
 
 ### Vector Indexing
 
@@ -145,6 +162,27 @@ Memory is stored in:
 └── vectors/             # Vector database (if enabled)
     └── embeddings.db
 ```
+
+### Cross-Agent Workflows
+
+Because distilled memory is stored as plain markdown files, context is **portable across agents**:
+
+```bash
+# Morning: Write code with Claude
+scm run --plugin claude-code "implement the auth module"
+/save
+
+# Afternoon: Review with Gemini
+scm run --plugin gemini "review the auth implementation"
+# Gemini can load the distilled context from Claude's session
+```
+
+Use cases:
+- **Development → Review** - Write with one model, review with another
+- **Fast → Thorough** - Draft with Haiku, refine with Opus
+- **Specialist models** - Use different models for different task types
+
+The distilled markdown captures decisions, progress, and next steps - everything the next agent needs to continue the work.
 
 ## MCP Tools
 

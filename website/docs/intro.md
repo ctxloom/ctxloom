@@ -13,6 +13,7 @@ sidebar_position: 1
 - **Consistent AI behavior** - Same standards enforced every time
 - **Share across team** - Pull bundles from GitHub, everyone gets the same context
 - **Never lose progress** - Session memory survives `/clear`
+- **Portable context** - Write code with Claude, review with Gemini, same context
 
 ## What SCM Does
 
@@ -66,7 +67,12 @@ SCM includes built-in commands:
 
 ## Session Memory
 
-Preserve context across `/clear`:
+Claude Code's built-in `/compact` is unreliable. SCM takes a different approach:
+
+1. **`/save`** - SCM reads the session transcript from disk
+2. **Distill** - A separate LLM (configurable, default: Haiku) compresses it to essentials
+3. **`/clear`** - Start fresh with empty context
+4. **Recover** - The distilled summary is injected into the new session
 
 ```bash
 # Before hitting context limits
@@ -79,7 +85,7 @@ Preserve context across `/clear`:
 "What were we working on?"
 ```
 
-SCM tracks sessions by process ID and recovers seamlessly.
+This works because SCM tracks sessions by process ID and stores distilled summaries separately.
 
 ## How It Works
 

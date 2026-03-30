@@ -10,10 +10,14 @@ sidebar_position: 1
 **Stop repeating yourself to AI.** Every session you re-explain your coding standards, patterns, and preferences. SCM solves this:
 
 - **Save hours per week** - Write context once, reuse across all sessions
-- **Consistent AI behavior** - Same standards enforced every time
+- **Consistent across projects** - Personal repo (`~/.scm`) follows you everywhere
 - **Share across team** - Pull bundles from GitHub, everyone gets the same context
 - **Never lose progress** - Session memory survives `/clear`
 - **Portable context** - Write code with Claude, review with Gemini, same context
+
+:::note Why not just CLAUDE.md?
+Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only**. SCM adds a personal layer (`~/.scm`) that applies across all your projects, plus team sharing via remote repositories.
+:::
 
 ## What SCM Does
 

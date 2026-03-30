@@ -165,16 +165,17 @@ Memory is stored in:
 
 ### Cross-Agent Workflows
 
-Because distilled memory is stored as plain markdown files, context is **portable across agents**:
+**Distilled memory** is portable across agents - it's stored as plain markdown. **Raw session history** is currently backend-specific (Claude and Gemini use different transcript formats).
 
 ```bash
 # Morning: Write code with Claude
 scm run --plugin claude-code "implement the auth module"
-/save
+/save  # Distills to .scm/memory/distilled/
 
 # Afternoon: Review with Gemini
-scm run --plugin gemini "review the auth implementation"
-# Gemini can load the distilled context from Claude's session
+scm run --plugin gemini
+"Load the distilled session from this morning"
+# Gemini loads the markdown summary, continues the work
 ```
 
 Use cases:
@@ -183,6 +184,10 @@ Use cases:
 - **Specialist models** - Use different models for different task types
 
 The distilled markdown captures decisions, progress, and next steps - everything the next agent needs to continue the work.
+
+:::note
+Cross-backend session history (not just distilled summaries) is not yet implemented. If you need to browse Claude sessions from Gemini or vice versa, [open an issue](https://github.com/SophisticatedContextManager/scm/issues).
+:::
 
 ## MCP Tools
 

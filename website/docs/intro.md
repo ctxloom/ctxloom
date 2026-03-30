@@ -16,7 +16,7 @@ sidebar_position: 1
 - **Portable context** - Write code with Claude, review with Gemini, same context
 
 :::note Why not just CLAUDE.md?
-Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only**. SCM adds a personal layer (`~/.scm`) that applies across all your projects, plus team sharing via remote repositories.
+Claude Code has `CLAUDE.md`, Gemini has `.gemini/settings.yaml` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. SCM separates concerns: personal standards in `~/.scm`, project context in `.scm/`, team standards via remote repositories.
 :::
 
 ## What SCM Does

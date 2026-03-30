@@ -48,9 +48,9 @@ SCM writes command files to the appropriate location:
 - **Claude Code**: `.claude/commands/scm/*.md`
 - **Gemini CLI**: `.gemini/commands/scm/*.toml`
 
-### Skill Configuration
+### Command Configuration
 
-Control how prompts appear as skills:
+Control how prompts appear as slash commands per backend:
 
 ```yaml
 prompts:
@@ -67,41 +67,46 @@ prompts:
           allowed_tools:             # Restrict available tools
             - Read
             - Grep
-          model: "sonnet"            # Override model for this skill
+          model: "sonnet"            # Override model
+        gemini:
+          enabled: true              # Also expose in Gemini CLI
+          description: "Review code"
 ```
 
-### Skill Fields
+### Configuration Fields
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `enabled` | `true` | Set to `false` to hide from skills |
+| `enabled` | `true` | Set to `false` to hide from slash commands |
 | `description` | prompt description | Short description for `/help` |
-| `argument_hint` | none | Hint shown during autocomplete |
-| `allowed_tools` | all | Restrict which tools the skill can use |
-| `model` | default | Override the model (sonnet, opus, haiku) |
+| `argument_hint` | none | Hint shown during autocomplete (Claude only) |
+| `allowed_tools` | all | Restrict which tools the command can use (Claude only) |
+| `model` | default | Override the model (Claude only) |
 
-### Disabling a Skill
+### Disabling a Command
 
-To keep a prompt but not expose it as a skill:
+To keep a prompt but not expose it as a slash command:
 
 ```yaml
 prompts:
   internal-prompt:
     description: "Internal use only"
     content: |
-      This prompt is used programmatically, not as a skill.
+      This prompt is used programmatically, not as a command.
     plugins:
       llm:
         claude-code:
+          enabled: false
+        gemini:
           enabled: false
 ```
 
 ## Using Prompts
 
-### As Claude Code Skills
+### As Slash Commands
 
 ```bash
-# In Claude Code session, just use the slash command:
+# In Claude Code or Gemini CLI, just use the slash command:
 /code-review
 /refactor
 
@@ -141,9 +146,9 @@ scm prompt edit my-bundle#prompts/code-review
 | Aspect | Fragments | Prompts |
 |--------|-----------|---------|
 | Purpose | Context/instructions | Specific actions/requests |
-| Usage | Combined with user input | Standalone skills or combined |
+| Usage | Combined with user input | Standalone commands or combined |
 | Typical content | Guidelines, patterns, standards | Review requests, generation tasks |
-| Claude Code | Injected as context | Exposed as slash commands |
+| In Claude/Gemini | Injected as context | Exposed as slash commands |
 
 **Fragments** provide context that's always available. **Prompts** provide specific actions you invoke when needed.
 
@@ -153,9 +158,9 @@ scm prompt edit my-bundle#prompts/code-review
 # Fragment provides context, prompt defines the action
 scm run -f python-standards --saved-prompt code-review
 
-# In Claude Code with skills:
+# In Claude Code or Gemini CLI:
 # 1. Context from fragments is already injected
-# 2. Just invoke the skill:
+# 2. Just invoke the command:
 /code-review
 ```
 

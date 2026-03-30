@@ -21,7 +21,7 @@ sidebar_position: 1
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
 | **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
-| **Session Memory** | `/save` to persist context, recover after `/clear` |
+| **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Sync** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
 
@@ -43,7 +43,7 @@ scm fragment install scm-main/testing
 
 ## Slash Commands
 
-Prompts in bundles become Claude Code skills:
+Prompts in bundles become slash commands in Claude Code and Gemini CLI:
 
 ```yaml
 # .scm/bundles/my-tools.yaml
@@ -57,35 +57,34 @@ prompts:
       - Best practice violations
 ```
 
-Then in Claude Code:
+Then in your AI CLI:
 ```
 /code-review src/auth.go
 ```
 
 SCM includes built-in commands:
-- `/save` - Compact session to memory, prepare for `/clear`
+- `/recover` - Recover context from previous session after `/clear`
+- `/loadctx` - Browse and load from any recent session
 
 ## Session Memory
 
 Claude Code's built-in `/compact` is unreliable. SCM takes a different approach:
 
-1. **`/save`** - SCM reads the session transcript from disk
-2. **Distill** - A separate LLM (configurable, default: Haiku) compresses it to essentials
-3. **`/clear`** - Start fresh with empty context
-4. **Recover** - The distilled summary is injected into the new session
+1. **Track** - SCM registers sessions by process ID on startup
+2. **Clear** - Run `/clear` when you hit context limits
+3. **Recover** - Ask to recover and SCM distills the previous session transcript
+4. **Continue** - The distilled summary is injected, you continue working
 
 ```bash
-# Before hitting context limits
-/save
-
-# Clear context window
+# When you hit context limits
 /clear
 
 # Recover previous session automatically
 "What were we working on?"
+# SCM finds the transcript, distills it, returns the summary
 ```
 
-This works because SCM tracks sessions by process ID and stores distilled summaries separately.
+SCM reads the raw JSONL transcript from disk and uses a separate LLM (default: Haiku) to distill it - not the degraded context window.
 
 ## How It Works
 
@@ -151,8 +150,6 @@ defaults:
 memory:
   enabled: true
   mode: lazy
-  vectors:
-    enabled: true
 ```
 
 ## Next Steps

@@ -26,11 +26,9 @@ Claude Code has a built-in `/compact` command, but it's unreliable:
 
 When working on long sessions, you'll eventually approach context window limits. Session memory lets you:
 
-1. **Compact** the current session into a distilled summary
-2. **Clear** the context window for a fresh start
-3. **Recover** context from the previous session after `/clear`
-4. **Browse** session history to find and load specific sessions
-5. **Search** across sessions using vector similarity (optional)
+1. **Clear** the context window when you hit limits
+2. **Recover** context from the previous session after `/clear`
+3. **Browse** session history to find and load specific sessions
 
 ## Configuration
 
@@ -40,50 +38,52 @@ Enable memory in your `config.yaml`:
 memory:
   enabled: true
   mode: lazy          # or "eager"
-
-  # Optional: vector search for retrieval
-  vectors:
-    enabled: true
 ```
 
 ### Memory Modes
 
 | Mode | Behavior |
 |------|----------|
-| **lazy** (default) | Manual compaction via `/save`. Uses vector DB for retrieval. |
+| **lazy** (default) | Distillation on demand when recovering. |
 | **eager** | Same as lazy, but auto-loads distilled memory on session start. |
 
 ## Usage
 
-### The `/save` Command
+### The `/recover` Command
 
-When you're approaching context limits or want to save your progress:
-
-```
-/save
-```
-
-This slash command instructs the AI to:
-
-1. Compact the session using `compact_session` MCP tool
-2. Index the distilled content to vector DB using `index_session` (if vectors enabled)
-3. Inform you that you can run `/clear` for a fresh start
-
-### Recovering After `/clear`
-
-SCM tracks sessions across `/clear` using stable process IDs. After clearing, you can recover your previous context:
+When you hit context limits and need to clear:
 
 ```
-Recover context from the previous session
+/clear
+/recover
 ```
 
-or
+The `/recover` command:
+
+1. Finds the previous session using process ID tracking
+2. Reads the raw JSONL transcript from disk
+3. Distills it using a separate LLM (default: Haiku)
+4. Returns the essence to continue working
+
+### Alternative Recovery
+
+You can also recover naturally:
 
 ```
 What were we working on before the clear?
 ```
 
-The AI will use `get_previous_session` or `recover_session` to automatically find and load your previous session's distilled content.
+The AI will use `get_previous_session` to find and distill your previous session.
+
+### Browsing Session History
+
+Use `/loadctx` to browse and load from any recent session:
+
+```
+/loadctx
+```
+
+This shows sessions from the last 3 days with AI-generated summaries.
 
 ### Browsing Session History
 
@@ -104,16 +104,6 @@ The AI will use `browse_session_history` to show sessions from the last 3 days w
 ```
 Load session abc123def
 ```
-
-### Semantic Search (Vector Mode)
-
-With vectors enabled, you can search across all sessions:
-
-```
-Find sessions where we discussed authentication
-```
-
-The AI will use `query_memory` to find semantically similar content across your session history.
 
 ## How It Works
 
@@ -144,23 +134,13 @@ The compaction process:
 
 The distilled output is typically 10-20% of the original size while preserving actionable information.
 
-### Vector Indexing
-
-When using lazy mode with vectors enabled:
-
-1. Distilled content is embedded using a local ONNX model
-2. Embeddings are stored in a local vector database
-3. Future queries use semantic similarity to find relevant sessions
-
 ### Storage
 
 Memory is stored in:
 ```
 .scm/memory/
-├── distilled/           # Compacted session summaries
-│   └── session-id.md
-└── vectors/             # Vector database (if enabled)
-    └── embeddings.db
+└── distilled/           # Compacted session summaries
+    └── session-id.md
 ```
 
 ### Cross-Agent Workflows
@@ -202,8 +182,6 @@ Session memory provides these MCP tools:
 | `recover_session` | Recover context after `/clear` using process tracking |
 | `get_previous_session` | Get the previous session's content by PID lookup |
 | `browse_session_history` | Browse recent sessions with AI summaries |
-| `index_session` | Index a session to vector DB |
-| `query_memory` | Semantic search across session history |
 
 ### Example: Manual Compaction
 
@@ -247,15 +225,6 @@ memory:
   load_on_start: false      # Don't auto-load (lazy mode default)
 ```
 
-### Vector Settings
-
-```yaml
-memory:
-  vectors:
-    enabled: true
-    model_path: ~/.scm/models/all-MiniLM-L6-v2.onnx
-```
-
 ## CLI Commands
 
 ### Check Session Size
@@ -284,11 +253,10 @@ Shows all sessions with their compaction status.
 
 ## Best Practices
 
-1. **Use `/save` proactively** - Don't wait until you hit context limits
-2. **Let SCM handle recovery** - After `/clear`, just ask to recover; SCM tracks the session automatically
-3. **Browse before loading** - Use `browse_session_history` to see summaries before loading a session
-4. **Be specific when querying** - "Find our database schema discussion" works better than "what did we do"
-5. **Review compacted content** - Check that important details were preserved
+1. **Just `/clear` when needed** - Don't overthink it; SCM tracks your session automatically
+2. **Use `/recover` after clearing** - Distillation happens on-demand, no pre-saving required
+3. **Use `/loadctx` for older sessions** - Browse history when you need context from days ago
+4. **Review recovered content** - Check that important details were captured
 
 ## Troubleshooting
 
@@ -305,13 +273,6 @@ If compaction fails:
 - Check that the LLM plugin is configured correctly
 - Ensure you have API access for the compaction model
 - Try with a smaller `chunk_size` if sessions are very large
-
-### Vector Search Returns Nothing
-
-If `query_memory` returns no results:
-- Verify vectors are enabled: `memory.vectors.enabled: true`
-- Check that sessions were indexed with `index_session`
-- Try broader search terms
 
 ### Memory Not Loading on Start
 

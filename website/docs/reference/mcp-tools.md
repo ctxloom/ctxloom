@@ -550,27 +550,6 @@ Browse recent sessions with AI-generated summaries. Shows sessions from the last
 |------|------|----------|-------------|
 | `backend` | string | No | Backend to browse: `claude-code` or `gemini` (default: `claude-code`) |
 
-### index_session
-
-Index a session to the vector database for semantic search.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `session_id` | string | Yes | Session ID to index |
-
-### query_memory
-
-Semantic search across session history using vector similarity.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `query` | string | Yes | Search query |
-| `limit` | integer | No | Maximum results (default: 5) |
-
 ---
 
 ## Using MCP Tools

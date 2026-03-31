@@ -4,15 +4,15 @@ title: "Quick Start"
 
 # Quick Start
 
-Get up and running with SCM in minutes.
+Get up and running with ctxloom in minutes.
 
 ## Initialize Your Project
 
 ```bash
-# Create .scm directory in your project
+# Create .ctxloom directory in your project
 ctxloom init
 
-# Or create a global config at ~/.scm
+# Or create a global config at ~/.ctxloom
 ctxloom init --home
 ```
 
@@ -23,7 +23,7 @@ ctxloom init --home
 ctxloom bundle create my-standards
 ```
 
-This creates `.scm/bundles/my-standards.yaml` with a basic structure.
+This creates `.ctxloom/bundles/my-standards.yaml` with a basic structure.
 
 ## Add Content to Your Bundle
 
@@ -93,11 +93,11 @@ ctxloom run -f go-development -f security --dry-run --print
 ## Discover and Use Community Bundles
 
 ```bash
-# Find SCM repositories
+# Find ctxloom repositories
 ctxloom remote discover golang
 
 # Add a remote
-ctxloom remote add community alice/scm-golang
+ctxloom remote add community alice/ctxloom-golang
 
 # Use remote content directly
 ctxloom run -f community/go-testing "help with tests"

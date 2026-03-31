@@ -4,11 +4,11 @@ title: "MCP Tools Reference"
 
 # MCP Tools Reference
 
-Complete reference for all MCP (Model Context Protocol) tools exposed by SCM's MCP server.
+Complete reference for all MCP (Model Context Protocol) tools exposed by ctxloom's MCP server.
 
 ## Overview
 
-SCM runs as an MCP server, exposing tools that AI assistants can use to manage context, bundles, profiles, and remotes. These tools enable seamless integration with Claude Code, Cursor, and other MCP-compatible clients.
+ctxloom runs as an MCP server, exposing tools that AI assistants can use to manage context, bundles, profiles, and remotes. These tools enable seamless integration with Claude Code, Cursor, and other MCP-compatible clients.
 
 ## Fragment Tools
 
@@ -232,7 +232,7 @@ Assemble context from a profile, fragments, and/or tags. Returns the combined co
 
 ### search_content
 
-Search across all SCM content types (fragments, prompts, profiles, MCP servers).
+Search across all ctxloom content types (fragments, prompts, profiles, MCP servers).
 
 **Parameters:**
 
@@ -269,7 +269,7 @@ List configured remote sources for fragments and prompts.
 
 ### discover_remotes
 
-Search GitHub/GitLab for SCM repositories containing fragments and prompts.
+Search GitHub/GitLab for ctxloom repositories containing fragments and prompts.
 
 **Parameters:**
 
@@ -333,7 +333,7 @@ Register a new remote source for fragments and prompts.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `name` | string | Yes | Short name for the remote (e.g., `alice`) |
-| `url` | string | Yes | Repository URL (e.g., `alice/scm` or `https://github.com/alice/scm`) |
+| `url` | string | Yes | Repository URL (e.g., `alice/ctxloom` or `https://github.com/alice/ctxloom`) |
 
 ### remove_remote
 
@@ -400,13 +400,13 @@ Remove an MCP server from the configuration.
 
 ### set_mcp_auto_register
 
-Enable or disable auto-registration of SCM's own MCP server.
+Enable or disable auto-registration of ctxloom's own MCP server.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `enabled` | boolean | Yes | Whether to auto-register SCM's MCP server |
+| `enabled` | boolean | Yes | Whether to auto-register ctxloom's MCP server |
 
 ---
 
@@ -463,7 +463,7 @@ Check which remote dependencies are not installed locally.
 
 ### apply_hooks
 
-Apply/reapply SCM hooks to backend configuration files (`.claude/settings.json`, `.gemini/settings.json`).
+Apply/reapply ctxloom hooks to backend configuration files (`.claude/settings.json`, `.gemini/settings.json`).
 
 **Parameters:**
 
@@ -550,13 +550,13 @@ Browse recent sessions with AI-generated summaries. Shows sessions from the last
 
 ### With Claude Code
 
-Claude Code automatically discovers SCM tools when SCM is configured as an MCP server. You can invoke them naturally:
+Claude Code automatically discovers ctxloom tools when ctxloom is configured as an MCP server. You can invoke them naturally:
 
 ```
 "List all my fragments"
 → Uses list_fragments
 
-"Find SCM repositories about Python"
+"Find ctxloom repositories about Python"
 → Uses discover_remotes with query "python"
 
 "Create a new profile called web-dev with the security bundle"

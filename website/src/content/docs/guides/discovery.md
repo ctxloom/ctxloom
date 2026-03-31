@@ -4,12 +4,12 @@ title: "Discovering Remote Repositories"
 
 # Discovering Remote Repositories
 
-SCM can search GitHub and GitLab to find repositories containing bundles and profiles you can use.
+ctxloom can search GitHub and GitLab to find repositories containing bundles and profiles you can use.
 
 ## Quick Start
 
 ```bash
-# Find all public SCM repositories
+# Find all public ctxloom repositories
 ctxloom remote discover
 
 # Search with a keyword
@@ -21,7 +21,7 @@ ctxloom remote discover --stars 10
 
 ## How Discovery Works
 
-SCM searches for repositories named `scm` or starting with `scm-` on GitHub and GitLab. It validates that discovered repositories have the proper `scm/v1/` structure before showing them.
+ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub and GitLab. It validates that discovered repositories have the proper `ctxloom/v1/` structure before showing them.
 
 ### Search Sources
 
@@ -68,18 +68,18 @@ ctxloom remote discover [query] [flags]
 
 ## Interactive Workflow
 
-When you run `scm remote discover`, the results are displayed in a table:
+When you run `ctxloom remote discover`, the results are displayed in a table:
 
 ```
 Searching repositories... found 5
 
   # │ Forge  │ Repository          │ Stars │ Description
 ────┼────────┼─────────────────────┼───────┼─────────────────────────────────────
-  1 │ GitHub │ alice/scm-golang    │   142 │ Go development context bundles
-  2 │ GitHub │ corp/scm-security   │    89 │ Security-focused prompts and...
-  3 │ GitLab │ team/scm-internal   │    34 │ Internal development standards
-  4 │ GitHub │ bob/scm-python      │    28 │ Python tooling fragments
-  5 │ GitHub │ dev/scm-testing     │    15 │ Testing patterns and practices
+  1 │ GitHub │ alice/ctxloom-golang    │   142 │ Go development context bundles
+  2 │ GitHub │ corp/ctxloom-security   │    89 │ Security-focused prompts and...
+  3 │ GitLab │ team/ctxloom-internal   │    34 │ Internal development standards
+  4 │ GitHub │ bob/ctxloom-python      │    28 │ Python tooling fragments
+  5 │ GitHub │ dev/ctxloom-testing     │    15 │ Testing patterns and practices
 
 Add remote? Enter number (or 'q' to quit):
 ```
@@ -89,7 +89,7 @@ Enter a number to add that repository as a remote:
 ```
 Add remote? Enter number (or 'q' to quit): 1
 Name for remote [alice]: golang-bundles
-Added remote 'golang-bundles' → https://github.com/alice/scm-golang
+Added remote 'golang-bundles' → https://github.com/alice/ctxloom-golang
 ```
 
 ## After Adding a Remote
@@ -127,7 +127,7 @@ ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
 ### Reference in Profiles
 
 ```yaml
-# .scm/profiles/my-profile.yaml
+# .ctxloom/profiles/my-profile.yaml
 description: My Go development profile
 parents:
   - golang-bundles/go-developer
@@ -193,4 +193,4 @@ ctxloom remote update golang-bundles
 
 ## Creating Discoverable Repositories
 
-Want your bundles to be discoverable? See the [Sharing Bundles](./sharing.md) guide for how to structure and publish your own SCM repository.
+Want your bundles to be discoverable? See the [Sharing Bundles](./sharing.md) guide for how to structure and publish your own ctxloom repository.

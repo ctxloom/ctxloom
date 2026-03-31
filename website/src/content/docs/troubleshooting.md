@@ -4,13 +4,13 @@ title: "Troubleshooting"
 
 # Troubleshooting
 
-Solutions to common issues with SCM.
+Solutions to common issues with ctxloom.
 
 ## Installation Issues
 
 ### Command Not Found
 
-**Problem:** `scm: command not found`
+**Problem:** `ctxloom: command not found`
 
 **Solutions:**
 
@@ -26,7 +26,7 @@ go install github.com/ctxloom/ctxloom@latest
 
 3. Verify installation:
 ```bash
-which scm
+which ctxloom
 ctxloom --version
 ```
 
@@ -59,7 +59,7 @@ cat .claude/settings.json | jq '.hooks'
     "hooks": [
       {
         "type": "command",
-        "command": "scm hook inject-context <hash>"
+        "command": "ctxloom hook inject-context <hash>"
       }
     ]
   }
@@ -87,7 +87,7 @@ ctxloom hooks apply --regenerate
 
 ### Wrong Directory
 
-**Problem:** SCM not finding configuration
+**Problem:** ctxloom not finding configuration
 
 **Check you're in the right directory:**
 ```bash
@@ -154,7 +154,7 @@ ctxloom remote add myremote owner/repo
 
 ### Sync Failures
 
-**Problem:** `scm remote sync` fails
+**Problem:** `ctxloom remote sync` fails
 
 **Debug:**
 ```bash
@@ -275,7 +275,7 @@ ctxloom run --dry-run --print | wc -c
 
 ### Server Won't Start
 
-**Problem:** `scm mcp serve` fails
+**Problem:** `ctxloom mcp serve` fails
 
 **Check for port conflicts:**
 ```bash
@@ -297,7 +297,7 @@ SCM_VERBOSE=1 ctxloom mcp serve
 cat .claude/settings.json | jq '.mcpServers'
 ```
 
-**Ensure SCM is registered:**
+**Ensure ctxloom is registered:**
 ```bash
 ctxloom mcp auto-register --enable
 ctxloom hooks apply
@@ -309,7 +309,7 @@ ctxloom hooks apply
 
 **Problem:** MCP tool returns error
 
-**Check SCM logs:**
+**Check ctxloom logs:**
 ```bash
 # Run MCP server with verbose logging
 SCM_VERBOSE=1 ctxloom mcp serve
@@ -326,7 +326,7 @@ ctxloom profile list
 
 ### Slow Context Assembly
 
-**Problem:** `scm run` takes a long time
+**Problem:** `ctxloom run` takes a long time
 
 **Diagnose:**
 ```bash
@@ -346,7 +346,7 @@ time ctxloom run --dry-run
 **Solutions:**
 
 1. **Check network** - ensure good connectivity to GitHub/GitLab
-2. **Use caching** - SCM caches remote content locally
+2. **Use caching** - ctxloom caches remote content locally
 3. **Reduce scope** - sync specific profiles instead of all:
 ```bash
 ctxloom remote sync --profiles myprofile
@@ -425,7 +425,7 @@ uname -a
 3. **File issue:** https://github.com/ctxloom/ctxloom/issues
 
 Include:
-- SCM version
+- ctxloom version
 - Operating system
 - Steps to reproduce
 - Expected vs actual behavior

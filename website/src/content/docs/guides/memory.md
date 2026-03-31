@@ -8,19 +8,27 @@ Session memory preserves context across conversations by compacting session hist
 
 ## Why Not Just Use `/compact`?
 
-Claude Code has a built-in `/compact` command, but it's unreliable:
-- It runs inside the same context window it's trying to compress
-- The LLM may lose important details or hallucinate
-- You can't control the compression strategy
-- No persistence - if something goes wrong, context is lost
+Claude Code's `/compact` has a fundamental design flaw: **it needs context space to run, but you only think to use it when context is almost full**.
 
-**SCM's approach is different:**
+The timing problem:
+- `/compact` runs *inside* the current context window
+- When your context is nearly exhausted, there's no room left to run the compaction
+- You try `/compact`, it fails, and now you're stuck with a full window and no recovery
 
-1. **External processing** - SCM reads the raw session transcript from disk (JSONL files)
-2. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
-3. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
-4. **Persistent storage** - Distilled summaries are saved to `.scm/memory/`
-5. **Reliable recovery** - Process ID tracking ensures you can always find the previous session
+This isn't a bug - it's an inherent limitation of in-context compaction. You have to remember to run it *before* you need it, which defeats the purpose.
+
+The alternative is worse: `/clear` then manually copy-paste chunks of your chat history back in, hoping you grabbed the right parts, fighting token limits, losing formatting. It works, but it's tedious and error-prone.
+
+**ctxloom automates this properly:**
+
+1. **Works after exhaustion** - `/clear` then `/recover` operates outside the full window
+2. **External processing** - ctxloom reads the raw session transcript from disk (JSONL files)
+3. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
+4. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
+5. **Persistent storage** - Distilled summaries are saved to `.ctxloom/memory/`
+6. **Reliable recovery** - Process ID tracking ensures you can always find the previous session
+
+The workflow is simple: when you hit context limits, `/clear` and `/recover`. No timing anxiety.
 
 ## Overview
 
@@ -94,11 +102,11 @@ Load session abc123def
 
 ### Session Tracking
 
-SCM uses a session registry to track conversations across `/clear`:
+ctxloom uses a session registry to track conversations across `/clear`:
 
-1. On session start, a hook registers the session transcript path with the SCM wrapper PID
+1. On session start, a hook registers the session transcript path with the ctxloom wrapper PID
 2. The PID remains stable across `/clear` (even though the AI process restarts)
-3. When you ask to recover, SCM looks up the previous session by PID
+3. When you ask to recover, ctxloom looks up the previous session by PID
 
 This allows seamless recovery without manually specifying session IDs.
 
@@ -108,14 +116,14 @@ Session compaction happens **outside your session** using a separate LLM call. T
 
 The compaction process:
 
-1. **Read transcript** - SCM reads the raw JSONL session log from disk
+1. **Read transcript** - ctxloom reads the raw JSONL session log from disk
 2. **Chunk** - Large sessions are split (default: 8000 tokens per chunk)
 3. **Distill** - A fast model (default: Haiku) extracts key information:
    - Decisions made and why
    - Context established
    - Progress achieved
    - Next steps planned
-4. **Store** - Result saved to `.scm/memory/distilled/`
+4. **Store** - Result saved to `.ctxloom/memory/distilled/`
 
 The distilled output is typically 10-20% of the original size while preserving actionable information.
 
@@ -123,7 +131,7 @@ The distilled output is typically 10-20% of the original size while preserving a
 
 Memory is stored in:
 ```
-.scm/memory/
+.ctxloom/memory/
 └── distilled/           # Compacted session summaries
     └── session-id.md
 ```
@@ -230,7 +238,7 @@ Shows all sessions with their compaction status.
 
 ## Best Practices
 
-1. **Just `/clear` when needed** - Don't overthink it; SCM tracks your session automatically
+1. **Just `/clear` when needed** - Don't overthink it; ctxloom tracks your session automatically
 2. **Use `/recover` after clearing** - Distillation happens on-demand, no pre-saving required
 3. **Use `/loadctx` for older sessions** - Browse history when you need context from days ago
 4. **Review recovered content** - Check that important details were captured
@@ -240,8 +248,8 @@ Shows all sessions with their compaction status.
 ### Recovery Shows "No Previous Session"
 
 If recovery can't find the previous session:
-- Ensure you started the session with `scm run` (not raw `claude`)
-- The session registry tracks by PID; if SCM wasn't the wrapper, it won't be tracked
+- Ensure you started the session with `ctxloom run` (not raw `claude`)
+- The session registry tracks by PID; if ctxloom wasn't the wrapper, it won't be tracked
 - Try `browse_session_history` to manually find and load the session
 
 ### Compaction Fails
@@ -255,5 +263,5 @@ If compaction fails:
 
 In eager mode, if memory isn't loading:
 - Check `memory.load_on_start` isn't set to `false`
-- Verify a distilled session exists in `.scm/memory/distilled/`
+- Verify a distilled session exists in `.ctxloom/memory/distilled/`
 - Check for errors in session start hooks

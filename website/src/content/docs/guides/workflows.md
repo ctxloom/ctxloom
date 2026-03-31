@@ -4,11 +4,11 @@ title: "Common Workflows"
 
 # Common Workflows
 
-Practical workflows for using SCM effectively in your daily development.
+Practical workflows for using ctxloom effectively in your daily development.
 
 ## Getting Started Workflow
 
-### 1. Initialize SCM
+### 1. Initialize ctxloom
 
 ```bash
 # In your project directory
@@ -25,7 +25,7 @@ ctxloom init --home
 ctxloom remote discover golang
 
 # Add a remote
-ctxloom remote add community alice/scm-golang
+ctxloom remote add community alice/ctxloom-golang
 
 # Browse what's available
 ctxloom remote browse community
@@ -86,8 +86,8 @@ ctxloom run --dry-run --print
 
 ```bash
 # If you created new fragments, commit them
-git add .scm/
-git commit -m "Update SCM configuration"
+git add .ctxloom/
+git commit -m "Update ctxloom configuration"
 ```
 
 ## Team Onboarding Workflow
@@ -97,14 +97,14 @@ git commit -m "Update SCM configuration"
 1. **Create team bundles repository**:
 
 ```bash
-mkdir team-scm && cd team-scm
-mkdir -p scm/v1/bundles scm/v1/profiles
+mkdir team-ctxloom && cd team-ctxloom
+mkdir -p ctxloom/v1/bundles ctxloom/v1/profiles
 ```
 
 2. **Add team standards**:
 
 ```yaml
-# scm/v1/bundles/team-standards.yaml
+# ctxloom/v1/bundles/team-standards.yaml
 version: "1.0"
 description: Team coding standards
 fragments:
@@ -119,7 +119,7 @@ fragments:
 3. **Create team profile**:
 
 ```yaml
-# scm/v1/profiles/team-developer.yaml
+# ctxloom/v1/profiles/team-developer.yaml
 description: Standard team development environment
 bundles:
   - team-standards
@@ -129,8 +129,8 @@ bundles:
 4. **Publish**:
 
 ```bash
-git init && git add . && git commit -m "Initial team SCM"
-git remote add origin https://github.com/myorg/scm-team.git
+git init && git add . && git commit -m "Initial team ctxloom"
+git remote add origin https://github.com/myorg/ctxloom-team.git
 git push -u origin main
 ```
 
@@ -138,7 +138,7 @@ git push -u origin main
 
 ```bash
 # Add team remote
-ctxloom remote add team myorg/scm-team
+ctxloom remote add team myorg/ctxloom-team
 
 # Sync team bundles
 ctxloom remote sync
@@ -170,7 +170,7 @@ ctxloom profile default project
 Create a bundle specific to your project:
 
 ```yaml
-# .scm/bundles/project-specific.yaml
+# .ctxloom/bundles/project-specific.yaml
 version: "1.0"
 description: Project-specific context
 
@@ -211,18 +211,18 @@ ctxloom profile default python-work  # Switching to Python
 
 ### Per-Directory Configuration
 
-Use different `.scm/` configurations in different project directories:
+Use different `.ctxloom/` configurations in different project directories:
 
 ```
 ~/projects/
 ├── go-api/
-│   └── .scm/
+│   └── .ctxloom/
 │       └── profiles/default.yaml  # Go-focused
 ├── python-ml/
-│   └── .scm/
+│   └── .ctxloom/
 │       └── profiles/default.yaml  # Python/ML-focused
 └── react-app/
-    └── .scm/
+    └── .ctxloom/
         └── profiles/default.yaml  # Frontend-focused
 ```
 
@@ -283,7 +283,7 @@ jobs:
   lint:
     steps:
       - uses: actions/checkout@v4
-      - name: Setup SCM
+      - name: Setup ctxloom
         run: |
           go install github.com/ctxloom/ctxloom@latest
           ctxloom remote sync
@@ -301,8 +301,8 @@ jobs:
 ctxloom remote lock
 
 # Commit lockfile
-git add .scm/lock.yaml
-git commit -m "Lock SCM dependencies"
+git add .ctxloom/lock.yaml
+git commit -m "Lock ctxloom dependencies"
 ```
 
 In CI:
@@ -382,9 +382,9 @@ ctxloom run -t detailed "explain this concept"
 ### Version Control Your Configuration
 
 ```bash
-# Always commit SCM configuration
-git add .scm/
-git commit -m "Update SCM configuration"
+# Always commit ctxloom configuration
+git add .ctxloom/
+git commit -m "Update ctxloom configuration"
 ```
 
 ### Regular Maintenance

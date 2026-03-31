@@ -8,7 +8,7 @@ A **remote** is a Git repository for sharing bundles and profiles across teams a
 
 ## Pre-configured Remote
 
-After `scm init`, the `ctxloom-default` remote is pre-configured, providing community bundles and profiles.
+After `ctxloom init`, the `ctxloom-default` remote is pre-configured, providing community bundles and profiles.
 
 ```bash
 # Use remote profiles directly
@@ -22,17 +22,17 @@ ctxloom remote list                     # List configured remotes
 ctxloom remote add <name> <url>         # Register a remote source
 ctxloom remote remove <name>            # Remove a remote
 ctxloom remote browse <name>            # Browse remote contents
-ctxloom remote discover                 # Find public SCM repositories
+ctxloom remote discover                 # Find public ctxloom repositories
 ```
 
 ### Add a Remote
 
 ```bash
 # GitHub shorthand
-ctxloom remote add myteam myorg/scm-team
+ctxloom remote add myteam myorg/ctxloom-team
 
 # Full URL
-ctxloom remote add corp https://gitlab.com/corp/scm
+ctxloom remote add corp https://gitlab.com/corp/ctxloom
 ```
 
 ## Pulling Content
@@ -75,20 +75,20 @@ bundles:
 
 ## Discovering Remotes
 
-Find public SCM repositories:
+Find public ctxloom repositories:
 
 ```bash
 ctxloom remote discover
 ```
 
-This searches GitHub and GitLab for repositories with SCM content.
+This searches GitHub and GitLab for repositories with ctxloom content.
 
 ## Creating Your Own Remote
 
 Any Git repository with `.ctxloom/` structure can be a remote:
 
 ```
-my-scm-repo/
+my-ctxloom-repo/
 ├── .ctxloom/
 │   ├── bundles/
 │   │   └── my-bundle.yaml

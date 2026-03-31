@@ -1,26 +1,26 @@
 ---
-title: SCM - Sophisticated Context Manager
-description: Stop repeating yourself to AI. Write context once, reuse across all sessions.
+title: ctxloom - Context Loom
+description: Weave context for AI coding agents. Write context once, reuse across all sessions.
 template: splash
 hero:
-  title: SCM
-  tagline: Sophisticated Context Manager - Stop repeating yourself to AI
+  title: ctxloom
+  tagline: Context Loom - Weave context for AI coding agents
   image:
     file: ../../assets/logo.svg
-    alt: SCM Logo
+    alt: ctxloom Logo
   actions:
     - text: Get Started
       link: /getting-started/installation/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/SophisticatedContextManager/scm
+      link: https://github.com/ctxloom/ctxloom
       icon: external
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Why Use SCM?
+## Why Use ctxloom?
 
 <CardGrid stagger>
   <Card title="Save Hours Per Week" icon="rocket">
@@ -30,17 +30,20 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Store your standards in a git repo, pull into any project.
   </Card>
   <Card title="Share Across Teams" icon="group">
-    Pull from shared remotes, or check `.scm/` into your repo.
+    Pull from shared remotes, or check `.ctxloom/` into your repo.
+  </Card>
+  <Card title="Multi-LLM Support" icon="random">
+    Write once, run everywhere. Same context works with Claude Code, Gemini CLI, and more.
   </Card>
 </CardGrid>
 
 :::note[Why not just CLAUDE.md?]
-Claude Code has `CLAUDE.md`, Gemini has `GEMINI.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. SCM separates concerns: your standards in a personal remote, project context in `.scm/`, team standards in shared remotes. Plus, SCM distills fragments and prompts using AST-aware compression, reducing token usage by 70-90%.
+Claude Code has `CLAUDE.md`, Gemini has `GEMINI.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Plus, ctxloom distills fragments and prompts using AST-aware compression, reducing token usage by 70-90%.
 
-**You can still use CLAUDE.md** - SCM complements rather than replaces native context files.
+**You can still use CLAUDE.md** - ctxloom complements rather than replaces native context files.
 :::
 
-## What SCM Does
+## What ctxloom Does
 
 | Capability | Description |
 |------------|-------------|
@@ -54,16 +57,16 @@ Claude Code has `CLAUDE.md`, Gemini has `GEMINI.md` - but these are **project-le
 
 ```bash
 # Initialize
-scm init
+ctxloom init
 
 # Run with context fragments
-scm run -f go-development -f security "implement auth"
+ctxloom run -f go-development -f security "implement auth"
 
 # Use a profile (pre-configured fragment set)
-scm run -p backend-developer "review this PR"
+ctxloom run -p backend-developer "review this PR"
 
 # Pull from remote
-scm fragment install scm-main/testing
+ctxloom fragment install ctxloom-main/testing
 ```
 
 ## Slash Commands
@@ -71,7 +74,7 @@ scm fragment install scm-main/testing
 Prompts in bundles become slash commands in Claude Code and Gemini CLI:
 
 ```yaml
-# .scm/bundles/my-tools.yaml
+# .ctxloom/bundles/my-tools.yaml
 prompts:
   code-review:
     description: "Review code for issues"
@@ -89,25 +92,23 @@ Then in your AI CLI:
 
 ## Session Memory
 
-Claude Code's built-in `/compact` is unreliable. SCM takes a different approach:
+Claude Code's `/compact` has a fundamental flaw: it needs context space to run, but you only think to use it when context is almost full. You try `/compact`, it fails, and you're stuck.
 
-1. **Track** - SCM registers sessions by process ID on startup
-2. **Clear** - Run `/clear` when you hit context limits
-3. **Recover** - Ask to recover and SCM distills the previous session transcript
-4. **Continue** - The distilled summary is injected, you continue working
+**ctxloom works after exhaustion:**
+
+1. **Clear** - Run `/clear` when you hit context limits
+2. **Recover** - `/recover` distills the previous session from disk
+3. **Continue** - The summary is injected, you keep working
 
 ```bash
 # When you hit context limits
 /clear
-
-# Recover previous session automatically
-"What were we working on?"
-# SCM finds the transcript, distills it, returns the summary
+/recover
 ```
 
-SCM reads the raw JSONL transcript from disk and uses a separate LLM (default: Haiku) to distill it - not the degraded context window.
+ctxloom reads the raw JSONL transcript from disk and uses a separate LLM (default: Haiku) to distill it - operating outside your exhausted context window.
 
-SCM includes built-in commands:
+ctxloom includes built-in commands:
 - `/recover` - Recover context from previous session after `/clear`
 - `/loadctx` - Browse and load from any recent session
 
@@ -145,7 +146,7 @@ SCM includes built-in commands:
 
 ```bash
 # Go install
-go install github.com/SophisticatedContextManager/scm@latest
+go install github.com/ctxloom/ctxloom@latest
 
 # Or download from GitHub releases
 ```
@@ -154,20 +155,20 @@ go install github.com/SophisticatedContextManager/scm@latest
 
 ```bash
 # Standalone (wraps Claude/Gemini)
-scm run -p developer "help with code"
+ctxloom run -p developer "help with code"
 
 # As MCP server (integrate with existing Claude Code)
-scm mcp serve
+ctxloom mcp serve
 ```
 
 ## Configuration
 
 ```yaml
-# .scm/config.yaml
+# .ctxloom/config.yaml
 defaults:
   llm_plugin: claude-code
   profiles:
-    - scm-main/go-developer
+    - ctxloom-main/go-developer
 ```
 
 ## Next Steps

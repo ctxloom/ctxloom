@@ -44,9 +44,9 @@ prompts:
 /refactor
 ```
 
-SCM writes command files to the appropriate location:
-- **Claude Code**: `.claude/commands/scm/*.md`
-- **Gemini CLI**: `.gemini/commands/scm/*.toml`
+ctxloom writes command files to the appropriate location:
+- **Claude Code**: `.claude/commands/ctxloom/*.md`
+- **Gemini CLI**: `.gemini/commands/ctxloom/*.toml`
 
 ### Command Configuration
 

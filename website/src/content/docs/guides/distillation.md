@@ -20,13 +20,13 @@ Recent research reveals important patterns in how LLMs handle context:
 
 3. **Effective vs Advertised**: The [Maximum Effective Context Window](https://arxiv.org/abs/2509.21361) research found most models show severe degradation by ~1,000 tokens, falling 99% short of advertised windows.
 
-### SCM's 16KB Warning
+### ctxloom's 16KB Warning
 
-SCM warns when assembled context exceeds 16KB (~4,000 tokens):
+ctxloom warns when assembled context exceeds 16KB (~4,000 tokens):
 
 ```
-SCM: warning: assembled context is 24KB (recommended max: 16KB)
-SCM: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments
+ctxloom: warning: assembled context is 24KB (recommended max: 16KB)
+ctxloom: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments
 ```
 
 This threshold is conservative - degradation varies by model and task. The warning encourages you to:
@@ -66,11 +66,11 @@ Distillation uses AI to compress content while preserving meaning:
 
 ## How It Works
 
-SCM uses a hybrid compression approach:
+ctxloom uses a hybrid compression approach:
 
 ### AST-Based Compression (Code & JSON)
 
-For structured content, SCM uses tree-sitter AST parsing for fast, deterministic compression:
+For structured content, ctxloom uses tree-sitter AST parsing for fast, deterministic compression:
 
 | Content Type | Strategy |
 |--------------|----------|
@@ -84,7 +84,7 @@ This approach is:
 
 ### LLM-Based Compression (Prose)
 
-For prose and documentation, SCM falls back to LLM compression:
+For prose and documentation, ctxloom falls back to LLM compression:
 
 1. **Original content** is analyzed by an AI model
 2. **Key information** is extracted and condensed
@@ -93,7 +93,7 @@ For prose and documentation, SCM falls back to LLM compression:
 
 ### Compression Router
 
-When you distill content, SCM automatically routes to the best strategy:
+When you distill content, ctxloom automatically routes to the best strategy:
 
 ```
 Code file (.go, .py, .js, etc.) → AST compression
@@ -134,7 +134,7 @@ ctxloom fragment show --distilled my-bundle#fragments/coding-standards
 
 ### Automatic Selection
 
-By default, SCM uses distilled content when available:
+By default, ctxloom uses distilled content when available:
 
 ```bash
 # Uses distilled versions automatically
@@ -236,7 +236,7 @@ fragments:
 
 ### Compression Strategy
 
-SCM's distillation uses an extractive approach designed to preserve actionable information while removing redundancy. The algorithm:
+ctxloom's distillation uses an extractive approach designed to preserve actionable information while removing redundancy. The algorithm:
 
 **Preserves (never removes):**
 - Code syntax and exact patterns
@@ -297,7 +297,7 @@ it makes the error handling path explicit and visible in the code...
 
 ### Automatic Detection
 
-SCM tracks content hashes. When content changes, distillation is flagged as stale:
+ctxloom tracks content hashes. When content changes, distillation is flagged as stale:
 
 ```bash
 # Check if distillation is current

@@ -4,14 +4,14 @@ title: "CLI Reference"
 
 # CLI Reference
 
-Complete reference for all SCM commands.
+Complete reference for all ctxloom commands.
 
 ## ctxloom init
 
 Initialize a new .ctxloom directory.
 
 ```bash
-ctxloom init              # Create .scm in current directory
+ctxloom init              # Create .ctxloom in current directory
 ctxloom init --home       # Create/ensure ~/.ctxloom exists
 ```
 
@@ -152,7 +152,7 @@ Manage remote sources.
 | `default` | `[name]` | Get/set default remote |
 | `search` | `<query>` | Search for bundles/profiles |
 | `browse` | `<remote>` | Browse remote contents |
-| `discover` | | Find SCM repos on GitHub/GitLab |
+| `discover` | | Find ctxloom repos on GitHub/GitLab |
 | `lock` | | Generate lockfile from installed items |
 | `update` | `[name]` | Update remotes (all or specific) |
 | `sync` | | Sync dependencies |
@@ -161,16 +161,16 @@ Manage remote sources.
 
 | Format | Example |
 |--------|---------|
-| GitHub shorthand | `alice/scm` |
-| Full HTTPS | `https://github.com/alice/scm` |
-| GitLab | `https://gitlab.com/corp/scm` |
-| SSH (converted to HTTPS) | `git@github.com:alice/scm.git` |
+| GitHub shorthand | `alice/ctxloom` |
+| Full HTTPS | `https://github.com/alice/ctxloom` |
+| GitLab | `https://gitlab.com/corp/ctxloom` |
+| SSH (converted to HTTPS) | `git@github.com:alice/ctxloom.git` |
 
 ### Examples
 
 ```bash
-ctxloom remote add myteam myorg/scm-team
-ctxloom remote add corp https://gitlab.com/corp/scm
+ctxloom remote add myteam myorg/ctxloom-team
+ctxloom remote add corp https://gitlab.com/corp/ctxloom
 ctxloom remote list
 ctxloom remote default myteam
 ctxloom remote browse ctxloom-default
@@ -247,7 +247,7 @@ ctxloom completion [bash|zsh|fish|powershell]
 
 **Bash:**
 ```bash
-source <(scm completion bash)                    # Current session
+source <(ctxloom completion bash)                    # Current session
 ctxloom completion bash > /etc/bash_completion.d/scm # Permanent (Linux)
 ctxloom completion bash > /usr/local/etc/bash_completion.d/scm       # macOS
 ```
@@ -255,7 +255,7 @@ ctxloom completion bash > /usr/local/etc/bash_completion.d/scm       # macOS
 **Zsh:**
 ```bash
 echo "autoload -U compinit; compinit" >> ~/.zshrc  # Enable if needed
-ctxloom completion zsh > "${fpath[1]}/_scm"
+ctxloom completion zsh > "${fpath[1]}/_ctxloom"
 ```
 
 **Fish:**

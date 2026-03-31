@@ -25,8 +25,8 @@ These variables are always available:
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_ROOT` | Project root directory (parent of .scm) |
-| `SCM_DIR` | Full path to .scm directory |
+| `SCM_ROOT` | Project root directory (parent of .ctxloom) |
+| `SCM_DIR` | Full path to .ctxloom directory |
 
 ```yaml
 fragments:
@@ -41,7 +41,7 @@ fragments:
 ### In Profiles
 
 ```yaml
-# .scm/profiles/developer.yaml
+# .ctxloom/profiles/developer.yaml
 variables:
   PROJECT_NAME: "my-app"
   LANGUAGE: "Go"
@@ -52,7 +52,7 @@ variables:
 ### In Config
 
 ```yaml
-# .scm/config.yaml
+# .ctxloom/config.yaml
 profiles:
   quick:
     variables:

@@ -4,15 +4,15 @@ title: "Sharing Bundles"
 
 # Sharing Bundles
 
-Share your context bundles with your team or the community by creating an SCM repository.
+Share your context bundles with your team or the community by creating a ctxloom repository.
 
 ## Repository Structure
 
-An SCM repository follows this structure:
+A ctxloom repository follows this structure:
 
 ```
-my-scm-repo/
-├── scm/
+my-ctxloom-repo/
+├── ctxloom/
 │   └── v1/
 │       ├── bundles/
 │       │   ├── my-bundle.yaml
@@ -22,14 +22,14 @@ my-scm-repo/
 └── README.md
 ```
 
-The `scm/v1/` directory is required for SCM to recognize the repository as a valid remote.
+The `ctxloom/v1/` directory is required for ctxloom to recognize the repository as a valid remote.
 
 ## Creating a Bundle
 
 ### Bundle File Structure
 
 ```yaml
-# scm/v1/bundles/go-development.yaml
+# ctxloom/v1/bundles/go-development.yaml
 version: "1.0"
 description: Go development context and best practices
 author: your-name
@@ -95,7 +95,7 @@ prompts:
 ## Creating a Profile
 
 ```yaml
-# scm/v1/profiles/go-developer.yaml
+# ctxloom/v1/profiles/go-developer.yaml
 description: Complete Go development environment
 parents:
   - base-developer  # Inherit from another profile
@@ -113,12 +113,12 @@ tags:
 
 ```bash
 # Create new repo
-mkdir my-scm-bundles
-cd my-scm-bundles
+mkdir my-ctxloom-bundles
+cd my-ctxloom-bundles
 git init
 
 # Create structure
-mkdir -p scm/v1/bundles scm/v1/profiles
+mkdir -p ctxloom/v1/bundles ctxloom/v1/profiles
 ```
 
 ### 2. Add Your Content
@@ -128,14 +128,14 @@ Create your bundle and profile YAML files in the appropriate directories.
 ### 3. Add README
 
 ```markdown
-# My SCM Bundles
+# My ctxloom Bundles
 
 Context bundles for [description].
 
 ## Installation
 
 ```bash
-ctxloom remote add mybundles username/my-scm-bundles
+ctxloom remote add mybundles username/my-ctxloom-bundles
 ctxloom fragment install mybundles/go-development
 ```
 
@@ -149,8 +149,8 @@ ctxloom fragment install mybundles/go-development
 
 ```bash
 git add .
-git commit -m "Initial SCM bundles"
-git remote add origin https://github.com/username/my-scm-bundles.git
+git commit -m "Initial ctxloom bundles"
+git remote add origin https://github.com/username/my-ctxloom-bundles.git
 git push -u origin main
 ```
 
@@ -158,18 +158,18 @@ git push -u origin main
 
 ### Naming Convention
 
-Name your repository `scm` or `scm-*` for automatic discovery:
+Name your repository `ctxloom` or `ctxloom-*` for automatic discovery:
 
-- `scm` - General SCM content
-- `scm-golang` - Go-specific bundles
-- `scm-security` - Security-focused content
-- `scm-team-standards` - Team standards
+- `ctxloom` - General ctxloom content
+- `ctxloom-golang` - Go-specific bundles
+- `ctxloom-security` - Security-focused content
+- `ctxloom-team-standards` - Team standards
 
 ### GitHub Topics
 
 Add relevant topics to your repository:
 
-- `scm-bundles`
+- `ctxloom-bundles`
 - `claude-code`
 - `ai-context`
 - Language-specific: `golang`, `python`, `typescript`
@@ -178,7 +178,7 @@ Add relevant topics to your repository:
 
 Write a clear description that helps users find your bundles:
 
-> "SCM bundles for Go development: testing patterns, error handling, and best practices"
+> "ctxloom bundles for Go development: testing patterns, error handling, and best practices"
 
 ## Versioning
 
@@ -234,11 +234,11 @@ For team/organization use:
 
 ### Private Repositories
 
-SCM works with private repos when authenticated:
+ctxloom works with private repos when authenticated:
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-ctxloom remote add team https://github.com/myorg/scm-internal
+ctxloom remote add team https://github.com/myorg/ctxloom-internal
 ```
 
 ### Monorepo Structure
@@ -246,8 +246,8 @@ ctxloom remote add team https://github.com/myorg/scm-internal
 For larger organizations:
 
 ```
-org-scm/
-├── scm/
+org-ctxloom/
+├── ctxloom/
 │   └── v1/
 │       ├── bundles/
 │       │   ├── frontend/
@@ -278,7 +278,7 @@ Before publishing, validate your bundles:
 
 ```bash
 # Check YAML syntax
-ctxloom validate scm/v1/bundles/my-bundle.yaml
+ctxloom validate ctxloom/v1/bundles/my-bundle.yaml
 
 # Test loading
 ctxloom fragment show my-bundle#fragments/testing
@@ -293,4 +293,4 @@ Look at these repositories for inspiration:
 
 - Community bundles follow the patterns described here
 - Check the `ctxloom-default` default remote for examples
-- Search GitHub for `scm-` repositories
+- Search GitHub for `ctxloom-` repositories

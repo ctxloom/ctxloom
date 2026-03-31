@@ -4,12 +4,12 @@ title: "Configuration"
 
 # Configuration
 
-SCM uses YAML configuration files stored in the `.scm/` directory.
+ctxloom uses YAML configuration files stored in the `.ctxloom/` directory.
 
 ## Directory Structure
 
 ```
-.scm/
+.ctxloom/
 ├── config.yaml              # Main configuration
 ├── bundles/                 # Bundle YAML files
 │   ├── my-bundle.yaml
@@ -26,10 +26,10 @@ SCM uses YAML configuration files stored in the `.scm/` directory.
 
 ## Config Hierarchy
 
-SCM uses a single source (no merging):
+ctxloom uses a single source (no merging):
 
-1. **Project**: `.scm/` at git repository root
-2. **Home**: `~/.scm/` (fallback if no project .scm)
+1. **Project**: `.ctxloom/` at git repository root
+2. **Home**: `~/.ctxloom/` (fallback if no project .ctxloom)
 
 ## config.yaml Reference
 
@@ -82,7 +82,7 @@ hooks:
 
 # MCP Server configuration
 mcp:
-  auto_register_scm: true        # Auto-register SCM's MCP server
+  auto_register_ctxloom: true        # Auto-register ctxloom's MCP server
   servers:                       # Unified MCP servers (all backends)
     my-server:
       command: "npx my-mcp"
@@ -94,7 +94,7 @@ mcp:
       server-name:
         command: "..."
 
-# Inline profiles (alternative to .scm/profiles/)
+# Inline profiles (alternative to .ctxloom/profiles/)
 profiles:
   my-profile:
     description: "Inline profile"
@@ -135,7 +135,7 @@ llm:
 | `use_distilled` | `true` | Prefer distilled content |
 | `auto_sync` | `true` | Sync remotes on startup |
 | `llm_plugin` | `claude-code` | Default AI backend |
-| `auto_register_scm` | `true` | Register SCM MCP server |
+| `auto_register_ctxloom` | `true` | Register ctxloom MCP server |
 
 ## Hooks
 
@@ -167,17 +167,17 @@ hooks:
 
 The `claude-code` plugin:
 
-1. Writes context to `.scm/context/[hash].md`
+1. Writes context to `.ctxloom/context/[hash].md`
 2. Updates `CLAUDE.md` with managed section
 
 The managed section is delimited by:
 ```markdown
-<!-- SCM:BEGIN -->
+<!-- CTXLOOM:BEGIN -->
 ...generated content...
-<!-- SCM:END -->
+<!-- CTXLOOM:END -->
 ```
 
-SCM only modifies content within these markers.
+ctxloom only modifies content within these markers.
 
 ## Sync Configuration
 

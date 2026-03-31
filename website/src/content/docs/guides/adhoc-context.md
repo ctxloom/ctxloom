@@ -236,20 +236,20 @@ ctxloom fragment show go-development#fragments/testing
 
 ```bash
 # In your .bashrc/.zshrc
-alias scm-go='scm run -f go-development -f testing-patterns'
-alias scm-security='scm run -f security -t security'
-alias scm-review='scm run -f code-review -f best-practices'
+alias ctxloom-go='ctxloom run -f go-development -f testing-patterns'
+alias ctxloom-security='ctxloom run -f security -t security'
+alias scm-review='ctxloom run -f code-review -f best-practices'
 
 # Then use:
-scm-go "implement the handler"
-scm-security "review this code"
+ctxloom-go "implement the handler"
+ctxloom-security "review this code"
 ```
 
 ### 4. Create Shell Functions for Complex Assemblies
 
 ```bash
 # In your .bashrc/.zshrc
-scm-fullstack() {
+ctxloom-fullstack() {
   ctxloom run \
     -f typescript \
     -f react \
@@ -260,7 +260,7 @@ scm-fullstack() {
 }
 
 # Use:
-scm-fullstack "design the user registration flow"
+ctxloom-fullstack "design the user registration flow"
 ```
 
 ### 5. Save Successful Combinations as Profiles

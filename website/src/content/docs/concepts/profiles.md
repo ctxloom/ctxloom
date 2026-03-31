@@ -123,7 +123,7 @@ variables:
 - **Tags merge**: Combined from all parents
 - **Variables merge**: Child overrides parent values
 - **Exclusions accumulate**: Cannot un-exclude what a parent excluded
-- **Circular detection**: SCM errors on circular references
+- **Circular detection**: ctxloom errors on circular references
 
 ## Excluding Content
 
@@ -189,7 +189,7 @@ fragments:
 
 ### Bookend Strategy
 
-SCM uses a "bookend" placement strategy based on LLM attention research:
+ctxloom uses a "bookend" placement strategy based on LLM attention research:
 
 | Position | Content | Why |
 |----------|---------|-----|

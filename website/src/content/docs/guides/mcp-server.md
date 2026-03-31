@@ -4,7 +4,7 @@ title: "MCP Server"
 
 # MCP Server
 
-SCM can run as an MCP (Model Context Protocol) server, allowing AI assistants to access your context directly.
+ctxloom can run as an MCP (Model Context Protocol) server, allowing AI assistants to access your context directly.
 
 ## Running the MCP Server
 
@@ -12,28 +12,28 @@ SCM can run as an MCP (Model Context Protocol) server, allowing AI assistants to
 ctxloom mcp serve
 ```
 
-This starts SCM as an MCP server over stdio.
+This starts ctxloom as an MCP server over stdio.
 
 ## Claude Code Configuration
 
-Add SCM to `~/.claude/settings.json`:
+Add ctxloom to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
-    "scm": {
-      "command": "/path/to/scm",
+    "ctxloom": {
+      "command": "/path/to/ctxloom",
       "args": ["mcp", "serve"]
     }
   }
 }
 ```
 
-Replace `/path/to/scm` with your actual binary location (e.g., `~/go/bin/scm`).
+Replace `/path/to/ctxloom` with your actual binary location (e.g., `~/go/bin/ctxloom`).
 
 ### Auto-Registration
 
-By default, SCM auto-registers itself as an MCP server. Control this with:
+By default, ctxloom auto-registers itself as an MCP server. Control this with:
 
 ```bash
 ctxloom mcp auto-register --disable
@@ -44,7 +44,7 @@ Or in config:
 
 ```yaml
 mcp:
-  auto_register_scm: false
+  auto_register_ctxloom: false
 ```
 
 ## Available MCP Tools
@@ -80,7 +80,7 @@ mcp:
 | `list_remotes` | List configured remotes |
 | `add_remote` | Register new remote |
 | `remove_remote` | Unregister remote |
-| `discover_remotes` | Search GitHub/GitLab for SCM repos |
+| `discover_remotes` | Search GitHub/GitLab for ctxloom repos |
 | `browse_remote` | List items in remote |
 | `preview_remote` | Preview content before pulling |
 | `confirm_pull` | Install previewed item |
@@ -214,7 +214,7 @@ Within an AI assistant conversation:
 
 ## Managing MCP Servers
 
-SCM can manage MCP server configurations:
+ctxloom can manage MCP server configurations:
 
 ```bash
 ctxloom mcp list
@@ -256,4 +256,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before installing with `scm fragment install`.
+Always review content before installing with `ctxloom fragment install`.

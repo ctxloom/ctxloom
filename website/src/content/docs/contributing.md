@@ -4,7 +4,7 @@ title: "Contributing"
 
 # Contributing
 
-Guide for contributing to SCM development.
+Guide for contributing to ctxloom development.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ Guide for contributing to SCM development.
 |---------|-------------|
 | `just build` | Validate, generate proto, build binary |
 | `just validate` | Validate fragment YAML against JSON schema |
-| `just build-scm` | Build only main binary |
+| `just build-ctxloom` | Build only main binary |
 | `just build-static` | Build static binaries (stripped, no CGO) |
 | `just proto` | Generate protobuf code |
 
@@ -44,7 +44,7 @@ Guide for contributing to SCM development.
 
 ### Fault Tolerance
 
-SCM should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
+ctxloom should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
 
 #### Core Principles
 
@@ -52,7 +52,7 @@ SCM should be **fault tolerant** above all else. Even through most misconfigurat
 
 2. **Degrade gracefully** - If a feature fails to initialize, disable that feature and continue.
 
-3. **Log, don't crash** - All errors should be logged to stderr with clear "SCM: warning:" prefixes.
+3. **Log, don't crash** - All errors should be logged to stderr with clear "ctxloom: warning:" prefixes.
 
 4. **Sensible defaults** - When configuration is missing or invalid, fall back to reasonable defaults.
 
@@ -64,7 +64,7 @@ SCM should be **fault tolerant** above all else. Even through most misconfigurat
 // Good: warn and continue
 result, err := operations.SyncOnStartup(ctx, cfg)
 if err != nil {
-    fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
     // Continue - don't return error
 }
 

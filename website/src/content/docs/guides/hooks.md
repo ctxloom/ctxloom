@@ -4,27 +4,27 @@ title: "Hooks and Context Injection"
 
 # Hooks and Context Injection
 
-SCM uses hooks to automatically inject context into your AI coding sessions. This guide explains how the hook system works and how to configure it.
+ctxloom uses hooks to automatically inject context into your AI coding sessions. This guide explains how the hook system works and how to configure it.
 
 ## How Context Injection Works
 
-When you start a Claude Code session, SCM automatically injects your configured context (fragments, profiles) into the conversation. This happens through a **SessionStart hook** that runs before each session.
+When you start a Claude Code session, ctxloom automatically injects your configured context (fragments, profiles) into the conversation. This happens through a **SessionStart hook** that runs before each session.
 
 ### The Flow
 
-1. You run `scm run` or start Claude Code in a project with SCM configured
-2. SCM assembles context from your default profile, bundles, and tags
-3. Context is written to a temporary file in `.scm/context/`
+1. You run `ctxloom run` or start Claude Code in a project with ctxloom configured
+2. ctxloom assembles context from your default profile, bundles, and tags
+3. Context is written to a temporary file in `.ctxloom/context/`
 4. The SessionStart hook injects this context into the AI session
 5. The context file is deleted after injection (one-time use)
 
 ## Automatic Hook Setup
 
-When you run `scm init` or `scm mcp serve`, SCM automatically configures hooks in your AI tool's settings:
+When you run `ctxloom init` or `ctxloom mcp serve`, ctxloom automatically configures hooks in your AI tool's settings:
 
 ### Claude Code
 
-SCM adds a hook to `.claude/settings.json`:
+ctxloom adds a hook to `.claude/settings.json`:
 
 ```json
 {
@@ -33,7 +33,7 @@ SCM adds a hook to `.claude/settings.json`:
       "hooks": [
         {
           "type": "command",
-          "command": "scm hook inject-context <hash>",
+          "command": "ctxloom hook inject-context <hash>",
           "timeout": 60
         }
       ]
@@ -95,7 +95,7 @@ Fragments are assembled in a deterministic order:
 
 ### Deduplication
 
-SCM automatically deduplicates content:
+ctxloom automatically deduplicates content:
 - Same fragment from multiple sources appears once
 - Content-hash based deduplication catches identical content even from different bundles
 
@@ -103,11 +103,11 @@ SCM automatically deduplicates content:
 
 ### Size Warning
 
-SCM warns when assembled context exceeds 16KB:
+ctxloom warns when assembled context exceeds 16KB:
 
 ```
-SCM: warning: assembled context is 24KB (recommended max: 16KB)
-SCM: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments
+ctxloom: warning: assembled context is 24KB (recommended max: 16KB)
+ctxloom: warning: large context may reduce LLM effectiveness; consider using fewer/smaller fragments
 ```
 
 [Research shows](https://arxiv.org/abs/2307.03172) that LLM performance degrades with larger context, particularly for middle-positioned content. See the [Distillation Guide](/guides/distillation#context-size-research) for details.
@@ -132,7 +132,7 @@ ctxloom hook inject-context <hash>
 ```
 
 - `<hash>` - Content hash identifying the context file
-- Reads from `.scm/context/<hash>.md`
+- Reads from `.ctxloom/context/<hash>.md`
 - Outputs context to stdout for the AI to consume
 - Deletes the context file after reading
 
@@ -154,7 +154,7 @@ The hook system uses:
 cat .claude/settings.json | jq '.hooks'
 
 # View current context file
-ls -la .scm/context/
+ls -la .ctxloom/context/
 ```
 
 ### Test Context Assembly
@@ -177,7 +177,7 @@ SCM_VERBOSE=1 ctxloom run
 
 ## Custom Hooks
 
-While SCM manages its own hooks, you can add custom hooks alongside SCM's:
+While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom's:
 
 ```json
 {
@@ -186,7 +186,7 @@ While SCM manages its own hooks, you can add custom hooks alongside SCM's:
       "hooks": [
         {
           "type": "command",
-          "command": "scm hook inject-context abc123"
+          "command": "ctxloom hook inject-context abc123"
         },
         {
           "type": "command",
@@ -198,14 +198,14 @@ While SCM manages its own hooks, you can add custom hooks alongside SCM's:
 }
 ```
 
-**Note:** SCM identifies its hooks by an internal marker (`_scm` field) and only updates its own hooks, leaving your custom hooks intact.
+**Note:** ctxloom identifies its hooks by an internal marker (`_ctxloom` field) and only updates its own hooks, leaving your custom hooks intact.
 
 ## Troubleshooting
 
 ### Context Not Injected
 
 1. Check hooks are applied: `cat .claude/settings.json`
-2. Verify context file exists: `ls .scm/context/`
+2. Verify context file exists: `ls .ctxloom/context/`
 3. Run with verbose: `SCM_VERBOSE=1 ctxloom run`
 
 ### Stale Context
@@ -226,7 +226,7 @@ If hooks timeout, increase the timeout in settings or optimize your context asse
 Hooks work seamlessly with profiles:
 
 ```yaml
-# .scm/profiles/default.yaml
+# .ctxloom/profiles/default.yaml
 description: My default development context
 bundles:
   - go-development
@@ -243,4 +243,4 @@ When this is your default profile, every session automatically gets these bundle
 2. **Use profiles** - Create different profiles for different tasks
 3. **Monitor size** - Watch for size warnings and optimize as needed
 4. **Test changes** - Use `--dry-run` to preview context changes
-5. **Version control** - Commit your `.scm/` configuration
+5. **Version control** - Commit your `.ctxloom/` configuration

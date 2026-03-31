@@ -4,11 +4,11 @@ title: "Architecture"
 
 # Architecture
 
-Understanding how SCM is designed and how its components work together.
+Understanding how ctxloom is designed and how its components work together.
 
 ## Overview
 
-SCM (Sophisticated Context Manager) manages AI coding context through a layered architecture:
+ctxloom (Context Loom) manages AI coding context through a layered architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -19,7 +19,7 @@ SCM (Sophisticated Context Manager) manages AI coding context through a layered 
                     MCP Protocol / Hooks
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                      SCM Core                                │
+│                    ctxloom Core                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │   Bundles   │  │  Profiles   │  │   Context Assembly  │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘ │
@@ -102,7 +102,7 @@ tags: [tag1, tag2]
 **Components:**
 - **Registry:** Tracks configured remotes in `.ctxloom/remotes.yaml`
 - **Fetcher:** GitHub/GitLab API clients for content retrieval
-- **Discovery:** Search forges for SCM repositories
+- **Discovery:** Search forges for ctxloom repositories
 
 ### Hooks
 
@@ -127,7 +127,7 @@ Delete Context File
 
 ### MCP Server
 
-**Purpose:** Expose SCM functionality to AI tools via Model Context Protocol.
+**Purpose:** Expose ctxloom functionality to AI tools via Model Context Protocol.
 
 **Capabilities:**
 - List/get fragments, profiles, prompts
@@ -150,7 +150,7 @@ Delete Context File
 3. Hook runs: ctxloom hook inject-context <hash>
          │
          ▼
-4. SCM reads .ctxloom/context/<hash>.md
+4. ctxloom reads .ctxloom/context/<hash>.md
          │
          ▼
 5. Content output to stdout
@@ -271,7 +271,7 @@ type Fetcher interface {
 
 ### Fault Tolerance
 
-SCM prioritizes availability over strict correctness:
+ctxloom prioritizes availability over strict correctness:
 
 - Missing remotes → warning, continue
 - Invalid bundles → skip, continue
@@ -300,7 +300,7 @@ Each layer has a single responsibility.
 
 ### Minimal Dependencies
 
-SCM aims to work with minimal external dependencies:
+ctxloom aims to work with minimal external dependencies:
 
 - No database required
 - File-based storage

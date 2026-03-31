@@ -63,7 +63,7 @@ For development or to get the latest unreleased features.
 ```bash
 # Clone the repository
 git clone https://github.com/ctxloom/ctxloom.git
-cd scm
+cd ctxloom
 
 # Build
 just build
@@ -77,7 +77,7 @@ sudo mv ctxloom /usr/local/bin/
 
 | Command | Description |
 |---------|-------------|
-| `just build` | Build SCM binary |
+| `just build` | Build ctxloom binary |
 | `just install` | Build and install to `~/go/bin` |
 | `just install-local` | Build and install to `~/.local/bin` |
 | `just test` | Run all tests |
@@ -101,7 +101,7 @@ Generate shell completion scripts for better CLI experience:
 
 ```bash
 # Current session only
-source <(scm completion bash)
+source <(ctxloom completion bash)
 
 # Permanent (Linux)
 ctxloom completion bash > /etc/bash_completion.d/scm
@@ -114,7 +114,7 @@ ctxloom completion bash > /usr/local/etc/bash_completion.d/scm
 
 ```bash
 # Add to fpath and restart shell
-ctxloom completion zsh > "${fpath[1]}/_scm"
+ctxloom completion zsh > "${fpath[1]}/_ctxloom"
 ```
 
 ### Fish

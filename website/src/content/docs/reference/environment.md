@@ -4,7 +4,7 @@ title: "Environment Variables"
 
 # Environment Variables
 
-Environment variables that affect SCM behavior.
+Environment variables that affect ctxloom behavior.
 
 ## Configuration
 
@@ -23,7 +23,7 @@ SCM_VERBOSE=1 ctxloom run -p developer "help"
 | `VISUAL` | Preferred editor for editing content |
 | `EDITOR` | Fallback editor if VISUAL is not set |
 
-SCM checks `VISUAL` first, then `EDITOR`. Used by commands like:
+ctxloom checks `VISUAL` first, then `EDITOR`. Used by commands like:
 
 ```bash
 ctxloom bundle fragment edit my-bundle coding-standards
@@ -36,7 +36,7 @@ These are available within fragment templates (not shell environment):
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_ROOT` | Project root directory (parent of .scm) |
+| `SCM_ROOT` | Project root directory (parent of .ctxloom) |
 | `SCM_DIR` | Full path to .ctxloom directory |
 
 See [Templating](/guides/templating) for usage.

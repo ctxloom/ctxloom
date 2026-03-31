@@ -13,7 +13,7 @@ Bundles are stored in `.ctxloom/bundles/` as YAML files:
 ```yaml
 version: "1.0.0"                    # Bundle version (required)
 tags: [golang, development]         # Bundle-level tags
-author: "scm"                       # Author name
+author: "ctxloom"                       # Author name
 description: "Bundle description"   # Description
 
 # Human-readable notes (NOT sent to AI)

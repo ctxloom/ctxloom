@@ -29,7 +29,7 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 	require.NoError(t, err, "failed to create test environment")
 	require.NoError(t, env.Setup(), "failed to setup test environment")
 	require.NoError(t, env.InitGitRepo(), "failed to init git repo")
-	require.NoError(t, env.CreateProjectSCM(), "failed to create .scm directory")
+	require.NoError(t, env.CreateProjectConfig(), "failed to create .ctxloom directory")
 	t.Cleanup(func() { _ = env.Cleanup() })
 	return env
 }

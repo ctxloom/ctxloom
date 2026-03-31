@@ -40,7 +40,7 @@ type TestEnvironment struct {
 // NewTestEnvironment creates a new isolated test environment.
 func NewTestEnvironment() (*TestEnvironment, error) {
 	// Create root temp directory
-	root, err := os.MkdirTemp("", "scm-integration-*")
+	root, err := os.MkdirTemp("", "ctxloom-integration-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp root: %w", err)
 	}
@@ -108,7 +108,7 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 		// Built binary in project root (found by walking up)
 		filepath.Join(projectRoot, "ctxloom"),
 		// Built binary in current dir
-		"./scm",
+		"./ctxloom",
 		// Go install location
 		filepath.Join(os.Getenv("GOPATH"), "bin", "ctxloom"),
 		filepath.Join(os.Getenv("HOME"), "go", "bin", "ctxloom"),
@@ -140,7 +140,7 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 		return path, nil
 	}
 
-	return "", fmt.Errorf("scm binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
+	return "", fmt.Errorf("ctxloom binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
 }
 
 // Setup configures the environment variables for isolated testing.
@@ -248,7 +248,7 @@ func (e *TestEnvironment) gitEnv() []string {
 	return e.isolatedEnv()
 }
 
-// CreateProjectConfig creates the .scm directory structure in the project.
+// CreateProjectConfig creates the .ctxloom directory structure in the project.
 func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
 		filepath.Join(e.ProjectDir, ".ctxloom", "bundles"),

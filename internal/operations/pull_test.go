@@ -183,7 +183,7 @@ func TestFetchRemoteContentResult_Warning(t *testing.T) {
 // Base Directory Resolution Tests
 // =============================================================================
 // Critical bug fix verification: write operations must use cfg.AppPaths[0]
-// (project-local .scm) not ~/.ctxloom. Without this, remote content would be
+// (project-local .ctxloom) not ~/.ctxloom. Without this, remote content would be
 // installed globally instead of per-project, breaking isolation.
 
 func TestConfigDeterminesWritePath(t *testing.T) {

@@ -386,9 +386,9 @@ dev-image:
 # Mounts justfile.container as /workspace/justfile (overlay pattern)
 _run +ARGS:
     #!/usr/bin/env bash
-    if [ -n "$DEVCONTAINER" ]; then
-        # Already inside container, run directly
-        just {{ARGS}}
+    if [ -n "$DEVCONTAINER" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+        # Already inside container (devcontainer or CI), use container justfile directly
+        just -f justfile.container {{ARGS}}
     else
         # Run in container with justfile overlay
         {{container_cmd}} run --rm \

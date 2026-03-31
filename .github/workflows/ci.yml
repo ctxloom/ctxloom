@@ -6,12 +6,64 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-devcontainer
+
 jobs:
+  build-container:
+    name: Build Dev Container
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: [build-container]
     container:
-      image: golang:1.26
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -19,42 +71,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install build tools
-        run: |
-          apt-get update && apt-get install -y curl
-          # Install just
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
-          chmod +x /usr/local/bin/versionator
-          # Install buf
-          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Download dependencies
-        run: go mod download
-
       - name: Mark workspace as safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Generate protobuf code
         run: buf generate
 
-      - name: Build binary
-        run: go build -o ctxloom .
-
       - name: Run tests
-        run: go test -race -coverprofile=coverage.out ./...
+        run: just -f justfile.container test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -66,39 +90,32 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [build-container]
     container:
-      image: golang:1.26
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install build tools
-        run: |
-          apt-get update && apt-get install -y curl
-          # Install just
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
-          chmod +x /usr/local/bin/versionator
-          # Install buf
-          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
-          # Install golangci-lint
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin latest
-
       - name: Generate protobuf code
         run: buf generate
 
       - name: Run golangci-lint
-        run: golangci-lint run
+        run: just -f justfile.container lint
 
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest
+    needs: [build-container, test]
     container:
-      image: golang:1.26
-    needs: [test]
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -106,36 +123,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install build tools
-        run: |
-          apt-get update && apt-get install -y git curl
-          # Install just
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
-          chmod +x /usr/local/bin/versionator
-          # Install buf
-          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
-
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Download dependencies
-        run: go mod download
-
       - name: Build
-        run: go build -o ctxloom .
+        run: just -f justfile.container build
 
       - name: Add binaries to PATH
         run: |
@@ -143,7 +135,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
       - name: Run integration tests
-        run: go test -v -tags integration ./tests/integration/...
+        run: just -f justfile.container test-integration
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -156,9 +148,12 @@ jobs:
   mutation:
     name: Mutation Testing
     runs-on: ubuntu-latest
+    needs: [build-container, test]
     container:
-      image: golang:1.26
-    needs: [test]
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -168,25 +163,6 @@ jobs:
 
       - name: Mark workspace as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Install gremlins and buf
-        run: |
-          go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-          curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
-          chmod +x /usr/local/bin/buf
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            /go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Download dependencies
-        run: go mod download
 
       - name: Generate protobuf code
         run: buf generate

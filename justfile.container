@@ -26,25 +26,25 @@ default: build
 build: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm .
+        -o ctxloom .
 
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm .
+        -o ctxloom .
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}} {{static_ldflags}}" \
-        -o scm .
+        -o ctxloom .
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm .
+        -o ctxloom .
 
 # ===== Cross-compilation targets =====
 
@@ -53,35 +53,35 @@ build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm-linux-amd64 .
+        -o ctxloom-linux-amd64 .
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm-linux-arm64 .
+        -o ctxloom-linux-arm64 .
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm-windows-amd64.exe .
+        -o ctxloom-windows-amd64.exe .
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm-darwin-amd64 .
+        -o ctxloom-darwin-amd64 .
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o scm-darwin-arm64 .
+        -o ctxloom-darwin-arm64 .
 
 # Build all platforms
 build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64
@@ -90,15 +90,15 @@ build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-
 
 # Compress Linux amd64 binary with UPX
 compress-linux-amd64:
-    upx --best --lzma scm-linux-amd64
+    upx --best --lzma ctxloom-linux-amd64
 
 # Compress Linux arm64 binary with UPX
 compress-linux-arm64:
-    upx --best --lzma scm-linux-arm64
+    upx --best --lzma ctxloom-linux-arm64
 
 # Compress Windows binary with UPX
 compress-windows-amd64:
-    upx --best --lzma scm-windows-amd64.exe
+    upx --best --lzma ctxloom-windows-amd64.exe
 
 # Note: UPX doesn't support macOS binaries well (code signing issues)
 # macOS binaries are not compressed
@@ -106,9 +106,9 @@ compress-windows-amd64:
 # Compress all compressible binaries
 compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 
-# Compress the main scm binary (for local dev)
+# Compress the main ctxloom binary (for local dev)
 compress:
-    upx --best --lzma scm
+    upx --best --lzma ctxloom
 
 # Build and compress all platforms
 release: build-all compress-all

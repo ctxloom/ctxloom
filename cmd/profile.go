@@ -101,7 +101,7 @@ Bundle references use full URLs:
   https://github.com/user/repo@v1/bundles/name    # Bundle from remote
 
 Example:
-  ctxloom profile create developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
+  ctxloom profile create developer -b https://github.com/user/ctxloom@v1/bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -286,8 +286,8 @@ var profileUpdateCmd = &cobra.Command{
 	Long: `Modify an existing profile by adding or removing items.
 
 Examples:
-  ctxloom profile modify go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
-  ctxloom profile modify developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
+  ctxloom profile modify go-developer --add-parent https://github.com/user/ctxloom@v1/profiles/developer
+  ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@v1/bundles/go-development
   ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

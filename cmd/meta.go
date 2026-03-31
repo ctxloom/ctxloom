@@ -155,7 +155,7 @@ while the Claude Code process may restart.`,
 			Time: time.Now().UTC().Format(time.RFC3339),
 		}
 		data, _ := json.Marshal(stamp)
-		fmt.Printf("<!-- SCM_STAMP: %s -->\n", string(data))
+		fmt.Printf("<!-- CTXLOOM_STAMP: %s -->\n", string(data))
 	},
 }
 

@@ -238,7 +238,7 @@ ctxloom fragment show go-development#fragments/testing
 # In your .bashrc/.zshrc
 alias ctxloom-go='ctxloom run -f go-development -f testing-patterns'
 alias ctxloom-security='ctxloom run -f security -t security'
-alias scm-review='ctxloom run -f code-review -f best-practices'
+alias ctxloom-review='ctxloom run -f code-review -f best-practices'
 
 # Then use:
 ctxloom-go "implement the handler"

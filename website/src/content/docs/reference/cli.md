@@ -247,9 +247,9 @@ ctxloom completion [bash|zsh|fish|powershell]
 
 **Bash:**
 ```bash
-source <(ctxloom completion bash)                    # Current session
-ctxloom completion bash > /etc/bash_completion.d/scm # Permanent (Linux)
-ctxloom completion bash > /usr/local/etc/bash_completion.d/scm       # macOS
+source <(ctxloom completion bash)                        # Current session
+ctxloom completion bash > /etc/bash_completion.d/ctxloom # Permanent (Linux)
+ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom   # macOS
 ```
 
 **Zsh:**
@@ -260,7 +260,7 @@ ctxloom completion zsh > "${fpath[1]}/_ctxloom"
 
 **Fish:**
 ```fish
-ctxloom completion fish > ~/.config/fish/completions/scm.fish
+ctxloom completion fish > ~/.config/fish/completions/ctxloom.fish
 ```
 
 **PowerShell:**

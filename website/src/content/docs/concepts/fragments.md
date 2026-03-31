@@ -143,15 +143,15 @@ These are always available:
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_ROOT` | Project root directory |
-| `SCM_DIR` | Path to .ctxloom directory |
+| `CTXLOOM_ROOT` | Project root directory |
+| `CTXLOOM_DIR` | Path to .ctxloom directory |
 
 ```yaml
 fragments:
   paths:
     content: |
-      Project: {{ SCM_ROOT }}
-      Config: {{ SCM_DIR }}/config.yaml
+      Project: {{ CTXLOOM_ROOT }}
+      Config: {{ CTXLOOM_DIR }}/config.yaml
 ```
 
 See the [Templating Guide](/guides/templating) for complete syntax and advanced features.

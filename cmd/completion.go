@@ -26,9 +26,9 @@ Bash:
 
   # To load completions for each session, execute once:
   # Linux:
-  $ ctxloom completion bash > /etc/bash_completion.d/scm
+  $ ctxloom completion bash > /etc/bash_completion.d/ctxloom
   # macOS:
-  $ ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/scm
+  $ ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/ctxloom
 
 Zsh:
   # If shell completion is not already enabled in your environment,
@@ -44,13 +44,13 @@ Fish:
   $ ctxloom completion fish | source
 
   # To load completions for each session, execute once:
-  $ ctxloom completion fish > ~/.config/fish/completions/scm.fish
+  $ ctxloom completion fish > ~/.config/fish/completions/ctxloom.fish
 
 PowerShell:
   PS> ctxloom completion powershell | Out-String | Invoke-Expression
 
   # To load completions for every new session, run:
-  PS> ctxloom completion powershell > scm.ps1
+  PS> ctxloom completion powershell > ctxloom.ps1
   # and source this file from your PowerShell profile.
 `,
 	DisableFlagsInUseLine: true,

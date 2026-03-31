@@ -15,9 +15,9 @@ import (
 // NOTE: This is a test/development backend only - not intended for production use.
 //
 // Environment variables for test control:
-//   - SCM_MOCK_RESPONSE: Custom response text to output
-//   - SCM_MOCK_EXIT_CODE: Exit code to return (default: 0)
-//   - SCM_MOCK_RECORD_FILE: File to write received input to for verification
+//   - CTXLOOM_MOCK_RESPONSE: Custom response text to output
+//   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
+//   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
 type Mock struct {
 	BaseBackend
 	fragments []*Fragment
@@ -63,7 +63,7 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 	}
 
 	// Check for record file in environment
-	recordFile := getEnvFromMap(req.Env, "SCM_MOCK_RECORD_FILE")
+	recordFile := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE")
 
 	// Assemble context from fragments
 	contextStr := AssembleContext(b.fragments)
@@ -87,11 +87,11 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 	}
 
 	// Check for custom response
-	customResponse := getEnvFromMap(req.Env, "SCM_MOCK_RESPONSE")
+	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
 
 	// Check for custom exit code
 	exitCode := int32(0)
-	exitCodeStr := getEnvFromMap(req.Env, "SCM_MOCK_EXIT_CODE")
+	exitCodeStr := getEnvFromMap(req.Env, "CTXLOOM_MOCK_EXIT_CODE")
 	if exitCodeStr != "" {
 		if code, err := strconv.Atoi(exitCodeStr); err == nil {
 			exitCode = int32(code)

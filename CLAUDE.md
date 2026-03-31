@@ -1,14 +1,14 @@
-<!-- SCM:MANAGED
+<!-- CTXLOOM:MANAGED
   Source: llm.md | Backend: claude-code
 
-  This file is auto-generated from llm.md by SCM.
+  This file is auto-generated from llm.md by ctxloom.
   Edit llm.md instead - changes sync to all configured LLM backends on startup.
 
   To disable sync and manage this file manually, delete this header block.
-  SCM will not modify files without the SCM:MANAGED marker.
+  ctxloom will not modify files without the CTXLOOM:MANAGED marker.
 -->
 
-# SCM Development Guidelines
+# ctxloom Development Guidelines
 
 ## Fault Tolerance Philosophy
 

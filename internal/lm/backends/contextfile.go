@@ -19,7 +19,7 @@ const (
 	// SCMContextSubdir is the subdirectory for context files
 	SCMContextSubdir = ".ctxloom/context"
 	// SCMContextFileEnv is the environment variable containing the context file path
-	SCMContextFileEnv = "SCM_CONTEXT_FILE"
+	SCMContextFileEnv = "CTXLOOM_CONTEXT_FILE"
 )
 
 // contextFileOptions holds configuration for context file operations.
@@ -139,7 +139,7 @@ func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, e
 	return string(content), nil
 }
 
-// ReadContextFileAndDelete reads the context file specified by SCM_CONTEXT_FILE env var,
+// ReadContextFileAndDelete reads the context file specified by CTXLOOM_CONTEXT_FILE env var,
 // then deletes the file. Returns empty string if env var not set or file doesn't exist.
 // Use WithContextFS to provide a custom filesystem for testing.
 func ReadContextFileAndDelete(workDir string, opts ...ContextFileOption) (string, error) {

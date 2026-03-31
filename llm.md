@@ -1,4 +1,4 @@
-# SCM Development Guidelines
+# ctxloom Development Guidelines
 
 ## Fault Tolerance Philosophy
 

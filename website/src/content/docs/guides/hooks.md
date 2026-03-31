@@ -142,8 +142,8 @@ The hook system uses:
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_CONTEXT_FILE` | Path to the context file to inject |
-| `SCM_VERBOSE` | Enable verbose output for debugging |
+| `CTXLOOM_CONTEXT_FILE` | Path to the context file to inject |
+| `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
 
 ## Debugging Hooks
 
@@ -172,7 +172,7 @@ ctxloom run --print
 Enable verbose output to see hook execution:
 
 ```bash
-SCM_VERBOSE=1 ctxloom run
+CTXLOOM_VERBOSE=1 ctxloom run
 ```
 
 ## Custom Hooks
@@ -206,7 +206,7 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 
 1. Check hooks are applied: `cat .claude/settings.json`
 2. Verify context file exists: `ls .ctxloom/context/`
-3. Run with verbose: `SCM_VERBOSE=1 ctxloom run`
+3. Run with verbose: `CTXLOOM_VERBOSE=1 ctxloom run`
 
 ### Stale Context
 

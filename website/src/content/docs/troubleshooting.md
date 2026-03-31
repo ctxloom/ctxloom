@@ -162,7 +162,7 @@ ctxloom remote add myremote owner/repo
 ctxloom remote sync --dry-run
 
 # Sync with verbose output
-SCM_VERBOSE=1 ctxloom remote sync
+CTXLOOM_VERBOSE=1 ctxloom remote sync
 
 # Force re-sync
 ctxloom remote sync --force
@@ -285,7 +285,7 @@ ctxloom mcp serve 2>&1 | head -20
 
 **Verbose mode:**
 ```bash
-SCM_VERBOSE=1 ctxloom mcp serve
+CTXLOOM_VERBOSE=1 ctxloom mcp serve
 ```
 
 ### Tools Not Appearing
@@ -312,7 +312,7 @@ ctxloom hooks apply
 **Check ctxloom logs:**
 ```bash
 # Run MCP server with verbose logging
-SCM_VERBOSE=1 ctxloom mcp serve
+CTXLOOM_VERBOSE=1 ctxloom mcp serve
 ```
 
 **Test tool directly:**
@@ -396,7 +396,7 @@ content: "API key: $API_KEY"
 
 Enable verbose output for any command:
 ```bash
-SCM_VERBOSE=1 ctxloom <command>
+CTXLOOM_VERBOSE=1 ctxloom <command>
 ```
 
 ### Check Version

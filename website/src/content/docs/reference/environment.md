@@ -10,10 +10,10 @@ Environment variables that affect ctxloom behavior.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SCM_VERBOSE` | Enable verbose logging | `0` (disabled) |
+| `CTXLOOM_VERBOSE` | Enable verbose logging | `0` (disabled) |
 
 ```bash
-SCM_VERBOSE=1 ctxloom run -p developer "help"
+CTXLOOM_VERBOSE=1 ctxloom run -p developer "help"
 ```
 
 ## Editor
@@ -36,7 +36,7 @@ These are available within fragment templates (not shell environment):
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_ROOT` | Project root directory (parent of .ctxloom) |
-| `SCM_DIR` | Full path to .ctxloom directory |
+| `CTXLOOM_ROOT` | Project root directory (parent of .ctxloom) |
+| `CTXLOOM_DIR` | Full path to .ctxloom directory |
 
 See [Templating](/guides/templating) for usage.

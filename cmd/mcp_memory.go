@@ -87,7 +87,7 @@ func (s *mcpServer) getMemoryTools() []mcpToolInfo {
 	}
 	tools = append(tools, mcpToolInfo{
 		Name:        "recover_session",
-		Description: "Recover context from the current session after /clear. Uses the stable process ID from SCM_STAMP to find the previous session, or falls back to the most recent session.",
+		Description: "Recover context from the current session after /clear. Uses the stable process ID from CTXLOOM_STAMP to find the previous session, or falls back to the most recent session.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

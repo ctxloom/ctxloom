@@ -98,15 +98,15 @@ func TestSubstituteVariables_MultipleOccurrences(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
-// TestSubstituteVariables_BuiltInVariables verifies that SCM built-in variables
-// (SCM_ROOT, CTXLOOM_DIR) can be used in templates.
+// TestSubstituteVariables_BuiltInVariables verifies that ctxloom built-in variables
+// (CTXLOOM_ROOT, CTXLOOM_DIR) can be used in templates.
 func TestSubstituteVariables_BuiltInVariables(t *testing.T) {
 	vars := map[string]string{
-		"SCM_ROOT": "/home/user/project",
+		"CTXLOOM_ROOT": "/home/user/project",
 		"CTXLOOM_DIR":  "/home/user/project/.ctxloom",
 	}
 
-	content := "Project root: {{SCM_ROOT}}\nConfig dir: {{CTXLOOM_DIR}}"
+	content := "Project root: {{CTXLOOM_ROOT}}\nConfig dir: {{CTXLOOM_DIR}}"
 	var warnings []string
 	warnFunc := func(msg string) { warnings = append(warnings, msg) }
 

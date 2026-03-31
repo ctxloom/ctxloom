@@ -8,7 +8,7 @@ import (
 // The magic cookie ensures host and plugin are using the same protocol.
 var HandshakeConfig = plugin.HandshakeConfig{
 	ProtocolVersion:  1,
-	MagicCookieKey:   "SCM_PLUGIN",
+	MagicCookieKey:   "CTXLOOM_PLUGIN",
 	MagicCookieValue: "ai-backend-v1",
 }
 

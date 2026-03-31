@@ -25,15 +25,15 @@ These variables are always available:
 
 | Variable | Description |
 |----------|-------------|
-| `SCM_ROOT` | Project root directory (parent of .ctxloom) |
-| `SCM_DIR` | Full path to .ctxloom directory |
+| `CTXLOOM_ROOT` | Project root directory (parent of .ctxloom) |
+| `CTXLOOM_DIR` | Full path to .ctxloom directory |
 
 ```yaml
 fragments:
   paths:
     content: |
-      Project root: {{SCM_ROOT}}
-      Config location: {{SCM_DIR}}
+      Project root: {{CTXLOOM_ROOT}}
+      Config location: {{CTXLOOM_DIR}}
 ```
 
 ## Defining Variables

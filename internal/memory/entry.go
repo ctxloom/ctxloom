@@ -55,16 +55,3 @@ type SessionMeta struct {
 	LastCompactedAt  time.Time `yaml:"last_compacted_at,omitempty"`
 }
 
-// MarshalJSONL returns the entry as a JSON line (no trailing newline).
-func (e *Entry) MarshalJSONL() ([]byte, error) {
-	return json.Marshal(e)
-}
-
-// UnmarshalJSONL parses a JSON line into an entry.
-func UnmarshalJSONL(data []byte) (*Entry, error) {
-	var e Entry
-	if err := json.Unmarshal(data, &e); err != nil {
-		return nil, err
-	}
-	return &e, nil
-}

@@ -340,15 +340,6 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 // =============================================================================
 // Factory enables runtime backend selection based on user config.
 
-func TestGetHookWriter(t *testing.T) {
-	if GetHookWriter("claude-code") == nil {
-		t.Error("expected hook writer for claude-code")
-	}
-	if GetHookWriter("unknown-backend") != nil {
-		t.Error("expected nil for unknown backend")
-	}
-}
-
 func TestGetSettingsWriter_AllBackends(t *testing.T) {
 	tests := []struct {
 		name     string

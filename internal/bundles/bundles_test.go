@@ -1276,12 +1276,6 @@ fragments:
 
 	// Same pointer (cached)
 	assert.Same(t, bundle1, bundle2, "should return same bundle instance from cache")
-
-	// ClearCache and reload
-	loader.ClearCache()
-	bundle3, err := loader.LoadFile(bundlePath)
-	require.NoError(t, err)
-	assert.Equal(t, "2.0", bundle3.Version, "should read updated file after cache clear")
 }
 
 // TestLoader_NestedBundles verifies deep directory structures are traversed.

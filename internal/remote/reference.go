@@ -206,15 +206,6 @@ func parseFileReference(ref string) (*Reference, error) {
 	}, nil
 }
 
-// parseVersionTypePath parses "version/type/path" from URL remainder (legacy, no content version).
-// Examples:
-//   - "v1/bundles/core-practices" → v1, bundles, core-practices
-//   - "v2/fragments/golang/security" → v2, fragments, golang/security
-func parseVersionTypePath(s string) (version string, itemType ItemType, itemPath string, err error) {
-	version, itemType, itemPath, _, err = parseVersionTypePathVersion(s)
-	return
-}
-
 // parseVersionTypePathVersion parses "version/type/path[@contentVersion]" from URL remainder.
 // Examples:
 //   - "v1/bundles/core-practices" → v1, bundles, core-practices, ""

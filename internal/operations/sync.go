@@ -461,15 +461,6 @@ type AutoSyncConfig struct {
 	ApplyHooks bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
 }
 
-// DefaultAutoSyncConfig returns the default auto-sync configuration.
-func DefaultAutoSyncConfig() AutoSyncConfig {
-	return AutoSyncConfig{
-		Enabled:    true,
-		Lock:       true,
-		ApplyHooks: true,
-	}
-}
-
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.
 // This is meant to be called during MCP server initialization or CLI startup.
 func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesResult, error) {

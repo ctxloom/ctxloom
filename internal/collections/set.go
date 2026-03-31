@@ -63,23 +63,6 @@ func (s Set[T]) Has(v T) bool {
 	return ok
 }
 
-// Remove deletes an element from the set.
-func (s Set[T]) Remove(v T) {
-	delete(s, v)
-}
-
-// Len returns the number of elements in the set.
-func (s Set[T]) Len() int {
-	return len(s)
-}
-
-// Clear removes all elements from the set.
-func (s Set[T]) Clear() {
-	for k := range s {
-		delete(s, k)
-	}
-}
-
 // Items returns all elements as a slice.
 // Order is not guaranteed.
 func (s Set[T]) Items() []T {

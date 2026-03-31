@@ -67,11 +67,6 @@ func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MC
 }
 
 // WriteHooks writes hooks for the specified backend (backwards compatible).
-// If the backend doesn't support hooks, this is a no-op.
-func WriteHooks(backendName string, cfg *config.HooksConfig, projectDir string) error {
-	return WriteSettings(backendName, cfg, nil, nil, projectDir)
-}
-
 // settingsWriterRegistry maps backend names to their settings writer constructors.
 var settingsWriterRegistry = map[string]func(afero.Fs) SettingsWriter{
 	"claude-code": func(fs afero.Fs) SettingsWriter { return &ClaudeCodeHookWriter{FS: fs} },
@@ -94,12 +89,6 @@ func BackendsWithSettings() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-// GetHookWriter returns a SettingsWriter for the named backend, or nil if not supported.
-// Deprecated: Use GetSettingsWriter instead.
-func GetHookWriter(name string) SettingsWriter {
-	return GetSettingsWriter(name, nil)
 }
 
 // computeHookHash computes a hash from the hook's defining fields.

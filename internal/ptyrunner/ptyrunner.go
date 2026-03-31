@@ -135,36 +135,3 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	return result, nil
 }
 
-// RunNonInteractive runs a command in non-interactive mode without a PTY.
-func RunNonInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer) (*Result, error) {
-	cmd.Stdin = os.Stdin
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	if stdout != nil {
-		cmd.Stdout = io.MultiWriter(os.Stdout, stdout, &stdoutBuf)
-	} else {
-		cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	}
-	if stderr != nil {
-		cmd.Stderr = io.MultiWriter(os.Stderr, stderr, &stderrBuf)
-	} else {
-		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-	}
-
-	err := cmd.Run()
-
-	result := &Result{
-		Output:   stdoutBuf.String(),
-		ExitCode: 0,
-	}
-
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			result.ExitCode = exitErr.ExitCode()
-		} else {
-			return nil, fmt.Errorf("command failed: %w", err)
-		}
-	}
-
-	return result, nil
-}

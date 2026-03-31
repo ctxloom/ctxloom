@@ -379,15 +379,6 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	return bundle, nil
 }
 
-// ClearCache clears the bundle cache.
-// This is useful when bundles may have changed on disk.
-// This method is safe for concurrent use.
-func (l *Loader) ClearCache() {
-	l.mu.Lock()
-	l.cache = make(map[string]*Bundle)
-	l.mu.Unlock()
-}
-
 // List returns all available bundles.
 func (l *Loader) List() ([]*BundleInfo, error) {
 	var bundles []*BundleInfo

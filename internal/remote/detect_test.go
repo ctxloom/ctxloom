@@ -95,24 +95,6 @@ func TestParseRepoURL(t *testing.T) {
 	}
 }
 
-func TestExpandShorthand(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"simple shorthand", "alice/ctxloom", "https://github.com/alice/ctxloom"},
-		{"already full URL", "https://github.com/owner/repo", "https://github.com/owner/repo"},
-		{"gitlab URL", "https://gitlab.com/owner/repo", "https://gitlab.com/owner/repo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, ExpandShorthand(tt.input))
-		})
-	}
-}
-
 func TestNormalizeURL(t *testing.T) {
 	tests := []struct {
 		name     string

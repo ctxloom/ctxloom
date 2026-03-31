@@ -250,30 +250,3 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	assert.Contains(t, stdout.String(), "line3")
 }
 
-// =============================================================================
-// Non-Interactive Mode Tests
-// =============================================================================
-
-// TestRunNonInteractive_SimpleCommand verifies non-interactive mode works.
-func TestRunNonInteractive_SimpleCommand(t *testing.T) {
-	ctx := context.Background()
-	cmd := exec.Command("echo", "hello")
-
-	var stdout bytes.Buffer
-	result, err := RunNonInteractive(ctx, cmd, &stdout, nil)
-
-	require.NoError(t, err)
-	assert.Equal(t, 0, result.ExitCode)
-	assert.Contains(t, result.Output, "hello")
-}
-
-// TestRunNonInteractive_ExitCode verifies exit codes in non-interactive mode.
-func TestRunNonInteractive_ExitCode(t *testing.T) {
-	ctx := context.Background()
-	cmd := exec.Command("sh", "-c", "exit 5")
-
-	result, err := RunNonInteractive(ctx, cmd, nil, nil)
-
-	require.NoError(t, err)
-	assert.Equal(t, 5, result.ExitCode)
-}

@@ -727,30 +727,6 @@ func TestAddSyncItem_FailedStatus(t *testing.T) {
 	}
 }
 
-// TestDefaultAutoSyncConfig_Returns valid config
-func TestDefaultAutoSyncConfig_ReturnsValidConfig(t *testing.T) {
-	config := DefaultAutoSyncConfig()
-
-	if !config.Enabled {
-		t.Error("expected Enabled=true")
-	}
-	if !config.Lock {
-		t.Error("expected Lock=true")
-	}
-	if !config.ApplyHooks {
-		t.Error("expected ApplyHooks=true")
-	}
-}
-
-func TestDefaultAutoSyncConfig_Consistent(t *testing.T) {
-	config1 := DefaultAutoSyncConfig()
-	config2 := DefaultAutoSyncConfig()
-
-	if config1 != config2 {
-		t.Error("DefaultAutoSyncConfig should return consistent values")
-	}
-}
-
 func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 	// Test that remote dependencies in nested local profile parents are discovered
 	cfg := &config.Config{

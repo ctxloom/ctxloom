@@ -312,7 +312,7 @@ func TestSubstituteVariables_Basic(t *testing.T) {
 	content := "Hello {{name}}, welcome to {{place}}!"
 	vars := map[string]string{
 		"name":  "World",
-		"place": "SCM",
+		"place": "ctxloom",
 	}
 
 	result := substituteVariables(content, vars, func(s string) {})

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cbroglie/mustache"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -250,55 +249,3 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
 }
 
-// substituteVariables applies mustache templating to content using the provided variables.
-// It warns about undefined variables referenced in the template.
-// Undefined variables are replaced with empty strings.
-func substituteVariables(content string, vars map[string]string, warnFunc func(string)) string {
-	// Parse the template using the mustache library (handles delimiter changes correctly)
-	tmpl, err := mustache.ParseString(content)
-	if err != nil {
-		warnFunc(fmt.Sprintf("failed to parse template: %v", err))
-		return content
-	}
-
-	// Check for undefined variables by walking the parsed tags
-	seen := make(map[string]bool)
-	checkTags(tmpl.Tags(), vars, seen, warnFunc)
-
-	data := make(map[string]interface{})
-	for k, v := range vars {
-		data[k] = v
-	}
-
-	rendered, err := tmpl.Render(data)
-	if err != nil {
-		warnFunc(fmt.Sprintf("failed to render template: %v", err))
-		return content
-	}
-
-	return rendered
-}
-
-// checkTags recursively walks mustache tags to find undefined variables.
-func checkTags(tags []mustache.Tag, vars map[string]string, seen map[string]bool, warnFunc func(string)) {
-	for _, tag := range tags {
-		name := tag.Name()
-		tagType := tag.Type()
-
-		// Only check variable tags (types 1 and 2 are Variable and RawVariable)
-		// Section tags (3) and inverted sections (4) also reference variables
-		if tagType == 1 || tagType == 2 || tagType == 3 || tagType == 4 {
-			if !seen[name] {
-				seen[name] = true
-				if _, exists := vars[name]; !exists {
-					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))
-				}
-			}
-		}
-
-		// Recursively check child tags (for sections)
-		if tagType == 3 || tagType == 4 { // Section or InvertedSection
-			checkTags(tag.Tags(), vars, seen, warnFunc)
-		}
-	}
-}

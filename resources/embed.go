@@ -8,11 +8,6 @@ import (
 //go:embed all:schema all:commands example-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
-// GetFragmentSchema returns the embedded JSON schema for fragment validation.
-func GetFragmentSchema() ([]byte, error) {
-	return resourcesFS.ReadFile("schema/fragment-schema.json")
-}
-
 // GetConfigSchema returns the embedded JSON schema for config validation.
 func GetConfigSchema() ([]byte, error) {
 	return resourcesFS.ReadFile("schema/config-schema.json")

@@ -9,47 +9,11 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-func TestNewValidator(t *testing.T) {
-	v, err := NewValidator()
-	require.NoError(t, err)
-	assert.NotNil(t, v)
-	assert.NotNil(t, v.schema)
-}
-
 func TestNewConfigValidator(t *testing.T) {
 	v, err := NewConfigValidator()
 	require.NoError(t, err)
 	assert.NotNil(t, v)
 	assert.NotNil(t, v.schema)
-}
-
-func TestValidator_ValidateBytes(t *testing.T) {
-	v, err := NewValidator()
-	require.NoError(t, err)
-
-	t.Run("valid fragment", func(t *testing.T) {
-		yaml := `
-content: |
-  This is valid content.
-tags:
-  - test
-`
-		err := v.ValidateBytes([]byte(yaml))
-		assert.NoError(t, err)
-	})
-
-	t.Run("minimal valid fragment", func(t *testing.T) {
-		yaml := `content: "Simple content"`
-		err := v.ValidateBytes([]byte(yaml))
-		assert.NoError(t, err)
-	})
-
-	t.Run("invalid YAML", func(t *testing.T) {
-		yaml := `invalid: yaml: [[`
-		err := v.ValidateBytes([]byte(yaml))
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "YAML parse error")
-	})
 }
 
 func TestConfigValidator_ValidateBytes(t *testing.T) {

@@ -139,37 +139,4 @@ func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, e
 	return string(content), nil
 }
 
-// ReadContextFileAndDelete reads the context file specified by CTXLOOM_CONTEXT_FILE env var,
-// then deletes the file. Returns empty string if env var not set or file doesn't exist.
-// Use WithContextFS to provide a custom filesystem for testing.
-func ReadContextFileAndDelete(workDir string, opts ...ContextFileOption) (string, error) {
-	options := applyContextOptions(opts)
-	fs := options.fs
-
-	contextPath := os.Getenv(SCMContextFileEnv)
-	if contextPath == "" {
-		return "", nil
-	}
-
-	// If relative path, resolve against workDir
-	if !filepath.IsAbs(contextPath) {
-		contextPath = filepath.Join(workDir, contextPath)
-	}
-
-	content, err := afero.ReadFile(fs, contextPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("failed to read context file: %w", err)
-	}
-
-	// Clean up after reading
-	if err := fs.Remove(contextPath); err != nil {
-		// Log but don't fail - content was read successfully
-		fmt.Fprintf(os.Stderr, "warning: failed to delete context file %s: %v\n", contextPath, err)
-	}
-
-	return string(content), nil
-}
 

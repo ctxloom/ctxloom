@@ -100,46 +100,6 @@ func TestLockShared_MultipleReaders(t *testing.T) {
 	}
 }
 
-func TestTryLock_Success(t *testing.T) {
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "test.lock")
-
-	unlock, err := filelock.TryLock(lockPath)
-	require.NoError(t, err)
-	require.NotNil(t, unlock)
-	defer unlock()
-}
-
-func TestTryLock_Blocked(t *testing.T) {
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "test.lock")
-
-	// Acquire exclusive lock
-	unlock1, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
-	defer unlock1()
-
-	// TryLock should fail immediately
-	unlock2, err := filelock.TryLock(lockPath)
-	assert.ErrorIs(t, err, filelock.ErrLocked)
-	assert.Nil(t, unlock2)
-}
-
-func TestTryLockShared_BlockedByExclusive(t *testing.T) {
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "test.lock")
-
-	// Acquire exclusive lock
-	unlock1, err := filelock.Lock(lockPath)
-	require.NoError(t, err)
-	defer unlock1()
-
-	// TryLockShared should fail
-	unlock2, err := filelock.TryLockShared(lockPath)
-	assert.ErrorIs(t, err, filelock.ErrLocked)
-	assert.Nil(t, unlock2)
-}
-
 func TestLock_ReleaseThenReacquire(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "test.lock")
@@ -169,13 +129,3 @@ func TestLock_RootDirectoryFile(t *testing.T) {
 	defer unlock()
 }
 
-func TestTryLockShared_Success(t *testing.T) {
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "test.lock")
-
-	// Should succeed when no lock is held
-	unlock, err := filelock.TryLockShared(lockPath)
-	require.NoError(t, err)
-	require.NotNil(t, unlock)
-	defer unlock()
-}

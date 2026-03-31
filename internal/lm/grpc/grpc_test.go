@@ -23,7 +23,7 @@ import (
 // An incorrect handshake prevents plugins from connecting.
 func TestHandshakeConfig_HasRequiredFields(t *testing.T) {
 	assert.Equal(t, uint(1), HandshakeConfig.ProtocolVersion)
-	assert.Equal(t, "SCM_PLUGIN", HandshakeConfig.MagicCookieKey)
+	assert.Equal(t, "CTXLOOM_PLUGIN", HandshakeConfig.MagicCookieKey)
 	assert.Equal(t, "ai-backend-v1", HandshakeConfig.MagicCookieValue)
 }
 

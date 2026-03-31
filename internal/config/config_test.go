@@ -684,102 +684,6 @@ func TestConfig_GetConfigFilePath(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Profile Helper Functions Tests
-// =============================================================================
-
-func TestMergeProfiles(t *testing.T) {
-	target := map[string]Profile{
-		"existing": {Description: "original"},
-		"shared":   {Description: "target-shared"},
-	}
-
-	source := map[string]Profile{
-		"new":    {Description: "from source"},
-		"shared": {Description: "source-shared"},
-	}
-
-	MergeProfiles(target, source)
-
-	assert.Equal(t, "original", target["existing"].Description)
-	assert.Equal(t, "from source", target["new"].Description)
-	assert.Equal(t, "source-shared", target["shared"].Description)
-}
-
-func TestCollectFragmentsForProfiles(t *testing.T) {
-	profiles := map[string]Profile{
-		"profile1": {Fragments: []FragmentRef{{Name: "frag1"}, {Name: "frag2"}}},
-		"profile2": {Fragments: []FragmentRef{{Name: "frag2"}, {Name: "frag3"}}},
-	}
-
-	t.Run("collects and deduplicates", func(t *testing.T) {
-		frags, err := CollectFragmentsForProfiles(profiles, []string{"profile1", "profile2"})
-		require.NoError(t, err)
-		assert.Equal(t, []string{"frag1", "frag2", "frag3"}, frags)
-	})
-
-	t.Run("errors on unknown profile", func(t *testing.T) {
-		_, err := CollectFragmentsForProfiles(profiles, []string{"nonexistent"})
-		assert.Error(t, err)
-	})
-}
-
-func TestCollectBundlesForProfiles(t *testing.T) {
-	profiles := map[string]Profile{
-		"profile1": {Bundles: []string{"bundle1", "bundle2"}},
-		"profile2": {Bundles: []string{"bundle2", "bundle3"}},
-	}
-
-	bundles, err := CollectBundlesForProfiles(profiles, []string{"profile1", "profile2"})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"bundle1", "bundle2", "bundle3"}, bundles)
-}
-
-func TestCollectBundleItemsForProfiles(t *testing.T) {
-	profiles := map[string]Profile{
-		"profile1": {BundleItems: []string{"bundle#fragments/a", "bundle#fragments/b"}},
-		"profile2": {BundleItems: []string{"bundle#fragments/b", "bundle#prompts/c"}},
-	}
-
-	items, err := CollectBundleItemsForProfiles(profiles, []string{"profile1", "profile2"})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"bundle#fragments/a", "bundle#fragments/b", "bundle#prompts/c"}, items)
-}
-
-func TestFilterProfiles(t *testing.T) {
-	all := map[string]Profile{
-		"dev":  {Description: "development"},
-		"prod": {Description: "production"},
-		"test": {Description: "testing"},
-	}
-
-	filtered := FilterProfiles(all, []string{"dev", "prod"})
-
-	assert.Len(t, filtered, 2)
-	assert.Contains(t, filtered, "dev")
-	assert.Contains(t, filtered, "prod")
-	assert.NotContains(t, filtered, "test")
-}
-
-func TestDedupeStrings(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []string
-		want  []string
-	}{
-		{"empty", []string{}, []string{}},
-		{"no duplicates", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
-		{"with duplicates", []string{"a", "b", "a", "c", "b"}, []string{"a", "b", "c"}},
-		{"all same", []string{"x", "x", "x"}, []string{"x"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := DedupeStrings(tt.input)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
 
 // =============================================================================
 // ResolveProfile Additional Tests
@@ -863,52 +767,6 @@ func TestResolveProfile_DiamondInheritance(t *testing.T) {
 	assert.Equal(t, 1, bundleCount)
 }
 
-// =============================================================================
-// LoadFromDir Tests
-// =============================================================================
-
-func TestLoadFromDir(t *testing.T) {
-	t.Run("loads valid config", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configContent := `
-llm:
-  plugins:
-    claude-code: {}
-defaults:
-  llm_plugin: claude-code
-  profiles:
-    - dev
-`
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configContent), 0644))
-
-		cfg, err := LoadFromDir(tmpDir)
-		require.NoError(t, err)
-		assert.Contains(t, cfg.Defaults.Profiles, "dev")
-		assert.Equal(t, "claude-code", cfg.Defaults.LLMPlugin)
-	})
-
-	t.Run("returns empty config for missing file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		cfg, err := LoadFromDir(tmpDir)
-		require.NoError(t, err)
-		assert.NotNil(t, cfg.Profiles)
-		assert.Equal(t, tmpDir, cfg.AppDir) // Should still set paths
-	})
-
-	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte("invalid: ["), 0644))
-
-		cfg, err := LoadFromDir(tmpDir)
-		// Returns config with warning instead of error for resilient startup
-		assert.NoError(t, err)
-		assert.NotNil(t, cfg)
-		assert.Len(t, cfg.Warnings, 1)
-		assert.Contains(t, cfg.Warnings[0], "failed to parse config")
-		assert.Equal(t, tmpDir, cfg.AppDir) // Should still set paths
-	})
-}
 
 // =============================================================================
 // Config Save Tests
@@ -1318,33 +1176,6 @@ func TestExtractMCPFromBundle(t *testing.T) {
 	assert.Equal(t, "bundle:my-bundle", result["test-server"].SCM)
 }
 
-// =============================================================================
-// CollectBundlesForProfiles Error Case
-// =============================================================================
-
-func TestCollectBundlesForProfiles_UnknownProfile(t *testing.T) {
-	profiles := map[string]Profile{
-		"known": {Bundles: []string{"bundle1"}},
-	}
-
-	_, err := CollectBundlesForProfiles(profiles, []string{"unknown"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown profile")
-}
-
-// =============================================================================
-// CollectBundleItemsForProfiles Error Case
-// =============================================================================
-
-func TestCollectBundleItemsForProfiles_UnknownProfile(t *testing.T) {
-	profiles := map[string]Profile{
-		"known": {BundleItems: []string{"item1"}},
-	}
-
-	_, err := CollectBundleItemsForProfiles(profiles, []string{"unknown"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown profile")
-}
 
 // =============================================================================
 // resolveProfileRecursive Depth Limit

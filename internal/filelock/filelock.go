@@ -31,18 +31,6 @@ func LockShared(path string) (unlock func(), err error) {
 	return lockFile(path, true)
 }
 
-// TryLock attempts to acquire an exclusive lock without blocking.
-// Returns (unlock, nil) if successful, (nil, ErrLocked) if the file is already locked.
-func TryLock(path string) (unlock func(), err error) {
-	return tryLockFile(path, false)
-}
-
-// TryLockShared attempts to acquire a shared lock without blocking.
-// Returns (unlock, nil) if successful, (nil, ErrLocked) if an exclusive lock is held.
-func TryLockShared(path string) (unlock func(), err error) {
-	return tryLockFile(path, true)
-}
-
 // ensureDir creates the parent directory of path if it doesn't exist.
 func ensureDir(path string) error {
 	dir := path[:len(path)-len(pathBase(path))-1]

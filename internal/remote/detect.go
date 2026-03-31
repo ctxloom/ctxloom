@@ -111,15 +111,6 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// ExpandShorthand converts a shorthand reference to a full URL.
-// "alice/ctxloom" -> "https://github.com/alice/ctxloom"
-func ExpandShorthand(shorthand string) string {
-	if strings.Contains(shorthand, "://") {
-		return shorthand // Already a full URL
-	}
-	return "https://github.com/" + shorthand
-}
-
 // NormalizeURL ensures a URL has a scheme and removes trailing .git.
 func NormalizeURL(repoURL string) string {
 	// Handle shorthand

@@ -16,16 +16,16 @@ import (
 
 func TestNewSet(t *testing.T) {
 	s := NewSet[string]()
-	if s.Len() != 0 {
-		t.Errorf("expected empty set, got len %d", s.Len())
+	if len(s.Items()) != 0 {
+		t.Errorf("expected empty set, got len %d", len(s.Items()))
 	}
 }
 
 func TestNewSetFrom(t *testing.T) {
 	// Duplicates in input should be collapsed - essential for tag deduplication
 	s := NewSetFrom("a", "b", "c", "a") // duplicate "a"
-	if s.Len() != 3 {
-		t.Errorf("expected 3 elements, got %d", s.Len())
+	if len(s.Items()) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(s.Items()))
 	}
 	if !s.Has("a") || !s.Has("b") || !s.Has("c") {
 		t.Error("missing expected elements")
@@ -44,8 +44,8 @@ func TestSet_Add(t *testing.T) {
 	s.Add(2)
 	s.Add(1) // duplicate
 
-	if s.Len() != 2 {
-		t.Errorf("expected 2 elements, got %d", s.Len())
+	if len(s.Items()) != 2 {
+		t.Errorf("expected 2 elements, got %d", len(s.Items()))
 	}
 }
 
@@ -54,8 +54,8 @@ func TestSet_AddAll(t *testing.T) {
 	s := NewSet[string]()
 	s.AddAll("x", "y", "z", "x")
 
-	if s.Len() != 3 {
-		t.Errorf("expected 3 elements, got %d", s.Len())
+	if len(s.Items()) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(s.Items()))
 	}
 }
 
@@ -68,32 +68,6 @@ func TestSet_Has(t *testing.T) {
 	}
 	if s.Has("missing") {
 		t.Error("expected Has to return false for missing element")
-	}
-}
-
-func TestSet_Remove(t *testing.T) {
-	// Remove must be idempotent - safe to call on missing elements
-	s := NewSetFrom("a", "b")
-	s.Remove("a")
-
-	if s.Has("a") {
-		t.Error("element should have been removed")
-	}
-	if s.Len() != 1 {
-		t.Errorf("expected 1 element, got %d", s.Len())
-	}
-
-	// Remove non-existent element should not panic
-	s.Remove("nonexistent")
-}
-
-func TestSet_Clear(t *testing.T) {
-	// Clear enables reuse without allocation
-	s := NewSetFrom(1, 2, 3, 4, 5)
-	s.Clear()
-
-	if s.Len() != 0 {
-		t.Errorf("expected empty set after clear, got %d", s.Len())
 	}
 }
 
@@ -123,7 +97,7 @@ func TestSet_Clone(t *testing.T) {
 	original := NewSetFrom("a", "b")
 	clone := original.Clone()
 
-	if clone.Len() != original.Len() {
+	if len(clone.Items()) != len(original.Items()) {
 		t.Error("clone should have same length")
 	}
 	if !clone.Has("a") || !clone.Has("b") {
@@ -145,8 +119,8 @@ func TestSet_Clone(t *testing.T) {
 func TestSet_IntType(t *testing.T) {
 	// Integer sets used for numeric ID deduplication
 	s := NewSetFrom(1, 2, 3)
-	if s.Len() != 3 {
-		t.Errorf("expected 3 elements, got %d", s.Len())
+	if len(s.Items()) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(s.Items()))
 	}
 	if !s.Has(2) {
 		t.Error("expected Has(2) to be true")
@@ -165,8 +139,8 @@ func TestSet_StructType(t *testing.T) {
 	s.Add(customStruct{2, "two"})
 	s.Add(customStruct{1, "one"}) // duplicate by value
 
-	if s.Len() != 2 {
-		t.Errorf("expected 2 elements, got %d", s.Len())
+	if len(s.Items()) != 2 {
+		t.Errorf("expected 2 elements, got %d", len(s.Items()))
 	}
 	if !s.Has(customStruct{1, "one"}) {
 		t.Error("expected struct to be in set")

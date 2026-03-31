@@ -3,14 +3,10 @@
 package filelock
 
 import (
-	"errors"
 	"os"
 	"syscall"
 	"unsafe"
 )
-
-// ErrLocked is returned when TryLock fails because the file is already locked.
-var ErrLocked = errors.New("file is locked")
 
 var (
 	modkernel32      = syscall.NewLazyDLL("kernel32.dll")
@@ -20,8 +16,7 @@ var (
 
 const (
 	// Windows lock flags
-	lockfileExclusiveLock   = 0x00000002
-	lockfileFailImmediately = 0x00000001
+	lockfileExclusiveLock = 0x00000002
 )
 
 // lockFile acquires a lock on the file, blocking until available.
@@ -43,37 +38,6 @@ func lockFile(path string, shared bool) (func(), error) {
 
 	if err := lockFileEx(syscall.Handle(f.Fd()), flags); err != nil {
 		f.Close()
-		return nil, err
-	}
-
-	return func() {
-		unlockFileEx(syscall.Handle(f.Fd()))
-		f.Close()
-	}, nil
-}
-
-// tryLockFile attempts to acquire a lock without blocking.
-func tryLockFile(path string, shared bool) (func(), error) {
-	if err := ensureDir(path); err != nil {
-		return nil, err
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return nil, err
-	}
-
-	var flags uint32 = lockfileFailImmediately
-	if !shared {
-		flags |= lockfileExclusiveLock
-	}
-
-	if err := lockFileEx(syscall.Handle(f.Fd()), flags); err != nil {
-		f.Close()
-		// ERROR_LOCK_VIOLATION = 33
-		if errno, ok := err.(syscall.Errno); ok && errno == 33 {
-			return nil, ErrLocked
-		}
 		return nil, err
 	}
 

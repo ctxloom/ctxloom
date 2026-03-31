@@ -38,26 +38,3 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo, version s
 
 	return false, "", nil
 }
-
-// RetractChecker provides methods to check for retracted versions.
-type RetractChecker struct {
-	fetcher Fetcher
-	owner   string
-	repo    string
-	version string
-}
-
-// NewRetractChecker creates a new retract checker.
-func NewRetractChecker(fetcher Fetcher, owner, repo, version string) *RetractChecker {
-	return &RetractChecker{
-		fetcher: fetcher,
-		owner:   owner,
-		repo:    repo,
-		version: version,
-	}
-}
-
-// IsRetracted checks if a specific item version is retracted.
-func (c *RetractChecker) IsRetracted(ctx context.Context, ref *Reference, itemType ItemType) (bool, string, error) {
-	return CheckRetracted(ctx, c.fetcher, c.owner, c.repo, c.version, ref, itemType)
-}

@@ -23,15 +23,6 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// GetAppDirs returns the .ctxloom directories from project config.
-func GetAppDirs() ([]string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
-	return cfg.AppPaths, nil
-}
-
 // GetConfig returns the project configuration.
 func GetConfig() (*config.Config, error) {
 	return config.Load()

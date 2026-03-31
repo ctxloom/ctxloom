@@ -917,9 +917,6 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 // ContextInjectionTimeout is the timeout for the context injection hook in seconds.
 const ContextInjectionTimeout = 60
 
-// MemoryCheckTimeout is the timeout for the memory check hook in seconds.
-const MemoryCheckTimeout = 300 // 5 minutes - compaction can take a while
-
 // NewContextInjectionHook creates a hook for context injection using the symlinked ctxloom binary.
 // hash is the context file hash to pass to the inject-context command.
 // workDir is the project directory where the context file lives.
@@ -928,19 +925,6 @@ func NewContextInjectionHook(hash, workDir string) config.Hook {
 		Command: GetContextInjectionCommand(hash, workDir),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
-	}
-}
-
-// NewMemoryCheckHook creates a hook for proactive memory management.
-// This hook runs after each tool use to check if the session log is approaching
-// the context window limit, and triggers compaction if needed.
-// workDir is the project directory.
-func NewMemoryCheckHook(workDir string) config.Hook {
-	return config.Hook{
-		Command: GetMemoryCheckCommand(workDir),
-		Type:    "command",
-		Timeout: MemoryCheckTimeout,
-		Async:   true, // Don't block the conversation
 	}
 }
 

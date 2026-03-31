@@ -62,32 +62,12 @@ Examples:
 	RunE: runMemoryCompact,
 }
 
-var memoryCheckCmd = &cobra.Command{
-	Use:   "check",
-	Short: "Check session size and auto-compact if needed",
-	Long: `Check the current session log size and trigger compaction if it exceeds
-the context window threshold.
-
-This is designed to be called from a PostToolUse hook to proactively manage
-context before it becomes too large.
-
-The threshold is based on Claude's ~200K token context window (~800KB).
-Compaction is triggered when the session approaches this size.
-
-Examples:
-  ctxloom memory check                    # Check and compact if needed
-  ctxloom memory check --threshold 500000 # Custom threshold in bytes`,
-	RunE: runMemoryCheck,
-}
-
 var (
 	compactSession string
 	compactModel   string
 	compactBackend string
 	listBackend    string
 	showBackend    string
-	checkThreshold int64
-	checkBackend   string
 )
 
 func init() {
@@ -95,7 +75,6 @@ func init() {
 	memoryCmd.AddCommand(memoryListCmd)
 	memoryCmd.AddCommand(memoryShowCmd)
 	memoryCmd.AddCommand(memoryCompactCmd)
-	memoryCmd.AddCommand(memoryCheckCmd)
 
 	memoryListCmd.Flags().StringVar(&listBackend, "backend", "", "Backend to list sessions from (default: claude-code)")
 	memoryShowCmd.Flags().StringVar(&showBackend, "backend", "", "Backend to read session from (default: claude-code)")
@@ -103,10 +82,6 @@ func init() {
 	memoryCompactCmd.Flags().StringVar(&compactSession, "session", "", "Session ID to compact (default: most recent)")
 	memoryCompactCmd.Flags().StringVar(&compactModel, "model", "", "LLM model to use for distillation (default: from config or claude-3-haiku)")
 	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: claude-code)")
-
-	// ~800KB default threshold (200K tokens * 4 chars/token)
-	memoryCheckCmd.Flags().Int64Var(&checkThreshold, "threshold", 800000, "Size threshold in bytes to trigger compaction")
-	memoryCheckCmd.Flags().StringVar(&checkBackend, "backend", "", "Backend to check session from (default: claude-code)")
 }
 
 func getMemoryDir(cfg *config.Config) string {
@@ -313,105 +288,4 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runMemoryCheck(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	// Determine backend
-	backendName := checkBackend
-	if backendName == "" {
-		backendName = cfg.LM.GetDefaultPlugin()
-	}
-
-	backend := backends.Get(backendName)
-	if backend == nil {
-		return fmt.Errorf("unknown backend: %s", backendName)
-	}
-
-	history := backend.History()
-	if history == nil {
-		return fmt.Errorf("backend %q does not support session history", backendName)
-	}
-
-	// Get working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
-	}
-
-	// Get current session
-	session, err := history.GetCurrentSession(workDir)
-	if err != nil {
-		return fmt.Errorf("get current session: %w", err)
-	}
-
-	if session == nil {
-		fmt.Println("No current session found")
-		return nil
-	}
-
-	// Get session file size
-	sessionPath := history.TranscriptPathFromHook(workDir, session.ID, "")
-	info, err := os.Stat(sessionPath)
-	if err != nil {
-		return fmt.Errorf("stat session file: %w", err)
-	}
-
-	size := info.Size()
-	fmt.Printf("Session: %s\n", session.ID)
-	fmt.Printf("Size: %s (%d bytes)\n", formatSize(size), size)
-	fmt.Printf("Threshold: %s (%d bytes)\n", formatSize(checkThreshold), checkThreshold)
-
-	if size < checkThreshold {
-		fmt.Println("Status: OK (below threshold)")
-		return nil
-	}
-
-	fmt.Println("Status: COMPACTING (above threshold)")
-
-	// Trigger compaction
-	plugin := cfg.GetCompactionPlugin()
-	model := cfg.GetCompactionModel()
-
-	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    plugin,
-		Model:     model,
-		Backend:   backendName,
-		ChunkSize: cfg.GetCompactionChunkSize(),
-		SessionID: session.ID,
-		WorkDir:   workDir,
-		OutputDir: getMemoryDir(cfg),
-	})
-	if err != nil {
-		return fmt.Errorf("create compactor: %w", err)
-	}
-
-	result, err := compactor.Compact(context.Background())
-	if err != nil {
-		return fmt.Errorf("compaction failed: %w", err)
-	}
-
-	fmt.Printf("Compacted: %d -> %d tokens (%.0f%% reduction)\n",
-		result.TotalTokensIn,
-		result.TotalTokensOut,
-		100*(1-float64(result.TotalTokensOut)/float64(result.TotalTokensIn)))
-
-	return nil
-}
-
-// formatSize formats a byte count as a human-readable string.
-func formatSize(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
 

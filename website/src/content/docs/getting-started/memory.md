@@ -212,14 +212,6 @@ defaults:
 
 ## CLI Commands
 
-### Check Session Size
-
-```bash
-ctxloom memory check
-```
-
-Shows current session size and whether it's approaching the threshold.
-
 ### Manual Compaction
 
 ```bash

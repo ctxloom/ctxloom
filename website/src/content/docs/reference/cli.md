@@ -217,7 +217,6 @@ Manage session memory.
 
 | Command | Flags | Description |
 |---------|-------|-------------|
-| `check` | | Show current session size and threshold status |
 | `compact` | `--session`, `--model` | Compact session to distilled summary |
 | `list` | `--backend` | List sessions with compaction status |
 | `load` | `--model` | Load and distill a specific session |
@@ -226,7 +225,6 @@ Manage session memory.
 ### Examples
 
 ```bash
-ctxloom memory check                         # Check session size
 ctxloom memory compact                       # Compact current session
 ctxloom memory compact --session abc123      # Compact specific session
 ctxloom memory list                          # List all sessions

@@ -1,1 +1,163 @@
-<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><g fill="none" fill-rule="evenodd"><path fill="#FFF" d="M99 52h84v34H99z"/><path d="M23 163c-7.398 0-13.843-4.027-17.303-10A19.886 19.886 0 0 0 3 163c0 11.046 8.954 20 20 20h20v-20H23z" fill="#3ECC5F"/><path d="M112.98 57.376L183 53V43c0-11.046-8.954-20-20-20H73l-2.5-4.33c-1.112-1.925-3.889-1.925-5 0L63 23l-2.5-4.33c-1.111-1.925-3.889-1.925-5 0L53 23l-2.5-4.33c-1.111-1.925-3.889-1.925-5 0L43 23c-.022 0-.042.003-.065.003l-4.142-4.141c-1.57-1.571-4.252-.853-4.828 1.294l-1.369 5.104-5.192-1.392c-2.148-.575-4.111 1.389-3.535 3.536l1.39 5.193-5.102 1.367c-2.148.576-2.867 3.259-1.296 4.83l4.142 4.142c0 .021-.003.042-.003.064l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 53l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 63l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 73l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 83l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 93l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 103l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 113l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 123l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 133l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 143l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 153l-4.33 2.5c-1.925 1.111-1.925 3.889 0 5L23 163c0 11.046 8.954 20 20 20h120c11.046 0 20-8.954 20-20V83l-70.02-4.376A10.645 10.645 0 0 1 103 68c0-5.621 4.37-10.273 9.98-10.624" fill="#3ECC5F"/><path fill="#3ECC5F" d="M143 183h30v-40h-30z"/><path d="M193 158c-.219 0-.428.037-.639.064-.038-.15-.074-.301-.116-.451A5 5 0 0 0 190.32 148a4.96 4.96 0 0 0-3.016 1.036 26.531 26.531 0 0 0-.335-.336 4.955 4.955 0 0 0 1.011-2.987 5 5 0 0 0-9.599-1.959c-.148-.042-.297-.077-.445-.115.027-.211.064-.42.064-.639a5 5 0 0 0-5-5 5 5 0 0 0-5 5c0 .219.037.428.064.639-.148.038-.297.073-.445.115a4.998 4.998 0 0 0-9.599 1.959c0 1.125.384 2.151 1.011 2.987-3.717 3.632-6.031 8.693-6.031 14.3 0 11.046 8.954 20 20 20 9.339 0 17.16-6.41 19.361-15.064.211.027.42.064.639.064a5 5 0 0 0 5-5 5 5 0 0 0-5-5" fill="#44D860"/><path fill="#3ECC5F" d="M153 123h30v-20h-30z"/><path d="M193 115.5a2.5 2.5 0 1 0 0-5c-.109 0-.214.019-.319.032-.02-.075-.037-.15-.058-.225a2.501 2.501 0 0 0-.963-4.807c-.569 0-1.088.197-1.508.518a6.653 6.653 0 0 0-.168-.168c.314-.417.506-.931.506-1.494a2.5 2.5 0 0 0-4.8-.979A9.987 9.987 0 0 0 183 103c-5.522 0-10 4.478-10 10s4.478 10 10 10c.934 0 1.833-.138 2.69-.377a2.5 2.5 0 0 0 4.8-.979c0-.563-.192-1.077-.506-1.494.057-.055.113-.111.168-.168.42.321.939.518 1.508.518a2.5 2.5 0 0 0 .963-4.807c.021-.074.038-.15.058-.225.105.013.21.032.319.032" fill="#44D860"/><path d="M63 55.5a2.5 2.5 0 0 1-2.5-2.5c0-4.136-3.364-7.5-7.5-7.5s-7.5 3.364-7.5 7.5a2.5 2.5 0 1 1-5 0c0-6.893 5.607-12.5 12.5-12.5S65.5 46.107 65.5 53a2.5 2.5 0 0 1-2.5 2.5" fill="#000"/><path d="M103 183h60c11.046 0 20-8.954 20-20V93h-60c-11.046 0-20 8.954-20 20v70z" fill="#FFFF50"/><path d="M168.02 124h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2m0 20h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2m0 20h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2m0-49.814h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2m0 19.814h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2m0 20h-50.04a1 1 0 1 1 0-2h50.04a1 1 0 1 1 0 2M183 61.611c-.012 0-.022-.006-.034-.005-3.09.105-4.552 3.196-5.842 5.923-1.346 2.85-2.387 4.703-4.093 4.647-1.889-.068-2.969-2.202-4.113-4.46-1.314-2.594-2.814-5.536-5.963-5.426-3.046.104-4.513 2.794-5.807 5.167-1.377 2.528-2.314 4.065-4.121 3.994-1.927-.07-2.951-1.805-4.136-3.813-1.321-2.236-2.848-4.75-5.936-4.664-2.994.103-4.465 2.385-5.763 4.4-1.373 2.13-2.335 3.428-4.165 3.351-1.973-.07-2.992-1.51-4.171-3.177-1.324-1.873-2.816-3.993-5.895-3.89-2.928.1-4.399 1.97-5.696 3.618-1.232 1.564-2.194 2.802-4.229 2.724a1 1 0 0 0-.072 2c3.017.101 4.545-1.8 5.872-3.487 1.177-1.496 2.193-2.787 4.193-2.855 1.926-.082 2.829 1.115 4.195 3.045 1.297 1.834 2.769 3.914 5.731 4.021 3.103.104 4.596-2.215 5.918-4.267 1.182-1.834 2.202-3.417 4.15-3.484 1.793-.067 2.769 1.35 4.145 3.681 1.297 2.197 2.766 4.686 5.787 4.796 3.125.108 4.634-2.62 5.949-5.035 1.139-2.088 2.214-4.06 4.119-4.126 1.793-.042 2.728 1.595 4.111 4.33 1.292 2.553 2.757 5.445 5.825 5.556l.169.003c3.064 0 4.518-3.075 5.805-5.794 1.139-2.41 2.217-4.68 4.067-4.773v-2z" fill="#000"/><path fill="#3ECC5F" d="M83 183h40v-40H83z"/><path d="M143 158c-.219 0-.428.037-.639.064-.038-.15-.074-.301-.116-.451A5 5 0 0 0 140.32 148a4.96 4.96 0 0 0-3.016 1.036 26.531 26.531 0 0 0-.335-.336 4.955 4.955 0 0 0 1.011-2.987 5 5 0 0 0-9.599-1.959c-.148-.042-.297-.077-.445-.115.027-.211.064-.42.064-.639a5 5 0 0 0-5-5 5 5 0 0 0-5 5c0 .219.037.428.064.639-.148.038-.297.073-.445.115a4.998 4.998 0 0 0-9.599 1.959c0 1.125.384 2.151 1.011 2.987-3.717 3.632-6.031 8.693-6.031 14.3 0 11.046 8.954 20 20 20 9.339 0 17.16-6.41 19.361-15.064.211.027.42.064.639.064a5 5 0 0 0 5-5 5 5 0 0 0-5-5" fill="#44D860"/><path fill="#3ECC5F" d="M83 123h40v-20H83z"/><path d="M133 115.5a2.5 2.5 0 1 0 0-5c-.109 0-.214.019-.319.032-.02-.075-.037-.15-.058-.225a2.501 2.501 0 0 0-.963-4.807c-.569 0-1.088.197-1.508.518a6.653 6.653 0 0 0-.168-.168c.314-.417.506-.931.506-1.494a2.5 2.5 0 0 0-4.8-.979A9.987 9.987 0 0 0 123 103c-5.522 0-10 4.478-10 10s4.478 10 10 10c.934 0 1.833-.138 2.69-.377a2.5 2.5 0 0 0 4.8-.979c0-.563-.192-1.077-.506-1.494.057-.055.113-.111.168-.168.42.321.939.518 1.508.518a2.5 2.5 0 0 0 .963-4.807c.021-.074.038-.15.058-.225.105.013.21.032.319.032" fill="#44D860"/><path d="M143 41.75c-.16 0-.33-.02-.49-.05a2.52 2.52 0 0 1-.47-.14c-.15-.06-.29-.14-.431-.23-.13-.09-.259-.2-.38-.31-.109-.12-.219-.24-.309-.38s-.17-.28-.231-.43a2.619 2.619 0 0 1-.189-.96c0-.16.02-.33.05-.49.03-.16.08-.31.139-.47.061-.15.141-.29.231-.43.09-.13.2-.26.309-.38.121-.11.25-.22.38-.31.141-.09.281-.17.431-.23.149-.06.31-.11.47-.14.32-.07.65-.07.98 0 .159.03.32.08.47.14.149.06.29.14.43.23.13.09.259.2.38.31.11.12.22.25.31.38.09.14.17.28.23.43.06.16.11.31.14.47.029.16.05.33.05.49 0 .66-.271 1.31-.73 1.77-.121.11-.25.22-.38.31-.14.09-.281.17-.43.23a2.565 2.565 0 0 1-.96.19m20-1.25c-.66 0-1.3-.27-1.771-.73a3.802 3.802 0 0 1-.309-.38c-.09-.14-.17-.28-.231-.43a2.619 2.619 0 0 1-.189-.96c0-.66.27-1.3.729-1.77.121-.11.25-.22.38-.31.141-.09.281-.17.431-.23.149-.06.31-.11.47-.14.32-.07.66-.07.98 0 .159.03.32.08.47.14.149.06.29.14.43.23.13.09.259.2.38.31.459.47.73 1.11.73 1.77 0 .16-.021.33-.05.49-.03.16-.08.32-.14.47-.07.15-.14.29-.23.43-.09.13-.2.26-.31.38-.121.11-.25.22-.38.31-.14.09-.281.17-.43.23a2.565 2.565 0 0 1-.96.19" fill="#000"/></g></svg>
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .weft-bg { fill: #1e293b; }
+    .warp-bg { fill: #1e1b4b; }
+    .lens-bg { fill: #0f172a; }
+    .lens-weft-bg { fill: #134e4a; }
+    .lens-warp-bg { fill: #312e81; }
+    .glass-stroke { stroke: #64748b; }
+
+    @media (prefers-color-scheme: light) {
+      .weft-bg { fill: #ccfbf1; }
+      .warp-bg { fill: #e0e7ff; }
+      .lens-bg { fill: #f1f5f9; }
+      .lens-weft-bg { fill: #99f6e4; }
+      .lens-warp-bg { fill: #c7d2fe; }
+      .glass-stroke { stroke: #94a3b8; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="warp" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="weft" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#14b8a6"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:0.08"/>
+      <stop offset="100%" style="stop-color:#64748b;stop-opacity:0.03"/>
+    </linearGradient>
+    <clipPath id="lens">
+      <circle cx="130" cy="130" r="38"/>
+    </clipPath>
+  </defs>
+
+  <!-- Layer 1: EVEN weft threads (under odd warps) -->
+  <g>
+    <g class="weft-bg" opacity="0.6"><rect x="0" y="13" width="200" height="5"/><rect x="0" y="29" width="200" height="5"/><rect x="0" y="45" width="200" height="5"/><rect x="0" y="61" width="200" height="5"/><rect x="0" y="77" width="200" height="5"/><rect x="0" y="93" width="200" height="5"/><rect x="0" y="109" width="200" height="5"/><rect x="0" y="125" width="200" height="5"/><rect x="0" y="141" width="200" height="5"/><rect x="0" y="157" width="200" height="5"/><rect x="0" y="173" width="200" height="5"/><rect x="0" y="189" width="200" height="5"/></g>
+    <g fill="url(#weft)" font-family="monospace" font-size="1.6">
+      <text x="0" y="16">Never·block·startup·Configuration·errors·missing·files·network·failures·sync·issues·produce·warnings·never·prevent·LLM·starting·Never·block·startup·Configuration·errors·missing·files·network·failures·sync·issues·produce·warnings·never·prevent·LLM·starting·ctxloom</text>
+      <text x="0" y="32">Log·dont·crash·All·errors·logged·stderr·clear·ctxloom·warning·prefixes·users·diagnose·issues·without·losing·session·Log·dont·crash·All·errors·logged·stderr·clear·ctxloom·warning·prefixes·users·diagnose·issues·without·losing·session·ctxloom·weave·context</text>
+      <text x="0" y="48">Partial·success·is·success·If·9·out·of·10·bundles·sync·successfully·report·failure·continue·with·what·worked·Partial·success·is·success·If·9·out·of·10·bundles·sync·successfully·report·failure·continue·with·what·worked·ctxloom·weave·context·for·AI·coding</text>
+      <text x="0" y="64">MCP·server·startup·Load·config·warn·errors·empty·config·Sync·dependencies·Transform·context·files·Apply·hooks·MCP·server·startup·Load·config·warn·errors·empty·config·Sync·dependencies·Transform·context·files·Apply·hooks·ctxloom·weave·context·for·AI·coding</text>
+      <text x="0" y="80">fragments·testing·errors·patterns·profiles·backend·frontend·fullstack·tags·bundle·remote·sync·weave·loom·context·fragments·testing·errors·patterns·profiles·backend·frontend·fullstack·tags·bundle·remote·sync·weave·loom·context·ctxloom·weave·context·for·AI</text>
+      <text x="0" y="96">recover·loadctx·distill·session·memory·across·clear·weave·context·loom·bundle·fragment·prompt·mcp·tags·version·recover·loadctx·distill·session·memory·across·clear·weave·context·loom·bundle·fragment·prompt·mcp·tags·version·ctxloom·weave·context·for·AI</text>
+      <text x="0" y="112">Save·Hours·Per·Week·Consistent·Across·Projects·Share·Across·Teams·Multi-LLM·Support·Token·Optimization·Save·Hours·Per·Week·Consistent·Across·Projects·Share·Across·Teams·Multi-LLM·Support·Token·Optimization·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="128">Context·assembled·injected·via·MCP·protocol·Remotes·provide·team·sharing·community·bundles·GitHub·GitLab·Context·assembled·injected·via·MCP·protocol·Remotes·provide·team·sharing·community·bundles·GitHub·GitLab·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="144">Slash·commands·prompts·bundles·become·slash·commands·Claude·Code·Gemini·CLI·code-review·src·auth.go·Slash·commands·prompts·bundles·become·slash·commands·Claude·Code·Gemini·CLI·code-review·src·auth.go·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="0" y="160">ctxloom·works·after·exhaustion·Clear·run·clear·when·hit·context·limits·Recover·recover·distills·previous·ctxloom·works·after·exhaustion·Clear·run·clear·when·hit·context·limits·Recover·recover·distills·previous·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="176">recover·loadctx·Browse·load·from·any·recent·session·fault·tolerant·above·all·else·misconfigurations·recover·loadctx·Browse·load·from·any·recent·session·fault·tolerant·above·all·else·misconfigurations·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="0" y="192">ctxloom·Context·Loom·weave·warp·weft·threads·interlace·fabric·pattern·assemble·transform·inject·AI·ctxloom·Context·Loom·weave·warp·weft·threads·interlace·fabric·pattern·assemble·transform·inject·AI·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+    </g>
+  </g>
+
+  <!-- Layer 2: ODD warp threads (over even wefts) -->
+  <g>
+    <g class="warp-bg" opacity="0.6"><rect x="3" y="0" width="5" height="200"/><rect x="19" y="0" width="5" height="200"/><rect x="35" y="0" width="5" height="200"/><rect x="51" y="0" width="5" height="200"/><rect x="67" y="0" width="5" height="200"/><rect x="83" y="0" width="5" height="200"/><rect x="99" y="0" width="5" height="200"/><rect x="115" y="0" width="5" height="200"/><rect x="131" y="0" width="5" height="200"/><rect x="147" y="0" width="5" height="200"/><rect x="163" y="0" width="5" height="200"/><rect x="179" y="0" width="5" height="200"/><rect x="195" y="0" width="5" height="200"/></g>
+    <g fill="url(#warp)" font-family="monospace" font-size="1.6">
+      <text x="6" y="0" transform="rotate(90 6 0)">ctxloom·Context·Loom·Weave·context·for·AI·coding·agents·fault·tolerant·above·all·else·Never·block·startup·ctxloom·Context·Loom·Weave·context·for·AI·coding·agents·fault·tolerant·above·all·else·Never·block·startup·ctxloom·weave·context·for·AI·coding</text>
+      <text x="22" y="0" transform="rotate(90 22 0)">errors·logged·stderr·ctxloom·warning·prefixes·users·diagnose·issues·without·losing·session·Sensible·defaults·errors·logged·stderr·ctxloom·warning·prefixes·users·diagnose·issues·without·losing·session·Sensible·defaults·ctxloom·weave·context·for·AI</text>
+      <text x="38" y="0" transform="rotate(90 38 0)">result·err·operations.SyncOnStartup·ctx·cfg·fmt.Fprintf·os.Stderr·ctxloom·warning·sync·failed·continue·result·err·operations.SyncOnStartup·ctx·cfg·fmt.Fprintf·os.Stderr·ctxloom·warning·sync·failed·continue·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="54" y="0" transform="rotate(90 54 0)">agent·must·start·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·recover·weave·agent·must·start·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·recover·weave·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="70" y="0" transform="rotate(90 70 0)">remote·add·team·github.com·fragment·install·standards·profile·create·tags·bundle·sync·context·loom·remote·add·team·github.com·fragment·install·standards·profile·create·tags·bundle·sync·context·loom·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="86" y="0" transform="rotate(90 86 0)">Write·context·once·reuse·across·sessions·Stop·re-explaining·coding·standards·Save·Hours·Per·Week·Write·context·once·reuse·across·sessions·Stop·re-explaining·coding·standards·Save·Hours·Per·Week·ctxloom·weave·context·for·AI·coding·agents·fragments·prompts</text>
+      <text x="102" y="0" transform="rotate(90 102 0)">Bundle·fragments·prompts·MCP·servers·Profile·combine·bundles·inheritance·exclusions·Context·assembled·Bundle·fragments·prompts·MCP·servers·Profile·combine·bundles·inheritance·exclusions·Context·assembled·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="118" y="0" transform="rotate(90 118 0)">Slash·commands·prompts·become·commands·Claude·Code·Gemini·CLI·code-review·Session·Memory·compact·Slash·commands·prompts·become·commands·Claude·Code·Gemini·CLI·code-review·Session·Memory·compact·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="134" y="0" transform="rotate(90 134 0)">operating·outside·exhausted·context·window·recover·loadctx·Browse·load·recent·session·fault·tolerant·operating·outside·exhausted·context·window·recover·loadctx·Browse·load·recent·session·fault·tolerant·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="150" y="0" transform="rotate(90 150 0)">ctxloom·Context·Loom·weave·warp·weft·threads·interlace·fabric·pattern·assemble·transform·inject·ctxloom·Context·Loom·weave·warp·weft·threads·interlace·fabric·pattern·assemble·transform·inject·ctxloom·weave·context·for·AI·coding·agents·fragments·prompts</text>
+      <text x="166" y="0" transform="rotate(90 166 0)">ctxloom·fault·tolerant·Never·block·Degrade·gracefully·Log·dont·crash·Sensible·defaults·Partial·success·ctxloom·fault·tolerant·Never·block·Degrade·gracefully·Log·dont·crash·Sensible·defaults·Partial·success·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="182" y="0" transform="rotate(90 182 0)">ctxloom·run·-p·developer·-f·fragments·prompts·bundles·profiles·remotes·session·memory·distill·recover·ctxloom·run·-p·developer·-f·fragments·prompts·bundles·profiles·remotes·session·memory·distill·recover·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="198" y="0" transform="rotate(90 198 0)">weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+    </g>
+  </g>
+
+  <!-- Layer 3: ODD weft threads (over odd warps) -->
+  <g>
+    <g class="weft-bg" opacity="0.6"><rect x="0" y="5" width="200" height="5"/><rect x="0" y="21" width="200" height="5"/><rect x="0" y="37" width="200" height="5"/><rect x="0" y="53" width="200" height="5"/><rect x="0" y="69" width="200" height="5"/><rect x="0" y="85" width="200" height="5"/><rect x="0" y="101" width="200" height="5"/><rect x="0" y="117" width="200" height="5"/><rect x="0" y="133" width="200" height="5"/><rect x="0" y="149" width="200" height="5"/><rect x="0" y="165" width="200" height="5"/><rect x="0" y="181" width="200" height="5"/><rect x="0" y="197" width="200" height="5"/></g>
+    <g fill="url(#weft)" font-family="monospace" font-size="1.6">
+      <text x="0" y="8">ctxloom·weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·recover·ctxloom·weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·recover·ctxloom·weave</text>
+      <text x="0" y="24">Degrade·gracefully·If·feature·fails·initialize·disable·that·feature·continue·User·can·still·work·reduced·functionality·Degrade·gracefully·If·feature·fails·initialize·disable·that·feature·continue·User·can·still·work·reduced·functionality·ctxloom·weave·context</text>
+      <text x="0" y="40">Sensible·defaults·When·configuration·missing·invalid·fall·back·reasonable·defaults·rather·than·erroring·continue·Sensible·defaults·When·configuration·missing·invalid·fall·back·reasonable·defaults·rather·than·erroring·continue·ctxloom·weave·context·for·AI</text>
+      <text x="0" y="56">result·err·operations.SyncOnStartup·ctx·cfg·if·err·nil·fmt.Fprintf·os.Stderr·ctxloom·warning·sync·failed·result·err·operations.SyncOnStartup·ctx·cfg·if·err·nil·fmt.Fprintf·os.Stderr·ctxloom·warning·sync·failed·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="72">Always·respond·with·initialized·the·agent·must·start·ctxloom·run·developer·go-patterns·security·implement·Always·respond·with·initialized·the·agent·must·start·ctxloom·run·developer·go-patterns·security·implement·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="88">ctxloom·remote·add·team·github.com·org·fragment·install·team·standards·profile·create·backend-dev·hooks·ctxloom·remote·add·team·github.com·org·fragment·install·team·standards·profile·create·backend-dev·hooks·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="104">Context·Loom·Weave·context·for·AI·coding·agents·Write·context·once·reuse·across·all·sessions·Stop·re-explaining·Context·Loom·Weave·context·for·AI·coding·agents·Write·context·once·reuse·across·all·sessions·Stop·re-explaining·ctxloom·weave·context·for·AI</text>
+      <text x="0" y="120">Bundle·contains·fragments·context·prompts·skills·MCP·servers·Profile·combine·bundles·inheritance·exclusions·Bundle·contains·fragments·context·prompts·skills·MCP·servers·Profile·combine·bundles·inheritance·exclusions·ctxloom·weave·context·for·AI·coding</text>
+      <text x="0" y="136">ctxloom·init·ctxloom·run·-p·developer·-f·go-development·-f·security·implement·auth·ctxloom·fragment·install·ctxloom·init·ctxloom·run·-p·developer·-f·go-development·-f·security·implement·auth·ctxloom·fragment·install·ctxloom·weave·context·for·AI·coding</text>
+      <text x="0" y="152">Session·Memory·compact·fundamental·flaw·needs·context·space·run·only·think·use·when·context·almost·full·Session·Memory·compact·fundamental·flaw·needs·context·space·run·only·think·use·when·context·almost·full·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="168">ctxloom·reads·raw·JSONL·transcript·disk·uses·separate·LLM·Haiku·distill·operating·outside·exhausted·context·ctxloom·reads·raw·JSONL·transcript·disk·uses·separate·LLM·Haiku·distill·operating·outside·exhausted·context·ctxloom·weave·context·for·AI·coding</text>
+      <text x="0" y="184">Bundles·Profiles·Remotes·Fragments·Prompts·MCP·Servers·Tags·Hooks·Session·Memory·Distillation·Context·Bundles·Profiles·Remotes·Fragments·Prompts·MCP·Servers·Tags·Hooks·Session·Memory·Distillation·Context·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="0" y="200">weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·weave·context·for·AI·coding·agents·fragments·prompts·bundles·profiles·remotes·hooks·session·memory·distill·ctxloom·weave·context·for·AI·coding</text>
+    </g>
+  </g>
+
+  <!-- Layer 4: EVEN warp threads (over odd wefts) -->
+  <g>
+    <g class="warp-bg" opacity="0.6"><rect x="11" y="0" width="5" height="200"/><rect x="27" y="0" width="5" height="200"/><rect x="43" y="0" width="5" height="200"/><rect x="59" y="0" width="5" height="200"/><rect x="75" y="0" width="5" height="200"/><rect x="91" y="0" width="5" height="200"/><rect x="107" y="0" width="5" height="200"/><rect x="123" y="0" width="5" height="200"/><rect x="139" y="0" width="5" height="200"/><rect x="155" y="0" width="5" height="200"/><rect x="171" y="0" width="5" height="200"/><rect x="187" y="0" width="5" height="200"/></g>
+    <g fill="url(#warp)" font-family="monospace" font-size="1.6">
+      <text x="14" y="0" transform="rotate(90 14 0)">Degrade·gracefully·feature·fails·initialize·disable·continue·User·still·work·reduced·functionality·Log·dont·crash·Degrade·gracefully·feature·fails·initialize·disable·continue·User·still·work·reduced·functionality·Log·dont·crash·ctxloom·weave·context</text>
+      <text x="30" y="0" transform="rotate(90 30 0)">configuration·missing·invalid·fall·back·reasonable·defaults·erroring·Partial·success·bundles·sync·successfully·configuration·missing·invalid·fall·back·reasonable·defaults·erroring·Partial·success·bundles·sync·successfully·ctxloom·weave·context·for</text>
+      <text x="46" y="0" transform="rotate(90 46 0)">MCP·server·startup·Load·config·Sync·dependencies·Transform·context·Apply·hooks·Always·respond·initialized·MCP·server·startup·Load·config·Sync·dependencies·Transform·context·Apply·hooks·Always·respond·initialized·ctxloom·weave·context·for·AI·coding</text>
+      <text x="62" y="0" transform="rotate(90 62 0)">ctxloom·run·developer·go-patterns·security·implement·feature·testing·errors·patterns·backend·frontend·ctxloom·run·developer·go-patterns·security·implement·feature·testing·errors·patterns·backend·frontend·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="78" y="0" transform="rotate(90 78 0)">recover·loadctx·distill·session·memory·clear·weave·bundle·fragment·prompt·mcp·version·Context·Loom·recover·loadctx·distill·session·memory·clear·weave·bundle·fragment·prompt·mcp·version·Context·Loom·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="94" y="0" transform="rotate(90 94 0)">Consistent·Across·Projects·Share·Across·Teams·Multi-LLM·Support·Token·Optimization·AST-aware·distillation·Consistent·Across·Projects·Share·Across·Teams·Multi-LLM·Support·Token·Optimization·AST-aware·distillation·ctxloom·weave·context·for·AI·coding</text>
+      <text x="110" y="0" transform="rotate(90 110 0)">injected·MCP·protocol·Remotes·team·sharing·community·bundles·GitHub·GitLab·ctxloom·init·run·install·injected·MCP·protocol·Remotes·team·sharing·community·bundles·GitHub·GitLab·ctxloom·init·run·install·ctxloom·weave·context·for·AI·coding·agents</text>
+      <text x="126" y="0" transform="rotate(90 126 0)">ctxloom·works·exhaustion·Clear·Recover·distills·previous·session·JSONL·transcript·Haiku·distill·ctxloom·works·exhaustion·Clear·Recover·distills·previous·session·JSONL·transcript·Haiku·distill·ctxloom·weave·context·for·AI·coding·agents·fragments·prompts</text>
+      <text x="142" y="0" transform="rotate(90 142 0)">Bundles·Profiles·Remotes·Fragments·Prompts·MCP·Servers·Tags·Hooks·Session·Memory·Distillation·Bundles·Profiles·Remotes·Fragments·Prompts·MCP·Servers·Tags·Hooks·Session·Memory·Distillation·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="158" y="0" transform="rotate(90 158 0)">AI·coding·agents·context·fragments·prompts·bundles·profiles·remotes·sync·hooks·memory·recover·AI·coding·agents·context·fragments·prompts·bundles·profiles·remotes·sync·hooks·memory·recover·ctxloom·weave·context·for·AI·coding·agents·fragments·prompts</text>
+      <text x="174" y="0" transform="rotate(90 174 0)">MCP·server·startup·config·dependencies·context·hooks·initialized·agent·start·weave·loom·context·MCP·server·startup·config·dependencies·context·hooks·initialized·agent·start·weave·loom·context·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+      <text x="190" y="0" transform="rotate(90 190 0)">Context·Loom·Weave·context·for·AI·coding·agents·Write·once·reuse·sessions·ctxloom·weave·warp·weft·Context·Loom·Weave·context·for·AI·coding·agents·Write·once·reuse·sessions·ctxloom·weave·warp·weft·ctxloom·weave·context·for·AI·coding·agents·fragments</text>
+    </g>
+  </g>
+
+  <!-- Magnified content inside lens -->
+  <g clip-path="url(#lens)">
+    <rect class="lens-bg" x="88" y="88" width="84" height="84" fill-opacity="0.7"/>
+
+    <!-- Layer 1: Even weft (under) -->
+    <g>
+      <g class="lens-weft-bg" opacity="0.7"><rect x="60" y="117" width="120" height="10"/><rect x="60" y="147" width="120" height="10"/></g>
+      <g fill="url(#weft)" font-family="monospace" font-size="10" font-weight="600">
+        <text x="60" y="124">Context·Loom·for·AI</text>
+        <text x="60" y="154">distill·recover·sync</text>
+      </g>
+    </g>
+
+    <!-- Layer 2: Odd warp (over even weft) -->
+    <g>
+      <g class="lens-warp-bg" opacity="0.7"><rect x="95" y="60" width="10" height="120"/><rect x="125" y="60" width="10" height="120"/><rect x="155" y="60" width="10" height="120"/></g>
+      <g fill="url(#warp)" font-family="monospace" font-size="10" font-weight="600">
+        <text x="98" y="55" transform="rotate(90 98 55)">ctxloom·Context·Loom·weave</text>
+        <text x="128" y="55" transform="rotate(90 128 55)">ctxloom·fragments·prompts</text>
+        <text x="158" y="55" transform="rotate(90 158 55)">ctxloom·session·memory</text>
+      </g>
+    </g>
+
+    <!-- Layer 3: Odd weft (over odd warp) -->
+    <g>
+      <g class="lens-weft-bg" opacity="0.7"><rect x="60" y="102" width="120" height="10"/><rect x="60" y="132" width="120" height="10"/><rect x="60" y="162" width="120" height="10"/></g>
+      <g fill="url(#weft)" font-family="monospace" font-size="10" font-weight="600">
+        <text x="60" y="109">ctxloom·weave·context</text>
+        <text x="60" y="139">ctxloom·run·-p·dev</text>
+        <text x="60" y="169">ctxloom·MCP·hooks</text>
+      </g>
+    </g>
+
+    <!-- Layer 4: Even warp (over odd weft, top) -->
+    <g>
+      <g class="lens-warp-bg" opacity="0.7"><rect x="110" y="60" width="10" height="120"/><rect x="140" y="60" width="10" height="120"/></g>
+      <g fill="url(#warp)" font-family="monospace" font-size="10" font-weight="600">
+        <text x="113" y="55" transform="rotate(90 113 55)">fault·tolerant·above·all</text>
+        <text x="143" y="55" transform="rotate(90 143 55)">bundles·profiles·remotes</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Magnifying glass frame -->
+  <g fill="none" class="glass-stroke" stroke-width="4">
+    <circle cx="130" cy="130" r="40" fill="url(#glass)" stroke-width="5"/>
+    <line x1="162" y1="162" x2="188" y2="188" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>

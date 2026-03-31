@@ -22,6 +22,8 @@ const (
 	ChunkOverlapTokens = 500
 	// CharsPerToken is a rough estimate for token counting.
 	CharsPerToken = 4
+	// DistilledDir is the subdirectory for compacted summaries.
+	DistilledDir = "distilled"
 )
 
 // CompactionConfig holds settings for session compaction.

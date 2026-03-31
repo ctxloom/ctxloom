@@ -86,7 +86,7 @@ func parseSimpleReference(ref string) (*Reference, error) {
 //   - https://github.com/owner/repo@v1/bundles/name@v1.2.3 (pinned tag)
 //   - https://github.com/owner/repo@v1/bundles/name@abc123 (pinned SHA)
 //
-// Format: <repo_url>@<scm_version>/<type>/<path>@<content_version>
+// Format: <repo_url>@<ctxloom_version>/<type>/<path>@<content_version>
 func parseHTTPSReference(ref string) (*Reference, error) {
 	// Split at @ to separate version from URL
 	// Format: https://github.com/owner/repo@version/type/path[@contentVersion]
@@ -118,7 +118,7 @@ func parseHTTPSReference(ref string) (*Reference, error) {
 //   - git@github.com:owner/repo@v1/bundles/name (latest)
 //   - git@github.com:owner/repo@v1/bundles/name@v1.2.3 (pinned)
 //
-// Format: git@<host>:<path>@<scm_version>/<type>/<path>@<content_version>
+// Format: git@<host>:<path>@<ctxloom_version>/<type>/<path>@<content_version>
 func parseSSHReference(ref string) (*Reference, error) {
 	// SSH format: git@host:path@version/type/name[@contentVersion]
 	// Find the @ that separates the version (not the git@ prefix)
@@ -167,7 +167,7 @@ func parseSSHReference(ref string) (*Reference, error) {
 //   - file:///path/to/repo@v1/bundles/name (latest)
 //   - file:///path/to/repo@v1/bundles/name@v1.2.3 (pinned)
 //
-// Format: file://<path>@<scm_version>/<type>/<path>@<content_version>
+// Format: file://<path>@<ctxloom_version>/<type>/<path>@<content_version>
 func parseFileReference(ref string) (*Reference, error) {
 	// Parse as URL first
 	u, err := url.Parse(ref)
@@ -496,7 +496,7 @@ func ExtractRepoName(repoURL string) string {
 // ToCanonicalWithVersion builds the full canonical URL string including content version.
 // Used when exporting profiles for sharing.
 //
-// Format: <repo_url>@<scm_version>/<type>/<path>@<content_version>
+// Format: <repo_url>@<ctxloom_version>/<type>/<path>@<content_version>
 //
 // If ContentVersion is empty, the @<content_version> suffix is omitted.
 func (r *Reference) ToCanonicalWithVersion() string {

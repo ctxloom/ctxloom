@@ -74,7 +74,7 @@ func TransformToCanonical(profile *Profile, lockfile *remote.Lockfile) (*Profile
 //
 //	Input:  "https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3"
 //	Output: "ctxloom-github/core-practices"
-//	Update: {LocalName: "ctxloom-github/core-practices", Entry: {URL: ..., SCMVersion: "v1", ...}}
+//	Update: {LocalName: "ctxloom-github/core-practices", Entry: {URL: ..., CtxloomVersion: "v1", ...}}
 func TransformToLocal(profile *Profile, registry *remote.Registry, lockfile *remote.Lockfile) (*Profile, []LockUpdate, error) {
 	transformed := *profile // Copy
 	transformed.Bundles = make([]string, 0, len(profile.Bundles))
@@ -111,7 +111,7 @@ func TransformToLocal(profile *Profile, registry *remote.Registry, lockfile *rem
 			ItemType:  remote.ItemTypeBundle,
 			Entry: remote.LockEntry{
 				URL:              parsed.URL,
-				SCMVersion:       parsed.Version,
+				CtxloomVersion:       parsed.Version,
 				RequestedVersion: parsed.ContentVersion,
 				// SHA will be filled in by the puller after fetching
 			},

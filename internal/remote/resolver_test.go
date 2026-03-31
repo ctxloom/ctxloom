@@ -212,7 +212,7 @@ func TestBundleResolver_LocalPathToCanonicalURL(t *testing.T) {
 			"https://github.com/owner/repo@v1/bundles/core-practices": {
 				SHA:        "abc123",
 				URL:        "https://github.com/owner/repo",
-				SCMVersion: "v1",
+				CtxloomVersion: "v1",
 			},
 		},
 		Profiles: make(map[string]LockEntry),
@@ -249,7 +249,7 @@ func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
 			"alice/core-practices": {
 				SHA:        "abc123",
 				URL:        "https://github.com/alice/ctxloom",
-				SCMVersion: "v1",
+				CtxloomVersion: "v1",
 			},
 		},
 		Profiles: make(map[string]LockEntry),

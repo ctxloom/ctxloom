@@ -43,7 +43,7 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", LockEntry{
 		SHA:        "abc1234def5678",
 		URL:        "https://github.com/alice/ctxloom",
-		SCMVersion: "v1",
+		CtxloomVersion: "v1",
 		FetchedAt:  now,
 	})
 
@@ -285,7 +285,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			entry: LockEntry{
 				SHA:              "abc123",
 				URL:              "https://github.com/alice/ctxloom",
-				SCMVersion:       "v1",
+				CtxloomVersion:       "v1",
 				RequestedVersion: "v2.0.0",
 			},
 			itemType: ItemTypeBundle,
@@ -298,7 +298,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			entry: LockEntry{
 				SHA:        "def456",
 				URL:        "https://github.com/bob/ctxloom",
-				SCMVersion: "v1",
+				CtxloomVersion: "v1",
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "https://github.com/bob/ctxloom@v1/bundles/tools@def456",
@@ -310,7 +310,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			entry: LockEntry{
 				SHA:        "ghi789",
 				URL:        "https://github.com/alice/ctxloom",
-				SCMVersion: "v1",
+				CtxloomVersion: "v1",
 			},
 			itemType: ItemTypeProfile,
 			wantURL:  "https://github.com/alice/ctxloom@v1/profiles/secure@ghi789",
@@ -330,7 +330,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			entry: LockEntry{
 				SHA:        "abc123",
 				URL:        "https://github.com/alice/ctxloom",
-				SCMVersion: "v1",
+				CtxloomVersion: "v1",
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "",

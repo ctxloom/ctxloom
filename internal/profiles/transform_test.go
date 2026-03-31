@@ -134,7 +134,7 @@ func TestTransformToLocal(t *testing.T) {
 		assert.Contains(t, result.Bundles[0], "ctxloom/core-practices")
 		assert.Len(t, updates, 1)
 		assert.Equal(t, "https://github.com/alice/ctxloom", updates[0].Entry.URL)
-		assert.Equal(t, "v1", updates[0].Entry.SCMVersion)
+		assert.Equal(t, "v1", updates[0].Entry.CtxloomVersion)
 		assert.Equal(t, "v1.2.3", updates[0].Entry.RequestedVersion)
 	})
 
@@ -221,7 +221,7 @@ func TestTransformToCanonical(t *testing.T) {
 			Bundles: map[string]remote.LockEntry{
 				"ctxloom-github/core-practices": {
 					URL:              "https://github.com/alice/ctxloom",
-					SCMVersion:       "v1",
+					CtxloomVersion:       "v1",
 					RequestedVersion: "v1.2.3",
 				},
 			},
@@ -256,7 +256,7 @@ func TestTransformToCanonical(t *testing.T) {
 			Bundles: map[string]remote.LockEntry{
 				"ctxloom-github/bundle": {
 					URL:        "https://github.com/alice/ctxloom",
-					SCMVersion: "v1",
+					CtxloomVersion: "v1",
 					SHA:        "abc123",
 				},
 			},

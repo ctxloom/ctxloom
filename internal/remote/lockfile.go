@@ -183,7 +183,7 @@ func (l *Lockfile) Count() int {
 // The localName should be in format "remote/path" (e.g., "ctxloom-github/core-practices").
 // Returns the full canonical URL including content version for reproducibility.
 //
-// Format: <url>@<scm_version>/<type>/<path>@<content_version>
+// Format: <url>@<ctxloom_version>/<type>/<path>@<content_version>
 //
 // If RequestedVersion is set, uses that; otherwise uses SHA.
 func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string, bool) {
@@ -206,7 +206,7 @@ func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string,
 	}
 
 	typeName := itemType.DirName()
-	return fmt.Sprintf("%s@%s/%s/%s@%s", entry.URL, entry.SCMVersion, typeName, itemPath, contentVersion), true
+	return fmt.Sprintf("%s@%s/%s/%s@%s", entry.URL, entry.CtxloomVersion, typeName, itemPath, contentVersion), true
 }
 
 // FindByURL searches for a lockfile entry by repository URL.

@@ -161,7 +161,7 @@ func (r *BundleResolver) LocalPathToCanonicalURL(localPath string) (string, erro
 				return ref, nil
 			}
 			// For alias refs, build canonical URL from entry metadata
-			return fmt.Sprintf("%s@%s/bundles/%s", entry.URL, entry.SCMVersion, parsed.Path), nil
+			return fmt.Sprintf("%s@%s/bundles/%s", entry.URL, entry.CtxloomVersion, parsed.Path), nil
 		}
 	}
 

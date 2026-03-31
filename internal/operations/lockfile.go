@@ -105,7 +105,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 				lockEntry := remote.LockEntry{
 					SHA:        meta.Source.SHA,
 					URL:        meta.Source.URL,
-					SCMVersion: meta.Source.Version,
+					CtxloomVersion: meta.Source.Version,
 					FetchedAt:  meta.Source.FetchedAt,
 				}
 

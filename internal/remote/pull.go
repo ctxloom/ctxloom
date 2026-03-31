@@ -600,7 +600,7 @@ func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Rem
 	entry := LockEntry{
 		SHA:              sha,
 		URL:              remote.URL,
-		SCMVersion:       remote.Version,
+		CtxloomVersion:       remote.Version,
 		RequestedVersion: requestedVersion,
 		FetchedAt:        time.Now().UTC(),
 	}

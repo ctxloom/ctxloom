@@ -346,7 +346,7 @@ func TestTransformProfileForExport(t *testing.T) {
 				"alice/security": {
 					SHA:        "abc123",
 					URL:        "https://github.com/alice/ctxloom",
-					SCMVersion: "v1",
+					CtxloomVersion: "v1",
 				},
 			},
 			Profiles: make(map[string]LockEntry),

@@ -219,7 +219,7 @@ func (h *CodexSessionHistory) parseSessionFile(path string) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	session := &Session{
 		ID:      filepath.Base(path),

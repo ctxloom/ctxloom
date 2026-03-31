@@ -23,7 +23,7 @@ func LoadSessionLog(memoryDir, sessionID string) ([]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var entries []Entry
 	scanner := bufio.NewScanner(file)

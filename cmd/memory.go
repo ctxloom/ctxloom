@@ -166,8 +166,8 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SESSION ID\tSTARTED\tENTRIES\tSTATUS")
-	fmt.Fprintln(w, "----------\t-------\t-------\t------")
+	_, _ = fmt.Fprintln(w, "SESSION ID\tSTARTED\tENTRIES\tSTATUS")
+	_, _ = fmt.Fprintln(w, "----------\t-------\t-------\t------")
 
 	for _, meta := range sessions {
 		started := "?"
@@ -180,9 +180,9 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 			status = "compacted"
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", meta.ID, started, meta.EntryCount, status)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", meta.ID, started, meta.EntryCount, status)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	return nil
 }

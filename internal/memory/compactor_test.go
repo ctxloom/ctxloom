@@ -296,7 +296,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 	// Create a mock client that returns distilled content
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			stdout.Write([]byte("Distilled: key decisions and outcomes"))
+			_, _ = stdout.Write([]byte("Distilled: key decisions and outcomes"))
 			return 0, nil
 		},
 	}
@@ -340,7 +340,7 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 	// Create a mock client that returns non-zero exit code
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			stderr.Write([]byte("LLM error"))
+			_, _ = stderr.Write([]byte("LLM error"))
 			return 1, nil
 		},
 	}
@@ -362,7 +362,7 @@ func TestGenerateSessionEssence_WithMockClient(t *testing.T) {
 
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			stdout.Write([]byte("Brief session summary for testing."))
+			_, _ = stdout.Write([]byte("Brief session summary for testing."))
 			return 0, nil
 		},
 	}
@@ -616,7 +616,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			stdout.Write([]byte("Distilled: User greeted assistant, assistant responded positively."))
+			_, _ = stdout.Write([]byte("Distilled: User greeted assistant, assistant responded positively."))
 			return 0, nil
 		},
 	}
@@ -660,7 +660,7 @@ func TestCompact_BySessionID(t *testing.T) {
 
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			stdout.Write([]byte("Distilled content"))
+			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
 	}

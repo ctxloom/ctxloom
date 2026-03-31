@@ -13,12 +13,31 @@ import (
 	"context"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// syncBuffer is a thread-safe buffer for concurrent read/write in tests.
+type syncBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // =============================================================================
 // Basic Command Execution Tests
@@ -171,7 +190,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		sleep 30
 	`)
 
-	var stdout bytes.Buffer
+	var stdout syncBuffer
 	resultCh := make(chan struct {
 		result *Result
 		err    error

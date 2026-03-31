@@ -28,13 +28,13 @@ func lockFile(path string, shared bool) (func(), error) {
 	}
 
 	if err := syscall.Flock(int(f.Fd()), lockType); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		_ = f.Close()
 	}, nil
 }
 
@@ -55,7 +55,7 @@ func tryLockFile(path string, shared bool) (func(), error) {
 	}
 
 	if err := syscall.Flock(int(f.Fd()), lockType); err != nil {
-		f.Close()
+		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, ErrLocked
 		}
@@ -64,6 +64,6 @@ func tryLockFile(path string, shared bool) (func(), error) {
 
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
+		_ = f.Close()
 	}, nil
 }

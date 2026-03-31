@@ -359,7 +359,7 @@ func TestMockClient_CustomRun(t *testing.T) {
 	mock := &MockClient{
 		RunFunc: func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
 			if stdout != nil {
-				stdout.Write([]byte("hello from mock"))
+				_, _ = stdout.Write([]byte("hello from mock"))
 			}
 			return 42, nil
 		},

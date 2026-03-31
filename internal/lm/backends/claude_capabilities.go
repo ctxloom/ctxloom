@@ -102,7 +102,7 @@ func (s *ClaudeSkills) Clear(workDir string) error {
 
 	for _, name := range strings.Split(string(data), "\n") {
 		if name = strings.TrimSpace(name); name != "" {
-			os.Remove(filepath.Join(commandsDir, name))
+			_ = os.Remove(filepath.Join(commandsDir, name))
 		}
 	}
 
@@ -300,7 +300,7 @@ func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	session := &Session{
 		ID:      strings.TrimSuffix(filepath.Base(path), ".jsonl"),

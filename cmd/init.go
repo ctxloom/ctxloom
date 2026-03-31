@@ -105,7 +105,7 @@ func ensureGitignoreEntry(projectDir string) error {
 	}
 
 	// Write comment and entry
-	if _, err := f.WriteString(fmt.Sprintf("\n%s\n%s\n", comment, memoryEntry)); err != nil {
+	if _, err := fmt.Fprintf(f, "\n%s\n%s\n", comment, memoryEntry); err != nil {
 		return err
 	}
 

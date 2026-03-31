@@ -188,19 +188,19 @@ func (c *Compactor) sessionToText(session *backends.Session) string {
 			builder.WriteString("\n\n")
 
 		case backends.EntryTypeToolUse:
-			builder.WriteString(fmt.Sprintf("## Tool Call: %s\n", entry.ToolName))
+			_, _ = fmt.Fprintf(&builder, "## Tool Call: %s\n", entry.ToolName)
 			if len(entry.ToolInput) > 0 {
 				// Truncate large arguments
 				args := string(entry.ToolInput)
 				if len(args) > 500 {
 					args = args[:500] + "..."
 				}
-				builder.WriteString(fmt.Sprintf("Arguments: %s\n", args))
+				_, _ = fmt.Fprintf(&builder, "Arguments: %s\n", args)
 			}
 			builder.WriteString("\n")
 
 		case backends.EntryTypeToolResult:
-			builder.WriteString(fmt.Sprintf("## Tool Result: %s\n", entry.ToolName))
+			_, _ = fmt.Fprintf(&builder, "## Tool Result: %s\n", entry.ToolName)
 			// Truncate large output
 			output := entry.ToolOutput
 			if len(output) > 500 {
@@ -213,7 +213,7 @@ func (c *Compactor) sessionToText(session *backends.Session) string {
 			builder.WriteString("\n\n")
 
 		case backends.EntryTypeSystem:
-			builder.WriteString(fmt.Sprintf("## System: %s\n\n", entry.Content))
+			_, _ = fmt.Fprintf(&builder, "## System: %s\n\n", entry.Content)
 		}
 	}
 

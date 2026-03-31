@@ -1,10 +1,12 @@
 package grpc
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 )
@@ -299,4 +301,145 @@ func TestRunResult_WithModelInfo(t *testing.T) {
 
 	assert.Equal(t, int32(42), result.ExitCode)
 	assert.Equal(t, "test-model", result.ModelInfo.ModelName)
+}
+
+// =============================================================================
+// MockClient Tests
+//
+// These tests verify the mock client implementation for dependency injection.
+// =============================================================================
+
+// TestMockClient_DefaultBehavior verifies that MockClient returns sensible
+// defaults when no custom functions are configured.
+func TestMockClient_DefaultBehavior(t *testing.T) {
+	mock := NewMockClient()
+
+	// Info returns default plugin info
+	info, err := mock.Info(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, "mock", info.Name)
+	assert.Equal(t, "1.0.0", info.Version)
+
+	// Run returns success
+	exitCode, err := mock.Run(context.Background(), &RunRequest{}, nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, int32(0), exitCode)
+
+	// RunWithModelInfo returns success
+	result, err := mock.RunWithModelInfo(context.Background(), &RunRequest{}, nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, int32(0), result.ExitCode)
+
+	// Kill doesn't panic
+	mock.Kill()
+
+	// Verify call tracking
+	assert.Equal(t, 1, mock.InfoCalls)
+	assert.Equal(t, 1, mock.RunCalls)
+	assert.Equal(t, 1, mock.RunWithModelInfoCalls)
+	assert.Equal(t, 1, mock.KillCalls)
+}
+
+// TestMockClient_CustomInfo verifies that custom Info behavior can be injected.
+func TestMockClient_CustomInfo(t *testing.T) {
+	mock := &MockClient{
+		InfoFunc: func(ctx context.Context) (*PluginInfo, error) {
+			return &PluginInfo{Name: "custom-plugin", Version: "2.0.0"}, nil
+		},
+	}
+
+	info, err := mock.Info(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-plugin", info.Name)
+	assert.Equal(t, "2.0.0", info.Version)
+}
+
+// TestMockClient_CustomRun verifies that custom Run behavior can be injected.
+func TestMockClient_CustomRun(t *testing.T) {
+	mock := &MockClient{
+		RunFunc: func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+			if stdout != nil {
+				stdout.Write([]byte("hello from mock"))
+			}
+			return 42, nil
+		},
+	}
+
+	var buf bytes.Buffer
+	exitCode, err := mock.Run(context.Background(), &RunRequest{}, &buf, nil)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int32(42), exitCode)
+	assert.Equal(t, "hello from mock", buf.String())
+}
+
+// TestMockClient_CustomRunWithModelInfo verifies custom RunWithModelInfo behavior.
+func TestMockClient_CustomRunWithModelInfo(t *testing.T) {
+	mock := &MockClient{
+		RunWithModelInfoFunc: func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+			return &RunResult{
+				ExitCode: 0,
+				ModelInfo: &ModelInfo{
+					ModelName: "claude-3-haiku",
+					Provider:  "anthropic",
+				},
+			}, nil
+		},
+	}
+
+	result, err := mock.RunWithModelInfo(context.Background(), &RunRequest{}, nil, nil)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "claude-3-haiku", result.ModelInfo.ModelName)
+	assert.Equal(t, "anthropic", result.ModelInfo.Provider)
+}
+
+// TestMockClient_CustomKill verifies custom Kill behavior can be injected.
+func TestMockClient_CustomKill(t *testing.T) {
+	killCalled := false
+	mock := &MockClient{
+		KillFunc: func() {
+			killCalled = true
+		},
+	}
+
+	mock.Kill()
+
+	assert.True(t, killCalled)
+	assert.Equal(t, 1, mock.KillCalls)
+}
+
+// TestMockClientFactory_ReturnsProvidedMock verifies that MockClientFactory
+// always returns the same mock instance regardless of parameters.
+func TestMockClientFactory_ReturnsProvidedMock(t *testing.T) {
+	mock := NewMockClient()
+	factory := MockClientFactory(mock)
+
+	// Call factory multiple times with different params
+	client1, err1 := factory("backend-a", 0)
+	client2, err2 := factory("backend-b", 5)
+
+	assert.NoError(t, err1)
+	assert.NoError(t, err2)
+	assert.Same(t, mock, client1)
+	assert.Same(t, mock, client2)
+}
+
+// TestClient_InterfaceCompliance verifies that PluginClient implements Client.
+func TestClient_InterfaceCompliance(t *testing.T) {
+	// This is a compile-time check that PluginClient implements Client
+	var _ Client = (*PluginClient)(nil)
+
+	// And MockClient
+	var _ Client = (*MockClient)(nil)
+}
+
+// TestDefaultClientFactory_ReturnsNonNilFactory verifies that DefaultClientFactory
+// returns a usable factory function.
+func TestDefaultClientFactory_ReturnsNonNilFactory(t *testing.T) {
+	factory := DefaultClientFactory()
+	assert.NotNil(t, factory)
+	// Note: Actually calling the factory would try to start a real plugin,
+	// which is slow and requires integration testing. We just verify the
+	// factory is non-nil.
 }

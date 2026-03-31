@@ -10,7 +10,7 @@ import (
 )
 
 func TestFindRoot_FromRepoRoot(t *testing.T) {
-	// This test runs from within the scm repo
+	// This test runs from within the ctxloom repo
 	root, err := FindRoot(".")
 	require.NoError(t, err)
 	assert.NotEmpty(t, root)

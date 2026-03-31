@@ -1,7 +1,7 @@
 package backends
 
 import (
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // BaseLifecycle provides shared lifecycle handler logic for backends.

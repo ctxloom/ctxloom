@@ -10,11 +10,12 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // Profile represents a named collection of fragments, bundles, and configuration.
-// Profiles are stored as YAML files in .scm/profiles/<name>.yaml
+// Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml
 //
 // # Content Reference Syntax
 //
@@ -235,7 +236,7 @@ func (r ContentRef) LocalBundlePath() string {
 }
 
 
-// Loader handles loading profiles from .scm/profiles directories.
+// Loader handles loading profiles from .ctxloom/profiles directories.
 type Loader struct {
 	dirs []string
 	fs   afero.Fs
@@ -352,7 +353,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 			}
 		}
 	}
-	return nil, fmt.Errorf("profile not found: %s", name)
+	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 }
 
 // Exists checks if a profile exists.

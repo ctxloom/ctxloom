@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // MCPServerEntry represents an MCP server in operation results.
@@ -134,10 +134,10 @@ type AddMCPServerRequest struct {
 	// When set, skips config.Load() and Save(), returning modified config in result.
 	TestConfig *config.Config `json:"-"`
 
-	// FS is an optional filesystem for testing. Used with SCMDir.
+	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// SCMDir is the SCM directory path. Required when FS is set.
-	SCMDir string `json:"-"`
+	// AppDir is the SCM directory path. Required when FS is set.
+	AppDir string `json:"-"`
 }
 
 // AddMCPServerResult contains the result of adding an MCP server.
@@ -169,8 +169,8 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 	freshCfg := req.TestConfig
 	if freshCfg == nil {
 		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.SCMDir != "" {
-			opts = append(opts, config.WithSCMDir(req.SCMDir))
+		if req.AppDir != "" {
+			opts = append(opts, config.WithAppDir(req.AppDir))
 		}
 		var err error
 		freshCfg, err = config.Load(opts...)
@@ -238,10 +238,10 @@ type RemoveMCPServerRequest struct {
 	// When set, skips config.Load() and Save(), returning modified config in result.
 	TestConfig *config.Config `json:"-"`
 
-	// FS is an optional filesystem for testing. Used with SCMDir.
+	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// SCMDir is the SCM directory path. Required when FS is set.
-	SCMDir string `json:"-"`
+	// AppDir is the SCM directory path. Required when FS is set.
+	AppDir string `json:"-"`
 }
 
 // RemoveMCPServerResult contains the result of removing an MCP server.
@@ -269,8 +269,8 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 	freshCfg := req.TestConfig
 	if freshCfg == nil {
 		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.SCMDir != "" {
-			opts = append(opts, config.WithSCMDir(req.SCMDir))
+		if req.AppDir != "" {
+			opts = append(opts, config.WithAppDir(req.AppDir))
 		}
 		var err error
 		freshCfg, err = config.Load(opts...)
@@ -339,10 +339,10 @@ type SetMCPAutoRegisterRequest struct {
 	// When set, skips config.Load() and Save(), returning modified config in result.
 	TestConfig *config.Config `json:"-"`
 
-	// FS is an optional filesystem for testing. Used with SCMDir.
+	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// SCMDir is the SCM directory path. Required when FS is set.
-	SCMDir string `json:"-"`
+	// AppDir is the SCM directory path. Required when FS is set.
+	AppDir string `json:"-"`
 }
 
 // SetMCPAutoRegisterResult contains the result of setting auto-register.
@@ -365,8 +365,8 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 	freshCfg := req.TestConfig
 	if freshCfg == nil {
 		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.SCMDir != "" {
-			opts = append(opts, config.WithSCMDir(req.SCMDir))
+		if req.AppDir != "" {
+			opts = append(opts, config.WithAppDir(req.AppDir))
 		}
 		var err error
 		freshCfg, err = config.Load(opts...)

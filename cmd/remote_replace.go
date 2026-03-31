@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var remoteReplaceCmd = &cobra.Command{
@@ -17,9 +17,9 @@ Replace directives let you use a local file instead of fetching
 from a remote. Useful for testing changes before publishing.
 
 Examples:
-  scm remote replace add alice/security ./local/security.yaml
-  scm remote replace remove alice/security
-  scm remote replace list`,
+  ctxloom remote replace add alice/security ./local/security.yaml
+  ctxloom remote replace remove alice/security
+  ctxloom remote replace list`,
 }
 
 var remoteReplaceAddCmd = &cobra.Command{
@@ -30,8 +30,8 @@ var remoteReplaceAddCmd = &cobra.Command{
 The local path must exist and point to a valid YAML file.
 
 Examples:
-  scm remote replace add alice/security ./local/security.yaml
-  scm remote replace add corp/compliance ../corp-scm/compliance.yaml`,
+  ctxloom remote replace add alice/security ./local/security.yaml
+  ctxloom remote replace add corp/compliance ../corp-scm/compliance.yaml`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref := args[0]

@@ -8,7 +8,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
 // =============================================================================
@@ -283,15 +283,15 @@ func TestWriteGeminiCommandFiles(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that enabled prompts are exported
-	reviewPath := filepath.Join(tmpDir, ".gemini", "commands", "scm", "review.toml")
+	reviewPath := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom", "review.toml")
 	assert.FileExists(t, reviewPath, "expected review.toml to be created")
 
 	// Check that simple (default enabled) is exported
-	simplePath := filepath.Join(tmpDir, ".gemini", "commands", "scm", "simple.toml")
+	simplePath := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom", "simple.toml")
 	assert.FileExists(t, simplePath, "expected simple.toml to be created")
 
 	// Check that disabled prompt is NOT exported
-	disabledPath := filepath.Join(tmpDir, ".gemini", "commands", "scm", "disabled.toml")
+	disabledPath := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom", "disabled.toml")
 	assert.NoFileExists(t, disabledPath, "expected disabled.toml to NOT be created")
 
 	// Verify content of review.toml
@@ -307,13 +307,13 @@ func TestWriteGeminiCommandFiles(t *testing.T) {
 // TestWriteGeminiCommandFilesCleanup verifies stale files are removed.
 func TestWriteGeminiCommandFilesCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".gemini", "commands", "scm")
+	ctxloomDir := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom")
 
 	// Create a stale file
-	err := os.MkdirAll(scmDir, 0755)
+	err := os.MkdirAll(ctxloomDir, 0755)
 	assert.NoError(t, err)
 
-	stalePath := filepath.Join(scmDir, "stale.toml")
+	stalePath := filepath.Join(ctxloomDir, "stale.toml")
 	err = os.WriteFile(stalePath, []byte("stale content"), 0644)
 	assert.NoError(t, err)
 
@@ -332,20 +332,20 @@ func TestWriteGeminiCommandFilesCleanup(t *testing.T) {
 	assert.NoFileExists(t, stalePath, "expected stale.toml to be removed")
 
 	// New file should exist
-	newPath := filepath.Join(scmDir, "new.toml")
+	newPath := filepath.Join(ctxloomDir, "new.toml")
 	assert.FileExists(t, newPath, "expected new.toml to be created")
 }
 
 // TestWriteGeminiCommandFilesEmptyPrompts verifies behavior with no prompts.
 func TestWriteGeminiCommandFilesEmptyPrompts(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".gemini", "commands", "scm")
+	ctxloomDir := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom")
 
 	// Pre-create directory with file
-	err := os.MkdirAll(scmDir, 0755)
+	err := os.MkdirAll(ctxloomDir, 0755)
 	assert.NoError(t, err)
 
-	stalePath := filepath.Join(scmDir, "stale.toml")
+	stalePath := filepath.Join(ctxloomDir, "stale.toml")
 	err = os.WriteFile(stalePath, []byte("stale content"), 0644)
 	assert.NoError(t, err)
 
@@ -395,13 +395,13 @@ func TestGeminiSkills_List(t *testing.T) {
 	assert.Empty(t, names)
 
 	// Create some command files
-	scmDir := filepath.Join(tmpDir, ".gemini", "commands", "scm")
-	err = os.MkdirAll(scmDir, 0755)
+	ctxloomDir := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom")
+	err = os.MkdirAll(ctxloomDir, 0755)
 	assert.NoError(t, err)
 
-	err = os.WriteFile(filepath.Join(scmDir, "cmd1.toml"), []byte("prompt = \"test\""), 0644)
+	err = os.WriteFile(filepath.Join(ctxloomDir, "cmd1.toml"), []byte("prompt = \"test\""), 0644)
 	assert.NoError(t, err)
-	err = os.WriteFile(filepath.Join(scmDir, "cmd2.toml"), []byte("prompt = \"test\""), 0644)
+	err = os.WriteFile(filepath.Join(ctxloomDir, "cmd2.toml"), []byte("prompt = \"test\""), 0644)
 	assert.NoError(t, err)
 
 	// Should list both
@@ -418,16 +418,16 @@ func TestGeminiSkills_Clear(t *testing.T) {
 	backend := NewGemini()
 
 	// Create some command files
-	scmDir := filepath.Join(tmpDir, ".gemini", "commands", "scm")
-	err := os.MkdirAll(scmDir, 0755)
+	ctxloomDir := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom")
+	err := os.MkdirAll(ctxloomDir, 0755)
 	assert.NoError(t, err)
 
-	err = os.WriteFile(filepath.Join(scmDir, "cmd.toml"), []byte("prompt = \"test\""), 0644)
+	err = os.WriteFile(filepath.Join(ctxloomDir, "cmd.toml"), []byte("prompt = \"test\""), 0644)
 	assert.NoError(t, err)
 
 	// Clear should remove directory
 	err = backend.skills.Clear(tmpDir)
 	assert.NoError(t, err)
 
-	assert.NoDirExists(t, scmDir)
+	assert.NoDirExists(t, ctxloomDir)
 }

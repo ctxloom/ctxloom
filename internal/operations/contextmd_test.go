@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 func TestFindSourceContextFile(t *testing.T) {
@@ -158,10 +158,10 @@ func TestWriteContextFile_SkipsUserFile(t *testing.T) {
 
 func TestTransformContext_NoSourceFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/work/.scm", 0755)
+	_ = fs.MkdirAll("/work/.ctxloom", 0755)
 
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 	}
 
 	result, err := TransformContext(context.Background(), cfg, TransformContextRequest{FS: fs})
@@ -175,11 +175,11 @@ func TestTransformContext_NoSourceFile(t *testing.T) {
 
 func TestTransformContext_GeneratesFiles(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/work/.scm", 0755)
+	_ = fs.MkdirAll("/work/.ctxloom", 0755)
 	_ = afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
 
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 	}
 
 	result, err := TransformContext(context.Background(), cfg, TransformContextRequest{
@@ -215,7 +215,7 @@ func TestTransformContext_UnknownBackend(t *testing.T) {
 	_ = afero.WriteFile(fs, "/work/llm.md", []byte("content"), 0644)
 
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 	}
 
 	result, err := TransformContext(context.Background(), cfg, TransformContextRequest{
@@ -240,7 +240,7 @@ func TestTransformContext_WarnsOnUserManagedFile(t *testing.T) {
 	_ = afero.WriteFile(fs, "/work/CLAUDE.md", []byte("# My custom instructions"), 0644)
 
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 	}
 
 	result, err := TransformContext(context.Background(), cfg, TransformContextRequest{
@@ -273,7 +273,7 @@ func TestTransformContext_WarnsOnUserManagedFile(t *testing.T) {
 
 func TestTransformContextOnStartup_DeferredMode(t *testing.T) {
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 		Context: config.ContextConfig{
 			Regeneration: "deferred",
 		},
@@ -296,7 +296,7 @@ func TestTransformContextOnStartup_RegenerateMode(t *testing.T) {
 	_ = afero.WriteFile(fs, "/work/llm.md", []byte("# Instructions"), 0644)
 
 	cfg := &config.Config{
-		SCMRoot: "/work",
+		AppRoot: "/work",
 		Context: config.ContextConfig{
 			Regeneration: "regenerate",
 		},

@@ -95,7 +95,7 @@ func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManag
 
 	// Initialize defaults for nil dependencies
 	if pm.lockfileManager == nil {
-		pm.lockfileManager = NewLockfileManager(".scm")
+		pm.lockfileManager = NewLockfileManager(".ctxloom")
 	}
 
 	return pm

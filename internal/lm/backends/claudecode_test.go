@@ -3,7 +3,7 @@ package backends
 import (
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 

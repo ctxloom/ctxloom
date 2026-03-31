@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // Gemini implements the Backend interface for Gemini CLI.

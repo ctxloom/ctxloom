@@ -9,13 +9,15 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/collections"
 )
 
 const (
 	// SCMContextDir is the directory for SCM-managed files
-	SCMContextDir = ".scm"
+	SCMContextDir = ".ctxloom"
 	// SCMContextSubdir is the subdirectory for context files
-	SCMContextSubdir = ".scm/context"
+	SCMContextSubdir = ".ctxloom/context"
 	// SCMContextFileEnv is the environment variable containing the context file path
 	SCMContextFileEnv = "SCM_CONTEXT_FILE"
 )
@@ -47,9 +49,9 @@ func applyContextOptions(opts []ContextFileOption) *contextFileOptions {
 	return options
 }
 
-// WriteContextFile writes the assembled context to a hashed filename in .scm/context/.
+// WriteContextFile writes the assembled context to a hashed filename in .ctxloom/context/.
 // Returns the hash (used as filename without .md extension).
-// workDir is the directory where the .scm/ directory exists.
+// workDir is the directory where the .ctxloom/ directory exists.
 // Use WithContextFS to provide a custom filesystem for testing.
 func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFileOption) (string, error) {
 	options := applyContextOptions(opts)
@@ -59,7 +61,7 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	// This prevents duplicate content even when the same fragment exists
 	// in multiple bundles or is referenced through different paths.
 	var parts []string
-	seenContent := make(map[string]bool)
+	seenContent := collections.NewSet[string]()
 	for _, f := range fragments {
 		if f.Content == "" {
 			continue
@@ -68,10 +70,10 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 		// Compute hash of content to detect duplicates
 		h := sha256.Sum256([]byte(content))
 		contentHash := hex.EncodeToString(h[:])
-		if seenContent[contentHash] {
+		if seenContent.Has(contentHash) {
 			continue
 		}
-		seenContent[contentHash] = true
+		seenContent.Add(contentHash)
 		parts = append(parts, content)
 	}
 
@@ -104,7 +106,7 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	hash := sha256.Sum256([]byte(content))
 	hashStr := hex.EncodeToString(hash[:8]) // First 8 bytes = 16 hex chars
 
-	// Ensure .scm/context directory exists
+	// Ensure .ctxloom/context directory exists
 	contextDir := filepath.Join(workDir, SCMContextSubdir)
 	if err := fs.MkdirAll(contextDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create %s directory: %w", SCMContextSubdir, err)
@@ -119,7 +121,7 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	return hashStr, nil
 }
 
-// ReadContextFile reads the context file for the given hash from .scm/context/[hash].md.
+// ReadContextFile reads the context file for the given hash from .ctxloom/context/[hash].md.
 // Returns empty string if file doesn't exist.
 // Use WithContextFS to provide a custom filesystem for testing.
 func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, error) {

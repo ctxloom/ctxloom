@@ -36,7 +36,7 @@ func WithVendorFetcherFactory(ff FetcherFactory) VendorOption {
 // NewVendorManager creates a new vendor manager.
 func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 	m := &VendorManager{
 		baseDir:        baseDir,
@@ -56,7 +56,7 @@ func (m *VendorManager) VendorDir() string {
 
 // IsVendored checks if vendor mode is enabled.
 func (m *VendorManager) IsVendored() bool {
-	configPath := filepath.Join(".scm", "remotes.yaml")
+	configPath := filepath.Join(".ctxloom", "remotes.yaml")
 	data, err := afero.ReadFile(m.fs, configPath)
 	if err != nil {
 		return false
@@ -74,7 +74,7 @@ func (m *VendorManager) IsVendored() bool {
 
 // SetVendorMode enables or disables vendor mode.
 func (m *VendorManager) SetVendorMode(enabled bool) error {
-	configPath := filepath.Join(".scm", "remotes.yaml")
+	configPath := filepath.Join(".ctxloom", "remotes.yaml")
 
 	// Ensure directory exists
 	if err := m.fs.MkdirAll(filepath.Dir(configPath), 0755); err != nil {

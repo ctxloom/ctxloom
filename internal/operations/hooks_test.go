@@ -41,8 +41,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // ==========================================================================
@@ -255,7 +255,7 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 // They contain fragments from profiles, deduplicated and ordered.
 
 // TestWriteContextFile verifies that fragments are assembled into a context file.
-// The file is stored in .scm/context/{hash}.md where hash is content-based.
+// The file is stored in .ctxloom/context/{hash}.md where hash is content-based.
 func TestWriteContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -270,7 +270,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := "/project/.scm/context/" + hash + ".md"
+	contextPath := "/project/.ctxloom/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")
@@ -549,8 +549,8 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 // TestApplyHooks_RegenerateContextWithTags tests regenerateContext with profile tags.
 func TestApplyHooks_RegenerateContextWithTags(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	bundlesDir := filepath.Join(scmDir, "bundles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with tagged fragments
@@ -572,7 +572,7 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default: true,
@@ -598,8 +598,8 @@ fragments:
 // TestApplyHooks_RegenerateContextWithFragments tests regenerateContext with direct fragments.
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	bundlesDir := filepath.Join(scmDir, "bundles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with fragments
@@ -615,7 +615,7 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default:   true,
@@ -647,8 +647,8 @@ fragments:
 // This allows users to keep working even if their config has reference errors.
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	bundlesDir := filepath.Join(scmDir, "bundles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with a fragment
@@ -663,7 +663,7 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default:   true,
@@ -704,8 +704,8 @@ fragments:
 //   - Typo in fragment reference
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	bundlesDir := filepath.Join(scmDir, "bundles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle but fragment doesn't exist
@@ -720,7 +720,7 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default: true,
@@ -776,7 +776,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			SCMPaths: []string{tmpDir + "/.scm"},
+			AppPaths: []string{tmpDir + "/.ctxloom"},
 			Profiles: map[string]config.Profile{
 				"default": {
 					Default: true,

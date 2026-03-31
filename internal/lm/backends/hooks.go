@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/spf13/afero"
 )
 
@@ -322,7 +322,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	// Create backup of existing file before modifying
 	// This allows recovery if SCM corrupts the file due to schema changes
 	if exists, _ := afero.Exists(fs, path); exists {
-		backupPath := path + ".scm.bak"
+		backupPath := path + ".ctxloom.bak"
 		if origData, err := afero.ReadFile(fs, path); err == nil {
 			// Ignore backup errors - this is best-effort
 			_ = afero.WriteFile(fs, backupPath, origData, 0644)
@@ -391,7 +391,7 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 
 	// Create backup of existing file before modifying
 	if exists, _ := afero.Exists(fs, path); exists {
-		backupPath := path + ".scm.bak"
+		backupPath := path + ".ctxloom.bak"
 		if origData, err := afero.ReadFile(fs, path); err == nil {
 			_ = afero.WriteFile(fs, backupPath, origData, 0644)
 		}
@@ -552,8 +552,8 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 	settings.Hooks[eventName] = matchers
 }
 
-// SCMMCPServerName is the name used for the SCM MCP server in settings.
-const SCMMCPServerName = "scm"
+// AppMCPServerName is the name used for the SCM MCP server in settings.
+const AppMCPServerName = "ctxloom"
 
 // addMCPServersToConfig adds MCP servers from config to .mcp.json config.
 func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer) {
@@ -563,10 +563,10 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 
 	// Auto-register SCM's own MCP server unless disabled
 	if mcp == nil || mcp.ShouldAutoRegisterSCM() {
-		mcpConfig.MCPServers[SCMMCPServerName] = claudeCodeMCPServer{
+		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
 			Command: GetSCMMCPCommand(),
 			Args:    GetSCMMCPArgs(),
-			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findSCMDir works
+			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
 			SCM:     "scm-auto",              // Marker for auto-registered SCM server
 		}
 	}
@@ -862,7 +862,7 @@ func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h
 // we track SCM-managed servers by the well-known name "scm".
 func (w *GeminiHookWriter) removeScmMCPServers(settings *geminiSettings) {
 	// Remove the well-known SCM server name
-	delete(settings.MCPServers, SCMMCPServerName)
+	delete(settings.MCPServers, AppMCPServerName)
 }
 
 // addMCPServers adds MCP servers from config to settings.
@@ -873,7 +873,7 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 
 	// Auto-register SCM's own MCP server unless disabled
 	if mcp == nil || mcp.ShouldAutoRegisterSCM() {
-		settings.MCPServers[SCMMCPServerName] = geminiMCPServer{
+		settings.MCPServers[AppMCPServerName] = geminiMCPServer{
 			Command: GetSCMMCPCommand(),
 			Args:    GetSCMMCPArgs(),
 			SCM:     "scm-auto",
@@ -920,7 +920,7 @@ const ContextInjectionTimeout = 60
 // MemoryCheckTimeout is the timeout for the memory check hook in seconds.
 const MemoryCheckTimeout = 300 // 5 minutes - compaction can take a while
 
-// NewContextInjectionHook creates a hook for context injection using the symlinked scm binary.
+// NewContextInjectionHook creates a hook for context injection using the symlinked ctxloom binary.
 // hash is the context file hash to pass to the inject-context command.
 // workDir is the project directory where the context file lives.
 func NewContextInjectionHook(hash, workDir string) config.Hook {

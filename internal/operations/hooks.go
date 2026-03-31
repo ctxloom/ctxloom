@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/gitutil"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	"github.com/SophisticatedContextManager/scm/resources"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/resources"
 	"github.com/spf13/afero"
 )
 

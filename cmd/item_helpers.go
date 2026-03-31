@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // titleCase capitalizes the first letter of a string.
@@ -80,7 +80,7 @@ func listItems(itemType ItemType, bundleFilter string) error {
 
 	if len(infos) == 0 {
 		fmt.Printf("No %ss found.\n", itemType)
-		fmt.Printf("Install bundles with: scm %s install <remote>/bundle-name\n", itemType)
+		fmt.Printf("Install bundles with: ctxloom %s install <remote>/bundle-name\n", itemType)
 		return nil
 	}
 
@@ -212,7 +212,7 @@ func createItem(bundleName, itemName string, itemType ItemType) error {
 	}
 
 	fmt.Printf("Created %s %q in bundle %q\n", itemType, itemName, bundleName)
-	fmt.Printf("Edit with: scm %s edit %s#%s%s\n", itemType, bundleName, itemType.prefix(), itemName)
+	fmt.Printf("Edit with: ctxloom %s edit %s#%s%s\n", itemType, bundleName, itemType.prefix(), itemName)
 	return nil
 }
 

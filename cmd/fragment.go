@@ -9,15 +9,15 @@ var fragmentCmd = &cobra.Command{
 	Short: "Manage context fragments",
 	Long: `Manage context fragments - reusable context snippets for AI coding assistants.
 
-Fragments are stored within bundle YAML files in .scm/bundles/ and are referenced
+Fragments are stored within bundle YAML files in .ctxloom/bundles/ and are referenced
 using the syntax: bundle#fragments/name
 
 Examples:
-  scm fragment list                              # List all fragments
-  scm fragment show core#fragments/tdd           # Show fragment content
-  scm fragment edit core#fragments/tdd           # Edit fragment content
-  scm fragment create my-bundle coding-standards # Create new fragment
-  scm fragment install scm-main/core           # Install bundle from remote`,
+  ctxloom fragment list                              # List all fragments
+  ctxloom fragment show core#fragments/tdd           # Show fragment content
+  ctxloom fragment edit core#fragments/tdd           # Edit fragment content
+  ctxloom fragment create my-bundle coding-standards # Create new fragment
+  ctxloom fragment install scm-main/core           # Install bundle from remote`,
 }
 
 var fragmentListCmd = &cobra.Command{
@@ -41,8 +41,8 @@ var fragmentShowCmd = &cobra.Command{
 Reference format: bundle#fragments/name
 
 Examples:
-  scm fragment show core#fragments/tdd
-  scm fragment show go-tools#fragments/testing`,
+  ctxloom fragment show core#fragments/tdd
+  ctxloom fragment show go-tools#fragments/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return showItem(args[0], ItemTypeFragment, fragmentShowDistilled)
@@ -59,8 +59,8 @@ var fragmentCreateCmd = &cobra.Command{
 The fragment will be created with placeholder content that you can edit.
 
 Examples:
-  scm fragment create my-bundle coding-standards
-  scm fragment create go-tools testing-patterns`,
+  ctxloom fragment create my-bundle coding-standards
+  ctxloom fragment create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return createItem(args[0], args[1], ItemTypeFragment)
@@ -75,7 +75,7 @@ var fragmentDeleteCmd = &cobra.Command{
 Reference format: bundle#fragments/name
 
 Examples:
-  scm fragment delete my-bundle#fragments/old-standard`,
+  ctxloom fragment delete my-bundle#fragments/old-standard`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return deleteItem(args[0], ItemTypeFragment)
@@ -92,8 +92,8 @@ Reference format: bundle#fragments/name
 After editing, the fragment will be automatically re-distilled unless marked as no_distill.
 
 Examples:
-  scm fragment edit core#fragments/tdd
-  scm fragment edit go-tools#fragments/testing`,
+  ctxloom fragment edit core#fragments/tdd
+  ctxloom fragment edit go-tools#fragments/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return editItem(args[0], ItemTypeFragment)
@@ -108,8 +108,8 @@ var fragmentDistillCmd = &cobra.Command{
 Reference format: bundle#fragments/name
 
 Examples:
-  scm fragment distill core#fragments/tdd
-  scm fragment distill go-tools#fragments/testing --force`,
+  ctxloom fragment distill core#fragments/tdd
+  ctxloom fragment distill go-tools#fragments/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return distillItem(args[0], ItemTypeFragment, fragmentDistillForce)
@@ -136,8 +136,8 @@ Reference formats:
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  scm fragment install scm-main/core
-  scm fragment install scm-main/go-development`,
+  ctxloom fragment install scm-main/core
+  ctxloom fragment install scm-main/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], fragmentInstallForce, fragmentInstallBlind)
@@ -159,9 +159,9 @@ This publishes the entire bundle (which contains fragments, prompts, etc.)
 to the specified remote.
 
 Examples:
-  scm fragment push my-bundle
-  scm fragment push my-bundle scm-main
-  scm fragment push my-bundle --pr`,
+  ctxloom fragment push my-bundle
+  ctxloom fragment push my-bundle scm-main
+  ctxloom fragment push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""

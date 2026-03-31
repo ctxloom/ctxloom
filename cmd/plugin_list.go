@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/collections"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // pluginPrefix is the naming convention for external plugin binaries.

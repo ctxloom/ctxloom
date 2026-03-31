@@ -8,21 +8,21 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	"github.com/SophisticatedContextManager/scm/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/memory"
 )
 
 // getMemoryDir returns the path to the memory directory.
-// Falls back to ".scm/memory" in the current directory if SCMDir is not set.
+// Falls back to ".ctxloom/memory" in the current directory if AppDir is not set.
 func (s *mcpServer) getMemoryDir() string {
-	if s.cfg.SCMDir != "" {
-		return filepath.Join(s.cfg.SCMDir, "memory")
+	if s.cfg.AppDir != "" {
+		return filepath.Join(s.cfg.AppDir, "memory")
 	}
 	// Fallback to current working directory
 	if wd, err := os.Getwd(); err == nil {
-		return filepath.Join(wd, ".scm", "memory")
+		return filepath.Join(wd, ".ctxloom", "memory")
 	}
-	return filepath.Join(".scm", "memory")
+	return filepath.Join(".ctxloom", "memory")
 }
 
 // getMemoryTools returns MCP tool definitions for memory features.
@@ -562,7 +562,7 @@ func (s *mcpServer) toolGetPreviousSession(ctx context.Context, args json.RawMes
 	}
 	_ = json.Unmarshal(args, &params)
 
-	// Get the SCM wrapper PID (scm run/init) which is stable across /clear
+	// Get the SCM wrapper PID (ctxloom run/init) which is stable across /clear
 	pid := findSCMWrapperPID()
 
 	workDir, err := os.Getwd()

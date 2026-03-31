@@ -10,9 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var profileCmd = &cobra.Command{
@@ -20,7 +20,7 @@ var profileCmd = &cobra.Command{
 	Short: "Manage profiles (named fragment collections)",
 	Long: `Manage profiles - named collections of context fragments, bundles, and configuration.
 
-Profiles are stored as YAML files in .scm/profiles/<name>.yaml and allow you to
+Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml and allow you to
 quickly switch between different sets of context without specifying them individually.`,
 }
 
@@ -34,10 +34,10 @@ var profileListCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			fmt.Println("No profiles directory found.")
-			fmt.Println("Create one with: mkdir -p .scm/profiles")
+			fmt.Println("Create one with: mkdir -p .ctxloom/profiles")
 			return nil
 		}
 
@@ -49,7 +49,7 @@ var profileListCmd = &cobra.Command{
 
 		if len(profileList) == 0 {
 			fmt.Println("No profiles defined.")
-			fmt.Println("Use 'scm profile add <name> -f <fragments...>' to create one.")
+			fmt.Println("Use 'ctxloom profile add <name> -f <fragments...>' to create one.")
 			return nil
 		}
 
@@ -101,7 +101,7 @@ Bundle references use full URLs:
   https://github.com/user/repo@v1/bundles/name    # Bundle from remote
 
 Example:
-  scm profile create developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
+  ctxloom profile create developer -b https://github.com/user/scm@v1/bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -118,10 +118,10 @@ Example:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			// Create the directory
-			profileDirs = []string{filepath.Join(cfg.SCMPaths[0], "profiles")}
+			profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 		}
 
 		loader := profiles.NewLoader(profileDirs)
@@ -176,7 +176,7 @@ var profileDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			return fmt.Errorf("profile not found: no profiles directory")
 		}
@@ -207,7 +207,7 @@ var profileShowCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			return fmt.Errorf("profile not found: no profiles directory")
 		}
@@ -286,9 +286,9 @@ var profileUpdateCmd = &cobra.Command{
 	Long: `Modify an existing profile by adding or removing items.
 
 Examples:
-  scm profile modify go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
-  scm profile modify developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
-  scm profile modify developer -d "New description"`,
+  ctxloom profile modify go-developer --add-parent https://github.com/user/scm@v1/profiles/developer
+  ctxloom profile modify developer --add-bundle https://github.com/user/scm@v1/bundles/go-development
+  ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -301,7 +301,7 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			return fmt.Errorf("profile not found: no profiles directory")
 		}
@@ -475,10 +475,10 @@ a pull request instead.
 If no remote is specified, uses the default remote.
 
 Examples:
-  scm profile push my-profile
-  scm profile push my-profile scm-main
-  scm profile push my-profile --pr
-  scm profile push my-profile scm-main --message "Add my profile"`,
+  ctxloom profile push my-profile
+  ctxloom profile push my-profile scm-main
+  ctxloom profile push my-profile --pr
+  ctxloom profile push my-profile scm-main --message "Add my profile"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runProfilePush,
 }
@@ -496,7 +496,7 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load the profile
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 {
 		return fmt.Errorf("no profiles directory found")
 	}
@@ -517,7 +517,7 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 	if remoteName == "" {
 		remoteName = registry.GetDefault()
 		if remoteName == "" {
-			return fmt.Errorf("no remote specified and no default set. Use: scm profile push <name> <remote>")
+			return fmt.Errorf("no remote specified and no default set. Use: ctxloom profile push <name> <remote>")
 		}
 	}
 
@@ -558,7 +558,7 @@ var profileEditCmd = &cobra.Command{
 	Long: `Edit a profile's YAML file using your configured editor.
 
 Examples:
-  scm profile edit my-profile`,
+  ctxloom profile edit my-profile`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return editProfileFile(args[0])
@@ -580,8 +580,8 @@ Reference formats:
   https://github.com/user/repo@v1/profiles/developer   # Full URL
 
 Examples:
-  scm profile install scm-main/developer
-  scm profile install scm-main/architect`,
+  ctxloom profile install scm-main/developer
+  ctxloom profile install scm-main/architect`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -614,13 +614,13 @@ Examples:
 var profileExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
 	Short: "Export a profile to a directory",
-	Long: `Export a profile from .scm/profiles to an arbitrary directory.
+	Long: `Export a profile from .ctxloom/profiles to an arbitrary directory.
 
 Useful for publishing profiles to a shared repository like scm-main.
 
 Examples:
-  scm profile export architect ../scm-main/scm/v1/profiles
-  scm profile export my-profile ./exports`,
+  ctxloom profile export architect ../scm-main/scm/v1/profiles
+  ctxloom profile export my-profile ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runProfileExport,
 }
@@ -634,7 +634,7 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 {
 		return fmt.Errorf("profile not found: no profiles directory")
 	}
@@ -671,13 +671,13 @@ var profileImportForce bool
 var profileImportCmd = &cobra.Command{
 	Use:   "import <path>",
 	Short: "Import a profile from a local file",
-	Long: `Import a profile YAML file into .scm/profiles.
+	Long: `Import a profile YAML file into .ctxloom/profiles.
 
 Use --force to overwrite an existing profile.
 
 Examples:
-  scm profile import ../scm-main/scm/v1/profiles/architect.yaml
-  scm profile import ./my-profile.yaml --force`,
+  ctxloom profile import ../scm-main/scm/v1/profiles/architect.yaml
+  ctxloom profile import ./my-profile.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileImport,
 }
@@ -703,7 +703,7 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine destination path
-	profileDir := filepath.Join(cfg.SCMPaths[0], "profiles")
+	profileDir := filepath.Join(cfg.AppPaths[0], "profiles")
 	if err := os.MkdirAll(profileDir, 0755); err != nil {
 		return fmt.Errorf("failed to create profiles directory: %w", err)
 	}

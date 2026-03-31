@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var (
@@ -23,14 +23,14 @@ var remoteDiscoverCmd = &cobra.Command{
 	Short: "Search GitHub/GitLab for SCM repositories",
 	Long: `Discover SCM repositories on GitHub and GitLab.
 
-Searches for repositories named 'scm' or starting with 'scm-'.
+Searches for repositories named 'ctxloom' or starting with 'scm-'.
 Only repositories with valid scm/v1/ structure are shown.
 
 Examples:
-  scm remote discover                      # Find all SCM repos
-  scm remote discover golang               # Filter by 'golang' in description
-  scm remote discover --source github      # Search GitHub only
-  scm remote discover --stars 10           # Only repos with 10+ stars`,
+  ctxloom remote discover                      # Find all SCM repos
+  ctxloom remote discover golang               # Filter by 'golang' in description
+  ctxloom remote discover --source github      # Search GitHub only
+  ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {

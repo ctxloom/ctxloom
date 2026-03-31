@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // Puller interface for pulling remote items (allows mocking in tests).

@@ -10,12 +10,12 @@ import (
 	"github.com/cbroglie/mustache"
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/gitutil"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var (
@@ -39,7 +39,7 @@ var runCmd = &cobra.Command{
 	},
 	Long: `Assemble context from fragments and execute the configured AI plugin.
 
-Fragments are loaded from bundles in .scm/bundles/.
+Fragments are loaded from bundles in .ctxloom/bundles/.
 
 Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.
@@ -53,11 +53,11 @@ Verbosity levels (-v can be repeated):
   -vvv    Show debug output
 
 Examples:
-  scm run -f coding-standards "review this code"
-  scm run -p developer "explain the architecture"
-  scm run -p reviewer -f extra-rules "review this PR"
-  scm run -t security "check for vulnerabilities"
-  scm run -vv -p developer "debug mode"`,
+  ctxloom run -f coding-standards "review this code"
+  ctxloom run -p developer "explain the architecture"
+  ctxloom run -p reviewer -f extra-rules "review this PR"
+  ctxloom run -t security "check for vulnerabilities"
+  ctxloom run -vv -p developer "debug mode"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Load configuration
 		cfg, err := config.Load()

@@ -1,12 +1,12 @@
 // Plugin discovery tests verify that SCM correctly identifies built-in LM plugins
 // (claude-code, gemini, aider) and any user-configured plugins. This is essential
-// for the `scm run` command to know which backends are available for context injection.
+// for the `ctxloom run` command to know which backends are available for context injection.
 package cmd
 
 import (
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // =============================================================================

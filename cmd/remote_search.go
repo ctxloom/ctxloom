@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var searchType string
@@ -31,10 +31,10 @@ Query syntax:
   version:spec       Version constraint
 
 Examples:
-  scm remote search golang
-  scm remote search "tag:golang/testing"
-  scm remote search security --type bundle
-  scm remote search "tag:enterprise author:alice"`,
+  ctxloom remote search golang
+  ctxloom remote search "tag:golang/testing"
+  ctxloom remote search security --type bundle
+  ctxloom remote search "tag:enterprise author:alice"`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRemoteSearch,
 }
@@ -50,7 +50,7 @@ func runRemoteSearch(cmd *cobra.Command, args []string) error {
 
 	remotes := registry.List()
 	if len(remotes) == 0 {
-		fmt.Println("No remotes configured. Add one with: scm remote add <name> <url>")
+		fmt.Println("No remotes configured. Add one with: ctxloom remote add <name> <url>")
 		return nil
 	}
 
@@ -134,7 +134,7 @@ func runRemoteSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Install with: scm install <remote>/<name>")
+	fmt.Println("Install with: ctxloom install <remote>/<name>")
 
 	return nil
 }

@@ -228,9 +228,9 @@ func TestLockfile_Count(t *testing.T) {
 }
 
 func TestLockfileManager_Path(t *testing.T) {
-	manager := NewLockfileManager("/home/user/.scm")
+	manager := NewLockfileManager("/home/user/.ctxloom")
 	path := manager.Path()
-	expected := filepath.Join("/home/user/.scm", "lock.yaml")
+	expected := filepath.Join("/home/user/.ctxloom", "lock.yaml")
 
 	if path != expected {
 		t.Errorf("Path() = %q, want %q", path, expected)
@@ -240,7 +240,7 @@ func TestLockfileManager_Path(t *testing.T) {
 func TestLockfileManager_DefaultDir(t *testing.T) {
 	manager := NewLockfileManager("")
 	path := manager.Path()
-	expected := filepath.Join(".scm", "lock.yaml")
+	expected := filepath.Join(".ctxloom", "lock.yaml")
 
 	if path != expected {
 		t.Errorf("Path() = %q, want %q", path, expected)

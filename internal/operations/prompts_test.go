@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
 func TestPromptEntry_Fields(t *testing.T) {
@@ -89,7 +89,7 @@ func setupPromptTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll("/project/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/project/.ctxloom/bundles", 0755)
 
 	// Create a test bundle with prompts
 	bundleContent := `version: "1.0"
@@ -113,7 +113,7 @@ prompts:
     content: |
       Generate a commit message for the staged changes
 `
-	_ = afero.WriteFile(fs, "/project/.scm/bundles/dev-tools.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/dev-tools.yaml", []byte(bundleContent), 0644)
 
 	// Create another bundle with more prompts
 	anotherBundle := `version: "1.0"
@@ -123,9 +123,9 @@ prompts:
     content: |
       Explain what this code does
 `
-	_ = afero.WriteFile(fs, "/project/.scm/bundles/learning.yaml", []byte(anotherBundle), 0644)
+	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/learning.yaml", []byte(anotherBundle), 0644)
 
-	loader := bundles.NewLoader([]string{"/project/.scm/bundles"}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{"/project/.ctxloom/bundles"}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 

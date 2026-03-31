@@ -167,10 +167,10 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 		p.replaceManager, _ = NewReplaceManager("")
 	}
 	if p.vendorManager == nil {
-		p.vendorManager = NewVendorManager(".scm")
+		p.vendorManager = NewVendorManager(".ctxloom")
 	}
 	if p.lockfileManager == nil {
-		p.lockfileManager = NewLockfileManager(".scm")
+		p.lockfileManager = NewLockfileManager(".ctxloom")
 	}
 
 	return p
@@ -353,7 +353,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	// Determine local path
 	baseDir := opts.LocalDir
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 
 	localPath := ref.LocalPath(baseDir, opts.ItemType)
@@ -448,7 +448,7 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 
 		baseDir := opts.LocalDir
 		if baseDir == "" {
-			baseDir = ".scm"
+			baseDir = ".ctxloom"
 		}
 		localPath := ref.LocalPath(baseDir, ItemTypeBundle)
 
@@ -576,7 +576,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, sha string) error {
 	baseDir := opts.LocalDir
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 
 	localPath := ref.LocalPath(baseDir, opts.ItemType)

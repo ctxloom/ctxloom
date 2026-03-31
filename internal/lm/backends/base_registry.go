@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/filelock"
 )
 
 // BaseSessionRegistry provides shared session registry logic for backends.
@@ -58,8 +59,8 @@ type RunInfo struct {
 // RegisterSession records a session transcript path for the given SCM run (by PID).
 // Uses file locking to prevent race conditions from concurrent hook invocations.
 func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	scmDir := filepath.Join(workDir, ".scm")
-	registryPath := filepath.Join(scmDir, r.registryFile)
+	appDir := filepath.Join(workDir, ".ctxloom")
+	registryPath := filepath.Join(appDir, r.registryFile)
 
 	// Acquire exclusive lock for read-modify-write
 	unlock, err := r.lockFile(registryPath)
@@ -68,7 +69,7 @@ func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcrip
 	}
 	defer unlock()
 
-	registry, err := r.loadRegistryLocked(scmDir)
+	registry, err := r.loadRegistryLocked(appDir)
 	if err != nil {
 		return err
 	}
@@ -95,19 +96,19 @@ func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcrip
 	// Prune old entries before saving
 	r.pruneRegistry(registry)
 
-	return r.saveRegistryLocked(scmDir, registry)
+	return r.saveRegistryLocked(appDir, registry)
 }
 
 // GetPreviousSession returns the session before the current one for /clear recovery.
 func (r *BaseSessionRegistry) GetPreviousSession(workDir string, pid int, parseFunc func(path string) (*Session, error)) (*Session, error) {
-	scmDir := filepath.Join(workDir, ".scm")
-	registryPath := filepath.Join(scmDir, r.registryFile)
+	appDir := filepath.Join(workDir, ".ctxloom")
+	registryPath := filepath.Join(appDir, r.registryFile)
 
 	// Use shared lock for reading
 	unlock, err := r.lockFileShared(registryPath)
 	if err != nil {
 		// If we can't lock, try reading anyway (best effort)
-		registry, loadErr := r.loadRegistryLocked(scmDir)
+		registry, loadErr := r.loadRegistryLocked(appDir)
 		if loadErr != nil {
 			return nil, loadErr
 		}
@@ -115,7 +116,7 @@ func (r *BaseSessionRegistry) GetPreviousSession(workDir string, pid int, parseF
 	}
 	defer unlock()
 
-	registry, err := r.loadRegistryLocked(scmDir)
+	registry, err := r.loadRegistryLocked(appDir)
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +136,8 @@ func (r *BaseSessionRegistry) getPreviousFromRegistry(registry *RegistryData, pi
 }
 
 // loadRegistryLocked loads the session registry from disk (caller must hold lock).
-func (r *BaseSessionRegistry) loadRegistryLocked(scmDir string) (*RegistryData, error) {
-	path := filepath.Join(scmDir, r.registryFile)
+func (r *BaseSessionRegistry) loadRegistryLocked(appDir string) (*RegistryData, error) {
+	path := filepath.Join(appDir, r.registryFile)
 
 	data, err := afero.ReadFile(r.fs, path)
 	if err != nil {
@@ -160,12 +161,12 @@ func (r *BaseSessionRegistry) loadRegistryLocked(scmDir string) (*RegistryData, 
 }
 
 // saveRegistryLocked writes the registry to disk (caller must hold lock).
-func (r *BaseSessionRegistry) saveRegistryLocked(scmDir string, registry *RegistryData) error {
-	path := filepath.Join(scmDir, r.registryFile)
+func (r *BaseSessionRegistry) saveRegistryLocked(appDir string, registry *RegistryData) error {
+	path := filepath.Join(appDir, r.registryFile)
 
 	// Ensure directory exists
-	if err := r.fs.MkdirAll(scmDir, 0755); err != nil {
-		return fmt.Errorf("create scm directory: %w", err)
+	if err := r.fs.MkdirAll(appDir, 0755); err != nil {
+		return fmt.Errorf("create ctxloom directory: %w", err)
 	}
 
 	data, err := json.MarshalIndent(registry, "", "  ")
@@ -222,65 +223,23 @@ func (r *BaseSessionRegistry) pruneRegistry(registry *RegistryData) {
 // Creates a .lock file adjacent to the registry.
 // For non-OsFs (e.g., MemMapFs in tests), returns a no-op unlock.
 func (r *BaseSessionRegistry) lockFile(registryPath string) (func(), error) {
-	// Only use flock for real filesystem - tests don't need locking
+	// Only use locking for real filesystem - tests don't need locking
 	if _, ok := r.fs.(*afero.OsFs); !ok {
 		return func() {}, nil
 	}
 
 	lockPath := registryPath + ".lock"
-
-	// Ensure parent directory exists
-	dir := filepath.Dir(lockPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return nil, err
-	}
-
-	// Acquire exclusive lock (blocking)
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, err
-	}
-
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}, nil
+	return filelock.Lock(lockPath)
 }
 
 // lockFileShared acquires a shared (read) lock on the registry file.
 // For non-OsFs (e.g., MemMapFs in tests), returns a no-op unlock.
 func (r *BaseSessionRegistry) lockFileShared(registryPath string) (func(), error) {
-	// Only use flock for real filesystem - tests don't need locking
+	// Only use locking for real filesystem - tests don't need locking
 	if _, ok := r.fs.(*afero.OsFs); !ok {
 		return func() {}, nil
 	}
 
 	lockPath := registryPath + ".lock"
-
-	// Ensure parent directory exists
-	dir := filepath.Dir(lockPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return nil, err
-	}
-
-	// Acquire shared lock (blocking)
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
-		f.Close()
-		return nil, err
-	}
-
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}, nil
+	return filelock.LockShared(lockPath)
 }

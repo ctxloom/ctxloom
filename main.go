@@ -5,13 +5,13 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/SophisticatedContextManager/scm/cmd"
+	"github.com/ctxloom/ctxloom/cmd"
 )
 
 func main() {
-	// Initialize logging (verbose mode if SCM_VERBOSE=1)
+	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1)
 	var logger *zap.Logger
-	if os.Getenv("SCM_VERBOSE") == "1" {
+	if os.Getenv("CTXLOOM_VERBOSE") == "1" {
 		logger, _ = zap.NewDevelopment()
 	} else {
 		cfg := zap.NewProductionConfig()

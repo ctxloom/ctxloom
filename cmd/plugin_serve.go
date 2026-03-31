@@ -6,16 +6,16 @@ import (
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 var pluginServeCmd = &cobra.Command{
 	Use:     "serve <backend>",
 	Aliases: []string{"srv"},
 	Short:   "Run as a plugin server (internal use)",
-	Long:    `Starts the scm binary as a plugin server for the specified backend. This is used internally by the plugin system.`,
+	Long:    `Starts the ctxloom binary as a plugin server for the specified backend. This is used internally by the plugin system.`,
 	Args:    cobra.ExactArgs(1),
 	Hidden:  true, // Hide from help since it's for internal use
 	RunE: func(cmd *cobra.Command, args []string) error {

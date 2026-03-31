@@ -1,7 +1,7 @@
 package backends
 
 import (
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // BaseMCPManager provides shared MCP server management logic for backends.

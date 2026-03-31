@@ -40,9 +40,54 @@ test: build
 test-verbose:
     go test -v ./...
 
-# Run tests with coverage
-test-coverage:
-    go test -cover ./...
+# Filter coverage output using patterns from .coverignore
+# Usage: _filter_coverage <input> <output>
+_filter_coverage INPUT OUTPUT:
+    #!/usr/bin/env bash
+    set -e
+    if [ -f .coverignore ]; then
+        # Build grep pattern from .coverignore (skip comments and empty lines)
+        patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
+        if [ -n "$patterns" ]; then
+            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
+            exit 0
+        fi
+    fi
+    cp "{{INPUT}}" "{{OUTPUT}}"
+
+# Run tests with coverage (excludes patterns in .coverignore)
+cover:
+    #!/usr/bin/env bash
+    set -e
+    echo "Running tests with coverage..."
+    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
+    just _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
+    echo "Coverage (excluding patterns from .coverignore):"
+    go tool cover -func=coverage.out | tail -1
+
+# Show per-function coverage (excludes patterns in .coverignore)
+cover-func:
+    #!/usr/bin/env bash
+    set -e
+    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
+    just _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
+    echo "Coverage by function (excluding patterns from .coverignore):"
+    go tool cover -func=coverage.out
+
+# Generate HTML coverage report (excludes patterns in .coverignore)
+cover-html:
+    #!/usr/bin/env bash
+    set -e
+    go test -coverprofile=coverage.raw.out ./... > /dev/null 2>&1
+    just _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
+    go tool cover -html=coverage.out -o coverage.html
+    echo "Coverage report generated: coverage.html"
+
+# Run tests with coverage (legacy alias)
+test-coverage: cover
 
 # Run integration tests (requires scm binary)
 test-integration: build
@@ -100,15 +145,15 @@ lint:
 run *ARGS:
     go run . {{ARGS}}
 
-# Build, compress, and install to ~/.local/bin
+# Build, compress, and install to ~/go/bin (standard Go location)
 install: build-compressed
-    mkdir -p ~/.local/bin
+    mkdir -p ~/go/bin
     -pkill -x scm && sleep 0.5
-    cp scm ~/.local/bin/
+    cp scm ~/go/bin/
 
-# Uninstall from ~/.local/bin
+# Uninstall from ~/go/bin
 uninstall:
-    rm -f ~/.local/bin/scm
+    rm -f ~/go/bin/scm
 
 # Generate man pages
 man:

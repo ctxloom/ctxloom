@@ -51,10 +51,21 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 
 	// Set stdin to raw mode if it's a terminal
 	var oldState *term.State
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	stdinIsTerm := term.IsTerminal(int(os.Stdin.Fd()))
+	if stdinIsTerm {
 		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
 		if err == nil {
-			defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
+			defer func() {
+				_ = term.Restore(int(os.Stdin.Fd()), oldState)
+				// Reset terminal to sane state after subprocess exits.
+				// term.State doesn't capture all attributes (like ONLCR),
+				// so we use stty sane to fix any line discipline corruption.
+				if stdinIsTerm {
+					cmd := exec.Command("stty", "sane")
+					cmd.Stdin = os.Stdin
+					_ = cmd.Run()
+				}
+			}()
 		}
 	}
 

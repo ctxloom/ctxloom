@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // Version is set at build time via ldflags
@@ -23,13 +23,13 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// GetSCMDirs returns the .scm directories from project config.
-func GetSCMDirs() ([]string, error) {
+// GetAppDirs returns the .scm directories from project config.
+func GetAppDirs() ([]string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	return cfg.SCMPaths, nil
+	return cfg.AppPaths, nil
 }
 
 // GetConfig returns the project configuration.
@@ -38,14 +38,14 @@ func GetConfig() (*config.Config, error) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "scm",
+	Use:   "ctxloom",
 	Short: "Sophisticated Context Management",
 	Long: `SCM manages context for AI coding assistants.
 
 QUICK START
-  scm run -p developer "explain this code"    Run with a profile
-  scm fragment install scm-main/core        Install a fragment bundle
-  scm fragment edit core#fragments/coding     Edit a fragment
+  ctxloom run -p developer "explain this code"    Run with a profile
+  ctxloom fragment install scm-main/core        Install a fragment bundle
+  ctxloom fragment edit core#fragments/coding     Edit a fragment
 
 CONTENT COMMANDS
   fragment      Manage fragments (list, show, create, delete, edit, install)
@@ -95,6 +95,6 @@ func init() {
 	rootCmd.Version = Version
 
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
-	// 1. Project .scm/config.yaml
+	// 1. Project .ctxloom/config.yaml
 	// 2. Embedded resources
 }

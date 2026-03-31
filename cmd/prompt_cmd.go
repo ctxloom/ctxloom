@@ -9,15 +9,15 @@ var promptCmd = &cobra.Command{
 	Short: "Manage prompts",
 	Long: `Manage prompts - reusable prompt templates for AI coding assistants.
 
-Prompts are stored within bundle YAML files in .scm/bundles/ and are referenced
+Prompts are stored within bundle YAML files in .ctxloom/bundles/ and are referenced
 using the syntax: bundle#prompts/name
 
 Examples:
-  scm prompt list                              # List all prompts
-  scm prompt show core#prompts/code-review     # Show prompt content
-  scm prompt edit core#prompts/code-review     # Edit prompt content
-  scm prompt create my-bundle code-review      # Create new prompt
-  scm prompt install scm-main/core           # Install bundle from remote`,
+  ctxloom prompt list                              # List all prompts
+  ctxloom prompt show core#prompts/code-review     # Show prompt content
+  ctxloom prompt edit core#prompts/code-review     # Edit prompt content
+  ctxloom prompt create my-bundle code-review      # Create new prompt
+  ctxloom prompt install scm-main/core           # Install bundle from remote`,
 }
 
 var promptListCmd = &cobra.Command{
@@ -41,8 +41,8 @@ var promptShowCmd = &cobra.Command{
 Reference format: bundle#prompts/name
 
 Examples:
-  scm prompt show core#prompts/code-review
-  scm prompt show go-tools#prompts/testing`,
+  ctxloom prompt show core#prompts/code-review
+  ctxloom prompt show go-tools#prompts/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return showItem(args[0], ItemTypePrompt, promptShowDistilled)
@@ -59,8 +59,8 @@ var promptCreateCmd = &cobra.Command{
 The prompt will be created with placeholder content that you can edit.
 
 Examples:
-  scm prompt create my-bundle code-review
-  scm prompt create go-tools testing-patterns`,
+  ctxloom prompt create my-bundle code-review
+  ctxloom prompt create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return createItem(args[0], args[1], ItemTypePrompt)
@@ -75,7 +75,7 @@ var promptDeleteCmd = &cobra.Command{
 Reference format: bundle#prompts/name
 
 Examples:
-  scm prompt delete my-bundle#prompts/old-prompt`,
+  ctxloom prompt delete my-bundle#prompts/old-prompt`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return deleteItem(args[0], ItemTypePrompt)
@@ -92,8 +92,8 @@ Reference format: bundle#prompts/name
 After editing, the prompt will be automatically re-distilled unless marked as no_distill.
 
 Examples:
-  scm prompt edit core#prompts/code-review
-  scm prompt edit go-tools#prompts/testing`,
+  ctxloom prompt edit core#prompts/code-review
+  ctxloom prompt edit go-tools#prompts/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return editItem(args[0], ItemTypePrompt)
@@ -108,8 +108,8 @@ var promptDistillCmd = &cobra.Command{
 Reference format: bundle#prompts/name
 
 Examples:
-  scm prompt distill core#prompts/code-review
-  scm prompt distill go-tools#prompts/testing --force`,
+  ctxloom prompt distill core#prompts/code-review
+  ctxloom prompt distill go-tools#prompts/testing --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return distillItem(args[0], ItemTypePrompt, promptDistillForce)
@@ -136,8 +136,8 @@ Reference formats:
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  scm prompt install scm-main/core
-  scm prompt install scm-main/go-development`,
+  ctxloom prompt install scm-main/core
+  ctxloom prompt install scm-main/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], promptInstallForce, promptInstallBlind)
@@ -159,9 +159,9 @@ This publishes the entire bundle (which contains prompts, fragments, etc.)
 to the specified remote.
 
 Examples:
-  scm prompt push my-bundle
-  scm prompt push my-bundle scm-main
-  scm prompt push my-bundle --pr`,
+  ctxloom prompt push my-bundle
+  ctxloom prompt push my-bundle scm-main
+  ctxloom prompt push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		remoteName := ""

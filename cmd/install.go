@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var (
@@ -23,10 +23,10 @@ var (
 var installCmd = &cobra.Command{
 	Use:    "install [reference]",
 	Short:  "Install bundles/profiles from remotes or lockfile",
-	Hidden: true, // Use 'scm fragment install', 'scm prompt install', or 'scm profile install'
+	Hidden: true, // Use 'ctxloom fragment install', 'ctxloom prompt install', or 'ctxloom profile install'
 	Long: `Install bundles and profiles from remote sources or lockfile.
 
-With no arguments, installs all items from the lockfile (.scm/lock.yaml).
+With no arguments, installs all items from the lockfile (.ctxloom/lock.yaml).
 This is similar to 'npm ci' - it performs a reproducible installation
 using exact versions specified in the lockfile.
 
@@ -40,11 +40,11 @@ Reference formats:
   github:bundles/core@v1.0.0                         # Legacy format
 
 Examples:
-  scm install                           # Install all from lockfile
-  scm install scm-main/core           # Install a bundle
-  scm install scm-main/developer      # Install a profile
-  scm install --force                   # Skip confirmation prompts
-  scm install --dry-run                 # Show what would be installed`,
+  ctxloom install                           # Install all from lockfile
+  ctxloom install scm-main/core           # Install a bundle
+  ctxloom install scm-main/developer      # Install a profile
+  ctxloom install --force                   # Skip confirmation prompts
+  ctxloom install --dry-run                 # Show what would be installed`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runInstall,
 }
@@ -81,8 +81,8 @@ func runInstallFromLockfile(cmd *cobra.Command, cfg *config.Config) error {
 
 	if result.Status == "empty" {
 		fmt.Println("No entries in lockfile.")
-		fmt.Println("Generate one with: scm lock")
-		fmt.Println("Or install specific items with: scm install <remote>/<name>")
+		fmt.Println("Generate one with: ctxloom lock")
+		fmt.Println("Or install specific items with: ctxloom install <remote>/<name>")
 		return nil
 	}
 
@@ -107,9 +107,9 @@ func runInstallFromLockfile(cmd *cobra.Command, cfg *config.Config) error {
 
 // runInstallDryRun shows what would be installed without actually installing.
 func runInstallDryRun(cfg *config.Config) error {
-	baseDir := cfg.SCMDir
+	baseDir := cfg.AppDir
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 
 	lockManager := remote.NewLockfileManager(baseDir)
@@ -198,7 +198,7 @@ func detectItemType(cfg *config.Config, reference string) string {
 	// Try to infer from local existence if it's a simple name
 	if !strings.Contains(reference, "/") && !strings.Contains(reference, ":") {
 		// Simple name - check if it exists locally as a profile or bundle
-		for _, scmPath := range cfg.SCMPaths {
+		for _, scmPath := range cfg.AppPaths {
 			profilePath := filepath.Join(scmPath, "profiles", reference+".yaml")
 			if _, err := os.Stat(profilePath); err == nil {
 				return "profile"

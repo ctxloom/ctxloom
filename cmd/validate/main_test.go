@@ -42,14 +42,14 @@ func TestRun_ValidConfig(t *testing.T) {
 	defer func() { _ = os.Chdir(origDir) }()
 
 	// Create .scm directory and valid config
-	require.NoError(t, os.MkdirAll(".scm", 0755))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
 	validConfig := `
 defaults:
   profiles:
     - default
   llm_plugin: mock
 `
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(validConfig), 0644))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(validConfig), 0644))
 
 	err = run()
 	assert.NoError(t, err)
@@ -65,11 +65,11 @@ func TestRun_InvalidYAMLSyntax(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".scm", 0755))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
 	invalidYAML := `
 default_profile: [invalid
 `
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(invalidYAML), 0644))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(invalidYAML), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -86,12 +86,12 @@ func TestRun_SchemaViolation(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".scm", 0755))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
 	// Use an invalid type for default_profiles (should be array, not string)
 	invalidSchema := `
 default_profiles: "not-an-array"
 `
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(invalidSchema), 0644))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(invalidSchema), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -107,9 +107,9 @@ func TestRun_EmptyObjectConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".scm", 0755))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
 	// Schema requires an object, so {} is minimal valid config
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte("{}"), 0644))
 
 	err = run()
 	assert.NoError(t, err)
@@ -124,8 +124,8 @@ func TestRun_NullConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".scm", 0755))
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(""), 0644))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(""), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -142,8 +142,8 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".scm", 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(".scm", "bundles"), 0755))
+	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(".ctxloom", "bundles"), 0755))
 
 	complexConfig := `
 version: "1.0"
@@ -157,7 +157,7 @@ defaults:
 
 llm:
   plugin_paths:
-    - /home/user/.scm/plugins
+    - /home/user/.ctxloom/plugins
   plugins:
     claudecode:
       model: opus
@@ -183,7 +183,7 @@ profiles:
     fragments:
       - test-helpers
 `
-	require.NoError(t, os.WriteFile(".scm/config.yaml", []byte(complexConfig), 0644))
+	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(complexConfig), 0644))
 
 	err = run()
 	assert.NoError(t, err)

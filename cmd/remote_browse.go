@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var (
@@ -23,9 +23,9 @@ var remoteBrowseCmd = &cobra.Command{
 By default shows both bundles and profiles. Use --type to filter.
 
 Examples:
-  scm remote browse scm-main
-  scm remote browse scm-main --type bundle
-  scm remote browse scm-main --type profile`,
+  ctxloom remote browse scm-main
+  ctxloom remote browse scm-main --type bundle
+  ctxloom remote browse scm-main --type profile`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteBrowse,
 }
@@ -88,7 +88,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Install with: scm install <reference>")
+	fmt.Println("Install with: ctxloom install <reference>")
 
 	return nil
 }

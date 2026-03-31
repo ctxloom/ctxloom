@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // PromptEntry represents a prompt in operation results.

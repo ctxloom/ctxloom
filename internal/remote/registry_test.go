@@ -19,7 +19,7 @@ func TestNewRegistry(t *testing.T) {
 		registry, err := NewRegistry("")
 		require.NoError(t, err)
 		assert.NotNil(t, registry)
-		assert.Equal(t, filepath.Join(".scm", "remotes.yaml"), registry.configPath)
+		assert.Equal(t, filepath.Join(".ctxloom", "remotes.yaml"), registry.configPath)
 	})
 
 	t.Run("creates registry with custom path", func(t *testing.T) {

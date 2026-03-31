@@ -9,10 +9,12 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // Registry manages configured remote sources.
-// It persists remotes to .scm/remotes.yaml.
+// It persists remotes to .ctxloom/remotes.yaml.
 type Registry struct {
 	mu            sync.RWMutex
 	remotes       map[string]*Remote
@@ -32,10 +34,10 @@ func WithRegistryFS(fs afero.Fs) RegistryOption {
 }
 
 // NewRegistry creates a new registry that persists to the given config path.
-// If configPath is empty, defaults to .scm/remotes.yaml in current directory.
+// If configPath is empty, defaults to .ctxloom/remotes.yaml in current directory.
 func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 	if configPath == "" {
-		configPath = filepath.Join(".scm", "remotes.yaml")
+		configPath = filepath.Join(".ctxloom", "remotes.yaml")
 	}
 
 	r := &Registry{
@@ -157,7 +159,7 @@ func (r *Registry) Add(name, repoURL string) error {
 
 	// Check if any existing remote points to this URL
 	if existingName, found := r.findByURLLocked(normalizedURL); found {
-		return fmt.Errorf("remote '%s' already points to this URL; use 'scm remote pull %s/<path>' instead", existingName, existingName)
+		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom remote pull %s/<path>' instead", existingName, existingName)
 	}
 
 	remote := &Remote{
@@ -190,7 +192,7 @@ func (r *Registry) AddWithVersion(name, repoURL, scmVersion string) error {
 
 	// Check if any existing remote points to this URL
 	if existingName, found := r.findByURLLocked(normalizedURL); found {
-		return fmt.Errorf("remote '%s' already points to this URL; use 'scm remote pull %s/<path>' instead", existingName, existingName)
+		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom remote pull %s/<path>' instead", existingName, existingName)
 	}
 
 	remote := &Remote{
@@ -286,7 +288,7 @@ func (r *Registry) Remove(name string) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.remotes[name]; !exists {
-		return fmt.Errorf("remote not found: %s", name)
+		return fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
 	}
 
 	delete(r.remotes, name)
@@ -302,7 +304,7 @@ func (r *Registry) Get(name string) (*Remote, error) {
 
 	remote, ok := r.remotes[name]
 	if !ok {
-		return nil, fmt.Errorf("remote not found: %s", name)
+		return nil, fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
 	}
 
 	// Return a copy to prevent mutation
@@ -343,7 +345,7 @@ func (r *Registry) SetVersion(name, version string) error {
 
 	remote, ok := r.remotes[name]
 	if !ok {
-		return fmt.Errorf("remote not found: %s", name)
+		return fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
 	}
 
 	remote.Version = version
@@ -372,7 +374,7 @@ func (r *Registry) SetDefault(name string) error {
 
 	// Verify remote exists
 	if _, ok := r.remotes[name]; !ok {
-		return fmt.Errorf("remote not found: %s", name)
+		return fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
 	}
 
 	r.defaultRemote = name

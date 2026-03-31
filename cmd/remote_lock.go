@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var remoteInstallForce bool
@@ -14,28 +14,28 @@ var remoteInstallForce bool
 var remoteLockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Generate lockfile from installed remote items",
-	Long: `Generate a lockfile (.scm/lock.yaml) from currently installed remote items.
+	Long: `Generate a lockfile (.ctxloom/lock.yaml) from currently installed remote items.
 
 The lockfile pins exact versions (commit SHAs) of remote dependencies for
 reproducible installations. Commit this file to your repository.
 
 Examples:
-  scm remote lock              # Generate lockfile from installed items`,
+  ctxloom remote lock              # Generate lockfile from installed items`,
 	RunE: runRemoteLock,
 }
 
 var remoteInstallCmd = &cobra.Command{
 	Use:    "install",
 	Short:  "Install items from lockfile",
-	Hidden: true, // Use top-level 'scm install' instead
-	Long: `Install all items specified in the lockfile (.scm/lock.yaml).
+	Hidden: true, // Use top-level 'ctxloom install' instead
+	Long: `Install all items specified in the lockfile (.ctxloom/lock.yaml).
 
 This is useful for CI/CD pipelines and setting up new development environments
 with exact versions of remote dependencies.
 
 Examples:
-  scm remote install           # Install from lockfile
-  scm remote install --force   # Skip confirmation prompts`,
+  ctxloom remote install           # Install from lockfile
+  ctxloom remote install --force   # Skip confirmation prompts`,
 	RunE: runRemoteInstall,
 }
 
@@ -49,7 +49,7 @@ Compares locked SHAs against the latest commits on the default branch
 of each remote.
 
 Examples:
-  scm remote outdated`,
+  ctxloom remote outdated`,
 	RunE: runRemoteOutdated,
 }
 
@@ -66,7 +66,7 @@ func runRemoteLock(cmd *cobra.Command, args []string) error {
 
 	if result.Status == "empty" {
 		fmt.Println("No remote items with source metadata found.")
-		fmt.Println("Install items with: scm install <remote>/<name>")
+		fmt.Println("Install items with: ctxloom install <remote>/<name>")
 		return nil
 	}
 
@@ -91,7 +91,7 @@ func runRemoteInstall(cmd *cobra.Command, args []string) error {
 
 	if result.Status == "empty" {
 		fmt.Println("No entries in lockfile.")
-		fmt.Println("Generate one with: scm remote lock")
+		fmt.Println("Generate one with: ctxloom remote lock")
 		return nil
 	}
 
@@ -146,7 +146,7 @@ func runRemoteOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Update with: scm install <reference> --force")
+	fmt.Println("Update with: ctxloom install <reference> --force")
 
 	return nil
 }

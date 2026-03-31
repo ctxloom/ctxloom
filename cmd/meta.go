@@ -19,7 +19,7 @@ var metaCmd = &cobra.Command{
 }
 
 // Stamp is the structured output for session markers.
-// Uses the SCM wrapper PID (scm run/plugin/init) which is stable across /clear,
+// Uses the SCM wrapper PID (ctxloom run/plugin/init) which is stable across /clear,
 // unlike the Claude Code PID which may change.
 type Stamp struct {
 	PID  int    `json:"pid"`
@@ -74,7 +74,7 @@ func isSCMWrapper(pid int) bool {
 		return false
 	}
 
-	// Check if first arg is scm binary
+	// Check if first arg is ctxloom binary
 	exe := cmdline[0]
 	if !strings.HasSuffix(exe, "scm") && !strings.HasSuffix(exe, "/scm") {
 		return false
@@ -146,7 +146,7 @@ func getParentPID(pid int) int {
 var metaStampCmd = &cobra.Command{
 	Use:   "stamp",
 	Short: "Output PID and timestamp for session tracking",
-	Long: `Outputs the SCM wrapper process ID (scm run/plugin/init) and current timestamp.
+	Long: `Outputs the SCM wrapper process ID (ctxloom run/plugin/init) and current timestamp.
 The SCM wrapper PID is used because it remains stable across /clear commands,
 while the Claude Code process may restart.`,
 	Run: func(cmd *cobra.Command, args []string) {

@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // =============================================================================
@@ -632,7 +633,7 @@ func TestConfig_GetBundleDirs(t *testing.T) {
 	bundlesDir := filepath.Join(tmpDir, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
-	cfg := &Config{SCMPaths: []string{tmpDir}}
+	cfg := &Config{AppPaths: []string{tmpDir}}
 	dirs := cfg.GetBundleDirs()
 
 	assert.Len(t, dirs, 1)
@@ -642,7 +643,7 @@ func TestConfig_GetBundleDirs(t *testing.T) {
 func TestConfig_GetBundleDirs_NoBundlesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := &Config{SCMPaths: []string{tmpDir}}
+	cfg := &Config{AppPaths: []string{tmpDir}}
 	dirs := cfg.GetBundleDirs()
 
 	assert.Empty(t, dirs)
@@ -659,24 +660,24 @@ func TestConfig_GetPluginPaths(t *testing.T) {
 		assert.Equal(t, []string{"/custom/path1", "/custom/path2"}, paths)
 	})
 
-	t.Run("defaults to scm plugins dir", func(t *testing.T) {
+	t.Run("defaults to ctxloom plugins dir", func(t *testing.T) {
 		cfg := &Config{
-			SCMPaths: []string{"/home/user/.scm"},
+			AppPaths: []string{"/home/user/.ctxloom"},
 		}
 		paths := cfg.GetPluginPaths()
-		assert.Equal(t, []string{"/home/user/.scm/plugins"}, paths)
+		assert.Equal(t, []string{"/home/user/.ctxloom/plugins"}, paths)
 	})
 }
 
 func TestConfig_GetConfigFilePath(t *testing.T) {
-	t.Run("returns path when SCMPaths set", func(t *testing.T) {
-		cfg := &Config{SCMPaths: []string{"/path/to/.scm"}}
+	t.Run("returns path when AppPaths set", func(t *testing.T) {
+		cfg := &Config{AppPaths: []string{"/path/to/.ctxloom"}}
 		path, err := cfg.GetConfigFilePath()
 		require.NoError(t, err)
-		assert.Equal(t, "/path/to/.scm/config.yaml", path)
+		assert.Equal(t, "/path/to/.ctxloom/config.yaml", path)
 	})
 
-	t.Run("errors when no SCMPaths", func(t *testing.T) {
+	t.Run("errors when no AppPaths", func(t *testing.T) {
 		cfg := &Config{}
 		_, err := cfg.GetConfigFilePath()
 		assert.Error(t, err)
@@ -892,7 +893,7 @@ defaults:
 		cfg, err := LoadFromDir(tmpDir)
 		require.NoError(t, err)
 		assert.NotNil(t, cfg.Profiles)
-		assert.Equal(t, tmpDir, cfg.SCMDir) // Should still set paths
+		assert.Equal(t, tmpDir, cfg.AppDir) // Should still set paths
 	})
 
 	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
@@ -905,7 +906,7 @@ defaults:
 		assert.NotNil(t, cfg)
 		assert.Len(t, cfg.Warnings, 1)
 		assert.Contains(t, cfg.Warnings[0], "failed to parse config")
-		assert.Equal(t, tmpDir, cfg.SCMDir) // Should still set paths
+		assert.Equal(t, tmpDir, cfg.AppDir) // Should still set paths
 	})
 }
 
@@ -917,7 +918,7 @@ func TestConfig_Save(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := &Config{
-		SCMPaths: []string{tmpDir},
+		AppPaths: []string{tmpDir},
 		LM: LMConfig{
 			Plugins: map[string]PluginConfig{
 				"claude-code": {},
@@ -943,7 +944,7 @@ func TestConfig_Save(t *testing.T) {
 	assert.Contains(t, string(data), "llm_plugin")
 }
 
-func TestConfig_Save_NoSCMPaths(t *testing.T) {
+func TestConfig_Save_NoAppPaths(t *testing.T) {
 	cfg := &Config{}
 	err := cfg.Save()
 	assert.Error(t, err)
@@ -963,21 +964,21 @@ func TestWithFS(t *testing.T) {
 	assert.Equal(t, fs, opts.fs)
 }
 
-func TestWithSCMDir(t *testing.T) {
-	opt := WithSCMDir("/custom/.scm")
+func TestWithAppDir(t *testing.T) {
+	opt := WithAppDir("/custom/.ctxloom")
 
 	opts := &loadOptions{}
 	opt(opts)
 
-	assert.Equal(t, "/custom/.scm", opts.scmDir)
+	assert.Equal(t, "/custom/.ctxloom", opts.appDir)
 }
 
 func TestLoad_WithOptions(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	// Create .scm directory structure
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	// Create .ctxloom directory structure
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Create a valid config file
 	configContent := `
@@ -989,25 +990,25 @@ defaults:
   profiles:
     - test
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configContent), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	assert.Contains(t, cfg.Defaults.Profiles, "test")
 	assert.Equal(t, "claude-code", cfg.Defaults.LLMPlugin)
-	assert.Equal(t, []string{scmDir}, cfg.SCMPaths)
-	assert.Equal(t, scmDir, cfg.SCMDir)
+	assert.Equal(t, []string{appDir}, cfg.AppPaths)
+	assert.Equal(t, appDir, cfg.AppDir)
 	assert.Equal(t, SourceProject, cfg.Source)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// No config.yaml file - should still work
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
 	assert.NotNil(t, cfg.Profiles)
@@ -1066,13 +1067,13 @@ func TestConfig_getFS_UsesSetFS(t *testing.T) {
 func TestConfig_GetDefaultProfiles(t *testing.T) {
 	t.Run("returns defaults.profiles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		scmDir := "/project/.scm"
-		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+		appDir := "/project/.ctxloom"
+		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
 			Defaults: Defaults{Profiles: []string{"dev"}},
 			Profiles: map[string]Profile{},
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			fs:       fs,
 		}
 
@@ -1082,15 +1083,15 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 	t.Run("includes profiles with default true", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		scmDir := "/project/.scm"
-		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+		appDir := "/project/.ctxloom"
+		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
 			Profiles: map[string]Profile{
 				"prod": {Default: true},
 				"dev":  {Default: false},
 			},
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			fs:       fs,
 		}
 
@@ -1101,15 +1102,15 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 	t.Run("no duplicates", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		scmDir := "/project/.scm"
-		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+		appDir := "/project/.ctxloom"
+		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
 			Defaults: Defaults{Profiles: []string{"prod"}},
 			Profiles: map[string]Profile{
 				"prod": {Default: true}, // Same profile also marked default
 			},
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			fs:       fs,
 		}
 
@@ -1125,12 +1126,12 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 	t.Run("returns nil when no defaults", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		scmDir := "/project/.scm"
-		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+		appDir := "/project/.ctxloom"
+		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
 			Profiles: map[string]Profile{},
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			fs:       fs,
 		}
 
@@ -1140,13 +1141,13 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 	t.Run("returns multiple profiles from defaults.profiles array", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		scmDir := "/project/.scm"
-		require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+		appDir := "/project/.ctxloom"
+		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
 			Defaults: Defaults{Profiles: []string{"profile1", "profile2", "profile3"}},
 			Profiles: map[string]Profile{},
-			SCMPaths: []string{scmDir},
+			AppPaths: []string{appDir},
 			fs:       fs,
 		}
 
@@ -1225,7 +1226,7 @@ func TestDefaults_IsDefaultProfile(t *testing.T) {
 
 func TestConfig_GetProfileLoader(t *testing.T) {
 	cfg := &Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 	}
 
 	loader := cfg.GetProfileLoader()
@@ -1381,17 +1382,17 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 	cfg := &Config{
 		Defaults: Defaults{},
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 	}
 
 	result := cfg.ResolveBundleMCPServers()
 	assert.Empty(t, result)
 }
 
-func TestConfig_ResolveBundleMCPServers_NoSCMPaths(t *testing.T) {
+func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 	cfg := &Config{
 		Defaults: Defaults{Profiles: []string{"test"}},
-		SCMPaths: []string{},
+		AppPaths: []string{},
 	}
 
 	result := cfg.ResolveBundleMCPServers()
@@ -1400,12 +1401,12 @@ func TestConfig_ResolveBundleMCPServers_NoSCMPaths(t *testing.T) {
 
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 	cfg := &Config{
 		Defaults: Defaults{Profiles: []string{"nonexistent"}},
-		SCMPaths: []string{scmDir},
+		AppPaths: []string{appDir},
 		fs:       fs,
 	}
 
@@ -1458,7 +1459,7 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 	trueVal := true
 
 	cfg := &Config{
-		SCMPaths: []string{tmpDir},
+		AppPaths: []string{tmpDir},
 		LM: LMConfig{
 			Plugins: map[string]PluginConfig{},
 		},
@@ -1491,7 +1492,7 @@ llm:
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(existingContent), 0644))
 
 	cfg := &Config{
-		SCMPaths: []string{tmpDir},
+		AppPaths: []string{tmpDir},
 		LM: LMConfig{
 			Plugins: map[string]PluginConfig{
 				"claude-code": {},
@@ -1530,7 +1531,7 @@ description: A default profile
 
 	cfg := &Config{
 		Profiles: map[string]Profile{},
-		SCMPaths: []string{tmpDir},
+		AppPaths: []string{tmpDir},
 	}
 
 	defaults := cfg.GetDefaultProfiles()
@@ -1543,18 +1544,18 @@ description: A default profile
 
 func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
 llm:
   plugins: "should be a map not string"
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configContent), 0644))
 
 	// Now returns config with warnings instead of error for resilient startup
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// Should have collected warnings about parse/validation issues
@@ -1593,8 +1594,8 @@ func TestResolveProfile_SessionEndHooks(t *testing.T) {
 func TestResilientStartup_MalformedConfig(t *testing.T) {
 	// Test that malformed config produces warnings but doesn't fail startup
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Create malformed YAML (array where object expected)
 	malformedYAML := `
@@ -1603,9 +1604,9 @@ llm:
     - this is wrong format
     claude-code: {}
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(malformedYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(malformedYAML), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	// Should NOT error
 	assert.NoError(t, err)
@@ -1620,13 +1621,13 @@ llm:
 
 func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Completely unparseable YAML
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte("{{{{invalid"), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte("{{{{invalid"), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -1637,8 +1638,8 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 
 func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(filepath.Join(scmDir, "profiles"), 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 	// Config references a non-existent profile
 	configYAML := `
@@ -1646,9 +1647,9 @@ defaults:
   profiles:
     - nonexistent-profile
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	// Loading should succeed
 	assert.NoError(t, err)
@@ -1662,13 +1663,13 @@ defaults:
 
 func TestResilientStartup_EmptyConfig(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Empty config file - schema validation will warn but not fail
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(""), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(""), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -1678,8 +1679,8 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 
 func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Config with some valid and some invalid parts (unknown property in plugin)
 	// Schema validation may catch this, but we should still not fail
@@ -1692,9 +1693,9 @@ profiles:
   valid-profile:
     description: "This is valid"
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
@@ -1704,20 +1705,321 @@ profiles:
 func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 	// Test that schema validation warnings are collected
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	appDir := "/project/.ctxloom"
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
 llm:
   plugins: invalid-should-be-map
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(scmDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
 
-	cfg, err := Load(WithFS(fs), WithSCMDir(scmDir))
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
 	// Should not error, should have warnings
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
 	// The config struct is valid even if content is wrong
+}
+
+// =============================================================================
+// Compaction Settings Tests
+// =============================================================================
+// Compaction settings control how session logs are compressed for memory.
+
+func TestGetDefaultLLMModel(t *testing.T) {
+	t.Run("returns configured model", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				LLMModel: "sonnet",
+			},
+		}
+		assert.Equal(t, "sonnet", cfg.GetDefaultLLMModel())
+	})
+
+	t.Run("returns empty when not configured", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Empty(t, cfg.GetDefaultLLMModel())
+	})
+}
+
+func TestGetCompactionPlugin(t *testing.T) {
+	t.Run("returns configured compaction plugin", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				CompactionPlugin: "gemini",
+			},
+		}
+		assert.Equal(t, "gemini", cfg.GetCompactionPlugin())
+	})
+
+	t.Run("falls back to LLM plugin", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				LLMPlugin: "codex",
+			},
+		}
+		assert.Equal(t, "codex", cfg.GetCompactionPlugin())
+	})
+
+	t.Run("falls back to claude-code", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Equal(t, "claude-code", cfg.GetCompactionPlugin())
+	})
+}
+
+func TestGetCompactionModel(t *testing.T) {
+	t.Run("returns configured model", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				CompactionModel: "opus",
+			},
+		}
+		assert.Equal(t, "opus", cfg.GetCompactionModel())
+	})
+
+	t.Run("defaults to haiku", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Equal(t, "haiku", cfg.GetCompactionModel())
+	})
+}
+
+func TestGetCompactionChunkSize(t *testing.T) {
+	t.Run("returns configured size", func(t *testing.T) {
+		cfg := &Config{
+			Defaults: Defaults{
+				CompactionChunks: 4000,
+			},
+		}
+		assert.Equal(t, 4000, cfg.GetCompactionChunkSize())
+	})
+
+	t.Run("defaults to 8000", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Equal(t, 8000, cfg.GetCompactionChunkSize())
+	})
+}
+
+// =============================================================================
+// LMConfig Plugin Settings Tests
+// =============================================================================
+
+func TestLMConfig_GetConfiguredPlugins(t *testing.T) {
+	t.Run("returns configured plugins", func(t *testing.T) {
+		lmCfg := &LMConfig{
+			Plugins: map[string]PluginConfig{
+				"claude": {},
+				"gemini": {},
+			},
+		}
+		plugins := lmCfg.GetConfiguredPlugins()
+		assert.Len(t, plugins, 2)
+		assert.Contains(t, plugins, "claude")
+		assert.Contains(t, plugins, "gemini")
+	})
+
+	t.Run("returns default when no plugins configured", func(t *testing.T) {
+		lmCfg := &LMConfig{}
+		plugins := lmCfg.GetConfiguredPlugins()
+		// Falls back to default plugin when none configured
+		assert.Equal(t, []string{"claude-code"}, plugins)
+	})
+}
+
+func TestLMConfig_SetDefaultPlugin(t *testing.T) {
+	// SetDefaultPlugin is deprecated and is a no-op.
+	// We just verify it doesn't panic.
+	lmCfg := &LMConfig{}
+	lmCfg.SetDefaultPlugin("gemini")
+	// No assertion - it's a no-op
+}
+
+// =============================================================================
+// SyncConfig Tests
+// =============================================================================
+
+func TestSyncConfig_ShouldAutoSync(t *testing.T) {
+	t.Run("returns true by default", func(t *testing.T) {
+		cfg := &SyncConfig{}
+		assert.True(t, cfg.ShouldAutoSync())
+	})
+
+	t.Run("returns true for nil config", func(t *testing.T) {
+		var cfg *SyncConfig
+		assert.True(t, cfg.ShouldAutoSync())
+	})
+
+	t.Run("returns false when disabled", func(t *testing.T) {
+		disabled := false
+		cfg := &SyncConfig{AutoSync: &disabled}
+		assert.False(t, cfg.ShouldAutoSync())
+	})
+
+	t.Run("returns true when explicitly enabled", func(t *testing.T) {
+		enabled := true
+		cfg := &SyncConfig{AutoSync: &enabled}
+		assert.True(t, cfg.ShouldAutoSync())
+	})
+}
+
+func TestSyncConfig_ShouldLock(t *testing.T) {
+	t.Run("returns true by default", func(t *testing.T) {
+		cfg := &SyncConfig{}
+		assert.True(t, cfg.ShouldLock())
+	})
+
+	t.Run("returns true for nil config", func(t *testing.T) {
+		var cfg *SyncConfig
+		assert.True(t, cfg.ShouldLock())
+	})
+
+	t.Run("returns false when disabled", func(t *testing.T) {
+		disabled := false
+		cfg := &SyncConfig{Lock: &disabled}
+		assert.False(t, cfg.ShouldLock())
+	})
+}
+
+func TestSyncConfig_ShouldApplyHooks(t *testing.T) {
+	t.Run("returns true by default", func(t *testing.T) {
+		cfg := &SyncConfig{}
+		assert.True(t, cfg.ShouldApplyHooks())
+	})
+
+	t.Run("returns true for nil config", func(t *testing.T) {
+		var cfg *SyncConfig
+		assert.True(t, cfg.ShouldApplyHooks())
+	})
+
+	t.Run("returns false when disabled", func(t *testing.T) {
+		disabled := false
+		cfg := &SyncConfig{ApplyHooks: &disabled}
+		assert.False(t, cfg.ShouldApplyHooks())
+	})
+}
+
+// =============================================================================
+// ContextConfig Tests
+// =============================================================================
+
+func TestContextConfig_GetRegenMode(t *testing.T) {
+	t.Run("returns eager by default", func(t *testing.T) {
+		cfg := &ContextConfig{}
+		assert.Equal(t, ContextRegenEager, cfg.GetRegenMode())
+	})
+
+	t.Run("returns configured mode", func(t *testing.T) {
+		cfg := &ContextConfig{Regeneration: ContextRegenDeferred}
+		assert.Equal(t, ContextRegenDeferred, cfg.GetRegenMode())
+	})
+}
+
+func TestContextConfig_IsDeferred(t *testing.T) {
+	t.Run("returns false by default", func(t *testing.T) {
+		cfg := &ContextConfig{}
+		assert.False(t, cfg.IsDeferred())
+	})
+
+	t.Run("returns true for deferred mode", func(t *testing.T) {
+		cfg := &ContextConfig{Regeneration: ContextRegenDeferred}
+		assert.True(t, cfg.IsDeferred())
+	})
+
+	t.Run("returns false for eager mode", func(t *testing.T) {
+		cfg := &ContextConfig{Regeneration: ContextRegenEager}
+		assert.False(t, cfg.IsDeferred())
+	})
+}
+
+// =============================================================================
+// FragmentRef YAML Serialization Tests
+// =============================================================================
+
+func TestFragmentRef_UnmarshalYAML(t *testing.T) {
+	t.Run("unmarshals string format", func(t *testing.T) {
+		yamlData := `go-style`
+		var ref FragmentRef
+		err := yaml.Unmarshal([]byte(yamlData), &ref)
+		require.NoError(t, err)
+		assert.Equal(t, "go-style", ref.Name)
+		assert.Equal(t, 0, ref.Priority)
+	})
+
+	t.Run("unmarshals struct format with priority", func(t *testing.T) {
+		yamlData := `
+name: testing
+priority: 10
+`
+		var ref FragmentRef
+		err := yaml.Unmarshal([]byte(yamlData), &ref)
+		require.NoError(t, err)
+		assert.Equal(t, "testing", ref.Name)
+		assert.Equal(t, 10, ref.Priority)
+	})
+
+	t.Run("unmarshals struct format without priority", func(t *testing.T) {
+		yamlData := `
+name: my-fragment
+`
+		var ref FragmentRef
+		err := yaml.Unmarshal([]byte(yamlData), &ref)
+		require.NoError(t, err)
+		assert.Equal(t, "my-fragment", ref.Name)
+		assert.Equal(t, 0, ref.Priority)
+	})
+
+	t.Run("unmarshals list of mixed formats", func(t *testing.T) {
+		yamlData := `
+- go-style
+- name: testing
+  priority: 10
+- another-fragment
+`
+		var refs []FragmentRef
+		err := yaml.Unmarshal([]byte(yamlData), &refs)
+		require.NoError(t, err)
+		require.Len(t, refs, 3)
+		assert.Equal(t, "go-style", refs[0].Name)
+		assert.Equal(t, 0, refs[0].Priority)
+		assert.Equal(t, "testing", refs[1].Name)
+		assert.Equal(t, 10, refs[1].Priority)
+		assert.Equal(t, "another-fragment", refs[2].Name)
+	})
+}
+
+func TestFragmentRef_MarshalYAML(t *testing.T) {
+	t.Run("marshals to string when priority is 0", func(t *testing.T) {
+		ref := FragmentRef{Name: "go-style", Priority: 0}
+		result, err := ref.MarshalYAML()
+		require.NoError(t, err)
+		assert.Equal(t, "go-style", result)
+	})
+
+	t.Run("marshals to struct when priority is non-zero", func(t *testing.T) {
+		ref := FragmentRef{Name: "testing", Priority: 10}
+		result, err := ref.MarshalYAML()
+		require.NoError(t, err)
+		// Result should be a struct-like value, not a string
+		assert.NotEqual(t, "testing", result)
+	})
+
+	t.Run("roundtrip preserves data", func(t *testing.T) {
+		original := []FragmentRef{
+			{Name: "simple", Priority: 0},
+			{Name: "prioritized", Priority: 5},
+		}
+		data, err := yaml.Marshal(original)
+		require.NoError(t, err)
+
+		var loaded []FragmentRef
+		err = yaml.Unmarshal(data, &loaded)
+		require.NoError(t, err)
+
+		require.Len(t, loaded, 2)
+		assert.Equal(t, "simple", loaded[0].Name)
+		assert.Equal(t, 0, loaded[0].Priority)
+		assert.Equal(t, "prioritized", loaded[1].Name)
+		assert.Equal(t, 5, loaded[1].Priority)
+	})
 }

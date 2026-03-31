@@ -7,9 +7,10 @@ import (
 
 	"github.com/cbroglie/mustache"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 // Mustache tag types from cbroglie/mustache.
@@ -243,7 +244,7 @@ func substituteVariables(content string, vars map[string]string, warnFunc func(s
 	}
 
 	// Check for undefined variables by walking the parsed tags
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	checkTags(tmpl.Tags(), vars, seen, warnFunc)
 
 	data := make(map[string]interface{})
@@ -261,15 +262,15 @@ func substituteVariables(content string, vars map[string]string, warnFunc func(s
 }
 
 // checkTags recursively walks mustache tags to find undefined variables.
-func checkTags(tags []mustache.Tag, vars map[string]string, seen map[string]bool, warnFunc func(string)) {
+func checkTags(tags []mustache.Tag, vars map[string]string, seen collections.Set[string], warnFunc func(string)) {
 	for _, tag := range tags {
 		name := tag.Name()
 		tagType := tag.Type()
 
 		// Check variable tags and section tags that reference variables
 		if tagType == tagVariable || tagType == tagRawVariable || tagType == tagSection || tagType == tagInvertedSection {
-			if !seen[name] {
-				seen[name] = true
+			if !seen.Has(name) {
+				seen.Add(name)
 				if _, exists := vars[name]; !exists {
 					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))
 				}

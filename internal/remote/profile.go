@@ -85,7 +85,7 @@ func ParseProfileRefs(refs []string, itemType ItemType) []RemoteRef {
 // CheckCached checks if remote refs are cached locally.
 func (p *ProfileDeps) CheckCached(refs []RemoteRef, baseDir string) []RemoteRef {
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 
 	for i := range refs {

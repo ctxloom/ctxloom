@@ -145,8 +145,8 @@ func TestParseReference_HTTPS(t *testing.T) {
 		},
 		{
 			name:     "nested path",
-			input:    "https://github.com/SophisticatedContextManager/scm-github@v1/bundles/golang/testing",
-			wantURL:  "https://github.com/SophisticatedContextManager/scm-github",
+			input:    "https://github.com/ctxloom/ctxloom-github@v1/bundles/golang/testing",
+			wantURL:  "https://github.com/ctxloom/ctxloom-github",
 			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "golang/testing",
@@ -486,36 +486,36 @@ func TestReference_LocalPath(t *testing.T) {
 		{
 			name:     "simple bundle",
 			ref:      Reference{Remote: "alice", Path: "go-tools"},
-			baseDir:  "/home/user/.scm",
+			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.scm/bundles/alice/go-tools.yaml",
+			want:     "/home/user/.ctxloom/bundles/alice/go-tools.yaml",
 		},
 		{
 			name:     "simple profile",
 			ref:      Reference{Remote: "corp", Path: "security"},
-			baseDir:  ".scm",
+			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile,
-			want:     ".scm/profiles/corp/security.yaml",
+			want:     ".ctxloom/profiles/corp/security.yaml",
 		},
 		{
 			name:     "nested path",
 			ref:      Reference{Remote: "alice", Path: "lang/go/testing"},
-			baseDir:  "/home/user/.scm",
+			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.scm/bundles/alice/lang/go/testing.yaml",
+			want:     "/home/user/.ctxloom/bundles/alice/lang/go/testing.yaml",
 		},
 		{
 			name: "canonical HTTPS bundle",
 			ref: Reference{
-				URL:         "https://github.com/SophisticatedContextManager/scm-github",
+				URL:         "https://github.com/ctxloom/ctxloom-github",
 				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
-			baseDir:  ".scm",
+			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile, // Should be ignored for canonical
-			want:     ".scm/bundles/github.com/SophisticatedContextManager/scm-github/core-practices.yaml",
+			want:     ".ctxloom/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
 		},
 		{
 			name: "canonical SSH profile",
@@ -526,9 +526,9 @@ func TestReference_LocalPath(t *testing.T) {
 				Path:        "security",
 				IsCanonical: true,
 			},
-			baseDir:  ".scm",
+			baseDir:  ".ctxloom",
 			itemType: ItemTypeBundle, // Should be ignored for canonical
-			want:     ".scm/profiles/github.com/owner/repo/security.yaml",
+			want:     ".ctxloom/profiles/github.com/owner/repo/security.yaml",
 		},
 	}
 

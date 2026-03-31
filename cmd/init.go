@@ -14,11 +14,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/resources"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 var initCmd = &cobra.Command{
@@ -41,10 +41,10 @@ When run interactively (TTY detected), init will guide you through:
   3. Launching your AI to help discover and configure profiles
 
 Examples:
-  scm init                     # Interactive setup (if TTY)
-  scm init --home              # Initialize in ~/.scm
-  scm init --engine gemini     # Pre-select engine
-  scm init --non-interactive   # Skip all prompts`,
+  ctxloom init                     # Interactive setup (if TTY)
+  ctxloom init --home              # Initialize in ~/.scm
+  ctxloom init --engine gemini     # Pre-select engine
+  ctxloom init --non-interactive   # Skip all prompts`,
 	RunE: runInit,
 }
 
@@ -72,7 +72,7 @@ func isInteractiveTerminal() bool {
 // This keeps session logs local (machine-specific, potentially large).
 func ensureGitignoreEntry(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	memoryEntry := ".scm/memory/"
+	memoryEntry := ".ctxloom/memory/"
 	comment := "# SCM memory (local session data, not shared)"
 
 	// Read existing .gitignore if it exists
@@ -340,8 +340,8 @@ func (p *initPrompts) promptPersonalRepo() (string, error) {
 
 // generateConfig creates a config.yaml with the selected engine and options.
 func generateConfig(engine string) []byte {
-	return []byte(fmt.Sprintf(`# SCM Configuration
-# See https://github.com/SophisticatedContextManager/scm for documentation
+	return []byte(fmt.Sprintf(`# ctxloom Configuration
+# See https://github.com/ctxloom/ctxloom for documentation
 
 # Language model plugin configuration
 llm:
@@ -451,27 +451,27 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	var scmDir string
+	var appDir string
 
 	if initHome {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("failed to get home directory: %w", err)
 		}
-		scmDir = filepath.Join(home, config.SCMDirName)
+		appDir = filepath.Join(home, config.AppDirName)
 	} else {
 		pwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
-		scmDir = filepath.Join(pwd, config.SCMDirName)
+		appDir = filepath.Join(pwd, config.AppDirName)
 	}
 
 	// Check if already exists
 	alreadyExists := false
-	if info, err := os.Stat(scmDir); err == nil && info.IsDir() {
+	if info, err := os.Stat(appDir); err == nil && info.IsDir() {
 		alreadyExists = true
-		fmt.Printf("SCM directory already exists: %s\n", scmDir)
+		fmt.Printf("SCM directory already exists: %s\n", appDir)
 	}
 
 	// Determine if interactive mode
@@ -501,7 +501,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
 				fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
 				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Then run 'scm init' again.")
+				fmt.Fprintln(os.Stderr, "Then run 'ctxloom init' again.")
 				return errNoEngines
 			}
 		}
@@ -542,9 +542,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 		// Create the directory structure
 		dirs := []string{
-			scmDir,
-			filepath.Join(scmDir, "profiles"),
-			filepath.Join(scmDir, "bundles"),
+			appDir,
+			filepath.Join(appDir, "profiles"),
+			filepath.Join(appDir, "bundles"),
 		}
 
 		for _, dir := range dirs {
@@ -554,14 +554,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create config.yaml with selected engine and options
-		configPath := filepath.Join(scmDir, "config.yaml")
+		configPath := filepath.Join(appDir, "config.yaml")
 		configContent := generateConfig(selectedEngine)
 		if err := os.WriteFile(configPath, configContent, 0644); err != nil {
 			return fmt.Errorf("failed to create config.yaml: %w", err)
 		}
 
 		// Create remotes.yaml with default remote (scm-main)
-		remotesPath := filepath.Join(scmDir, "remotes.yaml")
+		remotesPath := filepath.Join(appDir, "remotes.yaml")
 		remotesContent, err := resources.GetDefaultRemotes()
 		if err != nil {
 			return fmt.Errorf("failed to read default remotes: %w", err)
@@ -570,7 +570,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create remotes.yaml: %w", err)
 		}
 
-		fmt.Printf("Initialized SCM directory: %s\n", scmDir)
+		fmt.Printf("Initialized SCM directory: %s\n", appDir)
 		fmt.Printf("Default AI engine: %s\n", selectedEngine)
 
 		// Add personal remote if provided
@@ -607,8 +607,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Update .gitignore to exclude .scm/memory/ (session logs)
-		if err := ensureGitignoreEntry(filepath.Dir(scmDir)); err != nil {
+		// Update .gitignore to exclude .ctxloom/memory/ (session logs)
+		if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
 			fmt.Fprintf(os.Stderr, "SCM: warning: failed to update .gitignore: %v\n", err)
 		}
 	}
@@ -633,7 +633,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Println("(Use Ctrl+C to exit the AI session when done)")
 		fmt.Println()
 
-		workDir := filepath.Dir(scmDir)
+		workDir := filepath.Dir(appDir)
 		if launchErr := launchEngineWithPrompt(cmd.Context(), selectedEngine, workDir); launchErr != nil {
 			fmt.Fprintf(os.Stderr, "SCM: warning: %v\n", launchErr)
 		}

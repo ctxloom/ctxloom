@@ -1,0 +1,8 @@
+# Coverage ignore patterns (one regex per line)
+# These patterns are applied to coverage output to exclude generated code
+
+# Generated protobuf files
+\.pb\.go:
+
+# Generated gRPC files
+_grpc\.pb\.go:

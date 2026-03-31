@@ -5,14 +5,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var lockCmd = &cobra.Command{
 	Use:    "lock",
 	Short:  "Generate lockfile from installed items",
-	Hidden: true, // Use 'scm remote lock' instead
-	Long: `Generate a lockfile (.scm/lock.yaml) from currently installed remote items.
+	Hidden: true, // Use 'ctxloom remote lock' instead
+	Long: `Generate a lockfile (.ctxloom/lock.yaml) from currently installed remote items.
 
 The lockfile records exact versions (SHA commits) of all installed bundles and
 profiles, enabling reproducible installations across machines and CI environments.
@@ -21,12 +21,12 @@ After modifying your installed items, run 'scm lock' to update the lockfile.
 Commit the lockfile to version control for reproducible builds.
 
 Related commands:
-  scm install              Install all items from lockfile
-  scm update               Check for and apply updates
+  ctxloom install              Install all items from lockfile
+  ctxloom update               Check for and apply updates
 
 Examples:
-  scm lock                 Generate/update lockfile
-  scm install              Install all from lockfile`,
+  ctxloom lock                 Generate/update lockfile
+  ctxloom install              Install all from lockfile`,
 	RunE: runLock,
 }
 
@@ -43,7 +43,7 @@ func runLock(cmd *cobra.Command, args []string) error {
 
 	if result.Status == "empty" {
 		fmt.Println("No remote items with source metadata found.")
-		fmt.Println("Install items with: scm install <remote>/<name>")
+		fmt.Println("Install items with: ctxloom install <remote>/<name>")
 		return nil
 	}
 

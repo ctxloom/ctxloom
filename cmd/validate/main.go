@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SophisticatedContextManager/scm/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func run() error {
 
 	// Validate any config.yaml files if they exist
 	configPaths := []string{
-		".scm/config.yaml",
+		".ctxloom/config.yaml",
 	}
 
 	for _, configPath := range configPaths {

@@ -10,7 +10,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // Prompt represents a YAML-based prompt with metadata and content.
@@ -102,7 +103,7 @@ func (l *Loader) Find(name string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("prompt not found: %s", name)
+	return "", fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
 }
 
 // Load reads and parses a prompt by name.

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
-project_name: scm
+project_name: ctxloom
 
 before:
   hooks:
@@ -11,9 +11,9 @@ before:
 builds:
   # Standard build - includes memory and vectors (no CGO required)
   # Recommended for most users
-  - id: scm
+  - id: ctxloom
     main: ./main.go
-    binary: scm
+    binary: ctxloom
     tags:
       - memory
       - vectors
@@ -27,13 +27,13 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
 
   # Full build - includes memory, vectors, and tree-sitter (31MB)
   # Requires CGO and cross-compilers
-  - id: scm-full
+  - id: ctxloom-full
     main: ./main.go
-    binary: scm
+    binary: ctxloom
     tags:
       - memory
       - vectors
@@ -62,17 +62,17 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
 
 # UPX compression for smaller binaries
 upx:
-  - ids: [scm]
+  - ids: [ctxloom]
     enabled: true
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true
-  - ids: [scm-full]
+  - ids: [ctxloom-full]
     enabled: true
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
@@ -87,7 +87,7 @@ archives:
       - goos: windows
         format: zip
     builds:
-      - scm
+      - ctxloom
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -105,7 +105,7 @@ archives:
       - goos: windows
         format: zip
     builds:
-      - scm-full
+      - ctxloom-full
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -134,22 +134,22 @@ changelog:
 
 release:
   github:
-    owner: SophisticatedContextManager
-    name: scm
+    owner: ctxloom
+    name: ctxloom
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
   header: |
-    ## SCM v{{.Version}}
+    ## ctxloom v{{.Version}}
 
-    Sophisticated Context Management - Manage context fragments for AI coding assistants.
+    Context Loom - Weave context for AI coding agents.
 
     ### Which Build?
 
     | Build | Size | Features |
     |-------|------|----------|
-    | **Standard** (`scm_*`) | ~10MB | Memory, vector search (simple embedder) |
-    | **Full** (`scm_*_full`) | ~12MB | + Tree-sitter AST code compression |
+    | **Standard** (`ctxloom_*`) | ~10MB | Memory, vector search (simple embedder) |
+    | **Full** (`ctxloom_*_full`) | ~12MB | + Tree-sitter AST code compression |
 
     Both builds include memory logging and semantic search.
     The full build adds AST-based code compression (requires CGO).
@@ -158,7 +158,7 @@ release:
 
     **Go Install:**
     ```bash
-    go install github.com/SophisticatedContextManager/scm@v{{.Version}}
+    go install github.com/ctxloom/ctxloom@v{{.Version}}
     ```
 
     **Manual Download:**

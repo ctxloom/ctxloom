@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ctxloom": {
+      "command": "/usr/bin/scm",
+      "args": [
+        "mcp"
+      ],
+      "cwd": "${CLAUDE_PROJECT_DIR}",
+      "_scm": "scm-auto"
+    }
+  }
+}

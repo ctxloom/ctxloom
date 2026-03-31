@@ -12,8 +12,8 @@ import (
 )
 
 func TestVendorManager_VendorDir(t *testing.T) {
-	manager := NewVendorManager(".scm")
-	expected := filepath.Join(".scm", "vendor")
+	manager := NewVendorManager(".ctxloom")
+	expected := filepath.Join(".ctxloom", "vendor")
 
 	if got := manager.VendorDir(); got != expected {
 		t.Errorf("VendorDir() = %q, want %q", got, expected)
@@ -22,7 +22,7 @@ func TestVendorManager_VendorDir(t *testing.T) {
 
 func TestVendorManager_DefaultBaseDir(t *testing.T) {
 	manager := NewVendorManager("")
-	expected := filepath.Join(".scm", "vendor")
+	expected := filepath.Join(".ctxloom", "vendor")
 
 	if got := manager.VendorDir(); got != expected {
 		t.Errorf("VendorDir() = %q, want %q", got, expected)
@@ -157,27 +157,27 @@ func TestVendorManager_DifferentItemTypes(t *testing.T) {
 
 func TestVendorManager_IsVendored(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	manager := NewVendorManager(".scm", WithVendorFS(fs))
+	manager := NewVendorManager(".ctxloom", WithVendorFS(fs))
 
 	t.Run("returns false when no config exists", func(t *testing.T) {
 		assert.False(t, manager.IsVendored())
 	})
 
 	t.Run("returns false when vendor not set", func(t *testing.T) {
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("remotes: {}\n"), 0644))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("remotes: {}\n"), 0644))
 
 		assert.False(t, manager.IsVendored())
 	})
 
 	t.Run("returns true when vendor enabled", func(t *testing.T) {
-		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("vendor: true\n"), 0644))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("vendor: true\n"), 0644))
 
 		assert.True(t, manager.IsVendored())
 	})
 
 	t.Run("returns false for invalid YAML", func(t *testing.T) {
-		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("invalid: yaml: [["), 0644))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("invalid: yaml: [["), 0644))
 
 		assert.False(t, manager.IsVendored())
 	})
@@ -186,42 +186,42 @@ func TestVendorManager_IsVendored(t *testing.T) {
 func TestVendorManager_SetVendorMode(t *testing.T) {
 	t.Run("enables vendor mode", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		manager := NewVendorManager(".scm", WithVendorFS(fs))
+		manager := NewVendorManager(".ctxloom", WithVendorFS(fs))
 
 		err := manager.SetVendorMode(true)
 		require.NoError(t, err)
 
-		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		content, err := afero.ReadFile(fs, ".ctxloom/remotes.yaml")
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "vendor: true")
 	})
 
 	t.Run("disables vendor mode", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("vendor: true\nremotes: {}\n"), 0644))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("vendor: true\nremotes: {}\n"), 0644))
 
-		manager := NewVendorManager(".scm", WithVendorFS(fs))
+		manager := NewVendorManager(".ctxloom", WithVendorFS(fs))
 
 		err := manager.SetVendorMode(false)
 		require.NoError(t, err)
 
-		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		content, err := afero.ReadFile(fs, ".ctxloom/remotes.yaml")
 		require.NoError(t, err)
 		assert.NotContains(t, string(content), "vendor")
 	})
 
 	t.Run("preserves existing config", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".scm/remotes.yaml", []byte("remotes:\n  alice:\n    url: https://github.com/alice/scm\n"), 0644))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("remotes:\n  alice:\n    url: https://github.com/alice/scm\n"), 0644))
 
-		manager := NewVendorManager(".scm", WithVendorFS(fs))
+		manager := NewVendorManager(".ctxloom", WithVendorFS(fs))
 
 		err := manager.SetVendorMode(true)
 		require.NoError(t, err)
 
-		content, err := afero.ReadFile(fs, ".scm/remotes.yaml")
+		content, err := afero.ReadFile(fs, ".ctxloom/remotes.yaml")
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "vendor: true")
 		assert.Contains(t, string(content), "remotes")

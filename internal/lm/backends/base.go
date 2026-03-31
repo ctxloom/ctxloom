@@ -8,9 +8,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/ptyrunner"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/ptyrunner"
 )
 
 // BaseBackend provides common functionality for all AI backends.

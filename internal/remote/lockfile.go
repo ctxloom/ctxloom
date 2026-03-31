@@ -33,7 +33,7 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 // If baseDir is empty, uses the current directory's .scm folder.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
-		baseDir = ".scm"
+		baseDir = ".ctxloom"
 	}
 	m := &LockfileManager{
 		baseDir: baseDir,

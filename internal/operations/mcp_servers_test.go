@@ -18,7 +18,7 @@
 //
 // Tests use two patterns for config injection:
 //   - TestConfig: Passes an in-memory config struct (for unit tests)
-//   - FS + SCMDir: Passes a virtual filesystem and path (for integration tests)
+//   - FS + AppDir: Passes a virtual filesystem and path (for integration tests)
 //
 // Both patterns avoid touching the real filesystem or user's SCM config.
 //
@@ -37,7 +37,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // TestMCPServerEntry_Fields verifies the MCPServerEntry struct stores all
@@ -246,7 +246,7 @@ func TestMCPBackendValues(t *testing.T) {
 // backend-specific locations for testing queries and sorting.
 func createTestMCPConfig() *config.Config {
 	return &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServer{
 				"filesystem": {
@@ -397,7 +397,7 @@ func TestListMCPServers_QueryBackendServerByName(t *testing.T) {
 
 func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: make(map[string]config.MCPServer),
 		},
@@ -422,7 +422,7 @@ func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 
 func TestAddMCPServer_SpecificBackend(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: make(map[string]config.MCPServer),
 			Plugins: make(map[string]map[string]config.MCPServer),
@@ -448,7 +448,7 @@ func TestAddMCPServer_SpecificBackend(t *testing.T) {
 // TestAddMCPServer_ValidationErrors verifies that required fields are enforced.
 // Both name and command are required - the server won't function without them.
 func TestAddMCPServer_ValidationErrors(t *testing.T) {
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	tests := []struct {
 		name        string
@@ -492,7 +492,7 @@ func TestAddMCPServer_ValidationErrors(t *testing.T) {
 // fails when adding to the same location where the name already exists.
 func TestAddMCPServer_AlreadyExists(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServer{
 				"existing": {Command: "npx"},
@@ -512,7 +512,7 @@ func TestAddMCPServer_AlreadyExists(t *testing.T) {
 
 func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Plugins: map[string]map[string]config.MCPServer{
 				"claude-code": {
@@ -543,7 +543,7 @@ func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	// Test that nil Plugins map is initialized
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP:      config.MCPConfig{}, // No Plugins map
 	}
 
@@ -564,7 +564,7 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 
 func TestRemoveMCPServer_FromUnified(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServer{
 				"to-remove": {Command: "npx"},
@@ -589,7 +589,7 @@ func TestRemoveMCPServer_FromUnified(t *testing.T) {
 
 func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Plugins: map[string]map[string]config.MCPServer{
 				"claude-code": {
@@ -616,7 +616,7 @@ func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
 }
 
 func TestRemoveMCPServer_ValidationError(t *testing.T) {
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := RemoveMCPServer(context.Background(), cfg, RemoveMCPServerRequest{
 		Name:       "",
@@ -629,7 +629,7 @@ func TestRemoveMCPServer_ValidationError(t *testing.T) {
 
 func TestRemoveMCPServer_NotFound(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: make(map[string]config.MCPServer),
 		},
@@ -654,7 +654,7 @@ func TestRemoveMCPServer_NotFound(t *testing.T) {
 // which can be more than one location.
 func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServer{
 				"multi-server": {Command: "unified-cmd"},
@@ -699,7 +699,7 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 
 func TestSetMCPAutoRegister_Enable(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP:      config.MCPConfig{},
 	}
 
@@ -718,7 +718,7 @@ func TestSetMCPAutoRegister_Enable(t *testing.T) {
 func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	enabled := true
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
 			AutoRegisterSCM: &enabled,
 		},
@@ -738,19 +738,19 @@ func TestSetMCPAutoRegister_Disable(t *testing.T) {
 
 func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
+	appDir := "/project/.ctxloom"
 
 	// Create config directory and file
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 `
-	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte(configContent), 0644))
 
 	result, err := SetMCPAutoRegister(context.Background(), nil, SetMCPAutoRegisterRequest{
 		Enabled: true,
 		FS:      fs,
-		SCMDir:  scmDir,
+		AppDir:  appDir,
 	})
 
 	require.NoError(t, err)
@@ -758,7 +758,7 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 	assert.True(t, result.AutoRegister)
 
 	// Verify the config was saved to the filesystem
-	data, err := afero.ReadFile(fs, scmDir+"/config.yaml")
+	data, err := afero.ReadFile(fs, appDir+"/config.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "auto_register_scm: true")
 }
@@ -767,28 +767,28 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 // Filesystem-based integration tests
 // ==========================================================================
 //
-// The following tests use FS + SCMDir injection to test the full save/load
+// The following tests use FS + AppDir injection to test the full save/load
 // cycle with a virtual filesystem. This verifies that config changes are
 // properly persisted to YAML.
 
 // TestAddMCPServer_WithFS verifies the complete add flow including config save.
 func TestAddMCPServer_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
+	appDir := "/project/.ctxloom"
 
 	// Create config directory and file
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 `
-	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte(configContent), 0644))
 
 	result, err := AddMCPServer(context.Background(), nil, AddMCPServerRequest{
 		Name:    "test-server",
 		Command: "npx",
 		Args:    []string{"@test/server"},
 		FS:      fs,
-		SCMDir:  scmDir,
+		AppDir:  appDir,
 	})
 
 	require.NoError(t, err)
@@ -797,7 +797,7 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Equal(t, "npx", result.Command)
 
 	// Verify the config was saved to the filesystem
-	data, err := afero.ReadFile(fs, scmDir+"/config.yaml")
+	data, err := afero.ReadFile(fs, appDir+"/config.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "test-server")
 	assert.Contains(t, string(data), "npx")
@@ -813,18 +813,18 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 // This is core to SCM's philosophy: never block the user from their LLM.
 func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
+	appDir := "/project/.ctxloom"
 
 	// Create config directory with invalid YAML
 	// With resilient startup, this will load an empty config with warnings, not fail
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
 
 	result, err := AddMCPServer(context.Background(), nil, AddMCPServerRequest{
 		Name:    "test-server",
 		Command: "npx",
 		FS:      fs,
-		SCMDir:  scmDir,
+		AppDir:  appDir,
 	})
 
 	// With resilient startup, this now succeeds - config loads with warnings
@@ -837,10 +837,10 @@ func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 
 func TestRemoveMCPServer_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
+	appDir := "/project/.ctxloom"
 
 	// Create config with an existing server
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 mcp:
@@ -850,12 +850,12 @@ mcp:
       args:
         - "@existing/server"
 `
-	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte(configContent), 0644))
 
 	result, err := RemoveMCPServer(context.Background(), nil, RemoveMCPServerRequest{
 		Name:   "existing-server",
 		FS:     fs,
-		SCMDir: scmDir,
+		AppDir: appDir,
 	})
 
 	require.NoError(t, err)
@@ -863,24 +863,24 @@ mcp:
 	assert.Equal(t, "existing-server", result.Name)
 
 	// Verify the server was removed from the config file
-	data, err := afero.ReadFile(fs, scmDir+"/config.yaml")
+	data, err := afero.ReadFile(fs, appDir+"/config.yaml")
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "existing-server")
 }
 
 func TestRemoveMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	scmDir := "/project/.scm"
+	appDir := "/project/.ctxloom"
 
 	// Create config directory with invalid YAML
 	// With resilient startup, this will load an empty config with warnings
-	require.NoError(t, fs.MkdirAll(scmDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, scmDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, appDir+"/config.yaml", []byte("{{invalid yaml"), 0644))
 
 	_, err := RemoveMCPServer(context.Background(), nil, RemoveMCPServerRequest{
 		Name:   "test-server",
 		FS:     fs,
-		SCMDir: scmDir,
+		AppDir: appDir,
 	})
 
 	// With resilient startup, config loads successfully but server won't exist

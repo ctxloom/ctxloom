@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,7 +17,7 @@ import (
 // All built-in backends must be registered and retrievable by name.
 
 func TestRegistry_GetBuiltinBackends(t *testing.T) {
-	// Every supported backend must be registered for `scm run` to work
+	// Every supported backend must be registered for `ctxloom run` to work
 	builtinNames := []string{
 		"claude-code",
 		"gemini",
@@ -98,4 +98,36 @@ func TestApplyPluginConfig(t *testing.T) {
 		ApplyPluginConfig(backend, config)
 		assert.NotNil(t, backend)
 	})
+}
+
+func TestContextFileName(t *testing.T) {
+	t.Run("returns context file name for registered backend", func(t *testing.T) {
+		fileName := ContextFileName("claude-code")
+		// Claude Code uses CLAUDE.md
+		assert.Equal(t, "CLAUDE.md", fileName)
+	})
+
+	t.Run("returns empty for non-existent backend", func(t *testing.T) {
+		fileName := ContextFileName("nonexistent")
+		assert.Equal(t, "", fileName)
+	})
+
+	t.Run("returns gemini context file name", func(t *testing.T) {
+		fileName := ContextFileName("gemini")
+		assert.Equal(t, "GEMINI.md", fileName)
+	})
+}
+
+func TestContextFileNames(t *testing.T) {
+	fileNames := ContextFileNames()
+
+	// Should include backends with non-empty context files
+	assert.Contains(t, fileNames, "claude-code")
+	assert.Contains(t, fileNames, "gemini")
+	assert.Equal(t, "CLAUDE.md", fileNames["claude-code"])
+	assert.Equal(t, "GEMINI.md", fileNames["gemini"])
+
+	// Mock has empty context file name, should not be included
+	_, hasMock := fileNames["mock"]
+	assert.False(t, hasMock)
 }

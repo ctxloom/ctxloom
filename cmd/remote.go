@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/operations"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var remoteCmd = &cobra.Command{
@@ -18,20 +18,20 @@ Remote sources are Git repositories (GitHub/GitLab) containing shared
 bundles and profiles.
 
 Registry:
-  scm remote list                    List configured remotes
-  scm remote add <name> <url>        Register a remote
-  scm remote rm <name>               Remove a remote
-  scm remote default [name]          Get/set default remote
+  ctxloom remote list                    List configured remotes
+  ctxloom remote add <name> <url>        Register a remote
+  ctxloom remote rm <name>               Remove a remote
+  ctxloom remote default [name]          Get/set default remote
 
 Discovery:
-  scm remote search <query>          Search for bundles/profiles
-  scm remote browse <remote>         Browse a remote's contents
-  scm remote discover                Find SCM repositories
+  ctxloom remote search <query>          Search for bundles/profiles
+  ctxloom remote browse <remote>         Browse a remote's contents
+  ctxloom remote discover                Find SCM repositories
 
 Examples:
-  scm remote add alice alice/scm
-  scm remote search "golang testing"
-  scm remote browse scm-main`,
+  ctxloom remote add alice alice/scm
+  ctxloom remote search "golang testing"
+  ctxloom remote browse scm-main`,
 }
 
 var remoteAddCmd = &cobra.Command{
@@ -46,8 +46,8 @@ URL formats:
   git@github.com:alice/scm.git   SSH URL (converted to HTTPS)
 
 Examples:
-  scm remote add alice alice/scm
-  scm remote add corp https://gitlab.com/corp/scm`,
+  ctxloom remote add alice alice/scm
+  ctxloom remote add corp https://gitlab.com/corp/scm`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -112,8 +112,8 @@ var remoteListCmd = &cobra.Command{
 
 		if result.Count == 0 {
 			fmt.Println("No remotes configured.")
-			fmt.Println("Use 'scm remote add <name> <url>' to add a remote.")
-			fmt.Println("Use 'scm remote discover' to find public repositories.")
+			fmt.Println("Use 'ctxloom remote add <name> <url>' to add a remote.")
+			fmt.Println("Use 'ctxloom remote discover' to find public repositories.")
 			return nil
 		}
 
@@ -140,9 +140,9 @@ With a name, sets that remote as the default.
 Use --clear to remove the default.
 
 Examples:
-  scm remote default              # Show current default
-  scm remote default scm-main   # Set default to scm-main
-  scm remote default --clear      # Clear the default`,
+  ctxloom remote default              # Show current default
+  ctxloom remote default scm-main   # Set default to scm-main
+  ctxloom remote default --clear      # Clear the default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRemoteDefault,
 }
@@ -169,7 +169,7 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 		defaultRemote := registry.GetDefault()
 		if defaultRemote == "" {
 			fmt.Println("No default remote set.")
-			fmt.Println("Set one with: scm remote default <name>")
+			fmt.Println("Set one with: ctxloom remote default <name>")
 		} else {
 			fmt.Printf("Default remote: %s\n", defaultRemote)
 		}
@@ -200,9 +200,9 @@ This fetches all remote dependencies declared in your profiles, updates
 the lockfile, and applies hooks.
 
 Examples:
-  scm remote sync                    # Sync all dependencies
-  scm remote sync --force            # Re-pull even if already installed
-  scm remote sync --no-lock          # Skip lockfile update`,
+  ctxloom remote sync                    # Sync all dependencies
+  ctxloom remote sync --force            # Re-pull even if already installed
+  ctxloom remote sync --no-lock          # Skip lockfile update`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 func TestGetBaseDir_UsesConfigPath(t *testing.T) {
@@ -22,22 +22,22 @@ func TestGetBaseDir_UsesConfigPath(t *testing.T) {
 		{
 			name:     "nil config uses default",
 			cfg:      nil,
-			expected: ".scm",
+			expected: ".ctxloom",
 		},
 		{
-			name:     "empty SCMPaths uses default",
-			cfg:      &config.Config{SCMPaths: []string{}},
-			expected: ".scm",
+			name:     "empty AppPaths uses default",
+			cfg:      &config.Config{AppPaths: []string{}},
+			expected: ".ctxloom",
 		},
 		{
 			name:     "uses first SCM path from config",
-			cfg:      &config.Config{SCMPaths: []string{"/project/.scm", "/home/user/.scm"}},
-			expected: "/project/.scm",
+			cfg:      &config.Config{AppPaths: []string{"/project/.ctxloom", "/home/user/.ctxloom"}},
+			expected: "/project/.ctxloom",
 		},
 		{
 			name:     "single SCM path",
-			cfg:      &config.Config{SCMPaths: []string{"/my/project/.scm"}},
-			expected: "/my/project/.scm",
+			cfg:      &config.Config{AppPaths: []string{"/my/project/.ctxloom"}},
+			expected: "/my/project/.ctxloom",
 		},
 	}
 
@@ -164,7 +164,7 @@ func TestRepoEntry_Fields(t *testing.T) {
 		Stars:       42,
 		URL:         "https://github.com/testowner/testrepo",
 		Forge:       "github",
-		AddCommand:  "scm remote add testowner testowner/testrepo",
+		AddCommand:  "ctxloom remote add testowner testowner/testrepo",
 	}
 
 	assert.Equal(t, "testowner", entry.Owner)
@@ -173,7 +173,7 @@ func TestRepoEntry_Fields(t *testing.T) {
 	assert.Equal(t, 42, entry.Stars)
 	assert.Equal(t, "https://github.com/testowner/testrepo", entry.URL)
 	assert.Equal(t, "github", entry.Forge)
-	assert.Contains(t, entry.AddCommand, "scm remote add")
+	assert.Contains(t, entry.AddCommand, "ctxloom remote add")
 }
 
 func TestBrowseItemEntry_Fields(t *testing.T) {
@@ -197,9 +197,9 @@ func TestBrowseItemEntry_Fields(t *testing.T) {
 func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/project/.scm", 0755)
+	_ = fs.MkdirAll("/project/.ctxloom", 0755)
 
-	registry, err := remote.NewRegistry("/project/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	return registry, fs
@@ -239,16 +239,16 @@ func TestListRemotes_WithRemotes(t *testing.T) {
 
 func TestListRemotes_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
 
 	// Create remotes.yaml with existing remotes
 	remotesContent := `remotes:
   test-remote:
     url: https://github.com/test/scm
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.scm/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
 
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListRemotes(context.Background(), cfg, ListRemotesRequest{
 		FS: fs,
@@ -261,9 +261,9 @@ func TestListRemotes_WithFS(t *testing.T) {
 
 func TestAddRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
 
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "scm")
 
 	result, err := AddRemote(context.Background(), cfg, AddRemoteRequest{
@@ -278,22 +278,22 @@ func TestAddRemote_WithFS(t *testing.T) {
 	assert.Equal(t, "alice", result.Name)
 
 	// Verify remote was written to FS
-	exists, _ := afero.Exists(fs, "/project/.scm/remotes.yaml")
+	exists, _ := afero.Exists(fs, "/project/.ctxloom/remotes.yaml")
 	assert.True(t, exists)
 }
 
 func TestRemoveRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
 
 	// Create remotes.yaml with existing remote
 	remotesContent := `remotes:
   to-remove:
     url: https://github.com/test/scm
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.scm/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
 
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := RemoveRemote(context.Background(), cfg, RemoveRemoteRequest{
 		Name: "to-remove",
@@ -559,7 +559,7 @@ func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Repositories, 1)
-	assert.Equal(t, "scm remote add alice alice/scm", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote add alice alice/scm", result.Repositories[0].AddCommand)
 }
 
 func TestBrowseRemote_Bundles(t *testing.T) {

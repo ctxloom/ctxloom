@@ -158,8 +158,8 @@ func TestProfileDeps_CheckCached(t *testing.T) {
 	})
 
 	t.Run("uses default base dir", func(t *testing.T) {
-		require.NoError(t, fs.MkdirAll(".scm/bundles/alice", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".scm/bundles/alice/security.yaml", []byte("test\n"), 0644))
+		require.NoError(t, fs.MkdirAll(".ctxloom/bundles/alice", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/bundles/alice/security.yaml", []byte("test\n"), 0644))
 
 		deps := NewProfileDeps(registry, AuthConfig{}, WithProfileDepsFS(fs))
 

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 func TestContains(t *testing.T) {
@@ -123,7 +123,7 @@ func TestProfileEntry_Fields(t *testing.T) {
 		Tags:        []string{"test"},
 		Bundles:     []string{"bundle1", "bundle2"},
 		Default:     true,
-		Path:        "/project/.scm/profiles/my-profile.yaml",
+		Path:        "/project/.ctxloom/profiles/my-profile.yaml",
 	}
 
 	assert.Equal(t, "my-profile", entry.Name)
@@ -228,7 +228,7 @@ func TestCreateProfileResult_Fields(t *testing.T) {
 	result := CreateProfileResult{
 		Status:  "created",
 		Profile: "my-profile",
-		Path:    "/project/.scm/profiles/my-profile.yaml",
+		Path:    "/project/.ctxloom/profiles/my-profile.yaml",
 	}
 
 	assert.Equal(t, "created", result.Status)
@@ -264,7 +264,7 @@ func TestUpdateProfileResult_Fields(t *testing.T) {
 		Status:  "updated",
 		Profile: "my-profile",
 		Changes: []string{"added parent: base", "added tag: test"},
-		Path:    "/project/.scm/profiles/my-profile.yaml",
+		Path:    "/project/.ctxloom/profiles/my-profile.yaml",
 	}
 
 	assert.Equal(t, "updated", result.Status)
@@ -324,7 +324,7 @@ func TestDeleteProfileResult_Fields(t *testing.T) {
 
 func TestProfileLoader_UsesConfigPaths(t *testing.T) {
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 	}
 
 	loader := profileLoader(cfg)
@@ -338,7 +338,7 @@ func setupProfileTestFS(t *testing.T) (afero.Fs, *profiles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create profiles directory
-	_ = fs.MkdirAll("/project/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/project/.ctxloom/profiles", 0755)
 
 	// Create test profiles
 	baseProfile := `description: Base development profile
@@ -348,7 +348,7 @@ tags:
 bundles:
   - core
 `
-	_ = afero.WriteFile(fs, "/project/.scm/profiles/base.yaml", []byte(baseProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.ctxloom/profiles/base.yaml", []byte(baseProfile), 0644)
 
 	goDevProfile := `description: Go developer profile
 parents:
@@ -362,7 +362,7 @@ bundles:
 variables:
   GOPROXY: "https://proxy.golang.org"
 `
-	_ = afero.WriteFile(fs, "/project/.scm/profiles/go-developer.yaml", []byte(goDevProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.ctxloom/profiles/go-developer.yaml", []byte(goDevProfile), 0644)
 
 	frontendProfile := `description: Frontend developer profile
 tags:
@@ -372,15 +372,15 @@ bundles:
   - react
   - typescript
 `
-	_ = afero.WriteFile(fs, "/project/.scm/profiles/frontend.yaml", []byte(frontendProfile), 0644)
+	_ = afero.WriteFile(fs, "/project/.ctxloom/profiles/frontend.yaml", []byte(frontendProfile), 0644)
 
-	loader := profiles.NewLoader([]string{"/project/.scm/profiles"}, profiles.WithFS(fs))
+	loader := profiles.NewLoader([]string{"/project/.ctxloom/profiles"}, profiles.WithFS(fs))
 	return fs, loader
 }
 
 func TestListProfiles_AllProfiles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Loader: loader,
@@ -393,7 +393,7 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 
 func TestListProfiles_WithQuery(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "go",
@@ -415,7 +415,7 @@ func TestListProfiles_WithQuery(t *testing.T) {
 
 func TestListProfiles_SortByName(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -434,7 +434,7 @@ func TestListProfiles_SortByName(t *testing.T) {
 
 func TestListProfiles_SortDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		SortBy:    "name",
@@ -454,7 +454,7 @@ func TestListProfiles_SortDescending(t *testing.T) {
 func TestListProfiles_SortByDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
@@ -474,7 +474,7 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
@@ -495,7 +495,7 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 
 func TestListProfiles_QueryByDescription(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
 		Query:  "Go developer",
@@ -516,7 +516,7 @@ func TestListProfiles_QueryByDescription(t *testing.T) {
 
 func TestGetProfile_Success(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "go-developer",
@@ -543,7 +543,7 @@ func TestGetProfile_ValidationError(t *testing.T) {
 
 func TestGetProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := GetProfile(context.Background(), cfg, GetProfileRequest{
 		Name:   "nonexistent-profile",
@@ -556,7 +556,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 
 func TestCreateProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "new-profile",
@@ -578,7 +578,7 @@ func TestCreateProfile_Success(t *testing.T) {
 
 func TestCreateProfile_ValidationError(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "",
@@ -591,7 +591,7 @@ func TestCreateProfile_ValidationError(t *testing.T) {
 
 func TestCreateProfile_AlreadyExists(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:   "base",
@@ -604,7 +604,7 @@ func TestCreateProfile_AlreadyExists(t *testing.T) {
 
 func TestCreateProfile_WithParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:        "child-profile",
@@ -619,7 +619,7 @@ func TestCreateProfile_WithParents(t *testing.T) {
 
 func TestCreateProfile_ParentNotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "orphan-profile",
@@ -634,7 +634,7 @@ func TestCreateProfile_ParentNotFound(t *testing.T) {
 
 func TestCreateProfile_SetDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "default-profile",
@@ -654,7 +654,7 @@ func TestCreateProfile_SetDefault(t *testing.T) {
 
 func TestUpdateProfile_AddTags(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "base",
@@ -669,7 +669,7 @@ func TestUpdateProfile_AddTags(t *testing.T) {
 
 func TestUpdateProfile_RemoveTags(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -684,7 +684,7 @@ func TestUpdateProfile_RemoveTags(t *testing.T) {
 
 func TestUpdateProfile_AddBundles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -699,7 +699,7 @@ func TestUpdateProfile_AddBundles(t *testing.T) {
 
 func TestUpdateProfile_AddParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	// Frontend profile doesn't have base as parent, add it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -715,7 +715,7 @@ func TestUpdateProfile_AddParents(t *testing.T) {
 
 func TestUpdateProfile_UpdateDescription(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	newDesc := "Updated description"
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -731,7 +731,7 @@ func TestUpdateProfile_UpdateDescription(t *testing.T) {
 
 func TestUpdateProfile_NoChanges(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:   "base",
@@ -753,7 +753,7 @@ func TestUpdateProfile_ValidationError(t *testing.T) {
 
 func TestUpdateProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:    "nonexistent",
@@ -767,7 +767,7 @@ func TestUpdateProfile_NotFound(t *testing.T) {
 
 func TestUpdateProfile_ParentNotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",
@@ -782,7 +782,7 @@ func TestUpdateProfile_ParentNotFound(t *testing.T) {
 
 func TestUpdateProfile_RemoveParents(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	// First add a parent to base, then remove it
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -805,7 +805,7 @@ func TestUpdateProfile_RemoveParents(t *testing.T) {
 
 func TestUpdateProfile_RemoveBundles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	// Base profile has "core" bundle, remove it
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -822,8 +822,8 @@ func TestUpdateProfile_RemoveBundles(t *testing.T) {
 func TestUpdateProfile_SetDefault(t *testing.T) {
 	// Use real temp directory since cfg.Save() needs real filesystem
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	profilesDir := filepath.Join(scmDir, "profiles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	// Create base profile
@@ -834,7 +834,7 @@ tags:
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "base.yaml"), []byte(baseProfile), 0644))
 
 	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{SCMPaths: []string{scmDir}}
+	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	setDefault := true
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -860,8 +860,8 @@ tags:
 func TestUpdateProfile_UnsetDefault(t *testing.T) {
 	// Use real temp directory since cfg.Save() needs real filesystem
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	profilesDir := filepath.Join(scmDir, "profiles")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	// Create base profile
@@ -873,7 +873,7 @@ tags:
 
 	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{
-		SCMPaths: []string{scmDir},
+		AppPaths: []string{appDir},
 		Defaults: config.Defaults{Profiles: []string{"base"}},
 	}
 
@@ -971,10 +971,10 @@ func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 
 func TestDeleteProfile_Success(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	// First verify the file exists
-	exists, _ := afero.Exists(fs, "/project/.scm/profiles/frontend.yaml")
+	exists, _ := afero.Exists(fs, "/project/.ctxloom/profiles/frontend.yaml")
 	require.True(t, exists)
 
 	result, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
@@ -987,7 +987,7 @@ func TestDeleteProfile_Success(t *testing.T) {
 	assert.Equal(t, "frontend", result.Profile)
 
 	// Verify file was deleted
-	exists, _ = afero.Exists(fs, "/project/.scm/profiles/frontend.yaml")
+	exists, _ = afero.Exists(fs, "/project/.ctxloom/profiles/frontend.yaml")
 	assert.False(t, exists)
 }
 
@@ -1002,7 +1002,7 @@ func TestDeleteProfile_ValidationError(t *testing.T) {
 
 func TestDeleteProfile_NotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
-	cfg := &config.Config{SCMPaths: []string{"/project/.scm"}}
+	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
 
 	_, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
 		Name:   "nonexistent",
@@ -1016,11 +1016,11 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 	fs, loader := setupProfileTestFS(t)
 
 	// Verify frontend profile exists (we'll use it as default)
-	exists, _ := afero.Exists(fs, "/project/.scm/profiles/frontend.yaml")
+	exists, _ := afero.Exists(fs, "/project/.ctxloom/profiles/frontend.yaml")
 	require.True(t, exists)
 
 	cfg := &config.Config{
-		SCMPaths: []string{"/project/.scm"},
+		AppPaths: []string{"/project/.ctxloom"},
 		Defaults: config.Defaults{Profiles: []string{"frontend"}}, // Set as default
 	}
 

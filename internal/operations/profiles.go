@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 // ProfileEntry represents a profile in operation results.
@@ -466,10 +466,10 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 
 // profileLoader creates a profile loader using the config.
 func profileLoader(cfg *config.Config) *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
-	if len(profileDirs) == 0 && len(cfg.SCMPaths) > 0 {
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
+	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
 		// Create profiles directory in first SCM path
-		profileDirs = []string{filepath.Join(cfg.SCMPaths[0], "profiles")}
+		profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return profiles.NewLoader(profileDirs)
 }

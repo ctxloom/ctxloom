@@ -13,11 +13,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/compression"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/compression"
+	"github.com/ctxloom/ctxloom/internal/config"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var bundleCmd = &cobra.Command{
@@ -30,17 +30,17 @@ Bundles are the primary content unit in SCM. They group related context fragment
 prompts, and optional MCP server configurations with a single version.
 
 Examples:
-  scm bundle list                  # List all installed bundles
-  scm bundle show go-tools         # Show bundle contents
-  scm bundle create my-bundle      # Create a new bundle
-  scm bundle export go-tools ./out # Export bundle to directory
-  scm bundle import ./my-bundle.yaml # Import bundle from file`,
+  ctxloom bundle list                  # List all installed bundles
+  ctxloom bundle show go-tools         # Show bundle contents
+  ctxloom bundle create my-bundle      # Create a new bundle
+  ctxloom bundle export go-tools ./out # Export bundle to directory
+  ctxloom bundle import ./my-bundle.yaml # Import bundle from file`,
 }
 
 var bundleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List installed bundles",
-	Long: `List all bundles installed in the .scm/bundles directory.
+	Long: `List all bundles installed in the .ctxloom/bundles directory.
 
 Shows bundle name, version, description, and content summary.`,
 	RunE: runBundleList,
@@ -54,7 +54,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 
 	bundleDirs := cfg.GetBundleDirs()
 	if len(bundleDirs) == 0 {
-		fmt.Println("No bundles directory found. Create one with: mkdir -p .scm/bundles")
+		fmt.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/bundles")
 		return nil
 	}
 
@@ -66,7 +66,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 
 	if len(bundleInfos) == 0 {
 		fmt.Println("No bundles installed.")
-		fmt.Println("Install bundles with: scm install <remote>/bundle-name")
+		fmt.Println("Install bundles with: ctxloom install <remote>/bundle-name")
 		return nil
 	}
 
@@ -244,7 +244,7 @@ var bundleCreateDesc string
 var bundleCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new bundle",
-	Long: `Create a new bundle file in .scm/bundles.
+	Long: `Create a new bundle file in .ctxloom/bundles.
 
 Creates a skeleton bundle YAML file that you can edit to add content.`,
 	Args: cobra.ExactArgs(1),
@@ -263,7 +263,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Use first SCM path (project or home)
-	bundleDir := filepath.Join(cfg.SCMPaths[0], "bundles")
+	bundleDir := filepath.Join(cfg.AppPaths[0], "bundles")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)
 	}
@@ -328,11 +328,11 @@ var bundleEditCmd = &cobra.Command{
 	Long: `Edit an existing bundle by adding or removing items.
 
 Examples:
-  scm bundle edit my-bundle -d "New description"
-  scm bundle edit my-bundle --add-fragment coding-standards
-  scm bundle edit my-bundle --remove-prompt old-prompt
-  scm bundle edit my-bundle --add-tag golang --add-tag testing
-  scm bundle edit my-bundle --add-mcp tree-sitter`,
+  ctxloom bundle edit my-bundle -d "New description"
+  ctxloom bundle edit my-bundle --add-fragment coding-standards
+  ctxloom bundle edit my-bundle --remove-prompt old-prompt
+  ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
+  ctxloom bundle edit my-bundle --add-mcp tree-sitter`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleEdit,
 }
@@ -513,13 +513,13 @@ var bundleDeleteForce bool
 var bundleDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a bundle",
-	Long: `Delete a bundle from the local .scm/bundles directory.
+	Long: `Delete a bundle from the local .ctxloom/bundles directory.
 
 This permanently removes the bundle file. Use --force to skip confirmation.
 
 Examples:
-  scm bundle delete old-bundle
-  scm bundle delete my-bundle --force`,
+  ctxloom bundle delete old-bundle
+  ctxloom bundle delete my-bundle --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleDelete,
 }
@@ -579,10 +579,10 @@ a pull request instead.
 If no remote is specified, uses the default remote.
 
 Examples:
-  scm bundle push my-bundle
-  scm bundle push my-bundle scm-main
-  scm bundle push my-bundle --pr
-  scm bundle push my-bundle scm-main --message "Add my bundle"`,
+  ctxloom bundle push my-bundle
+  ctxloom bundle push my-bundle scm-main
+  ctxloom bundle push my-bundle --pr
+  ctxloom bundle push my-bundle scm-main --message "Add my bundle"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runBundlePush,
 }
@@ -621,7 +621,7 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 	if remoteName == "" {
 		remoteName = registry.GetDefault()
 		if remoteName == "" {
-			return fmt.Errorf("no remote specified and no default set. Use: scm bundle push <name> <remote>")
+			return fmt.Errorf("no remote specified and no default set. Use: ctxloom bundle push <name> <remote>")
 		}
 	}
 
@@ -659,14 +659,14 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 var bundleExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
 	Short: "Export a bundle to a directory",
-	Long: `Export a bundle from .scm/bundles to an arbitrary directory.
+	Long: `Export a bundle from .ctxloom/bundles to an arbitrary directory.
 
 Useful for publishing bundles to a shared repository like scm-main.
 The bundle is copied as-is, preserving all content including distilled versions.
 
 Examples:
-  scm bundle export go-tools ../scm-main/scm/v1/bundles
-  scm bundle export my-bundle ./exports`,
+  ctxloom bundle export go-tools ../scm-main/scm/v1/bundles
+  ctxloom bundle export my-bundle ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleExport,
 }
@@ -717,14 +717,14 @@ var bundleImportForce bool
 var bundleImportCmd = &cobra.Command{
 	Use:   "import <path>",
 	Short: "Import a bundle from a local file",
-	Long: `Import a bundle from a local YAML file into .scm/bundles.
+	Long: `Import a bundle from a local YAML file into .ctxloom/bundles.
 
-The bundle is copied into the local .scm/bundles directory.
+The bundle is copied into the local .ctxloom/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:
-  scm bundle import ../scm-main/scm/v1/bundles/go-tools.yaml
-  scm bundle import ./my-bundle.yaml --force`,
+  ctxloom bundle import ../scm-main/scm/v1/bundles/go-tools.yaml
+  ctxloom bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,
 }
@@ -750,7 +750,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine destination path
-	bundleDir := filepath.Join(cfg.SCMPaths[0], "bundles")
+	bundleDir := filepath.Join(cfg.AppPaths[0], "bundles")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)
 	}
@@ -789,10 +789,10 @@ Path formats:
   bundle-name#mcp/name            MCP server config
 
 Examples:
-  scm bundle view core-practices
-  scm bundle view core-practices#fragments/tdd
-  scm bundle view mcp-tasks#prompts/setup-tasks
-  scm bundle view sequential-thinking#mcp/default`,
+  ctxloom bundle view core-practices
+  ctxloom bundle view core-practices#fragments/tdd
+  ctxloom bundle view mcp-tasks#prompts/setup-tasks
+  ctxloom bundle view sequential-thinking#mcp/default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleView,
 }
@@ -922,12 +922,12 @@ model info are written back to the bundle file.
 Supports glob patterns to process multiple files at once.
 
 Examples:
-  scm bundle distill ./my-bundle.yaml                    # Single file
-  scm bundle distill .scm/bundles/*.yaml                 # All bundles in directory
-  scm bundle distill .scm/bundles/**/*.yaml              # Recursive
-  scm bundle distill bundle1.yaml bundle2.yaml           # Multiple files
-  scm bundle distill ./my-bundle.yaml --force            # Re-distill all items
-  scm bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled`,
+  ctxloom bundle distill ./my-bundle.yaml                    # Single file
+  ctxloom bundle distill .ctxloom/bundles/*.yaml                 # All bundles in directory
+  ctxloom bundle distill .ctxloom/bundles/**/*.yaml              # Recursive
+  ctxloom bundle distill bundle1.yaml bundle2.yaml           # Multiple files
+  ctxloom bundle distill ./my-bundle.yaml --force            # Re-distill all items
+  ctxloom bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runBundleDistill,
 }
@@ -1390,8 +1390,8 @@ Opens the fragment content in your editor. When you save and close,
 the bundle is updated with the new content.
 
 Examples:
-  scm bundle fragment edit my-bundle coding-standards
-  scm bundle fragment edit go-tools golang`,
+  ctxloom bundle fragment edit my-bundle coding-standards
+  ctxloom bundle fragment edit go-tools golang`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleFragmentEdit,
 }
@@ -1484,8 +1484,8 @@ Opens the prompt content in your editor. When you save and close,
 the bundle is updated with the new content.
 
 Examples:
-  scm bundle prompt edit my-bundle code-review
-  scm bundle prompt edit go-tools refactor`,
+  ctxloom bundle prompt edit my-bundle code-review
+  ctxloom bundle prompt edit go-tools refactor`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundlePromptEdit,
 }
@@ -1578,8 +1578,8 @@ Opens the MCP server config as YAML in your editor. When you save and close,
 the bundle is updated with the new configuration.
 
 Examples:
-  scm bundle mcp edit my-bundle tree-sitter
-  scm bundle mcp edit tools sequential-thinking`,
+  ctxloom bundle mcp edit my-bundle tree-sitter
+  ctxloom bundle mcp edit tools sequential-thinking`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleMCPEdit,
 }

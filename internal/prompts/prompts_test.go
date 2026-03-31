@@ -206,6 +206,75 @@ func TestLoader_List_SkipsHiddenFiles(t *testing.T) {
 	assert.NotContains(t, names, ".hidden")
 }
 
+func TestLoader_List_SkipsHiddenDirs(t *testing.T) {
+	// Hidden directories (like .git, .vscode) should be skipped entirely
+	mfs := setupTestFS(
+		[]string{"/prompts", "/prompts/.hidden"},
+		map[string][]byte{
+			"/prompts/visible.yaml":        []byte("content: visible"),
+			"/prompts/.hidden/nested.yaml": []byte("content: nested in hidden"),
+		},
+	)
+
+	loader := NewLoader([]string{"/prompts"}, WithFS(mfs))
+
+	infos, err := loader.List()
+	require.NoError(t, err)
+
+	names := make([]string, len(infos))
+	for i, info := range infos {
+		names[i] = info.Name
+	}
+	assert.Contains(t, names, "visible")
+	assert.NotContains(t, names, "nested")
+}
+
+func TestLoader_List_NonExistentDir(t *testing.T) {
+	// Non-existent directories should be silently skipped, not cause errors
+	mfs := setupTestFS(
+		[]string{"/exists"},
+		map[string][]byte{
+			"/exists/prompt.yaml": []byte("content: exists"),
+		},
+	)
+
+	loader := NewLoader([]string{"/nonexistent", "/exists"}, WithFS(mfs))
+
+	infos, err := loader.List()
+	require.NoError(t, err)
+	assert.Len(t, infos, 1)
+	assert.Equal(t, "prompt", infos[0].Name)
+}
+
+func TestLoader_List_SkipsNonPromptFiles(t *testing.T) {
+	// Only .yaml, .yml, and .md files are prompts
+	mfs := setupTestFS(
+		[]string{"/prompts"},
+		map[string][]byte{
+			"/prompts/valid.yaml":   []byte("content: yaml prompt"),
+			"/prompts/also.yml":     []byte("content: yml prompt"),
+			"/prompts/legacy.md":    []byte("# markdown prompt"),
+			"/prompts/readme.txt":   []byte("not a prompt"),
+			"/prompts/config.json":  []byte("{}"),
+			"/prompts/script.sh":    []byte("#!/bin/bash"),
+		},
+	)
+
+	loader := NewLoader([]string{"/prompts"}, WithFS(mfs))
+
+	infos, err := loader.List()
+	require.NoError(t, err)
+
+	names := make([]string, len(infos))
+	for i, info := range infos {
+		names[i] = info.Name
+	}
+	assert.Len(t, infos, 3)
+	assert.Contains(t, names, "valid")
+	assert.Contains(t, names, "also")
+	assert.Contains(t, names, "legacy")
+}
+
 // =============================================================================
 // Tag Filtering Tests
 // =============================================================================

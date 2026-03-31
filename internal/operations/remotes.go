@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// getBaseDir returns the SCM directory from config, defaulting to ".scm".
+// getBaseDir returns the SCM directory from config, defaulting to ".ctxloom".
 func getBaseDir(cfg *config.Config) string {
-	if cfg != nil && len(cfg.SCMPaths) > 0 {
-		return cfg.SCMPaths[0]
+	if cfg != nil && len(cfg.AppPaths) > 0 {
+		return cfg.AppPaths[0]
 	}
-	return ".scm"
+	return ".ctxloom"
 }
 
 // getRegistry creates a registry using the config's SCM path.
@@ -341,7 +341,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 			Stars:       r.Stars,
 			URL:         r.URL,
 			Forge:       string(r.Forge),
-			AddCommand:  fmt.Sprintf("scm remote add %s %s/%s", r.Owner, r.Owner, r.Name),
+			AddCommand:  fmt.Sprintf("ctxloom remote add %s %s/%s", r.Owner, r.Owner, r.Name),
 		})
 	}
 

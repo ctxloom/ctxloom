@@ -38,8 +38,8 @@ func TestExtractBundleName(t *testing.T) {
 		path string
 		want string
 	}{
-		{".scm/bundles/github.com/owner/repo/core-practices.yaml", "core-practices"},
-		{"/home/user/.scm/bundles/testing.yaml", "testing"},
+		{".ctxloom/bundles/github.com/owner/repo/core-practices.yaml", "core-practices"},
+		{"/home/user/.ctxloom/bundles/testing.yaml", "testing"},
 		{"bundle.yaml", "bundle"},
 	}
 
@@ -55,8 +55,8 @@ func TestExtractBundleName(t *testing.T) {
 func TestBundleResolver_ResolveToLocalPath(t *testing.T) {
 	// Create temp directory with a bundle file
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	bundleDir := filepath.Join(scmDir, "bundles", "github.com", "owner", "repo")
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundleDir := filepath.Join(appDir, "bundles", "github.com", "owner", "repo")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestBundleResolver_ResolveToLocalPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolver := NewBundleResolver(scmDir)
+	resolver := NewBundleResolver(appDir)
 
 	tests := []struct {
 		name      string
@@ -103,13 +103,13 @@ func TestBundleResolver_ResolveToLocalPath(t *testing.T) {
 
 func TestNewBundleResolver_DefaultDir(t *testing.T) {
 	resolver := NewBundleResolver("")
-	assert.Equal(t, ".scm", resolver.scmDir)
+	assert.Equal(t, ".ctxloom", resolver.appDir)
 }
 
 func TestNewBundleResolver_WithResolverFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	resolver := NewBundleResolver("/test", WithResolverFS(fs))
-	assert.Equal(t, "/test", resolver.scmDir)
+	assert.Equal(t, "/test", resolver.appDir)
 	assert.NotNil(t, resolver.fs)
 }
 
@@ -201,11 +201,11 @@ func TestBundleResolver_ResolveBundle_AliasRef(t *testing.T) {
 func TestBundleResolver_LocalPathToCanonicalURL(t *testing.T) {
 	// Use real temp directory for integration with lockfile manager
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	require.NoError(t, os.MkdirAll(scmDir, 0755))
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
 
 	// Create lockfile with entry
-	lockMgr := NewLockfileManager(scmDir)
+	lockMgr := NewLockfileManager(appDir)
 	lockfile := &Lockfile{
 		Version: 1,
 		Bundles: map[string]LockEntry{
@@ -219,17 +219,17 @@ func TestBundleResolver_LocalPathToCanonicalURL(t *testing.T) {
 	}
 	require.NoError(t, lockMgr.Save(lockfile))
 
-	resolver := NewBundleResolver(scmDir)
+	resolver := NewBundleResolver(appDir)
 
 	t.Run("finds canonical URL for local path", func(t *testing.T) {
-		localPath := filepath.Join(scmDir, "bundles/github.com/owner/repo/core-practices.yaml")
+		localPath := filepath.Join(appDir, "bundles/github.com/owner/repo/core-practices.yaml")
 		url, err := resolver.LocalPathToCanonicalURL(localPath)
 		require.NoError(t, err)
 		assert.Equal(t, "https://github.com/owner/repo@v1/bundles/core-practices", url)
 	})
 
 	t.Run("returns error for unknown path", func(t *testing.T) {
-		localPath := filepath.Join(scmDir, "bundles/unknown/bundle.yaml")
+		localPath := filepath.Join(appDir, "bundles/unknown/bundle.yaml")
 		_, err := resolver.LocalPathToCanonicalURL(localPath)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no lockfile entry found")
@@ -238,11 +238,11 @@ func TestBundleResolver_LocalPathToCanonicalURL(t *testing.T) {
 
 func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
 	tmpDir := t.TempDir()
-	scmDir := filepath.Join(tmpDir, ".scm")
-	require.NoError(t, os.MkdirAll(scmDir, 0755))
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
 
 	// Create lockfile with alias entry
-	lockMgr := NewLockfileManager(scmDir)
+	lockMgr := NewLockfileManager(appDir)
 	lockfile := &Lockfile{
 		Version: 1,
 		Bundles: map[string]LockEntry{
@@ -256,9 +256,9 @@ func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
 	}
 	require.NoError(t, lockMgr.Save(lockfile))
 
-	resolver := NewBundleResolver(scmDir)
+	resolver := NewBundleResolver(appDir)
 
-	localPath := filepath.Join(scmDir, "bundles/alice/core-practices.yaml")
+	localPath := filepath.Join(appDir, "bundles/alice/core-practices.yaml")
 	url, err := resolver.LocalPathToCanonicalURL(localPath)
 	require.NoError(t, err)
 	// For alias refs, builds canonical URL from entry metadata

@@ -13,7 +13,7 @@ import (
 // BundleResolver resolves bundle URL references to local paths.
 // It uses the lockfile and remotes configuration to map URLs to local cache paths.
 type BundleResolver struct {
-	scmDir          string
+	appDir          string
 	lockfileManager *LockfileManager
 	remoteConfig    *RemoteConfig
 	fs              afero.Fs
@@ -30,13 +30,13 @@ func WithResolverFS(fs afero.Fs) ResolverOption {
 }
 
 // NewBundleResolver creates a new bundle resolver.
-func NewBundleResolver(scmDir string, opts ...ResolverOption) *BundleResolver {
-	if scmDir == "" {
-		scmDir = ".scm"
+func NewBundleResolver(appDir string, opts ...ResolverOption) *BundleResolver {
+	if appDir == "" {
+		appDir = ".ctxloom"
 	}
 	r := &BundleResolver{
-		scmDir:          scmDir,
-		lockfileManager: NewLockfileManager(scmDir),
+		appDir:          appDir,
+		lockfileManager: NewLockfileManager(appDir),
 		fs:              afero.NewOsFs(),
 	}
 	for _, opt := range opts {
@@ -67,7 +67,7 @@ func (r *BundleResolver) ResolveToLocalPath(bundleRef string) (string, error) {
 	}
 
 	// Get the local path using the reference
-	localPath := ref.LocalPath(r.scmDir, ItemTypeBundle)
+	localPath := ref.LocalPath(r.appDir, ItemTypeBundle)
 
 	// Check if the file exists
 	if _, err := r.fs.Stat(localPath); err != nil {
@@ -108,7 +108,7 @@ func (r *BundleResolver) ResolveBundle(bundleRef string) (*ResolvedBundle, error
 	}
 
 	// Get local path
-	result.LocalPath = ref.LocalPath(r.scmDir, ItemTypeBundle)
+	result.LocalPath = ref.LocalPath(r.appDir, ItemTypeBundle)
 
 	// Check if file exists
 	if _, err := r.fs.Stat(result.LocalPath); err != nil {
@@ -154,7 +154,7 @@ func (r *BundleResolver) LocalPathToCanonicalURL(localPath string) (string, erro
 			continue
 		}
 
-		expectedPath := parsed.LocalPath(r.scmDir, ItemTypeBundle)
+		expectedPath := parsed.LocalPath(r.appDir, ItemTypeBundle)
 		if expectedPath == localPath || filepath.Clean(expectedPath) == filepath.Clean(localPath) {
 			// Found it - construct canonical URL
 			if parsed.IsCanonical {
@@ -169,7 +169,7 @@ func (r *BundleResolver) LocalPathToCanonicalURL(localPath string) (string, erro
 }
 
 // ExtractBundleName extracts the bundle name from a local path.
-// e.g., ".scm/bundles/github.com/owner/repo/core-practices.yaml" -> "core-practices"
+// e.g., ".ctxloom/bundles/github.com/owner/repo/core-practices.yaml" -> "core-practices"
 func ExtractBundleName(localPath string) string {
 	base := filepath.Base(localPath)
 	return strings.TrimSuffix(base, filepath.Ext(base))

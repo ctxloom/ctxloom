@@ -1,4 +1,4 @@
-// Command genman generates man pages for scm CLI.
+// Command genman generates man pages for ctxloom CLI.
 package main
 
 import (
@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra/doc"
 
-	"github.com/SophisticatedContextManager/scm/cmd"
+	"github.com/ctxloom/ctxloom/cmd"
 )
 
 func main() {
@@ -22,9 +22,9 @@ func main() {
 	}
 
 	header := &doc.GenManHeader{
-		Title:   "SCM",
+		Title:   "CTXLOOM",
 		Section: "1",
-		Source:  "SCM",
+		Source:  "ctxloom",
 		Manual:  "User Commands",
 	}
 

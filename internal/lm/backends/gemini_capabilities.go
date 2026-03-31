@@ -15,11 +15,11 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
-// geminiSCMCommandsDir is the subdirectory for SCM-managed Gemini commands.
-const geminiSCMCommandsDir = "scm"
+// geminiAppCommandsDir is the subdirectory for SCM-managed Gemini commands.
+const geminiAppCommandsDir = "ctxloom"
 
 // GeminiCommand represents a Gemini CLI slash command in TOML format.
 type GeminiCommand struct {
@@ -112,14 +112,14 @@ func (s *GeminiSkills) RegisterFromContent(workDir string, contents []*bundles.L
 
 // Clear removes all SCM-managed skills.
 func (s *GeminiSkills) Clear(workDir string) error {
-	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
-	return os.RemoveAll(scmDir)
+	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
+	return os.RemoveAll(appDir)
 }
 
 // List returns registered skill names.
 func (s *GeminiSkills) List(workDir string) ([]string, error) {
-	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
-	entries, err := os.ReadDir(scmDir)
+	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
+	entries, err := os.ReadDir(appDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -147,11 +147,11 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 	}
 	fs := options.fs
 
-	scmDir := filepath.Join(workDir, ".gemini", "commands", geminiSCMCommandsDir)
+	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
 
 	// Clean slate - remove and recreate
-	if err := fs.RemoveAll(scmDir); err != nil {
-		return fmt.Errorf("remove scm commands dir: %w", err)
+	if err := fs.RemoveAll(appDir); err != nil {
+		return fmt.Errorf("remove ctxloom commands dir: %w", err)
 	}
 
 	// Check if we have any prompts to export
@@ -168,8 +168,8 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 		return nil
 	}
 
-	if err := fs.MkdirAll(scmDir, 0755); err != nil {
-		return fmt.Errorf("create scm commands dir: %w", err)
+	if err := fs.MkdirAll(appDir, 0755); err != nil {
+		return fmt.Errorf("create ctxloom commands dir: %w", err)
 	}
 
 	for _, p := range prompts {
@@ -182,10 +182,10 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 			return fmt.Errorf("transform command %s: %w", p.Name, err)
 		}
 
-		path := filepath.Join(scmDir, p.Name+".toml")
+		path := filepath.Join(appDir, p.Name+".toml")
 
 		// Ensure parent directory exists for nested prompt names
-		if dir := filepath.Dir(path); dir != scmDir {
+		if dir := filepath.Dir(path); dir != appDir {
 			if err := fs.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("create command subdir %s: %w", dir, err)
 			}

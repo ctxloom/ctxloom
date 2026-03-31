@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	"github.com/SophisticatedContextManager/scm/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/memory"
 )
 
 var memoryCmd = &cobra.Command{
@@ -24,9 +24,9 @@ This feature logs conversations and allows compacting them for use in new sessio
 It's a workaround for when native LLM compaction is insufficient.
 
 Commands:
-  scm memory list                  List all sessions
-  scm memory show <session>        Show session details
-  scm memory compact [--session]   Compact a session log
+  ctxloom memory list                  List all sessions
+  ctxloom memory show <session>        Show session details
+  ctxloom memory compact [--session]   Compact a session log
 
 Build with -tags memory to enable this feature.`,
 }
@@ -56,9 +56,9 @@ The compaction runs in chunks to handle large sessions that exceed
 context window limits.
 
 Examples:
-  scm memory compact                    # Compact most recent session
-  scm memory compact --session abc123   # Compact specific session
-  scm memory compact --model gemini     # Use specific model`,
+  ctxloom memory compact                    # Compact most recent session
+  ctxloom memory compact --session abc123   # Compact specific session
+  ctxloom memory compact --model gemini     # Use specific model`,
 	RunE: runMemoryCompact,
 }
 
@@ -75,8 +75,8 @@ The threshold is based on Claude's ~200K token context window (~800KB).
 Compaction is triggered when the session approaches this size.
 
 Examples:
-  scm memory check                    # Check and compact if needed
-  scm memory check --threshold 500000 # Custom threshold in bytes`,
+  ctxloom memory check                    # Check and compact if needed
+  ctxloom memory check --threshold 500000 # Custom threshold in bytes`,
 	RunE: runMemoryCheck,
 }
 
@@ -110,7 +110,7 @@ func init() {
 }
 
 func getMemoryDir(cfg *config.Config) string {
-	return filepath.Join(cfg.SCMDir, "memory")
+	return filepath.Join(cfg.AppDir, "memory")
 }
 
 func runMemoryList(cmd *cobra.Command, args []string) error {

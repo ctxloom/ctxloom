@@ -318,7 +318,7 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	}
 
 	// Store under remote name to avoid conflicts
-	// e.g., .scm/bundles/github.com/owner/repo/go-tools.yaml
+	// e.g., .ctxloom/bundles/github.com/owner/repo/go-tools.yaml
 	return fmt.Sprintf("%s/%s/%s/%s.yaml", baseDir, dir, remoteName, r.Path)
 }
 

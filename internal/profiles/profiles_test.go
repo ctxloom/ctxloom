@@ -94,6 +94,16 @@ func TestParseContentRef(t *testing.T) {
 			},
 		},
 		{
+			name:  "bundle with type only (no item name)",
+			input: "go-development#mcp",
+			expected: ContentRef{
+				Raw:      "go-development#mcp",
+				Bundle:   "go-development",
+				ItemType: "mcp",
+				ItemName: "",
+			},
+		},
+		{
 			name:  "remote/bundle",
 			input: "github/go-development",
 			expected: ContentRef{
@@ -890,13 +900,13 @@ func TestToLocalProfileName(t *testing.T) {
 //   - https://github.com/owner/repo@v1/profiles/base
 //
 // The resolver should look for the profile at:
-//   - .scm/profiles/github.com/owner/repo/base.yaml
+//   - .ctxloom/profiles/github.com/owner/repo/base.yaml
 func TestLoader_ResolveProfile_URLParent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directories
-	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.scm/profiles/github.com/owner/repo", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/owner/repo", 0755))
 
 	// Create the "remote" parent profile (as if synced from URL)
 	baseProfile := `description: Base Go profile
@@ -908,7 +918,7 @@ variables:
   go_version: "1.21"
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/github.com/owner/repo/go-base.yaml",
+		"/project/.ctxloom/profiles/github.com/owner/repo/go-base.yaml",
 		[]byte(baseProfile), 0644))
 
 	// Create child profile that references the parent via URL
@@ -921,10 +931,10 @@ variables:
   project_name: my-project
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/project-dev.yaml",
+		"/project/.ctxloom/profiles/project-dev.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
 
 	// Resolve the child profile
 	resolved, err := loader.ResolveProfile("project-dev", nil)
@@ -947,17 +957,17 @@ variables:
 func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
 
 	// Create child profile that references an unsynced parent
 	childProfile := `parents:
   - https://github.com/nonexistent/repo@v1/profiles/missing
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/child.yaml",
+		"/project/.ctxloom/profiles/child.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
 
 	_, err := loader.ResolveProfile("child", nil)
 	assert.Error(t, err)
@@ -969,15 +979,15 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.scm/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.scm/profiles/github.com/scm-main/scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/scm-main/scm", 0755))
 
 	// Local parent
 	localParent := `bundles:
   - local-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/local-base.yaml",
+		"/project/.ctxloom/profiles/local-base.yaml",
 		[]byte(localParent), 0644))
 
 	// Remote parent (synced)
@@ -985,7 +995,7 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
   - remote-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/github.com/scm-main/scm/go-base.yaml",
+		"/project/.ctxloom/profiles/github.com/scm-main/scm/go-base.yaml",
 		[]byte(remoteParent), 0644))
 
 	// Child with both parents
@@ -996,10 +1006,10 @@ bundles:
   - child-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.scm/profiles/mixed.yaml",
+		"/project/.ctxloom/profiles/mixed.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.scm/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
 
 	resolved, err := loader.ResolveProfile("mixed", nil)
 	require.NoError(t, err)
@@ -1007,4 +1017,61 @@ bundles:
 	assert.Contains(t, resolved.Bundles, "local-tools")
 	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
+}
+
+// =============================================================================
+// extractBundleFromGitURL Tests
+// =============================================================================
+
+// TestExtractBundleFromGitURL verifies extraction of bundle names from various
+// Git URL formats. The function handles HTTPS URLs, SSH URLs, and .git suffixes.
+func TestExtractBundleFromGitURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "HTTPS URL",
+			url:      "https://github.com/user/my-bundle",
+			expected: "my-bundle",
+		},
+		{
+			name:     "HTTPS URL with .git suffix",
+			url:      "https://github.com/user/my-bundle.git",
+			expected: "my-bundle",
+		},
+		{
+			name:     "SSH URL with colon",
+			url:      "git@github.com:user/my-bundle",
+			expected: "my-bundle",
+		},
+		{
+			name:     "SSH URL with .git suffix",
+			url:      "git@github.com:user/my-bundle.git",
+			expected: "my-bundle",
+		},
+		{
+			name:     "bare repo name (no slash or colon)",
+			url:      "my-bundle",
+			expected: "my-bundle",
+		},
+		{
+			name:     "bare repo name with .git suffix",
+			url:      "my-bundle.git",
+			expected: "my-bundle",
+		},
+		{
+			name:     "URL with nested path",
+			url:      "https://gitlab.com/org/team/subgroup/my-bundle",
+			expected: "my-bundle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractBundleFromGitURL(tt.url)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

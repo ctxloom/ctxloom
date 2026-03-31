@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/tests/integration/testenv"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +40,7 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 	t.Helper()
 
 	// Read existing bundle if present
-	bundlePath := ".scm/bundles/local.yaml"
+	bundlePath := ".ctxloom/bundles/local.yaml"
 	existing, _ := env.ReadFile(bundlePath)
 
 	// Build new bundle content
@@ -72,7 +72,7 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 
 func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content string) {
 	t.Helper()
-	path := fmt.Sprintf(".scm/profiles/%s.yaml", name)
+	path := fmt.Sprintf(".ctxloom/profiles/%s.yaml", name)
 	require.NoError(t, env.WriteFile(path, content), "failed to write profile")
 }
 
@@ -251,7 +251,7 @@ fragments:
     content: |
       Go coding guidelines from subdirectory.
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/lang.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/lang.yaml", bundleContent))
 
 	_ = env.RunSCM("run", "-f", "lang#fragments/golang", "--print", "test")
 
@@ -488,7 +488,7 @@ fragments:
     content: |
       Test content
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/test-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/test-bundle.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "list")
 
@@ -512,7 +512,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/show-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/show-test.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "show", "show-test")
 
@@ -538,7 +538,7 @@ func TestBundle_Create(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify bundle file was created
-	content, err := env.ReadFile(".scm/bundles/my-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/bundles/my-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "version:")
 	assert.Contains(t, content, "fragments:")
@@ -551,7 +551,7 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	content, err := env.ReadFile(".scm/bundles/desc-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/bundles/desc-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "description: A test bundle")
 }
@@ -572,7 +572,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/test.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "fragment", "list", "test")
 
@@ -594,7 +594,7 @@ prompts:
     content: |
       Prompt content 2
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/prompt-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompt-bundle.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "prompt", "list", "prompt-bundle")
 
@@ -613,7 +613,7 @@ fragments:
     content: |
       This is the content to display
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/view-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/view-test.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "view", "view-test#fragments/display-frag")
 
@@ -632,7 +632,7 @@ fragments:
     content: |
       Export content
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/export-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/export-test.yaml", bundleContent))
 
 	_ = env.RunSCM("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
@@ -766,7 +766,7 @@ prompts:
     content: |
       Summarize the following:
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompts.yaml", bundleContent))
 
 	_ = env.RunSCM("prompt", "list")
 
@@ -785,7 +785,7 @@ prompts:
     content: |
       This is a test prompt with detailed instructions.
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/prompt-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompt-test.yaml", bundleContent))
 
 	_ = env.RunSCM("prompt", "show", "prompt-test#prompts/test-prompt")
 
@@ -823,7 +823,7 @@ prompts:
     content: |
       Generate documentation for this code
 `
-	require.NoError(t, env.WriteFile(".scm/bundles/search-prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/bundles/search-prompts.yaml", bundleContent))
 
 	_ = env.RunSCM("search", "code")
 
@@ -862,13 +862,13 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify directory structure was created
-	_, err = env.ReadFile(".scm/config.yaml")
+	_, err = env.ReadFile(".ctxloom/config.yaml")
 	// Config file may or may not exist initially
-	_, err = env.ReadFile(".scm/profiles/.gitkeep")
+	_, err = env.ReadFile(".ctxloom/profiles/.gitkeep")
 	// Verify at least one of these exists
-	profilesDir, _ := env.ReadFile(".scm/profiles/")
-	bundlesDir, _ := env.ReadFile(".scm/bundles/")
-	assert.True(t, profilesDir != "" || bundlesDir != "", "Expected .scm/profiles or .scm/bundles directory to exist")
+	profilesDir, _ := env.ReadFile(".ctxloom/profiles/")
+	bundlesDir, _ := env.ReadFile(".ctxloom/bundles/")
+	assert.True(t, profilesDir != "" || bundlesDir != "", "Expected .ctxloom/profiles or .ctxloom/bundles directory to exist")
 }
 
 // =============================================================================

@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var (
@@ -21,7 +21,7 @@ var (
 var updateCmd = &cobra.Command{
 	Use:    "update [reference]",
 	Short:  "Check for and apply updates to installed items",
-	Hidden: true, // Use 'scm remote update' instead
+	Hidden: true, // Use 'ctxloom remote update' instead
 	Long: `Check for and apply updates to installed remote items.
 
 Without arguments, updates all items in the lockfile.
@@ -30,11 +30,11 @@ With a reference, updates only that specific item.
 By default, updates are applied. Use --dry-run to only show what would be updated.
 
 Examples:
-  scm update                        # Update all items
-  scm update --dry-run              # Show available updates without applying
-  scm update scm-main/core        # Update specific item
-  scm update --force                # Skip confirmation prompts
-  scm update --cleanup              # Also remove items deleted from remote`,
+  ctxloom update                        # Update all items
+  ctxloom update --dry-run              # Show available updates without applying
+  ctxloom update scm-main/core        # Update specific item
+  ctxloom update --force                # Skip confirmation prompts
+  ctxloom update --cleanup              # Also remove items deleted from remote`,
 	RunE: runUpdate,
 }
 
@@ -45,7 +45,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	auth := remote.LoadAuth("")
-	lockManager := remote.NewLockfileManager(".scm")
+	lockManager := remote.NewLockfileManager(".ctxloom")
 
 	// If specific reference provided, update just that
 	if len(args) > 0 {
@@ -149,7 +149,7 @@ func updateAllItems(cmd *cobra.Command, registry *remote.Registry, auth remote.A
 
 	if lockfile.IsEmpty() {
 		fmt.Println("No entries in lockfile.")
-		fmt.Println("Install items with: scm install <remote>/<name>")
+		fmt.Println("Install items with: ctxloom install <remote>/<name>")
 		return nil
 	}
 
@@ -234,7 +234,7 @@ func updateAllItems(cmd *cobra.Command, registry *remote.Registry, auth remote.A
 			fmt.Printf("Cleaning up %d entries with empty SHA...\n", len(emptyEntries))
 			for _, entry := range emptyEntries {
 				// Remove local file if it exists
-				localPath := filepath.Join(".scm", entry.Type.DirName(), strings.Replace(entry.Ref, "/", string(filepath.Separator), 1)+".yaml")
+				localPath := filepath.Join(".ctxloom", entry.Type.DirName(), strings.Replace(entry.Ref, "/", string(filepath.Separator), 1)+".yaml")
 				if err := os.Remove(localPath); err != nil && !os.IsNotExist(err) {
 					fmt.Printf("  Warning: failed to remove %s: %v\n", localPath, err)
 				}
@@ -363,7 +363,7 @@ func updateAllItems(cmd *cobra.Command, registry *remote.Registry, auth remote.A
 			cleaned := 0
 			for _, item := range removedFromRemote {
 				// Delete local file
-				localPath := filepath.Join(".scm", item.Type.DirName(), strings.Replace(item.Ref, "/", string(filepath.Separator), 1)+".yaml")
+				localPath := filepath.Join(".ctxloom", item.Type.DirName(), strings.Replace(item.Ref, "/", string(filepath.Separator), 1)+".yaml")
 				if err := os.Remove(localPath); err != nil {
 					if !os.IsNotExist(err) {
 						fmt.Printf("  Warning: failed to remove %s: %v\n", localPath, err)
@@ -430,7 +430,7 @@ func checkBundleIssues(lockfile *remote.Lockfile, cleanup bool) error {
 				fmt.Printf("  Removed %d broken references from profiles\n", cleaned)
 			}
 		} else if !cleanup {
-			fmt.Println("\nUse --cleanup to remove these broken references, or install with: scm install bundle <name>")
+			fmt.Println("\nUse --cleanup to remove these broken references, or install with: ctxloom install bundle <name>")
 		}
 	}
 
@@ -441,8 +441,8 @@ func checkBundleIssues(lockfile *remote.Lockfile, cleanup bool) error {
 		for _, orphan := range analysis.Orphans {
 			fmt.Printf("  - %s\n", orphan)
 		}
-		fmt.Println("\nTo remove orphaned bundles, delete them manually from .scm/bundles/")
-		fmt.Println("Then run 'scm remote lock' to update the lockfile.")
+		fmt.Println("\nTo remove orphaned bundles, delete them manually from .ctxloom/bundles/")
+		fmt.Println("Then run 'ctxloom remote lock' to update the lockfile.")
 	}
 
 	return nil
@@ -469,7 +469,7 @@ func analyzeUpdateBundleReferences(lockfile *remote.Lockfile) *updateBundleAnaly
 	bundlesByFile := make(map[string]map[string]bool)
 
 	// Scan local profile files
-	profileDir := filepath.Join(".scm", "profiles")
+	profileDir := filepath.Join(".ctxloom", "profiles")
 	err := filepath.Walk(profileDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Warn but continue walking
@@ -544,7 +544,7 @@ func analyzeUpdateBundleReferences(lockfile *remote.Lockfile) *updateBundleAnaly
 	for ref := range referencedBundles {
 		if _, exists := lockfile.Bundles[ref]; !exists {
 			// Check if the bundle file exists locally at the local name path
-			bundlePath := filepath.Join(".scm", "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
+			bundlePath := filepath.Join(".ctxloom", "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
 			if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
 				missingSet[ref] = true
 				result.Missing = append(result.Missing, ref)

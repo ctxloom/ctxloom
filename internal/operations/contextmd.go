@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // SourceContextFiles are the files SCM looks for as the source of truth.
@@ -75,7 +75,7 @@ func TransformContext(ctx context.Context, cfg *config.Config, req TransformCont
 	}
 
 	// Find the work directory (project root)
-	workDir := cfg.SCMRoot
+	workDir := cfg.AppRoot
 	if workDir == "" {
 		workDir = "."
 	}
@@ -100,6 +100,11 @@ func TransformContext(ctx context.Context, cfg *config.Config, req TransformCont
 	// Generate for each backend
 	targetFiles := BackendTargetFiles()
 	for _, backendName := range backendNames {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
 		targetFile, ok := targetFiles[backendName]
 		if !ok {
 			result.Errors = append(result.Errors, fmt.Sprintf("unknown backend: %s", backendName))

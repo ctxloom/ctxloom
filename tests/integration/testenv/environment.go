@@ -21,8 +21,8 @@ type TestEnvironment struct {
 	// ProjectDir is the fake project directory (a git repo)
 	ProjectDir string
 
-	// SCMBinary is the path to the scm binary to test
-	SCMBinary string
+	// AppBinary is the path to the ctxloom binary to test
+	AppBinary string
 
 	// originalEnv stores original environment variables for restoration
 	originalEnv map[string]string
@@ -53,13 +53,13 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 	}
 
 	// Create home directory structure
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "bundles"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".ctxloom", "bundles"), 0755); err != nil {
 		_ = env.Cleanup()
-		return nil, fmt.Errorf("failed to create home .scm/bundles: %w", err)
+		return nil, fmt.Errorf("failed to create home .ctxloom/bundles: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".scm", "profiles"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(env.HomeDir, ".ctxloom", "profiles"), 0755); err != nil {
 		_ = env.Cleanup()
-		return nil, fmt.Errorf("failed to create home .scm/profiles: %w", err)
+		return nil, fmt.Errorf("failed to create home .ctxloom/profiles: %w", err)
 	}
 
 	// Create project directory
@@ -68,20 +68,20 @@ func NewTestEnvironment() (*TestEnvironment, error) {
 		return nil, fmt.Errorf("failed to create project dir: %w", err)
 	}
 
-	// Find the scm binary
-	env.SCMBinary, err = env.findSCMBinary()
+	// Find the ctxloom binary
+	env.AppBinary, err = env.findAppBinary()
 	if err != nil {
 		_ = env.Cleanup()
-		return nil, fmt.Errorf("failed to find scm binary: %w", err)
+		return nil, fmt.Errorf("failed to find ctxloom binary: %w", err)
 	}
 
 	return env, nil
 }
 
-// findSCMBinary locates the scm binary to test.
-func (e *TestEnvironment) findSCMBinary() (string, error) {
-	// First, check if SCM_BINARY is set (for CI or custom builds)
-	if bin := os.Getenv("SCM_BINARY"); bin != "" {
+// findAppBinary locates the ctxloom binary to test.
+func (e *TestEnvironment) findAppBinary() (string, error) {
+	// First, check if CTXLOOM_BINARY is set (for CI or custom builds)
+	if bin := os.Getenv("CTXLOOM_BINARY"); bin != "" {
 		if _, err := os.Stat(bin); err == nil {
 			return bin, nil
 		}
@@ -106,14 +106,14 @@ func (e *TestEnvironment) findSCMBinary() (string, error) {
 	// Try to find in common locations
 	locations := []string{
 		// Built binary in project root (found by walking up)
-		filepath.Join(projectRoot, "scm"),
+		filepath.Join(projectRoot, "ctxloom"),
 		// Built binary in current dir
 		"./scm",
 		// Go install location
-		filepath.Join(os.Getenv("GOPATH"), "bin", "scm"),
-		filepath.Join(os.Getenv("HOME"), "go", "bin", "scm"),
+		filepath.Join(os.Getenv("GOPATH"), "bin", "ctxloom"),
+		filepath.Join(os.Getenv("HOME"), "go", "bin", "ctxloom"),
 		// Local bin
-		filepath.Join(os.Getenv("HOME"), ".local", "bin", "scm"),
+		filepath.Join(os.Getenv("HOME"), ".local", "bin", "ctxloom"),
 	}
 
 	// Add .exe suffix on Windows
@@ -136,11 +136,11 @@ func (e *TestEnvironment) findSCMBinary() (string, error) {
 	}
 
 	// Try PATH lookup
-	if path, err := exec.LookPath("scm"); err == nil {
+	if path, err := exec.LookPath("ctxloom"); err == nil {
 		return path, nil
 	}
 
-	return "", fmt.Errorf("scm binary not found; set SCM_BINARY or ensure scm is in PATH")
+	return "", fmt.Errorf("scm binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
 }
 
 // Setup configures the environment variables for isolated testing.
@@ -216,7 +216,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 }
 
 // isolatedEnv returns environment variables with home directory properly isolated.
-// This ensures scm uses our fake home directory, not the real one.
+// This ensures ctxloom uses our fake home directory, not the real one.
 func (e *TestEnvironment) isolatedEnv() []string {
 	// Variables to replace with our test paths
 	replacements := map[string]string{
@@ -248,11 +248,11 @@ func (e *TestEnvironment) gitEnv() []string {
 	return e.isolatedEnv()
 }
 
-// CreateProjectSCM creates the .scm directory structure in the project.
-func (e *TestEnvironment) CreateProjectSCM() error {
+// CreateProjectConfig creates the .scm directory structure in the project.
+func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
-		filepath.Join(e.ProjectDir, ".scm", "bundles"),
-		filepath.Join(e.ProjectDir, ".scm", "profiles"),
+		filepath.Join(e.ProjectDir, ".ctxloom", "bundles"),
+		filepath.Join(e.ProjectDir, ".ctxloom", "profiles"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -316,9 +316,9 @@ func (e *TestEnvironment) HomeFileExists(relPath string) bool {
 	return err == nil
 }
 
-// RunSCM executes scm with the given arguments in the project directory.
-func (e *TestEnvironment) RunSCM(args ...string) error {
-	cmd := exec.Command(e.SCMBinary, args...)
+// Run executes ctxloom with the given arguments in the project directory.
+func (e *TestEnvironment) Run(args ...string) error {
+	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
 
@@ -388,9 +388,9 @@ func (e *TestEnvironment) GitBranch(name string) error {
 	return nil
 }
 
-// RunSCMWithStdin executes scm with stdin input and returns the output.
-func (e *TestEnvironment) RunSCMWithStdin(stdin string, args ...string) error {
-	cmd := exec.Command(e.SCMBinary, args...)
+// RunWithStdin executes ctxloom with stdin input and returns the output.
+func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
+	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
 	cmd.Stdin = strings.NewReader(stdin)

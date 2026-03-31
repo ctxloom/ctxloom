@@ -1,4 +1,4 @@
-// Package resources provides embedded static files for SCM.
+// Package resources provides embedded static files for ctxloom.
 package resources
 
 import (

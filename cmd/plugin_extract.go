@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 var pluginExtractOutput string
@@ -22,8 +22,8 @@ These standalone plugins can be used for debugging, external deployment,
 or with other tools that support the gRPC plugin protocol.
 
 Examples:
-  scm plugin extract                     # Extract to .scm/plugins/
-  scm plugin extract --output ./plugins  # Extract to ./plugins/`,
+  ctxloom plugin extract                     # Extract to .ctxloom/plugins/
+  ctxloom plugin extract --output ./plugins  # Extract to ./plugins/`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Determine output directory
 		outputDir := pluginExtractOutput
@@ -32,7 +32,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			outputDir = filepath.Join(pwd, ".scm", "plugins")
+			outputDir = filepath.Join(pwd, ".ctxloom", "plugins")
 		}
 
 		// Create output directory
@@ -59,7 +59,7 @@ Examples:
 		for _, name := range pluginNames {
 			outputPath := filepath.Join(outputDir, fmt.Sprintf("scm-plugin-%s", name))
 
-			// Create a wrapper script that invokes scm plugin serve
+			// Create a wrapper script that invokes ctxloom plugin serve
 			script := fmt.Sprintf(`#!/bin/sh
 exec "%s" plugin serve %s "$@"
 `, selfPath, name)
@@ -92,7 +92,7 @@ var pluginExtractBinaryCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
-			outputDir = filepath.Join(pwd, ".scm", "plugins")
+			outputDir = filepath.Join(pwd, ".ctxloom", "plugins")
 		}
 
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -113,6 +113,6 @@ func init() {
 	pluginCmd.AddCommand(pluginExtractCmd)
 	pluginCmd.AddCommand(pluginExtractBinaryCmd)
 
-	pluginExtractCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .scm/plugins/)")
-	pluginExtractBinaryCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .scm/plugins/)")
+	pluginExtractCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .ctxloom/plugins/)")
+	pluginExtractBinaryCmd.Flags().StringVarP(&pluginExtractOutput, "output", "o", "", "Output directory (default: .ctxloom/plugins/)")
 }

@@ -430,12 +430,12 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create vendor config
-	require.NoError(t, fs.MkdirAll(".scm/vendor/bundles/alice", 0755))
-	require.NoError(t, afero.WriteFile(fs, ".scm/vendor/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
-	require.NoError(t, afero.WriteFile(fs, ".scm/config.yaml", []byte("vendor: true\n"), 0644))
+	require.NoError(t, fs.MkdirAll(".ctxloom/vendor/bundles/alice", 0755))
+	require.NoError(t, afero.WriteFile(fs, ".ctxloom/vendor/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, ".ctxloom/config.yaml", []byte("vendor: true\n"), 0644))
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	vm := NewVendorManager(".scm", WithVendorFS(fs))
+	vm := NewVendorManager(".ctxloom", WithVendorFS(fs))
 	_ = vm.SetVendorMode(true)
 
 	puller := NewPuller(registry, AuthConfig{},
@@ -446,7 +446,7 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 	var stdout bytes.Buffer
 	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
 		Force:    true,
-		LocalDir: ".scm",
+		LocalDir: ".ctxloom",
 		ItemType: ItemTypeBundle,
 		Stdout:   &stdout,
 	})
@@ -469,14 +469,14 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithLockfileManager(NewLockfileManager(".scm", WithLockfileFS(fs))),
+		WithLockfileManager(NewLockfileManager(".ctxloom", WithLockfileFS(fs))),
 		WithTerminalChecker(&mockTerminalChecker{isReader: false}),
 	)
 
 	var stdout bytes.Buffer
 	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
 		Blind:    true,
-		LocalDir: ".scm",
+		LocalDir: ".ctxloom",
 		ItemType: ItemTypeBundle,
 		Stdout:   &stdout,
 	})
@@ -501,13 +501,13 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 		WithPullerFS(fs),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithTerminalChecker(tc),
-		WithLockfileManager(NewLockfileManager(".scm", WithLockfileFS(fs))),
+		WithLockfileManager(NewLockfileManager(".ctxloom", WithLockfileFS(fs))),
 	)
 
 	// Call with nil Stdout and Stdin - should use defaults
 	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
 		Force:    true,
-		LocalDir: ".scm",
+		LocalDir: ".ctxloom",
 		ItemType: ItemTypeBundle,
 		Stdout:   nil, // Should default to os.Stdout
 		Stdin:    nil, // Should default to os.Stdin
@@ -577,8 +577,8 @@ func TestCascadePullProfile(t *testing.T) {
 		fs := afero.NewMemMapFs()
 
 		// Create the cached bundle file
-		require.NoError(t, fs.MkdirAll(".scm/bundles/alice", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".scm/bundles/alice/security.yaml", []byte("cached"), 0644))
+		require.NoError(t, fs.MkdirAll(".ctxloom/bundles/alice", 0755))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/bundles/alice/security.yaml", []byte("cached"), 0644))
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 
@@ -591,7 +591,7 @@ func TestCascadePullProfile(t *testing.T) {
 
 		pulled, err := puller.cascadePullProfile(ctx, profileContent, PullOptions{
 			Stdout:   &stdout,
-			LocalDir: ".scm",
+			LocalDir: ".ctxloom",
 		})
 
 		require.NoError(t, err)
@@ -623,8 +623,8 @@ func TestCascadePullProfile(t *testing.T) {
 		fs := afero.NewMemMapFs()
 
 		// Setup registry with remote
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
-		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
+		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
 
 		// Mock fetcher
@@ -635,7 +635,7 @@ func TestCascadePullProfile(t *testing.T) {
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
 			WithFetcherFactory(mockFetcherFactory(mf)),
-			WithLockfileManager(NewLockfileManager(".scm", WithLockfileFS(fs))),
+			WithLockfileManager(NewLockfileManager(".ctxloom", WithLockfileFS(fs))),
 		)
 
 		profileContent := []byte("bundles:\n  - alice/security\n")
@@ -643,7 +643,7 @@ func TestCascadePullProfile(t *testing.T) {
 
 		pulled, err := puller.cascadePullProfile(ctx, profileContent, PullOptions{
 			Stdout:   &stdout,
-			LocalDir: ".scm",
+			LocalDir: ".ctxloom",
 			Force:    true,
 		})
 
@@ -676,7 +676,7 @@ func TestTransformProfileContent(t *testing.T) {
 	t.Run("returns content unchanged when no bundles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -695,7 +695,7 @@ func TestTransformProfileContent(t *testing.T) {
 	t.Run("returns content unchanged when bundles are already local", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -713,10 +713,10 @@ func TestTransformProfileContent(t *testing.T) {
 
 	t.Run("transforms canonical URLs to local names", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 
-		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		// Initialize empty lockfile
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
@@ -741,7 +741,7 @@ func TestTransformProfileContent(t *testing.T) {
 	t.Run("handles invalid YAML gracefully", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -760,7 +760,7 @@ func TestTransformProfileContent(t *testing.T) {
 	t.Run("handles bundles field that is not a list", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -778,10 +778,10 @@ func TestTransformProfileContent(t *testing.T) {
 
 	t.Run("preserves item path suffix during transformation", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 
-		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		// Initialize empty lockfile
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
@@ -823,11 +823,11 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, ".scm/bundles/alice/security.yaml")
+		exists, err := afero.Exists(fs, ".ctxloom/bundles/alice/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		savedContent, err := afero.ReadFile(fs, ".scm/bundles/alice/security.yaml")
+		savedContent, err := afero.ReadFile(fs, ".ctxloom/bundles/alice/security.yaml")
 		require.NoError(t, err)
 		assert.Equal(t, content, savedContent)
 	})
@@ -886,10 +886,10 @@ func TestPuller_WriteContent(t *testing.T) {
 func TestPuller_UpdateLockfile(t *testing.T) {
 	t.Run("records entry in lockfile", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 
-		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		// Initialize empty lockfile
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
@@ -917,10 +917,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 	t.Run("handles multiple entries", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(".scm", 0755))
+		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 
-		registry, _ := NewRegistry(".scm/remotes.yaml", WithRegistryFS(fs))
-		lm := NewLockfileManager(".scm", WithLockfileFS(fs))
+		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
+		lm := NewLockfileManager(".ctxloom", WithLockfileFS(fs))
 
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
 

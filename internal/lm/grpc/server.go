@@ -3,7 +3,7 @@ package grpc
 import (
 	"context"
 
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )

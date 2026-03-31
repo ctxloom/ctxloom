@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 var completionCmd = &cobra.Command{
@@ -26,9 +26,9 @@ Bash:
 
   # To load completions for each session, execute once:
   # Linux:
-  $ scm completion bash > /etc/bash_completion.d/scm
+  $ ctxloom completion bash > /etc/bash_completion.d/scm
   # macOS:
-  $ scm completion bash > $(brew --prefix)/etc/bash_completion.d/scm
+  $ ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/scm
 
 Zsh:
   # If shell completion is not already enabled in your environment,
@@ -36,21 +36,21 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ scm completion zsh > "${fpath[1]}/_scm"
+  $ ctxloom completion zsh > "${fpath[1]}/_scm"
 
   # You will need to start a new shell for this setup to take effect.
 
 Fish:
-  $ scm completion fish | source
+  $ ctxloom completion fish | source
 
   # To load completions for each session, execute once:
-  $ scm completion fish > ~/.config/fish/completions/scm.fish
+  $ ctxloom completion fish > ~/.config/fish/completions/scm.fish
 
 PowerShell:
-  PS> scm completion powershell | Out-String | Invoke-Expression
+  PS> ctxloom completion powershell | Out-String | Invoke-Expression
 
   # To load completions for every new session, run:
-  PS> scm completion powershell > scm.ps1
+  PS> ctxloom completion powershell > scm.ps1
   # and source this file from your PowerShell profile.
 `,
 	DisableFlagsInUseLine: true,
@@ -99,7 +99,7 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -136,7 +136,7 @@ func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 	// Collect tags from profile definitions (fast - already in memory)
 	tagSet := make(map[string]bool)
 
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) > 0 {
 		loader := profiles.NewLoader(profileDirs)
 		profileList, _ := loader.List()

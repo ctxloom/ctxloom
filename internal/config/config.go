@@ -11,15 +11,15 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/collections"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
-	"github.com/SophisticatedContextManager/scm/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
 const (
-	SCMDirName     = ".scm"
+	AppDirName     = ".ctxloom"
 	ConfigFileName = "config"
 	BundlesDir     = "bundles"
 )
@@ -28,9 +28,9 @@ const (
 type ConfigSource int
 
 const (
-	// SourceProject means config was loaded from a project .scm directory.
+	// SourceProject means config was loaded from a project .ctxloom directory.
 	SourceProject ConfigSource = iota
-	// SourceHome means config was loaded from user home ~/.scm directory.
+	// SourceHome means config was loaded from user home ~/.ctxloom directory.
 	SourceHome
 )
 
@@ -44,9 +44,9 @@ type Config struct {
 	MCP      MCPConfig          `mapstructure:"mcp"`
 	Context  ContextConfig      `mapstructure:"context"`
 	Profiles map[string]Profile `mapstructure:"profiles"`
-	SCMPaths []string           // Resolved .scm directory (at most one)
-	SCMRoot  string             // Project root (parent of .scm directory)
-	SCMDir   string             // Full path to the .scm directory
+	AppPaths []string           // Resolved .ctxloom directory (at most one)
+	AppRoot  string             // Project root (parent of .ctxloom directory)
+	AppDir   string             // Full path to the .ctxloom directory
 	Source   ConfigSource       // Where the configuration was loaded from
 	Warnings []string           // Non-fatal warnings collected during load
 	fs       afero.Fs           // Filesystem for file operations (nil = OS filesystem)
@@ -57,7 +57,7 @@ type LoadOption func(*loadOptions)
 
 type loadOptions struct {
 	fs     afero.Fs
-	scmDir string // Override SCM directory discovery
+	appDir string // Override SCM directory discovery
 }
 
 // WithFS sets the filesystem for config operations.
@@ -67,10 +67,10 @@ func WithFS(fs afero.Fs) LoadOption {
 	}
 }
 
-// WithSCMDir sets a specific SCM directory instead of discovering it.
-func WithSCMDir(dir string) LoadOption {
+// WithAppDir sets a specific SCM directory instead of discovering it.
+func WithAppDir(dir string) LoadOption {
 	return func(o *loadOptions) {
-		o.scmDir = dir
+		o.appDir = dir
 	}
 }
 
@@ -192,7 +192,7 @@ func (c *Config) GetCompactionChunkSize() int {
 
 // GetProfileLoader returns a profiles.Loader for this config's SCM paths.
 func (c *Config) GetProfileLoader() *profiles.Loader {
-	profileDirs := profiles.GetProfileDirs(c.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(c.AppPaths)
 	var opts []profiles.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
@@ -510,8 +510,8 @@ func (d *Defaults) IsDefaultProfile(name string) bool {
 
 // Load finds and loads configuration from a single source.
 // Priority order (first found wins, no merging):
-//  1. Project .scm directory (walking up from cwd)
-//  2. User home ~/.scm directory (fallback)
+//  1. Project .ctxloom directory (walking up from cwd)
+//  2. User home ~/.ctxloom directory (fallback)
 func Load(opts ...LoadOption) (*Config, error) {
 	// Apply options
 	options := &loadOptions{}
@@ -540,21 +540,21 @@ func Load(opts ...LoadOption) (*Config, error) {
 		configValidator = nil
 	}
 
-	// Find or use provided .scm directory
-	var scmPath string
+	// Find or use provided .ctxloom directory
+	var appPath string
 	var source ConfigSource
-	if options.scmDir != "" {
-		scmPath = options.scmDir
+	if options.appDir != "" {
+		appPath = options.appDir
 		source = SourceProject
 	} else {
-		scmPath, source = findSCMDir(fs)
+		appPath, source = findAppDir(fs)
 	}
-	cfg.SCMPaths = []string{scmPath}
-	cfg.SCMDir = scmPath
-	cfg.SCMRoot = filepath.Dir(scmPath) // Project root is parent of .scm
+	cfg.AppPaths = []string{appPath}
+	cfg.AppDir = appPath
+	cfg.AppRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
 	cfg.Source = source
 
-	configPath := filepath.Join(scmPath, ConfigFileName+".yaml")
+	configPath := filepath.Join(appPath, ConfigFileName+".yaml")
 	if err := loadConfigFile(cfg, configPath, configValidator, fs); err != nil {
 		return nil, err
 	}
@@ -605,21 +605,21 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	return nil
 }
 
-// findSCMDir locates the .scm directory.
+// findAppDir locates the .ctxloom directory.
 // Priority:
-//  1. Walk up from cwd looking for .scm directory
-//  2. Fall back to user home ~/.scm directory
-// Always returns a path (creates user home .scm if needed).
-func findSCMDir(fs afero.Fs) (string, ConfigSource) {
-	// Try to find project .scm by walking up from cwd
+//  1. Walk up from cwd looking for .ctxloom directory
+//  2. Fall back to user home ~/.ctxloom directory
+// Always returns a path (creates user home .ctxloom if needed).
+func findAppDir(fs afero.Fs) (string, ConfigSource) {
+	// Try to find project .ctxloom by walking up from cwd
 	pwd, err := os.Getwd()
 	if err == nil {
-		// Walk up the directory tree looking for .scm
+		// Walk up the directory tree looking for .ctxloom
 		dir := pwd
 		for {
-			scmPath := filepath.Join(dir, SCMDirName)
-			if info, err := fs.Stat(scmPath); err == nil && info.IsDir() {
-				return scmPath, SourceProject
+			appPath := filepath.Join(dir, AppDirName)
+			if info, err := fs.Stat(appPath); err == nil && info.IsDir() {
+				return appPath, SourceProject
 			}
 
 			parent := filepath.Dir(dir)
@@ -631,32 +631,32 @@ func findSCMDir(fs afero.Fs) (string, ConfigSource) {
 		}
 	}
 
-	// Fall back to user home ~/.scm
+	// Fall back to user home ~/.ctxloom
 	home, err := os.UserHomeDir()
 	if err != nil {
 		zap.L().Warn("failed to get home directory", zap.Error(err))
 		// Last resort: use cwd
 		if pwd != "" {
-			return filepath.Join(pwd, SCMDirName), SourceProject
+			return filepath.Join(pwd, AppDirName), SourceProject
 		}
-		return SCMDirName, SourceProject
+		return AppDirName, SourceProject
 	}
 
-	homeSCM := filepath.Join(home, SCMDirName)
+	homeApp := filepath.Join(home, AppDirName)
 
 	// Ensure the directory exists
-	if err := fs.MkdirAll(homeSCM, 0755); err != nil {
-		zap.L().Warn("failed to create home .scm directory", zap.Error(err))
+	if err := fs.MkdirAll(homeApp, 0755); err != nil {
+		zap.L().Warn("failed to create home .ctxloom directory", zap.Error(err))
 	}
 
-	return homeSCM, SourceHome
+	return homeApp, SourceHome
 }
 
 // GetBundleDirs returns bundles directories.
 func (c *Config) GetBundleDirs() []string {
 	var dirs []string
-	for _, scmPath := range c.SCMPaths {
-		bundleDir := filepath.Join(scmPath, BundlesDir)
+	for _, appPath := range c.AppPaths {
+		bundleDir := filepath.Join(appPath, BundlesDir)
 		if info, err := os.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
 		}
@@ -677,15 +677,15 @@ func (c *Config) SourceName() string {
 }
 
 // GetPluginPaths returns the paths where external plugins are searched for.
-// Defaults to .scm/plugins if not configured.
+// Defaults to .ctxloom/plugins if not configured.
 func (c *Config) GetPluginPaths() []string {
 	if len(c.LM.PluginPaths) > 0 {
 		return c.LM.PluginPaths
 	}
-	// Default plugin paths from project .scm
+	// Default plugin paths from project .ctxloom
 	var paths []string
-	for _, scmPath := range c.SCMPaths {
-		paths = append(paths, filepath.Join(scmPath, "plugins"))
+	for _, appPath := range c.AppPaths {
+		paths = append(paths, filepath.Join(appPath, "plugins"))
 	}
 	return paths
 }
@@ -701,12 +701,12 @@ type ConfigFile struct {
 }
 
 // GetConfigFilePath returns the path to the primary config file.
-// Uses the closest project .scm directory.
+// Uses the closest project .ctxloom directory.
 func (c *Config) GetConfigFilePath() (string, error) {
-	if len(c.SCMPaths) == 0 {
-		return "", fmt.Errorf("no .scm directory found; run 'scm init --local' first")
+	if len(c.AppPaths) == 0 {
+		return "", fmt.Errorf("no .ctxloom directory found; run 'ctxloom init --local' first")
 	}
-	return filepath.Join(c.SCMPaths[0], ConfigFileName+".yaml"), nil
+	return filepath.Join(c.AppPaths[0], ConfigFileName+".yaml"), nil
 }
 
 // getFS returns the filesystem to use for file operations.
@@ -788,9 +788,9 @@ func (c *Config) Save() error {
 	return nil
 }
 
-// LoadFromDir loads config from a specific .scm directory.
+// LoadFromDir loads config from a specific .ctxloom directory.
 // Returns a valid config with warnings on parse errors for resilient startup.
-func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
+func LoadFromDir(appDir string, opts ...LoadOption) (*Config, error) {
 	// Apply options
 	options := &loadOptions{}
 	for _, opt := range opts {
@@ -808,14 +808,14 @@ func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
 		fs:       fs,
 	}
 
-	configPath := filepath.Join(scmDir, ConfigFileName+".yaml")
+	configPath := filepath.Join(appDir, ConfigFileName+".yaml")
 	data, err := afero.ReadFile(fs, configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return empty config if no config file exists
-			cfg.SCMPaths = []string{scmDir}
-			cfg.SCMDir = scmDir
-			cfg.SCMRoot = filepath.Dir(scmDir)
+			cfg.AppPaths = []string{appDir}
+			cfg.AppDir = appDir
+			cfg.AppRoot = filepath.Dir(appDir)
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read config from %s: %w", configPath, err)
@@ -827,9 +827,9 @@ func LoadFromDir(scmDir string, opts ...LoadOption) (*Config, error) {
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 	}
 
-	cfg.SCMPaths = []string{scmDir}
-	cfg.SCMDir = scmDir
-	cfg.SCMRoot = filepath.Dir(scmDir)
+	cfg.AppPaths = []string{appDir}
+	cfg.AppDir = appDir
+	cfg.AppRoot = filepath.Dir(appDir)
 	return cfg, nil
 }
 
@@ -1223,15 +1223,15 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 		return result
 	}
 
-	// Get the base .scm directory
-	if len(c.SCMPaths) == 0 {
+	// Get the base .ctxloom directory
+	if len(c.AppPaths) == 0 {
 		return result
 	}
-	scmDir := c.SCMPaths[0]
+	appDir := c.AppPaths[0]
 
 	// Load each default profile and collect MCP servers
 	profileLoader := c.GetProfileLoader()
-	bundleDirs := []string{filepath.Join(scmDir, BundlesDir)}
+	bundleDirs := []string{filepath.Join(appDir, BundlesDir)}
 	bundleLoader := bundles.NewLoader(bundleDirs, false)
 
 	for _, defaultProfile := range defaultProfiles {
@@ -1242,7 +1242,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 
 		// Process each bundle URL in the profile
 		for _, bundleRef := range profile.Bundles {
-			servers := loadMCPFromBundleRef(bundleRef, scmDir, bundleLoader)
+			servers := loadMCPFromBundleRef(bundleRef, appDir, bundleLoader)
 			for name, server := range servers {
 				result[name] = server
 			}
@@ -1253,7 +1253,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 }
 
 // loadMCPFromBundleRef loads MCP servers from a bundle reference (URL or name).
-func loadMCPFromBundleRef(bundleRef string, scmDir string, loader *bundles.Loader) map[string]MCPServer {
+func loadMCPFromBundleRef(bundleRef string, appDir string, loader *bundles.Loader) map[string]MCPServer {
 	result := make(map[string]MCPServer)
 
 	// Parse the reference to get the local path
@@ -1268,7 +1268,7 @@ func loadMCPFromBundleRef(bundleRef string, scmDir string, loader *bundles.Loade
 	}
 
 	// Get the local path for this bundle
-	localPath := ref.LocalPath(scmDir, remote.ItemTypeBundle)
+	localPath := ref.LocalPath(appDir, remote.ItemTypeBundle)
 
 	// Load the bundle from the local path
 	bundle, err := loader.LoadFile(localPath)

@@ -9,7 +9,7 @@ import (
 // cachedExecPath stores the resolved executable path (set once at startup).
 var cachedExecPath string
 
-// GetExecutablePath returns the absolute path to the current scm binary.
+// GetExecutablePath returns the absolute path to the current ctxloom binary.
 // The path is resolved once and cached for the lifetime of the process.
 func GetExecutablePath() (string, error) {
 	if cachedExecPath != "" {
@@ -37,13 +37,13 @@ func SetExecutablePathForTesting(path string) {
 }
 
 // GetContextInjectionCommand returns the hook command for context injection.
-// Uses absolute path to the current scm binary.
+// Uses absolute path to the current ctxloom binary.
 // workDir is the project directory where the context file lives.
 func GetContextInjectionCommand(hash, workDir string) string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
 		// Fallback to "scm" if we can't get the path (shouldn't happen)
-		execPath = "scm"
+		execPath = "ctxloom"
 	}
 	// Include --project flag with absolute path to ensure hook finds the context file
 	// even when Claude Code runs from a different working directory
@@ -55,13 +55,13 @@ func GetContextInjectionCommand(hash, workDir string) string {
 }
 
 // GetMemoryCheckCommand returns the hook command for proactive memory checking.
-// Uses absolute path to the current scm binary.
+// Uses absolute path to the current ctxloom binary.
 // workDir is the project directory.
 func GetMemoryCheckCommand(workDir string) string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
 		// Fallback to "scm" if we can't get the path (shouldn't happen)
-		execPath = "scm"
+		execPath = "ctxloom"
 	}
 	// Use absolute path for --project to ensure hook works from any directory
 	absWorkDir := workDir
@@ -72,12 +72,12 @@ func GetMemoryCheckCommand(workDir string) string {
 }
 
 // GetSCMMCPCommand returns the command (executable path) for the SCM MCP server.
-// Uses absolute path to the current scm binary.
+// Uses absolute path to the current ctxloom binary.
 func GetSCMMCPCommand() string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
 		// Fallback to "scm" if we can't get the path (shouldn't happen)
-		return "scm"
+		return "ctxloom"
 	}
 	return execPath
 }

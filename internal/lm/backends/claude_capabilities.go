@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.
@@ -84,10 +86,10 @@ func (s *ClaudeSkills) RegisterFromContent(workDir string, contents []*bundles.L
 // Clear removes all SCM-managed skills using the manifest.
 func (s *ClaudeSkills) Clear(workDir string) error {
 	commandsDir := filepath.Join(workDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
+	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
 
 	// Clean up old subdirectory style (migration)
-	_ = os.RemoveAll(filepath.Join(commandsDir, "scm"))
+	_ = os.RemoveAll(filepath.Join(commandsDir, "ctxloom"))
 
 	// Read manifest and remove tracked files
 	data, err := os.ReadFile(manifestPath)
@@ -109,7 +111,7 @@ func (s *ClaudeSkills) Clear(workDir string) error {
 
 // List returns registered skill names from the manifest.
 func (s *ClaudeSkills) List(workDir string) ([]string, error) {
-	manifestPath := filepath.Join(workDir, ".claude", "commands", ".scm-manifest")
+	manifestPath := filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -151,14 +153,38 @@ func NewClaudeContext(backend *ClaudeCode) *ClaudeContext {
 type ClaudeSessionHistory struct {
 	backend  *ClaudeCode
 	registry *BaseSessionRegistry
+	fs       afero.Fs
+	homeDir  string // Override home directory for testing
+}
+
+// ClaudeSessionHistoryOption configures ClaudeSessionHistory.
+type ClaudeSessionHistoryOption func(*ClaudeSessionHistory)
+
+// WithClaudeSessionFS sets a custom filesystem for testing.
+func WithClaudeSessionFS(fs afero.Fs) ClaudeSessionHistoryOption {
+	return func(h *ClaudeSessionHistory) {
+		h.fs = fs
+	}
+}
+
+// WithClaudeSessionHomeDir sets a custom home directory for testing.
+func WithClaudeSessionHomeDir(dir string) ClaudeSessionHistoryOption {
+	return func(h *ClaudeSessionHistory) {
+		h.homeDir = dir
+	}
 }
 
 // NewClaudeSessionHistory creates a new Claude session history handler.
-func NewClaudeSessionHistory(backend *ClaudeCode) *ClaudeSessionHistory {
-	return &ClaudeSessionHistory{
+func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOption) *ClaudeSessionHistory {
+	h := &ClaudeSessionHistory{
 		backend:  backend,
 		registry: NewBaseSessionRegistry("claude-session-registry.json"),
+		fs:       afero.NewOsFs(),
 	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
@@ -184,7 +210,7 @@ func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]SessionMeta, erro
 	}
 
 	// Look for session files in the project directory
-	entries, err := os.ReadDir(projectDir)
+	entries, err := afero.ReadDir(h.fs, projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read project directory: %w", err)
 	}
@@ -195,14 +221,9 @@ func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]SessionMeta, erro
 			continue
 		}
 
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
 		sessions = append(sessions, SessionMeta{
 			ID:        strings.TrimSuffix(entry.Name(), ".jsonl"),
-			StartTime: info.ModTime(), // Approximate - would need to read file for exact
+			StartTime: entry.ModTime(), // Approximate - would need to read file for exact
 		})
 	}
 
@@ -234,9 +255,13 @@ func (h *ClaudeSessionHistory) GetSessionByPath(path string) (*Session, error) {
 // Claude Code converts paths by replacing / with - and prefixing with -.
 // Example: /home/user/project -> -home-user-project
 func (h *ClaudeSessionHistory) findProjectDir(workDir string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+	homeDir := h.homeDir
+	if homeDir == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
 	}
 
 	absPath, err := filepath.Abs(workDir)
@@ -248,7 +273,7 @@ func (h *ClaudeSessionHistory) findProjectDir(workDir string) (string, error) {
 	projectName := strings.ReplaceAll(absPath, string(filepath.Separator), "-")
 
 	projectDir := filepath.Join(homeDir, ".claude", "projects", projectName)
-	if _, err := os.Stat(projectDir); err != nil {
+	if _, err := h.fs.Stat(projectDir); err != nil {
 		return "", fmt.Errorf("project directory not found: %s", projectDir)
 	}
 
@@ -264,7 +289,7 @@ func (h *ClaudeSessionHistory) findSessionFile(workDir string) (string, error) {
 
 	// Claude Code uses session.jsonl as the main session file
 	sessionPath := filepath.Join(projectDir, "session.jsonl")
-	if _, err := os.Stat(sessionPath); err != nil {
+	if _, err := h.fs.Stat(sessionPath); err != nil {
 		return "", fmt.Errorf("session file not found: %s", sessionPath)
 	}
 
@@ -273,7 +298,7 @@ func (h *ClaudeSessionHistory) findSessionFile(workDir string) (string, error) {
 
 // parseSessionFile reads and parses a Claude session JSONL file.
 func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
-	file, err := os.Open(path)
+	file, err := h.fs.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session file: %w", err)
 	}

@@ -3,7 +3,8 @@ package profiles
 import (
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,6 +95,107 @@ func TestHasLocalReferences(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestTransformToLocal(t *testing.T) {
+	t.Run("already local", func(t *testing.T) {
+		profile := &Profile{
+			Bundles: []string{"local/bundle", "another/local"},
+		}
+		fs := afero.NewMemMapFs()
+		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
+		require.NoError(t, err)
+		lockfile := &remote.Lockfile{
+			Bundles:  make(map[string]remote.LockEntry),
+			Profiles: make(map[string]remote.LockEntry),
+		}
+
+		result, updates, err := TransformToLocal(profile, registry, lockfile)
+		require.NoError(t, err)
+		assert.Equal(t, profile.Bundles, result.Bundles)
+		assert.Empty(t, updates)
+	})
+
+	t.Run("canonical URL to local", func(t *testing.T) {
+		profile := &Profile{
+			Bundles: []string{"https://github.com/alice/scm@v1/bundles/core-practices@v1.2.3"},
+		}
+		fs := afero.NewMemMapFs()
+		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
+		require.NoError(t, err)
+		lockfile := &remote.Lockfile{
+			Bundles:  make(map[string]remote.LockEntry),
+			Profiles: make(map[string]remote.LockEntry),
+		}
+
+		result, updates, err := TransformToLocal(profile, registry, lockfile)
+		require.NoError(t, err)
+		assert.Len(t, result.Bundles, 1)
+		assert.Contains(t, result.Bundles[0], "scm/core-practices")
+		assert.Len(t, updates, 1)
+		assert.Equal(t, "https://github.com/alice/scm", updates[0].Entry.URL)
+		assert.Equal(t, "v1", updates[0].Entry.SCMVersion)
+		assert.Equal(t, "v1.2.3", updates[0].Entry.RequestedVersion)
+	})
+
+	t.Run("mixed local and canonical", func(t *testing.T) {
+		profile := &Profile{
+			Bundles: []string{
+				"local/bundle",
+				"https://github.com/bob/scm@v1/bundles/utils",
+			},
+		}
+		fs := afero.NewMemMapFs()
+		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
+		require.NoError(t, err)
+		lockfile := &remote.Lockfile{
+			Bundles:  make(map[string]remote.LockEntry),
+			Profiles: make(map[string]remote.LockEntry),
+		}
+
+		result, updates, err := TransformToLocal(profile, registry, lockfile)
+		require.NoError(t, err)
+		assert.Len(t, result.Bundles, 2)
+		assert.Equal(t, "local/bundle", result.Bundles[0])
+		assert.Contains(t, result.Bundles[1], "scm/utils")
+		assert.Len(t, updates, 1)
+	})
+
+	t.Run("with item specifier", func(t *testing.T) {
+		profile := &Profile{
+			Bundles: []string{"https://github.com/alice/scm@v1/bundles/core#fragments/intro"},
+		}
+		fs := afero.NewMemMapFs()
+		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
+		require.NoError(t, err)
+		lockfile := &remote.Lockfile{
+			Bundles:  make(map[string]remote.LockEntry),
+			Profiles: make(map[string]remote.LockEntry),
+		}
+
+		result, updates, err := TransformToLocal(profile, registry, lockfile)
+		require.NoError(t, err)
+		assert.Len(t, result.Bundles, 1)
+		assert.Contains(t, result.Bundles[0], "#fragments/intro")
+		assert.Len(t, updates, 1)
+	})
+
+	t.Run("invalid URL returns error", func(t *testing.T) {
+		profile := &Profile{
+			Bundles: []string{"https://invalid-url-missing-version"},
+		}
+		fs := afero.NewMemMapFs()
+		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
+		require.NoError(t, err)
+		lockfile := &remote.Lockfile{
+			Bundles:  make(map[string]remote.LockEntry),
+			Profiles: make(map[string]remote.LockEntry),
+		}
+
+		_, _, err = TransformToLocal(profile, registry, lockfile)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid canonical URL")
+	})
 }
 
 func TestTransformToCanonical(t *testing.T) {

@@ -3,6 +3,8 @@ package remote
 import (
 	"regexp"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/collections"
 )
 
 // ParseSearchQuery parses a search query string into structured filters.
@@ -139,16 +141,16 @@ func MatchesQuery(entry ManifestEntry, query SearchQuery) bool {
 // matchTags checks if entry tags match the tag query.
 func matchTags(entryTags []string, query TagQuery) bool {
 	// Convert to lowercase for comparison
-	entryTagsLower := make(map[string]bool)
+	entryTagsLower := collections.NewSet[string]()
 	for _, t := range entryTags {
-		entryTagsLower[strings.ToLower(t)] = true
+		entryTagsLower.Add(strings.ToLower(t))
 	}
 
 	switch query.Operator {
 	case TagOperatorAND:
 		// All query tags must be present
 		for _, t := range query.Tags {
-			present := entryTagsLower[strings.ToLower(t)]
+			present := entryTagsLower.Has(strings.ToLower(t))
 			if query.Negated {
 				present = !present
 			}
@@ -161,7 +163,7 @@ func matchTags(entryTags []string, query TagQuery) bool {
 	case TagOperatorOR:
 		// At least one query tag must be present
 		for _, t := range query.Tags {
-			present := entryTagsLower[strings.ToLower(t)]
+			present := entryTagsLower.Has(strings.ToLower(t))
 			if query.Negated {
 				present = !present
 			}

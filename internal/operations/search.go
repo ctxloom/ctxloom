@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // SearchResult represents a single search result.
@@ -49,17 +50,9 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Determine which types to search
-	searchTypes := map[string]bool{
-		"fragment":   true,
-		"prompt":     true,
-		"profile":    true,
-		"mcp_server": true,
-	}
+	searchTypes := collections.NewSetFrom("fragment", "prompt", "profile", "mcp_server")
 	if len(req.Types) > 0 {
-		searchTypes = make(map[string]bool)
-		for _, t := range req.Types {
-			searchTypes[t] = true
-		}
+		searchTypes = collections.NewSetFrom(req.Types...)
 	}
 
 	var results []SearchResult
@@ -72,7 +65,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Search fragments
-	if searchTypes["fragment"] {
+	if searchTypes.Has("fragment") {
 		var infos []struct {
 			Name   string
 			Tags   []string
@@ -123,7 +116,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Search prompts
-	if searchTypes["prompt"] {
+	if searchTypes.Has("prompt") {
 		prompts, err := loader.ListAllPrompts()
 		if err == nil {
 			for _, p := range prompts {
@@ -140,7 +133,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Search profiles
-	if searchTypes["profile"] {
+	if searchTypes.Has("profile") {
 		for name, profile := range cfg.Profiles {
 			matchType := ""
 			if strings.Contains(strings.ToLower(name), query) {
@@ -162,7 +155,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Search MCP servers
-	if searchTypes["mcp_server"] {
+	if searchTypes.Has("mcp_server") {
 		for name, srv := range cfg.MCP.Servers {
 			if strings.Contains(strings.ToLower(name), query) ||
 				strings.Contains(strings.ToLower(srv.Command), query) {

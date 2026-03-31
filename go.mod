@@ -1,4 +1,4 @@
-module github.com/SophisticatedContextManager/scm
+module github.com/ctxloom/ctxloom
 
 go 1.24.0
 

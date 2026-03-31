@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/spf13/afero"
 )
 
@@ -51,11 +51,11 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	fs := options.fs
 
 	commandsDir := filepath.Join(workDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
+	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
 
 	// Clean up old subdirectory style (migration)
-	oldScmDir := filepath.Join(commandsDir, "scm")
-	_ = fs.RemoveAll(oldScmDir)
+	oldCtxloomDir := filepath.Join(commandsDir, "ctxloom")
+	_ = fs.RemoveAll(oldCtxloomDir)
 
 	// Read existing manifest and clean up tracked files
 	if data, err := afero.ReadFile(fs, manifestPath); err == nil {

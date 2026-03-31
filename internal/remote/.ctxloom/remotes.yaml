@@ -1,0 +1,5 @@
+remotes:
+    alice:
+        name: ""
+        url: https://github.com/alice/scm
+        version: v1

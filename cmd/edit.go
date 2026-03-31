@@ -8,14 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
 var editCmd = &cobra.Command{
 	Use:    "edit <reference>",
 	Short:  "Edit bundles, profiles, fragments, or prompts",
-	Hidden: true, // Use 'scm fragment edit', 'scm prompt edit', or 'scm profile edit'
+	Hidden: true, // Use 'ctxloom fragment edit', 'ctxloom prompt edit', or 'ctxloom profile edit'
 	Long: `Edit content using your configured editor.
 
 Reference formats:
@@ -25,14 +25,14 @@ Reference formats:
   <bundle>#prompts/<name>     Edit a prompt's content
 
 After editing, you may want to push changes:
-  scm bundle push <name> [remote]
-  scm profile push <name> [remote]
+  ctxloom bundle push <name> [remote]
+  ctxloom profile push <name> [remote]
 
 Examples:
-  scm edit bundle my-bundle
-  scm edit profile my-profile
-  scm edit my-bundle#fragments/coding-standards
-  scm edit my-bundle#prompts/code-review`,
+  ctxloom edit bundle my-bundle
+  ctxloom edit profile my-profile
+  ctxloom edit my-bundle#fragments/coding-standards
+  ctxloom edit my-bundle#prompts/code-review`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runEdit,
 }
@@ -53,7 +53,7 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	// Parse reference: bundle#type/name
 	hashIdx := strings.Index(ref, "#")
 	if hashIdx == -1 {
-		return fmt.Errorf("invalid reference format\n\nUsage:\n  scm edit bundle <name>                    # Edit bundle YAML\n  scm edit profile <name>                   # Edit profile YAML\n  scm edit <bundle>#fragments/<name>        # Edit fragment content\n  scm edit <bundle>#prompts/<name>          # Edit prompt content")
+		return fmt.Errorf("invalid reference format\n\nUsage:\n  ctxloom edit bundle <name>                    # Edit bundle YAML\n  ctxloom edit profile <name>                   # Edit profile YAML\n  ctxloom edit <bundle>#fragments/<name>        # Edit fragment content\n  ctxloom edit <bundle>#prompts/<name>          # Edit prompt content")
 	}
 
 	bundleName := ref[:hashIdx]
@@ -134,7 +134,7 @@ func editProfileFile(name string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	profileDirs := profiles.GetProfileDirs(cfg.SCMPaths)
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 {
 		return fmt.Errorf("no profiles directory found")
 	}
@@ -311,7 +311,7 @@ func printPushReminder(bundle *bundles.Bundle) {
 		base := filepath.Base(bundle.Path)
 		base = strings.TrimSuffix(base, ".yaml")
 		if strings.Contains(dir, "bundles") {
-			// Extract remote/name format from path like .scm/bundles/scm-github/core.yaml
+			// Extract remote/name format from path like .ctxloom/bundles/scm-github/core.yaml
 			parts := strings.Split(dir, string(filepath.Separator))
 			for i, p := range parts {
 				if p == "bundles" && i+1 < len(parts) {
@@ -324,7 +324,7 @@ func printPushReminder(bundle *bundles.Bundle) {
 
 	fmt.Println()
 	fmt.Println("Bundle modified. To publish changes:")
-	fmt.Printf("  scm bundle push %s [remote]\n", bundleName)
+	fmt.Printf("  ctxloom bundle push %s [remote]\n", bundleName)
 }
 
 func init() {

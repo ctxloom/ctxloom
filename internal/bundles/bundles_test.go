@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,6 +187,20 @@ func TestBundlePrompt_NeedsDistill(t *testing.T) {
 			name:   "no distilled content",
 			prompt: BundlePrompt{Content: "test"},
 			want:   true,
+		},
+		{
+			name:   "distilled but no hash",
+			prompt: BundlePrompt{Content: "test", Distilled: "distilled"},
+			want:   true,
+		},
+		{
+			name: "hash mismatch",
+			prompt: BundlePrompt{
+				Content:     "new content",
+				Distilled:   "distilled",
+				ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			want: true,
 		},
 		{
 			name: "hash matches",
@@ -637,6 +652,36 @@ func TestNewLoader(t *testing.T) {
 
 	assert.Equal(t, dirs, loader.searchDirs)
 	assert.True(t, loader.preferDistilled)
+}
+
+func TestWithFS(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dirs := []string{"/bundles"}
+	loader := NewLoader(dirs, false, WithFS(fs))
+
+	assert.Equal(t, fs, loader.fs)
+	assert.Equal(t, dirs, loader.searchDirs)
+}
+
+func TestGeminiConfig_IsEnabled(t *testing.T) {
+	trueBool := true
+	falseBool := false
+
+	tests := []struct {
+		name   string
+		config GeminiConfig
+		want   bool
+	}{
+		{"nil enabled (default true)", GeminiConfig{}, true},
+		{"explicitly enabled", GeminiConfig{Enabled: &trueBool}, true},
+		{"explicitly disabled", GeminiConfig{Enabled: &falseBool}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.config.IsEnabled())
+		})
+	}
 }
 
 func TestLoader_Find(t *testing.T) {

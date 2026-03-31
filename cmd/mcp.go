@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,23 +14,23 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Run as MCP server or manage MCP server configurations",
-	Long: `Run scm as an MCP (Model Context Protocol) server, or manage MCP server configurations.
+	Long: `Run ctxloom as an MCP (Model Context Protocol) server, or manage MCP server configurations.
 
 When called without subcommands, runs SCM as an MCP server over stdio.
 Subcommands manage external MCP server configurations that are injected into backend settings.
 
 RUNNING AS MCP SERVER:
-  scm mcp              Run as MCP server over stdio
-  scm mcp serve        Alias for running as MCP server
+  ctxloom mcp              Run as MCP server over stdio
+  ctxloom mcp serve        Alias for running as MCP server
 
   Available tools when running as server:
     Context: list_fragments, get_fragment, create_fragment, delete_fragment, assemble_context
@@ -42,11 +43,11 @@ RUNNING AS MCP SERVER:
     Sync: sync_dependencies
 
 MANAGING MCP SERVERS:
-  scm mcp list         List configured MCP servers
-  scm mcp add          Add an MCP server configuration
-  scm mcp remove       Remove an MCP server configuration
-  scm mcp show         Show details of an MCP server
-  scm mcp auto-register Configure auto-registration of SCM's MCP server`,
+  ctxloom mcp list         List configured MCP servers
+  ctxloom mcp add          Add an MCP server configuration
+  ctxloom mcp remove       Remove an MCP server configuration
+  ctxloom mcp show         Show details of an MCP server
+  ctxloom mcp auto-register Configure auto-registration of SCM's MCP server`,
 	RunE: runMCPServer,
 }
 
@@ -55,7 +56,7 @@ MANAGING MCP SERVERS:
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run as MCP server over stdio",
-	Long:  `Run scm as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'scm mcp' without subcommands.`,
+	Long:  `Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'scm mcp' without subcommands.`,
 	RunE:  runMCPServer,
 }
 
@@ -111,9 +112,9 @@ var mcpAddCmd = &cobra.Command{
 	Long: `Add an MCP server to be injected into backend settings.
 
 Examples:
-  scm mcp add my-server --command "npx my-mcp-server"
-  scm mcp add tools --command "python" --args "-m,mcp_tools"
-  scm mcp add claude-only --command "./server" --backend claude-code`,
+  ctxloom mcp add my-server --command "npx my-mcp-server"
+  ctxloom mcp add tools --command "python" --args "-m,mcp_tools"
+  ctxloom mcp add claude-only --command "./server" --backend claude-code`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -142,7 +143,7 @@ Examples:
 			scope = result.Backend + " only"
 		}
 		fmt.Printf("Added MCP server %q (%s)\n", result.Name, scope)
-		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+		fmt.Println("Run 'ctxloom run' or 'ctxloom hook apply' to apply changes to backend settings.")
 		return nil
 	},
 }
@@ -177,7 +178,7 @@ var mcpRemoveCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Removed MCP server %q\n", result.Name)
-		fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+		fmt.Println("Run 'ctxloom run' or 'ctxloom hook apply' to apply changes to backend settings.")
 		return nil
 	},
 }
@@ -245,9 +246,9 @@ When enabled (default), SCM injects its own MCP server into backend settings,
 allowing AI agents to access SCM tools (fragments, profiles, prompts, etc.).
 
 Examples:
-  scm mcp auto-register           # Show current setting
-  scm mcp auto-register --disable # Disable auto-registration
-  scm mcp auto-register --enable  # Enable auto-registration (default)`,
+  ctxloom mcp auto-register           # Show current setting
+  ctxloom mcp auto-register --disable # Disable auto-registration
+  ctxloom mcp auto-register --enable  # Enable auto-registration (default)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
@@ -270,7 +271,7 @@ Examples:
 			} else {
 				fmt.Println("SCM MCP server auto-registration: disabled")
 			}
-			fmt.Println("Run 'scm run' or 'scm hook apply' to apply changes to backend settings.")
+			fmt.Println("Run 'ctxloom run' or 'ctxloom hook apply' to apply changes to backend settings.")
 			return nil
 		}
 
@@ -349,6 +350,11 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, shutdownSignals...)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "SCM MCP: signal handler panic: %v\n", r)
+			}
+		}()
 		<-sigCh
 		cancel()
 		// Close stdin to unblock any pending reads
@@ -379,6 +385,16 @@ func (s *mcpServer) run(ctx context.Context) error {
 
 	// Start reader goroutine
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "SCM MCP: reader goroutine panic: %v\n", r)
+				// Send error to unblock the main loop
+				select {
+				case lineCh <- readResult{nil, fmt.Errorf("panic: %v", r)}:
+				default:
+				}
+			}
+		}()
 		for {
 			line, err := s.reader.ReadBytes('\n')
 			select {
@@ -458,7 +474,7 @@ func (s *mcpServer) sendError(id interface{}, code int, message string) {
 func (s *mcpServer) handleRequest(ctx context.Context, req *mcpRequest) *mcpResponse {
 	switch req.Method {
 	case "initialize":
-		return s.handleInitialize(req)
+		return s.handleInitialize(ctx, req)
 	case "notifications/initialized":
 		return nil
 	case "tools/list":
@@ -474,7 +490,7 @@ func (s *mcpServer) handleRequest(ctx context.Context, req *mcpRequest) *mcpResp
 	}
 }
 
-func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
+func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpResponse {
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -493,15 +509,22 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 		fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", warning)
 	}
 
+	// Check if context was cancelled (user hit Ctrl+C)
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	// Auto-sync dependencies on startup if enabled (blocking, graceful failure)
 	if cfg.Sync.ShouldAutoSync() {
 		fmt.Fprintf(os.Stderr, "SCM: syncing remote bundles and profiles from config...\n")
-		syncCtx, syncCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
 		result, err := operations.SyncOnStartup(syncCtx, cfg)
 		syncCancel()
 		if err != nil {
-			// Log but don't fail - missing deps will be handled when accessed
-			fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+			if !errors.Is(err, context.Canceled) {
+				// Log but don't fail - missing deps will be handled when accessed
+				fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+			}
 		} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
 			fmt.Fprintf(os.Stderr, "SCM: %s\n", result.Message)
 		} else if result.Errors > 0 {
@@ -509,10 +532,17 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 		}
 	}
 
+	// Check if context was cancelled (user hit Ctrl+C)
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	// Transform llm.md/scm.md to backend-specific context files (blocking, graceful failure)
-	ctxResult, err := operations.TransformContextOnStartup(context.Background(), cfg)
+	ctxResult, err := operations.TransformContextOnStartup(ctx, cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: context transform failed: %v\n", err)
+		if !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "SCM: warning: context transform failed: %v\n", err)
+		}
 	} else if ctxResult.Status == "no_source" {
 		// No llm.md or scm.md - that's fine, just skip silently
 	} else if ctxResult.Status == "deferred" {
@@ -534,15 +564,25 @@ func (s *mcpServer) handleInitialize(req *mcpRequest) *mcpResponse {
 		}
 	}
 
+	// Check if context was cancelled (user hit Ctrl+C)
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	// Apply hooks (including slash command generation) - graceful failure
-	hooksResult, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	hooksResult, err := operations.ApplyHooks(ctx, cfg, operations.ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", err)
 	}
 	_ = hooksResult // Successfully applied - don't log unless verbose
+
+	// Final check if context was cancelled
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	return &mcpResponse{
 		JSONRPC: "2.0",

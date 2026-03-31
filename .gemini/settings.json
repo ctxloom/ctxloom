@@ -1,5 +1,11 @@
 {
   "mcpServers": {
+    "ctxloom": {
+      "command": "/usr/bin/scm",
+      "args": [
+        "mcp"
+      ]
+    },
     "scm": {
       "command": "/usr/bin/scm",
       "args": [

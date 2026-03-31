@@ -1,0 +1,26 @@
+/* SCM Green Theme - Matching original Docusaurus colors */
+
+:root {
+  /* Light mode accent colors (green: #2e8555) */
+  --sl-color-accent-low: #e6f4eb;
+  --sl-color-accent: #2e8555;
+  --sl-color-accent-high: #205d3b;
+
+  /* Text accent */
+  --sl-color-text-accent: #2e8555;
+}
+
+:root[data-theme='dark'] {
+  /* Dark mode accent colors (green: #25c2a0) */
+  --sl-color-accent-low: #1a3d32;
+  --sl-color-accent: #25c2a0;
+  --sl-color-accent-high: #4fddbf;
+
+  /* Text accent */
+  --sl-color-text-accent: #25c2a0;
+}
+
+/* Code block font size (matching Docusaurus 95%) */
+:root {
+  --sl-text-code: 0.95em;
+}

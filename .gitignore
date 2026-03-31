@@ -47,3 +47,5 @@ __debug_bin*
 internal/memory/vectordb/onnxlib/libonnxruntime.so
 internal/memory/vectordb/onnxlib/onnxruntime.dll
 internal/memory/vectordb/onnxlib/libonnxruntime.dylib
+coverage.html
+coverage.raw.out

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package scm.lm.plugin;
 
-option go_package = "github.com/SophisticatedContextManager/scm/internal/lm/grpc";
+option go_package = "github.com/ctxloom/ctxloom/internal/lm/grpc";
 
 // AIPlugin is the gRPC service that all AI backend plugins must implement.
 service AIPlugin {

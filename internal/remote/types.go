@@ -304,7 +304,7 @@ type LockEntry struct {
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
 }
 
-// Lockfile represents the .scm/lock.yaml file for pinning dependencies.
+// Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
 type Lockfile struct {
 	Version  int                  `yaml:"version" json:"version"`
 	LockedAt time.Time            `yaml:"locked_at" json:"locked_at"`

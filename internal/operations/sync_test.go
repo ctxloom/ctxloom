@@ -2,7 +2,7 @@
 //
 // Sync is how SCM pulls remote bundles and profiles from GitHub/GitLab/etc.
 // It scans config for remote references (anything with "/" like "github/bundle")
-// and downloads missing items to the local .scm directory.
+// and downloads missing items to the local .ctxloom directory.
 //
 // # What Constitutes a Remote Reference
 //
@@ -31,7 +31,7 @@
 //
 // SyncOnStartup is a specialized sync for LLM session startup. It checks
 // if missing dependencies exist and pulls them. This runs automatically
-// when `scm run` starts an LLM session to ensure context is available.
+// when `ctxloom run` starts an LLM session to ensure context is available.
 package operations
 
 import (
@@ -42,8 +42,9 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.
@@ -98,11 +99,11 @@ func TestCollectRemoteReferences(t *testing.T) {
 				},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create the profiles directory
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
 
 	bundles, profiles, err := collectRemoteReferences(cfg, nil, fs)
 	if err != nil {
@@ -125,6 +126,9 @@ func TestCollectRemoteReferences(t *testing.T) {
 // NON-OBVIOUS: A reference is considered remote if it has a slash OR looks
 // like a URL. This means "github/bundle" is remote even though it's not a
 // full URL - SCM expands it using the remote registry.
+//
+// The "profile:" prefix indicates a LOCAL profile reference, not remote.
+// This is used to distinguish profile refs from bundle refs in parent lists.
 func TestIsRemoteReference(t *testing.T) {
 	tests := []struct {
 		ref      string
@@ -137,6 +141,10 @@ func TestIsRemoteReference(t *testing.T) {
 		{"file:///path/to/repo", true},
 		{"local-bundle", false},
 		{"my-bundle", false},
+		// profile: prefix indicates local profile reference
+		{"profile:personal/typescript-dev", false},
+		{"profile:nested/deep/profile", false},
+		{"profile:simple", false},
 	}
 
 	for _, tc := range tests {
@@ -164,11 +172,11 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 				Bundles: []string{"local-bundle"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create the profiles directory
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS: fs,
@@ -191,22 +199,22 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create necessary directories
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
 
 	// Create registry with test remote
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -247,23 +255,23 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create necessary directories and existing bundle
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -300,23 +308,23 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create necessary directories and existing bundle
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -349,20 +357,20 @@ func TestSyncDependencies_PullError(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
 
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{
 		err: fmt.Errorf("network error"),
@@ -407,20 +415,20 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
 
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.scm/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS:       fs,
@@ -460,15 +468,15 @@ func TestCheckMissingDependencies(t *testing.T) {
 				},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create directories
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
 
 	// Install one bundle
-	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/security.yaml", []byte("version: 1"), 0644)
+	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/security.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -499,13 +507,13 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create directories and install bundle
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.scm/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
+	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -527,7 +535,7 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 // SyncOnStartup tests
 // ==========================================================================
 //
-// SyncOnStartup is called during `scm run` to ensure dependencies are present
+// SyncOnStartup is called during `ctxloom run` to ensure dependencies are present
 // before starting the LLM session. It's the automatic sync mechanism.
 
 // TestSyncOnStartup verifies that startup sync works with local-only config.
@@ -541,11 +549,11 @@ func TestSyncOnStartup(t *testing.T) {
 				Bundles: []string{"local-only"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create profiles directory
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
 
 	// With only local bundles, should return up_to_date or empty
 	result, err := SyncOnStartup(context.Background(), cfg)
@@ -568,14 +576,14 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		SCMPaths: []string{"/test/.scm"},
+		AppPaths: []string{"/test/.ctxloom"},
 	}
 
 	// Create necessary directories
-	_ = fs.MkdirAll("/test/.scm/profiles", 0755)
-	_ = fs.MkdirAll("/test/.scm/bundles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
 
-	_ = afero.WriteFile(fs, "/test/.scm/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
     url: https://github.com/test/scm
@@ -635,7 +643,7 @@ func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
 	// that will be found in a real directory, or by verifying the error path.
 
 	cfg := &config.Config{
-		SCMPaths: []string{"/nonexistent"},
+		AppPaths: []string{"/nonexistent"},
 		Profiles: map[string]config.Profile{},
 	}
 
@@ -743,4 +751,89 @@ func TestDefaultAutoSyncConfig_Consistent(t *testing.T) {
 	if config1 != config2 {
 		t.Error("DefaultAutoSyncConfig should return consistent values")
 	}
+}
+
+func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
+	// Test that remote dependencies in nested local profile parents are discovered
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{
+			// Top-level profile with local parent
+			"driftway": {
+				Bundles: []string{"local-bundle"},
+				Parents: []string{"profile:personal/typescript-dev"},
+			},
+			// Local parent profile with remote parent
+			"personal/typescript-dev": {
+				Bundles: []string{"https://github.com/owner/repo@v1/bundles/core"},
+				Parents: []string{"https://github.com/owner/repo@v1/profiles/base"},
+			},
+		},
+	}
+
+	bundleSet := collections.NewSet[string]()
+	profileSet := collections.NewSet[string]()
+	visited := collections.NewSet[string]()
+
+	collectProfileReferencesRecursive(cfg, "driftway", bundleSet, profileSet, visited)
+
+	// Should find the remote bundle from the nested local parent
+	assert.True(t, bundleSet.Has("https://github.com/owner/repo@v1/bundles/core"),
+		"should find remote bundle in nested local parent")
+
+	// Should find the remote profile from the nested local parent
+	assert.True(t, profileSet.Has("https://github.com/owner/repo@v1/profiles/base"),
+		"should find remote profile in nested local parent")
+
+	// Should NOT include local-bundle (it's not a remote reference)
+	assert.False(t, bundleSet.Has("local-bundle"),
+		"should not include local bundles")
+}
+
+func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
+	// Test that "profile:" prefix is properly stripped when following local parents
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{
+			"top": {
+				Parents: []string{"profile:nested/profile"},
+			},
+			"nested/profile": {
+				Bundles: []string{"github/remote-bundle"},
+			},
+		},
+	}
+
+	bundleSet := collections.NewSet[string]()
+	profileSet := collections.NewSet[string]()
+	visited := collections.NewSet[string]()
+
+	collectProfileReferencesRecursive(cfg, "top", bundleSet, profileSet, visited)
+
+	// Should find the remote bundle from nested/profile
+	assert.True(t, bundleSet.Has("github/remote-bundle"),
+		"should find remote bundle after stripping profile: prefix")
+}
+
+func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
+	// Test that circular dependencies don't cause infinite loops
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{
+			"profile-a": {
+				Parents: []string{"profile:profile-b"},
+			},
+			"profile-b": {
+				Parents: []string{"profile:profile-a"},
+				Bundles: []string{"github/bundle"},
+			},
+		},
+	}
+
+	bundleSet := collections.NewSet[string]()
+	profileSet := collections.NewSet[string]()
+	visited := collections.NewSet[string]()
+
+	// Should not panic or infinite loop
+	collectProfileReferencesRecursive(cfg, "profile-a", bundleSet, profileSet, visited)
+
+	// Should still find the bundle
+	assert.True(t, bundleSet.Has("github/bundle"))
 }

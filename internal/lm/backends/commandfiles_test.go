@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
 func TestTransformMustacheToPositional(t *testing.T) {
@@ -272,7 +272,7 @@ func TestWriteCommandFiles(t *testing.T) {
 func TestWriteCommandFilesCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
 	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
+	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
 
 	// Create directory with a tracked file and manifest
 	_ = os.MkdirAll(commandsDir, 0755)
@@ -308,7 +308,7 @@ func TestWriteCommandFilesCleanup(t *testing.T) {
 func TestWriteCommandFilesEmptyPrompts(t *testing.T) {
 	tmpDir := t.TempDir()
 	commandsDir := filepath.Join(tmpDir, ".claude", "commands")
-	manifestPath := filepath.Join(commandsDir, ".scm-manifest")
+	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
 
 	// Pre-create directory with tracked file and manifest
 	_ = os.MkdirAll(commandsDir, 0755)

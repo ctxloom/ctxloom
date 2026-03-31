@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SophisticatedContextManager/scm/internal/gitutil"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // HookInput represents the JSON input from AI tool hooks.
@@ -37,7 +37,7 @@ var injectContextBackend string
 var hookInjectContextCmd = &cobra.Command{
 	Use:   "inject-context <hash>",
 	Short: "Inject session context for AI tool hooks",
-	Long: `Reads the context file (.scm/context/<hash>.md) and outputs JSON suitable for
+	Long: `Reads the context file (.ctxloom/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
 This command is invoked automatically by AI tools (Claude Code, Gemini CLI) during
@@ -62,7 +62,7 @@ Output format (JSON to stdout):
 		// This ensures Claude doesn't hang waiting for output.
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "scm hook inject-context: panic: %v\n", r)
+				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: panic: %v\n", r)
 				// Output empty JSON on panic
 				fmt.Println("{}")
 			}
@@ -73,7 +73,7 @@ Output format (JSON to stdout):
 		inputData, err := io.ReadAll(os.Stdin)
 		if err == nil && len(inputData) > 0 {
 			if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
-				fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to parse hook input: %v\n", unmarshalErr)
+				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to parse hook input: %v\n", unmarshalErr)
 			}
 		}
 
@@ -98,7 +98,7 @@ Output format (JSON to stdout):
 			if transcriptPath != "" {
 				pid := findSCMWrapperPID()
 				if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
-					fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to register session: %v\n", err)
+					fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
 				}
 			}
 		}
@@ -107,7 +107,7 @@ Output format (JSON to stdout):
 		content, err := backends.ReadContextFile(workDir, hash)
 		if err != nil {
 			// Log to stderr, output empty JSON to stdout
-			fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to read context file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to read context file: %v\n", err)
 			content = ""
 		}
 
@@ -124,7 +124,7 @@ Output format (JSON to stdout):
 		encoder := json.NewEncoder(os.Stdout)
 		if err := encoder.Encode(output); err != nil {
 			// If encoding fails, output empty JSON
-			fmt.Fprintf(os.Stderr, "scm hook inject-context: warning: failed to encode output: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to encode output: %v\n", err)
 			fmt.Println("{}")
 		}
 		return nil

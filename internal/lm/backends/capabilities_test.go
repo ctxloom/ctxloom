@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -374,6 +374,20 @@ func TestClaudeContext_GetContextFilePath_Empty(t *testing.T) {
 	assert.Equal(t, "", path)
 }
 
+func TestClaudeContext_GetContextFilePath_WithHash(t *testing.T) {
+	backend := NewClaudeCode()
+	context := NewClaudeContext(backend)
+
+	// Provide context to generate a hash
+	tmpDir := t.TempDir()
+	_ = context.Provide(tmpDir, []*Fragment{{Content: "test content"}})
+
+	path := context.GetContextFilePath()
+	assert.NotEmpty(t, path)
+	assert.Contains(t, path, SCMContextSubdir)
+	assert.Contains(t, path, ".md")
+}
+
 func TestClaudeContext_Clear(t *testing.T) {
 	backend := NewClaudeCode()
 	context := NewClaudeContext(backend)
@@ -422,6 +436,65 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 	assert.Empty(t, hooks.Unified.SessionStart)
 }
 
+func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
+
+	cfg := &config.Config{
+		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Defaults: config.Defaults{
+			Profiles: []string{"test-profile"},
+		},
+		Profiles: map[string]config.Profile{
+			"test-profile": {
+				Hooks: config.HooksConfig{
+					Unified: config.UnifiedHooks{
+						PreTool: []config.Hook{{Command: "profile-hook"}},
+					},
+				},
+				MCP: config.MCPConfig{
+					Servers: map[string]config.MCPServer{
+						"profile-mcp": {Command: "profile-mcp-cmd"},
+					},
+				},
+			},
+		},
+	}
+
+	lifecycle.MergeConfigHooks(cfg, "/tmp", "hash123")
+
+	// Hooks from profile should be merged
+	hooks := lifecycle.GetHooks()
+	assert.Len(t, hooks.Unified.PreTool, 1)
+	assert.Equal(t, "profile-hook", hooks.Unified.PreTool[0].Command)
+
+	// MCP from profile should be merged
+	mcp := lifecycle.GetMCP()
+	assert.Contains(t, mcp.Servers, "profile-mcp")
+}
+
+func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
+
+	cfg := &config.Config{
+		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Defaults: config.Defaults{
+			Profiles: []string{"non-existent-profile"},
+		},
+		Profiles: map[string]config.Profile{}, // No profiles defined
+	}
+
+	// Should not panic with invalid profile reference
+	lifecycle.MergeConfigHooks(cfg, "/tmp", "hash123")
+
+	// Should still have context injection hook
+	hooks := lifecycle.GetHooks()
+	assert.NotEmpty(t, hooks.Unified.SessionStart)
+}
+
 // =============================================================================
 // Base Session Registry Tests
 // =============================================================================
@@ -445,7 +518,7 @@ func TestBaseSessionRegistry_RegisterSession(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify file was created
-	exists, _ := afero.Exists(fs, "/test/project/.scm/test-registry.json")
+	exists, _ := afero.Exists(fs, "/test/project/.ctxloom/test-registry.json")
 	assert.True(t, exists)
 }
 
@@ -507,4 +580,110 @@ func TestBaseSessionRegistry_EmptyRegistry(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, session)
+}
+
+// =============================================================================
+// Lifecycle GetMCP Tests
+// =============================================================================
+
+func TestClaudeLifecycle_GetMCP(t *testing.T) {
+	backend := NewClaudeCode()
+	lifecycle := NewClaudeLifecycle(backend)
+
+	// Initially nil
+	mcp := lifecycle.GetMCP()
+	assert.Nil(t, mcp)
+
+	// After adding a server, MCP config should exist
+	cfg := &config.Config{
+		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		MCP: config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"test-server": {Command: "test"},
+			},
+			Plugins: make(map[string]map[string]config.MCPServer),
+		},
+	}
+	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
+
+	mcp = lifecycle.GetMCP()
+	assert.NotNil(t, mcp)
+}
+
+func TestGeminiLifecycle_GetMCP(t *testing.T) {
+	backend := NewGemini()
+	lifecycle := NewGeminiLifecycle(backend)
+
+	// Initially nil
+	mcp := lifecycle.GetMCP()
+	assert.Nil(t, mcp)
+
+	// After merging config with MCP servers
+	cfg := &config.Config{
+		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		MCP: config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"test-server": {Command: "test"},
+			},
+			Plugins: make(map[string]map[string]config.MCPServer),
+		},
+	}
+	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
+
+	mcp = lifecycle.GetMCP()
+	assert.NotNil(t, mcp)
+}
+
+// =============================================================================
+// ContextFileName Tests
+// =============================================================================
+
+func TestClaudeCode_ContextFileName(t *testing.T) {
+	backend := NewClaudeCode()
+	assert.Equal(t, "CLAUDE.md", backend.ContextFileName())
+}
+
+func TestGemini_ContextFileName(t *testing.T) {
+	backend := NewGemini()
+	assert.Equal(t, "GEMINI.md", backend.ContextFileName())
+}
+
+func TestCodex_ContextFileName(t *testing.T) {
+	backend := NewCodex()
+	assert.Equal(t, "AGENTS.md", backend.ContextFileName())
+}
+
+func TestMock_ContextFileName(t *testing.T) {
+	backend := NewMock()
+	// Mock doesn't have a context file
+	assert.Equal(t, "", backend.ContextFileName())
+}
+
+// =============================================================================
+// History Accessor Tests
+// =============================================================================
+
+func TestClaudeCode_History(t *testing.T) {
+	backend := NewClaudeCode()
+	history := backend.History()
+	assert.NotNil(t, history)
+}
+
+func TestGemini_History(t *testing.T) {
+	backend := NewGemini()
+	history := backend.History()
+	assert.NotNil(t, history)
+}
+
+func TestCodex_History(t *testing.T) {
+	backend := NewCodex()
+	history := backend.History()
+	assert.NotNil(t, history)
+}
+
+func TestMock_History(t *testing.T) {
+	backend := NewMock()
+	history := backend.History()
+	// Mock returns a NilSessionHistory (stub that returns empty/nil for all methods)
+	assert.NotNil(t, history)
 }

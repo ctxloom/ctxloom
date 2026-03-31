@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -403,16 +403,16 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 		t.Fatal("expected mcpServers in .mcp.json")
 	}
 
-	scmServer, ok := mcpServers["scm"].(map[string]interface{})
+	ctxloomServer, ok := mcpServers["ctxloom"].(map[string]interface{})
 	if !ok {
-		t.Fatal("expected 'scm' MCP server")
+		t.Fatal("expected 'ctxloom' MCP server")
 	}
 
-	if _, ok := scmServer["_scm"]; !ok {
+	if _, ok := ctxloomServer["_scm"]; !ok {
 		t.Error("SCM MCP server should have _scm marker")
 	}
 
-	if scmServer["command"] == "" {
+	if ctxloomServer["command"] == "" {
 		t.Error("SCM MCP server should have command")
 	}
 
@@ -474,7 +474,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	}
 
 	// SCM server should be added
-	if _, ok := mcpServers["scm"]; !ok {
+	if _, ok := mcpServers["ctxloom"]; !ok {
 		t.Error("SCM MCP server should be added")
 	}
 
@@ -491,7 +491,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	// Create existing .mcp.json with old SCM MCP server
 	existingMCP := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
-			"scm": map[string]interface{}{
+			"ctxloom": map[string]interface{}{
 				"command": "/old/path/to/scm mcp",
 				"_scm":    "old-marker",
 			},
@@ -526,11 +526,11 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	}
 
 	// SCM server should be updated (not duplicate)
-	scmServer := mcpServers["scm"].(map[string]interface{})
-	if scmServer["command"] == "/old/path/to/scm mcp" {
+	ctxloomServer := mcpServers["ctxloom"].(map[string]interface{})
+	if ctxloomServer["command"] == "/old/path/to/scm mcp" {
 		t.Error("SCM server command should be updated")
 	}
-	if scmServer["_scm"] == "old-marker" {
+	if ctxloomServer["_scm"] == "old-marker" {
 		t.Error("SCM server marker should be updated")
 	}
 
@@ -655,8 +655,8 @@ func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
 	assert.True(t, ok, "should have mcpServers in settings")
 
 	// SCM server should be added
-	_, hasScm := mcpServers["scm"]
-	assert.True(t, hasScm, "should have scm MCP server")
+	_, hasCtxloom := mcpServers["ctxloom"]
+	assert.True(t, hasCtxloom, "should have ctxloom MCP server")
 
 	// Custom server should be added
 	_, hasCustom := mcpServers["custom-server"]
@@ -758,7 +758,7 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify backup was created
-	backupPath := settingsPath + ".scm.bak"
+	backupPath := settingsPath + ".ctxloom.bak"
 	exists, err := afero.Exists(fs, backupPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "backup file should be created")
@@ -789,5 +789,232 @@ func TestClaudeCodeHookWriter_MCPConfigResilience(t *testing.T) {
 	var mcpConfig map[string]interface{}
 	require.NoError(t, json.Unmarshal(data, &mcpConfig))
 	assert.Contains(t, mcpConfig, "mcpServers", "should have mcpServers after writing")
+}
+
+// =============================================================================
+// mergeHooksConfig Tests
+// =============================================================================
+// Tests for merging hooks from multiple profiles/sources.
+
+func TestMergeHooksConfig_NilInputs(t *testing.T) {
+	t.Run("nil dest does nothing", func(t *testing.T) {
+		src := &config.HooksConfig{
+			Unified: config.UnifiedHooks{
+				PreTool: []config.Hook{{Command: "test"}},
+			},
+		}
+		// Should not panic
+		mergeHooksConfig(nil, src)
+	})
+
+	t.Run("nil src does nothing", func(t *testing.T) {
+		dest := &config.HooksConfig{}
+		mergeHooksConfig(dest, nil)
+		assert.Empty(t, dest.Unified.PreTool)
+	})
+
+	t.Run("both nil does nothing", func(t *testing.T) {
+		mergeHooksConfig(nil, nil)
+	})
+}
+
+func TestMergeHooksConfig_UnifiedHooks(t *testing.T) {
+	dest := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			PreTool: []config.Hook{{Command: "existing-pre"}},
+		},
+	}
+	src := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			PreTool:      []config.Hook{{Command: "new-pre"}},
+			PostTool:     []config.Hook{{Command: "new-post"}},
+			SessionStart: []config.Hook{{Command: "session-start"}},
+			SessionEnd:   []config.Hook{{Command: "session-end"}},
+			PreShell:     []config.Hook{{Command: "pre-shell"}},
+			PostFileEdit: []config.Hook{{Command: "post-edit"}},
+		},
+	}
+
+	mergeHooksConfig(dest, src)
+
+	assert.Len(t, dest.Unified.PreTool, 2)
+	assert.Equal(t, "existing-pre", dest.Unified.PreTool[0].Command)
+	assert.Equal(t, "new-pre", dest.Unified.PreTool[1].Command)
+	assert.Len(t, dest.Unified.PostTool, 1)
+	assert.Len(t, dest.Unified.SessionStart, 1)
+	assert.Len(t, dest.Unified.SessionEnd, 1)
+	assert.Len(t, dest.Unified.PreShell, 1)
+	assert.Len(t, dest.Unified.PostFileEdit, 1)
+}
+
+func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
+	t.Run("creates plugin map if nil", func(t *testing.T) {
+		dest := &config.HooksConfig{}
+		src := &config.HooksConfig{
+			Plugins: map[string]config.BackendHooks{
+				"claude-code": {
+					"PreTool": []config.Hook{{Command: "claude-hook"}},
+				},
+			},
+		}
+
+		mergeHooksConfig(dest, src)
+
+		assert.NotNil(t, dest.Plugins)
+		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 1)
+	})
+
+	t.Run("merges into existing plugins", func(t *testing.T) {
+		dest := &config.HooksConfig{
+			Plugins: map[string]config.BackendHooks{
+				"claude-code": {
+					"PreTool": []config.Hook{{Command: "existing"}},
+				},
+			},
+		}
+		src := &config.HooksConfig{
+			Plugins: map[string]config.BackendHooks{
+				"claude-code": {
+					"PreTool":  []config.Hook{{Command: "new"}},
+					"PostTool": []config.Hook{{Command: "post"}},
+				},
+				"gemini": {
+					"PreTool": []config.Hook{{Command: "gemini-hook"}},
+				},
+			},
+		}
+
+		mergeHooksConfig(dest, src)
+
+		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 2)
+		assert.Len(t, dest.Plugins["claude-code"]["PostTool"], 1)
+		assert.Len(t, dest.Plugins["gemini"]["PreTool"], 1)
+	})
+}
+
+// =============================================================================
+// MergeMCPConfig Tests
+// =============================================================================
+// Tests for merging MCP server configurations from multiple profiles/sources.
+
+func TestMergeMCPConfig_NilInputs(t *testing.T) {
+	t.Run("nil dest does nothing", func(t *testing.T) {
+		src := &config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"test": {Command: "test-cmd"},
+			},
+		}
+		MergeMCPConfig(nil, src)
+	})
+
+	t.Run("nil src does nothing", func(t *testing.T) {
+		dest := &config.MCPConfig{}
+		MergeMCPConfig(dest, nil)
+		assert.Nil(t, dest.Servers)
+	})
+
+	t.Run("both nil does nothing", func(t *testing.T) {
+		MergeMCPConfig(nil, nil)
+	})
+}
+
+func TestMergeMCPConfig_AutoRegisterSCM(t *testing.T) {
+	t.Run("src overrides dest", func(t *testing.T) {
+		trueVal := true
+		falseVal := false
+		dest := &config.MCPConfig{AutoRegisterSCM: &trueVal}
+		src := &config.MCPConfig{AutoRegisterSCM: &falseVal}
+
+		MergeMCPConfig(dest, src)
+
+		assert.False(t, *dest.AutoRegisterSCM)
+	})
+
+	t.Run("nil src preserves dest", func(t *testing.T) {
+		trueVal := true
+		dest := &config.MCPConfig{AutoRegisterSCM: &trueVal}
+		src := &config.MCPConfig{}
+
+		MergeMCPConfig(dest, src)
+
+		assert.True(t, *dest.AutoRegisterSCM)
+	})
+}
+
+func TestMergeMCPConfig_UnifiedServers(t *testing.T) {
+	t.Run("creates servers map if nil", func(t *testing.T) {
+		dest := &config.MCPConfig{}
+		src := &config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"test-server": {Command: "test-cmd", Args: []string{"arg1"}},
+			},
+		}
+
+		MergeMCPConfig(dest, src)
+
+		assert.NotNil(t, dest.Servers)
+		assert.Equal(t, "test-cmd", dest.Servers["test-server"].Command)
+	})
+
+	t.Run("src overrides dest for same name", func(t *testing.T) {
+		dest := &config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"server": {Command: "old-cmd"},
+			},
+		}
+		src := &config.MCPConfig{
+			Servers: map[string]config.MCPServer{
+				"server": {Command: "new-cmd"},
+			},
+		}
+
+		MergeMCPConfig(dest, src)
+
+		assert.Equal(t, "new-cmd", dest.Servers["server"].Command)
+	})
+}
+
+func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
+	t.Run("creates plugin map if nil", func(t *testing.T) {
+		dest := &config.MCPConfig{}
+		src := &config.MCPConfig{
+			Plugins: map[string]map[string]config.MCPServer{
+				"claude-code": {
+					"my-server": {Command: "my-cmd"},
+				},
+			},
+		}
+
+		MergeMCPConfig(dest, src)
+
+		assert.NotNil(t, dest.Plugins)
+		assert.Equal(t, "my-cmd", dest.Plugins["claude-code"]["my-server"].Command)
+	})
+
+	t.Run("merges multiple backends", func(t *testing.T) {
+		dest := &config.MCPConfig{
+			Plugins: map[string]map[string]config.MCPServer{
+				"claude-code": {
+					"existing": {Command: "existing-cmd"},
+				},
+			},
+		}
+		src := &config.MCPConfig{
+			Plugins: map[string]map[string]config.MCPServer{
+				"claude-code": {
+					"new": {Command: "new-cmd"},
+				},
+				"gemini": {
+					"gemini-server": {Command: "gemini-cmd"},
+				},
+			},
+		}
+
+		MergeMCPConfig(dest, src)
+
+		assert.Equal(t, "existing-cmd", dest.Plugins["claude-code"]["existing"].Command)
+		assert.Equal(t, "new-cmd", dest.Plugins["claude-code"]["new"].Command)
+		assert.Equal(t, "gemini-cmd", dest.Plugins["gemini"]["gemini-server"].Command)
+	})
 }
 

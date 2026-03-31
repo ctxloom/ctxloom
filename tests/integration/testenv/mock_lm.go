@@ -22,7 +22,7 @@ type MockLM struct {
 	// RecordedInputPath is where the mock records received input
 	RecordedInputPath string
 
-	// ProjectDir is the project directory containing .scm/config.yaml
+	// ProjectDir is the project directory containing .ctxloom/config.yaml
 	ProjectDir string
 }
 
@@ -89,14 +89,14 @@ func (m *MockLM) SetExitCode(code int) error {
 	return m.WriteConfig()
 }
 
-// WriteConfig updates the mock plugin configuration in .scm/config.yaml.
+// WriteConfig updates the mock plugin configuration in .ctxloom/config.yaml.
 // Preserves existing profiles and other config while updating mock plugin settings.
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")
 	}
 
-	configPath := filepath.Join(m.ProjectDir, ".scm", "config.yaml")
+	configPath := filepath.Join(m.ProjectDir, ".ctxloom", "config.yaml")
 
 	// Read existing config if present
 	existingConfig := ""
@@ -114,9 +114,9 @@ func (m *MockLM) WriteConfig() error {
 	config.WriteString("    mock:\n")
 	config.WriteString("      args: []\n")
 	config.WriteString("      env:\n")
-	_, _ = fmt.Fprintf(&config, "        scm_mock_record_file: \"%s\"\n", m.RecordedInputPath)
-	_, _ = fmt.Fprintf(&config, "        scm_mock_response: \"%s\"\n", escapeYAMLString(m.Response))
-	_, _ = fmt.Fprintf(&config, "        scm_mock_exit_code: \"%d\"\n", m.ExitCode)
+	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_record_file: \"%s\"\n", m.RecordedInputPath)
+	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_response: \"%s\"\n", escapeYAMLString(m.Response))
+	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_exit_code: \"%d\"\n", m.ExitCode)
 
 	// Always set llm_plugin to mock
 	config.WriteString("defaults:\n")
@@ -183,7 +183,7 @@ func (m *MockLM) ClearRecordedInput() error {
 	return err
 }
 
-// SetupMockLM sets up a mock LM in the test environment and configures scm to use it.
+// SetupMockLM sets up a mock LM in the test environment and configures ctxloom to use it.
 // Uses the built-in mock plugin for gRPC-based plugin system.
 func (e *TestEnvironment) SetupMockLM() (*MockLM, error) {
 	mockLM, err := NewMockLM(e.Root)

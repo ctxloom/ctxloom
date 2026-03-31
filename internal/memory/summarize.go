@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/collections"
 )
 
 // summarizeToolResult creates a concise summary of a tool result.
@@ -71,14 +73,14 @@ func summarizeGrepResult(result string, maxSize int) string {
 	}
 
 	// Count unique files
-	files := make(map[string]bool)
+	files := collections.NewSet[string]()
 	for _, line := range lines {
 		if idx := strings.Index(line, ":"); idx > 0 {
-			files[line[:idx]] = true
+			files.Add(line[:idx])
 		}
 	}
 
-	return fmt.Sprintf("[Grep: %d matches in %d files]", count, len(files))
+	return fmt.Sprintf("[Grep: %d matches in %d files]", count, files.Len())
 }
 
 func summarizeBashResult(result string, maxSize int) string {

@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	pb "github.com/SophisticatedContextManager/scm/internal/lm/grpc"
-	"github.com/SophisticatedContextManager/scm/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 const (
@@ -26,13 +26,15 @@ const (
 
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
-	Plugin    string // LLM plugin to use for distillation (default: claude-code)
-	Model     string // Model to use within the plugin (e.g., "haiku", "sonnet")
-	Backend   string // Backend name to read session from (e.g., "claude-code")
-	ChunkSize int    // Target tokens per chunk
-	SessionID string // Session to compact (empty = most recent)
-	WorkDir   string // Working directory for the session
-	OutputDir string // Directory to save distilled output (defaults to .scm/memory)
+	Plugin          string           // LLM plugin to use for distillation (default: claude-code)
+	Model           string           // Model to use within the plugin (e.g., "haiku", "sonnet")
+	Backend         string           // Backend name to read session from (e.g., "claude-code")
+	ChunkSize       int              // Target tokens per chunk
+	SessionID       string           // Session to compact (empty = most recent)
+	WorkDir         string           // Working directory for the session
+	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/memory)
+	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
+	BackendOverride backends.Backend // Optional: inject backend directly for testing (bypasses registry)
 }
 
 // CompactionResult holds the result of a compaction operation.
@@ -48,8 +50,9 @@ type CompactionResult struct {
 
 // Compactor handles session log compaction.
 type Compactor struct {
-	config  CompactionConfig
-	backend backends.Backend
+	config        CompactionConfig
+	backend       backends.Backend
+	clientFactory pb.ClientFactory
 }
 
 // NewCompactor creates a new compactor with the given config.
@@ -63,15 +66,23 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	if config.Plugin == "" {
 		config.Plugin = "claude-code"
 	}
+	if config.ClientFactory == nil {
+		config.ClientFactory = pb.DefaultClientFactory()
+	}
 
-	backend := backends.Get(config.Backend)
+	// Use injected backend if provided (for testing), otherwise use registry
+	backend := config.BackendOverride
 	if backend == nil {
-		return nil, fmt.Errorf("unknown backend: %s", config.Backend)
+		backend = backends.Get(config.Backend)
+		if backend == nil {
+			return nil, fmt.Errorf("unknown backend: %s", config.Backend)
+		}
 	}
 
 	return &Compactor{
-		config:  config,
-		backend: backend,
+		config:        config,
+		backend:       backend,
+		clientFactory: config.ClientFactory,
 	}, nil
 }
 
@@ -270,8 +281,8 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 		promptBuilder.WriteString("\n\nThis is a final compression pass combining previously distilled chunks.\n")
 	}
 
-	// Create plugin client using the configured plugin (e.g., claude-code)
-	client, err := pb.NewSelfInvokingClient(c.config.Plugin, 0)
+	// Create plugin client using the factory
+	client, err := c.clientFactory(c.config.Plugin, 0)
 	if err != nil {
 		return "", fmt.Errorf("start plugin: %w", err)
 	}
@@ -312,7 +323,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 func (c *Compactor) saveDistilled(sessionID, content string) (string, error) {
 	outputDir := c.config.OutputDir
 	if outputDir == "" {
-		outputDir = ".scm/memory"
+		outputDir = ".ctxloom/memory"
 	}
 	distilledDir := filepath.Join(outputDir, DistilledDir)
 	if err := os.MkdirAll(distilledDir, 0755); err != nil {
@@ -486,9 +497,10 @@ func SaveSessionEssence(memoryDir string, essence *SessionEssence) error {
 
 // EssenceConfig holds settings for essence generation.
 type EssenceConfig struct {
-	Plugin    string // LLM plugin to use (e.g., "claude-code")
-	Model     string // Model to use (e.g., "haiku")
-	MemoryDir string // Directory for essence cache
+	Plugin        string           // LLM plugin to use (e.g., "claude-code")
+	Model         string           // Model to use (e.g., "haiku")
+	MemoryDir     string           // Directory for essence cache
+	ClientFactory pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 }
 
 // GenerateSessionEssence creates a brief essence of a session using an LLM.
@@ -521,7 +533,11 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 	}
 
 	// Generate essence using LLM
-	client, err := pb.NewSelfInvokingClient(config.Plugin, 0)
+	clientFactory := config.ClientFactory
+	if clientFactory == nil {
+		clientFactory = pb.DefaultClientFactory()
+	}
+	client, err := clientFactory(config.Plugin, 0)
 	if err != nil {
 		return nil, fmt.Errorf("start plugin: %w", err)
 	}

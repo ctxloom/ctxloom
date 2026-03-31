@@ -12,9 +12,13 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // gitHostPattern matches paths that start with a git hosting domain.
@@ -220,25 +224,16 @@ func (b *Bundle) PromptNames() []string {
 
 // AllTags returns all unique tags from bundle and its contents.
 func (b *Bundle) AllTags() []string {
-	tagSet := make(map[string]bool)
-	for _, t := range b.Tags {
-		tagSet[t] = true
-	}
+	tagSet := collections.NewSet[string]()
+	tagSet.AddAll(b.Tags...)
 	for _, f := range b.Fragments {
-		for _, t := range f.Tags {
-			tagSet[t] = true
-		}
+		tagSet.AddAll(f.Tags...)
 	}
 	for _, p := range b.Prompts {
-		for _, t := range p.Tags {
-			tagSet[t] = true
-		}
+		tagSet.AddAll(p.Tags...)
 	}
 
-	tags := make([]string, 0, len(tagSet))
-	for t := range tagSet {
-		tags = append(tags, t)
-	}
+	tags := tagSet.Items()
 	sort.Strings(tags)
 	return tags
 }
@@ -271,10 +266,12 @@ func (b *Bundle) AssembledContent(preferDistilled bool) string {
 }
 
 // Loader finds and loads bundles from search directories.
+// Loader is safe for concurrent use.
 type Loader struct {
 	searchDirs      []string
 	preferDistilled bool
 	fs              afero.Fs
+	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
 }
 
@@ -339,18 +336,23 @@ func (l *Loader) Find(name string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("bundle not found: %s", name)
+	return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
 }
 
 // LoadFile reads a bundle from a specific path.
 // Results are cached to avoid redundant disk reads when the same bundle
 // is referenced multiple times (e.g., by multiple profiles).
+// This method is safe for concurrent use.
 func (l *Loader) LoadFile(path string) (*Bundle, error) {
-	// Check cache first
+	// Check cache first (read lock)
+	l.mu.RLock()
 	if cached, ok := l.cache[path]; ok {
+		l.mu.RUnlock()
 		return cached, nil
 	}
+	l.mu.RUnlock()
 
+	// Load from disk (no lock held during I/O)
 	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
@@ -364,22 +366,32 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	bundle.Path = path
 	bundle.Name = extractBundleName(path)
 
-	// Cache for future loads
+	// Cache for future loads (write lock)
+	l.mu.Lock()
+	// Double-check in case another goroutine cached it while we were loading
+	if cached, ok := l.cache[path]; ok {
+		l.mu.Unlock()
+		return cached, nil
+	}
 	l.cache[path] = bundle
+	l.mu.Unlock()
 
 	return bundle, nil
 }
 
 // ClearCache clears the bundle cache.
 // This is useful when bundles may have changed on disk.
+// This method is safe for concurrent use.
 func (l *Loader) ClearCache() {
+	l.mu.Lock()
 	l.cache = make(map[string]*Bundle)
+	l.mu.Unlock()
 }
 
 // List returns all available bundles.
 func (l *Loader) List() ([]*BundleInfo, error) {
 	var bundles []*BundleInfo
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 
 	// Search bundle directories recursively
 	for _, dir := range l.searchDirs {
@@ -398,13 +410,13 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				if _, err := l.fs.Stat(bundlePath); err == nil {
 					relPath, _ := filepath.Rel(dir, path)
 					bundleName := NormalizeBundleName(filepath.ToSlash(relPath))
-					if seen[bundleName] {
+					if seen.Has(bundleName) {
 						return nil
 					}
 					bundleInfo, err := l.loadBundleInfo(bundlePath, bundleName)
 					if err == nil {
 						bundles = append(bundles, bundleInfo)
-						seen[bundleName] = true
+						seen.Add(bundleName)
 					}
 				}
 				return nil
@@ -415,13 +427,13 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
 				relPath, _ := filepath.Rel(dir, path)
 				bundleName := NormalizeBundleName(strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml"))
-				if seen[bundleName] {
+				if seen.Has(bundleName) {
 					return nil
 				}
 				bundleInfo, err := l.loadBundleInfo(path, bundleName)
 				if err == nil {
 					bundles = append(bundles, bundleInfo)
-					seen[bundleName] = true
+					seen.Add(bundleName)
 				}
 			}
 			return nil
@@ -591,7 +603,7 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 	}
 
 	var infos []ContentInfo
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
@@ -602,10 +614,10 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 		for name, frag := range bundle.Fragments {
 			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
 			key := bundleInfo.Name + "/" + name
-			if seen[key] {
+			if seen.Has(key) {
 				continue
 			}
-			seen[key] = true
+			seen.Add(key)
 			infos = append(infos, ContentInfo{
 				Name:     name,
 				FileName: name + ".yaml",
@@ -628,7 +640,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 		return nil, err
 	}
 
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	var infos []ContentInfo
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
@@ -639,10 +651,10 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 		for name, prompt := range bundle.Prompts {
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
 			key := bundleInfo.Name + "/" + name
-			if seen[key] {
+			if seen.Has(key) {
 				continue
 			}
-			seen[key] = true
+			seen.Add(key)
 			infos = append(infos, ContentInfo{
 				Name:     name,
 				FileName: name + ".yaml",
@@ -719,7 +731,7 @@ func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("fragment not found: %s", name)
+	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 }
 
 // GetPrompt finds and loads a prompt by name.
@@ -785,7 +797,7 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("prompt not found: %s", name)
+	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
 }
 
 // ListByTags returns fragments matching any of the given tags.
@@ -795,15 +807,12 @@ func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
 		return nil, err
 	}
 
-	tagSet := make(map[string]bool)
-	for _, t := range tags {
-		tagSet[t] = true
-	}
+	tagSet := collections.NewSetFrom(tags...)
 
 	var matched []ContentInfo
 	for _, info := range all {
 		for _, t := range info.Tags {
-			if tagSet[t] {
+			if tagSet.Has(t) {
 				matched = append(matched, info)
 				break
 			}

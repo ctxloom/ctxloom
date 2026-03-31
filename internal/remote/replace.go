@@ -29,7 +29,7 @@ func WithReplaceFS(fs afero.Fs) ReplaceOption {
 // NewReplaceManager creates a new replace manager.
 func NewReplaceManager(configPath string, opts ...ReplaceOption) (*ReplaceManager, error) {
 	if configPath == "" {
-		configPath = filepath.Join(".scm", "remotes.yaml")
+		configPath = filepath.Join(".ctxloom", "remotes.yaml")
 	}
 
 	m := &ReplaceManager{

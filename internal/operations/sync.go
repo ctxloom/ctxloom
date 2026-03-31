@@ -8,8 +8,9 @@ import (
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
 
-	"github.com/SophisticatedContextManager/scm/internal/config"
-	"github.com/SophisticatedContextManager/scm/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // SyncDependenciesRequest contains parameters for syncing dependencies.
@@ -100,6 +101,10 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 
 	// Sync profiles first (they may reference bundles)
 	for _, ref := range profileRefs {
+		// Check for cancellation between items
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		item := syncItem(ctx, cfg, puller, registry, ref, remote.ItemTypeProfile, baseDir, req.Force, fs)
 		result.Total++
 		addSyncItem(result, item)
@@ -107,6 +112,10 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 
 	// Sync bundles
 	for _, ref := range bundleRefs {
+		// Check for cancellation between items
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		item := syncItem(ctx, cfg, puller, registry, ref, remote.ItemTypeBundle, baseDir, req.Force, fs)
 		result.Total++
 		addSyncItem(result, item)
@@ -143,9 +152,11 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 }
 
 // collectRemoteReferences collects all remote bundle and profile references from config.
+// This recursively follows local parent profiles to find remote dependencies anywhere
+// in the inheritance chain.
 func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero.Fs) (bundleRefs []string, profileRefs []string, err error) {
-	bundleSet := make(map[string]bool)
-	profileSet := make(map[string]bool)
+	bundleSet := collections.NewSet[string]()
+	profileSet := collections.NewSet[string]()
 
 	// Get profiles to process
 	profilesToProcess := profileNames
@@ -164,31 +175,24 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 	}
 
 	// Dedupe profile names
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 	var uniqueProfiles []string
 	for _, name := range profilesToProcess {
-		if !seen[name] {
-			seen[name] = true
+		if !seen.Has(name) {
+			seen.Add(name)
 			uniqueProfiles = append(uniqueProfiles, name)
 		}
 	}
 
-	// Collect references from each profile
+	// Collect references from each profile, recursively following local parents
+	visited := collections.NewSet[string]()
 	for _, profileName := range uniqueProfiles {
-		bundles, profiles := collectProfileReferences(cfg, profileName)
-		for _, b := range bundles {
-			if isRemoteReference(b) && !bundleSet[b] {
-				bundleSet[b] = true
-				bundleRefs = append(bundleRefs, b)
-			}
-		}
-		for _, p := range profiles {
-			if isRemoteReference(p) && !profileSet[p] {
-				profileSet[p] = true
-				profileRefs = append(profileRefs, p)
-			}
-		}
+		collectProfileReferencesRecursive(cfg, profileName, bundleSet, profileSet, visited)
 	}
+
+	// Convert sets to slices
+	bundleRefs = bundleSet.Items()
+	profileRefs = profileSet.Items()
 
 	return bundleRefs, profileRefs, nil
 }
@@ -214,10 +218,42 @@ func collectProfileReferences(cfg *config.Config, profileName string) (bundles [
 	return
 }
 
+// collectProfileReferencesRecursive recursively collects remote bundle and profile
+// references from a profile and all its local parent profiles.
+// This ensures remote dependencies in nested local profiles are discovered.
+func collectProfileReferencesRecursive(cfg *config.Config, profileName string, bundleSet, profileSet, visited collections.Set[string]) {
+	// Prevent infinite loops
+	if visited.Has(profileName) {
+		return
+	}
+	visited.Add(profileName)
+
+	bundles, parents := collectProfileReferences(cfg, profileName)
+
+	// Add remote bundles
+	for _, b := range bundles {
+		if isRemoteReference(b) {
+			bundleSet.Add(b)
+		}
+	}
+
+	// Process parents
+	for _, parent := range parents {
+		if isRemoteReference(parent) {
+			// Remote parent - add to profile refs for syncing
+			profileSet.Add(parent)
+		} else {
+			// Local parent - recursively collect its references
+			// Strip "profile:" prefix if present (used to distinguish profile refs from bundle refs)
+			localName := strings.TrimPrefix(parent, "profile:")
+			collectProfileReferencesRecursive(cfg, localName, bundleSet, profileSet, visited)
+		}
+	}
+}
+
 // isRemoteReference checks if a reference points to a remote source.
 func isRemoteReference(ref string) bool {
-	// Remote references contain "/" (e.g., "github/bundle-name")
-	// or are URLs (https://, git@, file://)
+	// URL-based references are always remote
 	if strings.HasPrefix(ref, "https://") ||
 		strings.HasPrefix(ref, "http://") ||
 		strings.HasPrefix(ref, "git@") ||
@@ -225,7 +261,13 @@ func isRemoteReference(ref string) bool {
 		return true
 	}
 
-	// Simple format: remote/path
+	// "profile:" prefix indicates a local profile reference (not remote)
+	// e.g., "profile:personal/typescript-developer" is local
+	if strings.HasPrefix(ref, "profile:") {
+		return false
+	}
+
+	// Simple format: remote/path (e.g., "github/bundle-name")
 	return strings.Contains(ref, "/")
 }
 
@@ -341,17 +383,17 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	}
 
 	var missing []MissingDependency
-	seen := make(map[string]bool)
+	seen := collections.NewSet[string]()
 
 	for _, profileName := range profilesToCheck {
 		bundles, parentProfiles := collectProfileReferences(cfg, profileName)
 
 		// Check bundles
 		for _, ref := range bundles {
-			if !isRemoteReference(ref) || seen[ref] {
+			if !isRemoteReference(ref) || seen.Has(ref) {
 				continue
 			}
-			seen[ref] = true
+			seen.Add(ref)
 
 			if !isInstalled(ref, remote.ItemTypeBundle, baseDir, fs) {
 				missing = append(missing, MissingDependency{
@@ -364,10 +406,10 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 
 		// Check parent profiles
 		for _, ref := range parentProfiles {
-			if !isRemoteReference(ref) || seen[ref] {
+			if !isRemoteReference(ref) || seen.Has(ref) {
 				continue
 			}
-			seen[ref] = true
+			seen.Add(ref)
 
 			if !isInstalled(ref, remote.ItemTypeProfile, baseDir, fs) {
 				missing = append(missing, MissingDependency{

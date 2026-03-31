@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -299,7 +300,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		if !loader.Exists(parent) {
 			return nil, fmt.Errorf("parent profile %q not found", parent)
 		}
-		if !contains(profile.Parents, parent) {
+		if !slices.Contains(profile.Parents, parent) {
 			profile.Parents = append(profile.Parents, parent)
 			changes = append(changes, fmt.Sprintf("added parent: %s", parent))
 		}
@@ -307,7 +308,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove parents
 	for _, parent := range req.RemoveParents {
-		if idx := indexOf(profile.Parents, parent); idx >= 0 {
+		if idx := slices.Index(profile.Parents, parent); idx >= 0 {
 			profile.Parents = append(profile.Parents[:idx], profile.Parents[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed parent: %s", parent))
 		}
@@ -315,7 +316,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Add bundles
 	for _, b := range req.AddBundles {
-		if !contains(profile.Bundles, b) {
+		if !slices.Contains(profile.Bundles, b) {
 			profile.Bundles = append(profile.Bundles, b)
 			changes = append(changes, fmt.Sprintf("added bundle: %s", b))
 		}
@@ -323,7 +324,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove bundles
 	for _, b := range req.RemoveBundles {
-		if idx := indexOf(profile.Bundles, b); idx >= 0 {
+		if idx := slices.Index(profile.Bundles, b); idx >= 0 {
 			profile.Bundles = append(profile.Bundles[:idx], profile.Bundles[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed bundle: %s", b))
 		}
@@ -331,7 +332,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Add tags
 	for _, t := range req.AddTags {
-		if !contains(profile.Tags, t) {
+		if !slices.Contains(profile.Tags, t) {
 			profile.Tags = append(profile.Tags, t)
 			changes = append(changes, fmt.Sprintf("added tag: %s", t))
 		}
@@ -339,7 +340,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove tags
 	for _, t := range req.RemoveTags {
-		if idx := indexOf(profile.Tags, t); idx >= 0 {
+		if idx := slices.Index(profile.Tags, t); idx >= 0 {
 			profile.Tags = append(profile.Tags[:idx], profile.Tags[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed tag: %s", t))
 		}
@@ -347,7 +348,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Add exclude fragments
 	for _, f := range req.AddExcludeFragments {
-		if !contains(profile.ExcludeFragments, f) {
+		if !slices.Contains(profile.ExcludeFragments, f) {
 			profile.ExcludeFragments = append(profile.ExcludeFragments, f)
 			changes = append(changes, fmt.Sprintf("added exclude fragment: %s", f))
 		}
@@ -355,7 +356,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove exclude fragments
 	for _, f := range req.RemoveExcludeFragments {
-		if idx := indexOf(profile.ExcludeFragments, f); idx >= 0 {
+		if idx := slices.Index(profile.ExcludeFragments, f); idx >= 0 {
 			profile.ExcludeFragments = append(profile.ExcludeFragments[:idx], profile.ExcludeFragments[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed exclude fragment: %s", f))
 		}
@@ -363,7 +364,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Add exclude prompts
 	for _, p := range req.AddExcludePrompts {
-		if !contains(profile.ExcludePrompts, p) {
+		if !slices.Contains(profile.ExcludePrompts, p) {
 			profile.ExcludePrompts = append(profile.ExcludePrompts, p)
 			changes = append(changes, fmt.Sprintf("added exclude prompt: %s", p))
 		}
@@ -371,7 +372,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove exclude prompts
 	for _, p := range req.RemoveExcludePrompts {
-		if idx := indexOf(profile.ExcludePrompts, p); idx >= 0 {
+		if idx := slices.Index(profile.ExcludePrompts, p); idx >= 0 {
 			profile.ExcludePrompts = append(profile.ExcludePrompts[:idx], profile.ExcludePrompts[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed exclude prompt: %s", p))
 		}
@@ -379,7 +380,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Add exclude MCP
 	for _, m := range req.AddExcludeMCP {
-		if !contains(profile.ExcludeMCP, m) {
+		if !slices.Contains(profile.ExcludeMCP, m) {
 			profile.ExcludeMCP = append(profile.ExcludeMCP, m)
 			changes = append(changes, fmt.Sprintf("added exclude mcp: %s", m))
 		}
@@ -387,7 +388,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Remove exclude MCP
 	for _, m := range req.RemoveExcludeMCP {
-		if idx := indexOf(profile.ExcludeMCP, m); idx >= 0 {
+		if idx := slices.Index(profile.ExcludeMCP, m); idx >= 0 {
 			profile.ExcludeMCP = append(profile.ExcludeMCP[:idx], profile.ExcludeMCP[idx+1:]...)
 			changes = append(changes, fmt.Sprintf("removed exclude mcp: %s", m))
 		}
@@ -472,23 +473,4 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 		profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return profiles.NewLoader(profileDirs)
-}
-
-// Helper functions
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(slice []string, item string) int {
-	for i, s := range slice {
-		if s == item {
-			return i
-		}
-	}
-	return -1
 }

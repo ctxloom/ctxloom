@@ -119,6 +119,10 @@ release: build-all compress-all
 test:
     go test -race -coverprofile=coverage.out ./...
 
+# Run integration tests (requires ctxloom binary)
+test-integration: build
+    go test -v -tags integration ./tests/integration/...
+
 # ===== Validation =====
 
 # Validate fragment YAML files

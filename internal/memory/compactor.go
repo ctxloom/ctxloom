@@ -276,7 +276,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	promptBuilder.WriteString(sessionDistillPrompt)
 
 	if chunkNum > 0 && totalChunks > 1 {
-		promptBuilder.WriteString(fmt.Sprintf("\n\nThis is chunk %d of %d from the session log.\n", chunkNum, totalChunks))
+		_, _ = fmt.Fprintf(&promptBuilder, "\n\nThis is chunk %d of %d from the session log.\n", chunkNum, totalChunks)
 	} else if chunkNum == 0 {
 		promptBuilder.WriteString("\n\nThis is a final compression pass combining previously distilled chunks.\n")
 	}
@@ -515,7 +515,7 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 	var textBuilder strings.Builder
 	for _, entry := range session.Entries {
 		if entry.Type == backends.EntryTypeUser || entry.Type == backends.EntryTypeAssistant {
-			textBuilder.WriteString(fmt.Sprintf("[%s]: %s\n\n", entry.Type, entry.Content))
+			_, _ = fmt.Fprintf(&textBuilder, "[%s]: %s\n\n", entry.Type, entry.Content)
 		}
 		if textBuilder.Len() > 4000 {
 			break

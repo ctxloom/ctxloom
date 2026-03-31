@@ -75,6 +75,9 @@ RUN BIN="/usr/local/bin" && \
     curl -sSL "https://github.com/bufbuild/buf/releases/download/v${VERSION}/buf-$(uname -s)-$(uname -m)" -o "${BIN}/buf" && \
     chmod +x "${BIN}/buf"
 
+# Install gremlins for mutation testing
+RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
 # Note: versionator not installed - justfile has "dev" fallback
 # Install if needed: go install github.com/benjaminabbitt/versionator@latest
 

@@ -6,7 +6,7 @@ Browse recent sessions and load context from one, distilling it on-the-fly if ne
 
 ## Steps
 
-1. Use the SCM MCP tool "browse_session_history" to show sessions from the last 3 days:
+1. Use the ctxloom MCP tool "browse_session_history" to show sessions from the last 3 days:
    - Each session shows its ID, start time, and a brief AI-generated essence
    - Essences are cached for fast subsequent lookups
 

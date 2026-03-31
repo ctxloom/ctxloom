@@ -1,5 +1,5 @@
 {
-  "name": "SCM Development",
+  "name": "ctxloom Development",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."

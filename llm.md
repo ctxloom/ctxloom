@@ -2,7 +2,7 @@
 
 ## Fault Tolerance Philosophy
 
-SCM should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
+ctxloom should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
 
 ### Core Principles
 
@@ -10,7 +10,7 @@ SCM should be **fault tolerant** above all else. Even through most misconfigurat
 
 2. **Degrade gracefully** - If a feature fails to initialize, disable that feature and continue. The user can still work, just with reduced functionality.
 
-3. **Log, don't crash** - All errors should be logged to stderr with clear "SCM: warning:" prefixes so users can diagnose issues without losing their session.
+3. **Log, don't crash** - All errors should be logged to stderr with clear "ctxloom: warning:" prefixes so users can diagnose issues without losing their session.
 
 4. **Sensible defaults** - When configuration is missing or invalid, fall back to reasonable defaults rather than erroring.
 
@@ -22,7 +22,7 @@ SCM should be **fault tolerant** above all else. Even through most misconfigurat
 // Good: warn and continue
 result, err := operations.SyncOnStartup(ctx, cfg)
 if err != nil {
-    fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
     // Continue - don't return error
 }
 

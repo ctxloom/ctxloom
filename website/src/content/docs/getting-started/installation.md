@@ -6,21 +6,7 @@ title: "Installation"
 
 Choose the installation method that works best for you.
 
-## Go Install (Recommended)
-
-If you have Go 1.21+ installed:
-
-```bash
-go install github.com/ctxloom/ctxloom@latest
-```
-
-Make sure `~/go/bin` is in your PATH:
-
-```bash
-export PATH=$PATH:$(go env GOPATH)/bin
-```
-
-## Download Binary
+## Download Binary (Recommended)
 
 Download precompiled binaries from the [releases page](https://github.com/ctxloom/ctxloom/releases).
 
@@ -46,6 +32,20 @@ sudo mv ctxloom /usr/local/bin/
 # ARM64
 curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_linux_arm64.tar.gz | tar xz
 sudo mv ctxloom /usr/local/bin/
+```
+
+## Go Install
+
+If you have Go 1.21+ installed:
+
+```bash
+go install github.com/ctxloom/ctxloom@latest
+```
+
+Make sure `~/go/bin` is in your PATH:
+
+```bash
+export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
 ## Build from Source
@@ -104,10 +104,10 @@ Generate shell completion scripts for better CLI experience:
 source <(ctxloom completion bash)
 
 # Permanent (Linux)
-ctxloom completion bash > /etc/bash_completion.d/scm
+ctxloom completion bash > /etc/bash_completion.d/ctxloom
 
 # Permanent (macOS)
-ctxloom completion bash > /usr/local/etc/bash_completion.d/scm
+ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom
 ```
 
 ### Zsh
@@ -120,7 +120,7 @@ ctxloom completion zsh > "${fpath[1]}/_ctxloom"
 ### Fish
 
 ```fish
-ctxloom completion fish > ~/.config/fish/completions/scm.fish
+ctxloom completion fish > ~/.config/fish/completions/ctxloom.fish
 ```
 
 ### PowerShell

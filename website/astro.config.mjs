@@ -26,7 +26,9 @@ export default defineConfig({
 					label: 'Getting Started',
 					items: [
 						{ label: 'Installation', link: '/getting-started/installation/' },
-						{ label: 'Quickstart', link: '/getting-started/quickstart/' },
+						{ label: 'Quick Start', link: '/getting-started/quickstart/' },
+						{ label: 'Authoring Bundles', link: '/getting-started/authoring/' },
+						{ label: 'Session Memory', link: '/getting-started/memory/' },
 					],
 				},
 				{
@@ -50,7 +52,6 @@ export default defineConfig({
 						{ label: 'Hooks', link: '/guides/hooks/' },
 						{ label: 'Sharing', link: '/guides/sharing/' },
 						{ label: 'Distillation', link: '/guides/distillation/' },
-						{ label: 'Memory', link: '/guides/memory/' },
 						{ label: 'Ad-hoc Context', link: '/guides/adhoc-context/' },
 						{ label: 'Workflows', link: '/guides/workflows/' },
 					],

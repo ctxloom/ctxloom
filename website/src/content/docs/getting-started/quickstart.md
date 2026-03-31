@@ -6,6 +6,16 @@ title: "Quick Start"
 
 Get up and running with ctxloom in minutes.
 
+## What ctxloom Does
+
+| Capability | Description |
+|------------|-------------|
+| **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
+| **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
+| **Session Memory** | Persist context across `/clear`, recover seamlessly |
+| **Remote Sync** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
+| **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
+
 ## Initialize Your Project
 
 ```bash
@@ -16,100 +26,124 @@ ctxloom init
 ctxloom init --home
 ```
 
-## Create Your First Bundle
+## Browse Available Content
+
+After initialization, explore what's available:
+
+### List Fragments
 
 ```bash
-# Create a new bundle
-ctxloom bundle create my-standards
+# List all fragments from installed bundles
+ctxloom fragment list
+
+# Filter by bundle
+ctxloom fragment list --bundle go-development
 ```
 
-This creates `.ctxloom/bundles/my-standards.yaml` with a basic structure.
-
-## Add Content to Your Bundle
-
-Edit the bundle to add your context:
-
-```yaml
-version: "1.0.0"
-description: "My coding standards"
-tags:
-  - development
-
-fragments:
-  coding-standards:
-    tags: [style]
-    content: |
-      # My Coding Standards
-      - Use meaningful variable names
-      - Write tests for all new code
-      - Document public APIs
+Example output:
+```
+BUNDLE          FRAGMENT            TAGS
+go-development  error-handling      [golang, patterns]
+go-development  testing             [golang, testing]
+go-development  project-structure   [golang, organization]
+security        owasp-top-10        [security, web]
 ```
 
-## Run with Your Context
+### View Fragment Content
 
 ```bash
-# Include your bundle when running AI
-ctxloom run -f my-standards "Help me with this code"
+# Show a specific fragment
+ctxloom fragment show go-development#fragments/testing
 
-# Preview what context would be sent
-ctxloom run -n
-
-# Use a profile for common combinations
-ctxloom run -p developer "implement error handling"
+# Show the distilled (compressed) version
+ctxloom fragment show go-development#fragments/testing --distilled
 ```
 
-## Build Context On-the-Fly
-
-You don't need to create profile files - assemble context dynamically with flags:
+### List Prompts (Slash Commands)
 
 ```bash
-# Combine multiple bundles for a task
+# List all prompts
+ctxloom prompt list
+
+# Filter by bundle
+ctxloom prompt list --bundle my-tools
+```
+
+Example output:
+```
+BUNDLE      PROMPT        DESCRIPTION
+my-tools    code-review   Review code for issues
+my-tools    refactor      Suggest refactoring improvements
+core        commit        Generate commit message
+```
+
+### View Prompt Content
+
+```bash
+# Show a specific prompt
+ctxloom prompt show my-tools#prompts/code-review
+```
+
+## Run with Context
+
+```bash
+# Include fragments when running AI
+ctxloom run -f go-development "Help me with this code"
+
+# Combine multiple fragments
 ctxloom run -f go-development -f testing-patterns -f security \
   "implement user authentication with tests"
 
-# Mix bundles and tags
-ctxloom run -f api-design -t best-practices "design the REST API"
+# Use a profile (pre-configured fragment set)
+ctxloom run -p backend-developer "review this PR"
 
-# Pull specific fragments from bundles
-ctxloom run \
-  -f go-development#fragments/error-handling \
-  -f go-development#fragments/testing \
-  "write error handling with tests"
-
-# Use remote bundles without installing
-ctxloom run -f ctxloom-default/security#fragments/owasp "security review"
+# Preview what context would be sent
+ctxloom run -f go-development --dry-run --print
 ```
 
-### Preview Before Running
+## Use Slash Commands
 
-```bash
-# See what context would be assembled
-ctxloom run -f go-development -f security --dry-run
+Prompts in bundles become slash commands in Claude Code and Gemini CLI:
 
-# See the actual content
-ctxloom run -f go-development -f security --dry-run --print
+```yaml
+# .ctxloom/bundles/my-tools.yaml
+prompts:
+  code-review:
+    description: "Review code for issues"
+    content: |
+      Review this code for:
+      - Security vulnerabilities
+      - Performance issues
+      - Best practice violations
 ```
 
-## Discover and Use Community Bundles
+Then in your AI CLI:
+```
+/code-review src/auth.go
+```
+
+## Discover Community Bundles
 
 ```bash
-# Find ctxloom repositories
+# Find ctxloom repositories on GitHub/GitLab
 ctxloom remote discover golang
 
 # Add a remote
 ctxloom remote add community alice/ctxloom-golang
 
+# Browse remote content
+ctxloom remote browse community
+
 # Use remote content directly
 ctxloom run -f community/go-testing "help with tests"
 
-# Or pull for local use
+# Or install locally
 ctxloom fragment install community/go-testing
 ```
 
 ## Next Steps
 
-- [Ad-Hoc Context Assembly](/guides/adhoc-context) - Build faux profiles on the fly
-- [Bundles](/concepts/bundles) and [Fragments](/concepts/fragments) - Core concepts
-- [Profiles](/concepts/profiles) - Save common combinations
+- [Authoring Bundles](/getting-started/authoring) - Create your own bundles
+- [Session Memory](/getting-started/memory) - Preserve context across sessions
 - [Discovery](/guides/discovery) - Find community bundles
-- [Sharing](/guides/sharing) - Publish your own bundles
+- [Profiles](/concepts/profiles) - Save common fragment combinations

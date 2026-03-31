@@ -208,4 +208,4 @@ defaults:
   compaction_chunks: 8000         # Tokens per chunk
 ```
 
-See [Memory Guide](/guides/memory) for usage details.
+See [Session Memory Guide](/getting-started/memory) for usage details.

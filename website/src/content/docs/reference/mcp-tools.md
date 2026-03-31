@@ -476,7 +476,7 @@ Apply/reapply ctxloom hooks to backend configuration files (`.claude/settings.js
 
 ## Session Memory Tools
 
-These tools manage session memory for context preservation across conversations. See the [Memory Guide](/guides/memory) for usage details.
+These tools manage session memory for context preservation across conversations. See the [Session Memory Guide](/getting-started/memory) for usage details.
 
 ### compact_session
 

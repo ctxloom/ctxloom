@@ -60,7 +60,7 @@ func (l *BaseLifecycle) OnToolUse(workDir string, event ToolEvent, handler Event
 	return nil
 }
 
-// Clear removes all SCM-managed lifecycle handlers.
+// Clear removes all ctxloom-managed lifecycle handlers.
 func (l *BaseLifecycle) Clear(workDir string) error {
 	l.hooks = &config.HooksConfig{
 		Plugins: make(map[string]config.BackendHooks),

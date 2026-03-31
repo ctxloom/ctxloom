@@ -25,7 +25,7 @@ type Fetcher interface {
 	// query is an optional additional search term (e.g., "golang" to filter).
 	SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error)
 
-	// ValidateRepo checks if a repository has valid SCM structure.
+	// ValidateRepo checks if a repository has valid ctxloom structure.
 	// Returns true if ctxloom/v1/ directory exists with fragments or prompts.
 	ValidateRepo(ctx context.Context, owner, repo string) (bool, error)
 

@@ -25,7 +25,7 @@ var mcpCmd = &cobra.Command{
 	Short: "Run as MCP server or manage MCP server configurations",
 	Long: `Run ctxloom as an MCP (Model Context Protocol) server, or manage MCP server configurations.
 
-When called without subcommands, runs SCM as an MCP server over stdio.
+When called without subcommands, runs ctxloom as an MCP server over stdio.
 Subcommands manage external MCP server configurations that are injected into backend settings.
 
 RUNNING AS MCP SERVER:
@@ -47,7 +47,7 @@ MANAGING MCP SERVERS:
   ctxloom mcp add          Add an MCP server configuration
   ctxloom mcp remove       Remove an MCP server configuration
   ctxloom mcp show         Show details of an MCP server
-  ctxloom mcp auto-register Configure auto-registration of SCM's MCP server`,
+  ctxloom mcp auto-register Configure auto-registration of ctxloom's MCP server`,
 	RunE: runMCPServer,
 }
 
@@ -80,7 +80,7 @@ var mcpListCmd = &cobra.Command{
 		if result.Count == 0 {
 			fmt.Println("No MCP servers configured.")
 			fmt.Println()
-			fmt.Printf("Auto-register SCM MCP server: %v\n", result.AutoRegister)
+			fmt.Printf("Auto-register ctxloom MCP server: %v\n", result.AutoRegister)
 			fmt.Println("\nUse 'ctxloom mcp add <name> --command <cmd>' to add one.")
 			return nil
 		}
@@ -95,7 +95,7 @@ var mcpListCmd = &cobra.Command{
 			fmt.Printf("    Scope: %s\n", srv.Backend)
 		}
 
-		fmt.Printf("\nAuto-register SCM MCP server: %v\n", result.AutoRegister)
+		fmt.Printf("\nAuto-register ctxloom MCP server: %v\n", result.AutoRegister)
 		return nil
 	},
 }
@@ -239,11 +239,11 @@ var mcpAutoRegisterDisable bool
 
 var mcpAutoRegisterCmd = &cobra.Command{
 	Use:   "auto-register",
-	Short: "Configure auto-registration of SCM's MCP server",
-	Long: `Configure whether SCM automatically registers its own MCP server.
+	Short: "Configure auto-registration of ctxloom's MCP server",
+	Long: `Configure whether ctxloom automatically registers its own MCP server.
 
-When enabled (default), SCM injects its own MCP server into backend settings,
-allowing AI agents to access SCM tools (fragments, profiles, prompts, etc.).
+When enabled (default), ctxloom injects its own MCP server into backend settings,
+allowing AI agents to access ctxloom tools (fragments, profiles, prompts, etc.).
 
 Examples:
   ctxloom mcp auto-register           # Show current setting
@@ -267,16 +267,16 @@ Examples:
 			}
 
 			if result.AutoRegister {
-				fmt.Println("SCM MCP server auto-registration: enabled")
+				fmt.Println("ctxloom MCP server auto-registration: enabled")
 			} else {
-				fmt.Println("SCM MCP server auto-registration: disabled")
+				fmt.Println("ctxloom MCP server auto-registration: disabled")
 			}
 			fmt.Println("Run 'ctxloom run' or 'ctxloom hook apply' to apply changes to backend settings.")
 			return nil
 		}
 
 		// Show current setting
-		fmt.Printf("SCM MCP server auto-registration: %v\n", cfg.MCP.ShouldAutoRegisterSCM())
+		fmt.Printf("ctxloom MCP server auto-registration: %v\n", cfg.MCP.ShouldAutoRegisterCtxloom())
 		return nil
 	},
 }
@@ -302,8 +302,8 @@ func init() {
 	mcpRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove server from")
 
 	// Flags for auto-register command
-	mcpAutoRegisterCmd.Flags().BoolVar(&mcpAutoRegisterDisable, "disable", false, "Disable SCM MCP server auto-registration")
-	mcpAutoRegisterCmd.Flags().Bool("enable", false, "Enable SCM MCP server auto-registration")
+	mcpAutoRegisterCmd.Flags().BoolVar(&mcpAutoRegisterDisable, "disable", false, "Disable ctxloom MCP server auto-registration")
+	mcpAutoRegisterCmd.Flags().Bool("enable", false, "Enable ctxloom MCP server auto-registration")
 }
 
 // MCP JSON-RPC types
@@ -352,7 +352,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "SCM MCP: signal handler panic: %v\n", r)
+				fmt.Fprintf(os.Stderr, "ctxloom MCP: signal handler panic: %v\n", r)
 			}
 		}()
 		<-sigCh
@@ -387,7 +387,7 @@ func (s *mcpServer) run(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "SCM MCP: reader goroutine panic: %v\n", r)
+				fmt.Fprintf(os.Stderr, "ctxloom MCP: reader goroutine panic: %v\n", r)
 				// Send error to unblock the main loop
 				select {
 				case lineCh <- readResult{nil, fmt.Errorf("panic: %v", r)}:
@@ -422,7 +422,7 @@ func (s *mcpServer) run(ctx context.Context) error {
 			// This detects when the client process has exited but stdin hasn't closed
 			currentPPID := os.Getppid()
 			if currentPPID != originalPPID {
-				fmt.Fprintf(os.Stderr, "SCM MCP: parent changed %d -> %d, exiting\n", originalPPID, currentPPID)
+				fmt.Fprintf(os.Stderr, "ctxloom MCP: parent changed %d -> %d, exiting\n", originalPPID, currentPPID)
 				return nil
 			}
 		case result := <-lineCh:
@@ -430,7 +430,7 @@ func (s *mcpServer) run(ctx context.Context) error {
 				// Any stdin read error means the client disconnected.
 				// This is normal - treat all read errors as graceful shutdown.
 				// Common cases: io.EOF, os.ErrClosed, pipe broken, etc.
-				fmt.Fprintf(os.Stderr, "SCM MCP: stdin closed: %v\n", result.err)
+				fmt.Fprintf(os.Stderr, "ctxloom MCP: stdin closed: %v\n", result.err)
 				return nil
 			}
 
@@ -441,7 +441,7 @@ func (s *mcpServer) run(ctx context.Context) error {
 			}
 
 			// Debug: log incoming requests
-			fmt.Fprintf(os.Stderr, "SCM MCP: received %s (id=%v)\n", req.Method, req.ID)
+			fmt.Fprintf(os.Stderr, "ctxloom MCP: received %s (id=%v)\n", req.Method, req.ID)
 
 			resp := s.handleRequest(ctx, &req)
 			if resp != nil {
@@ -516,7 +516,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 
 	// Auto-sync dependencies on startup if enabled (blocking, graceful failure)
 	if cfg.Sync.ShouldAutoSync() {
-		fmt.Fprintf(os.Stderr, "SCM: syncing remote bundles and profiles from config...\n")
+		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 		syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
 		result, err := operations.SyncOnStartup(syncCtx, cfg)
 		syncCancel()
@@ -526,7 +526,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 				fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
 			}
 		} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
-			fmt.Fprintf(os.Stderr, "SCM: %s\n", result.Message)
+			fmt.Fprintf(os.Stderr, "ctxloom: %s\n", result.Message)
 		} else if result.Errors > 0 {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: sync completed with %d errors\n", result.Errors)
 		}
@@ -612,7 +612,7 @@ func (s *mcpServer) getRemoteTools() []mcpToolInfo {
 		},
 		{
 			Name:        "discover_remotes",
-			Description: "Search GitHub/GitLab for SCM repositories containing fragments and prompts",
+			Description: "Search GitHub/GitLab for ctxloom repositories containing fragments and prompts",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -820,7 +820,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 		},
 		{
 			Name:        "search_content",
-			Description: "Search across all SCM content types (fragments, prompts, profiles, MCP servers)",
+			Description: "Search across all ctxloom content types (fragments, prompts, profiles, MCP servers)",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"query"},
@@ -1050,7 +1050,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 		// Hooks management
 		{
 			Name:        "apply_hooks",
-			Description: "Apply/reapply SCM hooks to backend configuration files (.claude/settings.json, .gemini/settings.json)",
+			Description: "Apply/reapply ctxloom hooks to backend configuration files (.claude/settings.json, .gemini/settings.json)",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -1172,14 +1172,14 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 		},
 		{
 			Name:        "set_mcp_auto_register",
-			Description: "Enable or disable auto-registration of SCM's own MCP server",
+			Description: "Enable or disable auto-registration of ctxloom's own MCP server",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"enabled"},
 				"properties": map[string]interface{}{
 					"enabled": map[string]interface{}{
 						"type":        "boolean",
-						"description": "Whether to auto-register SCM's MCP server",
+						"description": "Whether to auto-register ctxloom's MCP server",
 					},
 				},
 			},

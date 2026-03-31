@@ -468,7 +468,7 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
-		// Create profiles directory in first SCM path
+		// Create profiles directory in first ctxloom path
 		profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return profiles.NewLoader(profileDirs)

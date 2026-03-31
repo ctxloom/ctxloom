@@ -13,7 +13,7 @@ import (
 )
 
 // BaseSessionRegistry provides shared session registry logic for backends.
-// It tracks sessions across /clear by associating transcript paths with SCM wrapper PIDs.
+// It tracks sessions across /clear by associating transcript paths with ctxloom wrapper PIDs.
 type BaseSessionRegistry struct {
 	fs           afero.Fs
 	registryFile string // e.g., "claude-session-registry.json"
@@ -50,13 +50,13 @@ type RegistryData struct {
 	Runs map[int]*RunInfo `json:"runs"`
 }
 
-// RunInfo contains information about an SCM run instance and its sessions.
+// RunInfo contains information about an ctxloom run instance and its sessions.
 type RunInfo struct {
 	Started  time.Time `json:"started"`
 	Sessions []string  `json:"sessions"` // Transcript file paths in chronological order
 }
 
-// RegisterSession records a session transcript path for the given SCM run (by PID).
+// RegisterSession records a session transcript path for the given ctxloom run (by PID).
 // Uses file locking to prevent race conditions from concurrent hook invocations.
 func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcriptPath string) error {
 	appDir := filepath.Join(workDir, ".ctxloom")

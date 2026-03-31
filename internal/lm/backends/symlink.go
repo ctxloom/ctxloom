@@ -71,9 +71,9 @@ func GetMemoryCheckCommand(workDir string) string {
 	return fmt.Sprintf(`cd "%s" && "%s" memory check`, absWorkDir, execPath)
 }
 
-// GetSCMMCPCommand returns the command (executable path) for the SCM MCP server.
+// GetCtxloomMCPCommand returns the command (executable path) for the ctxloom MCP server.
 // Uses absolute path to the current ctxloom binary.
-func GetSCMMCPCommand() string {
+func GetCtxloomMCPCommand() string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
 		// Fallback to "ctxloom" if we can't get the path (shouldn't happen)
@@ -82,7 +82,7 @@ func GetSCMMCPCommand() string {
 	return execPath
 }
 
-// GetSCMMCPArgs returns the arguments for the SCM MCP server.
-func GetSCMMCPArgs() []string {
+// GetCtxloomMCPArgs returns the arguments for the ctxloom MCP server.
+func GetCtxloomMCPArgs() []string {
 	return []string{"mcp"}
 }

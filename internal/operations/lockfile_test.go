@@ -1,6 +1,6 @@
 // Lockfile operation tests verify dependency locking for reproducible installations.
 // Lockfiles capture exact SHA versions of installed remote items, enabling teams to
-// share consistent SCM configurations and enabling CI/CD reproducibility.
+// share consistent ctxloom configurations and enabling CI/CD reproducibility.
 package operations
 
 import (
@@ -331,7 +331,7 @@ bundles:
 	assert.Equal(t, 1, result.ItemCount)
 }
 
-// testConfigWithSCMPath creates a config with the given SCM path for testing.
+// testConfigWithSCMPath creates a config with the given ctxloom path for testing.
 func testConfigWithSCMPath(path string) *config.Config {
 	return &config.Config{
 		AppPaths: []string{path},
@@ -760,7 +760,7 @@ profiles: {}
 
 func TestCheckOutdated_InvalidReference(t *testing.T) {
 	// Invalid references should be skipped rather than crashing - lockfiles may
-	// be manually edited or come from older SCM versions with different formats.
+	// be manually edited or come from older ctxloom versions with different formats.
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have an invalid reference format

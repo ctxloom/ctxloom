@@ -41,7 +41,7 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 
 // WriteCommandFiles generates Claude Code slash command files from prompts.
 // Files are written directly to .claude/commands/ (e.g., save.md -> /save).
-// SCM tracks which files it manages via a manifest to clean up stale commands.
+// ctxloom tracks which files it manages via a manifest to clean up stale commands.
 // Only prompts with ClaudeCode.IsEnabled() == true are exported.
 func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
 	options := &commandFileOptions{fs: afero.NewOsFs()}
@@ -110,7 +110,7 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	return nil
 }
 
-// TransformToClaudeCommand converts an SCM prompt to Claude Code command format.
+// TransformToClaudeCommand converts a ctxloom prompt to Claude Code command format.
 // It generates a markdown file with YAML frontmatter and transforms {{var}} to $N.
 func TransformToClaudeCommand(p *bundles.LoadedContent) string {
 	var buf bytes.Buffer

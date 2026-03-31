@@ -117,7 +117,7 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 	return &ListMCPServersResult{
 		Servers:      servers,
 		Count:        len(servers),
-		AutoRegister: freshCfg.MCP.ShouldAutoRegisterSCM(),
+		AutoRegister: freshCfg.MCP.ShouldAutoRegisterCtxloom(),
 	}, nil
 }
 
@@ -353,7 +353,7 @@ type SetMCPAutoRegisterResult struct {
 	Config       *config.Config `json:"-"`       // Updated config for caller to store
 }
 
-// SetMCPAutoRegister enables or disables auto-registration of SCM's MCP server.
+// SetMCPAutoRegister enables or disables auto-registration of ctxloom's MCP server.
 func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoRegisterRequest) (*SetMCPAutoRegisterResult, error) {
 	// Default filesystem
 	fs := req.FS
@@ -375,7 +375,7 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 		}
 	}
 
-	freshCfg.MCP.AutoRegisterSCM = &req.Enabled
+	freshCfg.MCP.AutoRegisterCtxloom = &req.Enabled
 
 	// Skip save when using test config (but not when using FS)
 	if req.TestConfig == nil {

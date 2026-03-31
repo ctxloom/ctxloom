@@ -255,7 +255,7 @@ const (
 //   - file:///path/to/repo@v1/bundles/name@v1.2.3
 //
 // Format: <repo>@<ctxloom_version>/<type>/<path>@<content_version>
-// - First @ = SCM schema version (directory: ctxloom/v1/bundles/...)
+// - First @ = ctxloom schema version (directory: ctxloom/v1/bundles/...)
 // - Second @ = content version (git tag or SHA, optional)
 type Reference struct {
 	// Remote is the remote name (for simple format) or empty for URL-based refs
@@ -271,7 +271,7 @@ type Reference struct {
 	// URL is the full repository URL (for URL-based refs); empty for simple format
 	URL string
 
-	// Version is the SCM schema version directory (e.g., "v1"); extracted from URL or remote config
+	// Version is the ctxloom schema version directory (e.g., "v1"); extracted from URL or remote config
 	Version string
 
 	// ContentVersion is the git tag or SHA for content versioning (from second @ in URL)
@@ -293,7 +293,7 @@ type LockEntry struct {
 	// URL is the canonical repository URL
 	URL string `yaml:"url" json:"url"`
 
-	// CtxloomVersion is the SCM schema version (v1, v2) - determines directory path
+	// CtxloomVersion is the ctxloom schema version (v1, v2) - determines directory path
 	CtxloomVersion string `yaml:"ctxloom_version" json:"ctxloom_version"`
 
 	// RequestedVersion is the original tag/SHA requested by user (for export reconstruction)

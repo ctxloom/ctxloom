@@ -19,7 +19,7 @@ var metaCmd = &cobra.Command{
 }
 
 // Stamp is the structured output for session markers.
-// Uses the SCM wrapper PID (ctxloom run/plugin/init) which is stable across /clear,
+// Uses the ctxloom wrapper PID (ctxloom run/plugin/init) which is stable across /clear,
 // unlike the Claude Code PID which may change.
 type Stamp struct {
 	PID  int    `json:"pid"`
@@ -27,10 +27,10 @@ type Stamp struct {
 }
 
 
-// findSCMWrapperPID walks up the process tree to find the SCM wrapper process.
-// Returns the PID of the first ancestor that is an SCM command (run, plugin, init).
-// Falls back to grandparent PID if no SCM wrapper is found.
-func findSCMWrapperPID() int {
+// findCtxloomWrapperPID walks up the process tree to find the ctxloom wrapper process.
+// Returns the PID of the first ancestor that is a ctxloom command (run, plugin, init).
+// Falls back to grandparent PID if no ctxloom wrapper is found.
+func findCtxloomWrapperPID() int {
 	if runtime.GOOS != "linux" {
 		// Fallback for non-Linux: use grandparent
 		ppid := os.Getppid()
@@ -47,7 +47,7 @@ func findSCMWrapperPID() int {
 	for pid > 1 && !visited[pid] {
 		visited[pid] = true
 
-		if isSCMWrapper(pid) {
+		if isCtxloomWrapper(pid) {
 			return pid
 		}
 
@@ -59,7 +59,7 @@ func findSCMWrapperPID() int {
 		pid = ppid
 	}
 
-	// Fallback: return grandparent if no SCM wrapper found
+	// Fallback: return grandparent if no ctxloom wrapper found
 	ppid := os.Getppid()
 	if gppid := getParentPID(ppid); gppid > 0 {
 		return gppid
@@ -67,8 +67,8 @@ func findSCMWrapperPID() int {
 	return ppid
 }
 
-// isSCMWrapper checks if a process is a registered SCM LLM wrapper command.
-func isSCMWrapper(pid int) bool {
+// isCtxloomWrapper checks if a process is a registered ctxloom LLM wrapper command.
+func isCtxloomWrapper(pid int) bool {
 	cmdline := getProcessCmdline(pid)
 	if len(cmdline) < 2 {
 		return false
@@ -146,12 +146,12 @@ func getParentPID(pid int) int {
 var metaStampCmd = &cobra.Command{
 	Use:   "stamp",
 	Short: "Output PID and timestamp for session tracking",
-	Long: `Outputs the SCM wrapper process ID (ctxloom run/plugin/init) and current timestamp.
-The SCM wrapper PID is used because it remains stable across /clear commands,
+	Long: `Outputs the ctxloom wrapper process ID (ctxloom run/plugin/init) and current timestamp.
+The ctxloom wrapper PID is used because it remains stable across /clear commands,
 while the Claude Code process may restart.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		stamp := Stamp{
-			PID:  findSCMWrapperPID(),
+			PID:  findCtxloomWrapperPID(),
 			Time: time.Now().UTC().Format(time.RFC3339),
 		}
 		data, _ := json.Marshal(stamp)

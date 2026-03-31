@@ -18,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
-// geminiAppCommandsDir is the subdirectory for SCM-managed Gemini commands.
+// geminiAppCommandsDir is the subdirectory for ctxloom-managed Gemini commands.
 const geminiAppCommandsDir = "ctxloom"
 
 // GeminiCommand represents a Gemini CLI slash command in TOML format.
@@ -110,7 +110,7 @@ func (s *GeminiSkills) RegisterFromContent(workDir string, contents []*bundles.L
 	return WriteGeminiCommandFiles(workDir, contents)
 }
 
-// Clear removes all SCM-managed skills.
+// Clear removes all ctxloom-managed skills.
 func (s *GeminiSkills) Clear(workDir string) error {
 	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
 	return os.RemoveAll(appDir)
@@ -199,7 +199,7 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 	return nil
 }
 
-// TransformToGeminiCommand converts an SCM prompt to Gemini CLI command format.
+// TransformToGeminiCommand converts a ctxloom prompt to Gemini CLI command format.
 // It generates a TOML file with prompt and description fields.
 // Gemini uses {{args}} for argument injection natively.
 func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
@@ -443,7 +443,7 @@ func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return transcriptPath
 }
 
-// RegisterSession records a session for the given SCM run (by PID).
+// RegisterSession records a session for the given ctxloom run (by PID).
 // Delegates to BaseSessionRegistry for shared implementation with file locking.
 func (h *GeminiSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
 	return h.registry.RegisterSession(workDir, pid, transcriptPath)

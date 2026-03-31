@@ -34,7 +34,7 @@ type ApplyHooksResult struct {
 	ContextHash string   `json:"context_hash,omitempty"`
 }
 
-// ApplyHooks applies SCM hooks to backend configuration files.
+// ApplyHooks applies ctxloom hooks to backend configuration files.
 func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	// Set defaults
 	backend := req.Backend
@@ -145,7 +145,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 }
 
 // loadPromptsForCommands loads all prompts from bundles for slash command export.
-// Also includes built-in SCM prompts like saveandclear.
+// Also includes built-in ctxloom prompts like saveandclear.
 func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*bundles.LoadedContent {
 	// Start with built-in prompts (always included)
 	prompts := getBuiltinPrompts(cfg)
@@ -172,8 +172,8 @@ func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*
 	return prompts
 }
 
-// getBuiltinPrompts returns SCM's built-in slash command prompts.
-// These are embedded in the SCM binary and always available.
+// getBuiltinPrompts returns ctxloom's built-in slash command prompts.
+// These are embedded in the ctxloom binary and always available.
 func getBuiltinPrompts(_ *config.Config) []*bundles.LoadedContent {
 	names, err := resources.ListBuiltinCommands()
 	if err != nil {

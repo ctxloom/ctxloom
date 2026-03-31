@@ -1,12 +1,12 @@
 // Package operations tests for ApplyHooks verify the hook application system.
 //
-// Hooks are the glue between SCM configuration and LLM backend settings files.
-// ApplyHooks transforms SCM's unified hook config into backend-specific formats
+// Hooks are the glue between ctxloom configuration and LLM backend settings files.
+// ApplyHooks transforms ctxloom's unified hook config into backend-specific formats
 // (e.g., .claude/settings.json, .gemini/settings.json) and regenerates context.
 //
 // # What ApplyHooks Does
 //
-//  1. Reads SCM config (hooks, MCP servers, profiles)
+//  1. Reads ctxloom config (hooks, MCP servers, profiles)
 //  2. Writes backend-specific settings files with hooks
 //  3. Writes .mcp.json with MCP server configs
 //  4. Optionally regenerates context file from active profiles
@@ -210,12 +210,12 @@ func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 
 // TestWriteSettings_PreservesExistingSettings verifies that user customizations survive.
 //
-// NON-OBVIOUS: When SCM writes hooks to settings.json, it MERGES with existing
+// NON-OBVIOUS: When ctxloom writes hooks to settings.json, it MERGES with existing
 // content rather than overwriting. User's custom settings (like theme preferences)
-// are preserved. Only SCM-managed sections (hooks, MCP servers) are updated.
+// are preserved. Only ctxloom-managed sections (hooks, MCP servers) are updated.
 //
 // This is important because users may have manually configured settings that
-// they don't want SCM to destroy on each hook application.
+// they don't want ctxloom to destroy on each hook application.
 func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 	fs := afero.NewMemMapFs()
 

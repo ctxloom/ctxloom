@@ -64,7 +64,7 @@ type LifecycleHandler interface {
 	OnSessionEnd(workDir string, handler EventHandler) error
 	// OnToolUse registers behavior before/after tool invocations.
 	OnToolUse(workDir string, event ToolEvent, handler EventHandler) error
-	// Clear removes all SCM-managed lifecycle handlers.
+	// Clear removes all ctxloom-managed lifecycle handlers.
 	Clear(workDir string) error
 }
 
@@ -93,7 +93,7 @@ type SkillRegistry interface {
 	Register(workDir string, skill Skill) error
 	// RegisterAll adds multiple skills at once.
 	RegisterAll(workDir string, skills []Skill) error
-	// Clear removes all SCM-managed skills.
+	// Clear removes all ctxloom-managed skills.
 	Clear(workDir string) error
 	// List returns registered skill names.
 	List(workDir string) ([]string, error)
@@ -136,7 +136,7 @@ type MCPManager interface {
 	ListServers(workDir string) ([]string, error)
 	// GetServer returns the configuration for a specific MCP server.
 	GetServer(workDir string, name string) (*MCPServer, error)
-	// Clear removes all SCM-managed MCP servers.
+	// Clear removes all ctxloom-managed MCP servers.
 	Clear(workDir string) error
 	// Flush writes all pending MCP configuration changes.
 	Flush(workDir string) error
@@ -144,7 +144,7 @@ type MCPManager interface {
 
 // SessionHistory provides access to the LLM's conversation history and tracks
 // sessions for /clear recovery. Combines reading transcripts with tracking
-// which sessions belong to which SCM run.
+// which sessions belong to which ctxloom run.
 // Implementation varies by backend: JSONL files (Claude), JSON files (Gemini), etc.
 type SessionHistory interface {
 	// Reading sessions
@@ -162,7 +162,7 @@ type SessionHistory interface {
 	// Claude: computes path from sessionID + workDir
 	// Gemini: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
-	// RegisterSession records a session transcript path for the given SCM run (by PID).
+	// RegisterSession records a session transcript path for the given ctxloom run (by PID).
 	RegisterSession(workDir string, pid int, transcriptPath string) error
 	// GetPreviousSession returns the session before the current one for recovery.
 	GetPreviousSession(workDir string, pid int) (*Session, error)

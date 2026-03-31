@@ -20,14 +20,14 @@ var (
 
 var remoteDiscoverCmd = &cobra.Command{
 	Use:   "discover [query]",
-	Short: "Search GitHub/GitLab for SCM repositories",
-	Long: `Discover SCM repositories on GitHub and GitLab.
+	Short: "Search GitHub/GitLab for ctxloom repositories",
+	Long: `Discover ctxloom repositories on GitHub and GitLab.
 
-Searches for repositories named 'ctxloom' or starting with 'scm-'.
+Searches for repositories named 'ctxloom' or starting with 'ctxloom-'.
 Only repositories with valid ctxloom/v1/ structure are shown.
 
 Examples:
-  ctxloom remote discover                      # Find all SCM repos
+  ctxloom remote discover                      # Find all ctxloom repos
   ctxloom remote discover golang               # Filter by 'golang' in description
   ctxloom remote discover --source github      # Search GitHub only
   ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
@@ -62,7 +62,7 @@ Examples:
 		}
 
 		if result.Count == 0 {
-			fmt.Println("\nNo SCM repositories found.")
+			fmt.Println("\nNo ctxloom repositories found.")
 			if query != "" {
 				fmt.Printf("Try a different search term or remove the filter.\n")
 			}

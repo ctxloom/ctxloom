@@ -1,5 +1,5 @@
-// Remote discovery tests verify that SCM can search for and identify remote
-// repositories containing SCM content (fragments, prompts, bundles). This enables
+// Remote discovery tests verify that ctxloom can search for and identify remote
+// repositories containing ctxloom content (fragments, prompts, bundles). This enables
 // users to discover and install community-maintained AI context.
 package remote
 

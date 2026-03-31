@@ -1,4 +1,4 @@
-// Package bundles provides types and utilities for SCM bundles.
+// Package bundles provides types and utilities for ctxloom bundles.
 // Bundles are the primary content unit that group related fragments,
 // prompts, and MCP server configurations with a single version.
 package bundles

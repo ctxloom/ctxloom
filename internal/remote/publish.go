@@ -118,7 +118,7 @@ type PublishOptions struct {
 	// ItemType specifies what type of item to publish.
 	ItemType ItemType
 
-	// Version is the SCM version directory (e.g., "v1").
+	// Version is the ctxloom version directory (e.g., "v1").
 	Version string
 
 	// FS is the filesystem to use (defaults to OS filesystem if nil).

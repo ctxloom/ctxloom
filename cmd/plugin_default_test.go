@@ -1,4 +1,4 @@
-// Plugin discovery tests verify that SCM correctly identifies built-in LM plugins
+// Plugin discovery tests verify that ctxloom correctly identifies built-in LM plugins
 // (claude-code, gemini, aider) and any user-configured plugins. This is essential
 // for the `ctxloom run` command to know which backends are available for context injection.
 package cmd
@@ -12,7 +12,7 @@ import (
 // =============================================================================
 // Plugin Recognition Tests
 // =============================================================================
-// SCM must recognize built-in plugins without explicit configuration,
+// ctxloom must recognize built-in plugins without explicit configuration,
 // while rejecting unknown plugin names to prevent typos.
 
 func TestIsKnownPlugin_BuiltIn(t *testing.T) {

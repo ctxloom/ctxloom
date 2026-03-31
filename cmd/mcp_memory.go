@@ -341,7 +341,7 @@ func (s *mcpServer) toolLoadSession(ctx context.Context, args json.RawMessage) (
 	}
 
 	// Not cached - need to distill on-the-fly
-	fmt.Fprintf(os.Stderr, "SCM: distilling session %s (this may take a moment)...\n", targetSessionID)
+	fmt.Fprintf(os.Stderr, "ctxloom: distilling session %s (this may take a moment)...\n", targetSessionID)
 
 	// Determine model for distillation
 	model := params.Model
@@ -562,8 +562,8 @@ func (s *mcpServer) toolGetPreviousSession(ctx context.Context, args json.RawMes
 	}
 	_ = json.Unmarshal(args, &params)
 
-	// Get the SCM wrapper PID (ctxloom run/init) which is stable across /clear
-	pid := findSCMWrapperPID()
+	// Get the ctxloom wrapper PID (ctxloom run/init) which is stable across /clear
+	pid := findCtxloomWrapperPID()
 
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -614,7 +614,7 @@ func (s *mcpServer) toolGetPreviousSession(ctx context.Context, args json.RawMes
 	}
 
 	// Distill on demand
-	fmt.Fprintf(os.Stderr, "SCM: distilling previous session %s for PID %d...\n", prevSessionID, pid)
+	fmt.Fprintf(os.Stderr, "ctxloom: distilling previous session %s for PID %d...\n", prevSessionID, pid)
 
 	model := params.Model
 	if model == "" {

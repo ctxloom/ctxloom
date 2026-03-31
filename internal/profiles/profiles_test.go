@@ -6,7 +6,7 @@
 //
 // # Content Reference Format
 //
-// SCM uses a flexible reference format to identify bundles and their contents:
+// ctxloom uses a flexible reference format to identify bundles and their contents:
 //
 //	"bundle-name"                       → Local bundle
 //	"remote/bundle-name"                → Remote bundle via short name
@@ -290,7 +290,7 @@ func TestContentRef_LocalBundlePath(t *testing.T) {
 // =============================================================================
 //
 // The Loader provides CRUD operations for profile YAML files. It searches
-// through multiple directories (SCM paths) and handles both .yaml and .yml
+// through multiple directories (ctxloom paths) and handles both .yaml and .yml
 // extensions.
 
 // TestNewLoader verifies that the loader stores the provided directories.

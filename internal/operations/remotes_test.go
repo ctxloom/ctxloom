@@ -30,12 +30,12 @@ func TestGetBaseDir_UsesConfigPath(t *testing.T) {
 			expected: ".ctxloom",
 		},
 		{
-			name:     "uses first SCM path from config",
+			name:     "uses first ctxloom path from config",
 			cfg:      &config.Config{AppPaths: []string{"/project/.ctxloom", "/home/user/.ctxloom"}},
 			expected: "/project/.ctxloom",
 		},
 		{
-			name:     "single SCM path",
+			name:     "single ctxloom path",
 			cfg:      &config.Config{AppPaths: []string{"/my/project/.ctxloom"}},
 			expected: "/my/project/.ctxloom",
 		},
@@ -479,7 +479,7 @@ func TestRemoveRemote_NotFound(t *testing.T) {
 
 func TestDiscoverRemotes_GitHubOnly(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "alice", Name: "ctxloom", Description: "Alice's SCM", Stars: 100, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom", Description: "Alice's ctxloom", Stars: 100, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
 		{Owner: "bob", Name: "ctxloom-tools", Description: "Bob's tools", Stars: 50, URL: "https://github.com/bob/ctxloom-tools", Forge: remote.ForgeGitHub},
 	})
 

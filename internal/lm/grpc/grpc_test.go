@@ -37,7 +37,7 @@ func TestPluginMap_ContainsAIPlugin(t *testing.T) {
 // =============================================================================
 // verbosityToHclogLevel Tests
 //
-// These tests verify the mapping between SCM verbosity levels and hclog
+// These tests verify the mapping between ctxloom verbosity levels and hclog
 // logging levels. Correct mapping ensures appropriate log output.
 // =============================================================================
 

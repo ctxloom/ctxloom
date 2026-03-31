@@ -1,6 +1,6 @@
 // Package collections tests verify the generic Set type provides correct
 // uniqueness guarantees and collection operations. Sets are used throughout
-// SCM to deduplicate tags, fragment names, and other collections where
+// ctxloom to deduplicate tags, fragment names, and other collections where
 // uniqueness matters.
 package collections
 

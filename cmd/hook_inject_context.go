@@ -96,7 +96,7 @@ Output format (JSON to stdout):
 		if history := backend.History(); history != nil {
 			transcriptPath := history.TranscriptPathFromHook(workDir, hookInput.SessionID, hookInput.TranscriptPath)
 			if transcriptPath != "" {
-				pid := findSCMWrapperPID()
+				pid := findCtxloomWrapperPID()
 				if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
 					fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
 				}

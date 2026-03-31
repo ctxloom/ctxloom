@@ -1,6 +1,6 @@
-// Package operations provides the shared business logic for SCM tools.
+// Package operations provides the shared business logic for ctxloom tools.
 //
-// This package serves as the single source of truth for all SCM operations,
+// This package serves as the single source of truth for all ctxloom operations,
 // with both MCP tools and CLI commands acting as thin adapters that call
 // these operations with appropriate input/output formatting.
 //

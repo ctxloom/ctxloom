@@ -1,4 +1,4 @@
-// Context assembly tests verify the core SCM functionality of combining
+// Context assembly tests verify the core ctxloom functionality of combining
 // fragments, profiles, and variables into a single context document for
 // AI consumption. These tests ensure that context is assembled correctly
 // from multiple sources and that variable substitution works as expected.
@@ -316,7 +316,7 @@ func TestSubstituteVariables_Basic(t *testing.T) {
 	}
 
 	result := substituteVariables(content, vars, func(s string) {})
-	assert.Equal(t, "Hello World, welcome to SCM!", result)
+	assert.Equal(t, "Hello World, welcome to ctxloom!", result)
 }
 
 func TestSubstituteVariables_MissingVariable(t *testing.T) {

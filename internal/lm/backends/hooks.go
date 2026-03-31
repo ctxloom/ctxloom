@@ -16,7 +16,7 @@ import (
 // SettingsWriter writes hooks and MCP servers to backend-specific configuration files.
 type SettingsWriter interface {
 	// WriteSettings writes hooks and MCP servers to the backend's config file.
-	// It preserves user-defined settings and adds/updates SCM-managed ones.
+	// It preserves user-defined settings and adds/updates ctxloom-managed ones.
 	// bundleMCP contains MCP servers resolved from profile bundles.
 	WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error
 
@@ -163,7 +163,7 @@ type claudeCodeMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
 	Cwd     string   `json:"cwd,omitempty"` // Working directory for the server
-	SCM     string   `json:"_ctxloom,omitempty"` // Marker identifying SCM-managed servers
+	SCM     string   `json:"_ctxloom,omitempty"` // Marker identifying ctxloom-managed servers
 }
 
 // claudeCodeHookMatcher represents a hook matcher entry in Claude Code format.
@@ -179,7 +179,7 @@ type claudeCodeHook struct {
 	Prompt  string `json:"prompt,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
 	Async   bool   `json:"async,omitempty"`
-	SCM     string `json:"_ctxloom,omitempty"` // Hash identifying SCM-managed hooks
+	SCM     string `json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
 }
 
 // WriteSettings implements SettingsWriter for Claude Code.
@@ -205,13 +205,13 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 		return fmt.Errorf("failed to load existing settings: %w", err)
 	}
 
-	// Remove old SCM-managed hooks from settings
-	w.removeScmHooks(settings)
+	// Remove old ctxloom-managed hooks from settings
+	w.removeCtxloomHooks(settings)
 
-	// Add SCM hooks from unified config
+	// Add ctxloom hooks from unified config
 	w.addUnifiedHooks(settings, hooks.Unified)
 
-	// Add SCM hooks from backend-specific passthrough
+	// Add ctxloom hooks from backend-specific passthrough
 	if backendHooks, ok := hooks.Plugins["claude-code"]; ok {
 		w.addBackendHooks(settings, backendHooks)
 	}
@@ -237,7 +237,7 @@ func (w *ClaudeCodeHookWriter) SettingsPath(projectDir string) string {
 
 // loadSettings loads existing settings.json or returns empty settings.
 // This function is fault-tolerant: on parse errors, it logs a warning and
-// returns empty settings rather than failing, allowing SCM to continue.
+// returns empty settings rather than failing, allowing ctxloom to continue.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -258,8 +258,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 	if err := json.Unmarshal(data, &raw); err != nil {
 		// Claude Code's settings.json format is undocumented and may change.
 		// If we can't parse it, warn but continue with empty settings.
-		// This ensures SCM doesn't block startup due to schema changes.
-		w.warn("failed to parse settings.json (schema may have changed): %v - SCM hooks will be added but existing settings may not be preserved", err)
+		// This ensures ctxloom doesn't block startup due to schema changes.
+		w.warn("failed to parse settings.json (schema may have changed): %v - ctxloom hooks will be added but existing settings may not be preserved", err)
 		return settings, nil
 	}
 
@@ -320,7 +320,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	fs := w.getFS()
 
 	// Create backup of existing file before modifying
-	// This allows recovery if SCM corrupts the file due to schema changes
+	// This allows recovery if ctxloom corrupts the file due to schema changes
 	if exists, _ := afero.Exists(fs, path); exists {
 		backupPath := path + ".ctxloom.bak"
 		if origData, err := afero.ReadFile(fs, path); err == nil {
@@ -331,7 +331,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 
 	// Atomic write: write to temp file first, then rename
 	// This prevents corruption if the write is interrupted
-	tmpPath := path + ".scm.tmp"
+	tmpPath := path + ".ctxloom.tmp"
 	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
@@ -351,7 +351,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 
 // loadMCPConfig loads existing .mcp.json or returns empty config.
 // This function is fault-tolerant: on parse errors, it logs a warning and
-// returns empty config rather than failing, allowing SCM to continue.
+// returns empty config rather than failing, allowing ctxloom to continue.
 func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig, error) {
 	mcpConfig := &claudeCodeMCPConfig{
 		MCPServers: make(map[string]claudeCodeMCPServer),
@@ -398,7 +398,7 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 	}
 
 	// Atomic write: write to temp file first, then rename
-	tmpPath := path + ".scm.tmp"
+	tmpPath := path + ".ctxloom.tmp"
 	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write .mcp.json: %w", err)
 	}
@@ -424,7 +424,7 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 		return fmt.Errorf("failed to load existing .mcp.json: %w", err)
 	}
 
-	// Remove old SCM-managed MCP servers
+	// Remove old ctxloom-managed MCP servers
 	for name, server := range mcpConfig.MCPServers {
 		if server.SCM != "" {
 			delete(mcpConfig.MCPServers, name)
@@ -438,8 +438,8 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
-// removeScmHooks removes all hooks with _ctxloom field from settings.
-func (w *ClaudeCodeHookWriter) removeScmHooks(settings *claudeCodeSettings) {
+// removeCtxloomHooks removes all hooks with _ctxloom field from settings.
+func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) {
 	for eventName, matchers := range settings.Hooks {
 		var filteredMatchers []claudeCodeHookMatcher
 		for _, matcher := range matchers {
@@ -552,7 +552,7 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 	settings.Hooks[eventName] = matchers
 }
 
-// AppMCPServerName is the name used for the SCM MCP server in settings.
+// AppMCPServerName is the name used for the ctxloom MCP server in settings.
 const AppMCPServerName = "ctxloom"
 
 // addMCPServersToConfig adds MCP servers from config to .mcp.json config.
@@ -561,13 +561,13 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
 	}
 
-	// Auto-register SCM's own MCP server unless disabled
-	if mcp == nil || mcp.ShouldAutoRegisterSCM() {
+	// Auto-register ctxloom's own MCP server unless disabled
+	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
-			Command: GetSCMMCPCommand(),
-			Args:    GetSCMMCPArgs(),
+			Command: GetCtxloomMCPCommand(),
+			Args:    GetCtxloomMCPArgs(),
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
-			SCM:     "ctxloom-auto",              // Marker for auto-registered SCM server
+			SCM:     "ctxloom-auto",              // Marker for auto-registered ctxloom server
 		}
 	}
 
@@ -576,7 +576,7 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 		mcpConfig.MCPServers[name] = claudeCodeMCPServer{
 			Command: server.Command,
 			Args:    server.Args,
-			SCM:     server.SCM, // Already marked with bundle source
+			SCM:     server.SCM, // Already marked ctxloom with bundle source
 		}
 	}
 
@@ -589,7 +589,7 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 		mcpConfig.MCPServers[name] = claudeCodeMCPServer{
 			Command: server.Command,
 			Args:    server.Args,
-			SCM:     computeMCPServerHash(server), // Marker for SCM-managed
+			SCM:     computeMCPServerHash(server), // Marker for ctxloom-managed
 		}
 	}
 
@@ -645,14 +645,14 @@ type geminiSettings struct {
 // geminiHook represents a single hook in Gemini CLI format.
 type geminiHook struct {
 	Command string `json:"command,omitempty"`
-	SCM     string `json:"-"` // Internal marker for SCM-managed hooks (not serialized - Gemini CLI rejects unknown fields)
+	SCM     string `json:"-"` // Internal marker for ctxloom-managed hooks (not serialized - Gemini CLI rejects unknown fields)
 }
 
 // geminiMCPServer represents an MCP server in Gemini CLI format.
 type geminiMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
-	SCM     string   `json:"-"` // Internal marker for SCM-managed servers (not serialized - Gemini CLI rejects unknown fields)
+	SCM     string   `json:"-"` // Internal marker for ctxloom-managed servers (not serialized - Gemini CLI rejects unknown fields)
 }
 
 // SettingsPath returns the path to Gemini's settings.json file.
@@ -681,16 +681,16 @@ func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.
 		return fmt.Errorf("failed to load existing settings: %w", err)
 	}
 
-	// Remove old SCM-managed hooks from settings
-	w.removeScmHooks(settings)
+	// Remove old ctxloom-managed hooks from settings
+	w.removeCtxloomHooks(settings)
 
-	// Remove old SCM-managed MCP servers
-	w.removeScmMCPServers(settings)
+	// Remove old ctxloom-managed MCP servers
+	w.removeCtxloomMCPServers(settings)
 
-	// Add SCM hooks from unified config
+	// Add ctxloom hooks from unified config
 	w.addUnifiedHooks(settings, hooks.Unified)
 
-	// Add SCM hooks from backend-specific passthrough
+	// Add ctxloom hooks from backend-specific passthrough
 	if backendHooks, ok := hooks.Plugins["gemini"]; ok {
 		w.addBackendHooks(settings, backendHooks)
 	}
@@ -789,15 +789,15 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 	return afero.WriteFile(fs, path, data, 0644)
 }
 
-// removeScmHooks removes SCM-managed hooks from settings.
+// removeCtxloomHooks removes ctxloom-managed hooks from settings.
 // Since _ctxloom is not serialized to JSON (Gemini CLI rejects unknown fields),
-// we identify SCM hooks by checking if the command contains "ctxloom" and "inject-context".
-func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
+// we identify ctxloom hooks by checking if the command contains "ctxloom" and "inject-context".
+func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 	for eventName, hooks := range settings.Hooks {
 		var filteredHooks []geminiHook
 		for _, hook := range hooks {
-			// Keep hooks that are NOT SCM-managed
-			if !isScmManagedHook(hook.Command) {
+			// Keep hooks that are NOT ctxloom-managed
+			if !isCtxloomManagedHook(hook.Command) {
 				filteredHooks = append(filteredHooks, hook)
 			}
 		}
@@ -809,9 +809,9 @@ func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
 	}
 }
 
-// isScmManagedHook returns true if the hook command appears to be SCM-managed.
-func isScmManagedHook(command string) bool {
-	// SCM inject-context hooks contain both "ctxloom" and "inject-context"
+// isCtxloomManagedHook returns true if the hook command appears to be ctxloom-managed.
+func isCtxloomManagedHook(command string) bool {
+	// ctxloom inject-context hooks contain both "ctxloom" and "inject-context"
 	return strings.Contains(command, "ctxloom") && strings.Contains(command, "inject-context")
 }
 
@@ -857,11 +857,11 @@ func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h
 	settings.Hooks[eventName] = append(settings.Hooks[eventName], hook)
 }
 
-// removeScmMCPServers removes SCM-managed MCP servers from settings.
+// removeCtxloomMCPServers removes ctxloom-managed MCP servers from settings.
 // Since _ctxloom is not serialized to JSON (Gemini CLI rejects unknown fields),
-// we track SCM-managed servers by the well-known name "ctxloom".
-func (w *GeminiHookWriter) removeScmMCPServers(settings *geminiSettings) {
-	// Remove the well-known SCM server name
+// we track ctxloom-managed servers by the well-known name "ctxloom".
+func (w *GeminiHookWriter) removeCtxloomMCPServers(settings *geminiSettings) {
+	// Remove the well-known ctxloom server name
 	delete(settings.MCPServers, AppMCPServerName)
 }
 
@@ -871,11 +871,11 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 		settings.MCPServers = make(map[string]geminiMCPServer)
 	}
 
-	// Auto-register SCM's own MCP server unless disabled
-	if mcp == nil || mcp.ShouldAutoRegisterSCM() {
+	// Auto-register ctxloom's own MCP server unless disabled
+	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		settings.MCPServers[AppMCPServerName] = geminiMCPServer{
-			Command: GetSCMMCPCommand(),
-			Args:    GetSCMMCPArgs(),
+			Command: GetCtxloomMCPCommand(),
+			Args:    GetCtxloomMCPArgs(),
 			SCM:     "ctxloom-auto",
 		}
 	}
@@ -885,7 +885,7 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 		settings.MCPServers[name] = geminiMCPServer{
 			Command: server.Command,
 			Args:    server.Args,
-			SCM:     server.SCM, // Already marked with bundle source
+			SCM:     server.SCM, // Already marked ctxloom with bundle source
 		}
 	}
 
@@ -980,8 +980,8 @@ func MergeMCPConfig(dest *config.MCPConfig, src *config.MCPConfig) {
 	}
 
 	// Merge auto_register_ctxloom (later wins)
-	if src.AutoRegisterSCM != nil {
-		dest.AutoRegisterSCM = src.AutoRegisterSCM
+	if src.AutoRegisterCtxloom != nil {
+		dest.AutoRegisterCtxloom = src.AutoRegisterCtxloom
 	}
 
 	// Merge unified servers

@@ -22,11 +22,11 @@ import (
 
 var bundleCmd = &cobra.Command{
 	Use:    "bundle",
-	Short:  "Manage SCM bundles",
+	Short:  "Manage ctxloom bundles",
 	Hidden: true, // Use fragment/prompt commands for content management
-	Long: `Manage SCM bundles - versioned collections of fragments, prompts, and MCP servers.
+	Long: `Manage ctxloom bundles - versioned collections of fragments, prompts, and MCP servers.
 
-Bundles are the primary content unit in SCM. They group related context fragments,
+Bundles are the primary content unit in ctxloom. They group related context fragments,
 prompts, and optional MCP server configurations with a single version.
 
 Examples:
@@ -262,7 +262,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Use first SCM path (project or home)
+	// Use first ctxloom path (project or home)
 	bundleDir := filepath.Join(cfg.AppPaths[0], "bundles")
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)

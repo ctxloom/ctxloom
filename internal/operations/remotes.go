@@ -23,7 +23,7 @@ func getBaseDir(cfg *config.Config) string {
 	return ".ctxloom"
 }
 
-// getRegistry creates a registry using the config's SCM path.
+// getRegistry creates a registry using the config's ctxloom path.
 func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
 	baseDir := getBaseDir(cfg)
 	return remote.NewRegistry(filepath.Join(baseDir, "remotes.yaml"), opts...)
@@ -243,7 +243,7 @@ type DiscoverRemotesResult struct {
 	Errors       []string    `json:"errors,omitempty"`
 }
 
-// DiscoverRemotes searches forges for SCM repositories.
+// DiscoverRemotes searches forges for ctxloom repositories.
 func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemotesRequest) (*DiscoverRemotesResult, error) {
 	if req.Source == "" {
 		req.Source = "all"

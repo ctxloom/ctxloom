@@ -20,7 +20,7 @@
 //   - TestConfig: Passes an in-memory config struct (for unit tests)
 //   - FS + AppDir: Passes a virtual filesystem and path (for integration tests)
 //
-// Both patterns avoid touching the real filesystem or user's SCM config.
+// Both patterns avoid touching the real filesystem or user's ctxloom config.
 //
 // # NON-OBVIOUS Behavior
 //
@@ -538,7 +538,7 @@ func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 // Users shouldn't need to pre-create empty maps in their config - the operation
 // handles this automatically.
 //
-// This is part of SCM's fault-tolerant philosophy: work with whatever state
+// This is part of ctxloom's fault-tolerant philosophy: work with whatever state
 // the config is in, don't require perfect setup.
 func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	// Test that nil Plugins map is initialized
@@ -711,8 +711,8 @@ func TestSetMCPAutoRegister_Enable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", result.Status)
 	assert.True(t, result.AutoRegister)
-	assert.NotNil(t, cfg.MCP.AutoRegisterSCM)
-	assert.True(t, *cfg.MCP.AutoRegisterSCM)
+	assert.NotNil(t, cfg.MCP.AutoRegisterCtxloom)
+	assert.True(t, *cfg.MCP.AutoRegisterCtxloom)
 }
 
 func TestSetMCPAutoRegister_Disable(t *testing.T) {
@@ -720,7 +720,7 @@ func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{"/project/.ctxloom"},
 		MCP: config.MCPConfig{
-			AutoRegisterSCM: &enabled,
+			AutoRegisterCtxloom: &enabled,
 		},
 	}
 
@@ -732,8 +732,8 @@ func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", result.Status)
 	assert.False(t, result.AutoRegister)
-	assert.NotNil(t, cfg.MCP.AutoRegisterSCM)
-	assert.False(t, *cfg.MCP.AutoRegisterSCM)
+	assert.NotNil(t, cfg.MCP.AutoRegisterCtxloom)
+	assert.False(t, *cfg.MCP.AutoRegisterCtxloom)
 }
 
 func TestSetMCPAutoRegister_WithFS(t *testing.T) {
@@ -803,14 +803,14 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "npx")
 }
 
-// TestAddMCPServer_WithFS_InvalidYAML demonstrates SCM's fault-tolerant behavior.
+// TestAddMCPServer_WithFS_InvalidYAML demonstrates ctxloom's fault-tolerant behavior.
 //
 // NON-OBVIOUS: When config.yaml contains invalid YAML, the config loader does NOT
 // fail. Instead, it returns an empty config with warnings. This allows the
 // operation to proceed - the user's session isn't blocked by a config typo.
 //
 // The warnings are captured in result.Config.Warnings for user visibility.
-// This is core to SCM's philosophy: never block the user from their LLM.
+// This is core to ctxloom's philosophy: never block the user from their LLM.
 func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/.ctxloom"

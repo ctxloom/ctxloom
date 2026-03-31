@@ -40,7 +40,7 @@ func GetConfig() (*config.Config, error) {
 var rootCmd = &cobra.Command{
 	Use:   "ctxloom",
 	Short: "Sophisticated Context Management",
-	Long: `SCM manages context for AI coding assistants.
+	Long: `ctxloom manages context for AI coding assistants.
 
 QUICK START
   ctxloom run -p developer "explain this code"    Run with a profile

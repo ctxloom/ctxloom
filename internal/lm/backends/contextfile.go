@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	// SCMContextDir is the directory for SCM-managed files
+	// SCMContextDir is the directory for ctxloom-managed files
 	SCMContextDir = ".ctxloom"
 	// SCMContextSubdir is the subdirectory for context files
 	SCMContextSubdir = ".ctxloom/context"

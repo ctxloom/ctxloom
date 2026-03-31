@@ -1,6 +1,6 @@
 // Package backends tests verify the LLM backend implementations.
 //
-// Backends are adapters that translate SCM configuration into the format
+// Backends are adapters that translate ctxloom configuration into the format
 // expected by different AI coding tools (Claude Code, Gemini, Codex).
 //
 // # Backend Capabilities

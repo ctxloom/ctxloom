@@ -1,6 +1,6 @@
 // Package operations tests for sync verify remote dependency synchronization.
 //
-// Sync is how SCM pulls remote bundles and profiles from GitHub/GitLab/etc.
+// Sync is how ctxloom pulls remote bundles and profiles from GitHub/GitLab/etc.
 // It scans config for remote references (anything with "/" like "github/bundle")
 // and downloads missing items to the local .ctxloom directory.
 //
@@ -125,7 +125,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 //
 // NON-OBVIOUS: A reference is considered remote if it has a slash OR looks
 // like a URL. This means "github/bundle" is remote even though it's not a
-// full URL - SCM expands it using the remote registry.
+// full URL - ctxloom expands it using the remote registry.
 //
 // The "profile:" prefix indicates a LOCAL profile reference, not remote.
 // This is used to distinguish profile refs from bundle refs in parent lists.

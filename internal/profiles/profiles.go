@@ -417,7 +417,7 @@ func (l *Loader) Delete(name string) error {
 	return l.fs.Remove(profile.Path)
 }
 
-// GetProfileDirs returns profile directories from SCM paths.
+// GetProfileDirs returns profile directories from ctxloom paths.
 func GetProfileDirs(scmPaths []string) []string {
 	var dirs []string
 	for _, scmPath := range scmPaths {

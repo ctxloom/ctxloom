@@ -1,8 +1,8 @@
-// Hooks tests verify that SCM correctly manages hooks and MCP servers in
+// Hooks tests verify that ctxloom correctly manages hooks and MCP servers in
 // backend configuration files. This is critical for the context injection
-// system - hooks enable SCM to inject context at session start, and MCP
-// servers expose SCM's tools to AI assistants. Tests ensure user-defined
-// settings are preserved while SCM-managed ones are updated.
+// system - hooks enable ctxloom to inject context at session start, and MCP
+// servers expose ctxloom's tools to AI assistants. Tests ensure user-defined
+// settings are preserved while ctxloom-managed ones are updated.
 package backends
 
 import (
@@ -20,7 +20,7 @@ import (
 // =============================================================================
 // Hash Computation Tests
 // =============================================================================
-// Hash-based identification enables SCM to track which hooks it manages vs
+// Hash-based identification enables ctxloom to track which hooks it manages vs
 // user-defined hooks, allowing clean updates without losing user customization.
 
 func TestComputeHookHash(t *testing.T) {
@@ -127,7 +127,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	data, _ := json.Marshal(existingSettings)
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
-	// Write SCM hooks
+	// Write ctxloom hooks
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			PreTool: []config.Hook{
@@ -153,11 +153,11 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 		t.Error("expected otherSetting to be preserved")
 	}
 
-	// Both user hook and SCM hook should exist
+	// Both user hook and ctxloom hook should exist
 	hooks := settings["hooks"].(map[string]interface{})
 	preToolUse := hooks["PreToolUse"].([]interface{})
 
-	// Should have 2 matchers (one for user, one for SCM) or combined
+	// Should have 2 matchers (one for user, one for ctxloom) or combined
 	totalHooks := 0
 	for _, matcher := range preToolUse {
 		m := matcher.(map[string]interface{})
@@ -166,7 +166,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	}
 
 	if totalHooks < 2 {
-		t.Errorf("expected at least 2 hooks (user + SCM), got %d", totalHooks)
+		t.Errorf("expected at least 2 hooks (user + ctxloom), got %d", totalHooks)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Create existing settings with SCM hooks (_ctxloom field present)
+	// Create existing settings with ctxloom hooks (_ctxloom field present)
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	_ = os.MkdirAll(claudeDir, 0755)
 
@@ -187,7 +187,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 						map[string]interface{}{
 							"type":    "command",
 							"command": "./old-ctxloom-hook.sh",
-							"_ctxloom":    "oldhash123", // SCM-managed
+							"_ctxloom":    "oldhash123", // ctxloom-managed
 						},
 					},
 				},
@@ -197,7 +197,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	data, _ := json.Marshal(existingSettings)
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
-	// Write new SCM hooks
+	// Write new ctxloom hooks
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			PreTool: []config.Hook{
@@ -211,7 +211,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Read back and verify old SCM hook is gone
+	// Read back and verify old ctxloom hook is gone
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
 	data, _ = os.ReadFile(settingsPath)
 
@@ -221,7 +221,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	hooks := settings["hooks"].(map[string]interface{})
 	preToolUse := hooks["PreToolUse"].([]interface{})
 
-	// Should only have the new SCM hook with Edit matcher
+	// Should only have the new ctxloom hook with Edit matcher
 	for _, matcher := range preToolUse {
 		m := matcher.(map[string]interface{})
 		if m["matcher"] == "Bash" {
@@ -229,7 +229,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 			for _, h := range hooksList {
 				hook := h.(map[string]interface{})
 				if hook["command"] == "./old-ctxloom-hook.sh" {
-					t.Error("old SCM hook should have been removed")
+					t.Error("old ctxloom hook should have been removed")
 				}
 			}
 		}
@@ -409,11 +409,11 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	}
 
 	if _, ok := ctxloomServer["_ctxloom"]; !ok {
-		t.Error("SCM MCP server should have _ctxloom marker")
+		t.Error("ctxloom MCP server should have _ctxloom marker")
 	}
 
 	if ctxloomServer["command"] == "" {
-		t.Error("SCM MCP server should have command")
+		t.Error("ctxloom MCP server should have command")
 	}
 
 	// Verify settings.json does NOT contain mcpServers
@@ -449,7 +449,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	data, _ := json.MarshalIndent(existingMCP, "", "  ")
 	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
-	// Write hooks with SCM config
+	// Write hooks with ctxloom config
 	cfg := &config.HooksConfig{}
 	err := writer.WriteHooks(cfg, tmpDir)
 	if err != nil {
@@ -473,9 +473,9 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 		t.Error("user-defined 'another-server' should be preserved")
 	}
 
-	// SCM server should be added
+	// ctxloom server should be added
 	if _, ok := mcpServers["ctxloom"]; !ok {
-		t.Error("SCM MCP server should be added")
+		t.Error("ctxloom MCP server should be added")
 	}
 
 	// Verify total count
@@ -488,7 +488,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Create existing .mcp.json with old SCM MCP server
+	// Create existing .mcp.json with old ctxloom MCP server
 	existingMCP := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
 			"ctxloom": map[string]interface{}{
@@ -504,7 +504,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	data, _ := json.MarshalIndent(existingMCP, "", "  ")
 	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
-	// Write hooks - should update SCM server
+	// Write hooks - should update ctxloom server
 	cfg := &config.HooksConfig{}
 	err := writer.WriteHooks(cfg, tmpDir)
 	if err != nil {
@@ -525,13 +525,13 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 		t.Error("user-defined server should be preserved")
 	}
 
-	// SCM server should be updated (not duplicate)
+	// ctxloom server should be updated (not duplicate)
 	ctxloomServer := mcpServers["ctxloom"].(map[string]interface{})
 	if ctxloomServer["command"] == "/old/path/to/ctxloom mcp" {
-		t.Error("SCM server command should be updated")
+		t.Error("ctxloom server command should be updated")
 	}
 	if ctxloomServer["_ctxloom"] == "old-marker" {
-		t.Error("SCM server marker should be updated")
+		t.Error("ctxloom server marker should be updated")
 	}
 
 	// Should still have exactly 2 servers
@@ -609,7 +609,7 @@ func TestGeminiHookWriter_PreservesUserSettings(t *testing.T) {
 	data, _ := json.Marshal(existingSettings)
 	_ = afero.WriteFile(fs, "/project/.gemini/settings.json", data, 0644)
 
-	// Write SCM hooks
+	// Write ctxloom hooks
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			SessionStart: []config.Hook{{Command: "./start.sh"}},
@@ -654,7 +654,7 @@ func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
 	mcpServers, ok := settings["mcpServers"].(map[string]interface{})
 	assert.True(t, ok, "should have mcpServers in settings")
 
-	// SCM server should be added
+	// ctxloom server should be added
 	_, hasCtxloom := mcpServers["ctxloom"]
 	assert.True(t, hasCtxloom, "should have ctxloom MCP server")
 
@@ -708,7 +708,7 @@ func TestWriteSettings_WithFS(t *testing.T) {
 // =============================================================================
 // Schema Resilience Tests
 // =============================================================================
-// These tests verify that SCM gracefully handles malformed or incompatible
+// These tests verify that ctxloom gracefully handles malformed or incompatible
 // settings.json files, as Claude Code's schema is undocumented and may change.
 
 func TestClaudeCodeHookWriter_ResilienceToMalformedJSON(t *testing.T) {
@@ -918,26 +918,26 @@ func TestMergeMCPConfig_NilInputs(t *testing.T) {
 	})
 }
 
-func TestMergeMCPConfig_AutoRegisterSCM(t *testing.T) {
+func TestMergeMCPConfig_AutoRegisterCtxloom(t *testing.T) {
 	t.Run("src overrides dest", func(t *testing.T) {
 		trueVal := true
 		falseVal := false
-		dest := &config.MCPConfig{AutoRegisterSCM: &trueVal}
-		src := &config.MCPConfig{AutoRegisterSCM: &falseVal}
+		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
+		src := &config.MCPConfig{AutoRegisterCtxloom: &falseVal}
 
 		MergeMCPConfig(dest, src)
 
-		assert.False(t, *dest.AutoRegisterSCM)
+		assert.False(t, *dest.AutoRegisterCtxloom)
 	})
 
 	t.Run("nil src preserves dest", func(t *testing.T) {
 		trueVal := true
-		dest := &config.MCPConfig{AutoRegisterSCM: &trueVal}
+		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
 		src := &config.MCPConfig{}
 
 		MergeMCPConfig(dest, src)
 
-		assert.True(t, *dest.AutoRegisterSCM)
+		assert.True(t, *dest.AutoRegisterCtxloom)
 	})
 }
 

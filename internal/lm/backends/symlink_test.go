@@ -61,15 +61,15 @@ func TestGetContextInjectionCommand(t *testing.T) {
 	}
 }
 
-func TestGetSCMMCPCommand(t *testing.T) {
+func TestGetCtxloomMCPCommand(t *testing.T) {
 	SetExecutablePathForTesting("/home/user/go/bin/ctxloom")
 	defer SetExecutablePathForTesting("")
 
-	cmd := GetSCMMCPCommand()
+	cmd := GetCtxloomMCPCommand()
 	assert.Equal(t, "/home/user/go/bin/ctxloom", cmd)
 }
 
-func TestGetSCMMCPArgs(t *testing.T) {
-	args := GetSCMMCPArgs()
+func TestGetCtxloomMCPArgs(t *testing.T) {
+	args := GetCtxloomMCPArgs()
 	assert.Equal(t, []string{"mcp"}, args)
 }

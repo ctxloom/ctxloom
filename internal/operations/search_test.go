@@ -1,4 +1,4 @@
-// Search operation tests verify that users can find content across all SCM types
+// Search operation tests verify that users can find content across all ctxloom types
 // (fragments, prompts, profiles, MCP servers). Search is exposed via MCP tools
 // to help users discover and use available context.
 package operations

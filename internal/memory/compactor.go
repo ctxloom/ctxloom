@@ -132,7 +132,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// Distill each chunk
 	var distilledChunks []string
 	for i, chunk := range chunks {
-		fmt.Fprintf(os.Stderr, "SCM: compacting chunk %d/%d...\n", i+1, len(chunks))
+		fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, len(chunks))
 
 		distilled, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
 		if err != nil {
@@ -150,7 +150,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 
 	// If combined is still large, do a final compression pass
 	if result.TotalTokensOut > c.config.ChunkSize && len(chunks) > 1 {
-		fmt.Fprintf(os.Stderr, "SCM: final compression pass...\n")
+		fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
 		final, err := c.distillChunk(ctx, combined, 0, 0) // 0,0 = final pass
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)

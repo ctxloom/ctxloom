@@ -1194,7 +1194,7 @@ fragments:
 // Edge Cases and Error Handling
 // =============================================================================
 // These tests verify graceful degradation under unusual conditions.
-// SCM should be fault-tolerant - misconfiguration shouldn't crash the system.
+// ctxloom should be fault-tolerant - misconfiguration shouldn't crash the system.
 
 // TestLoader_EmptySearchDirs verifies the loader handles no search directories.
 // FAULT TOLERANCE: Empty config should not error, just return no bundles.

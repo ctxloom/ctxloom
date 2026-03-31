@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package scm.lm.plugin;
+package ctxloom.lm.plugin;
 
 option go_package = "github.com/ctxloom/ctxloom/internal/lm/grpc";
 

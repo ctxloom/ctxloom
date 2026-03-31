@@ -150,7 +150,7 @@ func (f *GitLabFetcher) ResolveRef(ctx context.Context, owner, repo, ref string)
 	return "", fmt.Errorf("ref not found: %s", ref)
 }
 
-// SearchRepos finds SCM repositories.
+// SearchRepos finds ctxloom repositories.
 func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {
 	if limit <= 0 {
 		limit = 30
@@ -182,7 +182,7 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 	repos := make([]RepoInfo, 0, len(projects))
 	for _, p := range projects {
 		name := p.Path
-		// Filter to only repos named "ctxloom" or "scm-*"
+		// Filter to only repos named "ctxloom" or "ctxloom-*"
 		if name != "ctxloom" && !strings.HasPrefix(name, "ctxloom-") {
 			continue
 		}
@@ -202,7 +202,7 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 	return repos, nil
 }
 
-// ValidateRepo checks if a repository has valid SCM structure.
+// ValidateRepo checks if a repository has valid ctxloom structure.
 func (f *GitLabFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
 	path := "ctxloom/v1"
 	opts := &gitlab.ListTreeOptions{

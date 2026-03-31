@@ -51,7 +51,7 @@ func (m *BaseMCPManager) GetServer(workDir string, name string) (*MCPServer, err
 	return nil, nil
 }
 
-// Clear removes all SCM-managed MCP servers.
+// Clear removes all ctxloom-managed MCP servers.
 func (m *BaseMCPManager) Clear(workDir string) error {
 	m.servers = make(map[string]MCPServer)
 	return m.Flush(workDir)

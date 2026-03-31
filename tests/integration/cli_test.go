@@ -83,7 +83,7 @@ func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content stri
 func TestVersion(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("version")
+	_ = env.Run("version")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	// Version outputs just the version string like "v0.0.12-abc123"
@@ -101,7 +101,7 @@ func TestCompletion(t *testing.T) {
 		t.Run(shell, func(t *testing.T) {
 			env := setupTestEnv(t)
 
-			_ = env.RunSCM("completion", shell)
+			_ = env.Run("completion", shell)
 
 			assert.Equal(t, 0, env.LastExitCode())
 			assert.NotEmpty(t, env.LastOutput())
@@ -121,7 +121,7 @@ func TestRun_SingleFragment(t *testing.T) {
 
 	writeFragment(t, env, "test-fragment", []string{"testing"}, "This is test content.")
 
-	_ = env.RunSCM("run", "-f", "test-fragment", "--print", "test prompt")
+	_ = env.Run("run", "-f", "test-fragment", "--print", "test prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -138,7 +138,7 @@ func TestRun_MultipleFragments(t *testing.T) {
 	writeFragment(t, env, "frag-one", []string{"first"}, "Content from fragment one.")
 	writeFragment(t, env, "frag-two", []string{"second"}, "Content from fragment two.")
 
-	_ = env.RunSCM("run", "-f", "frag-one", "-f", "frag-two", "--print", "combined test")
+	_ = env.Run("run", "-f", "frag-one", "-f", "frag-two", "--print", "combined test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -155,7 +155,7 @@ func TestRun_WithTags(t *testing.T) {
 	writeFragment(t, env, "security-frag", []string{"security"}, "Security guidelines here.")
 	writeFragment(t, env, "style-frag", []string{"style"}, "Style guidelines here.")
 
-	_ = env.RunSCM("run", "-t", "security", "--print", "tag test")
+	_ = env.Run("run", "-t", "security", "--print", "tag test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -176,7 +176,7 @@ bundles:
   - local#fragments/profile-frag
 `)
 
-	_ = env.RunSCM("run", "-p", "test-profile", "--print", "profile test")
+	_ = env.Run("run", "-p", "test-profile", "--print", "profile test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -199,7 +199,7 @@ variables:
   version: "1.21"
 `)
 
-	_ = env.RunSCM("run", "-p", "var-profile", "--print", "var test")
+	_ = env.Run("run", "-p", "var-profile", "--print", "var test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -212,7 +212,7 @@ func TestRun_DryRun(t *testing.T) {
 
 	writeFragment(t, env, "dry-frag", []string{"dry"}, "Dry run content.")
 
-	_ = env.RunSCM("run", "-f", "dry-frag", "--dry-run", "test prompt")
+	_ = env.Run("run", "-f", "dry-frag", "--dry-run", "test prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "Dry run content")
@@ -221,7 +221,7 @@ func TestRun_DryRun(t *testing.T) {
 func TestRun_NonexistentFragment(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("run", "-f", "nonexistent", "--print", "test")
+	_ = env.Run("run", "-f", "nonexistent", "--print", "test")
 
 	assert.Equal(t, 1, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
@@ -230,7 +230,7 @@ func TestRun_NonexistentFragment(t *testing.T) {
 func TestRun_NonexistentProfile(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("run", "-p", "nonexistent", "--print", "test")
+	_ = env.Run("run", "-p", "nonexistent", "--print", "test")
 
 	assert.Equal(t, 1, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "unknown profile")
@@ -253,7 +253,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/lang.yaml", bundleContent))
 
-	_ = env.RunSCM("run", "-f", "lang#fragments/golang", "--print", "test")
+	_ = env.Run("run", "-f", "lang#fragments/golang", "--print", "test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -268,11 +268,11 @@ func TestMCP_Initialize(t *testing.T) {
 	env := setupTestEnv(t)
 
 	req := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	_ = env.RunSCMWithStdin(req+"\n", "mcp")
+	_ = env.RunWithStdin(req+"\n", "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "protocolVersion")
-	assert.Contains(t, env.LastOutput(), "scm")
+	assert.Contains(t, env.LastOutput(), "ctxloom")
 }
 
 func TestMCP_ToolsList(t *testing.T) {
@@ -281,7 +281,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	listReq := buildMCPRequest("tools/list", "")
 	input := initReq + "\n" + listReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -301,7 +301,7 @@ func TestMCP_ListFragments(t *testing.T) {
 	callParams := `{"name":"list_fragments","arguments":{}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -318,7 +318,7 @@ func TestMCP_GetFragment(t *testing.T) {
 	callParams := `{"name":"get_fragment","arguments":{"name":"local#fragments/get-test"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -333,7 +333,7 @@ func TestMCP_GetFragment_Nonexistent(t *testing.T) {
 	callParams := `{"name":"get_fragment","arguments":{"name":"nonexistent"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
@@ -348,7 +348,7 @@ func TestMCP_AssembleContext_WithFragment(t *testing.T) {
 	callParams := `{"name":"assemble_context","arguments":{"fragments":["local#fragments/assemble-frag"]}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "Assembled fragment content")
@@ -368,7 +368,7 @@ bundles:
 	callParams := `{"name":"assemble_context","arguments":{"profile":"test-profile"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "Profile fragment content")
@@ -390,7 +390,7 @@ variables:
 	callParams := `{"name":"assemble_context","arguments":{"profile":"var-profile"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "The language is Python")
@@ -403,7 +403,7 @@ func TestMCP_UnknownTool(t *testing.T) {
 	callParams := `{"name":"unknown_tool","arguments":{}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunSCMWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := strings.ToLower(env.LastOutput())
@@ -417,7 +417,7 @@ func TestMCP_UnknownTool(t *testing.T) {
 func TestProfile_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("profile", "list")
+	_ = env.Run("profile", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -430,7 +430,7 @@ description: A test profile
 bundles: []
 `)
 
-	_ = env.RunSCM("profile", "list")
+	_ = env.Run("profile", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "test-profile")
@@ -448,7 +448,7 @@ variables:
   language: Go
 `)
 
-	_ = env.RunSCM("profile", "show", "detailed")
+	_ = env.Run("profile", "show", "detailed")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -459,7 +459,7 @@ variables:
 func TestProfile_Show_Nonexistent(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("profile", "show", "nonexistent")
+	_ = env.Run("profile", "show", "nonexistent")
 
 	assert.NotEqual(t, 0, env.LastExitCode())
 }
@@ -471,7 +471,7 @@ func TestProfile_Show_Nonexistent(t *testing.T) {
 func TestBundle_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("bundle", "list")
+	_ = env.Run("bundle", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -490,7 +490,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/test-bundle.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "list")
+	_ = env.Run("bundle", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "test-bundle")
@@ -514,7 +514,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/show-test.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "show", "show-test")
+	_ = env.Run("bundle", "show", "show-test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -525,7 +525,7 @@ fragments:
 func TestBundle_Show_Nonexistent(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("bundle", "show", "nonexistent")
+	_ = env.Run("bundle", "show", "nonexistent")
 
 	assert.NotEqual(t, 0, env.LastExitCode())
 }
@@ -533,7 +533,7 @@ func TestBundle_Show_Nonexistent(t *testing.T) {
 func TestBundle_Create(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("bundle", "create", "my-bundle")
+	_ = env.Run("bundle", "create", "my-bundle")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
@@ -547,7 +547,7 @@ func TestBundle_Create(t *testing.T) {
 func TestBundle_Create_WithDescription(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("bundle", "create", "desc-bundle", "--description", "A test bundle")
+	_ = env.Run("bundle", "create", "desc-bundle", "--description", "A test bundle")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
@@ -574,7 +574,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/test.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "fragment", "list", "test")
+	_ = env.Run("bundle", "fragment", "list", "test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -596,7 +596,7 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompt-bundle.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "prompt", "list", "prompt-bundle")
+	_ = env.Run("bundle", "prompt", "list", "prompt-bundle")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -615,7 +615,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/view-test.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "view", "view-test#fragments/display-frag")
+	_ = env.Run("bundle", "view", "view-test#fragments/display-frag")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "This is the content to display")
@@ -634,7 +634,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/export-test.yaml", bundleContent))
 
-	_ = env.RunSCM("bundle", "export", "export-test", "-o", "exported.tar.gz")
+	_ = env.Run("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -646,7 +646,7 @@ fragments:
 func TestFragment_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("fragment", "list")
+	_ = env.Run("fragment", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -657,7 +657,7 @@ func TestFragment_List_WithFragments(t *testing.T) {
 	writeFragment(t, env, "frag1", []string{"tag1"}, "Content 1")
 	writeFragment(t, env, "frag2", []string{"tag2"}, "Content 2")
 
-	_ = env.RunSCM("fragment", "list")
+	_ = env.Run("fragment", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -670,7 +670,7 @@ func TestFragment_Show(t *testing.T) {
 
 	writeFragment(t, env, "show-frag", []string{"test"}, "Test content for show")
 
-	_ = env.RunSCM("fragment", "show", "local#fragments/show-frag")
+	_ = env.Run("fragment", "show", "local#fragments/show-frag")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -681,7 +681,7 @@ func TestFragment_Show(t *testing.T) {
 func TestFragment_Show_Nonexistent(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("fragment", "show", "nonexistent")
+	_ = env.Run("fragment", "show", "nonexistent")
 
 	assert.NotEqual(t, 0, env.LastExitCode())
 }
@@ -689,12 +689,12 @@ func TestFragment_Show_Nonexistent(t *testing.T) {
 func TestFragment_Create(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("fragment", "create", "new-frag", "New fragment content")
+	_ = env.Run("fragment", "create", "new-frag", "New fragment content")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify fragment was created in local bundle
-	_ = env.RunSCM("fragment", "show", "local#fragments/new-frag")
+	_ = env.Run("fragment", "show", "local#fragments/new-frag")
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "New fragment content")
 }
@@ -702,11 +702,11 @@ func TestFragment_Create(t *testing.T) {
 func TestFragment_Create_WithTags(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("fragment", "create", "tagged-frag", "Content", "-t", "tag1", "-t", "tag2")
+	_ = env.Run("fragment", "create", "tagged-frag", "Content", "-t", "tag1", "-t", "tag2")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	_ = env.RunSCM("fragment", "show", "local#fragments/tagged-frag")
+	_ = env.Run("fragment", "show", "local#fragments/tagged-frag")
 	output := env.LastOutput()
 	assert.Contains(t, output, "tag1")
 	assert.Contains(t, output, "tag2")
@@ -718,7 +718,7 @@ func TestFragment_Search(t *testing.T) {
 	writeFragment(t, env, "golang-tips", []string{"golang"}, "Go best practices and tips")
 	writeFragment(t, env, "python-tips", []string{"python"}, "Python best practices")
 
-	_ = env.RunSCM("fragment", "search", "tips")
+	_ = env.Run("fragment", "search", "tips")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -733,7 +733,7 @@ func TestFragment_Search_ByTag(t *testing.T) {
 	writeFragment(t, env, "golang-2", []string{"golang", "frontend"}, "Go content 2")
 	writeFragment(t, env, "python-1", []string{"python"}, "Python content")
 
-	_ = env.RunSCM("fragment", "search", "-t", "golang")
+	_ = env.Run("fragment", "search", "-t", "golang")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -749,7 +749,7 @@ func TestFragment_Search_ByTag(t *testing.T) {
 func TestPrompt_List_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("prompt", "list")
+	_ = env.Run("prompt", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -768,7 +768,7 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompts.yaml", bundleContent))
 
-	_ = env.RunSCM("prompt", "list")
+	_ = env.Run("prompt", "list")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -787,7 +787,7 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/prompt-test.yaml", bundleContent))
 
-	_ = env.RunSCM("prompt", "show", "prompt-test#prompts/test-prompt")
+	_ = env.Run("prompt", "show", "prompt-test#prompts/test-prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "test prompt with detailed instructions")
@@ -803,7 +803,7 @@ func TestSearch_Fragments(t *testing.T) {
 	writeFragment(t, env, "redis-cache", []string{"cache"}, "Redis caching strategies and best practices")
 	writeFragment(t, env, "memcached-guide", []string{"cache"}, "Memcached setup and tuning")
 
-	_ = env.RunSCM("search", "cache")
+	_ = env.Run("search", "cache")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -825,7 +825,7 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/bundles/search-prompts.yaml", bundleContent))
 
-	_ = env.RunSCM("search", "code")
+	_ = env.Run("search", "code")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "code-review")
@@ -838,7 +838,7 @@ func TestSearch_WithTags(t *testing.T) {
 	writeFragment(t, env, "go-generics", []string{"golang", "generics"}, "Go generics guide")
 	writeFragment(t, env, "rust-concurrency", []string{"rust", "concurrency"}, "Rust async/await")
 
-	_ = env.RunSCM("search", "-t", "concurrency")
+	_ = env.Run("search", "-t", "concurrency")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -857,7 +857,7 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	require.NoError(t, env.Setup())
 	t.Cleanup(func() { _ = env.Cleanup() })
 
-	_ = env.RunSCM("init")
+	_ = env.Run("init")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
@@ -878,7 +878,7 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 func TestConfig_Show(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("config", "show")
+	_ = env.Run("config", "show")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -886,7 +886,7 @@ func TestConfig_Show(t *testing.T) {
 func TestConfig_Get(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.RunSCM("config", "get", "defaults")
+	_ = env.Run("config", "get", "defaults")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }

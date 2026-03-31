@@ -170,7 +170,7 @@ func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentR
 		fs = afero.NewOsFs()
 	}
 
-	// Use config's SCM path
+	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)
 	bundleDir := filepath.Join(baseDir, config.BundlesDir)
 	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
@@ -256,7 +256,7 @@ func DeleteFragment(ctx context.Context, cfg *config.Config, req DeleteFragmentR
 		fs = afero.NewOsFs()
 	}
 
-	// Use config's SCM path
+	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)
 	bundleDir := filepath.Join(baseDir, config.BundlesDir)
 	bundlePath := filepath.Join(bundleDir, "local.yaml")

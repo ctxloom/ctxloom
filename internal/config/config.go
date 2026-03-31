@@ -34,7 +34,7 @@ const (
 	SourceHome
 )
 
-// Config holds the SCM configuration.
+// Config holds the ctxloom configuration.
 type Config struct {
 	LM       LMConfig           `mapstructure:"llm" yaml:"llm"`
 	Editor   EditorConfig       `mapstructure:"editor"`
@@ -189,7 +189,7 @@ func (c *Config) GetCompactionChunkSize() int {
 	return 8000
 }
 
-// GetProfileLoader returns a profiles.Loader for this config's SCM paths.
+// GetProfileLoader returns a profiles.Loader for this config's ctxloom paths.
 func (c *Config) GetProfileLoader() *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(c.AppPaths)
 	var opts []profiles.LoaderOption
@@ -213,7 +213,7 @@ type Hook struct {
 	Prompt  string `mapstructure:"prompt" yaml:"prompt,omitempty" json:"prompt,omitempty"`    // Prompt text for prompt/agent types
 	Timeout int    `mapstructure:"timeout" yaml:"timeout,omitempty" json:"timeout,omitempty"` // Timeout in seconds
 	Async   bool   `mapstructure:"async" yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                              // Hash identifying SCM-managed hooks
+	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                              // Hash identifying ctxloom-managed hooks
 }
 
 // UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
@@ -249,14 +249,14 @@ type MCPServer struct {
 	Env          map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`                     // Environment variables
 	Notes        string            `mapstructure:"notes" yaml:"notes,omitempty" json:"notes,omitempty"`               // Human-readable notes, not sent to AI
 	Installation string            `mapstructure:"installation" yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
-	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                                      // Marker for SCM-managed servers
+	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                                      // Marker for ctxloom-managed servers
 }
 
 // MCPConfig holds MCP server configuration.
 type MCPConfig struct {
-	// AutoRegisterSCM controls whether SCM's own MCP server is auto-registered.
+	// AutoRegisterCtxloom controls whether ctxloom's own MCP server is auto-registered.
 	// Defaults to true if not specified.
-	AutoRegisterSCM *bool `mapstructure:"auto_register_ctxloom" yaml:"auto_register_ctxloom,omitempty"`
+	AutoRegisterCtxloom *bool `mapstructure:"auto_register_ctxloom" yaml:"auto_register_ctxloom,omitempty"`
 
 	// Servers defines MCP servers to register (unified across backends).
 	Servers map[string]MCPServer `mapstructure:"servers" yaml:"servers,omitempty"`
@@ -266,13 +266,13 @@ type MCPConfig struct {
 	Plugins map[string]map[string]MCPServer `mapstructure:"plugins" yaml:"plugins,omitempty"`
 }
 
-// ShouldAutoRegisterSCM returns whether to auto-register the SCM MCP server.
+// ShouldAutoRegisterCtxloom returns whether to auto-register the ctxloom MCP server.
 // Defaults to true if not explicitly set.
-func (m *MCPConfig) ShouldAutoRegisterSCM() bool {
-	if m == nil || m.AutoRegisterSCM == nil {
+func (m *MCPConfig) ShouldAutoRegisterCtxloom() bool {
+	if m == nil || m.AutoRegisterCtxloom == nil {
 		return true
 	}
-	return *m.AutoRegisterSCM
+	return *m.AutoRegisterCtxloom
 }
 
 // PluginConfig holds configuration for a specific AI plugin.
@@ -734,7 +734,7 @@ func (c *Config) Save() error {
 	// Remove generators key if present (no longer supported)
 	delete(existing, "generators")
 
-	if len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterSCM != nil {
+	if len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil {
 		existing["mcp"] = c.MCP
 	} else {
 		delete(existing, "mcp")
@@ -986,8 +986,8 @@ func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
 // Later sources override earlier ones for the same server name.
 func (b *profileBuilder) mergeMCP(source MCPConfig) {
 	// Merge auto_register_ctxloom (later wins)
-	if source.AutoRegisterSCM != nil {
-		b.MCP.AutoRegisterSCM = source.AutoRegisterSCM
+	if source.AutoRegisterCtxloom != nil {
+		b.MCP.AutoRegisterCtxloom = source.AutoRegisterCtxloom
 	}
 
 	// Merge unified servers

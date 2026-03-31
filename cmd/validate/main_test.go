@@ -18,7 +18,7 @@ import (
 
 // TestRun_NoConfigFile verifies that the validator handles the case where no
 // config file exists. This is a valid state for a project that hasn't been
-// initialized with SCM yet, and should not return an error.
+// initialized with ctxloom yet, and should not return an error.
 func TestRun_NoConfigFile(t *testing.T) {
 	// Change to a temp directory without any config
 	origDir, err := os.Getwd()
@@ -33,7 +33,7 @@ func TestRun_NoConfigFile(t *testing.T) {
 
 // TestRun_ValidConfig verifies that a properly structured config file passes
 // validation. This confirms the happy path where users have correctly
-// configured their SCM setup.
+// configured their ctxloom setup.
 func TestRun_ValidConfig(t *testing.T) {
 	origDir, err := os.Getwd()
 	require.NoError(t, err)

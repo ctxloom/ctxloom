@@ -83,7 +83,7 @@ func (s *ClaudeSkills) RegisterFromContent(workDir string, contents []*bundles.L
 	return WriteCommandFiles(workDir, contents)
 }
 
-// Clear removes all SCM-managed skills using the manifest.
+// Clear removes all ctxloom-managed skills using the manifest.
 func (s *ClaudeSkills) Clear(workDir string) error {
 	commandsDir := filepath.Join(workDir, ".claude", "commands")
 	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
@@ -438,7 +438,7 @@ func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return filepath.Join(homeDir, ".claude", "projects", projectName, sessionID+".jsonl")
 }
 
-// RegisterSession records a session transcript path for the given SCM run (by PID).
+// RegisterSession records a session transcript path for the given ctxloom run (by PID).
 // Delegates to BaseSessionRegistry for shared implementation with file locking.
 func (h *ClaudeSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
 	return h.registry.RegisterSession(workDir, pid, transcriptPath)

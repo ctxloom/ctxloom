@@ -1,5 +1,5 @@
 // Backend registry tests verify that all supported LM backends are registered
-// and accessible. The registry enables SCM to work with multiple AI coding
+// and accessible. The registry enables ctxloom to work with multiple AI coding
 // assistants (Claude Code, Gemini CLI, Codex) through a unified interface.
 package backends
 

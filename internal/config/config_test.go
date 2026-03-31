@@ -16,7 +16,7 @@ import (
 // Config Package Tests
 // =============================================================================
 //
-// This package manages SCM configuration: profiles, hooks, MCP servers, and
+// This package manages ctxloom configuration: profiles, hooks, MCP servers, and
 // plugin settings. Configuration is loaded from YAML files and supports
 // inheritance through parent profiles.
 //
@@ -284,13 +284,13 @@ func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
 			MCP: MCPConfig{
-				AutoRegisterSCM: &trueVal,
+				AutoRegisterCtxloom: &trueVal,
 			},
 		},
 		"child": {
 			Parents: []string{"base"},
 			MCP: MCPConfig{
-				AutoRegisterSCM: &falseVal,
+				AutoRegisterCtxloom: &falseVal,
 			},
 		},
 	}
@@ -301,11 +301,11 @@ func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
 	}
 
 	// Child should override base's auto_register_ctxloom
-	if resolved.MCP.AutoRegisterSCM == nil {
-		t.Fatal("expected AutoRegisterSCM to be set")
+	if resolved.MCP.AutoRegisterCtxloom == nil {
+		t.Fatal("expected AutoRegisterCtxloom to be set")
 	}
-	if *resolved.MCP.AutoRegisterSCM != false {
-		t.Error("expected child to override AutoRegisterSCM to false")
+	if *resolved.MCP.AutoRegisterCtxloom != false {
+		t.Error("expected child to override AutoRegisterCtxloom to false")
 	}
 }
 
@@ -533,7 +533,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 // MCPConfig Tests
 // =============================================================================
 
-func TestMCPConfig_ShouldAutoRegisterSCM(t *testing.T) {
+func TestMCPConfig_ShouldAutoRegisterCtxloom(t *testing.T) {
 	trueVal := true
 	falseVal := false
 
@@ -544,13 +544,13 @@ func TestMCPConfig_ShouldAutoRegisterSCM(t *testing.T) {
 	}{
 		{"nil config", nil, true},
 		{"nil value defaults true", &MCPConfig{}, true},
-		{"explicit true", &MCPConfig{AutoRegisterSCM: &trueVal}, true},
-		{"explicit false", &MCPConfig{AutoRegisterSCM: &falseVal}, false},
+		{"explicit true", &MCPConfig{AutoRegisterCtxloom: &trueVal}, true},
+		{"explicit false", &MCPConfig{AutoRegisterCtxloom: &falseVal}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.config.ShouldAutoRegisterSCM())
+			assert.Equal(t, tt.want, tt.config.ShouldAutoRegisterCtxloom())
 		})
 	}
 }
@@ -1464,7 +1464,7 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 			Plugins: map[string]PluginConfig{},
 		},
 		MCP: MCPConfig{
-			AutoRegisterSCM: &trueVal,
+			AutoRegisterCtxloom: &trueVal,
 			Servers: map[string]MCPServer{
 				"test": {Command: "test-cmd"},
 			},

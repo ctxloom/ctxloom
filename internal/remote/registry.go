@@ -178,7 +178,7 @@ func (r *Registry) Add(name, repoURL string) error {
 	return nil
 }
 
-// AddWithVersion registers a new remote with a specific SCM version.
+// AddWithVersion registers a new remote with a specific ctxloom version.
 // Returns error if a remote with the same name or URL already exists.
 func (r *Registry) AddWithVersion(name, repoURL, scmVersion string) error {
 	r.mu.Lock()

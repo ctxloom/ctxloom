@@ -26,7 +26,7 @@ Registry:
 Discovery:
   ctxloom remote search <query>          Search for bundles/profiles
   ctxloom remote browse <remote>         Browse a remote's contents
-  ctxloom remote discover                Find SCM repositories
+  ctxloom remote discover                Find ctxloom repositories
 
 Examples:
   ctxloom remote add alice alice/ctxloom

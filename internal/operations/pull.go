@@ -180,7 +180,7 @@ func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteIte
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
-	// Use config's SCM path - THIS IS THE BUG FIX
+	// Use config's ctxloom path - THIS IS THE BUG FIX
 	baseDir := getBaseDir(cfg)
 	localPath := ref.LocalPath(baseDir, itemType)
 

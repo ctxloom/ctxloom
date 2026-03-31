@@ -95,8 +95,8 @@ ctxloom run \
 
 ```bash
 ctxloom run \
-  -f scm-main/security#fragments/owasp \
-  -f scm-main/testing#fragments/tdd \
+  -f ctxloom-default/security#fragments/owasp \
+  -f ctxloom-default/testing#fragments/tdd \
   "help me write secure tests"
 ```
 

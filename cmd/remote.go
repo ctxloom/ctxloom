@@ -31,7 +31,7 @@ Discovery:
 Examples:
   ctxloom remote add alice alice/scm
   ctxloom remote search "golang testing"
-  ctxloom remote browse scm-main`,
+  ctxloom remote browse ctxloom-default`,
 }
 
 var remoteAddCmd = &cobra.Command{
@@ -141,7 +141,7 @@ Use --clear to remove the default.
 
 Examples:
   ctxloom remote default              # Show current default
-  ctxloom remote default scm-main   # Set default to scm-main
+  ctxloom remote default ctxloom-default   # Set default to ctxloom-default
   ctxloom remote default --clear      # Clear the default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRemoteDefault,

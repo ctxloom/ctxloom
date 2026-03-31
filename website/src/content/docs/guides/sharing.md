@@ -292,5 +292,5 @@ ctxloom run --dry-run -f my-bundle#fragments/testing
 Look at these repositories for inspiration:
 
 - Community bundles follow the patterns described here
-- Check the `scm-main` default remote for examples
+- Check the `ctxloom-default` default remote for examples
 - Search GitHub for `scm-` repositories

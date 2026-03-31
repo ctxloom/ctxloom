@@ -32,7 +32,7 @@ By default, updates are applied. Use --dry-run to only show what would be update
 Examples:
   ctxloom update                        # Update all items
   ctxloom update --dry-run              # Show available updates without applying
-  ctxloom update scm-main/core        # Update specific item
+  ctxloom update ctxloom-default/core        # Update specific item
   ctxloom update --force                # Skip confirmation prompts
   ctxloom update --cleanup              # Also remove items deleted from remote`,
 	RunE: runUpdate,

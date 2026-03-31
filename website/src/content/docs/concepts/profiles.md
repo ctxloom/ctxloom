@@ -16,7 +16,7 @@ default: false                      # Mark as default profile
 
 parents:                            # Inherit from other profiles
   - base-profile
-  - scm-main/python-developer
+  - ctxloom-default/python-developer
 
 tags:                              # Include fragments with these tags
   - golang
@@ -24,7 +24,7 @@ tags:                              # Include fragments with these tags
 
 bundles:                           # Bundle references
   - go-development                 # Local bundle
-  - scm-main/security             # Remote bundle
+  - ctxloom-default/security             # Remote bundle
   - my-bundle#fragments/specific  # Specific fragment
   - my-bundle#prompts/review      # Specific prompt
 
@@ -63,7 +63,7 @@ ctxloom run -p developer "implement error handling"
 ctxloom run -p developer --dry-run
 
 # Use remote profile directly
-ctxloom run -p scm-main/python-developer "help with Python"
+ctxloom run -p ctxloom-default/python-developer "help with Python"
 
 # Combine profile with extra fragments
 ctxloom run -p developer -f security#fragments/owasp "audit code"
@@ -77,7 +77,7 @@ ctxloom profile show developer          # Show profile details
 ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
 ctxloom profile delete old-profile      # Remove profile
-ctxloom profile install scm-main/dev    # Install from remote
+ctxloom profile install ctxloom-default/dev    # Install from remote
 ```
 
 ### Create with Options
@@ -85,7 +85,7 @@ ctxloom profile install scm-main/dev    # Install from remote
 ```bash
 ctxloom profile create backend \
   --parent base \
-  --parent scm-main/security \
+  --parent ctxloom-default/security \
   -b go-development \
   -b testing \
   -d "Backend developer profile"
@@ -107,7 +107,7 @@ variables:
 description: "Developer profile"
 parents:
   - base                    # Inherit from local
-  - scm-main/security      # Inherit from remote
+  - ctxloom-default/security      # Inherit from remote
 bundles:
   - dev-tools              # Add more bundles
 variables:
@@ -225,7 +225,7 @@ Or in config.yaml:
 defaults:
   profiles:
     - developer
-    - scm-main/base
+    - ctxloom-default/base
 ```
 
 ## Variables

@@ -17,7 +17,7 @@ Examples:
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment
-  ctxloom fragment install scm-main/core           # Install bundle from remote`,
+  ctxloom fragment install ctxloom-default/core           # Install bundle from remote`,
 }
 
 var fragmentListCmd = &cobra.Command{
@@ -132,12 +132,12 @@ This pulls the entire bundle (which contains fragments, prompts, etc.)
 from the specified remote.
 
 Reference formats:
-  scm-main/core                    # Bundle from default remote path
+  ctxloom-default/core                    # Bundle from default remote path
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  ctxloom fragment install scm-main/core
-  ctxloom fragment install scm-main/go-development`,
+  ctxloom fragment install ctxloom-default/core
+  ctxloom fragment install ctxloom-default/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], fragmentInstallForce, fragmentInstallBlind)
@@ -160,7 +160,7 @@ to the specified remote.
 
 Examples:
   ctxloom fragment push my-bundle
-  ctxloom fragment push my-bundle scm-main
+  ctxloom fragment push my-bundle ctxloom-default
   ctxloom fragment push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {

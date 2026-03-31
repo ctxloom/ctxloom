@@ -57,8 +57,8 @@ llm:
 defaults:
   llm_plugin: "claude-code"      # Default LLM plugin
   profiles:                      # Default profiles to load
-    - scm-main/go-developer
-    - scm-main/code-reviewer
+    - ctxloom-default/go-developer
+    - ctxloom-default/code-reviewer
   use_distilled: true            # Prefer distilled versions (default: true)
 
 # Sync configuration

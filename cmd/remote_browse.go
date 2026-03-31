@@ -23,9 +23,9 @@ var remoteBrowseCmd = &cobra.Command{
 By default shows both bundles and profiles. Use --type to filter.
 
 Examples:
-  ctxloom remote browse scm-main
-  ctxloom remote browse scm-main --type bundle
-  ctxloom remote browse scm-main --type profile`,
+  ctxloom remote browse ctxloom-default
+  ctxloom remote browse ctxloom-default --type bundle
+  ctxloom remote browse ctxloom-default --type profile`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteBrowse,
 }

@@ -476,9 +476,9 @@ If no remote is specified, uses the default remote.
 
 Examples:
   ctxloom profile push my-profile
-  ctxloom profile push my-profile scm-main
+  ctxloom profile push my-profile ctxloom-default
   ctxloom profile push my-profile --pr
-  ctxloom profile push my-profile scm-main --message "Add my profile"`,
+  ctxloom profile push my-profile ctxloom-default --message "Add my profile"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runProfilePush,
 }
@@ -576,12 +576,12 @@ var profileInstallCmd = &cobra.Command{
 	Long: `Install a profile from a remote repository.
 
 Reference formats:
-  scm-main/developer                    # Profile from default remote path
+  ctxloom-default/developer                    # Profile from default remote path
   https://github.com/user/repo@v1/profiles/developer   # Full URL
 
 Examples:
-  ctxloom profile install scm-main/developer
-  ctxloom profile install scm-main/architect`,
+  ctxloom profile install ctxloom-default/developer
+  ctxloom profile install ctxloom-default/architect`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -616,10 +616,10 @@ var profileExportCmd = &cobra.Command{
 	Short: "Export a profile to a directory",
 	Long: `Export a profile from .ctxloom/profiles to an arbitrary directory.
 
-Useful for publishing profiles to a shared repository like scm-main.
+Useful for publishing profiles to a shared repository like ctxloom-default.
 
 Examples:
-  ctxloom profile export architect ../scm-main/scm/v1/profiles
+  ctxloom profile export architect ../ctxloom-default/scm/v1/profiles
   ctxloom profile export my-profile ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runProfileExport,
@@ -676,7 +676,7 @@ var profileImportCmd = &cobra.Command{
 Use --force to overwrite an existing profile.
 
 Examples:
-  ctxloom profile import ../scm-main/scm/v1/profiles/architect.yaml
+  ctxloom profile import ../ctxloom-default/scm/v1/profiles/architect.yaml
   ctxloom profile import ./my-profile.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileImport,

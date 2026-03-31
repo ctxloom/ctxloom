@@ -232,8 +232,8 @@ Use different `.scm/` configurations in different project directories:
 
 ```bash
 # Add security bundles
-ctxloom fragment install scm-main/security
-ctxloom fragment install scm-main/owasp
+ctxloom fragment install ctxloom-default/security
+ctxloom fragment install ctxloom-default/owasp
 ```
 
 ### Conducting Reviews
@@ -337,7 +337,7 @@ ctxloom hooks apply
 ctxloom fragment list
 
 # Check what's available remotely
-ctxloom remote browse scm-main
+ctxloom remote browse ctxloom-default
 
 # Sync missing dependencies
 ctxloom remote sync

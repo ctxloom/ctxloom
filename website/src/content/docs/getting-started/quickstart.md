@@ -77,7 +77,7 @@ ctxloom run \
   "write error handling with tests"
 
 # Use remote bundles without installing
-ctxloom run -f scm-main/security#fragments/owasp "security review"
+ctxloom run -f ctxloom-default/security#fragments/owasp "security review"
 ```
 
 ### Preview Before Running

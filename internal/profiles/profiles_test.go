@@ -980,7 +980,7 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/scm-main/scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/ctxloom-default/scm", 0755))
 
 	// Local parent
 	localParent := `bundles:
@@ -995,13 +995,13 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
   - remote-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/github.com/scm-main/scm/go-base.yaml",
+		"/project/.ctxloom/profiles/github.com/ctxloom-default/scm/go-base.yaml",
 		[]byte(remoteParent), 0644))
 
 	// Child with both parents
 	childProfile := `parents:
   - local-base
-  - https://github.com/scm-main/scm@v1/profiles/go-base
+  - https://github.com/ctxloom-default/scm@v1/profiles/go-base
 bundles:
   - child-tools
 `

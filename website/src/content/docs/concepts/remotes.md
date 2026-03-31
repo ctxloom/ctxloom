@@ -8,11 +8,11 @@ A **remote** is a Git repository for sharing bundles and profiles across teams a
 
 ## Pre-configured Remote
 
-After `scm init`, the `scm-main` remote is pre-configured, providing community bundles and profiles.
+After `scm init`, the `ctxloom-default` remote is pre-configured, providing community bundles and profiles.
 
 ```bash
 # Use remote profiles directly
-ctxloom run -p scm-main/python-developer "help with Python code"
+ctxloom run -p ctxloom-default/python-developer "help with Python code"
 ```
 
 ## Managing Remotes
@@ -39,10 +39,10 @@ ctxloom remote add corp https://gitlab.com/corp/scm
 
 ```bash
 # Pull a bundle
-ctxloom remote pull scm-main/testing --type bundle
+ctxloom remote pull ctxloom-default/testing --type bundle
 
 # Pull a profile
-ctxloom remote pull scm-main/python-developer --type profile
+ctxloom remote pull ctxloom-default/python-developer --type profile
 ```
 
 Pulled content is saved locally in your `.ctxloom/` directory.
@@ -55,10 +55,10 @@ Reference remote content directly without pulling:
 
 ```bash
 # Use remote profile
-ctxloom run -p scm-main/python-developer "help me"
+ctxloom run -p ctxloom-default/python-developer "help me"
 
 # Use remote fragment
-ctxloom run -f scm-main/security#fragments/owasp "audit this"
+ctxloom run -f ctxloom-default/security#fragments/owasp "audit this"
 ```
 
 ### In Profiles
@@ -68,7 +68,7 @@ Reference remote profiles as parents:
 ```yaml
 description: "My custom profile"
 parents:
-  - scm-main/python-developer
+  - ctxloom-default/python-developer
 bundles:
   - my-local-additions
 ```

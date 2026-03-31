@@ -17,7 +17,7 @@ Examples:
   ctxloom prompt show core#prompts/code-review     # Show prompt content
   ctxloom prompt edit core#prompts/code-review     # Edit prompt content
   ctxloom prompt create my-bundle code-review      # Create new prompt
-  ctxloom prompt install scm-main/core           # Install bundle from remote`,
+  ctxloom prompt install ctxloom-default/core           # Install bundle from remote`,
 }
 
 var promptListCmd = &cobra.Command{
@@ -132,12 +132,12 @@ This pulls the entire bundle (which contains prompts, fragments, etc.)
 from the specified remote.
 
 Reference formats:
-  scm-main/core                    # Bundle from default remote path
+  ctxloom-default/core                    # Bundle from default remote path
   https://github.com/user/repo@v1/bundles/core   # Full URL
 
 Examples:
-  ctxloom prompt install scm-main/core
-  ctxloom prompt install scm-main/go-development`,
+  ctxloom prompt install ctxloom-default/core
+  ctxloom prompt install ctxloom-default/go-development`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBundle(cmd, args[0], promptInstallForce, promptInstallBlind)
@@ -160,7 +160,7 @@ to the specified remote.
 
 Examples:
   ctxloom prompt push my-bundle
-  ctxloom prompt push my-bundle scm-main
+  ctxloom prompt push my-bundle ctxloom-default
   ctxloom prompt push my-bundle --pr`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -209,7 +209,7 @@ Within an AI assistant conversation:
 > list available remotes
 
 ● ctxloom - list_remotes (MCP)()
-  ⎿ { "remotes": [{"name": "scm-main", ...}] }
+  ⎿ { "remotes": [{"name": "ctxloom-default", ...}] }
 ```
 
 ## Managing MCP Servers

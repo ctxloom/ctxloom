@@ -35,14 +35,14 @@ The type is auto-detected from the reference format or by checking
 if a local bundle/profile with that name exists.
 
 Reference formats:
-  scm-main/core                                    # Uses default remote
+  ctxloom-default/core                                    # Uses default remote
   https://github.com/owner/repo@v1/bundles/core      # Full URL
   github:bundles/core@v1.0.0                         # Legacy format
 
 Examples:
   ctxloom install                           # Install all from lockfile
-  ctxloom install scm-main/core           # Install a bundle
-  ctxloom install scm-main/developer      # Install a profile
+  ctxloom install ctxloom-default/core           # Install a bundle
+  ctxloom install ctxloom-default/developer      # Install a profile
   ctxloom install --force                   # Skip confirmation prompts
   ctxloom install --dry-run                 # Show what would be installed`,
 	Args: cobra.MaximumNArgs(1),
@@ -194,7 +194,7 @@ func detectItemType(cfg *config.Config, reference string) string {
 		return "profile"
 	}
 
-	// For remote references like "scm-main/foo", we can't easily tell
+	// For remote references like "ctxloom-default/foo", we can't easily tell
 	// Try to infer from local existence if it's a simple name
 	if !strings.Contains(reference, "/") && !strings.Contains(reference, ":") {
 		// Simple name - check if it exists locally as a profile or bundle

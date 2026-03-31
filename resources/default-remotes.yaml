@@ -1,7 +1,7 @@
-# SCM Remote Sources
-# Pre-configured remotes for common SCM bundles and profiles
+# ctxloom Remote Sources
+# Pre-configured remotes for common ctxloom bundles and profiles
 
 remotes:
-  scm-main:
-    url: https://github.com/SophisticatedContextManager/scm-main
+  ctxloom-default:
+    url: https://github.com/ctxloom/ctxloom-default
     version: v1

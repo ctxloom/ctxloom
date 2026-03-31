@@ -44,7 +44,7 @@ var rootCmd = &cobra.Command{
 
 QUICK START
   ctxloom run -p developer "explain this code"    Run with a profile
-  ctxloom fragment install scm-main/core        Install a fragment bundle
+  ctxloom fragment install ctxloom-default/core        Install a fragment bundle
   ctxloom fragment edit core#fragments/coding     Edit a fragment
 
 CONTENT COMMANDS

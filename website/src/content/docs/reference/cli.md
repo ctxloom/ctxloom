@@ -72,8 +72,8 @@ ctxloom fragment show --distilled python-tools#fragments/typing
 ctxloom fragment create my-bundle coding-standards
 ctxloom fragment edit my-bundle#fragments/coding-standards
 ctxloom fragment distill my-bundle#fragments/coding-standards
-ctxloom fragment install scm-main/testing
-ctxloom fragment install --blind scm-main/security  # Skip preview
+ctxloom fragment install ctxloom-default/testing
+ctxloom fragment install --blind ctxloom-default/security  # Skip preview
 ```
 
 ## ctxloom prompt
@@ -137,7 +137,7 @@ ctxloom profile create child --parent base --parent security -b extras
 ctxloom profile modify developer --exclude-fragment verbose-logging
 ctxloom profile modify developer --include-mcp slow-server
 ctxloom profile edit my-profile
-ctxloom profile install scm-main/python-developer
+ctxloom profile install ctxloom-default/python-developer
 ```
 
 ## ctxloom remote
@@ -173,7 +173,7 @@ ctxloom remote add myteam myorg/scm-team
 ctxloom remote add corp https://gitlab.com/corp/scm
 ctxloom remote list
 ctxloom remote default myteam
-ctxloom remote browse scm-main
+ctxloom remote browse ctxloom-default
 ctxloom remote search "python testing"
 ctxloom remote discover
 ctxloom remote sync

@@ -580,9 +580,9 @@ If no remote is specified, uses the default remote.
 
 Examples:
   ctxloom bundle push my-bundle
-  ctxloom bundle push my-bundle scm-main
+  ctxloom bundle push my-bundle ctxloom-default
   ctxloom bundle push my-bundle --pr
-  ctxloom bundle push my-bundle scm-main --message "Add my bundle"`,
+  ctxloom bundle push my-bundle ctxloom-default --message "Add my bundle"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runBundlePush,
 }
@@ -661,11 +661,11 @@ var bundleExportCmd = &cobra.Command{
 	Short: "Export a bundle to a directory",
 	Long: `Export a bundle from .ctxloom/bundles to an arbitrary directory.
 
-Useful for publishing bundles to a shared repository like scm-main.
+Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
 
 Examples:
-  ctxloom bundle export go-tools ../scm-main/scm/v1/bundles
+  ctxloom bundle export go-tools ../ctxloom-default/scm/v1/bundles
   ctxloom bundle export my-bundle ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleExport,
@@ -723,7 +723,7 @@ The bundle is copied into the local .ctxloom/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:
-  ctxloom bundle import ../scm-main/scm/v1/bundles/go-tools.yaml
+  ctxloom bundle import ../ctxloom-default/scm/v1/bundles/go-tools.yaml
   ctxloom bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,

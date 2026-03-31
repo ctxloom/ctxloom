@@ -9,32 +9,32 @@ llm:
 # Default settings
 defaults:
   llm_plugin: claude-code
-  # Uncomment to set default profiles from scm-main:
+  # Uncomment to set default profiles from ctxloom-default:
   # profiles:
-  #   - scm-main/go-developer
-  #   - scm-main/python-developer
-  #   - scm-main/rust-developer
-  #   - scm-main/typescript-web-developer
+  #   - ctxloom-default/go-developer
+  #   - ctxloom-default/python-developer
+  #   - ctxloom-default/rust-developer
+  #   - ctxloom-default/typescript-web-developer
 
 # Uncomment to configure your preferred editor:
 # editor:
 #   command: vim
 #   args: []
 
-# Available profiles from scm-main:
-#   - scm-main/go-developer           (Go backend development)
-#   - scm-main/go-code-reviewer       (Go code review)
-#   - scm-main/python-developer       (Python development)
-#   - scm-main/python-code-reviewer   (Python code review)
-#   - scm-main/rust-developer         (Rust systems development)
-#   - scm-main/rust-code-reviewer     (Rust code review)
-#   - scm-main/typescript-web-developer (TypeScript/React web development)
+# Available profiles from ctxloom-default:
+#   - ctxloom-default/go-developer           (Go backend development)
+#   - ctxloom-default/go-code-reviewer       (Go code review)
+#   - ctxloom-default/python-developer       (Python development)
+#   - ctxloom-default/python-code-reviewer   (Python code review)
+#   - ctxloom-default/rust-developer         (Rust systems development)
+#   - ctxloom-default/rust-code-reviewer     (Rust code review)
+#   - ctxloom-default/typescript-web-developer (TypeScript/React web development)
 
 # Define custom profiles:
 # profiles:
 #   my-profile:
 #     description: "My custom profile"
 #     parents:
-#       - scm-main/go-developer
+#       - ctxloom-default/go-developer
 #     bundles:
 #       - my-custom-bundle

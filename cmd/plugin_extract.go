@@ -57,7 +57,7 @@ Examples:
 		fmt.Printf("Extracting %d plugin(s) to %s\n", len(pluginNames), outputDir)
 
 		for _, name := range pluginNames {
-			outputPath := filepath.Join(outputDir, fmt.Sprintf("scm-plugin-%s", name))
+			outputPath := filepath.Join(outputDir, fmt.Sprintf("ctxloom-plugin-%s", name))
 
 			// Create a wrapper script that invokes ctxloom plugin serve
 			script := fmt.Sprintf(`#!/bin/sh

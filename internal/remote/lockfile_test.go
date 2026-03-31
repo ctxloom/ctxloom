@@ -42,7 +42,7 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", LockEntry{
 		SHA:        "abc1234def5678",
-		URL:        "https://github.com/alice/scm",
+		URL:        "https://github.com/alice/ctxloom",
 		SCMVersion: "v1",
 		FetchedAt:  now,
 	})
@@ -76,8 +76,8 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	if entry.SHA != "abc1234def5678" {
 		t.Errorf("SHA = %q, want %q", entry.SHA, "abc1234def5678")
 	}
-	if entry.URL != "https://github.com/alice/scm" {
-		t.Errorf("URL = %q, want %q", entry.URL, "https://github.com/alice/scm")
+	if entry.URL != "https://github.com/alice/ctxloom" {
+		t.Errorf("URL = %q, want %q", entry.URL, "https://github.com/alice/ctxloom")
 	}
 }
 
@@ -281,39 +281,39 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 	}{
 		{
 			name:      "bundle with requested version",
-			localName: "scm-github/core-practices",
+			localName: "ctxloom-github/core-practices",
 			entry: LockEntry{
 				SHA:              "abc123",
-				URL:              "https://github.com/alice/scm",
+				URL:              "https://github.com/alice/ctxloom",
 				SCMVersion:       "v1",
 				RequestedVersion: "v2.0.0",
 			},
 			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/alice/scm@v1/bundles/core-practices@v2.0.0",
+			wantURL:  "https://github.com/alice/ctxloom@v1/bundles/core-practices@v2.0.0",
 			wantOk:   true,
 		},
 		{
 			name:      "bundle without requested version uses SHA",
-			localName: "scm-github/tools",
+			localName: "ctxloom-github/tools",
 			entry: LockEntry{
 				SHA:        "def456",
-				URL:        "https://github.com/bob/scm",
+				URL:        "https://github.com/bob/ctxloom",
 				SCMVersion: "v1",
 			},
 			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/bob/scm@v1/bundles/tools@def456",
+			wantURL:  "https://github.com/bob/ctxloom@v1/bundles/tools@def456",
 			wantOk:   true,
 		},
 		{
 			name:      "profile entry",
-			localName: "scm-github/secure",
+			localName: "ctxloom-github/secure",
 			entry: LockEntry{
 				SHA:        "ghi789",
-				URL:        "https://github.com/alice/scm",
+				URL:        "https://github.com/alice/ctxloom",
 				SCMVersion: "v1",
 			},
 			itemType: ItemTypeProfile,
-			wantURL:  "https://github.com/alice/scm@v1/profiles/secure@ghi789",
+			wantURL:  "https://github.com/alice/ctxloom@v1/profiles/secure@ghi789",
 			wantOk:   true,
 		},
 		{
@@ -329,7 +329,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			localName: "invalid",
 			entry: LockEntry{
 				SHA:        "abc123",
-				URL:        "https://github.com/alice/scm",
+				URL:        "https://github.com/alice/ctxloom",
 				SCMVersion: "v1",
 			},
 			itemType: ItemTypeBundle,
@@ -363,20 +363,20 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 func TestLockfile_FindByURL(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: map[string]LockEntry{
-			"scm-github/core": {SHA: "abc123", URL: "https://github.com/alice/scm"},
+			"ctxloom-github/core": {SHA: "abc123", URL: "https://github.com/alice/ctxloom"},
 		},
 		Profiles: map[string]LockEntry{
-			"scm-github/secure": {SHA: "def456", URL: "https://github.com/bob/scm"},
+			"ctxloom-github/secure": {SHA: "def456", URL: "https://github.com/bob/ctxloom"},
 		},
 	}
 
 	t.Run("find bundle by URL", func(t *testing.T) {
-		name, entry, found := lockfile.FindByURL("https://github.com/alice/scm", ItemTypeBundle)
+		name, entry, found := lockfile.FindByURL("https://github.com/alice/ctxloom", ItemTypeBundle)
 		if !found {
 			t.Fatal("expected to find entry")
 		}
-		if name != "scm-github/core" {
-			t.Errorf("name = %q, want %q", name, "scm-github/core")
+		if name != "ctxloom-github/core" {
+			t.Errorf("name = %q, want %q", name, "ctxloom-github/core")
 		}
 		if entry.SHA != "abc123" {
 			t.Errorf("SHA = %q, want %q", entry.SHA, "abc123")
@@ -384,12 +384,12 @@ func TestLockfile_FindByURL(t *testing.T) {
 	})
 
 	t.Run("find profile by URL", func(t *testing.T) {
-		name, entry, found := lockfile.FindByURL("https://github.com/bob/scm", ItemTypeProfile)
+		name, entry, found := lockfile.FindByURL("https://github.com/bob/ctxloom", ItemTypeProfile)
 		if !found {
 			t.Fatal("expected to find entry")
 		}
-		if name != "scm-github/secure" {
-			t.Errorf("name = %q, want %q", name, "scm-github/secure")
+		if name != "ctxloom-github/secure" {
+			t.Errorf("name = %q, want %q", name, "ctxloom-github/secure")
 		}
 		if entry.SHA != "def456" {
 			t.Errorf("SHA = %q, want %q", entry.SHA, "def456")
@@ -404,7 +404,7 @@ func TestLockfile_FindByURL(t *testing.T) {
 	})
 
 	t.Run("unknown item type", func(t *testing.T) {
-		_, _, found := lockfile.FindByURL("https://github.com/alice/scm", ItemType("unknown"))
+		_, _, found := lockfile.FindByURL("https://github.com/alice/ctxloom", ItemType("unknown"))
 		if found {
 			t.Error("expected entry not to be found for unknown type")
 		}
@@ -414,17 +414,17 @@ func TestLockfile_FindByURL(t *testing.T) {
 func TestLockfile_FindAllByURL(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: map[string]LockEntry{
-			"scm-github/core":  {SHA: "abc123", URL: "https://github.com/alice/scm"},
-			"scm-github/tools": {SHA: "def456", URL: "https://github.com/alice/scm"},
+			"ctxloom-github/core":  {SHA: "abc123", URL: "https://github.com/alice/ctxloom"},
+			"ctxloom-github/tools": {SHA: "def456", URL: "https://github.com/alice/ctxloom"},
 		},
 		Profiles: map[string]LockEntry{
-			"scm-github/secure": {SHA: "ghi789", URL: "https://github.com/alice/scm"},
-			"scm-github/other":  {SHA: "jkl012", URL: "https://github.com/bob/scm"},
+			"ctxloom-github/secure": {SHA: "ghi789", URL: "https://github.com/alice/ctxloom"},
+			"ctxloom-github/other":  {SHA: "jkl012", URL: "https://github.com/bob/ctxloom"},
 		},
 	}
 
 	t.Run("finds all matching entries", func(t *testing.T) {
-		results := lockfile.FindAllByURL("https://github.com/alice/scm")
+		results := lockfile.FindAllByURL("https://github.com/alice/ctxloom")
 		if len(results) != 3 {
 			t.Errorf("len(results) = %d, want 3", len(results))
 		}
@@ -442,17 +442,17 @@ func TestLockfile_RemoveEntry_Profile(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: make(map[string]LockEntry),
 		Profiles: map[string]LockEntry{
-			"scm-github/secure": {SHA: "abc123"},
-			"scm-github/other":  {SHA: "def456"},
+			"ctxloom-github/secure": {SHA: "abc123"},
+			"ctxloom-github/other":  {SHA: "def456"},
 		},
 	}
 
-	lockfile.RemoveEntry(ItemTypeProfile, "scm-github/secure")
+	lockfile.RemoveEntry(ItemTypeProfile, "ctxloom-github/secure")
 
 	if len(lockfile.Profiles) != 1 {
 		t.Errorf("Profiles count = %d, want 1", len(lockfile.Profiles))
 	}
-	if _, ok := lockfile.GetEntry(ItemTypeProfile, "scm-github/secure"); ok {
+	if _, ok := lockfile.GetEntry(ItemTypeProfile, "ctxloom-github/secure"); ok {
 		t.Error("entry should have been removed")
 	}
 }
@@ -461,11 +461,11 @@ func TestLockfile_GetEntry_Profile(t *testing.T) {
 	lockfile := &Lockfile{
 		Bundles: make(map[string]LockEntry),
 		Profiles: map[string]LockEntry{
-			"scm-github/secure": {SHA: "abc123"},
+			"ctxloom-github/secure": {SHA: "abc123"},
 		},
 	}
 
-	entry, ok := lockfile.GetEntry(ItemTypeProfile, "scm-github/secure")
+	entry, ok := lockfile.GetEntry(ItemTypeProfile, "ctxloom-github/secure")
 	if !ok {
 		t.Fatal("expected entry to exist")
 	}

@@ -27,7 +27,7 @@ func TestCheckRetracted(t *testing.T) {
 	t.Run("returns false when manifest has no retracted entries", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte("version: 1\n")
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte("version: 1\n")
 
 		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
 		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
@@ -40,7 +40,7 @@ func TestCheckRetracted(t *testing.T) {
 	t.Run("returns true when item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -60,7 +60,7 @@ retracted:
 	t.Run("returns true when item retracted without version", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -79,7 +79,7 @@ retracted:
 	t.Run("returns false when different item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -98,7 +98,7 @@ retracted:
 	t.Run("returns false when different type is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: profile
@@ -117,7 +117,7 @@ retracted:
 	t.Run("handles invalid YAML gracefully", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte("invalid: yaml: [[")
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte("invalid: yaml: [[")
 
 		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
 		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
@@ -144,7 +144,7 @@ func TestRetractChecker_IsRetracted(t *testing.T) {
 	t.Run("delegates to CheckRetracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["scm/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle

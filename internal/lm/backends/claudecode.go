@@ -46,11 +46,6 @@ func (b *ClaudeCode) Configure(cfg *config.PluginConfig) {
 	}
 }
 
-// ContextFileName returns the target file for context injection.
-func (b *ClaudeCode) ContextFileName() string {
-	return "CLAUDE.md"
-}
-
 // Lifecycle returns the lifecycle handler (hooks).
 func (b *ClaudeCode) Lifecycle() LifecycleHandler {
 	return b.lifecycle

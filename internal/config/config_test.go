@@ -300,7 +300,7 @@ func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Child should override base's auto_register_scm
+	// Child should override base's auto_register_ctxloom
 	if resolved.MCP.AutoRegisterSCM == nil {
 		t.Fatal("expected AutoRegisterSCM to be set")
 	}
@@ -1896,39 +1896,6 @@ func TestSyncConfig_ShouldApplyHooks(t *testing.T) {
 		disabled := false
 		cfg := &SyncConfig{ApplyHooks: &disabled}
 		assert.False(t, cfg.ShouldApplyHooks())
-	})
-}
-
-// =============================================================================
-// ContextConfig Tests
-// =============================================================================
-
-func TestContextConfig_GetRegenMode(t *testing.T) {
-	t.Run("returns eager by default", func(t *testing.T) {
-		cfg := &ContextConfig{}
-		assert.Equal(t, ContextRegenEager, cfg.GetRegenMode())
-	})
-
-	t.Run("returns configured mode", func(t *testing.T) {
-		cfg := &ContextConfig{Regeneration: ContextRegenDeferred}
-		assert.Equal(t, ContextRegenDeferred, cfg.GetRegenMode())
-	})
-}
-
-func TestContextConfig_IsDeferred(t *testing.T) {
-	t.Run("returns false by default", func(t *testing.T) {
-		cfg := &ContextConfig{}
-		assert.False(t, cfg.IsDeferred())
-	})
-
-	t.Run("returns true for deferred mode", func(t *testing.T) {
-		cfg := &ContextConfig{Regeneration: ContextRegenDeferred}
-		assert.True(t, cfg.IsDeferred())
-	})
-
-	t.Run("returns false for eager mode", func(t *testing.T) {
-		cfg := &ContextConfig{Regeneration: ContextRegenEager}
-		assert.False(t, cfg.IsDeferred())
 	})
 }
 

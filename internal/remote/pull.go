@@ -25,7 +25,7 @@ type PullOptions struct {
 	// Use this for automated/batch operations. Implies Force.
 	Blind bool
 
-	// LocalDir overrides the default .scm directory path.
+	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
 
 	// ItemType specifies what type of item to pull.

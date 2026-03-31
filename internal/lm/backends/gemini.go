@@ -33,11 +33,6 @@ func NewGemini() *Gemini {
 	return b
 }
 
-// ContextFileName returns the target file for context injection.
-func (b *Gemini) ContextFileName() string {
-	return "GEMINI.md"
-}
-
 // Lifecycle returns the lifecycle handler (hooks).
 func (b *Gemini) Lifecycle() LifecycleHandler {
 	return b.lifecycle

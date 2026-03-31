@@ -138,7 +138,7 @@ func (s *GeminiSkills) List(workDir string) ([]string, error) {
 }
 
 // WriteGeminiCommandFiles generates Gemini CLI slash command files from prompts.
-// It deletes the .gemini/commands/scm/ directory and regenerates it fresh.
+// It deletes the .gemini/commands/ctxloom/ directory and regenerates it fresh.
 // Only prompts with Gemini.IsEnabled() == true are exported.
 func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
 	options := &commandFileOptions{fs: afero.NewOsFs()}

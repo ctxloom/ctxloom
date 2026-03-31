@@ -36,11 +36,11 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	}
 	rem := &Remote{
 		Name:    "alice",
-		URL:     "https://github.com/alice/scm",
+		URL:     "https://github.com/alice/ctxloom",
 		Version: "v1",
 	}
 	sha := "abc1234"
-	filePath := "scm/v1/bundles/security.yaml"
+	filePath := "ctxloom/v1/bundles/security.yaml"
 	content := []byte("description: Test bundle\nfragments:\n  tdd:\n    content: Test content here\n")
 
 	secure, _ := ParseSecureContent(ItemTypeBundle, content)
@@ -55,7 +55,7 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	}
 
 	// Check source info
-	if !strings.Contains(output, "https://github.com/alice/scm") {
+	if !strings.Contains(output, "https://github.com/alice/ctxloom") {
 		t.Error("Missing source URL")
 	}
 	if !strings.Contains(output, "abc1234") {
@@ -92,11 +92,11 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	}
 	rem := &Remote{
 		Name:    "alice",
-		URL:     "https://github.com/alice/scm",
+		URL:     "https://github.com/alice/ctxloom",
 		Version: "v1",
 	}
 	sha := "abc1234"
-	filePath := "scm/v1/profiles/secure.yaml"
+	filePath := "ctxloom/v1/profiles/secure.yaml"
 	content := []byte("name: secure\nbundles:\n  - alice/security\n")
 
 	secure, _ := ParseSecureContent(ItemTypeProfile, content)
@@ -111,7 +111,7 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	}
 
 	// Check source info
-	if !strings.Contains(output, "https://github.com/alice/scm") {
+	if !strings.Contains(output, "https://github.com/alice/ctxloom") {
 		t.Error("Missing source URL")
 	}
 
@@ -268,11 +268,11 @@ func TestPuller_Pull_Force(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/test", 0755))
 	registry, err := NewRegistry(registryPath, WithRegistryFS(fs))
 	require.NoError(t, err)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Create mock fetcher with content
 	mf := newMockFetcher()
-	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	// Create lockfile manager
@@ -336,11 +336,11 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 
 	// Create registry with a remote
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	_ = registry.Add("alice", "https://github.com/alice/scm")
+	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 	// Create mock fetcher
 	mf := newMockFetcher()
-	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
 
 	// Terminal checker returns false (not a terminal)
 	tc := &mockTerminalChecker{isReader: false}
@@ -366,10 +366,10 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	_ = registry.Add("alice", "https://github.com/alice/scm")
+	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 	mf := newMockFetcher()
-	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
 
 	tc := &mockTerminalChecker{isReader: true}
 
@@ -459,11 +459,11 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 func TestPuller_Pull_BlindMode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{},
@@ -489,11 +489,11 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	tc := &mockTerminalChecker{isReader: true, isWriter: true}
@@ -625,11 +625,11 @@ func TestCascadePullProfile(t *testing.T) {
 		// Setup registry with remote
 		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Mock fetcher
 		mf := newMockFetcher()
-		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
 		mf.refs["main"] = "abc123"
 
 		puller := NewPuller(registry, AuthConfig{},
@@ -726,7 +726,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/scm@v1/bundles/security\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -791,7 +791,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/scm@v1/bundles/security#fragments/tdd\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security#fragments/tdd\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -899,7 +899,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/scm", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
 
@@ -912,7 +912,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "abc123def456", entry.SHA)
 		assert.Equal(t, "v1.0.0", entry.RequestedVersion)
-		assert.Equal(t, "https://github.com/alice/scm", entry.URL)
+		assert.Equal(t, "https://github.com/alice/ctxloom", entry.URL)
 	})
 
 	t.Run("handles multiple entries", func(t *testing.T) {
@@ -929,7 +929,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/scm", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
 		require.NoError(t, err)

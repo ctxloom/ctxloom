@@ -473,7 +473,6 @@ type mockBackend struct {
 func (m *mockBackend) Name() string                                       { return "mock-test" }
 func (m *mockBackend) Version() string                                    { return "1.0.0" }
 func (m *mockBackend) SupportedModes() []backends.ExecutionMode           { return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot} }
-func (m *mockBackend) ContextFileName() string                            { return "" }
 func (m *mockBackend) Lifecycle() backends.LifecycleHandler               { return nil }
 func (m *mockBackend) Skills() backends.SkillRegistry                     { return nil }
 func (m *mockBackend) Context() backends.ContextProvider                  { return nil }

@@ -311,7 +311,7 @@ func printPushReminder(bundle *bundles.Bundle) {
 		base := filepath.Base(bundle.Path)
 		base = strings.TrimSuffix(base, ".yaml")
 		if strings.Contains(dir, "bundles") {
-			// Extract remote/name format from path like .ctxloom/bundles/scm-github/core.yaml
+			// Extract remote/name format from path like .ctxloom/bundles/ctxloom-github/core.yaml
 			parts := strings.Split(dir, string(filepath.Separator))
 			for i, p := range parts {
 				if p == "bundles" && i+1 < len(parts) {

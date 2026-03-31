@@ -31,11 +31,6 @@ func NewCodex() *Codex {
 	return b
 }
 
-// ContextFileName returns the target file for context injection.
-func (b *Codex) ContextFileName() string {
-	return "AGENTS.md"
-}
-
 // Lifecycle returns nil - Codex doesn't support lifecycle hooks.
 func (b *Codex) Lifecycle() LifecycleHandler { return nil }
 

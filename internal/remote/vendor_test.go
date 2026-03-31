@@ -214,7 +214,7 @@ func TestVendorManager_SetVendorMode(t *testing.T) {
 	t.Run("preserves existing config", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
-		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("remotes:\n  alice:\n    url: https://github.com/alice/scm\n"), 0644))
+		require.NoError(t, afero.WriteFile(fs, ".ctxloom/remotes.yaml", []byte("remotes:\n  alice:\n    url: https://github.com/alice/ctxloom\n"), 0644))
 
 		manager := NewVendorManager(".ctxloom", WithVendorFS(fs))
 
@@ -238,11 +238,11 @@ func TestVendorManager_VendorAll(t *testing.T) {
 		require.NoError(t, fs.MkdirAll("/test", 0755))
 		registry, err := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
 		require.NoError(t, err)
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Create mock fetcher
 		mf := newMockFetcher()
-		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
 
 		manager := NewVendorManager("/test",
 			WithVendorFS(fs),
@@ -255,7 +255,7 @@ func TestVendorManager_VendorAll(t *testing.T) {
 			Bundles: map[string]LockEntry{
 				"alice/security": {
 					SHA:        "abc123",
-					URL:        "https://github.com/alice/scm",
+					URL:        "https://github.com/alice/ctxloom",
 					SCMVersion: "v1",
 				},
 			},

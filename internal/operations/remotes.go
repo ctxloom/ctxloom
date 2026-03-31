@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// getBaseDir returns the SCM directory from config, defaulting to ".ctxloom".
+// getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
 func getBaseDir(cfg *config.Config) string {
 	if cfg != nil && len(cfg.AppPaths) > 0 {
 		return cfg.AppPaths[0]
@@ -161,7 +161,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		URL:    rem.URL,
 	}
 	if !valid {
-		result.Warning = "repository does not have scm/v1/ directory structure"
+		result.Warning = "repository does not have ctxloom/v1/ directory structure"
 	}
 
 	return result, nil
@@ -429,7 +429,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	var warnings []string
 
 	for _, itemType := range itemTypes {
-		basePath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
+		basePath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
 		if req.Path != "" {
 			basePath = filepath.Join(basePath, req.Path)
 		}
@@ -659,7 +659,7 @@ func searchSingleRemote(ctx context.Context, rem *remote.Remote, itemType remote
 	}
 
 	// Try to fetch manifest first (faster)
-	manifestPath := fmt.Sprintf("scm/%s/manifest.yaml", rem.Version)
+	manifestPath := fmt.Sprintf("ctxloom/%s/manifest.yaml", rem.Version)
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
 		return searchManifestContent(rem, manifestContent, itemType, query)
@@ -701,7 +701,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
+	dirPath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {

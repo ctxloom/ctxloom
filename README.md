@@ -1,8 +1,8 @@
-# SCM - Sophisticated Context Manager
+# ctxloom - Sophisticated Context Manager
 
 A CLI tool for managing context fragments and prompts for AI coding assistants.
 
-**Documentation:** [scm.abbitt.me](https://scm.abbitt.me)
+**Documentation:** [ctxloom.abbitt.me](https://ctxloom.abbitt.me)
 
 ## The Problem
 
@@ -10,7 +10,7 @@ When working with AI coding assistants, you repeatedly provide the same context:
 
 ## The Solution
 
-SCM organizes context into reusable **bundles** that can be:
+ctxloom organizes context into reusable **bundles** that can be:
 - **Assembled on demand** - Combine bundles and fragments for different tasks
 - **Grouped into profiles** - Switch contexts with a single flag (`-p developer`)
 - **Shared across teams** - Pull bundles from remote repositories (GitHub/GitLab)
@@ -25,17 +25,17 @@ SCM organizes context into reusable **bundles** that can be:
 just install              # Build and install to ~/go/bin
 
 # Initialize a project
-scm init                  # Create .scm directory in current project
+ctxloom init                  # Create .ctxloom directory in current project
 
 # Create your first bundle
-scm bundle create my-standards
+ctxloom bundle create my-standards
 
 # Run with your context
-scm run -f my-standards "Help me with this code"
-scm run -n                # Preview what context would be sent
+ctxloom run -f my-standards "Help me with this code"
+ctxloom run -n                # Preview what context would be sent
 ```
 
-See the [Quick Start Guide](https://scm.abbitt.me/getting-started/quickstart) for more.
+See the [Quick Start Guide](https://ctxloom.abbitt.me/getting-started/quickstart) for more.
 
 ## Key Concepts
 
@@ -47,16 +47,16 @@ See the [Quick Start Guide](https://scm.abbitt.me/getting-started/quickstart) fo
 | **Profile** | A named configuration that references bundles, tags, and variables |
 | **Remote** | A Git repository for sharing bundles and profiles |
 
-Learn more: [Concepts](https://scm.abbitt.me/concepts/bundles)
+Learn more: [Concepts](https://ctxloom.abbitt.me/concepts/bundles)
 
 ## Documentation
 
-- [Installation](https://scm.abbitt.me/getting-started/installation)
-- [Quick Start](https://scm.abbitt.me/getting-started/quickstart)
-- [Configuration Guide](https://scm.abbitt.me/guides/configuration)
-- [MCP Server Setup](https://scm.abbitt.me/guides/mcp-server)
-- [CLI Reference](https://scm.abbitt.me/reference/cli)
-- [Contributing](https://scm.abbitt.me/contributing)
+- [Installation](https://ctxloom.abbitt.me/getting-started/installation)
+- [Quick Start](https://ctxloom.abbitt.me/getting-started/quickstart)
+- [Configuration Guide](https://ctxloom.abbitt.me/guides/configuration)
+- [MCP Server Setup](https://ctxloom.abbitt.me/guides/mcp-server)
+- [CLI Reference](https://ctxloom.abbitt.me/reference/cli)
+- [Contributing](https://ctxloom.abbitt.me/contributing)
 
 ## Development
 
@@ -73,16 +73,16 @@ Two build variants are available:
 | Build | Command | Size | Description |
 |-------|---------|------|-------------|
 | **Standard** | `just build` | ~27MB | All features except tree-sitter code compression |
-| **Full** | `just build-scm-full` | ~31MB | Includes tree-sitter AST compression (requires CGO) |
+| **Full** | `just build-ctxloom-full` | ~31MB | Includes tree-sitter AST compression (requires CGO) |
 
 Most users should use the standard build. The full build adds tree-sitter for AST-aware code compression when distilling fragments.
 
 ```bash
 just build          # Standard build (recommended)
-just build-scm-full # Full build with tree-sitter
+just build-ctxloom-full # Full build with tree-sitter
 just test           # Run all tests
 just lint           # Lint code
 just install        # Build and install to ~/go/bin
 ```
 
-See [Contributing](https://scm.abbitt.me/contributing) for full development guide.
+See [Contributing](https://ctxloom.abbitt.me/contributing) for full development guide.

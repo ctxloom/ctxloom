@@ -15,7 +15,7 @@ import (
 )
 
 // pluginPrefix is the naming convention for external plugin binaries.
-const pluginPrefix = "scm-plugin-"
+const pluginPrefix = "ctxloom-plugin-"
 
 var pluginListCmd = &cobra.Command{
 	Use:     "list",

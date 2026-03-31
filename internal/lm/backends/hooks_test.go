@@ -103,7 +103,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Create existing settings with user hooks (no _scm field)
+	// Create existing settings with user hooks (no _ctxloom field)
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	_ = os.MkdirAll(claudeDir, 0755)
 
@@ -116,7 +116,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 						map[string]interface{}{
 							"type":    "command",
 							"command": "./user-hook.sh",
-							// No _scm field - user-defined
+							// No _ctxloom field - user-defined
 						},
 					},
 				},
@@ -131,7 +131,7 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			PreTool: []config.Hook{
-				{Command: "./scm-hook.sh", Matcher: "Bash"},
+				{Command: "./ctxloom-hook.sh", Matcher: "Bash"},
 			},
 		},
 	}
@@ -174,7 +174,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Create existing settings with SCM hooks (_scm field present)
+	// Create existing settings with SCM hooks (_ctxloom field present)
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	_ = os.MkdirAll(claudeDir, 0755)
 
@@ -186,8 +186,8 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "./old-scm-hook.sh",
-							"_scm":    "oldhash123", // SCM-managed
+							"command": "./old-ctxloom-hook.sh",
+							"_ctxloom":    "oldhash123", // SCM-managed
 						},
 					},
 				},
@@ -201,7 +201,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			PreTool: []config.Hook{
-				{Command: "./new-scm-hook.sh", Matcher: "Edit"},
+				{Command: "./new-ctxloom-hook.sh", Matcher: "Edit"},
 			},
 		},
 	}
@@ -228,7 +228,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 			hooksList := m["hooks"].([]interface{})
 			for _, h := range hooksList {
 				hook := h.(map[string]interface{})
-				if hook["command"] == "./old-scm-hook.sh" {
+				if hook["command"] == "./old-ctxloom-hook.sh" {
 					t.Error("old SCM hook should have been removed")
 				}
 			}
@@ -408,8 +408,8 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 		t.Fatal("expected 'ctxloom' MCP server")
 	}
 
-	if _, ok := ctxloomServer["_scm"]; !ok {
-		t.Error("SCM MCP server should have _scm marker")
+	if _, ok := ctxloomServer["_ctxloom"]; !ok {
+		t.Error("SCM MCP server should have _ctxloom marker")
 	}
 
 	if ctxloomServer["command"] == "" {
@@ -437,7 +437,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 			"my-custom-server": map[string]interface{}{
 				"command": "/usr/local/bin/my-mcp-server",
 				"args":    []string{"--port", "3000"},
-				// No _scm field - user-defined
+				// No _ctxloom field - user-defined
 			},
 			"another-server": map[string]interface{}{
 				"command": "python",
@@ -480,7 +480,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 
 	// Verify total count
 	if len(mcpServers) != 3 {
-		t.Errorf("expected 3 MCP servers (2 user + 1 scm), got %d", len(mcpServers))
+		t.Errorf("expected 3 MCP servers (2 user + 1 ctxloom), got %d", len(mcpServers))
 	}
 }
 
@@ -492,8 +492,8 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	existingMCP := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
 			"ctxloom": map[string]interface{}{
-				"command": "/old/path/to/scm mcp",
-				"_scm":    "old-marker",
+				"command": "/old/path/to/ctxloom mcp",
+				"_ctxloom":    "old-marker",
 			},
 			"user-server": map[string]interface{}{
 				"command": "/usr/bin/user-mcp",
@@ -527,10 +527,10 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 
 	// SCM server should be updated (not duplicate)
 	ctxloomServer := mcpServers["ctxloom"].(map[string]interface{})
-	if ctxloomServer["command"] == "/old/path/to/scm mcp" {
+	if ctxloomServer["command"] == "/old/path/to/ctxloom mcp" {
 		t.Error("SCM server command should be updated")
 	}
-	if ctxloomServer["_scm"] == "old-marker" {
+	if ctxloomServer["_ctxloom"] == "old-marker" {
 		t.Error("SCM server marker should be updated")
 	}
 

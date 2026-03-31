@@ -158,7 +158,7 @@ func searchRemote(ctx context.Context, rem *remote.Remote, itemType remote.ItemT
 	}
 
 	// Try to fetch manifest first (faster)
-	manifestPath := fmt.Sprintf("scm/%s/manifest.yaml", rem.Version)
+	manifestPath := fmt.Sprintf("ctxloom/%s/manifest.yaml", rem.Version)
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
 		// Parse manifest and search
@@ -201,7 +201,7 @@ func searchManifest(rem *remote.Remote, content []byte, itemType remote.ItemType
 
 // searchDirectory searches by listing directory contents.
 func searchDirectory(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("scm/%s/%s", rem.Version, itemType.DirName())
+	dirPath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {

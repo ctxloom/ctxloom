@@ -17,12 +17,12 @@ var completionCmd = &cobra.Command{
 	Use:    "completion [bash|zsh|fish|powershell]",
 	Short:  "Generate shell completion scripts",
 	Hidden: true, // Available but not shown in main help
-	Long: `Generate shell completion scripts for scm.
+	Long: `Generate shell completion scripts for ctxloom.
 
 To load completions:
 
 Bash:
-  $ source <(scm completion bash)
+  $ source <(ctxloom completion bash)
 
   # To load completions for each session, execute once:
   # Linux:
@@ -36,7 +36,7 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ ctxloom completion zsh > "${fpath[1]}/_scm"
+  $ ctxloom completion zsh > "${fpath[1]}/_ctxloom"
 
   # You will need to start a new shell for this setup to take effect.
 

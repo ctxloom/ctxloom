@@ -619,7 +619,7 @@ var profileExportCmd = &cobra.Command{
 Useful for publishing profiles to a shared repository like ctxloom-default.
 
 Examples:
-  ctxloom profile export architect ../ctxloom-default/scm/v1/profiles
+  ctxloom profile export architect ../ctxloom-default/ctxloom/v1/profiles
   ctxloom profile export my-profile ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runProfileExport,
@@ -676,7 +676,7 @@ var profileImportCmd = &cobra.Command{
 Use --force to overwrite an existing profile.
 
 Examples:
-  ctxloom profile import ../ctxloom-default/scm/v1/profiles/architect.yaml
+  ctxloom profile import ../ctxloom-default/ctxloom/v1/profiles/architect.yaml
   ctxloom profile import ./my-profile.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileImport,

@@ -56,7 +56,7 @@ MANAGING MCP SERVERS:
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run as MCP server over stdio",
-	Long:  `Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'scm mcp' without subcommands.`,
+	Long:  `Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'ctxloom mcp' without subcommands.`,
 	RunE:  runMCPServer,
 }
 
@@ -81,7 +81,7 @@ var mcpListCmd = &cobra.Command{
 			fmt.Println("No MCP servers configured.")
 			fmt.Println()
 			fmt.Printf("Auto-register SCM MCP server: %v\n", result.AutoRegister)
-			fmt.Println("\nUse 'scm mcp add <name> --command <cmd>' to add one.")
+			fmt.Println("\nUse 'ctxloom mcp add <name> --command <cmd>' to add one.")
 			return nil
 		}
 
@@ -495,7 +495,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 	cfg, err := config.Load()
 	if err != nil {
 		// Log the error but continue with an empty config
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
 		cfg = &config.Config{
 			LM:       config.LMConfig{Plugins: make(map[string]config.PluginConfig)},
 			Profiles: make(map[string]config.Profile),
@@ -506,7 +506,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 
 	// Output any warnings collected during config loading
 	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", warning)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
 	}
 
 	// Check if context was cancelled (user hit Ctrl+C)
@@ -523,44 +523,12 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				// Log but don't fail - missing deps will be handled when accessed
-				fmt.Fprintf(os.Stderr, "SCM: warning: sync failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
 			}
 		} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
 			fmt.Fprintf(os.Stderr, "SCM: %s\n", result.Message)
 		} else if result.Errors > 0 {
-			fmt.Fprintf(os.Stderr, "SCM: warning: sync completed with %d errors\n", result.Errors)
-		}
-	}
-
-	// Check if context was cancelled (user hit Ctrl+C)
-	if ctx.Err() != nil {
-		return nil
-	}
-
-	// Transform llm.md/scm.md to backend-specific context files (blocking, graceful failure)
-	ctxResult, err := operations.TransformContextOnStartup(ctx, cfg)
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "SCM: warning: context transform failed: %v\n", err)
-		}
-	} else if ctxResult.Status == "no_source" {
-		// No llm.md or scm.md - that's fine, just skip silently
-	} else if ctxResult.Status == "deferred" {
-		// Context regeneration is deferred - that's fine
-		fmt.Fprintf(os.Stderr, "SCM: context regeneration deferred\n")
-	} else {
-		if len(ctxResult.Errors) > 0 {
-			for _, e := range ctxResult.Errors {
-				fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", e)
-			}
-		}
-		// Warn about user-managed context files
-		for _, w := range ctxResult.Warnings {
-			fmt.Fprintf(os.Stderr, "SCM: warning: %s\n", w)
-		}
-		if ctxResult.Message != "" && !strings.HasPrefix(ctxResult.Message, "Context files up to date") {
-			// Only log when there are actual changes
-			fmt.Fprintf(os.Stderr, "SCM: %s\n", ctxResult.Message)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: sync completed with %d errors\n", result.Errors)
 		}
 	}
 
@@ -575,7 +543,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 		RegenerateContext: true,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)
 	}
 	_ = hooksResult // Successfully applied - don't log unless verbose
 
@@ -593,7 +561,7 @@ func (s *mcpServer) handleInitialize(ctx context.Context, req *mcpRequest) *mcpR
 				"tools": map[string]interface{}{},
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "scm",
+				"name":    "ctxloom",
 				"version": Version,
 			},
 		},
@@ -1112,7 +1080,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 					},
 					"url": map[string]interface{}{
 						"type":        "string",
-						"description": "Repository URL (e.g., 'alice/scm' or 'https://github.com/alice/scm')",
+						"description": "Repository URL (e.g., 'alice/ctxloom' or 'https://github.com/alice/ctxloom')",
 					},
 				},
 			},

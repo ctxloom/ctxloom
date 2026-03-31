@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go
-ARG GO_VERSION=1.24.1
+ARG GO_VERSION=1.24.4
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:$PATH"
 ENV GOPATH="/go"
@@ -77,6 +77,11 @@ RUN BIN="/usr/local/bin" && \
 
 # Install gremlins for mutation testing
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+# Runtime module/build cache in workspace (writable by any user, persists across runs)
+ENV GOMODCACHE="/workspace/.cache/go/mod"
+ENV GOCACHE="/workspace/.cache/go/build"
+ENV GOTOOLCHAIN="local"
 
 # Note: versionator not installed - justfile has "dev" fallback
 # Install if needed: go install github.com/benjaminabbitt/versionator@latest

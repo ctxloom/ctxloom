@@ -156,10 +156,10 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 		limit = 30
 	}
 
-	// Search for projects with "scm" in name
-	searchQuery := "scm"
+	// Search for projects with "ctxloom" in name
+	searchQuery := "ctxloom"
 	if query != "" {
-		searchQuery = fmt.Sprintf("scm %s", query)
+		searchQuery = fmt.Sprintf("ctxloom %s", query)
 	}
 
 	orderBy := "last_activity_at"
@@ -182,8 +182,8 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 	repos := make([]RepoInfo, 0, len(projects))
 	for _, p := range projects {
 		name := p.Path
-		// Filter to only repos named "scm" or "scm-*"
-		if name != "scm" && !strings.HasPrefix(name, "scm-") {
+		// Filter to only repos named "ctxloom" or "scm-*"
+		if name != "ctxloom" && !strings.HasPrefix(name, "ctxloom-") {
 			continue
 		}
 
@@ -204,7 +204,7 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid SCM structure.
 func (f *GitLabFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	path := "scm/v1"
+	path := "ctxloom/v1"
 	opts := &gitlab.ListTreeOptions{
 		Path: &path,
 	}

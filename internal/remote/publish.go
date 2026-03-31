@@ -231,7 +231,7 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 
 	if opts.CreatePR {
 		// Create a new branch and PR
-		branchName := fmt.Sprintf("scm/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
+		branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
 
 		// Get base SHA for branch creation
 		fetcher, err := pm.fetcherFactory(rem.URL, pm.auth)
@@ -303,7 +303,7 @@ func buildPublishPath(itemType ItemType, version, name string) string {
 	default:
 		dir = "bundles"
 	}
-	return fmt.Sprintf("scm/%s/%s/%s.yaml", version, dir, name)
+	return fmt.Sprintf("ctxloom/%s/%s/%s.yaml", version, dir, name)
 }
 
 // addPublishMetadata adds _source metadata to content for tracking.

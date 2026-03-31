@@ -243,7 +243,7 @@ func TestGitLabFetcher_ListDir(t *testing.T) {
 		}
 
 		fetcher := NewGitLabFetcherWithClient(mock, "https://gitlab.com")
-		entries, err := fetcher.ListDir(ctx, "owner", "repo", "scm/v1", "")
+		entries, err := fetcher.ListDir(ctx, "owner", "repo", "ctxloom/v1", "")
 		require.NoError(t, err)
 		assert.Len(t, entries, 2)
 		assert.Equal(t, "fragment.yaml", entries[0].Name)
@@ -334,9 +334,9 @@ func TestGitLabFetcher_SearchRepos(t *testing.T) {
 		mock := newMockGitLabClient()
 		mock.projects.ListProjectsFunc = func(opt *gitlab.ListProjectsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Project, *gitlab.Response, error) {
 			return []*gitlab.Project{
-				{Path: "scm", Namespace: &gitlab.ProjectNamespace{Path: "alice"}, StarCount: 100, LastActivityAt: &now},
-				{Path: "scm-fragments", Namespace: &gitlab.ProjectNamespace{Path: "bob"}, StarCount: 50, LastActivityAt: &now},
-				{Path: "awesome-scm-tool", Namespace: &gitlab.ProjectNamespace{Path: "charlie"}, LastActivityAt: &now}, // Should be filtered
+				{Path: "ctxloom", Namespace: &gitlab.ProjectNamespace{Path: "alice"}, StarCount: 100, LastActivityAt: &now},
+				{Path: "ctxloom-fragments", Namespace: &gitlab.ProjectNamespace{Path: "bob"}, StarCount: 50, LastActivityAt: &now},
+				{Path: "awesome-ctxloom-tool", Namespace: &gitlab.ProjectNamespace{Path: "charlie"}, LastActivityAt: &now}, // Should be filtered
 			}, nil, nil
 		}
 
@@ -344,8 +344,8 @@ func TestGitLabFetcher_SearchRepos(t *testing.T) {
 		repos, err := fetcher.SearchRepos(ctx, "", 30)
 		require.NoError(t, err)
 		assert.Len(t, repos, 2)
-		assert.Equal(t, "scm", repos[0].Name)
-		assert.Equal(t, "scm-fragments", repos[1].Name)
+		assert.Equal(t, "ctxloom", repos[0].Name)
+		assert.Equal(t, "ctxloom-fragments", repos[1].Name)
 	})
 
 	t.Run("api error", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestGitLabFetcher_ValidateRepo(t *testing.T) {
 		assert.True(t, valid)
 	})
 
-	t.Run("invalid repo - empty scm/v1", func(t *testing.T) {
+	t.Run("invalid repo - empty ctxloom/v1", func(t *testing.T) {
 		mock := newMockGitLabClient()
 		mock.repos.ListTreeFunc = func(pid interface{}, opt *gitlab.ListTreeOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.TreeNode, *gitlab.Response, error) {
 			return []*gitlab.TreeNode{}, nil, nil
@@ -388,7 +388,7 @@ func TestGitLabFetcher_ValidateRepo(t *testing.T) {
 		assert.False(t, valid)
 	})
 
-	t.Run("invalid repo - no scm/v1", func(t *testing.T) {
+	t.Run("invalid repo - no ctxloom/v1", func(t *testing.T) {
 		mock := newMockGitLabClient()
 		mock.repos.ListTreeFunc = func(pid interface{}, opt *gitlab.ListTreeOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.TreeNode, *gitlab.Response, error) {
 			return nil, &gitlab.Response{Response: newHTTPResponse(404)}, errors.New("not found")

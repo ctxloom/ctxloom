@@ -665,7 +665,7 @@ Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
 
 Examples:
-  ctxloom bundle export go-tools ../ctxloom-default/scm/v1/bundles
+  ctxloom bundle export go-tools ../ctxloom-default/ctxloom/v1/bundles
   ctxloom bundle export my-bundle ./exports`,
 	Args: cobra.ExactArgs(2),
 	RunE: runBundleExport,
@@ -723,7 +723,7 @@ The bundle is copied into the local .ctxloom/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:
-  ctxloom bundle import ../ctxloom-default/scm/v1/bundles/go-tools.yaml
+  ctxloom bundle import ../ctxloom-default/ctxloom/v1/bundles/go-tools.yaml
   ctxloom bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,

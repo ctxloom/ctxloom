@@ -310,23 +310,23 @@ func TestParseReference_File(t *testing.T) {
 	}{
 		{
 			name:     "absolute path bundle",
-			input:    "file:///home/user/scm-content@v1/bundles/core-practices",
-			wantURL:  "file:///home/user/scm-content",
+			input:    "file:///home/user/ctxloom-content@v1/bundles/core-practices",
+			wantURL:  "file:///home/user/ctxloom-content",
 			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
 		},
 		{
 			name:     "deep path profile",
-			input:    "file:///var/lib/scm/repos/main@v2/profiles/security-aws",
-			wantURL:  "file:///var/lib/scm/repos/main",
+			input:    "file:///var/lib/ctxloom/repos/main@v2/profiles/security-aws",
+			wantURL:  "file:///var/lib/ctxloom/repos/main",
 			wantVer:  "v2",
 			wantType: ItemTypeProfile,
 			wantPath: "security-aws",
 		},
 		{
 			name:    "fragments no longer supported",
-			input:   "file:///var/lib/scm/repos/main@v2/fragments/security/aws",
+			input:   "file:///var/lib/ctxloom/repos/main@v2/fragments/security/aws",
 			wantErr: true,
 		},
 		{
@@ -435,21 +435,21 @@ func TestReference_BuildFilePath(t *testing.T) {
 			ref:      Reference{Remote: "alice", Path: "go-tools"},
 			itemType: ItemTypeBundle,
 			version:  "v1",
-			want:     "scm/v1/bundles/go-tools.yaml",
+			want:     "ctxloom/v1/bundles/go-tools.yaml",
 		},
 		{
 			name:     "simple profile",
 			ref:      Reference{Remote: "alice", Path: "security-focused"},
 			itemType: ItemTypeProfile,
 			version:  "v1",
-			want:     "scm/v1/profiles/security-focused.yaml",
+			want:     "ctxloom/v1/profiles/security-focused.yaml",
 		},
 		{
 			name:     "nested bundle",
 			ref:      Reference{Remote: "alice", Path: "golang/best-practices"},
 			itemType: ItemTypeBundle,
 			version:  "v2",
-			want:     "scm/v2/bundles/golang/best-practices.yaml",
+			want:     "ctxloom/v2/bundles/golang/best-practices.yaml",
 		},
 		{
 			name: "canonical uses embedded values",
@@ -462,7 +462,7 @@ func TestReference_BuildFilePath(t *testing.T) {
 			},
 			itemType: ItemTypeProfile, // Should be ignored for canonical
 			version:  "v1",            // Should be ignored for canonical
-			want:     "scm/v3/bundles/core-practices.yaml",
+			want:     "ctxloom/v3/bundles/core-practices.yaml",
 		},
 	}
 
@@ -571,10 +571,10 @@ func TestReference_LocalRemoteName(t *testing.T) {
 		{
 			name: "file URL",
 			ref: Reference{
-				URL:         "file:///home/user/scm-content",
+				URL:         "file:///home/user/ctxloom-content",
 				IsCanonical: true,
 			},
-			want: "user/scm-content",
+			want: "user/ctxloom-content",
 		},
 		{
 			name: "file URL with single path component",
@@ -655,13 +655,13 @@ func TestReference_ToLocalName(t *testing.T) {
 		{
 			name: "canonical HTTPS reference",
 			ref: Reference{
-				URL:         "https://github.com/owner/scm-github",
+				URL:         "https://github.com/owner/ctxloom-github",
 				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
-			want: "scm-github/core-practices",
+			want: "ctxloom-github/core-practices",
 		},
 		{
 			name: "canonical SSH reference",
@@ -677,13 +677,13 @@ func TestReference_ToLocalName(t *testing.T) {
 		{
 			name: "canonical file reference",
 			ref: Reference{
-				URL:         "file:///home/user/my-scm",
+				URL:         "file:///home/user/my-ctxloom",
 				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "tools",
 				IsCanonical: true,
 			},
-			want: "my-scm/tools",
+			want: "my-ctxloom/tools",
 		},
 	}
 
@@ -989,7 +989,7 @@ func TestReference_ToCanonical(t *testing.T) {
 				IsCanonical: false,
 			},
 			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/alice/scm",
+			wantURL:  "https://github.com/alice/ctxloom",
 			wantErr:  false,
 		},
 		{
@@ -1021,7 +1021,7 @@ func TestReference_ToCanonical(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create registry with alice remote
 			registry, _ := NewRegistry("")
-			_ = registry.Add("alice", "https://github.com/alice/scm")
+			_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 			result, err := tt.ref.ToCanonical(registry, tt.itemType)
 			if tt.wantErr {
@@ -1046,7 +1046,7 @@ func TestReference_ToCanonical(t *testing.T) {
 func TestReference_MustCanonical(t *testing.T) {
 	t.Run("succeeds for valid remote", func(t *testing.T) {
 		registry, _ := NewRegistry("")
-		_ = registry.Add("alice", "https://github.com/alice/scm")
+		_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 		ref := &Reference{
 			Remote:      "alice",

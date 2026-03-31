@@ -24,7 +24,7 @@ var remoteDiscoverCmd = &cobra.Command{
 	Long: `Discover SCM repositories on GitHub and GitLab.
 
 Searches for repositories named 'ctxloom' or starting with 'scm-'.
-Only repositories with valid scm/v1/ structure are shown.
+Only repositories with valid ctxloom/v1/ structure are shown.
 
 Examples:
   ctxloom remote discover                      # Find all SCM repos

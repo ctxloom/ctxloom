@@ -23,8 +23,8 @@ type LockUpdate struct {
 //
 // Example transformation:
 //
-//	Input:  "scm-github/core-practices"
-//	Output: "https://github.com/owner/scm-github@v1/bundles/core-practices@v1.2.3"
+//	Input:  "ctxloom-github/core-practices"
+//	Output: "https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3"
 func TransformToCanonical(profile *Profile, lockfile *remote.Lockfile) (*Profile, error) {
 	transformed := *profile // Copy
 	transformed.Bundles = make([]string, 0, len(profile.Bundles))
@@ -72,9 +72,9 @@ func TransformToCanonical(profile *Profile, lockfile *remote.Lockfile) (*Profile
 //
 // Example transformation:
 //
-//	Input:  "https://github.com/owner/scm-github@v1/bundles/core-practices@v1.2.3"
-//	Output: "scm-github/core-practices"
-//	Update: {LocalName: "scm-github/core-practices", Entry: {URL: ..., SCMVersion: "v1", ...}}
+//	Input:  "https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3"
+//	Output: "ctxloom-github/core-practices"
+//	Update: {LocalName: "ctxloom-github/core-practices", Entry: {URL: ..., SCMVersion: "v1", ...}}
 func TransformToLocal(profile *Profile, registry *remote.Registry, lockfile *remote.Lockfile) (*Profile, []LockUpdate, error) {
 	transformed := *profile // Copy
 	transformed.Bundles = make([]string, 0, len(profile.Bundles))

@@ -541,13 +541,13 @@ func TestNormalizeBundleName(t *testing.T) {
 		// Git hosting paths should be normalized
 		{
 			name:  "github.com with owner and bundle path",
-			input: "github.com/owner/scm-github/go-development",
-			want:  "scm-github/go-development",
+			input: "github.com/owner/ctxloom-github/go-development",
+			want:  "ctxloom-github/go-development",
 		},
 		{
 			name:  "github.com with owner and repo only",
-			input: "github.com/owner/scm-github",
-			want:  "scm-github",
+			input: "github.com/owner/ctxloom-github",
+			want:  "ctxloom-github",
 		},
 		{
 			name:  "gitlab.com with group and bundle path",
@@ -563,8 +563,8 @@ func TestNormalizeBundleName(t *testing.T) {
 		// Already canonical or local paths should be unchanged
 		{
 			name:  "already canonical format",
-			input: "scm-github/go-development",
-			want:  "scm-github/go-development",
+			input: "ctxloom-github/go-development",
+			want:  "ctxloom-github/go-development",
 		},
 		{
 			name:  "local bundle name",
@@ -602,7 +602,7 @@ func TestNormalizeBundleName(t *testing.T) {
 // normalized name returns the same result.
 func TestNormalizeBundleName_Idempotent(t *testing.T) {
 	inputs := []string{
-		"scm-github/go-development",
+		"ctxloom-github/go-development",
 		"repo/bundle",
 		"simple-bundle",
 		"",

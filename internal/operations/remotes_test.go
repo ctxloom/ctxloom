@@ -221,8 +221,8 @@ func TestListRemotes_WithRemotes(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 
 	// Add some remotes
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
-	require.NoError(t, registry.Add("bob", "https://github.com/bob/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	require.NoError(t, registry.Add("bob", "https://github.com/bob/ctxloom"))
 
 	result, err := ListRemotes(context.Background(), nil, ListRemotesRequest{
 		Registry: registry,
@@ -244,7 +244,7 @@ func TestListRemotes_WithFS(t *testing.T) {
 	// Create remotes.yaml with existing remotes
 	remotesContent := `remotes:
   test-remote:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
 `
 	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
 
@@ -264,11 +264,11 @@ func TestAddRemote_WithFS(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
 
 	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
-	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "scm")
+	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
 	result, err := AddRemote(context.Background(), cfg, AddRemoteRequest{
 		Name:    "alice",
-		URL:     "https://github.com/alice/scm",
+		URL:     "https://github.com/alice/ctxloom",
 		FS:      fs,
 		Fetcher: fetcher,
 	})
@@ -289,7 +289,7 @@ func TestRemoveRemote_WithFS(t *testing.T) {
 	// Create remotes.yaml with existing remote
 	remotesContent := `remotes:
   to-remove:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
 `
 	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
 
@@ -307,11 +307,11 @@ func TestRemoveRemote_WithFS(t *testing.T) {
 
 func TestAddRemote_Success(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "scm")
+	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
 	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "alice",
-		URL:      "https://github.com/alice/scm",
+		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
@@ -319,41 +319,41 @@ func TestAddRemote_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
 	assert.Equal(t, "alice", result.Name)
-	assert.Contains(t, result.URL, "github.com/alice/scm")
+	assert.Contains(t, result.URL, "github.com/alice/ctxloom")
 	assert.Empty(t, result.Warning)
 
 	// Verify fetcher was called
 	assert.Len(t, fetcher.ValidateCalls, 1)
 	assert.Equal(t, "alice", fetcher.ValidateCalls[0].Owner)
-	assert.Equal(t, "scm", fetcher.ValidateCalls[0].Repo)
+	assert.Equal(t, "ctxloom", fetcher.ValidateCalls[0].Repo)
 }
 
 func TestAddRemote_InvalidRepo(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	fetcher := remote.NewMockFetcher()
 	// Don't mark repo as valid - will return true by default, need to override
-	fetcher.ValidRepos["alice/scm"] = false
+	fetcher.ValidRepos["alice/ctxloom"] = false
 
 	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "alice",
-		URL:      "https://github.com/alice/scm",
+		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "scm/v1/")
+	assert.Contains(t, result.Warning, "ctxloom/v1/")
 }
 
 func TestAddRemote_Duplicate(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "scm")
+	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
 	// Add first remote
 	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "alice",
-		URL:      "https://github.com/alice/scm",
+		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
@@ -362,7 +362,7 @@ func TestAddRemote_Duplicate(t *testing.T) {
 	// Try to add duplicate
 	_, err = AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "alice",
-		URL:      "https://github.com/bob/scm",
+		URL:      "https://github.com/bob/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
@@ -421,11 +421,11 @@ func TestAddRemote_ValidationFailed(t *testing.T) {
 
 	// Create a fetcher that returns false for ValidateRepo
 	fetcher := remote.NewMockFetcher()
-	fetcher.ValidRepos["test/scm"] = false
+	fetcher.ValidRepos["test/ctxloom"] = false
 
 	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "test",
-		URL:      "https://github.com/test/scm",
+		URL:      "https://github.com/test/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
@@ -433,7 +433,7 @@ func TestAddRemote_ValidationFailed(t *testing.T) {
 	// Should succeed but include warning
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "scm/v1")
+	assert.Contains(t, result.Warning, "ctxloom/v1")
 }
 
 func TestRemoveRemote_EmptyName(t *testing.T) {
@@ -450,7 +450,7 @@ func TestRemoveRemote_EmptyName(t *testing.T) {
 
 func TestRemoveRemote_Success(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	result, err := RemoveRemote(context.Background(), nil, RemoveRemoteRequest{
 		Name:     "alice",
@@ -479,8 +479,8 @@ func TestRemoveRemote_NotFound(t *testing.T) {
 
 func TestDiscoverRemotes_GitHubOnly(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "alice", Name: "scm", Description: "Alice's SCM", Stars: 100, URL: "https://github.com/alice/scm", Forge: remote.ForgeGitHub},
-		{Owner: "bob", Name: "scm-tools", Description: "Bob's tools", Stars: 50, URL: "https://github.com/bob/scm-tools", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom", Description: "Alice's SCM", Stars: 100, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
+		{Owner: "bob", Name: "ctxloom-tools", Description: "Bob's tools", Stars: 50, URL: "https://github.com/bob/ctxloom-tools", Forge: remote.ForgeGitHub},
 	})
 
 	result, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
@@ -498,8 +498,8 @@ func TestDiscoverRemotes_GitHubOnly(t *testing.T) {
 
 func TestDiscoverRemotes_WithMinStars(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "alice", Name: "scm", Stars: 100, URL: "https://github.com/alice/scm", Forge: remote.ForgeGitHub},
-		{Owner: "bob", Name: "scm", Stars: 5, URL: "https://github.com/bob/scm", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom", Stars: 100, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
+		{Owner: "bob", Name: "ctxloom", Stars: 5, URL: "https://github.com/bob/ctxloom", Forge: remote.ForgeGitHub},
 	})
 
 	result, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
@@ -515,7 +515,7 @@ func TestDiscoverRemotes_WithMinStars(t *testing.T) {
 
 func TestDiscoverRemotes_WithQuery(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "alice", Name: "scm", Stars: 10, URL: "https://github.com/alice/scm", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom", Stars: 10, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
 	})
 
 	_, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
@@ -531,9 +531,9 @@ func TestDiscoverRemotes_WithQuery(t *testing.T) {
 
 func TestDiscoverRemotes_WithLimit(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "a", Name: "scm", Stars: 10, Forge: remote.ForgeGitHub},
-		{Owner: "b", Name: "scm", Stars: 10, Forge: remote.ForgeGitHub},
-		{Owner: "c", Name: "scm", Stars: 10, Forge: remote.ForgeGitHub},
+		{Owner: "a", Name: "ctxloom", Stars: 10, Forge: remote.ForgeGitHub},
+		{Owner: "b", Name: "ctxloom", Stars: 10, Forge: remote.ForgeGitHub},
+		{Owner: "c", Name: "ctxloom", Stars: 10, Forge: remote.ForgeGitHub},
 	})
 
 	_, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
@@ -549,7 +549,7 @@ func TestDiscoverRemotes_WithLimit(t *testing.T) {
 
 func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 	fetcher := remote.NewMockFetcher().WithRepos([]remote.RepoInfo{
-		{Owner: "alice", Name: "scm", Stars: 10, URL: "https://github.com/alice/scm", Forge: remote.ForgeGitHub},
+		{Owner: "alice", Name: "ctxloom", Stars: 10, URL: "https://github.com/alice/ctxloom", Forge: remote.ForgeGitHub},
 	})
 
 	result, err := DiscoverRemotes(context.Background(), nil, DiscoverRemotesRequest{
@@ -559,14 +559,14 @@ func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Repositories, 1)
-	assert.Equal(t, "ctxloom remote add alice alice/scm", result.Repositories[0].AddCommand)
+	assert.Equal(t, "ctxloom remote add alice alice/ctxloom", result.Repositories[0].AddCommand)
 }
 
 func TestBrowseRemote_Bundles(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("scm/v1/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 		{Name: "testing.yaml", IsDir: false},
 	})
@@ -590,9 +590,9 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 
 func TestBrowseRemote_Profiles(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("scm/v1/profiles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/profiles", []remote.DirEntry{
 		{Name: "dev.yaml", IsDir: false},
 	})
 
@@ -611,11 +611,11 @@ func TestBrowseRemote_Profiles(t *testing.T) {
 
 func TestBrowseRemote_Both(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
-		WithDir("scm/v1/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
+		WithDir("ctxloom/v1/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
+		WithDir("ctxloom/v1/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:   "alice",
@@ -642,9 +642,9 @@ func TestBrowseRemote_NotFoundRemote(t *testing.T) {
 
 func TestBrowseRemote_PullRef(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("scm/v1/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 	})
 
@@ -662,15 +662,15 @@ func TestBrowseRemote_PullRef(t *testing.T) {
 
 func TestBrowseRemote_Recursive(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Setup directory structure with subdirectory
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 			{Name: "top-level.yaml", IsDir: false},
 			{Name: "golang", IsDir: true}, // Subdirectory
 		}).
-		WithDir("scm/v1/bundles/golang", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles/golang", []remote.DirEntry{
 			{Name: "testing.yaml", IsDir: false},
 			{Name: "best-practices.yaml", IsDir: false},
 		})
@@ -691,10 +691,10 @@ func TestBrowseRemote_Recursive(t *testing.T) {
 
 func TestBrowseRemote_WithPath(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles/subdir", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles/subdir", []remote.DirEntry{
 			{Name: "nested.yaml", IsDir: false},
 		})
 
@@ -723,7 +723,7 @@ func TestBrowseRemote_NoRemote(t *testing.T) {
 
 func TestBrowseRemote_BrowseDirError(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Create a fetcher that returns an error on ListDir
 	fetcher := remote.NewMockFetcher()
@@ -745,7 +745,7 @@ func TestBrowseRemote_BrowseDirError(t *testing.T) {
 
 func TestBrowseRemote_BrowseDirNotFound(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// Create a fetcher that returns 404 (not found)
 	fetcher := remote.NewMockFetcher()
@@ -797,7 +797,7 @@ func TestSearchRemotes_ManifestBased(t *testing.T) {
 
 func TestSearchRemotes_WithValidRegistry(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// SearchRemotes will attempt to create fetchers and query remotes
 	// Without mocking at the fetcher level, it will make network calls
@@ -895,7 +895,7 @@ profiles:
 
 func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 			{Name: "rust-tooling.yaml", IsDir: false},
 			{Name: "README.md", IsDir: false}, // Should skip non-yaml
@@ -916,7 +916,7 @@ func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 
 func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 		})
 
@@ -933,7 +933,7 @@ func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 
 func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/profiles", []remote.DirEntry{
+		WithDir("ctxloom/v1/profiles", []remote.DirEntry{
 			{Name: "dev-profile.yaml", IsDir: false},
 			{Name: "test-profile.yaml", IsDir: false},
 		})
@@ -1001,10 +1001,10 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 	// Since searchSingleRemote creates its own fetcher, we test the helper functions
 	// that it calls rather than the full integration
 	mockFetcher := remote.NewMockFetcher().
-		WithDir("scm/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
 			{Name: "test-bundle.yaml", IsDir: false},
 		}).
-		WithFile("scm/v1/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
+		WithFile("ctxloom/v1/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
 
 	rem := &remote.Remote{
 		Name:    "test-remote",

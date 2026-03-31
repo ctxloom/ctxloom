@@ -227,7 +227,7 @@ func TestGitHubFetcher_ListDir(t *testing.T) {
 		}
 
 		fetcher := NewGitHubFetcherWithClient(mock)
-		entries, err := fetcher.ListDir(ctx, "owner", "repo", "scm/v1", "")
+		entries, err := fetcher.ListDir(ctx, "owner", "repo", "ctxloom/v1", "")
 		require.NoError(t, err)
 		assert.Len(t, entries, 2)
 		assert.Equal(t, "fragment.yaml", entries[0].Name)
@@ -337,9 +337,9 @@ func TestGitHubFetcher_SearchRepos(t *testing.T) {
 			return &github.RepositoriesSearchResult{
 				Total: github.Int(2),
 				Repositories: []*github.Repository{
-					{Name: github.String("scm"), Owner: &github.User{Login: github.String("alice")}, StargazersCount: github.Int(100)},
-					{Name: github.String("scm-fragments"), Owner: &github.User{Login: github.String("bob")}, StargazersCount: github.Int(50)},
-					{Name: github.String("awesome-scm-tool"), Owner: &github.User{Login: github.String("charlie")}}, // Should be filtered
+					{Name: github.String("ctxloom"), Owner: &github.User{Login: github.String("alice")}, StargazersCount: github.Int(100)},
+					{Name: github.String("ctxloom-fragments"), Owner: &github.User{Login: github.String("bob")}, StargazersCount: github.Int(50)},
+					{Name: github.String("awesome-ctxloom-tool"), Owner: &github.User{Login: github.String("charlie")}}, // Should be filtered
 				},
 			}, nil, nil
 		}
@@ -348,8 +348,8 @@ func TestGitHubFetcher_SearchRepos(t *testing.T) {
 		repos, err := fetcher.SearchRepos(ctx, "", 30)
 		require.NoError(t, err)
 		assert.Len(t, repos, 2)
-		assert.Equal(t, "scm", repos[0].Name)
-		assert.Equal(t, "scm-fragments", repos[1].Name)
+		assert.Equal(t, "ctxloom", repos[0].Name)
+		assert.Equal(t, "ctxloom-fragments", repos[1].Name)
 	})
 
 	t.Run("api error", func(t *testing.T) {
@@ -380,7 +380,7 @@ func TestGitHubFetcher_ValidateRepo(t *testing.T) {
 		assert.True(t, valid)
 	})
 
-	t.Run("invalid repo - no scm/v1", func(t *testing.T) {
+	t.Run("invalid repo - no ctxloom/v1", func(t *testing.T) {
 		mock := newMockGitHubClient()
 		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
 			return nil, nil, &github.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}, errors.New("not found")

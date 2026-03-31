@@ -17,7 +17,7 @@ var lockCmd = &cobra.Command{
 The lockfile records exact versions (SHA commits) of all installed bundles and
 profiles, enabling reproducible installations across machines and CI environments.
 
-After modifying your installed items, run 'scm lock' to update the lockfile.
+After modifying your installed items, run 'ctxloom lock' to update the lockfile.
 Commit the lockfile to version control for reproducible builds.
 
 Related commands:

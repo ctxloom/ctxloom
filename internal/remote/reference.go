@@ -27,7 +27,7 @@ import (
 //
 // File URL (local repositories):
 //   - "file:///path/to/repo@v1/bundles/name"
-//   - "file:///home/user/scm-content@v1/fragments/security"
+//   - "file:///home/user/ctxloom-content@v1/fragments/security"
 func ParseReference(ref string) (*Reference, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
@@ -289,14 +289,14 @@ func (r *Reference) CanonicalString() string {
 func (r *Reference) BuildFilePath(itemType ItemType, version string) string {
 	if r.IsCanonical {
 		// Use embedded values
-		return fmt.Sprintf("scm/%s/%s/%s.yaml", r.Version, r.ItemType.DirName(), r.Path)
+		return fmt.Sprintf("ctxloom/%s/%s/%s.yaml", r.Version, r.ItemType.DirName(), r.Path)
 	}
-	// scm/v1/bundles/go-tools.yaml
-	return fmt.Sprintf("scm/%s/%s/%s.yaml", version, itemType.DirName(), r.Path)
+	// ctxloom/v1/bundles/go-tools.yaml
+	return fmt.Sprintf("ctxloom/%s/%s/%s.yaml", version, itemType.DirName(), r.Path)
 }
 
 // LocalPath returns the local path where the item would be installed.
-// baseDir is the .scm directory path.
+// baseDir is the .ctxloom directory path.
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	var dir string
 	var remoteName string
@@ -425,8 +425,8 @@ func (r *Reference) MustCanonical(registry *Registry, itemType ItemType) *Refere
 //
 // Examples:
 //
-//	https://github.com/owner/scm-github@v1/bundles/core-practices@v1.2.3
-//	  -> scm-github/core-practices
+//	https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3
+//	  -> ctxloom-github/core-practices
 //
 //	git@github.com:owner/my-repo@v1/profiles/dev@abc123
 //	  -> my-repo/dev
@@ -447,7 +447,7 @@ func (r *Reference) ToLocalName() string {
 // Examples:
 //
 //	https://github.com/owner/repo -> repo
-//	https://github.com/owner/my-scm-content -> my-scm-content
+//	https://github.com/owner/my-ctxloom-content -> my-ctxloom-content
 //	git@github.com:owner/repo -> repo
 //	file:///path/to/repo -> repo
 func ExtractRepoName(repoURL string) string {

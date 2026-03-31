@@ -248,7 +248,7 @@ func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
 		Bundles: map[string]LockEntry{
 			"alice/core-practices": {
 				SHA:        "abc123",
-				URL:        "https://github.com/alice/scm",
+				URL:        "https://github.com/alice/ctxloom",
 				SCMVersion: "v1",
 			},
 		},
@@ -262,5 +262,5 @@ func TestBundleResolver_LocalPathToCanonicalURL_AliasEntry(t *testing.T) {
 	url, err := resolver.LocalPathToCanonicalURL(localPath)
 	require.NoError(t, err)
 	// For alias refs, builds canonical URL from entry metadata
-	assert.Equal(t, "https://github.com/alice/scm@v1/bundles/core-practices", url)
+	assert.Equal(t, "https://github.com/alice/ctxloom@v1/bundles/core-practices", url)
 }

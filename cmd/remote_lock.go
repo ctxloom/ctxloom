@@ -42,7 +42,7 @@ Examples:
 var remoteOutdatedCmd = &cobra.Command{
 	Use:    "outdated",
 	Short:  "Show items with newer versions available",
-	Hidden: true, // Use 'scm update' to check for outdated items
+	Hidden: true, // Use 'ctxloom update' to check for outdated items
 	Long: `Check if any locked items have newer versions available.
 
 Compares locked SHAs against the latest commits on the default branch

@@ -76,7 +76,7 @@ func isSCMWrapper(pid int) bool {
 
 	// Check if first arg is ctxloom binary
 	exe := cmdline[0]
-	if !strings.HasSuffix(exe, "scm") && !strings.HasSuffix(exe, "/scm") {
+	if !strings.HasSuffix(exe, "ctxloom") && !strings.HasSuffix(exe, "/ctxloom") {
 		return false
 	}
 

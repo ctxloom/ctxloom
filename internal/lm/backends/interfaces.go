@@ -40,9 +40,6 @@ type Backend interface {
 	Version() string
 	SupportedModes() []ExecutionMode
 
-	// Configuration
-	ContextFileName() string // Target file for context (e.g., "CLAUDE.md", "GEMINI.md")
-
 	// Capability accessors - return nil if not supported.
 	// These are CONCEPTS, not implementations. The returned objects
 	// handle backend-specific details internally.

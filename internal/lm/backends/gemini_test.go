@@ -125,7 +125,7 @@ func TestGemini_BuildArgs_Combined(t *testing.T) {
 // Gemini Skills Tests
 //
 // These tests verify that Gemini skills/slash commands are properly
-// transformed to TOML format and written to .gemini/commands/scm/.
+// transformed to TOML format and written to .gemini/commands/ctxloom/.
 // =============================================================================
 
 // TestGeminiConfigIsEnabled verifies the opt-out model for Gemini config.

@@ -99,35 +99,3 @@ func TestApplyPluginConfig(t *testing.T) {
 		assert.NotNil(t, backend)
 	})
 }
-
-func TestContextFileName(t *testing.T) {
-	t.Run("returns context file name for registered backend", func(t *testing.T) {
-		fileName := ContextFileName("claude-code")
-		// Claude Code uses CLAUDE.md
-		assert.Equal(t, "CLAUDE.md", fileName)
-	})
-
-	t.Run("returns empty for non-existent backend", func(t *testing.T) {
-		fileName := ContextFileName("nonexistent")
-		assert.Equal(t, "", fileName)
-	})
-
-	t.Run("returns gemini context file name", func(t *testing.T) {
-		fileName := ContextFileName("gemini")
-		assert.Equal(t, "GEMINI.md", fileName)
-	})
-}
-
-func TestContextFileNames(t *testing.T) {
-	fileNames := ContextFileNames()
-
-	// Should include backends with non-empty context files
-	assert.Contains(t, fileNames, "claude-code")
-	assert.Contains(t, fileNames, "gemini")
-	assert.Equal(t, "CLAUDE.md", fileNames["claude-code"])
-	assert.Equal(t, "GEMINI.md", fileNames["gemini"])
-
-	// Mock has empty context file name, should not be included
-	_, hasMock := fileNames["mock"]
-	assert.False(t, hasMock)
-}

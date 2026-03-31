@@ -30,9 +30,6 @@ func NewMock() *Mock {
 	}
 }
 
-// ContextFileName returns empty - Mock doesn't use context files.
-func (b *Mock) ContextFileName() string { return "" }
-
 // Lifecycle returns nil - Mock doesn't support lifecycle hooks.
 func (b *Mock) Lifecycle() LifecycleHandler { return nil }
 

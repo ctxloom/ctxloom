@@ -33,13 +33,13 @@ func TestLockDependenciesRequest_FSField(t *testing.T) {
 func TestLockDependenciesResult_Fields(t *testing.T) {
 	result := LockDependenciesResult{
 		Status:    "generated",
-		Path:      "/project/.ctxloom/scm.lock",
+		Path:      "/project/.ctxloom/ctxloom.lock",
 		ItemCount: 5,
 		Message:   "",
 	}
 
 	assert.Equal(t, "generated", result.Status)
-	assert.Contains(t, result.Path, "scm.lock")
+	assert.Contains(t, result.Path, "ctxloom.lock")
 	assert.Equal(t, 5, result.ItemCount)
 }
 
@@ -557,7 +557,7 @@ func TestInstallDependencies_RegistryError(t *testing.T) {
 bundles:
   test/bundle:
     sha: abc123full
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     item: bundle
 profiles: {}
 `
@@ -897,7 +897,7 @@ func TestCheckOutdated_RegistryError(t *testing.T) {
 bundles:
   test/bundle:
     sha: abc123full
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     item: bundle
 profiles: {}
 `

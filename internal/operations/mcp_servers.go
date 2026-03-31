@@ -136,7 +136,7 @@ type AddMCPServerRequest struct {
 
 	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// AppDir is the SCM directory path. Required when FS is set.
+	// AppDir is the ctxloom directory path. Required when FS is set.
 	AppDir string `json:"-"`
 }
 
@@ -240,7 +240,7 @@ type RemoveMCPServerRequest struct {
 
 	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// AppDir is the SCM directory path. Required when FS is set.
+	// AppDir is the ctxloom directory path. Required when FS is set.
 	AppDir string `json:"-"`
 }
 
@@ -341,7 +341,7 @@ type SetMCPAutoRegisterRequest struct {
 
 	// FS is an optional filesystem for testing. Used with AppDir.
 	FS afero.Fs `json:"-"`
-	// AppDir is the SCM directory path. Required when FS is set.
+	// AppDir is the ctxloom directory path. Required when FS is set.
 	AppDir string `json:"-"`
 }
 

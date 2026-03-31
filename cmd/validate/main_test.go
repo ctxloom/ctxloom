@@ -41,7 +41,7 @@ func TestRun_ValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Create .scm directory and valid config
+	// Create .ctxloom directory and valid config
 	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
 	validConfig := `
 defaults:

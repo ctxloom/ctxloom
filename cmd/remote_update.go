@@ -414,7 +414,7 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 		for _, name := range missingDefaults {
 			fmt.Printf("  - %s\n", name)
 		}
-		fmt.Println("\nUpdate your scm.yaml to fix the defaults.profiles list.")
+		fmt.Println("\nUpdate your ctxloom.yaml to fix the defaults.profiles list.")
 	}
 
 	// Regenerate lockfile
@@ -482,7 +482,7 @@ func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
 			}
 
 			// Normalize canonical URLs to local names for comparison
-			// e.g., https://github.com/owner/scm-github@v1/bundles/name -> scm-github/name
+			// e.g., https://github.com/owner/ctxloom-github@v1/bundles/name -> ctxloom-github/name
 			ref, err := remote.ParseReference(bundleRef)
 			if err == nil && ref.IsCanonical {
 				bundleRef = ref.ToLocalName()

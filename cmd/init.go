@@ -23,26 +23,26 @@ import (
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize a new .scm directory",
+	Short: "Initialize a new .ctxloom directory",
 	Annotations: map[string]string{
 		AnnotationLLMWrapper: "true",
 	},
-	Long: `Initialize a new .scm directory in the current working directory.
+	Long: `Initialize a new .ctxloom directory in the current working directory.
 
-This creates a marker directory that SCM uses to identify a project root.
-All SCM data (profiles, bundles, fragments, prompts) will be stored here.
+This creates a marker directory that ctxloom uses to identify a project root.
+All ctxloom data (profiles, bundles, fragments, prompts) will be stored here.
 
-If no .scm directory exists when running SCM commands, the user home ~/.scm
+If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
 is used as a fallback.
 
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine (claude-code, gemini, etc.)
-  2. Optionally adding a personal SCM repository as a remote
+  2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI to help discover and configure profiles
 
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
-  ctxloom init --home              # Initialize in ~/.scm
+  ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine gemini     # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts`,
 	RunE: runInit,
@@ -68,12 +68,12 @@ func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-// ensureGitignoreEntry adds SCM memory directory to .gitignore if not already present.
+// ensureGitignoreEntry adds ctxloom memory directory to .gitignore if not already present.
 // This keeps session logs local (machine-specific, potentially large).
 func ensureGitignoreEntry(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	memoryEntry := ".ctxloom/memory/"
-	comment := "# SCM memory (local session data, not shared)"
+	comment := "# ctxloom memory (local session data, not shared)"
 
 	// Read existing .gitignore if it exists
 	var lines []string
@@ -309,9 +309,9 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 	}
 }
 
-// promptPersonalRepo optionally asks for a personal SCM GitHub repo.
+// promptPersonalRepo optionally asks for a personal ctxloom GitHub repo.
 func (p *initPrompts) promptPersonalRepo() (string, error) {
-	fmt.Print("\nDo you have a personal SCM repository? (y/N): ")
+	fmt.Print("\nDo you have a personal ctxloom repository? (y/N): ")
 	input, err := p.readCleanLine()
 	if err != nil {
 		return "", err
@@ -322,7 +322,7 @@ func (p *initPrompts) promptPersonalRepo() (string, error) {
 		return "", nil
 	}
 
-	fmt.Print("Enter GitHub repo (e.g., 'myuser/scm-profiles'): ")
+	fmt.Print("Enter GitHub repo (e.g., 'myuser/ctxloom-profiles'): ")
 	repo, err := p.readCleanLine()
 	if err != nil {
 		return "", err
@@ -348,12 +348,12 @@ defaults:
 
 # MCP server configuration
 mcp:
-  auto_register_scm: true
+  auto_register_ctxloom: true
 `, engine, engine))
 }
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
-const profileDiscoveryPrompt = `Welcome to SCM! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
+const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
 
 **First, scan the current directory** for project indicators like:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
@@ -394,7 +394,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 		var err error
 		oldState, err = term.GetState(int(os.Stdin.Fd()))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to save terminal state: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to save terminal state: %v\n", err)
 		}
 	}
 
@@ -421,7 +421,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 
 	client, err := pb.NewSelfInvokingClient(engine, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to launch %s: %v\n", engine, err)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to launch %s: %v\n", engine, err)
 		return nil // Fault tolerant - don't fail init
 	}
 	defer client.Kill()
@@ -437,7 +437,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 
 	_, err = client.Run(ctx, req, os.Stdout, os.Stderr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "SCM: warning: AI session ended: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: AI session ended: %v\n", err)
 	}
 
 	return nil
@@ -464,7 +464,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	alreadyExists := false
 	if info, err := os.Stat(appDir); err == nil && info.IsDir() {
 		alreadyExists = true
-		fmt.Printf("SCM directory already exists: %s\n", appDir)
+		fmt.Printf("ctxloom directory already exists: %s\n", appDir)
 	}
 
 	// Determine if interactive mode
@@ -508,7 +508,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				if err == errNoEngines {
 					return err // Already printed message above
 				}
-				fmt.Fprintf(os.Stderr, "SCM: warning: failed to read engine selection: %v\n", err)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read engine selection: %v\n", err)
 				selectedEngine = "claude-code" // fallback
 			} else {
 				selectedEngine = engine
@@ -517,7 +517,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			// 2. Personal repo (optional)
 			repo, err := prompts.promptPersonalRepo()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "SCM: warning: failed to read repo selection: %v\n", err)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read repo selection: %v\n", err)
 			} else {
 				personalRepo = repo
 			}
@@ -563,21 +563,21 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create remotes.yaml: %w", err)
 		}
 
-		fmt.Printf("Initialized SCM directory: %s\n", appDir)
+		fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 		fmt.Printf("Default AI engine: %s\n", selectedEngine)
 
 		// Add personal remote if provided
 		if personalRepo != "" {
 			cfg, loadErr := config.Load()
 			if loadErr != nil {
-				fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config for remote: %v\n", loadErr)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
 			} else {
 				_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
 					Name: "personal",
 					URL:  personalRepo,
 				})
 				if addErr != nil {
-					fmt.Fprintf(os.Stderr, "SCM: warning: failed to add personal remote: %v\n", addErr)
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add personal remote: %v\n", addErr)
 				} else {
 					fmt.Printf("Added personal remote: %s\n", personalRepo)
 				}
@@ -587,14 +587,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// Apply hooks to register MCP server
 		cfg, err := config.Load()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to load config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
 		} else {
 			result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
 				Backend:           "all",
 				RegenerateContext: false,
 			})
 			if applyErr != nil {
-				fmt.Fprintf(os.Stderr, "SCM: warning: failed to apply hooks: %v\n", applyErr)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", applyErr)
 			} else {
 				fmt.Printf("Applied hooks for: %v\n", result.Backends)
 			}
@@ -602,7 +602,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 		// Update .gitignore to exclude .ctxloom/memory/ (session logs)
 		if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: failed to update .gitignore: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
 		}
 	}
 
@@ -628,7 +628,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 		workDir := filepath.Dir(appDir)
 		if launchErr := launchEngineWithPrompt(cmd.Context(), selectedEngine, workDir); launchErr != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: %v\n", launchErr)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", launchErr)
 		}
 	}
 

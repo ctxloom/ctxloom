@@ -26,13 +26,13 @@ proto: dev-image
 
 # List available plugins
 plugin-list:
-    ./scm plugin list
+    ./ctxloom plugin list
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o scm .
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
 
-# Run all tests (builds scm first for acceptance tests)
+# Run all tests (builds ctxloom first for acceptance tests)
 test: build
     go test -race -coverprofile=coverage.out ./...
 
@@ -89,16 +89,16 @@ cover-html:
 # Run tests with coverage (legacy alias)
 test-coverage: cover
 
-# Run integration tests (requires scm binary)
+# Run integration tests (requires ctxloom binary)
 test-integration: build
     go test -v -tags integration ./tests/integration/...
 
 # Run all tests in container (matches CI environment)
 test-container:
-    docker run --rm -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
+    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
         go mod download && \
         go test -race ./... && \
-        CGO_ENABLED=0 go build -o scm . && \
+        CGO_ENABLED=0 go build -o ctxloom . && \
         go test -v -tags integration ./tests/integration/...'
 
 # ===== Mutation testing =====
@@ -117,11 +117,11 @@ mutate-install:
 
 # Run mutation tests in container
 mutate-container:
-    docker run --rm -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
+    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
 
 # Clean build artifacts
 clean:
-    rm -f scm
+    rm -f ctxloom scm
     rm -rf bin/ man/
     go clean
 
@@ -148,12 +148,12 @@ run *ARGS:
 # Build, compress, and install to ~/go/bin (standard Go location)
 install: build-compressed
     mkdir -p ~/go/bin
-    -pkill -x scm && sleep 0.5
-    cp scm ~/go/bin/
+    -pkill -x ctxloom && sleep 0.5
+    cp ctxloom ~/go/bin/
 
 # Uninstall from ~/go/bin
 uninstall:
-    rm -f ~/go/bin/scm
+    rm -f ~/go/bin/ctxloom
 
 # Generate man pages
 man:
@@ -163,31 +163,31 @@ man:
 man-install: man
     @mkdir -p ~/.local/share/man/man1
     cp man/man1/*.1 ~/.local/share/man/man1/
-    @echo "Man pages installed. Run 'man scm' to view."
+    @echo "Man pages installed. Run 'man ctxloom' to view."
 
 # Show help
 help:
-    ./scm --help
+    ./ctxloom --help
 
-# Initialize .scm directory
+# Initialize .ctxloom directory
 init:
-    ./scm init
+    ./ctxloom init
 
 # Dry run with test fragments
 dry-run PROMPT:
-    ./scm run -f test-fragment -f additional-context -n "{{PROMPT}}"
+    ./ctxloom run -f test-fragment -f additional-context -n "{{PROMPT}}"
 
 # Run with Gemini plugin
 gemini *ARGS:
-    ./scm -P gemini {{ARGS}}
+    ./ctxloom -P gemini {{ARGS}}
 
 # Run with Claude plugin (default)
 claude *ARGS:
-    ./scm -P claude-code {{ARGS}}
+    ./ctxloom -P claude-code {{ARGS}}
 
 # Code review with reviewer profile
 review *ARGS:
-    ./scm -p reviewer -r code-review {{ARGS}}
+    ./ctxloom -p reviewer -r code-review {{ARGS}}
 
 # ===== Terraform targets =====
 
@@ -229,46 +229,46 @@ variant := "wolfi"
 
 # Build base agent container
 container-build-base:
-    podman build -t {{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-base container/{{variant}}/
 
 # Build Claude Code agent container
 container-build-claude: container-build-base
-    podman build -t {{registry}}/scm-agent-claude:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-agent-claude:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-claude-code container/{{variant}}/
 
 # Build Gemini CLI agent container
 container-build-gemini: container-build-base
-    podman build -t {{registry}}/scm-agent-gemini:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-agent-gemini:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-gemini container/{{variant}}/
 
 # Build Codex agent container
 container-build-codex: container-build-base
-    podman build -t {{registry}}/scm-agent-codex:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-agent-codex:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-codex container/{{variant}}/
 
 # Build Cline agent container
 container-build-cline: container-build-base
-    podman build -t {{registry}}/scm-agent-cline:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-agent-cline:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-cline container/{{variant}}/
 
 # Build Aider agent container (standalone - Python)
 container-build-aider:
-    podman build -t {{registry}}/scm-agent-aider:latest \
+    podman build -t {{registry}}/ctxloom-agent-aider:latest \
         -f container/{{variant}}/Containerfile-aider container/{{variant}}/
 
 # Build Goose agent container (standalone - Block)
 container-build-goose:
-    podman build -t {{registry}}/scm-agent-goose:latest \
+    podman build -t {{registry}}/ctxloom-agent-goose:latest \
         -f container/{{variant}}/Containerfile-goose container/{{variant}}/
 
 # Build Q Developer agent container (standalone - Amazon)
 container-build-qdeveloper:
-    podman build -t {{registry}}/scm-agent-qdeveloper:latest \
+    podman build -t {{registry}}/ctxloom-agent-qdeveloper:latest \
         -f container/{{variant}}/Containerfile-qdeveloper container/{{variant}}/
 
 # Build all agent containers
@@ -278,38 +278,38 @@ container-build-agents: container-build-claude container-build-gemini container-
 
 # Build Go LSP container (gopls + tools)
 container-build-lang-go: container-build-base
-    podman build -t {{registry}}/scm-lsp-go:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-go:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-go container/{{variant}}/
 
 # Build Python LSP container (pyright + tools)
 container-build-lang-python: container-build-base
-    podman build -t {{registry}}/scm-lsp-python:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-python:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-python container/{{variant}}/
 
 # Build Rust LSP container (rust-analyzer + tools)
 container-build-lang-rust: container-build-base
-    podman build -t {{registry}}/scm-lsp-rust:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-rust:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-rust container/{{variant}}/
 
 # Build TypeScript LSP container (typescript-language-server)
 container-build-lang-typescript: container-build-base
-    podman build -t {{registry}}/scm-lsp-typescript:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-typescript:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-typescript container/{{variant}}/
 
 # Build Java LSP container (jdtls + tools)
 container-build-lang-java: container-build-base
-    podman build -t {{registry}}/scm-lsp-java:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-java:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-java container/{{variant}}/
 
 # Build C# LSP container (omnisharp)
 container-build-lang-csharp: container-build-base
-    podman build -t {{registry}}/scm-lsp-csharp:latest \
-        --build-arg BASE_IMAGE={{registry}}/scm-agent-base:latest \
+    podman build -t {{registry}}/ctxloom-lsp-csharp:latest \
+        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/lang/Containerfile-csharp container/{{variant}}/
 
 # Build all language LSP containers
@@ -320,53 +320,53 @@ container-build-all: container-build-langs container-build-agents
 
 # Push all agent containers to registry
 container-push-agents:
-    podman push {{registry}}/scm-agent-base:latest
-    podman push {{registry}}/scm-agent-claude:latest
-    podman push {{registry}}/scm-agent-gemini:latest
-    podman push {{registry}}/scm-agent-codex:latest
-    podman push {{registry}}/scm-agent-cline:latest
-    podman push {{registry}}/scm-agent-aider:latest
-    podman push {{registry}}/scm-agent-goose:latest
-    podman push {{registry}}/scm-agent-qdeveloper:latest
+    podman push {{registry}}/ctxloom-agent-base:latest
+    podman push {{registry}}/ctxloom-agent-claude:latest
+    podman push {{registry}}/ctxloom-agent-gemini:latest
+    podman push {{registry}}/ctxloom-agent-codex:latest
+    podman push {{registry}}/ctxloom-agent-cline:latest
+    podman push {{registry}}/ctxloom-agent-aider:latest
+    podman push {{registry}}/ctxloom-agent-goose:latest
+    podman push {{registry}}/ctxloom-agent-qdeveloper:latest
 
 # Push all language LSP containers to registry
 container-push-langs:
-    podman push {{registry}}/scm-lsp-go:latest
-    podman push {{registry}}/scm-lsp-python:latest
-    podman push {{registry}}/scm-lsp-rust:latest
-    podman push {{registry}}/scm-lsp-typescript:latest
-    podman push {{registry}}/scm-lsp-java:latest
-    podman push {{registry}}/scm-lsp-csharp:latest
+    podman push {{registry}}/ctxloom-lsp-go:latest
+    podman push {{registry}}/ctxloom-lsp-python:latest
+    podman push {{registry}}/ctxloom-lsp-rust:latest
+    podman push {{registry}}/ctxloom-lsp-typescript:latest
+    podman push {{registry}}/ctxloom-lsp-java:latest
+    podman push {{registry}}/ctxloom-lsp-csharp:latest
 
 # Push all containers to registry
 container-push-all: container-push-langs container-push-agents
 
 # Clean agent container images
 container-clean-agents:
-    -podman rmi {{registry}}/scm-agent-claude:latest
-    -podman rmi {{registry}}/scm-agent-gemini:latest
-    -podman rmi {{registry}}/scm-agent-codex:latest
-    -podman rmi {{registry}}/scm-agent-cline:latest
-    -podman rmi {{registry}}/scm-agent-aider:latest
-    -podman rmi {{registry}}/scm-agent-goose:latest
-    -podman rmi {{registry}}/scm-agent-qdeveloper:latest
+    -podman rmi {{registry}}/ctxloom-agent-claude:latest
+    -podman rmi {{registry}}/ctxloom-agent-gemini:latest
+    -podman rmi {{registry}}/ctxloom-agent-codex:latest
+    -podman rmi {{registry}}/ctxloom-agent-cline:latest
+    -podman rmi {{registry}}/ctxloom-agent-aider:latest
+    -podman rmi {{registry}}/ctxloom-agent-goose:latest
+    -podman rmi {{registry}}/ctxloom-agent-qdeveloper:latest
 
 # Clean language LSP container images
 container-clean-langs:
-    -podman rmi {{registry}}/scm-lsp-go:latest
-    -podman rmi {{registry}}/scm-lsp-python:latest
-    -podman rmi {{registry}}/scm-lsp-rust:latest
-    -podman rmi {{registry}}/scm-lsp-typescript:latest
-    -podman rmi {{registry}}/scm-lsp-java:latest
-    -podman rmi {{registry}}/scm-lsp-csharp:latest
+    -podman rmi {{registry}}/ctxloom-lsp-go:latest
+    -podman rmi {{registry}}/ctxloom-lsp-python:latest
+    -podman rmi {{registry}}/ctxloom-lsp-rust:latest
+    -podman rmi {{registry}}/ctxloom-lsp-typescript:latest
+    -podman rmi {{registry}}/ctxloom-lsp-java:latest
+    -podman rmi {{registry}}/ctxloom-lsp-csharp:latest
 
 # Clean all container images
 container-clean: container-clean-agents container-clean-langs
-    -podman rmi {{registry}}/scm-agent-base:latest
+    -podman rmi {{registry}}/ctxloom-agent-base:latest
 
-# List all scm container images
+# List all ctxloom container images
 container-list:
-    @podman images | grep -E "scm-(agent|lsp)" | sort
+    @podman images | grep -E "ctxloom-(agent|lsp)" | sort
 
 # ===== Devcontainer overlay pattern =====
 # Runs targets inside devcontainer with CGO dependencies (libtokenizers, ONNX runtime)
@@ -376,7 +376,7 @@ container-list:
 container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 
 # Devcontainer image name
-devcontainer_image := "scm-devcontainer"
+devcontainer_image := "ctxloom-devcontainer"
 
 # Build devcontainer image
 dev-image:
@@ -390,8 +390,9 @@ _run +ARGS:
         # Already inside container (devcontainer or CI), use container justfile directly
         just -f justfile.container {{ARGS}}
     else
-        # Run in container with justfile overlay
+        # Run in container with justfile overlay and uid/gid mapping
         {{container_cmd}} run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$(pwd):/workspace" \
             -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
@@ -426,6 +427,7 @@ dev +ARGS: dev-image
 # Shell into devcontainer for debugging
 dev-shell: dev-image
     {{container_cmd}} run --rm -it \
+        --user "$(id -u):$(id -g)" \
         -v "$(pwd):/workspace" \
         -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
         -w /workspace \

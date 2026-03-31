@@ -70,9 +70,9 @@ func TestMockFetcher_WithRepos(t *testing.T) {
 }
 
 func TestMockFetcher_WithValidRepo(t *testing.T) {
-	mock := NewMockFetcher().WithValidRepo("alice", "scm")
+	mock := NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
-	if !mock.ValidRepos["alice/scm"] {
+	if !mock.ValidRepos["alice/ctxloom"] {
 		t.Error("repo should be valid")
 	}
 }
@@ -255,8 +255,8 @@ func TestMockFetcher_ValidateRepo(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("explicit valid", func(t *testing.T) {
-		mock := NewMockFetcher().WithValidRepo("alice", "scm")
-		valid, err := mock.ValidateRepo(ctx, "alice", "scm")
+		mock := NewMockFetcher().WithValidRepo("alice", "ctxloom")
+		valid, err := mock.ValidateRepo(ctx, "alice", "ctxloom")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -298,7 +298,7 @@ func TestMockFetcher_ValidateRepo(t *testing.T) {
 		mock := NewMockFetcher()
 		mock.ValidateErr = errors.New("injected error")
 
-		_, err := mock.ValidateRepo(ctx, "alice", "scm")
+		_, err := mock.ValidateRepo(ctx, "alice", "ctxloom")
 		if err == nil || err.Error() != "injected error" {
 			t.Error("expected injected error")
 		}

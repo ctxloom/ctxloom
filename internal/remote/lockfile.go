@@ -30,7 +30,7 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 }
 
 // NewLockfileManager creates a new lockfile manager.
-// If baseDir is empty, uses the current directory's .scm folder.
+// If baseDir is empty, uses the current directory's .ctxloom folder.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
 		baseDir = ".ctxloom"
@@ -180,7 +180,7 @@ func (l *Lockfile) Count() int {
 }
 
 // GetCanonicalURL builds a canonical URL from a lockfile entry.
-// The localName should be in format "remote/path" (e.g., "scm-github/core-practices").
+// The localName should be in format "remote/path" (e.g., "ctxloom-github/core-practices").
 // Returns the full canonical URL including content version for reproducibility.
 //
 // Format: <url>@<scm_version>/<type>/<path>@<content_version>

@@ -42,7 +42,7 @@ func SetExecutablePathForTesting(path string) {
 func GetContextInjectionCommand(hash, workDir string) string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
-		// Fallback to "scm" if we can't get the path (shouldn't happen)
+		// Fallback to "ctxloom" if we can't get the path (shouldn't happen)
 		execPath = "ctxloom"
 	}
 	// Include --project flag with absolute path to ensure hook finds the context file
@@ -60,7 +60,7 @@ func GetContextInjectionCommand(hash, workDir string) string {
 func GetMemoryCheckCommand(workDir string) string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
-		// Fallback to "scm" if we can't get the path (shouldn't happen)
+		// Fallback to "ctxloom" if we can't get the path (shouldn't happen)
 		execPath = "ctxloom"
 	}
 	// Use absolute path for --project to ensure hook works from any directory
@@ -76,7 +76,7 @@ func GetMemoryCheckCommand(workDir string) string {
 func GetSCMMCPCommand() string {
 	execPath, err := GetExecutablePath()
 	if err != nil {
-		// Fallback to "scm" if we can't get the path (shouldn't happen)
+		// Fallback to "ctxloom" if we can't get the path (shouldn't happen)
 		return "ctxloom"
 	}
 	return execPath

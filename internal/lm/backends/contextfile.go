@@ -98,8 +98,8 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	// noticeable across most models. Structure and relevance matter more than size.
 	const maxRecommendedSize = 16 * 1024 // 16KB (~4,000 tokens)
 	if len(content) > maxRecommendedSize {
-		fmt.Fprintf(os.Stderr, "SCM: warning: assembled context is %dKB (recommended max: 16KB)\n", len(content)/1024)
-		fmt.Fprintf(os.Stderr, "SCM: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments\n")
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: assembled context is %dKB (recommended max: 16KB)\n", len(content)/1024)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments\n")
 	}
 
 	// Generate hash-based filename from content

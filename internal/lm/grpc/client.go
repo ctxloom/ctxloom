@@ -90,7 +90,7 @@ func verbosityToHclogLevel(verbosity int) hclog.Level {
 }
 
 // NewPluginClient creates a new plugin client that spawns the given command.
-// The command should be the path to the plugin binary (e.g., "scm" with args ["plugin", "serve", "claudecode"]).
+// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["plugin", "serve", "claudecode"]).
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
 func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, error) {
 	level := verbosityToHclogLevel(verbosity)
@@ -141,7 +141,7 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 	}, nil
 }
 
-// NewSelfInvokingClient creates a plugin client that invokes "scm plugin serve <backend>".
+// NewSelfInvokingClient creates a plugin client that invokes "ctxloom plugin serve <backend>".
 // This is used when no external plugin binary is found.
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
 func NewSelfInvokingClient(backendName string, verbosity int) (*PluginClient, error) {

@@ -33,18 +33,18 @@ func TestToLocalRef(t *testing.T) {
 		// Canonical HTTPS URLs
 		{
 			name:  "https canonical URL",
-			input: "https://github.com/owner/scm-github@v1/bundles/core-practices",
-			want:  "scm-github/core-practices",
+			input: "https://github.com/owner/ctxloom-github@v1/bundles/core-practices",
+			want:  "ctxloom-github/core-practices",
 		},
 		{
 			name:  "https canonical URL with content version",
-			input: "https://github.com/owner/scm-github@v1/bundles/core-practices@v1.2.3",
-			want:  "scm-github/core-practices",
+			input: "https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3",
+			want:  "ctxloom-github/core-practices",
 		},
 		{
 			name:  "https canonical URL for profile",
-			input: "https://github.com/owner/scm-github@v1/profiles/rust-developer",
-			want:  "scm-github/rust-developer",
+			input: "https://github.com/owner/ctxloom-github@v1/profiles/rust-developer",
+			want:  "ctxloom-github/rust-developer",
 		},
 		{
 			name:  "https canonical URL nested path",
@@ -72,13 +72,13 @@ func TestToLocalRef(t *testing.T) {
 		},
 		{
 			name:  "canonical URL with fragment path",
-			input: "https://github.com/owner/scm-github@v1/bundles/core#fragments/coding",
-			want:  "scm-github/core#fragments/coding",
+			input: "https://github.com/owner/ctxloom-github@v1/bundles/core#fragments/coding",
+			want:  "ctxloom-github/core#fragments/coding",
 		},
 		{
 			name:  "canonical URL with prompt path",
-			input: "https://github.com/owner/scm-github@v1/bundles/core#prompts/review",
-			want:  "scm-github/core#prompts/review",
+			input: "https://github.com/owner/ctxloom-github@v1/bundles/core#prompts/review",
+			want:  "ctxloom-github/core#prompts/review",
 		},
 
 		// Error cases
@@ -108,11 +108,11 @@ func TestToCanonicalRef(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	_ = afero.WriteFile(fs, "remotes.yaml", []byte(`
 remotes:
-  scm-github:
-    url: https://github.com/owner/scm-github
+  ctxloom-github:
+    url: https://github.com/owner/ctxloom-github
     version: v1
   alice:
-    url: https://github.com/alice/scm-content
+    url: https://github.com/alice/ctxloom-content
     version: v1
 `), 0644)
 
@@ -130,27 +130,27 @@ remotes:
 	}{
 		{
 			name:     "simple local ref to canonical",
-			input:    "scm-github/core-practices",
+			input:    "ctxloom-github/core-practices",
 			itemType: ItemTypeBundle,
-			want:     "https://github.com/owner/scm-github@v1/bundles/core-practices",
+			want:     "https://github.com/owner/ctxloom-github@v1/bundles/core-practices",
 		},
 		{
 			name:     "local ref to canonical profile",
-			input:    "scm-github/rust-developer",
+			input:    "ctxloom-github/rust-developer",
 			itemType: ItemTypeProfile,
-			want:     "https://github.com/owner/scm-github@v1/profiles/rust-developer",
+			want:     "https://github.com/owner/ctxloom-github@v1/profiles/rust-developer",
 		},
 		{
 			name:     "already canonical passthrough",
-			input:    "https://github.com/owner/scm-github@v1/bundles/core",
+			input:    "https://github.com/owner/ctxloom-github@v1/bundles/core",
 			itemType: ItemTypeBundle,
-			want:     "https://github.com/owner/scm-github@v1/bundles/core",
+			want:     "https://github.com/owner/ctxloom-github@v1/bundles/core",
 		},
 		{
 			name:     "local ref with fragment path",
-			input:    "scm-github/core#fragments/auth",
+			input:    "ctxloom-github/core#fragments/auth",
 			itemType: ItemTypeBundle,
-			want:     "https://github.com/owner/scm-github@v1/bundles/core#fragments/auth",
+			want:     "https://github.com/owner/ctxloom-github@v1/bundles/core#fragments/auth",
 		},
 		{
 			name:     "unknown remote",
@@ -190,14 +190,14 @@ func TestNormalizeProfileBundles(t *testing.T) {
 		{
 			name: "mixed canonical and local refs",
 			input: []string{
-				"https://github.com/owner/scm-github@v1/bundles/core-practices",
+				"https://github.com/owner/ctxloom-github@v1/bundles/core-practices",
 				"alice/security",
-				"https://github.com/owner/scm-github@v1/bundles/testing@v1.0.0",
+				"https://github.com/owner/ctxloom-github@v1/bundles/testing@v1.0.0",
 			},
 			want: []string{
-				"scm-github/core-practices",
+				"ctxloom-github/core-practices",
 				"alice/security",
-				"scm-github/testing",
+				"ctxloom-github/testing",
 			},
 		},
 		{
@@ -273,7 +273,7 @@ func TestIsCanonicalRef(t *testing.T) {
 		{"git@github.com:owner/repo@v1/bundles/core", true},
 		{"file:///path/to/repo@v1/bundles/core", true},
 		{"alice/security", false},
-		{"scm-github/core-practices", false},
+		{"ctxloom-github/core-practices", false},
 		{"", false},
 	}
 
@@ -292,7 +292,7 @@ func TestIsLocalRef(t *testing.T) {
 		want  bool
 	}{
 		{"alice/security", true},
-		{"scm-github/core-practices", true},
+		{"ctxloom-github/core-practices", true},
 		{"https://github.com/owner/repo@v1/bundles/core", false},
 		{"git@github.com:owner/repo@v1/bundles/core", false},
 		{"", true}, // Empty is not a URL

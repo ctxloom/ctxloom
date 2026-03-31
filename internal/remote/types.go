@@ -255,7 +255,7 @@ const (
 //   - file:///path/to/repo@v1/bundles/name@v1.2.3
 //
 // Format: <repo>@<scm_version>/<type>/<path>@<content_version>
-// - First @ = SCM schema version (directory: scm/v1/bundles/...)
+// - First @ = SCM schema version (directory: ctxloom/v1/bundles/...)
 // - Second @ = content version (git tag or SHA, optional)
 type Reference struct {
 	// Remote is the remote name (for simple format) or empty for URL-based refs
@@ -321,7 +321,7 @@ type ManifestEntry struct {
 	Version     string   `yaml:"version,omitempty" json:"version,omitempty"`
 }
 
-// Manifest represents the optional scm/v1/manifest.yaml index file.
+// Manifest represents the optional ctxloom/v1/manifest.yaml index file.
 type Manifest struct {
 	Version     int             `yaml:"version" json:"version"`
 	GeneratedAt time.Time       `yaml:"generated_at" json:"generated_at"`

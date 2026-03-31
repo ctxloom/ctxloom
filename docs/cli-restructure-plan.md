@@ -23,7 +23,7 @@ MANAGEMENT (3 commands)
     list, add, rm, default, search, browse
 
 SETUP
-  init                          Initialize .scm directory
+  init                          Initialize .ctxloom directory
 
 ADVANCED
   lock                          Manage lockfile

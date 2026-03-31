@@ -29,9 +29,9 @@ var gitHostPattern = regexp.MustCompile(`^(github\.com|gitlab\.com|bitbucket\.or
 // This ensures consistent naming regardless of how the bundle was installed.
 //
 // Input formats:
-//   - github.com/owner/scm-github/go-development → scm-github/go-development
+//   - github.com/owner/ctxloom-github/go-development → ctxloom-github/go-development
 //   - gitlab.com/group/repo/core → repo/core
-//   - scm-github/go-development → scm-github/go-development (unchanged)
+//   - ctxloom-github/go-development → ctxloom-github/go-development (unchanged)
 //   - local-bundle → local-bundle (unchanged)
 //
 // The canonical format is: repo-name/bundle-path

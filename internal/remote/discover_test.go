@@ -35,10 +35,10 @@ func TestRepoInfo_Fields(t *testing.T) {
 	// All repository metadata must be accessible for filtering and display
 	repo := RepoInfo{
 		Owner:       "alice",
-		Name:        "scm",
+		Name:        "ctxloom",
 		Description: "Test repo",
 		Stars:       42,
-		URL:         "https://github.com/alice/scm",
+		URL:         "https://github.com/alice/ctxloom",
 		Topics:      []string{"golang", "security"},
 		Language:    "Go",
 		Forge:       ForgeGitHub,
@@ -47,8 +47,8 @@ func TestRepoInfo_Fields(t *testing.T) {
 	if repo.Owner != "alice" {
 		t.Errorf("Owner = %q, want %q", repo.Owner, "alice")
 	}
-	if repo.Name != "scm" {
-		t.Errorf("Name = %q, want %q", repo.Name, "scm")
+	if repo.Name != "ctxloom" {
+		t.Errorf("Name = %q, want %q", repo.Name, "ctxloom")
 	}
 	if repo.Stars != 42 {
 		t.Errorf("Stars = %d, want %d", repo.Stars, 42)

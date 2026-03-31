@@ -118,7 +118,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		// Create registry with remote
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Create mock publisher and fetcher
 		mp := newMockPublisher()
@@ -138,12 +138,12 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, "scm/v1/bundles/mybundle.yaml", result.Path)
+		assert.Equal(t, "ctxloom/v1/bundles/mybundle.yaml", result.Path)
 		assert.Equal(t, "newsha123", result.SHA)
 		assert.True(t, result.Created)
 
 		// Verify file was created
-		assert.Contains(t, mp.createdFiles, "scm/v1/bundles/mybundle.yaml")
+		assert.Contains(t, mp.createdFiles, "ctxloom/v1/bundles/mybundle.yaml")
 	})
 
 	t.Run("uses remote version when specified", func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.AddWithVersion("alice", "https://github.com/alice/scm", "v2"))
+		require.NoError(t, registry.AddWithVersion("alice", "https://github.com/alice/ctxloom", "v2"))
 
 		mp := newMockPublisher()
 		mf := newMockFetcher()
@@ -169,7 +169,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.Equal(t, "scm/v2/bundles/mybundle.yaml", result.Path)
+		assert.Equal(t, "ctxloom/v2/bundles/mybundle.yaml", result.Path)
 	})
 
 	t.Run("creates PR when requested", func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		mp := newMockPublisher()
 		mf := newMockFetcher()
@@ -221,7 +221,7 @@ func TestPublishManager_Publish(t *testing.T) {
 	t.Run("returns error for missing local file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
 
@@ -239,10 +239,10 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		mp := newMockPublisher()
-		mp.files["scm/v1/bundles/mybundle.yaml"] = "existingsha" // File already exists
+		mp.files["ctxloom/v1/bundles/mybundle.yaml"] = "existingsha" // File already exists
 		mf := newMockFetcher()
 
 		pm := NewPublishManager(registry, AuthConfig{},
@@ -268,10 +268,10 @@ func TestBuildPublishPath(t *testing.T) {
 		name     string
 		expected string
 	}{
-		{ItemTypeBundle, "v1", "security", "scm/v1/bundles/security.yaml"},
-		{ItemTypeBundle, "v2", "testing", "scm/v2/bundles/testing.yaml"},
-		{ItemTypeProfile, "v1", "development", "scm/v1/profiles/development.yaml"},
-		{ItemType(""), "v1", "unknown", "scm/v1/bundles/unknown.yaml"}, // defaults to bundles
+		{ItemTypeBundle, "v1", "security", "ctxloom/v1/bundles/security.yaml"},
+		{ItemTypeBundle, "v2", "testing", "ctxloom/v2/bundles/testing.yaml"},
+		{ItemTypeProfile, "v1", "development", "ctxloom/v1/profiles/development.yaml"},
+		{ItemType(""), "v1", "unknown", "ctxloom/v1/bundles/unknown.yaml"}, // defaults to bundles
 	}
 
 	for _, tt := range tests {
@@ -345,7 +345,7 @@ func TestTransformProfileForExport(t *testing.T) {
 			Bundles: map[string]LockEntry{
 				"alice/security": {
 					SHA:        "abc123",
-					URL:        "https://github.com/alice/scm",
+					URL:        "https://github.com/alice/ctxloom",
 					SCMVersion: "v1",
 				},
 			},
@@ -357,7 +357,7 @@ func TestTransformProfileForExport(t *testing.T) {
 		result, err := transformProfileForExport(content, lm)
 
 		require.NoError(t, err)
-		assert.Contains(t, string(result), "https://github.com/alice/scm@v1/bundles/security")
+		assert.Contains(t, string(result), "https://github.com/alice/ctxloom@v1/bundles/security")
 	})
 
 	t.Run("returns error for unknown local ref", func(t *testing.T) {
@@ -441,7 +441,7 @@ func TestPublishConvenienceFunction(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
 		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		opts := PublishOptions{
 			ItemType: ItemTypeBundle,

@@ -10,7 +10,7 @@ import (
 )
 
 // Version is set at build time via ldflags
-// Example: go build -ldflags "-X scm/cmd.Version=v1.0.0"
+// Example: go build -ldflags "-X ctxloom/cmd.Version=v1.0.0"
 var Version = "dev"
 
 // ExitError is returned when a command needs to exit with a specific code.
@@ -23,7 +23,7 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// GetAppDirs returns the .scm directories from project config.
+// GetAppDirs returns the .ctxloom directories from project config.
 func GetAppDirs() ([]string, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -71,7 +71,7 @@ REFERENCE SYNTAX
   bundle#prompts/name             Specific prompt from bundle
   remote/bundle                   Bundle from a remote repository
 
-Run 'scm <command> --help' for details on any command.`,
+Run 'ctxloom <command> --help' for details on any command.`,
 }
 
 // GetRootCmd returns the root command for documentation generation.

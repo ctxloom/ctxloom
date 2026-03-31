@@ -29,7 +29,7 @@ Discovery:
   ctxloom remote discover                Find SCM repositories
 
 Examples:
-  ctxloom remote add alice alice/scm
+  ctxloom remote add alice alice/ctxloom
   ctxloom remote search "golang testing"
   ctxloom remote browse ctxloom-default`,
 }
@@ -40,14 +40,14 @@ var remoteAddCmd = &cobra.Command{
 	Long: `Register a remote repository as a source for fragments and prompts.
 
 URL formats:
-  alice/scm                      GitHub shorthand (expands to https://github.com/alice/scm)
-  https://github.com/alice/scm   Full GitHub URL
-  https://gitlab.com/corp/scm   Full GitLab URL
-  git@github.com:alice/scm.git   SSH URL (converted to HTTPS)
+  alice/ctxloom                      GitHub shorthand (expands to https://github.com/alice/ctxloom)
+  https://github.com/alice/ctxloom   Full GitHub URL
+  https://gitlab.com/corp/ctxloom   Full GitLab URL
+  git@github.com:alice/ctxloom.git   SSH URL (converted to HTTPS)
 
 Examples:
-  ctxloom remote add alice alice/scm
-  ctxloom remote add corp https://gitlab.com/corp/scm`,
+  ctxloom remote add alice alice/ctxloom
+  ctxloom remote add corp https://gitlab.com/corp/ctxloom`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()

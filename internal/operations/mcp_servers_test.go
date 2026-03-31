@@ -760,7 +760,7 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 	// Verify the config was saved to the filesystem
 	data, err := afero.ReadFile(fs, appDir+"/config.yaml")
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "auto_register_scm: true")
+	assert.Contains(t, string(data), "auto_register_ctxloom: true")
 }
 
 // ==========================================================================

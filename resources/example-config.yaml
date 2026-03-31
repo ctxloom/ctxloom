@@ -1,5 +1,5 @@
-# SCM Configuration
-# See https://github.com/SophisticatedContextManager/scm for documentation
+# ctxloom Configuration
+# See https://github.com/ctxloom/ctxloom for documentation
 
 # Language model plugin configuration
 llm:

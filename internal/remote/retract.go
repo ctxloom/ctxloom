@@ -15,7 +15,7 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo, version s
 		return false, "", nil // No manifest, not retracted
 	}
 
-	manifestPath := fmt.Sprintf("scm/%s/manifest.yaml", version)
+	manifestPath := fmt.Sprintf("ctxloom/%s/manifest.yaml", version)
 	content, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err != nil {
 		return false, "", nil // No manifest, not retracted

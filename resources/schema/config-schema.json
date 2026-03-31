@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
 
-  "$id": "https://scm.dev/schemas/config.json",
-  "title": "SCM Configuration",
-  "description": "Schema for SCM config.yaml files",
+  "$id": "https://ctxloom.dev/schemas/config.json",
+  "title": "ctxloom Configuration",
+  "description": "Schema for ctxloom config.yaml files",
   "type": "object",
   "properties": {
     "version": {
@@ -21,7 +21,7 @@
           "items": {
             "type": "string"
           },
-          "examples": [["/home/user/.scm/plugins", ".scm/plugins"]]
+          "examples": [["/home/user/.ctxloom/plugins", ".ctxloom/plugins"]]
         },
         "plugins": {
           "type": "object",
@@ -114,9 +114,9 @@
       "type": "object",
       "description": "MCP (Model Context Protocol) server configuration",
       "properties": {
-        "auto_register_scm": {
+        "auto_register_ctxloom": {
           "type": "boolean",
-          "description": "Whether to automatically register SCM's own MCP server (default: true)"
+          "description": "Whether to automatically register ctxloom's own MCP server (default: true)"
         },
         "servers": {
           "type": "object",

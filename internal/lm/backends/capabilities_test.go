@@ -635,31 +635,6 @@ func TestGeminiLifecycle_GetMCP(t *testing.T) {
 }
 
 // =============================================================================
-// ContextFileName Tests
-// =============================================================================
-
-func TestClaudeCode_ContextFileName(t *testing.T) {
-	backend := NewClaudeCode()
-	assert.Equal(t, "CLAUDE.md", backend.ContextFileName())
-}
-
-func TestGemini_ContextFileName(t *testing.T) {
-	backend := NewGemini()
-	assert.Equal(t, "GEMINI.md", backend.ContextFileName())
-}
-
-func TestCodex_ContextFileName(t *testing.T) {
-	backend := NewCodex()
-	assert.Equal(t, "AGENTS.md", backend.ContextFileName())
-}
-
-func TestMock_ContextFileName(t *testing.T) {
-	backend := NewMock()
-	// Mock doesn't have a context file
-	assert.Equal(t, "", backend.ContextFileName())
-}
-
-// =============================================================================
 // History Accessor Tests
 // =============================================================================
 

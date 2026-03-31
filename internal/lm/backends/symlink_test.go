@@ -9,16 +9,16 @@ import (
 
 func TestGetExecutablePath(t *testing.T) {
 	// Set a test path
-	SetExecutablePathForTesting("/test/path/to/scm")
+	SetExecutablePathForTesting("/test/path/to/ctxloom")
 	defer SetExecutablePathForTesting("") // Reset after test
 
 	path, err := GetExecutablePath()
 	assert.NoError(t, err)
-	assert.Equal(t, "/test/path/to/scm", path)
+	assert.Equal(t, "/test/path/to/ctxloom", path)
 }
 
 func TestGetContextInjectionCommand(t *testing.T) {
-	SetExecutablePathForTesting("/usr/local/bin/scm")
+	SetExecutablePathForTesting("/usr/local/bin/ctxloom")
 	defer SetExecutablePathForTesting("")
 
 	tests := []struct {
@@ -31,25 +31,25 @@ func TestGetContextInjectionCommand(t *testing.T) {
 			name:     "standard hash with absolute workDir",
 			hash:     "abc123def456",
 			workDir:  "/home/user/project",
-			expected: `"/usr/local/bin/scm" hook inject-context --project "/home/user/project" abc123def456`,
+			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/home/user/project" abc123def456`,
 		},
 		{
 			name:     "short hash",
 			hash:     "abc",
 			workDir:  "/project",
-			expected: `"/usr/local/bin/scm" hook inject-context --project "/project" abc`,
+			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/project" abc`,
 		},
 		{
 			name:     "empty hash",
 			hash:     "",
 			workDir:  "/project",
-			expected: `"/usr/local/bin/scm" hook inject-context --project "/project" `,
+			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/project" `,
 		},
 		{
 			name:     "path with spaces",
 			hash:     "abc123",
 			workDir:  "/home/user/my project",
-			expected: `"/usr/local/bin/scm" hook inject-context --project "/home/user/my project" abc123`,
+			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/home/user/my project" abc123`,
 		},
 	}
 
@@ -62,11 +62,11 @@ func TestGetContextInjectionCommand(t *testing.T) {
 }
 
 func TestGetSCMMCPCommand(t *testing.T) {
-	SetExecutablePathForTesting("/home/user/go/bin/scm")
+	SetExecutablePathForTesting("/home/user/go/bin/ctxloom")
 	defer SetExecutablePathForTesting("")
 
 	cmd := GetSCMMCPCommand()
-	assert.Equal(t, "/home/user/go/bin/scm", cmd)
+	assert.Equal(t, "/home/user/go/bin/ctxloom", cmd)
 }
 
 func TestGetSCMMCPArgs(t *testing.T) {

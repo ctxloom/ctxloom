@@ -210,7 +210,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
@@ -267,7 +267,7 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
@@ -320,7 +320,7 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
@@ -366,7 +366,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
@@ -422,7 +422,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
@@ -584,7 +584,7 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
 remotes:
   github:
-    url: https://github.com/test/scm
+    url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 

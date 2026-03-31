@@ -163,7 +163,7 @@ type claudeCodeMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
 	Cwd     string   `json:"cwd,omitempty"` // Working directory for the server
-	SCM     string   `json:"_scm,omitempty"` // Marker identifying SCM-managed servers
+	SCM     string   `json:"_ctxloom,omitempty"` // Marker identifying SCM-managed servers
 }
 
 // claudeCodeHookMatcher represents a hook matcher entry in Claude Code format.
@@ -179,7 +179,7 @@ type claudeCodeHook struct {
 	Prompt  string `json:"prompt,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
 	Async   bool   `json:"async,omitempty"`
-	SCM     string `json:"_scm,omitempty"` // Hash identifying SCM-managed hooks
+	SCM     string `json:"_ctxloom,omitempty"` // Hash identifying SCM-managed hooks
 }
 
 // WriteSettings implements SettingsWriter for Claude Code.
@@ -284,7 +284,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 // warn outputs a warning message to stderr.
 func (w *ClaudeCodeHookWriter) warn(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "SCM: warning: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -438,7 +438,7 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
-// removeScmHooks removes all hooks with _scm field from settings.
+// removeScmHooks removes all hooks with _ctxloom field from settings.
 func (w *ClaudeCodeHookWriter) removeScmHooks(settings *claudeCodeSettings) {
 	for eventName, matchers := range settings.Hooks {
 		var filteredMatchers []claudeCodeHookMatcher
@@ -567,7 +567,7 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 			Command: GetSCMMCPCommand(),
 			Args:    GetSCMMCPArgs(),
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
-			SCM:     "scm-auto",              // Marker for auto-registered SCM server
+			SCM:     "ctxloom-auto",              // Marker for auto-registered SCM server
 		}
 	}
 
@@ -754,7 +754,7 @@ func (w *GeminiHookWriter) loadSettings(path string) (*geminiSettings, error) {
 
 // warn outputs a warning message to stderr.
 func (w *GeminiHookWriter) warn(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "SCM: warning: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -790,8 +790,8 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 }
 
 // removeScmHooks removes SCM-managed hooks from settings.
-// Since _scm is not serialized to JSON (Gemini CLI rejects unknown fields),
-// we identify SCM hooks by checking if the command contains "scm" and "inject-context".
+// Since _ctxloom is not serialized to JSON (Gemini CLI rejects unknown fields),
+// we identify SCM hooks by checking if the command contains "ctxloom" and "inject-context".
 func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
 	for eventName, hooks := range settings.Hooks {
 		var filteredHooks []geminiHook
@@ -811,8 +811,8 @@ func (w *GeminiHookWriter) removeScmHooks(settings *geminiSettings) {
 
 // isScmManagedHook returns true if the hook command appears to be SCM-managed.
 func isScmManagedHook(command string) bool {
-	// SCM inject-context hooks contain both "scm" and "inject-context"
-	return strings.Contains(command, "scm") && strings.Contains(command, "inject-context")
+	// SCM inject-context hooks contain both "ctxloom" and "inject-context"
+	return strings.Contains(command, "ctxloom") && strings.Contains(command, "inject-context")
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.
@@ -858,8 +858,8 @@ func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h
 }
 
 // removeScmMCPServers removes SCM-managed MCP servers from settings.
-// Since _scm is not serialized to JSON (Gemini CLI rejects unknown fields),
-// we track SCM-managed servers by the well-known name "scm".
+// Since _ctxloom is not serialized to JSON (Gemini CLI rejects unknown fields),
+// we track SCM-managed servers by the well-known name "ctxloom".
 func (w *GeminiHookWriter) removeScmMCPServers(settings *geminiSettings) {
 	// Remove the well-known SCM server name
 	delete(settings.MCPServers, AppMCPServerName)
@@ -876,7 +876,7 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 		settings.MCPServers[AppMCPServerName] = geminiMCPServer{
 			Command: GetSCMMCPCommand(),
 			Args:    GetSCMMCPArgs(),
-			SCM:     "scm-auto",
+			SCM:     "ctxloom-auto",
 		}
 	}
 
@@ -979,7 +979,7 @@ func MergeMCPConfig(dest *config.MCPConfig, src *config.MCPConfig) {
 		return
 	}
 
-	// Merge auto_register_scm (later wins)
+	// Merge auto_register_ctxloom (later wins)
 	if src.AutoRegisterSCM != nil {
 		dest.AutoRegisterSCM = src.AutoRegisterSCM
 	}

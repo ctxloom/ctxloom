@@ -27,9 +27,9 @@ func NewFetcher(repoURL string, auth AuthConfig) (Fetcher, error) {
 // DetectForge determines the forge type from a repository URL.
 // Returns the forge type and the base URL for the forge.
 func DetectForge(repoURL string) (ForgeType, string, error) {
-	// Handle shorthand notation (e.g., "alice/scm" -> GitHub)
+	// Handle shorthand notation (e.g., "alice/ctxloom" -> GitHub)
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, ".") {
-		// Shorthand like "alice/scm" implies GitHub
+		// Shorthand like "alice/ctxloom" implies GitHub
 		return ForgeGitHub, "https://github.com", nil
 	}
 
@@ -64,10 +64,10 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 
 // ParseRepoURL extracts owner and repo name from a URL or shorthand.
 // Supports:
-//   - "alice/scm" (shorthand)
-//   - "https://github.com/alice/scm"
-//   - "https://gitlab.com/alice/scm"
-//   - "git@github.com:alice/scm.git"
+//   - "alice/ctxloom" (shorthand)
+//   - "https://github.com/alice/ctxloom"
+//   - "https://gitlab.com/alice/ctxloom"
+//   - "git@github.com:alice/ctxloom.git"
 func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	// Handle shorthand notation
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
@@ -112,7 +112,7 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 }
 
 // ExpandShorthand converts a shorthand reference to a full URL.
-// "alice/scm" -> "https://github.com/alice/scm"
+// "alice/ctxloom" -> "https://github.com/alice/ctxloom"
 func ExpandShorthand(shorthand string) string {
 	if strings.Contains(shorthand, "://") {
 		return shorthand // Already a full URL

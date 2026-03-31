@@ -137,7 +137,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		distilled, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
 		if err != nil {
 			// Log error but continue with other chunks
-			fmt.Fprintf(os.Stderr, "SCM: warning: chunk %d failed: %v\n", i+1, err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
 			distilledChunks = append(distilledChunks, fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err))
 			continue
 		}
@@ -153,7 +153,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		fmt.Fprintf(os.Stderr, "SCM: final compression pass...\n")
 		final, err := c.distillChunk(ctx, combined, 0, 0) // 0,0 = final pass
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "SCM: warning: final pass failed, using combined: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)
 		} else {
 			combined = final
 			result.TotalTokensOut = estimateTokens(combined)
@@ -578,7 +578,7 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 	// Cache the essence
 	if err := SaveSessionEssence(config.MemoryDir, essence); err != nil {
 		// Log but don't fail - essence was generated successfully
-		fmt.Fprintf(os.Stderr, "SCM: warning: failed to cache essence: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to cache essence: %v\n", err)
 	}
 
 	return essence, nil

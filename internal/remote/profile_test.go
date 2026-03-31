@@ -212,11 +212,11 @@ func TestProfileDeps_PullDeps(t *testing.T) {
 		// Create registry with remote
 		require.NoError(t, fs.MkdirAll("/test", 0755))
 		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Create mock fetcher
 		mf := newMockFetcher()
-		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
 		mf.refs["main"] = "abc123"
 
 		// Create puller with mocked dependencies
@@ -254,7 +254,7 @@ func TestProfileDeps_PullDeps(t *testing.T) {
 
 		require.NoError(t, fs.MkdirAll("/test", 0755))
 		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Mock fetcher that returns file not found
 		mf := newMockFetcher()
@@ -313,11 +313,11 @@ func TestResolveProfileDeps(t *testing.T) {
 		// Setup registry with remote
 		require.NoError(t, fs.MkdirAll("/test", 0755))
 		registry, _ := NewRegistry("/test/remotes.yaml", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/scm"))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		// Create mock fetcher
 		mf := newMockFetcher()
-		mf.files["scm/v1/bundles/security.yaml"] = []byte("description: Security\n")
+		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
 		mf.refs["main"] = "abc123"
 
 		// Manually set up the ProfileDeps with mocked puller

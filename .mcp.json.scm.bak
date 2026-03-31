@@ -1,7 +1,14 @@
 {
   "mcpServers": {
+    "ctxloom": {
+      "command": "/home/babbitt/go/bin/ctxloom",
+      "args": [
+        "mcp"
+      ],
+      "cwd": "${CLAUDE_PROJECT_DIR}"
+    },
     "scm": {
-      "command": "/usr/bin/scm",
+      "command": "/home/babbitt/go/bin/scm",
       "args": [
         "mcp"
       ],

@@ -16,7 +16,7 @@ func TestDetectForge(t *testing.T) {
 		expectErr   bool
 	}{
 		// Shorthand
-		{"shorthand alice/scm", "alice/scm", ForgeGitHub, "https://github.com", false},
+		{"shorthand alice/ctxloom", "alice/ctxloom", ForgeGitHub, "https://github.com", false},
 		{"shorthand owner/repo-name", "owner/repo-name", ForgeGitHub, "https://github.com", false},
 
 		// GitHub URLs
@@ -57,7 +57,7 @@ func TestParseRepoURL(t *testing.T) {
 		expectErr   bool
 	}{
 		// Shorthand
-		{"shorthand simple", "alice/scm", "alice", "scm", false},
+		{"shorthand simple", "alice/ctxloom", "alice", "ctxloom", false},
 		{"shorthand with dash", "my-org/my-repo", "my-org", "my-repo", false},
 
 		// HTTPS URLs
@@ -101,7 +101,7 @@ func TestExpandShorthand(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"simple shorthand", "alice/scm", "https://github.com/alice/scm"},
+		{"simple shorthand", "alice/ctxloom", "https://github.com/alice/ctxloom"},
 		{"already full URL", "https://github.com/owner/repo", "https://github.com/owner/repo"},
 		{"gitlab URL", "https://gitlab.com/owner/repo", "https://gitlab.com/owner/repo"},
 	}

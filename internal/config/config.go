@@ -42,7 +42,6 @@ type Config struct {
 	Sync     SyncConfig         `mapstructure:"sync"`
 	Hooks    HooksConfig        `mapstructure:"hooks"`
 	MCP      MCPConfig          `mapstructure:"mcp"`
-	Context  ContextConfig      `mapstructure:"context"`
 	Profiles map[string]Profile `mapstructure:"profiles"`
 	AppPaths []string           // Resolved .ctxloom directory (at most one)
 	AppRoot  string             // Project root (parent of .ctxloom directory)
@@ -57,7 +56,7 @@ type LoadOption func(*loadOptions)
 
 type loadOptions struct {
 	fs     afero.Fs
-	appDir string // Override SCM directory discovery
+	appDir string // Override ctxloom directory discovery
 }
 
 // WithFS sets the filesystem for config operations.
@@ -67,7 +66,7 @@ func WithFS(fs afero.Fs) LoadOption {
 	}
 }
 
-// WithAppDir sets a specific SCM directory instead of discovering it.
+// WithAppDir sets a specific ctxloom directory instead of discovering it.
 func WithAppDir(dir string) LoadOption {
 	return func(o *loadOptions) {
 		o.appDir = dir
@@ -214,7 +213,7 @@ type Hook struct {
 	Prompt  string `mapstructure:"prompt" yaml:"prompt,omitempty" json:"prompt,omitempty"`    // Prompt text for prompt/agent types
 	Timeout int    `mapstructure:"timeout" yaml:"timeout,omitempty" json:"timeout,omitempty"` // Timeout in seconds
 	Async   bool   `mapstructure:"async" yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_scm,omitempty" json:"_scm,omitempty"`                              // Hash identifying SCM-managed hooks
+	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                              // Hash identifying SCM-managed hooks
 }
 
 // UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
@@ -250,14 +249,14 @@ type MCPServer struct {
 	Env          map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`                     // Environment variables
 	Notes        string            `mapstructure:"notes" yaml:"notes,omitempty" json:"notes,omitempty"`               // Human-readable notes, not sent to AI
 	Installation string            `mapstructure:"installation" yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
-	SCM          string            `yaml:"_scm,omitempty" json:"_scm,omitempty"`                                      // Marker for SCM-managed servers
+	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                                      // Marker for SCM-managed servers
 }
 
 // MCPConfig holds MCP server configuration.
 type MCPConfig struct {
 	// AutoRegisterSCM controls whether SCM's own MCP server is auto-registered.
 	// Defaults to true if not specified.
-	AutoRegisterSCM *bool `mapstructure:"auto_register_scm" yaml:"auto_register_scm,omitempty"`
+	AutoRegisterSCM *bool `mapstructure:"auto_register_ctxloom" yaml:"auto_register_ctxloom,omitempty"`
 
 	// Servers defines MCP servers to register (unified across backends).
 	Servers map[string]MCPServer `mapstructure:"servers" yaml:"servers,omitempty"`
@@ -431,41 +430,6 @@ func (s *SyncConfig) ShouldApplyHooks() bool {
 		return true
 	}
 	return *s.ApplyHooks
-}
-
-// ContextRegenMode specifies when to regenerate context files.
-type ContextRegenMode string
-
-const (
-	// ContextRegenEager regenerates context files on startup and file changes.
-	// This is the default behavior.
-	ContextRegenEager ContextRegenMode = "eager"
-
-	// ContextRegenDeferred skips automatic context regeneration.
-	// Use this if you want to manage context files manually.
-	ContextRegenDeferred ContextRegenMode = "deferred"
-)
-
-// ContextConfig holds configuration for context file generation and management.
-type ContextConfig struct {
-	// Regeneration controls when context files are regenerated.
-	// "eager" (default) - regenerate on startup and file changes
-	// "deferred" - skip automatic regeneration (manage context files manually)
-	Regeneration ContextRegenMode `mapstructure:"regeneration" yaml:"regeneration,omitempty"`
-}
-
-// GetRegenMode returns the context regeneration mode.
-// Defaults to "eager" if not set.
-func (c *ContextConfig) GetRegenMode() ContextRegenMode {
-	if c.Regeneration == "" {
-		return ContextRegenEager
-	}
-	return c.Regeneration
-}
-
-// IsDeferred returns true if context regeneration is deferred.
-func (c *ContextConfig) IsDeferred() bool {
-	return c.GetRegenMode() == ContextRegenDeferred
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
@@ -740,7 +704,7 @@ func (c *Config) Save() error {
 	if len(existingData) > 0 {
 		if err := yaml.Unmarshal(existingData, &existing); err != nil {
 			// Warn but continue - fault tolerance principle: don't block operations
-			fmt.Fprintf(os.Stderr, "SCM: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
 		}
 	}
 
@@ -1021,7 +985,7 @@ func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
 // mergeMCP merges MCP config from source into the builder.
 // Later sources override earlier ones for the same server name.
 func (b *profileBuilder) mergeMCP(source MCPConfig) {
-	// Merge auto_register_scm (later wins)
+	// Merge auto_register_ctxloom (later wins)
 	if source.AutoRegisterSCM != nil {
 		b.MCP.AutoRegisterSCM = source.AutoRegisterSCM
 	}

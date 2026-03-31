@@ -241,8 +241,8 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 		limit = 30
 	}
 
-	// Search for repos named "scm" or starting with "scm-"
-	searchQuery := "scm in:name"
+	// Search for repos named "ctxloom" or starting with "ctxloom-"
+	searchQuery := "ctxloom in:name"
 	if query != "" {
 		searchQuery = fmt.Sprintf("%s %s", query, searchQuery)
 	}
@@ -270,8 +270,8 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 	repos := make([]RepoInfo, 0, len(result.Repositories))
 	for _, r := range result.Repositories {
 		name := r.GetName()
-		// Filter to only repos named "scm" or "scm-*"
-		if name != "scm" && !strings.HasPrefix(name, "scm-") {
+		// Filter to only repos named "ctxloom" or "scm-*"
+		if name != "ctxloom" && !strings.HasPrefix(name, "ctxloom-") {
 			continue
 		}
 
@@ -293,13 +293,13 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid SCM structure.
 func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	// Check for scm/v1/ directory
-	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "scm/v1", nil)
+	// Check for ctxloom/v1/ directory
+	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
 	if err != nil {
 		// Retry without auth on 401 (bad credentials) for public repos
 		if is401Error(resp, err) && f.fallback != nil {
 			fmt.Fprintf(os.Stderr, "SCM: GitHub token invalid, retrying without authentication\n")
-			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "scm/v1", nil)
+			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {

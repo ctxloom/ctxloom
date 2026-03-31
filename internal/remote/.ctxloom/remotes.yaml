@@ -1,5 +1,5 @@
 remotes:
     alice:
         name: ""
-        url: https://github.com/alice/scm
+        url: https://github.com/alice/ctxloom
         version: v1

@@ -22,12 +22,12 @@ func TestNeedsTransform(t *testing.T) {
 		},
 		{
 			name:    "local only",
-			profile: &Profile{Bundles: []string{"scm-github/core", "remote/bundle"}},
+			profile: &Profile{Bundles: []string{"ctxloom-github/core", "remote/bundle"}},
 			want:    false,
 		},
 		{
 			name:    "https URL",
-			profile: &Profile{Bundles: []string{"https://github.com/alice/scm@v1/bundles/core"}},
+			profile: &Profile{Bundles: []string{"https://github.com/alice/ctxloom@v1/bundles/core"}},
 			want:    true,
 		},
 		{
@@ -37,14 +37,14 @@ func TestNeedsTransform(t *testing.T) {
 		},
 		{
 			name:    "git@ URL",
-			profile: &Profile{Bundles: []string{"git@github.com:alice/scm@v1/bundles/core"}},
+			profile: &Profile{Bundles: []string{"git@github.com:alice/ctxloom@v1/bundles/core"}},
 			want:    true,
 		},
 		{
 			name: "mixed",
 			profile: &Profile{Bundles: []string{
 				"local/bundle",
-				"https://github.com/alice/scm@v1/bundles/core",
+				"https://github.com/alice/ctxloom@v1/bundles/core",
 			}},
 			want: true,
 		},
@@ -71,19 +71,19 @@ func TestHasLocalReferences(t *testing.T) {
 		},
 		{
 			name:    "local only",
-			profile: &Profile{Bundles: []string{"scm-github/core"}},
+			profile: &Profile{Bundles: []string{"ctxloom-github/core"}},
 			want:    true,
 		},
 		{
 			name:    "URLs only",
-			profile: &Profile{Bundles: []string{"https://github.com/alice/scm@v1/bundles/core"}},
+			profile: &Profile{Bundles: []string{"https://github.com/alice/ctxloom@v1/bundles/core"}},
 			want:    false,
 		},
 		{
 			name: "mixed",
 			profile: &Profile{Bundles: []string{
 				"local/bundle",
-				"https://github.com/alice/scm@v1/bundles/core",
+				"https://github.com/alice/ctxloom@v1/bundles/core",
 			}},
 			want: true,
 		},
@@ -118,7 +118,7 @@ func TestTransformToLocal(t *testing.T) {
 
 	t.Run("canonical URL to local", func(t *testing.T) {
 		profile := &Profile{
-			Bundles: []string{"https://github.com/alice/scm@v1/bundles/core-practices@v1.2.3"},
+			Bundles: []string{"https://github.com/alice/ctxloom@v1/bundles/core-practices@v1.2.3"},
 		}
 		fs := afero.NewMemMapFs()
 		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
@@ -131,9 +131,9 @@ func TestTransformToLocal(t *testing.T) {
 		result, updates, err := TransformToLocal(profile, registry, lockfile)
 		require.NoError(t, err)
 		assert.Len(t, result.Bundles, 1)
-		assert.Contains(t, result.Bundles[0], "scm/core-practices")
+		assert.Contains(t, result.Bundles[0], "ctxloom/core-practices")
 		assert.Len(t, updates, 1)
-		assert.Equal(t, "https://github.com/alice/scm", updates[0].Entry.URL)
+		assert.Equal(t, "https://github.com/alice/ctxloom", updates[0].Entry.URL)
 		assert.Equal(t, "v1", updates[0].Entry.SCMVersion)
 		assert.Equal(t, "v1.2.3", updates[0].Entry.RequestedVersion)
 	})
@@ -142,7 +142,7 @@ func TestTransformToLocal(t *testing.T) {
 		profile := &Profile{
 			Bundles: []string{
 				"local/bundle",
-				"https://github.com/bob/scm@v1/bundles/utils",
+				"https://github.com/bob/ctxloom@v1/bundles/utils",
 			},
 		}
 		fs := afero.NewMemMapFs()
@@ -157,13 +157,13 @@ func TestTransformToLocal(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, result.Bundles, 2)
 		assert.Equal(t, "local/bundle", result.Bundles[0])
-		assert.Contains(t, result.Bundles[1], "scm/utils")
+		assert.Contains(t, result.Bundles[1], "ctxloom/utils")
 		assert.Len(t, updates, 1)
 	})
 
 	t.Run("with item specifier", func(t *testing.T) {
 		profile := &Profile{
-			Bundles: []string{"https://github.com/alice/scm@v1/bundles/core#fragments/intro"},
+			Bundles: []string{"https://github.com/alice/ctxloom@v1/bundles/core#fragments/intro"},
 		}
 		fs := afero.NewMemMapFs()
 		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
@@ -201,7 +201,7 @@ func TestTransformToLocal(t *testing.T) {
 func TestTransformToCanonical(t *testing.T) {
 	t.Run("already canonical", func(t *testing.T) {
 		profile := &Profile{
-			Bundles: []string{"https://github.com/alice/scm@v1/bundles/core@v1.0.0"},
+			Bundles: []string{"https://github.com/alice/ctxloom@v1/bundles/core@v1.0.0"},
 		}
 		lockfile := &remote.Lockfile{
 			Bundles:  make(map[string]remote.LockEntry),
@@ -215,12 +215,12 @@ func TestTransformToCanonical(t *testing.T) {
 
 	t.Run("local to canonical", func(t *testing.T) {
 		profile := &Profile{
-			Bundles: []string{"scm-github/core-practices"},
+			Bundles: []string{"ctxloom-github/core-practices"},
 		}
 		lockfile := &remote.Lockfile{
 			Bundles: map[string]remote.LockEntry{
-				"scm-github/core-practices": {
-					URL:              "https://github.com/alice/scm",
+				"ctxloom-github/core-practices": {
+					URL:              "https://github.com/alice/ctxloom",
 					SCMVersion:       "v1",
 					RequestedVersion: "v1.2.3",
 				},
@@ -231,7 +231,7 @@ func TestTransformToCanonical(t *testing.T) {
 		result, err := TransformToCanonical(profile, lockfile)
 		require.NoError(t, err)
 		assert.Len(t, result.Bundles, 1)
-		assert.Contains(t, result.Bundles[0], "https://github.com/alice/scm@v1")
+		assert.Contains(t, result.Bundles[0], "https://github.com/alice/ctxloom@v1")
 	})
 
 	t.Run("not in lockfile", func(t *testing.T) {
@@ -250,12 +250,12 @@ func TestTransformToCanonical(t *testing.T) {
 
 	t.Run("with item specifier", func(t *testing.T) {
 		profile := &Profile{
-			Bundles: []string{"scm-github/bundle#fragments/core"},
+			Bundles: []string{"ctxloom-github/bundle#fragments/core"},
 		}
 		lockfile := &remote.Lockfile{
 			Bundles: map[string]remote.LockEntry{
-				"scm-github/bundle": {
-					URL:        "https://github.com/alice/scm",
+				"ctxloom-github/bundle": {
+					URL:        "https://github.com/alice/ctxloom",
 					SCMVersion: "v1",
 					SHA:        "abc123",
 				},

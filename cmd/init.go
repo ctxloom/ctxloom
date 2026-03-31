@@ -137,13 +137,6 @@ func newInitPrompts() *initPrompts {
 	return p
 }
 
-// restore restores terminal state if it was saved.
-func (p *initPrompts) restore() {
-	if p.oldState != nil {
-		_ = term.Restore(int(os.Stdin.Fd()), p.oldState)
-	}
-}
-
 // readCleanLine reads a line and strips terminal escape sequences and control chars.
 // This handles focus events (^[[I, ^[[O), cursor movements, etc.
 func (p *initPrompts) readCleanLine() (string, error) {

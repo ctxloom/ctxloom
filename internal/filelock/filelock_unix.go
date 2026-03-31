@@ -33,7 +33,7 @@ func lockFile(path string, shared bool) (func(), error) {
 	}
 
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }
@@ -63,7 +63,7 @@ func tryLockFile(path string, shared bool) (func(), error) {
 	}
 
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }

@@ -124,9 +124,7 @@ func (s *ClaudeSkills) List(workDir string) ([]string, error) {
 	for _, line := range strings.Split(string(data), "\n") {
 		if name := strings.TrimSpace(line); name != "" {
 			// Remove .md extension
-			if strings.HasSuffix(name, ".md") {
-				name = name[:len(name)-3]
-			}
+			name = strings.TrimSuffix(name, ".md")
 			names = append(names, name)
 		}
 	}

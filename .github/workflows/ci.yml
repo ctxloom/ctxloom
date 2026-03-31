@@ -50,8 +50,11 @@ jobs:
       - name: Generate protobuf code
         run: buf generate
 
+      - name: Build binary
+        run: go build -o ctxloom .
+
       - name: Run tests
-        run: just test
+        run: go test -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -88,7 +91,7 @@ jobs:
         run: buf generate
 
       - name: Run golangci-lint
-        run: just lint
+        run: golangci-lint run
 
   build-and-integration:
     name: Build & Integration Tests
@@ -132,7 +135,7 @@ jobs:
         run: go mod download
 
       - name: Build
-        run: just build
+        run: go build -o ctxloom .
 
       - name: Add binaries to PATH
         run: |
@@ -140,15 +143,14 @@ jobs:
           echo "$GITHUB_WORKSPACE/bin" >> $GITHUB_PATH
 
       - name: Run integration tests
-        run: just test-integration
+        run: go test -v -tags integration ./tests/integration/...
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: scm-linux-amd64
+          name: ctxloom-linux-amd64
           path: |
-            scm
-            bin/scm-gen-*
+            ctxloom
           retention-days: 7
 
   mutation:

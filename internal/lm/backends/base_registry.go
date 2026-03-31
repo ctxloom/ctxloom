@@ -181,7 +181,7 @@ func (r *BaseSessionRegistry) saveRegistryLocked(appDir string, registry *Regist
 	}
 
 	if err := r.fs.Rename(tmpPath, path); err != nil {
-		r.fs.Remove(tmpPath) // Clean up on failure
+		_ = r.fs.Remove(tmpPath) // Clean up on failure
 		return fmt.Errorf("rename session registry: %w", err)
 	}
 

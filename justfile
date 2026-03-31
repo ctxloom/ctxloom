@@ -30,7 +30,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" -o scm .
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o scm .
 
 # Run all tests (builds scm first for acceptance tests)
 test: build

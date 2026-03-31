@@ -3,7 +3,7 @@ description: Discover and install profiles, bundles, and fragments
 ---
 
 
-Scan the current project and discover matching ctxloom content from configured remotes.
+Scan the current project and discover matching SCM content from configured remotes.
 
 ## Steps
 
@@ -13,7 +13,7 @@ Scan the current project and discover matching ctxloom content from configured r
    - .github/, .gitlab-ci.yml, and other CI/CD configs
    - Framework-specific files (next.config.js, vite.config.ts, etc.)
 
-2. **Search across all configured remotes** using ctxloom MCP tools:
+2. **Search across all configured remotes** using SCM MCP tools:
    - Use `list_remotes` to see all configured remotes
    - Use `search_remotes` to find matching content:
      - Search by tags: "tag:golang", "tag:react", "tag:docker"

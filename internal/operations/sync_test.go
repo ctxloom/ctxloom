@@ -394,9 +394,7 @@ remotes:
 	}
 }
 
-type overwritePuller struct {
-	localDir string
-}
+type overwritePuller struct{}
 
 func (p *overwritePuller) Pull(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 	return &remote.PullResult{

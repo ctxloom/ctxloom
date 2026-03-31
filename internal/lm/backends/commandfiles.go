@@ -61,7 +61,7 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
 		for _, name := range strings.Split(string(data), "\n") {
 			if name = strings.TrimSpace(name); name != "" {
-				fs.Remove(filepath.Join(commandsDir, name))
+				_ = fs.Remove(filepath.Join(commandsDir, name))
 			}
 		}
 	}
@@ -76,7 +76,7 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	}
 
 	if !hasExportable {
-		fs.Remove(manifestPath)
+		_ = fs.Remove(manifestPath)
 		return nil
 	}
 

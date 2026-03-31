@@ -1,8 +1,8 @@
 version: 1
-locked_at: 2026-03-31T13:57:33.088437231Z
+locked_at: 2026-03-31T14:06:59.710776253Z
 bundles:
     alice/security:
         sha: abc123
         url: https://github.com/alice/scm
         scm_version: v1
-        fetched_at: 2026-03-31T13:57:33.088436932Z
+        fetched_at: 2026-03-31T14:06:59.710776046Z

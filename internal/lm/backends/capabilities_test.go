@@ -98,7 +98,7 @@ func TestClaudeLifecycle_Clear(t *testing.T) {
 
 	// Note: Clear will try to write to settings, which may fail in test
 	// We're just verifying it resets internal state
-	lifecycle.Clear("/tmp")
+	_ = lifecycle.Clear("/tmp")
 	hooks := lifecycle.GetHooks()
 	assert.NotNil(t, hooks)
 }

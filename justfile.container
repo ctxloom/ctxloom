@@ -25,25 +25,25 @@ default: build
 # Build with all features (treesitter)
 build: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm .
 
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm .
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}} {{static_ldflags}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}} {{static_ldflags}}" \
         -o scm .
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm .
 
 # ===== Cross-compilation targets =====
@@ -52,35 +52,35 @@ build-full: validate proto
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm-linux-amd64 .
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm-linux-arm64 .
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm-windows-amd64.exe .
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm-darwin-amd64 .
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/SophisticatedContextManager/scm/cmd.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o scm-darwin-arm64 .
 
 # Build all platforms

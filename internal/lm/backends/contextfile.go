@@ -116,8 +116,8 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	// 16KB (~4,000 tokens) is a conservative threshold where degradation becomes
 	// noticeable across most models. Structure and relevance matter more than size.
 	if len(content) > MaxRecommendedContextSize {
-		fmt.Fprintf(options.stderr, WarnContextSizeExceeded, len(content)/1024)
-		fmt.Fprintf(options.stderr, WarnContextEffectiveness)
+		_, _ = fmt.Fprintf(options.stderr, WarnContextSizeExceeded, len(content)/1024)
+		_, _ = fmt.Fprint(options.stderr, WarnContextEffectiveness)
 	}
 
 	// Generate hash-based filename from content

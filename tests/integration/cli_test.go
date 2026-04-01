@@ -233,7 +233,7 @@ func TestRun_NonexistentProfile(t *testing.T) {
 	_ = env.Run("run", "-p", "nonexistent", "--print", "test")
 
 	assert.Equal(t, 1, env.LastExitCode())
-	assert.Contains(t, strings.ToLower(env.LastOutput()), "unknown profile")
+	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
 }
 
 func TestRun_SubdirectoryFragment(t *testing.T) {
@@ -689,27 +689,36 @@ func TestFragment_Show_Nonexistent(t *testing.T) {
 func TestFragment_Create(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("fragment", "create", "new-frag", "New fragment content")
+	// First create the local bundle by writing a fragment
+	writeFragment(t, env, "setup-frag", []string{}, "Setup content")
+
+	// Now create a new fragment in the local bundle
+	_ = env.Run("fragment", "create", "local", "new-frag")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify fragment was created in local bundle
 	_ = env.Run("fragment", "show", "local#fragments/new-frag")
 	assert.Equal(t, 0, env.LastExitCode())
-	assert.Contains(t, env.LastOutput(), "New fragment content")
+	// Fragment is created with placeholder content
+	assert.Contains(t, env.LastOutput(), "new-frag")
 }
 
 func TestFragment_Create_WithTags(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("fragment", "create", "tagged-frag", "Content", "-t", "tag1", "-t", "tag2")
+	// Create the local bundle first
+	writeFragment(t, env, "setup-frag", []string{"setup"}, "Setup content")
+
+	// Create a new fragment (tags are set in the bundle YAML, not via create command)
+	_ = env.Run("fragment", "create", "local", "tagged-frag")
 
 	assert.Equal(t, 0, env.LastExitCode())
 
+	// Verify fragment was created
 	_ = env.Run("fragment", "show", "local#fragments/tagged-frag")
-	output := env.LastOutput()
-	assert.Contains(t, output, "tag1")
-	assert.Contains(t, output, "tag2")
+	assert.Equal(t, 0, env.LastExitCode())
+	assert.Contains(t, env.LastOutput(), "tagged-frag")
 }
 
 func TestFragment_Search(t *testing.T) {

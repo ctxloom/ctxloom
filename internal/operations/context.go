@@ -117,9 +117,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	orderedNames := sortFragmentsByPriority(uniqueFragments)
 
 	var contextContent string
+	var loadedNames []string
 	if len(orderedNames) > 0 {
 		var err error
-		contextContent, err = loader.LoadMultiple(orderedNames)
+		contextContent, loadedNames, err = loader.LoadMultiple(orderedNames)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load fragments: %w", err)
 		}
@@ -129,7 +130,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	return &AssembleContextResult{
 		Profiles:        profileNames,
-		FragmentsLoaded: orderedNames,
+		FragmentsLoaded: loadedNames,
 		Context:         contextContent,
 	}, nil
 }

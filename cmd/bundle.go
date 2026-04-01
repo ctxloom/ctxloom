@@ -656,24 +656,28 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var bundleExportOutput string
+
 var bundleExportCmd = &cobra.Command{
-	Use:   "export <name> <dest-dir>",
-	Short: "Export a bundle to a directory",
-	Long: `Export a bundle from .ctxloom/bundles to an arbitrary directory.
+	Use:   "export <name> [dest-dir]",
+	Short: "Export a bundle to a file or directory",
+	Long: `Export a bundle from .ctxloom/bundles to a file or directory.
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
 The bundle is copied as-is, preserving all content including distilled versions.
 
+Use -o to specify an output file path directly.
+
 Examples:
   ctxloom bundle export go-tools ../ctxloom-default/ctxloom/v1/bundles
-  ctxloom bundle export my-bundle ./exports`,
-	Args: cobra.ExactArgs(2),
+  ctxloom bundle export my-bundle ./exports
+  ctxloom bundle export my-bundle -o exported.yaml`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: runBundleExport,
 }
 
 func runBundleExport(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	destDir := args[1]
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -691,19 +695,35 @@ func runBundleExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	// Ensure destination directory exists
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
-	}
-
 	// Read source file
 	srcData, err := os.ReadFile(bundle.Path)
 	if err != nil {
 		return fmt.Errorf("failed to read bundle: %w", err)
 	}
 
+	// Determine destination path
+	var destPath string
+	if bundleExportOutput != "" {
+		// Use -o flag value directly as file path
+		destPath = bundleExportOutput
+		// Ensure parent directory exists
+		if dir := filepath.Dir(destPath); dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create destination directory: %w", err)
+			}
+		}
+	} else if len(args) > 1 {
+		// Use positional arg as directory
+		destDir := args[1]
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			return fmt.Errorf("failed to create destination directory: %w", err)
+		}
+		destPath = filepath.Join(destDir, filepath.Base(bundle.Path))
+	} else {
+		return fmt.Errorf("either -o <file> or <dest-dir> must be specified")
+	}
+
 	// Write to destination
-	destPath := filepath.Join(destDir, filepath.Base(bundle.Path))
 	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
 		return fmt.Errorf("failed to write bundle: %w", err)
 	}
@@ -1381,6 +1401,48 @@ var bundleFragmentCmd = &cobra.Command{
 	Long:  `Commands for managing fragments within a bundle.`,
 }
 
+var bundleFragmentListCmd = &cobra.Command{
+	Use:   "list <bundle-name>",
+	Short: "List fragments in a bundle",
+	Long: `List all fragments in a specific bundle.
+
+Examples:
+  ctxloom bundle fragment list my-bundle
+  ctxloom bundle fragment list go-tools`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBundleFragmentList,
+}
+
+func runBundleFragmentList(cmd *cobra.Command, args []string) error {
+	bundleName := args[0]
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	bundle, err := loader.Load(bundleName)
+	if err != nil {
+		return fmt.Errorf("bundle not found: %s", bundleName)
+	}
+
+	if len(bundle.Fragments) == 0 {
+		fmt.Println("No fragments in this bundle.")
+		return nil
+	}
+
+	for name, frag := range bundle.Fragments {
+		fmt.Printf("%s", name)
+		if len(frag.Tags) > 0 {
+			fmt.Printf(" [%s]", strings.Join(frag.Tags, ", "))
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
 var bundleFragmentEditCmd = &cobra.Command{
 	Use:   "edit <bundle-name> <fragment-name>",
 	Short: "Edit a fragment's content",
@@ -1473,6 +1535,44 @@ var bundlePromptCmd = &cobra.Command{
 	Use:   "prompt",
 	Short: "Manage prompts within a bundle",
 	Long:  `Commands for managing prompts within a bundle.`,
+}
+
+var bundlePromptListCmd = &cobra.Command{
+	Use:   "list <bundle-name>",
+	Short: "List prompts in a bundle",
+	Long: `List all prompts in a specific bundle.
+
+Examples:
+  ctxloom bundle prompt list my-bundle
+  ctxloom bundle prompt list go-tools`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBundlePromptList,
+}
+
+func runBundlePromptList(cmd *cobra.Command, args []string) error {
+	bundleName := args[0]
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	bundle, err := loader.Load(bundleName)
+	if err != nil {
+		return fmt.Errorf("bundle not found: %s", bundleName)
+	}
+
+	if len(bundle.Prompts) == 0 {
+		fmt.Println("No prompts in this bundle.")
+		return nil
+	}
+
+	for name := range bundle.Prompts {
+		fmt.Println(name)
+	}
+
+	return nil
 }
 
 var bundlePromptEditCmd = &cobra.Command{
@@ -1692,10 +1792,12 @@ func init() {
 
 	// Fragment subcommands
 	bundleCmd.AddCommand(bundleFragmentCmd)
+	bundleFragmentCmd.AddCommand(bundleFragmentListCmd)
 	bundleFragmentCmd.AddCommand(bundleFragmentEditCmd)
 
 	// Prompt subcommands
 	bundleCmd.AddCommand(bundlePromptCmd)
+	bundlePromptCmd.AddCommand(bundlePromptListCmd)
 	bundlePromptCmd.AddCommand(bundlePromptEditCmd)
 
 	// MCP subcommands
@@ -1708,6 +1810,7 @@ func init() {
 	bundlePushCmd.Flags().StringVar(&bundlePushBranch, "branch", "", "Target branch (default: repository default)")
 	bundlePushCmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
+	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
 	bundleViewCmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
 
 	// bundleEditCmd flags

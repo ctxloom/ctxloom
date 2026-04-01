@@ -1176,17 +1176,19 @@ fragments:
 	loader := NewLoader([]string{tmpDir}, false)
 
 	t.Run("load multiple fragments", func(t *testing.T) {
-		content, err := loader.LoadMultiple([]string{"frag1", "frag2"})
+		content, loaded, err := loader.LoadMultiple([]string{"frag1", "frag2"})
 		require.NoError(t, err)
 		assert.Contains(t, content, "Content one")
 		assert.Contains(t, content, "Content two")
 		assert.Contains(t, content, "---")
+		assert.Equal(t, []string{"frag1", "frag2"}, loaded)
 	})
 
 	t.Run("skip missing fragments", func(t *testing.T) {
-		content, err := loader.LoadMultiple([]string{"frag1", "nonexistent"})
+		content, loaded, err := loader.LoadMultiple([]string{"frag1", "nonexistent"})
 		require.NoError(t, err)
 		assert.Contains(t, content, "Content one")
+		assert.Equal(t, []string{"frag1"}, loaded)
 	})
 }
 

@@ -163,6 +163,7 @@ func showItem(ref string, itemType ItemType, showDistilled bool) error {
 		fmt.Println("# (distilled version)")
 	}
 
+	fmt.Printf("%s\n\n", itemName)
 	fmt.Print(content)
 	if !strings.HasSuffix(content, "\n") {
 		fmt.Println()

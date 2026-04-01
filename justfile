@@ -98,7 +98,7 @@ test-container:
     docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
         go mod download && \
         go test -race ./... && \
-        CGO_ENABLED=0 go build -o ctxloom . && \
+        CGO_ENABLED=0 go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom . && \
         go test -v -tags integration ./tests/integration/...'
 
 # ===== Mutation testing =====

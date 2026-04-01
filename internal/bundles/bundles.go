@@ -814,8 +814,10 @@ func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
 }
 
 // LoadMultiple loads multiple fragments by name and returns combined content.
-func (l *Loader) LoadMultiple(names []string) (string, error) {
+// Returns the content, the names of fragments that were successfully loaded, and any error.
+func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
 	var parts []string
+	var loaded []string
 
 	for _, name := range names {
 		content, err := l.GetFragment(name)
@@ -824,7 +826,8 @@ func (l *Loader) LoadMultiple(names []string) (string, error) {
 			continue
 		}
 		parts = append(parts, strings.TrimSpace(content.Content))
+		loaded = append(loaded, name)
 	}
 
-	return strings.Join(parts, "\n\n---\n\n"), nil
+	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
 }

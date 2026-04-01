@@ -4,6 +4,7 @@ package integration
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,8 +87,10 @@ func TestVersion(t *testing.T) {
 	_ = env.Run("version")
 
 	assert.Equal(t, 0, env.LastExitCode())
-	// Version outputs just the version string like "v0.0.12-abc123"
-	assert.Regexp(t, `v\d+\.\d+\.\d+`, env.LastOutput())
+	// Version outputs version string like "v0.0.12-abc123" or "dev" in CI
+	output := strings.TrimSpace(env.LastOutput())
+	assert.True(t, output == "dev" || regexp.MustCompile(`v\d+\.\d+\.\d+`).MatchString(output),
+		"Expected version to be 'dev' or match semver pattern, got: %s", output)
 }
 
 // =============================================================================

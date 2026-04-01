@@ -122,7 +122,7 @@ $env:PATH += ";$env:USERPROFILE\bin"
 **Or manually:**
 
 1. Go to [releases](https://github.com/ctxloom/ctxloom/releases) and find the latest version
-2. Download `ctxloom_<version>_windows_amd64.zip` (e.g., `ctxloom_0.3.3_windows_amd64.zip`)
+2. Download `ctxloom_<version>_windows_amd64.zip` (e.g., `ctxloom_{{VERSION}}_windows_amd64.zip`)
 3. Extract `ctxloom.exe` from the ZIP
 4. Move it to a directory in your PATH (e.g., `C:\Users\<username>\bin`)
 5. Add that directory to your PATH if needed
@@ -194,9 +194,9 @@ export PATH=$PATH:$(go env GOPATH)/bin
 ctxloom --version
 ```
 
-Expected output (version number will vary):
+Expected output:
 ```
-ctxloom version 0.3.3
+ctxloom version {{VERSION}}
 ```
 
 ## Shell Completion

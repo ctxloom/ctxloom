@@ -78,13 +78,13 @@ RUN BIN="/usr/local/bin" && \
 # Install gremlins for mutation testing
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
+# Install versionator for version management
+RUN go install github.com/benjaminabbitt/versionator@latest
+
 # Runtime module/build cache in workspace (writable by any user, persists across runs)
 ENV GOMODCACHE="/workspace/.cache/go/mod"
 ENV GOCACHE="/workspace/.cache/go/build"
 ENV GOTOOLCHAIN="local"
-
-# Note: versionator not installed - justfile has "dev" fallback
-# Install if needed: go install github.com/benjaminabbitt/versionator@latest
 
 # Set working directory
 WORKDIR /workspace

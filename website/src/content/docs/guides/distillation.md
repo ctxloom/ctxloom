@@ -111,11 +111,14 @@ ctxloom fragment distill my-bundle#fragments/coding-standards
 ctxloom fragment distill --force my-bundle#fragments/coding-standards
 ```
 
-### All Fragments in a Bundle
+### Multiple Fragments
+
+Distill fragments one at a time:
 
 ```bash
-# Distill all fragments that need it
-ctxloom fragment distill my-bundle
+# Distill each fragment that needs it
+ctxloom fragment distill my-bundle#fragments/coding-standards
+ctxloom fragment distill my-bundle#fragments/testing-patterns
 ```
 
 ### Checking Distillation Status
@@ -306,11 +309,11 @@ ctxloom fragment show my-bundle#fragments/standards
 ### Triggering Re-distillation
 
 ```bash
-# Re-distill stale fragments
-ctxloom fragment distill my-bundle
+# Re-distill a specific fragment
+ctxloom fragment distill my-bundle#fragments/standards
 
-# Force re-distill everything
-ctxloom fragment distill --force my-bundle
+# Force re-distill even if unchanged
+ctxloom fragment distill --force my-bundle#fragments/standards
 ```
 
 ## Cost Considerations

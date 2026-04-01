@@ -48,18 +48,16 @@ Similar configuration in `.gemini/settings.json`.
 
 ### Apply Hooks
 
-Regenerate and apply hooks to your backend configuration:
+Hooks are applied automatically when you run `ctxloom init` or start `ctxloom mcp serve`.
 
+To manually reapply hooks, you can:
+
+1. **Re-run init** (simplest approach):
 ```bash
-# Apply to all backends
-ctxloom hooks apply
-
-# Apply to specific backend
-ctxloom hooks apply --backend claude-code
-
-# Apply without regenerating context
-ctxloom hooks apply --no-regenerate
+ctxloom init
 ```
+
+2. **Use the MCP tool** (if ctxloom is running as MCP server):
 
 ### Via MCP
 
@@ -213,11 +211,10 @@ While ctxloom manages its own hooks, you can add custom hooks alongside ctxloom'
 
 ### Stale Context
 
-If context seems outdated:
+If context seems outdated, re-run init to regenerate context and reapply hooks:
 
 ```bash
-# Regenerate and reapply hooks
-ctxloom hooks apply --regenerate
+ctxloom init
 ```
 
 ### Hook Timeout

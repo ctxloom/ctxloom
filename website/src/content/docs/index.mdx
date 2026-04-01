@@ -145,10 +145,12 @@ ctxloom includes built-in commands:
 ## Installation
 
 ```bash
-# Go install
-go install github.com/ctxloom/ctxloom@latest
+# Download binary from GitHub releases (recommended)
+# See: https://github.com/ctxloom/ctxloom/releases
 
-# Or download from GitHub releases
+# Or build from source
+git clone https://github.com/ctxloom/ctxloom.git
+cd ctxloom && go generate ./... && go install .
 ```
 
 ## Running

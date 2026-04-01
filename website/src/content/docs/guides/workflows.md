@@ -41,16 +41,13 @@ ctxloom profile create go-dev \
   -b go-development \
   -b testing-patterns \
   -d "Go development environment"
-
-# Set as default
-ctxloom remote default go-dev
 ```
 
 ### 4. Start Coding
 
 ```bash
-# Your context is now automatically injected
-ctxloom run  # or just start Claude Code
+# Run with your profile
+ctxloom run -p go-dev "help with code"
 ```
 
 ## Daily Development Workflow
@@ -141,9 +138,11 @@ ctxloom remote add team myorg/ctxloom-team
 # Sync team bundles
 ctxloom remote sync
 
-# Use team profile
+# Create profile that inherits from team
 ctxloom profile create my-dev --parent team/team-developer
-ctxloom profile default my-dev
+
+# Use the profile
+ctxloom run -p my-dev "help with code"
 ```
 
 ## Project-Specific Workflow
@@ -160,7 +159,8 @@ ctxloom profile create project \
   -b project-specific \
   -d "This project's development context"
 
-ctxloom profile default project
+# Use the profile
+ctxloom run -p project "help with code"
 ```
 
 ### Project Bundle
@@ -202,9 +202,9 @@ ctxloom profile create go-work -b go-development -b go-testing
 ctxloom profile create python-work -b python-development -b python-testing
 ctxloom profile create frontend-work -b typescript -b react
 
-# Switch based on current task
-ctxloom profile default go-work      # Working on Go
-ctxloom profile default python-work  # Switching to Python
+# Use based on current task
+ctxloom run -p go-work "help with Go code"
+ctxloom run -p python-work "help with Python code"
 ```
 
 ### Per-Directory Configuration
@@ -325,7 +325,7 @@ ctxloom run --dry-run --print
 cat .claude/settings.json | jq '.hooks'
 
 # Reapply hooks
-ctxloom hooks apply
+ctxloom init
 ```
 
 ### When Bundles Are Missing

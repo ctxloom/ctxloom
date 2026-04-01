@@ -11,24 +11,30 @@ Download precompiled binaries from the [releases page](https://github.com/ctxloo
 ### macOS
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/ctxloom/ctxloom/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+
 # Apple Silicon (M1/M2/M3)
-curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_darwin_arm64.tar.gz | tar xz
+curl -L "https://github.com/ctxloom/ctxloom/releases/download/v${VERSION}/ctxloom_${VERSION}_darwin_arm64.tar.gz" | tar xz
 sudo mv ctxloom /usr/local/bin/
 
 # Intel
-curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_darwin_amd64.tar.gz | tar xz
+curl -L "https://github.com/ctxloom/ctxloom/releases/download/v${VERSION}/ctxloom_${VERSION}_darwin_amd64.tar.gz" | tar xz
 sudo mv ctxloom /usr/local/bin/
 ```
 
 ### Linux
 
 ```bash
+# Get latest version
+VERSION=$(curl -s https://api.github.com/repos/ctxloom/ctxloom/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+
 # x86_64
-curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_linux_amd64.tar.gz | tar xz
+curl -L "https://github.com/ctxloom/ctxloom/releases/download/v${VERSION}/ctxloom_${VERSION}_linux_amd64.tar.gz" | tar xz
 sudo mv ctxloom /usr/local/bin/
 
 # ARM64
-curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_linux_arm64.tar.gz | tar xz
+curl -L "https://github.com/ctxloom/ctxloom/releases/download/v${VERSION}/ctxloom_${VERSION}_linux_arm64.tar.gz" | tar xz
 sudo mv ctxloom /usr/local/bin/
 ```
 
@@ -39,8 +45,11 @@ Download the ZIP archive from the [releases page](https://github.com/ctxloom/ctx
 **PowerShell:**
 
 ```powershell
+# Get latest version
+$VERSION = (Invoke-RestMethod -Uri "https://api.github.com/repos/ctxloom/ctxloom/releases/latest").tag_name -replace '^v', ''
+
 # Download and extract (x64)
-Invoke-WebRequest -Uri "https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_windows_amd64.zip" -OutFile ctxloom.zip
+Invoke-WebRequest -Uri "https://github.com/ctxloom/ctxloom/releases/download/v$VERSION/ctxloom_${VERSION}_windows_amd64.zip" -OutFile ctxloom.zip
 Expand-Archive ctxloom.zip -DestinationPath .
 Remove-Item ctxloom.zip
 
@@ -57,24 +66,11 @@ $env:PATH += ";$env:USERPROFILE\bin"
 
 **Or manually:**
 
-1. Download `ctxloom_windows_amd64.zip` from [releases](https://github.com/ctxloom/ctxloom/releases)
-2. Extract `ctxloom.exe` from the ZIP
-3. Move it to a directory in your PATH (e.g., `C:\Users\<username>\bin`)
-4. Add that directory to your PATH if needed
-
-## Go Install
-
-If you have Go 1.21+ installed:
-
-```bash
-go install github.com/ctxloom/ctxloom@latest
-```
-
-Make sure `~/go/bin` is in your PATH:
-
-```bash
-export PATH=$PATH:$(go env GOPATH)/bin
-```
+1. Go to [releases](https://github.com/ctxloom/ctxloom/releases) and find the latest version
+2. Download `ctxloom_<version>_windows_amd64.zip` (e.g., `ctxloom_0.3.3_windows_amd64.zip`)
+3. Extract `ctxloom.exe` from the ZIP
+4. Move it to a directory in your PATH (e.g., `C:\Users\<username>\bin`)
+5. Add that directory to your PATH if needed
 
 ## Build from Source
 
@@ -83,6 +79,12 @@ For development or to get the latest unreleased features.
 ### Prerequisites
 
 - Go 1.21+
+- [Protocol Buffers](https://protobuf.dev/downloads/) compiler (`protoc`)
+- Go protobuf plugins:
+  ```bash
+  go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+  ```
 - [just](https://github.com/casey/just) command runner (optional)
 - C compiler (required for CGO/tree-sitter support)
 
@@ -93,12 +95,33 @@ For development or to get the latest unreleased features.
 git clone https://github.com/ctxloom/ctxloom.git
 cd ctxloom
 
+# Generate protobuf files
+go generate ./...
+
 # Build
 just build
 # or: go build -ldflags "-s -w" -o ctxloom .
 
 # Install
 sudo mv ctxloom /usr/local/bin/
+```
+
+### Go Install (requires protobuf tools)
+
+If you have Go 1.21+ and protobuf tools installed:
+
+```bash
+# Clone, generate, and install
+git clone https://github.com/ctxloom/ctxloom.git
+cd ctxloom
+go generate ./...
+go install .
+```
+
+Make sure `~/go/bin` is in your PATH:
+
+```bash
+export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
 ### Build Commands
@@ -116,9 +139,9 @@ sudo mv ctxloom /usr/local/bin/
 ctxloom --version
 ```
 
-Expected output:
+Expected output (version number will vary):
 ```
-ctxloom version 0.2.0
+ctxloom version 0.3.3
 ```
 
 ## Shell Completion
@@ -159,10 +182,13 @@ ctxloom completion powershell | Out-String | Invoke-Expression
 
 ## Updating
 
-### Go Install
+### From Source
 
 ```bash
-go install github.com/ctxloom/ctxloom@latest
+cd ctxloom
+git pull
+go generate ./...
+go install .
 ```
 
 ### Binary
@@ -221,7 +247,10 @@ xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 Building from source avoids Gatekeeper entirely since the binary is created locally:
 
 ```bash
-go install github.com/ctxloom/ctxloom@latest
+git clone https://github.com/ctxloom/ctxloom.git
+cd ctxloom
+go generate ./...
+go install .
 ```
 
 **Why this happens:** ctxloom binaries are not code-signed or notarized with Apple. This is common for open-source CLI tools distributed via GitHub releases.

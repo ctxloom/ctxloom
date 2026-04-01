@@ -276,7 +276,7 @@ Before publishing, validate your bundles:
 
 ```bash
 # Check YAML syntax
-ctxloom validate ctxloom/v1/bundles/my-bundle.yaml
+yamllint ctxloom/v1/bundles/my-bundle.yaml
 
 # Test loading
 ctxloom fragment show my-bundle#fragments/testing

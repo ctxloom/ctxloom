@@ -17,9 +17,12 @@ Solutions to common issues with ctxloom.
 export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
-2. Reinstall:
+2. Reinstall from source:
 ```bash
-go install github.com/ctxloom/ctxloom@latest
+git clone https://github.com/ctxloom/ctxloom.git
+cd ctxloom
+go generate ./...
+go install .
 ```
 
 3. Verify installation:
@@ -36,7 +39,8 @@ ctxloom --version
 ```bash
 go clean -modcache
 go mod download
-go install github.com/ctxloom/ctxloom@latest
+go generate ./...
+go install .
 ```
 
 ## macOS Issues
@@ -62,7 +66,10 @@ xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 
 **Solution 3: Build from source**
 ```bash
-go install github.com/ctxloom/ctxloom@latest
+git clone https://github.com/ctxloom/ctxloom.git
+cd ctxloom
+go generate ./...
+go install .
 ```
 
 ### Shell completion not loading on macOS
@@ -111,7 +118,7 @@ cat .claude/settings.json | jq '.hooks'
 
 **Fix:**
 ```bash
-ctxloom hooks apply
+ctxloom init
 ```
 
 ### Context File Missing
@@ -125,7 +132,7 @@ ls -la .ctxloom/context/
 
 **Regenerate:**
 ```bash
-ctxloom hooks apply --regenerate
+ctxloom init
 ```
 
 ### Wrong Directory
@@ -278,11 +285,11 @@ ctxloom fragment show fragname  # searches all bundles
 
 **Validate YAML syntax:**
 ```bash
-# Check for syntax errors
-ctxloom validate .ctxloom/bundles/mybundle.yaml
-
-# Or use a YAML linter
+# Use a YAML linter
 yamllint .ctxloom/bundles/mybundle.yaml
+
+# Or try loading the bundle
+ctxloom fragment list --bundle mybundle
 ```
 
 **Common YAML issues:**
@@ -343,7 +350,7 @@ cat .claude/settings.json | jq '.mcpServers'
 **Ensure ctxloom is registered:**
 ```bash
 ctxloom mcp auto-register --enable
-ctxloom hooks apply
+ctxloom init
 ```
 
 **Restart Claude Code** after configuration changes.
@@ -412,7 +419,11 @@ cat ~/.ctxloom/config.yaml
 
 **Validate config:**
 ```bash
-ctxloom validate .ctxloom/config.yaml
+# Use a YAML linter
+yamllint .ctxloom/config.yaml
+
+# Or test by showing config
+ctxloom config show
 ```
 
 ### Environment Variables Not Working
@@ -448,8 +459,11 @@ Ensure you're on the latest version:
 ```bash
 ctxloom --version
 
-# Update
-go install github.com/ctxloom/ctxloom@latest
+# Update from source
+cd ctxloom
+git pull
+go generate ./...
+go install .
 ```
 
 ### Report Issues

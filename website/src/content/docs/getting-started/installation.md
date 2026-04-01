@@ -36,7 +36,7 @@ less install.sh
 bash install.sh
 ```
 
-**[View install.sh source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.sh)** | **[VirusTotal scan](https://www.virustotal.com)** (scan after each release)
+**[View install.sh source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.sh)** | **[VirusTotal scan](https://github.com/ctxloom/ctxloom/releases/latest)** (see release notes for SHA256)
 
 ### Windows (PowerShell)
 
@@ -57,7 +57,7 @@ Get-Content install.ps1 | more
 .\install.ps1
 ```
 
-**[View install.ps1 source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1)** | **[VirusTotal scan](https://www.virustotal.com)** (scan after each release)
+**[View install.ps1 source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1)** | **[VirusTotal scan](https://github.com/ctxloom/ctxloom/releases/latest)** (see release notes for SHA256)
 
 ## Manual Download
 

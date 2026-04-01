@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ctxloom installer for Windows - Because PowerShell deserves nice things too.
+    ctxloom installer for Windows
 
 .DESCRIPTION
     ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -32,8 +32,11 @@
       - Add shortcuts to the taskbar (those are sacred spaces)
       - Send telemetry (we don't even know what that is) (okay we do, but we don't)
 
-    VirusTotal scan: https://www.virustotal.com/gui/file/[hash will be here]
+    Checksums: https://github.com/ctxloom/ctxloom/releases (see checksums.txt)
+    VirusTotal: Search for this script's SHA256 at https://www.virustotal.com
     Source: https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1
+
+    Verify this script: Get-FileHash install.ps1 -Algorithm SHA256
 
     If you've read this far, you're our kind of people. Have this ASCII art:
            /\_/\
@@ -51,20 +54,17 @@
 
 .EXAMPLE
     irm https://ctxloom.dev/install.ps1 | iex
-    # The classic one-liner. YOLO but with style.
 
 .EXAMPLE
     .\install.ps1 -InstallDir "C:\Tools\ctxloom"
-    # For those who organize their tools like a true artisan.
 
 .EXAMPLE
     .\install.ps1 -Version "0.3.3"
-    # When you need that specific vintage. A sommelier of software.
 
 .NOTES
     Author: ctxloom team (definitely not raccoons)
-    License: MIT (the chill license)
-    PowerShell: 5.1+ (though 7+ will make you cooler at parties)
+    License: MIT
+    PowerShell: 5.1+
 #>
 
 [CmdletBinding()]
@@ -90,17 +90,6 @@ $Repo = "ctxloom/ctxloom"
 $ReleasesUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $DownloadBase = "https://github.com/$Repo/releases/download"
 
-# Fun facts - because installation should be educational
-$FunFacts = @(
-    "Fun fact: PowerShell was originally called 'Monad'. ctxloom was almost called 'ContextMaster3000'."
-    "Did you know? The average developer copy-pastes context 47 times per day. We counted. It was depressing."
-    "Pro tip: Ctrl+C in PowerShell doesn't mean 'copy'. Ask us how we know. Actually don't."
-    "Historical note: Before ctxloom, developers used sticky notes. Physical ones. On monitors."
-    "Random thought: If an AI reads a prompt in a forest and no developer is there, does it still hallucinate?"
-    "While you wait: Studies show that reading installation scripts increases trust by 73%. We made that up."
-    "Fun fact: The loom was invented around 4400 BCE. This PowerShell script was invented today. Progress!"
-)
-
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Pretty printing - because stdout deserves aesthetics                      ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -113,7 +102,7 @@ function Write-Info {
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "[SUCCESS] " -ForegroundColor Green -NoNewline
+    Write-Host "[OK] " -ForegroundColor Green -NoNewline
     Write-Host $Message
 }
 
@@ -129,24 +118,6 @@ function Write-Err {
     Write-Host $Message
 }
 
-function Write-Fun {
-    $fact = $FunFacts | Get-Random
-    Write-Host "[" -NoNewline
-    Write-Host "!" -ForegroundColor Magenta -NoNewline
-    Write-Host "] " -NoNewline
-    Write-Host $fact -ForegroundColor Cyan
-}
-
-function Write-Banner {
-    param([string]$Message)
-    $line = "=" * 64
-    Write-Host ""
-    Write-Host $line -ForegroundColor Cyan
-    Write-Host $Message -ForegroundColor Cyan
-    Write-Host $line -ForegroundColor Cyan
-    Write-Host ""
-}
-
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Architecture detection - CSI: Computer System Investigation (Windows Ed.) ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -159,13 +130,13 @@ function Get-Architecture {
         "X64" { return "amd64" }
         "Arm64" { return "arm64" }
         "X86" {
-            Write-Err "32-bit Windows? Really? It's not 2005 anymore!"
-            Write-Err "Please upgrade to 64-bit Windows. Your RAM will thank you."
+            # 32-bit Windows in 2024+? Brave, but unsupported.
+            Write-Err "32-bit architecture is not supported."
             exit 1
         }
         default {
-            Write-Err "Unknown architecture: $arch"
-            Write-Err "Are you running this on a smart toaster? We don't support those. Yet."
+            # When Windows reports something unexpected
+            Write-Err "Unsupported architecture: $arch"
             exit 1
         }
     }
@@ -177,23 +148,16 @@ function Get-Architecture {
 
 function Get-LatestVersion {
     try {
-        Write-Info "Fetching latest version from GitHub..."
+        # GitHub likes to know who's asking. We're polite guests.
         $release = Invoke-RestMethod -Uri $ReleasesUrl -Headers @{
-            "User-Agent" = "ctxloom-installer"  # GitHub likes to know who's asking
+            "User-Agent" = "ctxloom-installer"
         }
         $version = $release.tag_name -replace '^v', ''
-        Write-Success "Latest version: v$version"
         return $version
     }
     catch {
-        Write-Err "Failed to fetch version from GitHub!"
-        Write-Err "Error: $_"
-        Write-Err ""
-        Write-Err "Possible causes:"
-        Write-Err "  - No internet connection (try turning it off and on again)"
-        Write-Err "  - GitHub is down (check https://status.github.com)"
-        Write-Err "  - Your firewall is being overprotective (it means well)"
-        Write-Err "  - Mercury is in retrograde (check your horoscope)"
+        Write-Err "Failed to fetch version from GitHub."
+        Write-Err "Check your network connection and try again."
         exit 1
     }
 }
@@ -211,51 +175,48 @@ function Install-Ctxloom {
 
     $archiveName = "ctxloom_${TargetVersion}_windows_${Arch}.zip"
     $downloadUrl = "$DownloadBase/v$TargetVersion/$archiveName"
+    # Get-Random: for when you need a unique temp folder name and creativity is lacking
     $tempDir = Join-Path $env:TEMP "ctxloom-install-$(Get-Random)"
     $archivePath = Join-Path $tempDir $archiveName
 
     try {
-        # Create temp directory
+        # Create temp directory (it's temporary, like our patience for slow downloads)
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
         Write-Info "Downloading ctxloom v$TargetVersion for windows/$Arch..."
-        Write-Info "URL: $downloadUrl"
-        Write-Host ""
-        Write-Fun
-        Write-Host ""
 
-        # Download with progress (okay, we lied about SilentlyContinue, but it's faster)
+        # Download with progress disabled (it's faster, trust us)
         Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
 
-        Write-Success "Download complete! Extracting..."
+        Write-Success "Downloaded"
+        Write-Info "Extracting..."
 
-        # Extract
+        # Extract (unzip, but make it sound fancier)
         Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
 
-        # Create install directory
+        # Create install directory (if it doesn't exist, we make it exist)
         if (-not (Test-Path $Destination)) {
-            Write-Info "Creating installation directory: $Destination"
             New-Item -ItemType Directory -Path $Destination -Force | Out-Null
         }
 
-        # Move binary
+        # Move binary (the moment you've been waiting for)
         $binarySource = Join-Path $tempDir "ctxloom.exe"
         $binaryDest = Join-Path $Destination "ctxloom.exe"
 
         if (Test-Path $binaryDest) {
-            Write-Info "Removing existing installation..."
+            # Out with the old, in with the new
             Remove-Item $binaryDest -Force
         }
 
         Move-Item $binarySource $binaryDest -Force
-        Write-Success "Installed to: $binaryDest"
+        Write-Success "Installed to $binaryDest"
     }
     catch {
         Write-Err "Installation failed: $_"
         exit 1
     }
     finally {
-        # Cleanup temp directory
+        # Cleanup temp directory (leave no trace, like a ninja)
         if (Test-Path $tempDir) {
             Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -271,21 +232,20 @@ function Add-ToPath {
 
     $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 
+    # Check if already in PATH (no duplicates, we're not savages)
     if ($currentPath -split ";" -contains $Directory) {
-        Write-Info "$Directory is already in PATH. Nice!"
+        Write-Info "$Directory already in PATH"
         return
     }
 
-    Write-Info "Adding $Directory to PATH..."
-
+    # Add to user PATH (permanent, survives reboots, the works)
     $newPath = $currentPath + ";" + $Directory
     [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
 
-    # Also update current session
+    # Also update current session (instant gratification)
     $env:PATH = $env:PATH + ";" + $Directory
 
-    Write-Success "Added to PATH! New terminals will see ctxloom automatically."
-    Write-Info "Your current terminal session has been updated too. No restart needed!"
+    Write-Success "Added to PATH"
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -300,20 +260,16 @@ function Test-Installation {
     if (Test-Path $binaryPath) {
         try {
             $version = & $binaryPath --version 2>&1
-            Write-Success "ctxloom is installed and ready!"
-            Write-Host ""
-            Write-Host "  $version"
-            Write-Host ""
+            Write-Success "Verified: $version"
             return $true
         }
         catch {
-            Write-Warn "Binary exists but couldn't run it. That's... concerning."
-            Write-Warn "Error: $_"
+            Write-Warn "Binary exists but couldn't execute"
             return $false
         }
     }
 
-    Write-Err "Installation verification failed. This is awkward."
+    Write-Err "Installation verification failed"
     return $false
 }
 
@@ -322,59 +278,44 @@ function Test-Installation {
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 function Main {
-    Write-Banner "ctxloom Installer for Windows - Let's weave some context!"
+    Write-Host ""
+    Write-Host "ctxloom installer" -ForegroundColor Cyan
+    Write-Host ""
 
-    # Detect architecture
-    Write-Info "Detecting system architecture..."
+    # Detect architecture (asking Windows nicely what it is)
     $arch = Get-Architecture
-    Write-Success "Detected: windows/$arch"
+    Write-Success "Detected windows/$arch"
 
-    # Get version
+    # Get version (specified or latest)
     $targetVersion = if ($Version) {
-        Write-Info "Using specified version: v$Version"
         $Version
     } else {
         Get-LatestVersion
     }
+    Write-Success "Version: v$targetVersion"
 
-    # Install
+    # Install (the main event)
     Install-Ctxloom -TargetVersion $targetVersion -Arch $arch -Destination $InstallDir
 
     # Update PATH (unless user said no)
     if (-not $NoPath) {
         Add-ToPath -Directory $InstallDir
     } else {
-        Write-Warn "Skipping PATH update as requested. You rebel, you."
-        Write-Info "Add this to your PATH manually: $InstallDir"
+        Write-Warn "Skipping PATH update"
+        Write-Info "Add manually: $InstallDir"
     }
 
-    # Verify
-    $success = Test-Installation -Directory $InstallDir
+    # Verify (trust but verify)
+    Test-Installation -Directory $InstallDir | Out-Null
 
-    if ($success) {
-        Write-Banner "Installation complete! What's next?"
-
-        Write-Host "Quick start:" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  # Initialize ctxloom in your project" -ForegroundColor Gray
-        Write-Host "  ctxloom init"
-        Write-Host ""
-        Write-Host "  # Run with context fragments" -ForegroundColor Gray
-        Write-Host "  ctxloom run -f go-development -f security 'help with code'"
-        Write-Host ""
-        Write-Host "Documentation: " -NoNewline
-        Write-Host "https://ctxloom.dev" -ForegroundColor Cyan
-        Write-Host "GitHub: " -NoNewline
-        Write-Host "https://github.com/ctxloom/ctxloom" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Thanks for installing ctxloom!" -ForegroundColor Green
-        Write-Host "May your contexts be woven and your tokens be optimized." -ForegroundColor Cyan
-        Write-Host ""
-
-        # One last fun fact
-        Write-Fun
-    }
+    Write-Host ""
+    Write-Host "Get started:"
+    Write-Host "  ctxloom init"
+    Write-Host "  ctxloom --help"
+    Write-Host ""
+    Write-Host "Docs: https://ctxloom.dev"
+    Write-Host ""
 }
 
-# Execute!
+# Execute! (here we go)
 Main

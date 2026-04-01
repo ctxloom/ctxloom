@@ -51,7 +51,31 @@ jobs:
       - name: Validate schemas
         run: go run ./cmd/validate
 
+      - name: Compute install script hashes
+        id: script_hashes
+        run: |
+          HASH_SH=$(sha256sum scripts/install.sh | cut -d' ' -f1)
+          HASH_PS1=$(sha256sum scripts/install.ps1 | cut -d' ' -f1)
+
+          echo "install.sh SHA256: $HASH_SH"
+          echo "install.ps1 SHA256: $HASH_PS1"
+
+          # Export for goreleaser
+          echo "HASH_INSTALL_SH=$HASH_SH" >> $GITHUB_ENV
+          echo "HASH_INSTALL_PS1=$HASH_PS1" >> $GITHUB_ENV
+
       - name: Run GoReleaser
         run: goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HASH_INSTALL_SH: ${{ env.HASH_INSTALL_SH }}
+          HASH_INSTALL_PS1: ${{ env.HASH_INSTALL_PS1 }}
+
+      - name: Upload install scripts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scripts/install.sh
+            scripts/install.ps1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

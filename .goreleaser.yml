@@ -144,6 +144,18 @@ release:
 
     Context Loom - Weave context for AI coding agents.
 
+    ### Quick Install
+
+    **macOS / Linux:**
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
+    ```
+
+    **Windows (PowerShell):**
+    ```powershell
+    irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
+    ```
+
     ### Which Build?
 
     | Build | Size | Features |
@@ -154,7 +166,7 @@ release:
     Both builds include memory logging and semantic search.
     The full build adds AST-based code compression (requires CGO).
 
-    ### Installation
+    ### Manual Installation
 
     **Go Install:**
     ```bash
@@ -169,3 +181,13 @@ release:
     ```bash
     sudo cp man/man1/*.1 /usr/local/share/man/man1/
     ```
+
+    ### Security Verification
+
+    Install script checksums (SHA256):
+    - `install.sh`: `{{ .Env.HASH_INSTALL_SH }}`
+    - `install.ps1`: `{{ .Env.HASH_INSTALL_PS1 }}`
+
+    VirusTotal scans:
+    - [install.sh](https://www.virustotal.com/gui/file/{{ .Env.HASH_INSTALL_SH }})
+    - [install.ps1](https://www.virustotal.com/gui/file/{{ .Env.HASH_INSTALL_PS1 }})

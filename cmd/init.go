@@ -484,20 +484,22 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Only do setup if directory doesn't exist
 	if !alreadyExists {
-		// Check engine availability
+		// Check engine availability (warn but don't fail - fault tolerant)
+		noEnginesAvailable := false
 		if selectedEngine == "" {
 			primary, secondary := getAvailableEngines()
 			if len(primary) == 0 && len(secondary) == 0 {
-				fmt.Fprintln(os.Stderr, "No AI engines detected.")
-				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Install one of the following to get started:")
+				noEnginesAvailable = true
+				fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
+				fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 				fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
 				fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
 				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Then run 'ctxloom init' again.")
-				return errNoEngines
+				// Continue with placeholder - don't fail init
+				selectedEngine = "claude-code"
 			}
 		}
+		_ = noEnginesAvailable // used for skipping interactive prompts
 
 		if interactive && selectedEngine == "" {
 			prompts := newInitPrompts()

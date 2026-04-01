@@ -118,6 +118,27 @@ Examples:
 
 var fragmentDistillForce bool
 
+var fragmentSearchTags []string
+
+var fragmentSearchCmd = &cobra.Command{
+	Use:   "search [query]",
+	Short: "Search fragments",
+	Long: `Search for fragments by name or tags.
+
+Examples:
+  ctxloom fragment search cache           # Search by name
+  ctxloom fragment search -t golang       # Search by tag
+  ctxloom fragment search -t golang,testing  # Search by multiple tags`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		query := ""
+		if len(args) > 0 {
+			query = args[0]
+		}
+		return runSearch(query, fragmentSearchTags, "fragment")
+	},
+}
+
 var (
 	fragmentInstallForce bool
 	fragmentInstallBlind bool
@@ -183,6 +204,7 @@ func init() {
 	fragmentCmd.AddCommand(fragmentDistillCmd)
 	fragmentCmd.AddCommand(fragmentInstallCmd)
 	fragmentCmd.AddCommand(fragmentPushCmd)
+	fragmentCmd.AddCommand(fragmentSearchCmd)
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
@@ -194,4 +216,6 @@ func init() {
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")
 	fragmentPushCmd.Flags().StringVar(&fragmentPushBranch, "branch", "", "Target branch")
 	fragmentPushCmd.Flags().StringVarP(&fragmentPushMessage, "message", "m", "", "Commit message")
+
+	fragmentSearchCmd.Flags().StringSliceVarP(&fragmentSearchTags, "tag", "t", nil, "Filter by tags (comma-separated)")
 }

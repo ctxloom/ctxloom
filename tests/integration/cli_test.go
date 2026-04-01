@@ -862,13 +862,8 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify directory structure was created
-	_, err = env.ReadFile(".ctxloom/config.yaml")
-	// Config file may or may not exist initially
-	_, err = env.ReadFile(".ctxloom/profiles/.gitkeep")
-	// Verify at least one of these exists
-	profilesDir, _ := env.ReadFile(".ctxloom/profiles/")
-	bundlesDir, _ := env.ReadFile(".ctxloom/bundles/")
-	assert.True(t, profilesDir != "" || bundlesDir != "", "Expected .ctxloom/profiles or .ctxloom/bundles directory to exist")
+	assert.True(t, env.FileExists(".ctxloom"), "Expected .ctxloom directory to exist")
+	assert.True(t, env.FileExists(".ctxloom/config.yaml"), "Expected .ctxloom/config.yaml to exist")
 }
 
 // =============================================================================

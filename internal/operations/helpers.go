@@ -35,22 +35,3 @@ func loadFreshConfig(fs afero.Fs, appDir string, testConfig *config.Config) (*co
 	}
 	return cfg, nil
 }
-
-// requireField returns an error if value is empty.
-func requireField(name, value string) error {
-	if value == "" {
-		return fmt.Errorf("%s is required", name)
-	}
-	return nil
-}
-
-// saveConfigIfNeeded saves config unless in test mode.
-func saveConfigIfNeeded(cfg *config.Config, isTestMode bool) error {
-	if isTestMode {
-		return nil
-	}
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-	return nil
-}

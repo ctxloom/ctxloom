@@ -42,16 +42,3 @@ func TestLoadFreshConfig(t *testing.T) {
 		assert.NotNil(t, result)
 	})
 }
-
-func TestRequireField(t *testing.T) {
-	t.Run("returns nil for non-empty value", func(t *testing.T) {
-		err := requireField("name", "value")
-		assert.NoError(t, err)
-	})
-
-	t.Run("returns error for empty value", func(t *testing.T) {
-		err := requireField("name", "")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "name is required")
-	})
-}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -174,7 +175,9 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	// Create existing settings with ctxloom hooks (_ctxloom field present)
+	// Create existing settings with ctxloom hooks (identified by command pattern).
+	// Note: We no longer use _ctxloom marker field since Claude Code uses strict
+	// schema validation. Hooks are identified by command containing "ctxloom" AND "inject-context".
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	_ = os.MkdirAll(claudeDir, 0755)
 
@@ -186,8 +189,7 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
-							"command": "./old-ctxloom-hook.sh",
-							"_ctxloom":    "oldhash123", // ctxloom-managed
+							"command": "\"/old/path/to/ctxloom\" hook inject-context --project \"/some/path\" oldhash123",
 						},
 					},
 				},
@@ -228,11 +230,117 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 			hooksList := m["hooks"].([]interface{})
 			for _, h := range hooksList {
 				hook := h.(map[string]interface{})
-				if hook["command"] == "./old-ctxloom-hook.sh" {
+				cmd := hook["command"].(string)
+				if strings.Contains(cmd, "oldhash123") {
 					t.Error("old ctxloom hook should have been removed")
 				}
 			}
 		}
+	}
+}
+
+// TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand tests that hooks
+// without the _ctxloom field are still removed if they match the inject-context pattern.
+// This is a fallback for hooks written by older versions.
+func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+
+	// Create existing settings with inject-context hooks that DON'T have _ctxloom field
+	// This simulates hooks from an older version or corrupted state
+	claudeDir := filepath.Join(tmpDir, ".claude")
+	_ = os.MkdirAll(claudeDir, 0755)
+
+	existingSettings := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						// Old inject-context hook WITHOUT _ctxloom marker
+						map[string]interface{}{
+							"type":    "command",
+							"command": "\"/path/to/ctxloom\" hook inject-context --project \"/some/path\" abc123",
+							"timeout": 60,
+							// Note: NO "_ctxloom" field - this is the bug case
+						},
+						// Duplicate
+						map[string]interface{}{
+							"type":    "command",
+							"command": "\"/path/to/ctxloom\" hook inject-context --project \"/some/path\" abc123",
+							"timeout": 60,
+						},
+						// User's own hook (should be preserved)
+						map[string]interface{}{
+							"type":    "command",
+							"command": "echo 'user hook'",
+							"timeout": 30,
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(existingSettings)
+	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
+
+	// Write new ctxloom hooks
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{
+				{Command: "\"/new/ctxloom\" hook inject-context --project \"/new/path\" newhash", Timeout: 60},
+			},
+		},
+	}
+
+	err := writer.WriteHooks(cfg, tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Read back and verify
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
+	data, _ = os.ReadFile(settingsPath)
+
+	var settings map[string]interface{}
+	_ = json.Unmarshal(data, &settings)
+
+	hooks := settings["hooks"].(map[string]interface{})
+	sessionStart := hooks["SessionStart"].([]interface{})
+
+	// Count the hooks
+	totalHooks := 0
+	userHooks := 0
+	ctxloomHooks := 0
+
+	for _, matcher := range sessionStart {
+		m := matcher.(map[string]interface{})
+		hooksList := m["hooks"].([]interface{})
+		for _, h := range hooksList {
+			hook := h.(map[string]interface{})
+			cmd := hook["command"].(string)
+			totalHooks++
+			if cmd == "echo 'user hook'" {
+				userHooks++
+			}
+			if strings.Contains(cmd, "inject-context") {
+				ctxloomHooks++
+			}
+		}
+	}
+
+	// Should have exactly 1 user hook preserved
+	if userHooks != 1 {
+		t.Errorf("expected 1 user hook, got %d", userHooks)
+	}
+
+	// Should have exactly 1 ctxloom hook (the new one, old duplicates removed)
+	if ctxloomHooks != 1 {
+		t.Errorf("expected 1 ctxloom hook (new), got %d - old hooks may not have been removed", ctxloomHooks)
+	}
+
+	// Total should be 2 (1 user + 1 new ctxloom)
+	if totalHooks != 2 {
+		t.Errorf("expected 2 total hooks, got %d", totalHooks)
 	}
 }
 

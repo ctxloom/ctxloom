@@ -208,13 +208,20 @@ type claudeCodeHookMatcher struct {
 }
 
 // claudeCodeHook represents a single hook in Claude Code format.
+//
+// Note: The SCM field is intentionally NOT serialized to JSON (json:"-").
+// Claude Code uses Zod schema validation with .strict() mode when validating
+// edits to settings.json, which rejects unknown fields. Instead of relying on
+// a marker field, we identify ctxloom-managed hooks by their command pattern
+// (contains "ctxloom" AND "inject-context") via isCtxloomManagedHook().
+// See: claude-code-src/src/utils/settings/validation.ts:193
 type claudeCodeHook struct {
 	Type    string `json:"type,omitempty"`
 	Command string `json:"command,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
 	Async   bool   `json:"async,omitempty"`
-	SCM     string `json:"_ctxloom,omitempty"` // Hash identifying ctxloom-managed hooks
+	SCM     string `json:"-"` // Internal only - not serialized (Claude Code strict schema validation)
 }
 
 // WriteSettings implements SettingsWriter for Claude Code.
@@ -421,14 +428,18 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
-// removeCtxloomHooks removes all hooks with _ctxloom field from settings.
+// removeCtxloomHooks removes all ctxloom-managed hooks from settings.
+// It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context".
+// The SCM field is checked for in-memory hooks but is not serialized to JSON
+// (Claude Code uses strict schema validation that rejects unknown fields).
 func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) {
 	for eventName, matchers := range settings.Hooks {
 		var filteredMatchers []claudeCodeHookMatcher
 		for _, matcher := range matchers {
 			var filteredHooks []claudeCodeHook
 			for _, hook := range matcher.Hooks {
-				if hook.SCM == "" {
+				// Keep hooks that are NOT ctxloom-managed
+				if hook.SCM == "" && !isCtxloomManagedHook(hook.Command) {
 					filteredHooks = append(filteredHooks, hook)
 				}
 			}

@@ -27,11 +27,16 @@ just install              # Build and install to ~/go/bin
 # Initialize a project
 ctxloom init                  # Create .ctxloom directory in current project
 
-# Create your first bundle
-ctxloom bundle create my-standards
+# Install content from a remote
+ctxloom fragment install ctxloom-default/core
+
+# Search for content
+ctxloom search -t golang      # Find fragments by tag
+ctxloom fragment list         # List all fragments
 
 # Run with your context
-ctxloom run -f my-standards "Help me with this code"
+ctxloom run -p developer "Help me with this code"
+ctxloom run -f core#fragments/tdd "Review this PR"
 ctxloom run -n                # Preview what context would be sent
 ```
 
@@ -48,6 +53,22 @@ See the [Quick Start Guide](https://ctxloom.abbitt.me/getting-started/quickstart
 | **Remote** | A Git repository for sharing bundles and profiles |
 
 Learn more: [Concepts](https://ctxloom.abbitt.me/concepts/bundles)
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `ctxloom run` | Assemble context and run AI |
+| `ctxloom init` | Initialize .ctxloom directory |
+| `ctxloom search` | Search fragments and prompts |
+| `ctxloom fragment` | Manage fragments (list, show, create, edit, install) |
+| `ctxloom prompt` | Manage prompts |
+| `ctxloom profile` | Manage profiles |
+| `ctxloom remote` | Manage remotes (add, sync, search, browse) |
+| `ctxloom mcp` | Run MCP server or manage MCP configs |
+| `ctxloom config` | Show or modify configuration |
+
+See [CLI Reference](docs/cli-reference.md) for complete documentation.
 
 ## Documentation
 

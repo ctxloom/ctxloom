@@ -88,9 +88,8 @@ type BundleMCP struct {
 
 // BundleFragment defines a fragment within a bundle.
 type BundleFragment struct {
-	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
-	Variables    []string `yaml:"variables,omitempty"`    // Template variables
-	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Tags         []string `yaml:"tags,omitempty"` // Additional tags (merged with bundle tags)
+	Notes        string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
 	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string   `yaml:"content"`
 	ContentHash  string   `yaml:"content_hash,omitempty"`
@@ -101,10 +100,9 @@ type BundleFragment struct {
 
 // BundlePrompt defines a prompt within a bundle.
 type BundlePrompt struct {
-	Description  string        `yaml:"description,omitempty"`
-	Tags         []string      `yaml:"tags,omitempty"`
-	Variables    []string      `yaml:"variables,omitempty"`
-	Notes        string        `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Description string   `yaml:"description,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Notes       string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
 	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string        `yaml:"content"`
 	ContentHash  string        `yaml:"content_hash,omitempty"`

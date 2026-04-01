@@ -2,8 +2,6 @@
 title: "Troubleshooting"
 ---
 
-# Troubleshooting
-
 Solutions to common issues with ctxloom.
 
 ## Installation Issues

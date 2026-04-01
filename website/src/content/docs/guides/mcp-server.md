@@ -2,8 +2,6 @@
 title: "MCP Server"
 ---
 
-# MCP Server
-
 ctxloom can run as an MCP (Model Context Protocol) server, allowing AI assistants to access your context directly.
 
 ## Running the MCP Server

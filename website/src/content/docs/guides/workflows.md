@@ -2,8 +2,6 @@
 title: "Common Workflows"
 ---
 
-# Common Workflows
-
 Practical workflows for using ctxloom effectively in your daily development.
 
 ## Getting Started Workflow

@@ -2,8 +2,6 @@
 title: "Fragments"
 ---
 
-# Fragments
-
 A **fragment** is a reusable context snippet within a bundle. Fragments contain the actual content that gets sent to AI assistants.
 
 ## Fragment Structure
@@ -89,7 +87,6 @@ Fragments support [Mustache](https://mustache.github.io/) templating for dynamic
 ```yaml
 fragments:
   project-context:
-    variables: [PROJECT_NAME, LANGUAGE]  # Document required variables
     content: |
       # {{ PROJECT_NAME }} Development
 
@@ -120,22 +117,20 @@ Mustache supports conditional sections:
 ```text
 ## Deployment
 
-{#USE_DOCKER}
+{{#USE_DOCKER}}
 ### Docker Build
 docker build -t app .
 docker push registry/app
-{/USE_DOCKER}
+{{/USE_DOCKER}}
 
-{#CI_PLATFORM}
-CI/CD runs on {CI_PLATFORM}.
-{/CI_PLATFORM}
+{{#CI_PLATFORM}}
+CI/CD runs on {{CI_PLATFORM}}.
+{{/CI_PLATFORM}}
 
-{^USE_DOCKER}
+{{^USE_DOCKER}}
 Deploy directly without containerization.
-{/USE_DOCKER}
+{{/USE_DOCKER}}
 ```
-
-Note: In actual YAML, use double braces: `{` becomes `{{` and `}` becomes `}}`.
 
 ### Built-in Variables
 

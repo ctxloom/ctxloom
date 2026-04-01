@@ -2,8 +2,6 @@
 title: "Session Memory"
 ---
 
-# Session Memory
-
 Session memory preserves context across conversations by compacting session history and storing it for future retrieval. This helps maintain continuity when you hit context limits or need to clear your session.
 
 ## Why Not Just Use `/compact`?

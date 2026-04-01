@@ -2,8 +2,6 @@
 title: "Environment Variables"
 ---
 
-# Environment Variables
-
 Environment variables that affect ctxloom behavior.
 
 ## Configuration

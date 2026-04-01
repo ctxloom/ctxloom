@@ -2,8 +2,6 @@
 title: "Installation"
 ---
 
-# Installation
-
 Choose the installation method that works best for you.
 
 ## Download Binary (Recommended)

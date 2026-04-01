@@ -2,8 +2,6 @@
 title: "Quick Start"
 ---
 
-# Quick Start
-
 Get up and running with ctxloom in minutes.
 
 ## What ctxloom Does

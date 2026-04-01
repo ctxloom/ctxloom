@@ -2,8 +2,6 @@
 title: "Architecture"
 ---
 
-# Architecture
-
 Understanding how ctxloom is designed and how its components work together.
 
 ## Overview

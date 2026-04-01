@@ -2,8 +2,6 @@
 title: "CLI Reference"
 ---
 
-# CLI Reference
-
 Complete reference for all ctxloom commands.
 
 ## ctxloom init

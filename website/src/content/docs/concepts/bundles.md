@@ -2,8 +2,6 @@
 title: "Bundles"
 ---
 
-# Bundles
-
 A **bundle** is a versioned YAML file containing related fragments, prompts, and MCP server configurations.
 
 ## Bundle Structure
@@ -20,16 +18,15 @@ description: "Bundle description"   # Description
 notes: |
   Internal notes about this bundle...
 
-# Setup instructions (NOT sent to AI)
+# Setup instructions (returned to AI on install)
 installation: |
   Run: npm install ...
 
 fragments:
   fragment-name:
     tags: [language, patterns]      # Additional tags (merged with bundle)
-    variables: [VAR1, VAR2]         # Template variables used
     notes: "Human notes"            # NOT sent to AI
-    installation: "Setup guide"     # NOT sent to AI
+    installation: "Setup guide"     # Returned to AI on install
     content: |
       # Fragment Content
       Your markdown content here...
@@ -45,9 +42,8 @@ prompts:
   prompt-name:
     description: "Prompt description"
     tags: [tool, generation]
-    variables: [VAR1]
     notes: "Human notes"            # NOT sent to AI
-    installation: "Setup"           # NOT sent to AI
+    installation: "Setup"           # Returned to AI on install
     content: |
       # Prompt Content
       Your prompt template here...
@@ -69,7 +65,7 @@ mcp:
     env:                            # Environment variables
       API_KEY: "${API_KEY}"
     notes: "Human notes"            # NOT sent to AI
-    installation: "Install guide"   # NOT sent to AI
+    installation: "Install guide"   # Returned to AI on install
 ```
 
 ## Key Fields
@@ -80,9 +76,8 @@ mcp:
 |-------|------|-------------|
 | `content` | string | Required. The actual content sent to AI |
 | `tags` | array | Additional tags (merged with bundle tags) |
-| `variables` | array | Mustache variables used in content |
 | `notes` | string | Human-readable notes (NOT sent to AI) |
-| `installation` | string | Setup instructions (NOT sent to AI) |
+| `installation` | string | Setup instructions (returned to AI on install) |
 | `no_distill` | bool | If true, skip distillation |
 | `content_hash` | string | SHA256 hash of content |
 | `distilled` | string | Token-efficient version |
@@ -95,7 +90,6 @@ mcp:
 | `content` | string | Required. The prompt template |
 | `description` | string | Human-readable description |
 | `tags` | array | Tags for filtering |
-| `variables` | array | Mustache variables used |
 | `plugins` | object | Plugin-specific settings |
 
 ### MCP Server Fields
@@ -106,7 +100,7 @@ mcp:
 | `args` | array | Command arguments |
 | `env` | map | Environment variables |
 | `notes` | string | Human-readable notes (NOT sent to AI) |
-| `installation` | string | Setup instructions (NOT sent to AI) |
+| `installation` | string | Setup instructions (returned to AI on install) |
 
 ## Managing Bundles
 
@@ -164,11 +158,11 @@ Reference bundle content using hash syntax:
 | `remote/bundle` | Bundle from remote |
 | `remote/bundle#fragments/x` | Fragment from remote bundle |
 
-## Notes vs Content
+## Notes vs Installation
 
-Fields marked "NOT sent to AI" are for human documentation only:
+These fields serve different purposes:
 
-- `notes` - Internal documentation, caveats, rationale
-- `installation` - Setup steps, prerequisites, dependencies
+- `notes` - Internal documentation for humans only. Never sent to the AI.
+- `installation` - Setup instructions. **Returned to the AI when a bundle is installed** via the MCP `pull_remote` tool, so the AI can follow setup steps automatically.
 
-These help maintainers understand the bundle without polluting AI context.
+This allows bundle authors to include setup commands (npm install, environment variables, etc.) that the AI will execute after installation.

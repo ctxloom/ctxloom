@@ -2,8 +2,6 @@
 title: "Prompts"
 ---
 
-# Prompts
-
 A **prompt** is a saved prompt template within a bundle. Prompts help standardize common AI interactions and are automatically exposed as **slash commands** in both Claude Code and Gemini CLI.
 
 ## Prompt Structure

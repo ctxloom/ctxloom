@@ -2,8 +2,6 @@
 title: "Remotes"
 ---
 
-# Remotes
-
 A **remote** is a Git repository for sharing bundles and profiles across teams and projects.
 
 ## Pre-configured Remote

@@ -2,8 +2,6 @@
 title: "Sharing Bundles"
 ---
 
-# Sharing Bundles
-
 Share your context bundles with your team or the community by creating a ctxloom repository.
 
 ## Repository Structure

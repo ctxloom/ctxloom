@@ -2,8 +2,6 @@
 title: "Hooks and Context Injection"
 ---
 
-# Hooks and Context Injection
-
 ctxloom uses hooks to automatically inject context into your AI coding sessions. This guide explains how the hook system works and how to configure it.
 
 ## How Context Injection Works
@@ -88,10 +86,15 @@ Context is assembled from:
 
 ### Assembly Order
 
-Fragments are assembled in a deterministic order:
-1. Parent profiles (in order specified)
-2. Direct bundles (alphabetically)
-3. Tag-matched fragments (alphabetically)
+Fragments are ordered using a "bookend" strategy to address the [Lost in the Middle](https://arxiv.org/abs/2307.03172) problem where LLMs attend poorly to middle content:
+
+| Position | Content | Why |
+|----------|---------|-----|
+| **Start** | Highest priority | Primacy effect - best attention |
+| **End** | Second highest priority | Recency effect - good attention |
+| **Middle** | Remaining (descending) | Weaker attention area |
+
+Fragments without explicit priority default to 0. See [Fragment Priority](/concepts/profiles#fragment-priority) for setting priorities.
 
 ### Deduplication
 

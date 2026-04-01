@@ -2,8 +2,6 @@
 title: "Distillation"
 ---
 
-# Distillation
-
 Distillation compresses verbose context into token-efficient versions while preserving essential information. This helps you stay within context limits and reduce costs.
 
 ## Context Size Research

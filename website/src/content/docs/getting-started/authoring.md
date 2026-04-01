@@ -2,8 +2,6 @@
 title: "Authoring Bundles"
 ---
 
-# Authoring Bundles
-
 Create and manage your own context bundles.
 
 ## Create Your First Bundle

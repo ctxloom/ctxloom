@@ -2,8 +2,6 @@
 title: "Templating"
 ---
 
-# Templating
-
 Fragments and prompts support [Mustache](https://mustache.github.io/) templating for dynamic content.
 
 ## Basic Syntax
@@ -128,21 +126,6 @@ This is not production - be careful!
 ```mustache
 {{! This comment won't appear in output }}
 ```
-
-## Declaring Used Variables
-
-Document which variables a fragment uses:
-
-```yaml
-fragments:
-  database-config:
-    variables: [DATABASE_URL, DB_POOL_SIZE]
-    content: |
-      Connect to: {{DATABASE_URL}}
-      Pool size: {{DB_POOL_SIZE}}
-```
-
-This helps users know which variables to define in their profiles.
 
 ## Error Handling
 

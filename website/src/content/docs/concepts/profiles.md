@@ -2,8 +2,6 @@
 title: "Profiles"
 ---
 
-# Profiles
-
 A **profile** is a named configuration that references bundles, tags, and variables. Profiles enable quick context switching.
 
 ## Profile Structure

@@ -2,8 +2,6 @@
 title: "MCP Tools Reference"
 ---
 
-# MCP Tools Reference
-
 Complete reference for all MCP (Model Context Protocol) tools exposed by ctxloom's MCP server.
 
 ## Overview
@@ -323,6 +321,48 @@ Install a previously previewed item using the pull_token from preview_remote.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `pull_token` | string | Yes | Token from preview_remote response |
+
+### pull_remote
+
+Pull (install) a bundle or profile from a remote repository in one step. This is the recommended way to install remote content.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `reference` | string | Yes | Remote reference (e.g., `remote-name/bundle-name` or `remote-name/bundle@v1.0.0`) |
+| `item_type` | string | Yes | Type: `bundle`, `fragment`, or `profile` |
+
+**Response:**
+
+The response includes:
+- `status` - Installation status
+- `reference` - Installed reference
+- `local_path` - Path to installed file
+- `installation` - **Setup instructions from the bundle** (if present). Use these to complete setup (e.g., run npm install, set environment variables).
+
+**Example:**
+```json
+{
+  "tool": "pull_remote",
+  "arguments": {
+    "reference": "ctxloom-default/core",
+    "item_type": "bundle"
+  }
+}
+```
+
+**Response with installation instructions:**
+```json
+{
+  "status": "installed",
+  "reference": "ctxloom-default/core",
+  "local_path": ".ctxloom/bundles/core.yaml",
+  "installation": "Run: npm install -g @ctxloom/core\nSet CTXLOOM_API_KEY in your environment"
+}
+```
+
+The AI should follow the `installation` instructions after a successful install.
 
 ### add_remote
 

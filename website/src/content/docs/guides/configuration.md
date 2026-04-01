@@ -2,8 +2,6 @@
 title: "Configuration"
 ---
 
-# Configuration
-
 ctxloom uses YAML configuration files stored in the `.ctxloom/` directory.
 
 ## Directory Structure
@@ -165,19 +163,13 @@ hooks:
 
 ## Claude Code Integration
 
-The `claude-code` plugin:
+ctxloom injects context via **SessionStart hooks** rather than editing `CLAUDE.md`. This approach:
 
-1. Writes context to `.ctxloom/context/[hash].md`
-2. Updates `CLAUDE.md` with managed section
+- Keeps `CLAUDE.md` clean for your own project documentation
+- Injects fresh context at the start of each session
+- Works with both Claude Code and Gemini CLI
 
-The managed section is delimited by:
-```markdown
-<!-- CTXLOOM:BEGIN -->
-...generated content...
-<!-- CTXLOOM:END -->
-```
-
-ctxloom only modifies content within these markers.
+Context is written to `.ctxloom/context/[hash].md` and injected via hook. See [Hooks and Context Injection](/guides/hooks) for details.
 
 ## Sync Configuration
 

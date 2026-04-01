@@ -169,6 +169,20 @@ man-install: man
 help:
     ./ctxloom --help
 
+# ===== Documentation targets =====
+
+# Start docs dev server (http://localhost:4321)
+docs:
+    cd website && npm run dev
+
+# Build docs for production
+docs-build:
+    cd website && npm run build
+
+# Preview production docs build
+docs-preview:
+    cd website && npm run preview
+
 # Initialize .ctxloom directory
 init:
     ./ctxloom init

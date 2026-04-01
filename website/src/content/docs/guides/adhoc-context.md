@@ -2,8 +2,6 @@
 title: "Ad-Hoc Context Assembly"
 ---
 
-# Ad-Hoc Context Assembly
-
 Build context on the fly without creating profile files. Perfect for one-off tasks, experimentation, and quick context changes.
 
 ## The Basics

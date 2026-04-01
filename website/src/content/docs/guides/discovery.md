@@ -2,8 +2,6 @@
 title: "Discovering Remote Repositories"
 ---
 
-# Discovering Remote Repositories
-
 ctxloom can search GitHub and GitLab to find repositories containing bundles and profiles you can use.
 
 ## Quick Start

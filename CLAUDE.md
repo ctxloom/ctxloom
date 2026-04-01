@@ -1,13 +1,3 @@
-<!-- CTXLOOM:MANAGED
-  Source: llm.md | Backend: claude-code
-
-  This file is auto-generated from llm.md by ctxloom.
-  Edit llm.md instead - changes sync to all configured LLM backends on startup.
-
-  To disable sync and manage this file manually, delete this header block.
-  ctxloom will not modify files without the CTXLOOM:MANAGED marker.
--->
-
 # ctxloom Development Guidelines
 
 ## Fault Tolerance Philosophy

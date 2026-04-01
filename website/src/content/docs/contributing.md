@@ -2,8 +2,6 @@
 title: "Contributing"
 ---
 
-# Contributing
-
 Guide for contributing to ctxloom development.
 
 ## Prerequisites

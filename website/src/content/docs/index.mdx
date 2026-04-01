@@ -114,17 +114,12 @@ ctxloom includes built-in commands:
 
 ## How It Works
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Bundles   │────▶│  Profiles   │────▶│   Context   │
-│ (fragments) │     │  (combos)   │     │  (assembled)│
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                                       │
-       ▼                                       ▼
-┌─────────────┐                         ┌─────────────┐
-│   Remotes   │                         │ Claude/Gemini│
-│ (GitHub/GL) │                         │   (via MCP)  │
-└─────────────┘                         └─────────────┘
+```mermaid
+flowchart LR
+    Bundles["Bundles<br/>(fragments)"] --> Profiles["Profiles<br/>(combos)"]
+    Profiles --> Context["Context<br/>(assembled)"]
+    Bundles --> Remotes["Remotes<br/>(GitHub/GL)"]
+    Context --> AI["Claude/Gemini<br/>(via MCP)"]
 ```
 
 1. **Bundles** contain fragments (context), prompts (skills), and MCP servers

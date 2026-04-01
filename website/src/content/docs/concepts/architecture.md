@@ -8,32 +8,35 @@ Understanding how ctxloom is designed and how its components work together.
 
 ctxloom (Context Loom) manages AI coding context through a layered architecture:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        AI Tools                              │
-│              (Claude Code, Cursor, etc.)                     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                    MCP Protocol / Hooks
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                    ctxloom Core                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │   Bundles   │  │  Profiles   │  │   Context Assembly  │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │   Remotes   │  │    Hooks    │  │    MCP Server       │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                         File System
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                     Storage Layer                            │
-│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐ │
-│  │ .ctxloom/bundles/ │  │ .ctxloom/profiles/│  │ .ctxloom/context/   │ │
-│  └───────────────┘  └───────────────┘  └─────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph AI["AI Tools"]
+        direction LR
+        claude["Claude Code"]
+        cursor["Cursor"]
+        etc["etc."]
+    end
+
+    AI -->|"MCP Protocol / Hooks"| Core
+
+    subgraph Core["ctxloom Core"]
+        direction LR
+        bundles["Bundles"]
+        profiles["Profiles"]
+        assembly["Context Assembly"]
+        remotes["Remotes"]
+        hooks["Hooks"]
+        mcp["MCP Server"]
+    end
+
+    Core -->|"File System"| Storage
+
+    subgraph Storage["Storage Layer"]
+        direction LR
+        sbundles[".ctxloom/bundles/"]
+        sprofiles[".ctxloom/profiles/"]
+        scontext[".ctxloom/context/"]
+    end
 ```
 
 ## Core Components
@@ -107,20 +110,12 @@ tags: [tag1, tag2]
 **Purpose:** Inject context into AI tool sessions automatically.
 
 **Flow:**
-```
-Session Start
-     │
-     ▼
-Hook Triggered
-     │
-     ▼
-Read Context File
-     │
-     ▼
-Output to AI Tool
-     │
-     ▼
-Delete Context File
+```mermaid
+flowchart TD
+    A["Session Start"] --> B["Hook Triggered"]
+    B --> C["Read Context File"]
+    C --> D["Output to AI Tool"]
+    D --> E["Delete Context File"]
 ```
 
 ### MCP Server
@@ -138,53 +133,30 @@ Delete Context File
 
 ### Context Injection Flow
 
-```
-1. User starts session
-         │
-         ▼
-2. SessionStart hook fires
-         │
-         ▼
-3. Hook runs: ctxloom hook inject-context <hash>
-         │
-         ▼
-4. ctxloom reads .ctxloom/context/<hash>.md
-         │
-         ▼
-5. Content output to stdout
-         │
-         ▼
-6. AI tool receives context
-         │
-         ▼
-7. Context file deleted
+```mermaid
+flowchart TD
+    A["1. User starts session"] --> B["2. SessionStart hook fires"]
+    B --> C["3. Hook runs: ctxloom hook inject-context"]
+    C --> D["4. ctxloom reads .ctxloom/context/hash.md"]
+    D --> E["5. Content output to stdout"]
+    E --> F["6. AI tool receives context"]
+    F --> G["7. Context file deleted"]
 ```
 
 ### Remote Sync Flow
 
-```
-1. ctxloom remote sync
-         │
-         ▼
-2. Load profile dependencies
-         │
-         ▼
-3. For each remote bundle:
-   │
-   ├─► Fetch from GitHub/GitLab
-   │
-   ├─► Validate structure
-   │
-   └─► Write to .ctxloom/bundles/
-         │
-         ▼
-4. Update lockfile
-         │
-         ▼
-5. Regenerate context
-         │
-         ▼
-6. Apply hooks
+```mermaid
+flowchart TD
+    A["1. ctxloom remote sync"] --> B["2. Load profile dependencies"]
+    B --> C["3. For each remote bundle"]
+    C --> D["Fetch from GitHub/GitLab"]
+    C --> E["Validate structure"]
+    C --> F["Write to .ctxloom/bundles/"]
+    D --> G["4. Update lockfile"]
+    E --> G
+    F --> G
+    G --> H["5. Regenerate context"]
+    H --> I["6. Apply hooks"]
 ```
 
 ## Directory Structure

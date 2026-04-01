@@ -237,6 +237,9 @@ Examples:
 		}
 		if result.Errors > 0 {
 			fmt.Printf("  Failed: %d\n", result.Errors)
+			for _, item := range result.Failed {
+				fmt.Printf("    - %s: %s\n", item.Reference, item.Error)
+			}
 		}
 
 		return nil

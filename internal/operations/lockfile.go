@@ -33,12 +33,7 @@ type LockDependenciesResult struct {
 
 // LockDependencies generates a lockfile from currently installed remote items.
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
-	// Use provided filesystem or default to OS
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
+	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
@@ -157,12 +152,7 @@ type InstallDependenciesResult struct {
 // InstallDependencies installs all items from the lockfile.
 func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDependenciesRequest) (*InstallDependenciesResult, error) {
 	baseDir := getBaseDir(cfg)
-
-	// Use injected filesystem or default
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	// Use injected lock manager or create new one
 	lockManager := req.LockManager
@@ -265,12 +255,7 @@ type CheckOutdatedResult struct {
 // CheckOutdated checks if any locked items have newer versions available.
 func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedRequest) (*CheckOutdatedResult, error) {
 	baseDir := getBaseDir(cfg)
-
-	// Use injected filesystem or default
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	// Use injected lock manager or create new one
 	lockManager := req.LockManager

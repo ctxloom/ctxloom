@@ -58,11 +58,7 @@ type SyncDependenciesResult struct {
 // SyncDependencies syncs remote bundles and profiles referenced in config.
 // This is the main entry point for auto-fetch on startup.
 func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest) (*SyncDependenciesResult, error) {
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
+	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
 	// Collect all remote bundle references from profiles
@@ -361,11 +357,7 @@ type CheckMissingDependenciesResult struct {
 
 // CheckMissingDependencies checks which remote dependencies are not installed.
 func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req CheckMissingDependenciesRequest) (*CheckMissingDependenciesResult, error) {
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
+	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
 	// Get profiles to check

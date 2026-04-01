@@ -88,9 +88,6 @@ func (m RemoteMCPServer) SecurityWarning() SecurityWarning {
 
 func (m RemoteMCPServer) Note() string { return m.NotesField }
 
-// Notes returns the human-readable notes for this MCP server.
-func (m RemoteMCPServer) Notes() string { return m.NotesField }
-
 // Installation returns setup/installation instructions for this MCP server.
 func (m RemoteMCPServer) Installation() string { return m.InstallationField }
 
@@ -114,9 +111,6 @@ func (c RemoteContext) SecurityWarning() SecurityWarning {
 }
 
 func (c RemoteContext) Note() string { return c.NotesField }
-
-// Notes returns the human-readable notes for this context.
-func (c RemoteContext) Notes() string { return c.NotesField }
 
 // Installation returns setup/installation instructions for this context.
 func (c RemoteContext) Installation() string { return c.InstallationField }
@@ -169,9 +163,6 @@ func (b RemoteBundle) SecurityWarning() SecurityWarning {
 }
 
 func (b RemoteBundle) Note() string { return b.NotesField }
-
-// Notes returns the human-readable notes for this bundle.
-func (b RemoteBundle) Notes() string { return b.NotesField }
 
 // Installation returns setup/installation instructions for this bundle.
 func (b RemoteBundle) Installation() string { return b.InstallationField }

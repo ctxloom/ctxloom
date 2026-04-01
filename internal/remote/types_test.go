@@ -43,7 +43,6 @@ func TestRemoteMCPServer_Note(t *testing.T) {
 		InstallationField: "Run: npm install test-server",
 	}
 	assert.Equal(t, "This is a test note", server.Note())
-	assert.Equal(t, "This is a test note", server.Notes())
 	assert.Equal(t, "Run: npm install test-server", server.Installation())
 }
 
@@ -63,7 +62,6 @@ func TestRemoteContext_Note(t *testing.T) {
 		InstallationField: "Add to your profile",
 	}
 	assert.Equal(t, "Context note", ctx.Note())
-	assert.Equal(t, "Context note", ctx.Notes())
 	assert.Equal(t, "Add to your profile", ctx.Installation())
 }
 
@@ -113,7 +111,6 @@ func TestRemoteBundle_Note(t *testing.T) {
 		InstallationField: "Run setup script",
 	}
 	assert.Equal(t, "Bundle note", bundle.Note())
-	assert.Equal(t, "Bundle note", bundle.Notes())
 	assert.Equal(t, "Run setup script", bundle.Installation())
 }
 

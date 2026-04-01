@@ -55,12 +55,8 @@ type ListRemotesResult struct {
 func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest) (*ListRemotesResult, error) {
 	registry := req.Registry
 	if registry == nil {
-		fs := req.FS
-		if fs == nil {
-			fs = afero.NewOsFs()
-		}
 		var err error
-		registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to load registry: %w", err)
 		}
@@ -117,12 +113,8 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 
 	registry := req.Registry
 	if registry == nil {
-		fs := req.FS
-		if fs == nil {
-			fs = afero.NewOsFs()
-		}
 		var err error
-		registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}
@@ -191,12 +183,8 @@ func RemoveRemote(ctx context.Context, cfg *config.Config, req RemoveRemoteReque
 
 	registry := req.Registry
 	if registry == nil {
-		fs := req.FS
-		if fs == nil {
-			fs = afero.NewOsFs()
-		}
 		var err error
-		registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}

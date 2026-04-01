@@ -892,27 +892,22 @@ func (b *profileBuilder) mergeMCP(source MCPConfig) {
 	MergeMCPConfig(&b.MCP, &source)
 }
 
+// mergeHookSlice merges source hooks into dest.
+func (b *profileBuilder) mergeHookSlice(source []Hook, dest *[]Hook) {
+	for _, h := range source {
+		b.addHook(dest, h)
+	}
+}
+
 // mergeHooks merges hooks from source into the builder.
 func (b *profileBuilder) mergeHooks(source HooksConfig) {
 	// Merge unified hooks
-	for _, h := range source.Unified.PreTool {
-		b.addHook(&b.Hooks.Unified.PreTool, h)
-	}
-	for _, h := range source.Unified.PostTool {
-		b.addHook(&b.Hooks.Unified.PostTool, h)
-	}
-	for _, h := range source.Unified.SessionStart {
-		b.addHook(&b.Hooks.Unified.SessionStart, h)
-	}
-	for _, h := range source.Unified.SessionEnd {
-		b.addHook(&b.Hooks.Unified.SessionEnd, h)
-	}
-	for _, h := range source.Unified.PreShell {
-		b.addHook(&b.Hooks.Unified.PreShell, h)
-	}
-	for _, h := range source.Unified.PostFileEdit {
-		b.addHook(&b.Hooks.Unified.PostFileEdit, h)
-	}
+	b.mergeHookSlice(source.Unified.PreTool, &b.Hooks.Unified.PreTool)
+	b.mergeHookSlice(source.Unified.PostTool, &b.Hooks.Unified.PostTool)
+	b.mergeHookSlice(source.Unified.SessionStart, &b.Hooks.Unified.SessionStart)
+	b.mergeHookSlice(source.Unified.SessionEnd, &b.Hooks.Unified.SessionEnd)
+	b.mergeHookSlice(source.Unified.PreShell, &b.Hooks.Unified.PreShell)
+	b.mergeHookSlice(source.Unified.PostFileEdit, &b.Hooks.Unified.PostFileEdit)
 
 	// Merge plugin-specific hooks
 	for pluginName, backendHooks := range source.Plugins {

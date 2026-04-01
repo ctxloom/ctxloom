@@ -164,11 +164,7 @@ func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentR
 		req.Version = "1.0"
 	}
 
-	// Use provided filesystem or default to OS
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)
@@ -250,11 +246,7 @@ func DeleteFragment(ctx context.Context, cfg *config.Config, req DeleteFragmentR
 		return nil, fmt.Errorf("name is required")
 	}
 
-	// Use provided filesystem or default to OS
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)

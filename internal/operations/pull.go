@@ -159,11 +159,7 @@ type WriteRemoteItemResult struct {
 // WriteRemoteItem writes fetched content to the local filesystem.
 // This is used by the MCP confirm_pull tool.
 func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteItemRequest) (*WriteRemoteItemResult, error) {
-	// Use provided filesystem or default to OS
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	var itemType remote.ItemType
 	switch req.ItemType {
@@ -264,12 +260,8 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		// Use injected registry or load from config
 		registry := req.Registry
 		if registry == nil {
-			fs := req.FS
-			if fs == nil {
-				fs = afero.NewOsFs()
-			}
 			var err error
-			registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
+			registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
 			if err != nil {
 				return nil, fmt.Errorf("failed to initialize registry: %w", err)
 			}
@@ -301,11 +293,7 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 
 	// Extract installation instructions from pulled bundle
 	if itemType == remote.ItemTypeBundle && result.LocalPath != "" {
-		fs := req.FS
-		if fs == nil {
-			fs = afero.NewOsFs()
-		}
-		data, readErr := afero.ReadFile(fs, result.LocalPath)
+		data, readErr := afero.ReadFile(getFS(req.FS), result.LocalPath)
 		if readErr == nil {
 			bundle, parseErr := bundles.ParseBundle(data)
 			if parseErr == nil && bundle.Installation != "" {

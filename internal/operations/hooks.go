@@ -42,11 +42,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		backend = "all"
 	}
 
-	// Default filesystem
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := getFS(req.FS)
 
 	// Build options for FS injection
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}

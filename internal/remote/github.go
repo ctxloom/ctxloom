@@ -109,6 +109,16 @@ func is401Error(resp *github.Response, err error) bool {
 	return false
 }
 
+// shouldRetry401 checks if a 401 error occurred and we have a fallback client.
+// If so, it prints a warning and returns true.
+func (f *GitHubFetcher) shouldRetry401(resp *github.Response, err error) bool {
+	if is401Error(resp, err) && f.fallback != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		return true
+	}
+	return false
+}
+
 // FetchFile retrieves raw file content from a GitHub repository.
 func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref string) ([]byte, error) {
 	opts := &github.RepositoryContentGetOptions{}
@@ -118,9 +128,7 @@ func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 
 	content, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
-		// Retry without auth on 401 (bad credentials) for public repos
-		if is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if f.shouldRetry401(resp, err) {
 			content, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, path, opts)
 		}
 		if err != nil {
@@ -153,9 +161,7 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 
 	_, dirContents, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
-		// Retry without auth on 401 (bad credentials) for public repos
-		if is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if f.shouldRetry401(resp, err) {
 			_, dirContents, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, path, opts)
 		}
 		if err != nil {
@@ -192,9 +198,7 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 		if err == nil {
 			return commit.GetSHA(), nil
 		}
-		// Retry on 401
-		if allowRetry && is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if allowRetry && f.shouldRetry401(resp, err) {
 			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
 		}
 	}
@@ -204,9 +208,7 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 	if err == nil {
 		return branch.GetCommit().GetSHA(), nil
 	}
-	// Retry on 401
-	if allowRetry && is401Error(resp, err) && f.fallback != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+	if allowRetry && f.shouldRetry401(resp, err) {
 		return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
 	}
 
@@ -225,9 +227,7 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 			}
 			return tagRef.GetObject().GetSHA(), nil
 		}
-		// Retry on 401
-		if allowRetry && is401Error(tagResp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if allowRetry && f.shouldRetry401(tagResp, err) {
 			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
 		}
 	}
@@ -257,9 +257,7 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 	result, resp, err := f.client.Search().Repositories(ctx, searchQuery, opts)
 	if err != nil {
-		// Retry without auth on 401 (bad credentials)
-		if is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if f.shouldRetry401(resp, err) {
 			result, _, err = f.fallback.Search().Repositories(ctx, searchQuery, opts)
 		}
 		if err != nil {
@@ -296,9 +294,7 @@ func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (b
 	// Check for ctxloom/v1/ directory
 	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
 	if err != nil {
-		// Retry without auth on 401 (bad credentials) for public repos
-		if is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if f.shouldRetry401(resp, err) {
 			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
 		}
 		if err != nil {
@@ -315,9 +311,7 @@ func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (b
 func (f *GitHubFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
 	r, resp, err := f.client.Repositories().Get(ctx, owner, repo)
 	if err != nil {
-		// Retry without auth on 401 (bad credentials) for public repos
-		if is401Error(resp, err) && f.fallback != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		if f.shouldRetry401(resp, err) {
 			r, _, err = f.fallback.Repositories().Get(ctx, owner, repo)
 		}
 		if err != nil {

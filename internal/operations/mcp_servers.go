@@ -159,24 +159,9 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		return nil, fmt.Errorf("command is required")
 	}
 
-	// Default filesystem
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
-	// Use injected config for testing, otherwise reload for freshness
-	freshCfg := req.TestConfig
-	if freshCfg == nil {
-		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.AppDir != "" {
-			opts = append(opts, config.WithAppDir(req.AppDir))
-		}
-		var err error
-		freshCfg, err = config.Load(opts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config: %w", err)
-		}
+	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	server := config.MCPServer{
@@ -259,24 +244,9 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 		return nil, fmt.Errorf("name is required")
 	}
 
-	// Default filesystem
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
-	// Use injected config for testing, otherwise reload for freshness
-	freshCfg := req.TestConfig
-	if freshCfg == nil {
-		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.AppDir != "" {
-			opts = append(opts, config.WithAppDir(req.AppDir))
-		}
-		var err error
-		freshCfg, err = config.Load(opts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config: %w", err)
-		}
+	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	removed := false
@@ -355,24 +325,9 @@ type SetMCPAutoRegisterResult struct {
 
 // SetMCPAutoRegister enables or disables auto-registration of ctxloom's MCP server.
 func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoRegisterRequest) (*SetMCPAutoRegisterResult, error) {
-	// Default filesystem
-	fs := req.FS
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
-
-	// Use injected config for testing, otherwise reload for freshness
-	freshCfg := req.TestConfig
-	if freshCfg == nil {
-		opts := []config.LoadOption{config.WithFS(fs)}
-		if req.AppDir != "" {
-			opts = append(opts, config.WithAppDir(req.AppDir))
-		}
-		var err error
-		freshCfg, err = config.Load(opts...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config: %w", err)
-		}
+	freshCfg, err := loadFreshConfig(req.FS, req.AppDir, req.TestConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	freshCfg.MCP.AutoRegisterCtxloom = &req.Enabled

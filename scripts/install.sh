@@ -20,6 +20,7 @@
 #   3. Extracts it (like a dentist, but less painful)
 #   4. Puts it somewhere useful (unlike my college degree)
 #   5. Makes it executable (gives it a hall pass)
+#   6. Sets up shell completion (tab-tab-tab-happiness)
 #
 # What this script does NOT do:
 #   - Mine cryptocurrency (we prefer mining sarcasm)
@@ -239,6 +240,116 @@ verify_installation() {
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Shell completion - because typing is overrated                            ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+setup_completion() {
+    local ctxloom_bin="${INSTALL_DIR}/${BINARY_NAME}"
+
+    # Can't set up completion if the binary isn't accessible
+    if ! command_exists ctxloom && [[ ! -x "${ctxloom_bin}" ]]; then
+        log_warn "Skipping shell completion (binary not in PATH)"
+        return
+    fi
+
+    # Use the binary path if not in PATH yet
+    local ctxloom_cmd="ctxloom"
+    if ! command_exists ctxloom; then
+        ctxloom_cmd="${ctxloom_bin}"
+    fi
+
+    # Detect current shell (the one that brought us to this dance)
+    local current_shell
+    current_shell="$(basename "${SHELL:-bash}")"
+
+    case "${current_shell}" in
+        bash)
+            setup_bash_completion "${ctxloom_cmd}"
+            ;;
+        zsh)
+            setup_zsh_completion "${ctxloom_cmd}"
+            ;;
+        fish)
+            setup_fish_completion "${ctxloom_cmd}"
+            ;;
+        *)
+            log_info "Shell completion not configured for ${current_shell}"
+            ;;
+    esac
+}
+
+setup_bash_completion() {
+    local ctxloom_cmd="$1"
+    local completion_dir=""
+    local use_sudo=""
+
+    # Find the best completion directory (like house hunting, but for scripts)
+    if [[ -d "/etc/bash_completion.d" ]] && [[ -w "/etc/bash_completion.d" ]]; then
+        completion_dir="/etc/bash_completion.d"
+    elif [[ -d "/etc/bash_completion.d" ]]; then
+        completion_dir="/etc/bash_completion.d"
+        use_sudo="sudo"
+    elif [[ -d "/usr/local/etc/bash_completion.d" ]]; then
+        completion_dir="/usr/local/etc/bash_completion.d"
+        if [[ ! -w "${completion_dir}" ]]; then
+            use_sudo="sudo"
+        fi
+    else
+        # Fall back to user directory
+        completion_dir="${HOME}/.local/share/bash-completion/completions"
+        mkdir -p "${completion_dir}" 2>/dev/null || true
+    fi
+
+    if [[ -n "${completion_dir}" ]] && [[ -d "${completion_dir}" || -n "${use_sudo}" ]]; then
+        if ${use_sudo} "${ctxloom_cmd}" completion bash > "/tmp/ctxloom.bash" 2>/dev/null; then
+            ${use_sudo} mv "/tmp/ctxloom.bash" "${completion_dir}/ctxloom"
+            log_success "Bash completion installed"
+        fi
+    fi
+}
+
+setup_zsh_completion() {
+    local ctxloom_cmd="$1"
+    local completion_dir=""
+
+    # Zsh completion directories (a journey through fpath)
+    if [[ -n "${fpath[1]:-}" ]] && [[ -d "${fpath[1]}" ]] && [[ -w "${fpath[1]}" ]]; then
+        completion_dir="${fpath[1]}"
+    elif [[ -d "${HOME}/.zsh/completions" ]]; then
+        completion_dir="${HOME}/.zsh/completions"
+    else
+        # Create user completion directory
+        completion_dir="${HOME}/.zsh/completions"
+        mkdir -p "${completion_dir}" 2>/dev/null || true
+
+        # Remind user to add to fpath if we created a new directory
+        if [[ ! ":${FPATH:-}:" == *":${completion_dir}:"* ]]; then
+            log_info "Add to ~/.zshrc: fpath=(${completion_dir} \$fpath)"
+        fi
+    fi
+
+    if [[ -n "${completion_dir}" ]] && [[ -d "${completion_dir}" ]]; then
+        if "${ctxloom_cmd}" completion zsh > "${completion_dir}/_ctxloom" 2>/dev/null; then
+            log_success "Zsh completion installed"
+        fi
+    fi
+}
+
+setup_fish_completion() {
+    local ctxloom_cmd="$1"
+    local completion_dir="${HOME}/.config/fish/completions"
+
+    # Fish has a sensible default (thank you, fish)
+    mkdir -p "${completion_dir}" 2>/dev/null || true
+
+    if [[ -d "${completion_dir}" ]]; then
+        if "${ctxloom_cmd}" completion fish > "${completion_dir}/ctxloom.fish" 2>/dev/null; then
+            log_success "Fish completion installed"
+        fi
+    fi
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Main function - where the magic happens (or at least tries to)            ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
@@ -262,6 +373,9 @@ main() {
 
     # Verify (because trust issues are valid)
     verify_installation
+
+    # Set up shell completion (the cherry on top)
+    setup_completion
 
     echo ""
     echo "Get started:"

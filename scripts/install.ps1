@@ -24,7 +24,8 @@
       1. Downloads the latest ctxloom release from GitHub
       2. Extracts it to your preferred location
       3. Adds it to your PATH (with your permission, because we're polite)
-      4. Makes you feel accomplished about security
+      4. Sets up PowerShell tab completion (the good kind of lazy)
+      5. Makes you feel accomplished about security
 
     What this script does NOT do:
       - Install Edge extensions (we respect your browser choices)
@@ -274,6 +275,58 @@ function Test-Installation {
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Shell completion - tab-tab-tab your way to victory                        ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+function Install-Completion {
+    param([string]$Directory)
+
+    $binaryPath = Join-Path $Directory "ctxloom.exe"
+
+    if (-not (Test-Path $binaryPath)) {
+        return
+    }
+
+    # PowerShell profile: where customizations go to live forever
+    $profileDir = Split-Path $PROFILE -Parent
+    if (-not (Test-Path $profileDir)) {
+        New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+    }
+
+    # Generate completion script (the magic incantation)
+    try {
+        $completionScript = & $binaryPath completion powershell 2>&1
+
+        if ($LASTEXITCODE -eq 0 -and $completionScript) {
+            # Create a separate completion file (keeps profile clean)
+            $completionFile = Join-Path $profileDir "ctxloom.completion.ps1"
+            $completionScript | Out-File -FilePath $completionFile -Encoding UTF8 -Force
+
+            # Add sourcing to profile if not already there
+            if (Test-Path $PROFILE) {
+                $profileContent = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
+            } else {
+                $profileContent = ""
+            }
+
+            $sourceLine = ". `"$completionFile`""
+
+            if (-not $profileContent -or -not $profileContent.Contains("ctxloom.completion.ps1")) {
+                # Append to profile (or create it)
+                Add-Content -Path $PROFILE -Value "`n# ctxloom tab completion`n$sourceLine"
+                Write-Success "PowerShell completion installed"
+            } else {
+                Write-Info "PowerShell completion already configured"
+            }
+        }
+    }
+    catch {
+        # Completion setup failed, but that's not fatal
+        Write-Warn "Could not set up PowerShell completion"
+    }
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Main - where the magic happens (PowerShell edition)                       ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
@@ -307,6 +360,9 @@ function Main {
 
     # Verify (trust but verify)
     Test-Installation -Directory $InstallDir | Out-Null
+
+    # Set up tab completion (the cherry on top)
+    Install-Completion -Directory $InstallDir
 
     Write-Host ""
     Write-Host "Get started:"

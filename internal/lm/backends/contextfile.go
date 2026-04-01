@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,11 +21,20 @@ const (
 	SCMContextSubdir = ".ctxloom/context"
 	// SCMContextFileEnv is the environment variable containing the context file path
 	SCMContextFileEnv = "CTXLOOM_CONTEXT_FILE"
+
+	// MaxRecommendedContextSize is the threshold above which warnings are emitted.
+	MaxRecommendedContextSize = 16 * 1024 // 16KB (~4,000 tokens)
+
+	// WarnContextSizeExceeded is the warning format for oversized context.
+	WarnContextSizeExceeded = "ctxloom: warning: assembled context is %dKB (recommended max: 16KB)\n"
+	// WarnContextEffectiveness is the follow-up warning about LLM effectiveness.
+	WarnContextEffectiveness = "ctxloom: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments\n"
 )
 
 // contextFileOptions holds configuration for context file operations.
 type contextFileOptions struct {
-	fs afero.Fs
+	fs     afero.Fs
+	stderr io.Writer
 }
 
 // ContextFileOption is a functional option for context file operations.
@@ -38,10 +48,19 @@ func WithContextFS(fs afero.Fs) ContextFileOption {
 	}
 }
 
+// WithContextStderr sets the writer for warning messages.
+// If not provided, os.Stderr is used.
+func WithContextStderr(w io.Writer) ContextFileOption {
+	return func(o *contextFileOptions) {
+		o.stderr = w
+	}
+}
+
 // applyContextOptions applies the given options and returns the configured options.
 func applyContextOptions(opts []ContextFileOption) *contextFileOptions {
 	options := &contextFileOptions{
-		fs: afero.NewOsFs(), // default to real filesystem
+		fs:     afero.NewOsFs(), // default to real filesystem
+		stderr: os.Stderr,       // default to real stderr
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -96,10 +115,9 @@ func WriteContextFile(workDir string, fragments []*Fragment, opts ...ContextFile
 	//
 	// 16KB (~4,000 tokens) is a conservative threshold where degradation becomes
 	// noticeable across most models. Structure and relevance matter more than size.
-	const maxRecommendedSize = 16 * 1024 // 16KB (~4,000 tokens)
-	if len(content) > maxRecommendedSize {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: assembled context is %dKB (recommended max: 16KB)\n", len(content)/1024)
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: large context may reduce LLM effectiveness; consider distillation or fewer fragments\n")
+	if len(content) > MaxRecommendedContextSize {
+		fmt.Fprintf(options.stderr, WarnContextSizeExceeded, len(content)/1024)
+		fmt.Fprintf(options.stderr, WarnContextEffectiveness)
 	}
 
 	// Generate hash-based filename from content

@@ -4,8 +4,10 @@
 package backends
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -176,6 +178,57 @@ func indexString(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// =============================================================================
+// Size Warning Tests
+// =============================================================================
+// Large context files trigger warnings to help users avoid LLM degradation.
+
+func TestWriteContextFile_SizeWarnings(t *testing.T) {
+	t.Run("warns when content exceeds max size", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		var stderr bytes.Buffer
+
+		// Create content larger than MaxRecommendedContextSize
+		largeContent := strings.Repeat("x", MaxRecommendedContextSize+1024)
+		fragments := []*Fragment{{Content: largeContent}}
+
+		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		require.NoError(t, err)
+
+		warnings := stderr.String()
+		assert.Contains(t, warnings, "ctxloom: warning: assembled context is")
+		assert.Contains(t, warnings, WarnContextEffectiveness)
+	})
+
+	t.Run("no warning when content is under max size", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		var stderr bytes.Buffer
+
+		// Create content under MaxRecommendedContextSize
+		smallContent := strings.Repeat("x", MaxRecommendedContextSize-1024)
+		fragments := []*Fragment{{Content: smallContent}}
+
+		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		require.NoError(t, err)
+
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("no warning at exactly max size boundary", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		var stderr bytes.Buffer
+
+		// Create content exactly at MaxRecommendedContextSize
+		boundaryContent := strings.Repeat("x", MaxRecommendedContextSize)
+		fragments := []*Fragment{{Content: boundaryContent}}
+
+		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		require.NoError(t, err)
+
+		assert.Empty(t, stderr.String())
+	})
 }
 
 // =============================================================================

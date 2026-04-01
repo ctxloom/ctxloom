@@ -164,6 +164,38 @@ mv ctxloom ~/.local/bin/
 export PATH=$PATH:~/.local/bin
 ```
 
+### macOS: "Cannot be opened" or "Unverified developer"
+
+macOS Gatekeeper blocks unsigned binaries downloaded from the internet. You may see:
+
+- "ctxloom cannot be opened because it is from an unidentified developer"
+- "ctxloom cannot be opened because Apple cannot check it for malicious software"
+
+**Solution 1: Remove the quarantine attribute (Recommended)**
+
+```bash
+# Remove the quarantine flag that macOS adds to downloaded files
+xattr -d com.apple.quarantine /usr/local/bin/ctxloom
+```
+
+**Solution 2: Allow in System Settings**
+
+1. Try to run `ctxloom` - macOS will block it
+2. Open **System Settings** → **Privacy & Security**
+3. Scroll down to find the blocked app message
+4. Click **"Open Anyway"**
+5. Confirm by clicking **"Open"** in the dialog
+
+**Solution 3: Build from source**
+
+Building from source avoids Gatekeeper entirely since the binary is created locally:
+
+```bash
+go install github.com/ctxloom/ctxloom@latest
+```
+
+**Why this happens:** ctxloom binaries are not code-signed or notarized with Apple. This is common for open-source CLI tools distributed via GitHub releases.
+
 ## Next Steps
 
 After installation:

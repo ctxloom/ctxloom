@@ -39,6 +39,51 @@ go mod download
 go install github.com/ctxloom/ctxloom@latest
 ```
 
+## macOS Issues
+
+### "Cannot be opened" or "Unverified developer"
+
+**Problem:** macOS blocks ctxloom with messages like:
+- "ctxloom cannot be opened because it is from an unidentified developer"
+- "ctxloom cannot be opened because Apple cannot check it for malicious software"
+
+This happens because ctxloom binaries are not code-signed or notarized with Apple (common for open-source CLI tools).
+
+**Solution 1: Remove quarantine attribute (Recommended)**
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/ctxloom
+```
+
+**Solution 2: Allow via System Settings**
+1. Try to run `ctxloom` - it will be blocked
+2. Open **System Settings** → **Privacy & Security**
+3. Find the blocked app message and click **"Open Anyway"**
+4. Confirm in the dialog
+
+**Solution 3: Build from source**
+```bash
+go install github.com/ctxloom/ctxloom@latest
+```
+
+### Shell completion not loading on macOS
+
+**Problem:** Bash completions don't work after installation
+
+**Solution:** Ensure bash-completion is installed:
+```bash
+brew install bash-completion
+```
+
+Add to `~/.bash_profile`:
+```bash
+[[ -r "/usr/local/etc/profile.d/bash_completion.sh" ]] && . "/usr/local/etc/profile.d/bash_completion.sh"
+```
+
+Then install the completion:
+```bash
+ctxloom completion bash > /usr/local/etc/bash_completion.d/ctxloom
+```
+
 ## Context Not Injected
 
 ### Hooks Not Applied

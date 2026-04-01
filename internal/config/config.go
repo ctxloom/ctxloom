@@ -275,6 +275,40 @@ func (m *MCPConfig) ShouldAutoRegisterCtxloom() bool {
 	return *m.AutoRegisterCtxloom
 }
 
+// MergeMCPConfig merges src MCP config into dest.
+// Later sources override earlier ones for the same server name.
+func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
+	if src == nil || dest == nil {
+		return
+	}
+
+	// Merge auto_register_ctxloom (later wins)
+	if src.AutoRegisterCtxloom != nil {
+		dest.AutoRegisterCtxloom = src.AutoRegisterCtxloom
+	}
+
+	// Merge unified servers
+	if dest.Servers == nil {
+		dest.Servers = make(map[string]MCPServer)
+	}
+	for name, server := range src.Servers {
+		dest.Servers[name] = server
+	}
+
+	// Merge plugin-specific servers
+	if dest.Plugins == nil {
+		dest.Plugins = make(map[string]map[string]MCPServer)
+	}
+	for backend, servers := range src.Plugins {
+		if dest.Plugins[backend] == nil {
+			dest.Plugins[backend] = make(map[string]MCPServer)
+		}
+		for name, server := range servers {
+			dest.Plugins[backend][name] = server
+		}
+	}
+}
+
 // PluginConfig holds configuration for a specific AI plugin.
 type PluginConfig struct {
 	Model      string            `mapstructure:"model" yaml:"model,omitempty"` // Default model for this plugin
@@ -855,25 +889,7 @@ func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
 // mergeMCP merges MCP config from source into the builder.
 // Later sources override earlier ones for the same server name.
 func (b *profileBuilder) mergeMCP(source MCPConfig) {
-	// Merge auto_register_ctxloom (later wins)
-	if source.AutoRegisterCtxloom != nil {
-		b.MCP.AutoRegisterCtxloom = source.AutoRegisterCtxloom
-	}
-
-	// Merge unified servers
-	for name, server := range source.Servers {
-		b.MCP.Servers[name] = server
-	}
-
-	// Merge plugin-specific servers
-	for backend, servers := range source.Plugins {
-		if b.MCP.Plugins[backend] == nil {
-			b.MCP.Plugins[backend] = make(map[string]MCPServer)
-		}
-		for name, server := range servers {
-			b.MCP.Plugins[backend][name] = server
-		}
-	}
+	MergeMCPConfig(&b.MCP, &source)
 }
 
 // mergeHooks merges hooks from source into the builder.

@@ -1009,3 +1009,84 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Helper Function Tests
+// =============================================================================
+// Tests for shared helper functions that reduce code duplication.
+
+func TestAtomicWriteFile(t *testing.T) {
+	t.Run("writes new file", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		path := "/test/file.json"
+		data := []byte(`{"key": "value"}`)
+
+		err := atomicWriteFile(fs, path, data, "test file")
+		require.NoError(t, err)
+
+		// Verify file contents
+		contents, err := afero.ReadFile(fs, path)
+		require.NoError(t, err)
+		assert.Equal(t, data, contents)
+	})
+
+	t.Run("creates backup of existing file", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		path := "/test/file.json"
+		original := []byte(`{"original": true}`)
+		updated := []byte(`{"updated": true}`)
+
+		// Create original file
+		require.NoError(t, afero.WriteFile(fs, path, original, 0644))
+
+		// Write new content
+		err := atomicWriteFile(fs, path, updated, "test file")
+		require.NoError(t, err)
+
+		// Verify backup exists with original content
+		backupPath := path + ".ctxloom.bak"
+		backup, err := afero.ReadFile(fs, backupPath)
+		require.NoError(t, err)
+		assert.Equal(t, original, backup)
+
+		// Verify file has new content
+		contents, err := afero.ReadFile(fs, path)
+		require.NoError(t, err)
+		assert.Equal(t, updated, contents)
+	})
+
+	t.Run("cleans up temp file on success", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		path := "/test/file.json"
+		data := []byte(`{"key": "value"}`)
+
+		err := atomicWriteFile(fs, path, data, "test file")
+		require.NoError(t, err)
+
+		// Temp file should not exist
+		tmpPath := path + ".ctxloom.tmp"
+		exists, _ := afero.Exists(fs, tmpPath)
+		assert.False(t, exists, "temp file should be cleaned up")
+	})
+}
+
+func TestWarn(t *testing.T) {
+	// Capture stderr
+	// Note: warn() outputs to os.Stderr, which is hard to capture in tests.
+	// This test just verifies the function doesn't panic.
+	warn("test warning: %s", "message")
+}
+
+func TestGetFS(t *testing.T) {
+	t.Run("returns provided fs", func(t *testing.T) {
+		memFs := afero.NewMemMapFs()
+		result := getFS(memFs)
+		assert.Equal(t, memFs, result)
+	})
+
+	t.Run("returns OsFs when nil", func(t *testing.T) {
+		result := getFS(nil)
+		assert.NotNil(t, result)
+		// Can't directly compare to OsFs, but it shouldn't be nil
+	})
+}
+

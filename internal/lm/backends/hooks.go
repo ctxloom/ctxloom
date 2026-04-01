@@ -107,6 +107,55 @@ func computeHookHash(h config.Hook) string {
 	return hex.EncodeToString(hash[:8]) // Use first 8 bytes for brevity
 }
 
+// =============================================================================
+// Shared Helper Functions
+// =============================================================================
+// These helpers reduce code duplication between ClaudeCodeHookWriter and
+// GeminiHookWriter implementations.
+
+// getFS returns the provided filesystem or a default OS filesystem if nil.
+func getFS(fs afero.Fs) afero.Fs {
+	if fs == nil {
+		return afero.NewOsFs()
+	}
+	return fs
+}
+
+// warn outputs a warning message to stderr with ctxloom prefix.
+func warn(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
+}
+
+// atomicWriteFile writes data to a file atomically with backup.
+// It creates a backup of existing files before modifying and uses a temp file
+// for atomic writes to prevent corruption if interrupted.
+func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
+	// Create backup of existing file before modifying
+	if exists, _ := afero.Exists(fs, path); exists {
+		backupPath := path + ".ctxloom.bak"
+		if origData, err := afero.ReadFile(fs, path); err == nil {
+			_ = afero.WriteFile(fs, backupPath, origData, 0644)
+		}
+	}
+
+	// Atomic write: write to temp file first, then rename
+	tmpPath := path + ".ctxloom.tmp"
+	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", desc, err)
+	}
+
+	// Rename temp file to final path (atomic on most filesystems)
+	if err := fs.Rename(tmpPath, path); err != nil {
+		// If rename fails (e.g., cross-device), fall back to direct write
+		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
+			return fmt.Errorf("failed to write %s: %w", desc, writeErr)
+		}
+		_ = fs.Remove(tmpPath)
+	}
+
+	return nil
+}
+
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
@@ -115,10 +164,7 @@ type ClaudeCodeHookWriter struct {
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
 func (w *ClaudeCodeHookWriter) getFS() afero.Fs {
-	if w.FS == nil {
-		return afero.NewOsFs()
-	}
-	return w.FS
+	return getFS(w.FS)
 }
 
 // HooksPath returns the path to Claude Code's settings.json file.
@@ -273,7 +319,7 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 // warn outputs a warning message to stderr.
 func (w *ClaudeCodeHookWriter) warn(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
+	warn(format, args...)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -306,36 +352,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	fs := w.getFS()
-
-	// Create backup of existing file before modifying
-	// This allows recovery if ctxloom corrupts the file due to schema changes
-	if exists, _ := afero.Exists(fs, path); exists {
-		backupPath := path + ".ctxloom.bak"
-		if origData, err := afero.ReadFile(fs, path); err == nil {
-			// Ignore backup errors - this is best-effort
-			_ = afero.WriteFile(fs, backupPath, origData, 0644)
-		}
-	}
-
-	// Atomic write: write to temp file first, then rename
-	// This prevents corruption if the write is interrupted
-	tmpPath := path + ".ctxloom.tmp"
-	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write settings: %w", err)
-	}
-
-	// Rename temp file to final path (atomic on most filesystems)
-	if err := fs.Rename(tmpPath, path); err != nil {
-		// If rename fails (e.g., cross-device), fall back to direct write
-		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
-			return fmt.Errorf("failed to write settings: %w", writeErr)
-		}
-		// Clean up temp file
-		_ = fs.Remove(tmpPath)
-	}
-
-	return nil
+	return atomicWriteFile(w.getFS(), path, data, "settings")
 }
 
 // loadMCPConfig loads existing .mcp.json or returns empty config.
@@ -376,30 +393,7 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
 	}
 
-	fs := w.getFS()
-
-	// Create backup of existing file before modifying
-	if exists, _ := afero.Exists(fs, path); exists {
-		backupPath := path + ".ctxloom.bak"
-		if origData, err := afero.ReadFile(fs, path); err == nil {
-			_ = afero.WriteFile(fs, backupPath, origData, 0644)
-		}
-	}
-
-	// Atomic write: write to temp file first, then rename
-	tmpPath := path + ".ctxloom.tmp"
-	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write .mcp.json: %w", err)
-	}
-
-	if err := fs.Rename(tmpPath, path); err != nil {
-		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
-			return fmt.Errorf("failed to write .mcp.json: %w", writeErr)
-		}
-		_ = fs.Remove(tmpPath)
-	}
-
-	return nil
+	return atomicWriteFile(w.getFS(), path, data, ".mcp.json")
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.
@@ -612,10 +606,7 @@ type GeminiHookWriter struct {
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
 func (w *GeminiHookWriter) getFS() afero.Fs {
-	if w.FS == nil {
-		return afero.NewOsFs()
-	}
-	return w.FS
+	return getFS(w.FS)
 }
 
 // HooksPath returns the path to Gemini's project-level settings.json file.
@@ -743,7 +734,7 @@ func (w *GeminiHookWriter) loadSettings(path string) (*geminiSettings, error) {
 
 // warn outputs a warning message to stderr.
 func (w *GeminiHookWriter) warn(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
+	warn(format, args...)
 }
 
 // saveSettings writes settings back to settings.json.
@@ -947,35 +938,9 @@ func mergeHooksConfig(dest *config.HooksConfig, src *config.HooksConfig) {
 
 // MergeMCPConfig merges source MCP config into dest.
 // Later sources override earlier ones for the same server name.
+// MergeMCPConfig merges src MCP config into dest.
+// Deprecated: Use config.MergeMCPConfig directly.
 func MergeMCPConfig(dest *config.MCPConfig, src *config.MCPConfig) {
-	if src == nil || dest == nil {
-		return
-	}
-
-	// Merge auto_register_ctxloom (later wins)
-	if src.AutoRegisterCtxloom != nil {
-		dest.AutoRegisterCtxloom = src.AutoRegisterCtxloom
-	}
-
-	// Merge unified servers
-	if dest.Servers == nil {
-		dest.Servers = make(map[string]config.MCPServer)
-	}
-	for name, server := range src.Servers {
-		dest.Servers[name] = server
-	}
-
-	// Merge plugin-specific servers
-	if dest.Plugins == nil {
-		dest.Plugins = make(map[string]map[string]config.MCPServer)
-	}
-	for backend, servers := range src.Plugins {
-		if dest.Plugins[backend] == nil {
-			dest.Plugins[backend] = make(map[string]config.MCPServer)
-		}
-		for name, server := range servers {
-			dest.Plugins[backend][name] = server
-		}
-	}
+	config.MergeMCPConfig(dest, src)
 }
 

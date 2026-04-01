@@ -4,9 +4,64 @@ title: "Installation"
 
 Choose the installation method that works best for you.
 
-## Download Binary (Recommended)
+:::caution[Security Notice: Be Paranoid]
+While the author says these scripts are safe, **thou shalt be paranoid**. We encourage you to:
 
-Download precompiled binaries from the [releases page](https://github.com/ctxloom/ctxloom/releases).
+1. **Read the installation scripts** before running them
+2. **Check the VirusTotal scans** linked below
+3. **Verify checksums** if you're extra cautious
+4. **Build from source** if you trust no one (we respect that)
+
+The scripts are open source and designed to be auditable. Your security paranoia is valid and encouraged!
+:::
+
+## Quick Install (Recommended)
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
+```
+
+Or download and review first (recommended for the security-conscious):
+
+```bash
+# Download the script
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh -o install.sh
+
+# Read it - it's open source and auditable
+less install.sh
+
+# Run it when you're satisfied it's not evil
+bash install.sh
+```
+
+**[View install.sh source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.sh)** | **[VirusTotal scan](https://www.virustotal.com)** (scan after each release)
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
+```
+
+Or download and review first:
+
+```powershell
+# Download the script
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1" -OutFile install.ps1
+
+# Read it - it's open source and auditable
+Get-Content install.ps1 | more
+
+# Run it when you trust us (or at least trust your antivirus)
+.\install.ps1
+```
+
+**[View install.ps1 source](https://github.com/ctxloom/ctxloom/blob/main/scripts/install.ps1)** | **[VirusTotal scan](https://www.virustotal.com)** (scan after each release)
+
+## Manual Download
+
+If you prefer to download binaries directly without running scripts.
 
 ### macOS
 
@@ -42,7 +97,7 @@ sudo mv ctxloom /usr/local/bin/
 
 Download the ZIP archive from the [releases page](https://github.com/ctxloom/ctxloom/releases) and extract it.
 
-**PowerShell:**
+**PowerShell (manual):**
 
 ```powershell
 # Get latest version
@@ -74,7 +129,7 @@ $env:PATH += ";$env:USERPROFILE\bin"
 
 ## Build from Source
 
-For development or to get the latest unreleased features.
+For development or to get the latest unreleased features. Also the most secure option if you're truly paranoid (we appreciate you).
 
 ### Prerequisites
 
@@ -182,6 +237,20 @@ ctxloom completion powershell | Out-String | Invoke-Expression
 
 ## Updating
 
+### Using Install Scripts
+
+Just run the install script again - it will download and replace the existing binary:
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
+```
+
+**Windows:**
+```powershell
+irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
+```
+
 ### From Source
 
 ```bash
@@ -227,14 +296,22 @@ macOS Gatekeeper blocks unsigned binaries downloaded from the internet. You may 
 - "ctxloom cannot be opened because it is from an unidentified developer"
 - "ctxloom cannot be opened because Apple cannot check it for malicious software"
 
-**Solution 1: Remove the quarantine attribute (Recommended)**
+**Solution 1: Use the install script (Recommended)**
+
+The install script automatically removes the quarantine attribute:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
+```
+
+**Solution 2: Remove the quarantine attribute manually**
 
 ```bash
 # Remove the quarantine flag that macOS adds to downloaded files
 xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 ```
 
-**Solution 2: Allow in System Settings**
+**Solution 3: Allow in System Settings**
 
 1. Try to run `ctxloom` - macOS will block it
 2. Open **System Settings** → **Privacy & Security**
@@ -242,7 +319,7 @@ xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 4. Click **"Open Anyway"**
 5. Confirm by clicking **"Open"** in the dialog
 
-**Solution 3: Build from source**
+**Solution 4: Build from source**
 
 Building from source avoids Gatekeeper entirely since the binary is created locally:
 

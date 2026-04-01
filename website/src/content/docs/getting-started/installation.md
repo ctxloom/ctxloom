@@ -32,6 +32,36 @@ curl -L https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_linu
 sudo mv ctxloom /usr/local/bin/
 ```
 
+### Windows
+
+Download the ZIP archive from the [releases page](https://github.com/ctxloom/ctxloom/releases) and extract it.
+
+**PowerShell:**
+
+```powershell
+# Download and extract (x64)
+Invoke-WebRequest -Uri "https://github.com/ctxloom/ctxloom/releases/latest/download/ctxloom_windows_amd64.zip" -OutFile ctxloom.zip
+Expand-Archive ctxloom.zip -DestinationPath .
+Remove-Item ctxloom.zip
+
+# Move to a directory in PATH (e.g., create one in your user profile)
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\bin"
+Move-Item ctxloom.exe "$env:USERPROFILE\bin\"
+
+# Add to PATH (current session)
+$env:PATH += ";$env:USERPROFILE\bin"
+
+# Add to PATH (permanent - run once)
+[Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";$env:USERPROFILE\bin", "User")
+```
+
+**Or manually:**
+
+1. Download `ctxloom_windows_amd64.zip` from [releases](https://github.com/ctxloom/ctxloom/releases)
+2. Extract `ctxloom.exe` from the ZIP
+3. Move it to a directory in your PATH (e.g., `C:\Users\<username>\bin`)
+4. Add that directory to your PATH if needed
+
 ## Go Install
 
 If you have Go 1.21+ installed:

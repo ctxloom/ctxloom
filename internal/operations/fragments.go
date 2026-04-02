@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // FragmentEntry represents a fragment in operation results.
@@ -168,7 +169,7 @@ func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentR
 
 	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)
-	bundleDir := filepath.Join(baseDir, config.BundlesDir)
+	bundleDir := paths.BundlesPath(baseDir)
 	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
@@ -250,7 +251,7 @@ func DeleteFragment(ctx context.Context, cfg *config.Config, req DeleteFragmentR
 
 	// Use config's ctxloom path
 	baseDir := getBaseDir(cfg)
-	bundleDir := filepath.Join(baseDir, config.BundlesDir)
+	bundleDir := paths.BundlesPath(baseDir)
 	bundlePath := filepath.Join(bundleDir, "local.yaml")
 
 	// Load existing bundle

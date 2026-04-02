@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -20,6 +21,11 @@ type Puller interface {
 
 // LockDependenciesRequest contains parameters for generating a lockfile.
 type LockDependenciesRequest struct {
+	// SkipSync skips running sync before generating the lockfile.
+	// By default, sync runs first to ensure all dependencies are installed
+	// before locking their versions. Set to true to skip this behavior.
+	SkipSync bool `json:"skip_sync"`
+
 	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
 }
 
@@ -32,9 +38,24 @@ type LockDependenciesResult struct {
 }
 
 // LockDependencies generates a lockfile from currently installed remote items.
+// By default, it runs sync first to ensure all dependencies are installed before
+// locking their versions. Use SkipSync to disable this behavior.
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
+
+	// Run sync first to ensure all dependencies are installed
+	// This prevents generating an incomplete lockfile if ephemeral was cleared
+	if !req.SkipSync {
+		_, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{
+			Force: false,
+			Lock:  false, // Don't recursively call lock
+			FS:    req.FS,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to sync dependencies before locking: %w", err)
+		}
+	}
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	lockfile := &remote.Lockfile{
@@ -50,15 +71,13 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		remote.ItemTypeBundle,
 		remote.ItemTypeProfile,
 	} {
-		var dirName string
+		var itemDir string
 		switch itemType {
 		case remote.ItemTypeBundle:
-			dirName = "bundles"
+			itemDir = paths.BundlesPath(baseDir)
 		case remote.ItemTypeProfile:
-			dirName = "profiles"
+			itemDir = paths.ProfilesPath(baseDir)
 		}
-
-		itemDir := filepath.Join(baseDir, dirName)
 		entries, err := afero.ReadDir(fs, itemDir)
 		if err != nil {
 			continue
@@ -176,7 +195,7 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 	registry := req.Registry
 	if registry == nil {
 		var err error
-		registry, err = remote.NewRegistry(filepath.Join(baseDir, "remotes.yaml"), remote.WithRegistryFS(fs))
+		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}
@@ -279,7 +298,7 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 	registry := req.Registry
 	if registry == nil {
 		var err error
-		registry, err = remote.NewRegistry(filepath.Join(baseDir, "remotes.yaml"), remote.WithRegistryFS(fs))
+		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}

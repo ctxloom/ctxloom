@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -243,8 +244,8 @@ func TestLoader_GetDefaults(t *testing.T) {
 func TestGetProfileDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create profiles subdirectory in tmpDir
-	profilesDir := filepath.Join(tmpDir, "profiles")
+	// Create profiles subdirectory in persistent dir
+	profilesDir := paths.ProfilesPath(tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	dirs := GetProfileDirs([]string{tmpDir})
@@ -644,13 +645,13 @@ func TestToLocalProfileName(t *testing.T) {
 //   - https://github.com/owner/repo@v1/profiles/base
 //
 // The resolver should look for the profile at:
-//   - .ctxloom/profiles/github.com/owner/repo/base.yaml
+//   - .ctxloom/persistent/profiles/github.com/owner/repo/base.yaml
 func TestLoader_ResolveProfile_URLParent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directories
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/owner/repo", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/owner/repo", 0755))
 
 	// Create the "remote" parent profile (as if synced from URL)
 	baseProfile := `description: Base Go profile
@@ -662,7 +663,7 @@ variables:
   go_version: "1.21"
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/github.com/owner/repo/go-base.yaml",
+		"/project/.ctxloom/persistent/profiles/github.com/owner/repo/go-base.yaml",
 		[]byte(baseProfile), 0644))
 
 	// Create child profile that references the parent via URL
@@ -675,10 +676,10 @@ variables:
   project_name: my-project
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/project-dev.yaml",
+		"/project/.ctxloom/persistent/profiles/project-dev.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 
 	// Resolve the child profile
 	resolved, err := loader.ResolveProfile("project-dev", nil)
@@ -701,17 +702,17 @@ variables:
 func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
 
 	// Create child profile that references an unsynced parent
 	childProfile := `parents:
   - https://github.com/nonexistent/repo@v1/profiles/missing
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/child.yaml",
+		"/project/.ctxloom/persistent/profiles/child.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 
 	_, err := loader.ResolveProfile("child", nil)
 	assert.Error(t, err)
@@ -723,15 +724,15 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/github.com/ctxloom-default/scm", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/ctxloom-default/scm", 0755))
 
 	// Local parent
 	localParent := `bundles:
   - local-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/local-base.yaml",
+		"/project/.ctxloom/persistent/profiles/local-base.yaml",
 		[]byte(localParent), 0644))
 
 	// Remote parent (synced)
@@ -739,7 +740,7 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
   - remote-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/github.com/ctxloom-default/scm/go-base.yaml",
+		"/project/.ctxloom/persistent/profiles/github.com/ctxloom-default/scm/go-base.yaml",
 		[]byte(remoteParent), 0644))
 
 	// Child with both parents
@@ -750,10 +751,10 @@ bundles:
   - child-tools
 `
 	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/profiles/mixed.yaml",
+		"/project/.ctxloom/persistent/profiles/mixed.yaml",
 		[]byte(childProfile), 0644))
 
-	loader := NewLoader([]string{"/project/.ctxloom/profiles"}, WithFS(fs))
+	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 
 	resolved, err := loader.ResolveProfile("mixed", nil)
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -30,16 +31,24 @@ func TestLockDependenciesRequest_FSField(t *testing.T) {
 	assert.NotNil(t, req.FS)
 }
 
+func TestLockDependenciesRequest_SkipSyncField(t *testing.T) {
+	req := LockDependenciesRequest{
+		SkipSync: true,
+	}
+
+	assert.True(t, req.SkipSync)
+}
+
 func TestLockDependenciesResult_Fields(t *testing.T) {
 	result := LockDependenciesResult{
 		Status:    "generated",
-		Path:      "/project/.ctxloom/ctxloom.lock",
+		Path:      paths.LockPath(testBaseDir),
 		ItemCount: 5,
 		Message:   "",
 	}
 
 	assert.Equal(t, "generated", result.Status)
-	assert.Contains(t, result.Path, "ctxloom.lock")
+	assert.Contains(t, result.Path, paths.LockFileName)
 	assert.Equal(t, 5, result.ItemCount)
 }
 
@@ -134,11 +143,11 @@ func TestLockDependencies_EmptyDirectory(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create empty bundles directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"", 0755))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "empty", result.Status)
@@ -149,8 +158,8 @@ func TestLockDependencies_WithSourceMetadata(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/test-remote", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir)+"/test-remote", 0755))
 
 	// Create bundle with source metadata
 	bundleContent := `version: "1.0"
@@ -164,7 +173,7 @@ fragments:
   test:
     content: Test content
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/test-remote/my-bundle.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/my-bundle.yaml", []byte(bundleContent), 0644))
 
 	// Create profile with source metadata
 	profileContent := `_source:
@@ -175,11 +184,11 @@ fragments:
 bundles:
   - my-bundle
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/profiles/test-remote/dev.yaml", []byte(profileContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/test-remote/dev.yaml", []byte(profileContent), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "generated", result.Status)
@@ -193,7 +202,7 @@ func TestLockDependencies_SkipsFilesWithoutSourceMetadata(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
 
 	// Create bundle WITHOUT source metadata
 	bundleContent := `version: "1.0"
@@ -202,11 +211,11 @@ fragments:
   test:
     content: Test content
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/test-remote/local-bundle.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/local-bundle.yaml", []byte(bundleContent), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	// Should return empty since no items have source metadata
@@ -218,8 +227,8 @@ func TestLockDependencies_MixedItems(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/remote1", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/remote2", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/remote1", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/remote2", 0755))
 
 	// Bundle with source metadata
 	bundleWithMeta := `version: "1.0"
@@ -227,17 +236,17 @@ _source:
   sha: aaa111bbb222
   url: https://github.com/remote1/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/remote1/tracked.yaml", []byte(bundleWithMeta), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/remote1/tracked.yaml", []byte(bundleWithMeta), 0644))
 
 	// Bundle without source metadata (should be skipped)
 	bundleNoMeta := `version: "1.0"
 description: Local bundle
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/remote2/local.yaml", []byte(bundleNoMeta), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/remote2/local.yaml", []byte(bundleNoMeta), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "generated", result.Status)
@@ -248,7 +257,7 @@ func TestLockDependencies_NestedPaths(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create nested directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/org/subdir", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/org/subdir", 0755))
 
 	// Bundle in nested path
 	bundleContent := `version: "1.0"
@@ -256,11 +265,11 @@ _source:
   sha: nested123sha
   url: https://github.com/org/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/org/deep-bundle.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/org/deep-bundle.yaml", []byte(bundleContent), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "generated", result.Status)
@@ -271,14 +280,14 @@ func TestLockDependencies_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
 
 	// Create bundle with invalid YAML (should be skipped)
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/test-remote/invalid.yaml", []byte("invalid: yaml: [[["), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/invalid.yaml", []byte("invalid: yaml: [[["), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	// Should return empty since the invalid YAML is skipped
@@ -289,7 +298,7 @@ func TestLockDependencies_EmptySHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create directory structure
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
 
 	// Create bundle with empty SHA in source metadata
 	bundleContent := `version: "1.0"
@@ -297,11 +306,11 @@ _source:
   sha: ""
   url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/test-remote/empty-sha.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/empty-sha.yaml", []byte(bundleContent), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
 	require.NoError(t, err)
 
 	// Should return empty since SHA is empty
@@ -312,7 +321,7 @@ func TestLockDependencies_ProfilesOnly(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create only profiles (no bundles directory)
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/profiles/test-remote", 0755))
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir)+"/test-remote", 0755))
 
 	profileContent := `_source:
   sha: profile123sha
@@ -320,11 +329,72 @@ func TestLockDependencies_ProfilesOnly(t *testing.T) {
 bundles:
   - bundle1
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/profiles/test-remote/my-profile.yaml", []byte(profileContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/test-remote/my-profile.yaml", []byte(profileContent), 0644))
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, "generated", result.Status)
+	assert.Equal(t, 1, result.ItemCount)
+}
+
+func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
+	// This test verifies that lock runs sync by default before generating lockfile.
+	// When SkipSync is false (default), sync should run first.
+	// We test this by having a profile that references a remote bundle that doesn't
+	// exist locally - sync would try to fetch it.
+	fs := afero.NewMemMapFs()
+
+	// Create directory structure
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+
+	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
+			},
+		},
+	}
+
+	// With SkipSync: false (default), sync runs first but finds no remote refs
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{
+		FS:       fs,
+		SkipSync: false, // Default behavior - sync first
+	})
+	require.NoError(t, err)
+
+	// Should complete (sync found nothing to do, lock found nothing to lock)
+	assert.Equal(t, "empty", result.Status)
+}
+
+func TestLockDependencies_SkipSyncOption(t *testing.T) {
+	// Verify that SkipSync: true skips the sync step
+	fs := afero.NewMemMapFs()
+
+	// Create directory structure with a bundle that has source metadata
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
+
+	bundleContent := `_source:
+  sha: abc123
+  url: https://github.com/test/repo
+fragments:
+  test: {}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/my-bundle.yaml", []byte(bundleContent), 0644))
+
+	cfg := testConfigWithSCMPath(testBaseDir)
+
+	// With SkipSync: true, we skip sync and go straight to lock generation
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{
+		FS:       fs,
+		SkipSync: true,
+	})
 	require.NoError(t, err)
 
 	assert.Equal(t, "generated", result.Status)
@@ -354,22 +424,22 @@ func (m *mockPuller) Pull(ctx context.Context, refStr string, opts remote.PullOp
 	if m.pullFunc != nil {
 		return m.pullFunc(ctx, refStr, opts)
 	}
-	return &remote.PullResult{LocalPath: "/project/.ctxloom/bundles/test/item.yaml"}, nil
+	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
 }
 
 func TestInstallDependencies_EmptyLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create empty lockfile
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles: {}
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -385,7 +455,7 @@ func TestInstallDependencies_Success(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -393,23 +463,23 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Mock puller that always succeeds
 	puller := &mockPuller{}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -431,7 +501,7 @@ func TestInstallDependencies_PartialFailure(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with multiple entries
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/bundle1:
@@ -442,17 +512,17 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Mock puller that fails for one item
@@ -463,11 +533,11 @@ profiles: {}
 			if callCount == 1 {
 				return nil, fmt.Errorf("network error")
 			}
-			return &remote.PullResult{LocalPath: "/project/.ctxloom/bundles/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
 		},
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -487,7 +557,7 @@ profiles: {}
 func TestInstallDependencies_WithForce(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -495,16 +565,16 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Mock puller that captures Force flag
@@ -512,11 +582,11 @@ profiles: {}
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedForce = opts.Force
-			return &remote.PullResult{LocalPath: "/project/.ctxloom/bundles/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
 		},
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -533,12 +603,12 @@ profiles: {}
 
 func TestInstallDependencies_InvalidLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	// Write invalid YAML to cause parse error
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte("invalid: yaml: content: :::"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte("invalid: yaml: content: :::"), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	_, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -550,7 +620,7 @@ func TestInstallDependencies_InvalidLockfile(t *testing.T) {
 
 func TestInstallDependencies_RegistryError(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 
 	// Create valid lockfile with entries
 	lockContent := `version: 1
@@ -561,12 +631,12 @@ bundles:
     item: bundle
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 	// Create invalid remotes.yaml to cause registry error
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte("{{invalid yaml"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte("{{invalid yaml"), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	_, err := InstallDependencies(context.Background(), cfg, InstallDependenciesRequest{
 		FS:          fs,
@@ -589,15 +659,15 @@ func TestCheckOutdated_EmptyLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create empty lockfile
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles: {}
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:          fs,
@@ -613,7 +683,7 @@ func TestCheckOutdated_UpToDate(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -621,20 +691,20 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	// Note: This test will actually try to fetch from the network since we can't mock the fetcher
 	// creation inside the loop. We're primarily testing that the function handles the empty case
@@ -657,7 +727,7 @@ func TestCheckOutdated_OutdatedItems(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have old SHAs
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -665,17 +735,17 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Create mock fetcher that returns a different SHA (simulating outdated item)
@@ -689,7 +759,7 @@ profiles: {}
 		return mockFetcher, nil
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:             fs,
@@ -712,7 +782,7 @@ func TestCheckOutdated_AllUpToDate(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have matching SHAs
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -720,17 +790,17 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Create mock fetcher that returns the same SHA (up to date)
@@ -744,7 +814,7 @@ profiles: {}
 		return mockFetcher, nil
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:             fs,
@@ -764,7 +834,7 @@ func TestCheckOutdated_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have an invalid reference format
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   invalid-ref-no-slash:
@@ -772,13 +842,13 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	// Should handle gracefully (continue past invalid refs)
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
@@ -796,7 +866,7 @@ func TestCheckOutdated_FetcherError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -804,17 +874,17 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Create mock fetcher that returns errors
@@ -822,7 +892,7 @@ profiles: {}
 		return nil, fmt.Errorf("failed to create fetcher")
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:             fs,
@@ -840,7 +910,7 @@ func TestCheckOutdated_ShortSHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have short SHAs (less than 7 chars)
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -848,17 +918,17 @@ bundles:
     url: https://github.com/test/repo
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 
 	// Create remotes.yaml
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/repo
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	// Create mock fetcher that returns a short SHA
@@ -872,7 +942,7 @@ profiles: {}
 		return mockFetcher, nil
 	}
 
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:             fs,
@@ -890,7 +960,7 @@ profiles: {}
 
 func TestCheckOutdated_RegistryError(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 
 	// Create valid lockfile with entries
 	lockContent := `version: 1
@@ -901,12 +971,12 @@ bundles:
     item: bundle
 profiles: {}
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/lock.yaml", []byte(lockContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
 	// Create invalid remotes.yaml to cause registry error
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte("{{invalid yaml"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte("{{invalid yaml"), 0644))
 
-	lockManager := remote.NewLockfileManager("/project/.ctxloom", remote.WithLockfileFS(fs))
-	cfg := testConfigWithSCMPath("/project/.ctxloom")
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	cfg := testConfigWithSCMPath(testBaseDir)
 
 	_, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
 		FS:          fs,

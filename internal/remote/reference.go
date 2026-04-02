@@ -6,6 +6,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // ParseReference parses a remote reference string.
@@ -288,7 +290,9 @@ func (r *Reference) BuildFilePath(itemType ItemType, version string) string {
 
 // LocalPath returns the local path where the item would be installed.
 // baseDir is the .ctxloom directory path.
+// Bundles go in ephemeral/bundles/, profiles go in persistent/profiles/.
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
+	var subdir string
 	var dir string
 	var remoteName string
 
@@ -301,16 +305,20 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 
 	switch itemType {
 	case ItemTypeBundle:
-		dir = "bundles"
+		subdir = paths.EphemeralDir
+		dir = paths.BundlesDir
 	case ItemTypeProfile:
-		dir = "profiles"
+		subdir = paths.PersistentDir
+		dir = paths.ProfilesDir
 	default:
-		dir = "bundles"
+		subdir = paths.EphemeralDir
+		dir = paths.BundlesDir
 	}
 
 	// Store under remote name to avoid conflicts
-	// e.g., .ctxloom/bundles/github.com/owner/repo/go-tools.yaml
-	return fmt.Sprintf("%s/%s/%s/%s.yaml", baseDir, dir, remoteName, r.Path)
+	// e.g., .ctxloom/ephemeral/bundles/github.com/owner/repo/go-tools.yaml
+	// e.g., .ctxloom/persistent/profiles/github.com/owner/repo/my-profile.yaml
+	return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, subdir, dir, remoteName, r.Path)
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.

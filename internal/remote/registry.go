@@ -11,10 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // Registry manages configured remote sources.
-// It persists remotes to .ctxloom/remotes.yaml.
+// It persists remotes to .ctxloom/persistent/remotes.yaml.
 type Registry struct {
 	mu            sync.RWMutex
 	remotes       map[string]*Remote
@@ -34,10 +35,10 @@ func WithRegistryFS(fs afero.Fs) RegistryOption {
 }
 
 // NewRegistry creates a new registry that persists to the given config path.
-// If configPath is empty, defaults to .ctxloom/remotes.yaml in current directory.
+// If configPath is empty, defaults to .ctxloom/persistent/remotes.yaml in current directory.
 func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 	if configPath == "" {
-		configPath = filepath.Join(".ctxloom", "remotes.yaml")
+		configPath = paths.DefaultRemotesPath()
 	}
 
 	r := &Registry{

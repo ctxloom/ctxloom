@@ -59,7 +59,7 @@ type RunInfo struct {
 // RegisterSession records a session transcript path for the given ctxloom run (by PID).
 // Uses file locking to prevent race conditions from concurrent hook invocations.
 func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	appDir := filepath.Join(workDir, ".ctxloom")
+	appDir := filepath.Join(workDir, ".ctxloom", "ephemeral")
 	registryPath := filepath.Join(appDir, r.registryFile)
 
 	// Acquire exclusive lock for read-modify-write
@@ -101,7 +101,7 @@ func (r *BaseSessionRegistry) RegisterSession(workDir string, pid int, transcrip
 
 // GetPreviousSession returns the session before the current one for /clear recovery.
 func (r *BaseSessionRegistry) GetPreviousSession(workDir string, pid int, parseFunc func(path string) (*Session, error)) (*Session, error) {
-	appDir := filepath.Join(workDir, ".ctxloom")
+	appDir := filepath.Join(workDir, ".ctxloom", "ephemeral")
 	registryPath := filepath.Join(appDir, r.registryFile)
 
 	// Use shared lock for reading

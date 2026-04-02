@@ -44,6 +44,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -99,11 +100,11 @@ func TestCollectRemoteReferences(t *testing.T) {
 				},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create the profiles directory
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	bundles, profiles, err := collectRemoteReferences(cfg, nil, fs)
 	if err != nil {
@@ -172,11 +173,11 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 				Bundles: []string{"local-bundle"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create the profiles directory
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS: fs,
@@ -199,22 +200,22 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create necessary directories
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
 	// Create registry with test remote
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -255,23 +256,23 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create necessary directories and existing bundle
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -308,23 +309,23 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create necessary directories and existing bundle
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
 
@@ -357,20 +358,20 @@ func TestSyncDependencies_PullError(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{
 		err: fmt.Errorf("network error"),
@@ -413,20 +414,20 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom
     version: v1
 `), 0644)
 
-	registry, _ := remote.NewRegistry("/test/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
 		FS:       fs,
@@ -466,15 +467,15 @@ func TestCheckMissingDependencies(t *testing.T) {
 				},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create directories
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
 
 	// Install one bundle
-	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/security.yaml", []byte("version: 1"), 0644)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/security.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -505,13 +506,13 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create directories and install bundle
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles/github", 0755)
-	_ = afero.WriteFile(fs, "/test/.ctxloom/bundles/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS: fs,
@@ -547,11 +548,11 @@ func TestSyncOnStartup(t *testing.T) {
 				Bundles: []string{"local-only"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create profiles directory
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
 	// With only local bundles, should return up_to_date or empty
 	result, err := SyncOnStartup(context.Background(), cfg)
@@ -574,14 +575,14 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 				Bundles: []string{"github/go-tools"},
 			},
 		},
-		AppPaths: []string{"/test/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 	}
 
 	// Create necessary directories
-	_ = fs.MkdirAll("/test/.ctxloom/profiles", 0755)
-	_ = fs.MkdirAll("/test/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
-	_ = afero.WriteFile(fs, "/test/.ctxloom/remotes.yaml", []byte(`
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
     url: https://github.com/test/ctxloom

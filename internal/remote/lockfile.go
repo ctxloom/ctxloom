@@ -9,9 +9,11 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-const lockfileName = "lock.yaml"
+const lockfileName = paths.LockFileName + ".yaml"
 
 // LockfileManager handles reading and writing lockfiles.
 type LockfileManager struct {
@@ -33,7 +35,7 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 // If baseDir is empty, uses the current directory's .ctxloom folder.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
-		baseDir = ".ctxloom"
+		baseDir = paths.AppDirName
 	}
 	m := &LockfileManager{
 		baseDir: baseDir,
@@ -46,8 +48,9 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 }
 
 // Path returns the path to the lockfile.
+// Lockfile is stored in .ctxloom/persistent/lock.yaml.
 func (m *LockfileManager) Path() string {
-	return filepath.Join(m.baseDir, lockfileName)
+	return filepath.Join(m.baseDir, paths.PersistentDir, lockfileName)
 }
 
 // Load reads the lockfile from disk.

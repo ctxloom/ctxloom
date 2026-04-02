@@ -13,15 +13,19 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
+// Re-export path constants for backwards compatibility
 const (
-	AppDirName     = ".ctxloom"
-	ConfigFileName = "config"
-	BundlesDir     = "bundles"
+	AppDirName     = paths.AppDirName
+	PersistentDir  = paths.PersistentDir
+	EphemeralDir   = paths.EphemeralDir
+	ConfigFileName = paths.ConfigFileName
+	BundlesDir     = paths.BundlesDir
 )
 
 // ConfigSource indicates where the configuration was loaded from.
@@ -552,7 +556,7 @@ func Load(opts ...LoadOption) (*Config, error) {
 	cfg.AppRoot = filepath.Dir(appPath) // Project root is parent of .ctxloom
 	cfg.Source = source
 
-	configPath := filepath.Join(appPath, ConfigFileName+".yaml")
+	configPath := filepath.Join(GetPersistentDir(appPath), ConfigFileName+".yaml")
 	if err := loadConfigFile(cfg, configPath, configValidator, fs); err != nil {
 		return nil, err
 	}
@@ -650,11 +654,21 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	return homeApp, SourceHome
 }
 
-// GetBundleDirs returns bundles directories.
+// GetPersistentDir returns the persistent subdirectory path for the given app path.
+func GetPersistentDir(appPath string) string {
+	return paths.GetPersistentDir(appPath)
+}
+
+// GetEphemeralDir returns the ephemeral subdirectory path for the given app path.
+func GetEphemeralDir(appPath string) string {
+	return paths.GetEphemeralDir(appPath)
+}
+
+// GetBundleDirs returns bundles directories (in ephemeral/).
 func (c *Config) GetBundleDirs() []string {
 	var dirs []string
 	for _, appPath := range c.AppPaths {
-		bundleDir := filepath.Join(appPath, BundlesDir)
+		bundleDir := filepath.Join(GetEphemeralDir(appPath), BundlesDir)
 		if info, err := os.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
 		}
@@ -675,15 +689,15 @@ func (c *Config) SourceName() string {
 }
 
 // GetPluginPaths returns the paths where external plugins are searched for.
-// Defaults to .ctxloom/plugins if not configured.
+// Defaults to .ctxloom/ephemeral/plugins if not configured.
 func (c *Config) GetPluginPaths() []string {
 	if len(c.LM.PluginPaths) > 0 {
 		return c.LM.PluginPaths
 	}
-	// Default plugin paths from project .ctxloom
+	// Default plugin paths from project .ctxloom/ephemeral
 	var paths []string
 	for _, appPath := range c.AppPaths {
-		paths = append(paths, filepath.Join(appPath, "plugins"))
+		paths = append(paths, filepath.Join(GetEphemeralDir(appPath), "plugins"))
 	}
 	return paths
 }
@@ -699,12 +713,12 @@ type ConfigFile struct {
 }
 
 // GetConfigFilePath returns the path to the primary config file.
-// Uses the closest project .ctxloom directory.
+// Uses the closest project .ctxloom/persistent directory.
 func (c *Config) GetConfigFilePath() (string, error) {
 	if len(c.AppPaths) == 0 {
 		return "", fmt.Errorf("no .ctxloom directory found; run 'ctxloom init --local' first")
 	}
-	return filepath.Join(c.AppPaths[0], ConfigFileName+".yaml"), nil
+	return filepath.Join(GetPersistentDir(c.AppPaths[0]), ConfigFileName+".yaml"), nil
 }
 
 // getFS returns the filesystem to use for file operations.

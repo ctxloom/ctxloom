@@ -11,11 +11,12 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 func TestCreateFragment_CreatesNewFragment(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := CreateFragment(context.Background(), cfg, CreateFragmentRequest{
 		Name:    "test-fragment",
@@ -42,7 +43,7 @@ func TestCreateFragment_CreatesNewFragment(t *testing.T) {
 
 func TestCreateFragment_UpdatesExistingFragment(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	ctx := context.Background()
 
 	// Create initial fragment
@@ -78,7 +79,7 @@ func TestCreateFragment_UpdatesExistingFragment(t *testing.T) {
 
 func TestCreateFragment_ValidationErrors(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	ctx := context.Background()
 
 	tests := []struct {
@@ -117,7 +118,7 @@ func TestCreateFragment_ValidationErrors(t *testing.T) {
 
 func TestCreateFragment_DefaultsVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := CreateFragment(context.Background(), cfg, CreateFragmentRequest{
 		Name:    "versioned",
@@ -137,7 +138,7 @@ func TestCreateFragment_DefaultsVersion(t *testing.T) {
 
 func TestCreateFragment_MultipleFragmentsInBundle(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	ctx := context.Background()
 
 	// Create first fragment
@@ -170,10 +171,10 @@ func TestCreateFragment_MultipleFragmentsInBundle(t *testing.T) {
 
 func TestCreateFragment_InvalidExistingBundle(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Create bundles directory with invalid YAML
-	bundleDir := "/project/.ctxloom/bundles"
+	bundleDir := paths.BundlesPath(testBaseDir)
 	require.NoError(t, fs.MkdirAll(bundleDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, bundleDir+"/local.yaml", []byte("{{invalid yaml"), 0644))
 
@@ -189,7 +190,7 @@ func TestCreateFragment_InvalidExistingBundle(t *testing.T) {
 
 func TestDeleteFragment_Success(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Create a bundle with a fragment first
 	bundleContent := `version: "1.0"
@@ -199,8 +200,8 @@ fragments:
   other-frag:
     content: Other content
 `
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/local.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/local.yaml", []byte(bundleContent), 0644))
 
 	// Delete the fragment
 	result, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
@@ -213,7 +214,7 @@ fragments:
 	assert.Equal(t, "test-frag", result.Fragment)
 
 	// Verify fragment is removed but other-frag remains
-	data, err := afero.ReadFile(fs, "/project/.ctxloom/bundles/local.yaml")
+	data, err := afero.ReadFile(fs, paths.BundlesPath(testBaseDir)+"/local.yaml")
 	require.NoError(t, err)
 
 	var bundle map[string]interface{}
@@ -226,7 +227,7 @@ fragments:
 
 func TestDeleteFragment_NotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Create a bundle without the fragment we want to delete
 	bundleContent := `version: "1.0"
@@ -234,8 +235,8 @@ fragments:
   existing-frag:
     content: Existing content
 `
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/local.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/local.yaml", []byte(bundleContent), 0644))
 
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
 		Name: "nonexistent-frag",
@@ -248,10 +249,10 @@ fragments:
 
 func TestDeleteFragment_NoBundleFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Don't create the bundle file
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
 
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
 		Name: "any-fragment",
@@ -264,7 +265,7 @@ func TestDeleteFragment_NoBundleFile(t *testing.T) {
 }
 
 func TestDeleteFragment_ValidationError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
 		Name: "",
@@ -276,12 +277,12 @@ func TestDeleteFragment_ValidationError(t *testing.T) {
 
 func TestDeleteFragment_EmptyFragmentsList(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Create a bundle with no fragments section
 	bundleContent := `version: "1.0"`
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/local.yaml", []byte(bundleContent), 0644))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/local.yaml", []byte(bundleContent), 0644))
 
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
 		Name: "test-frag",
@@ -294,11 +295,11 @@ func TestDeleteFragment_EmptyFragmentsList(t *testing.T) {
 
 func TestDeleteFragment_ParseError(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Create a bundle with invalid YAML
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/bundles", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/bundles/local.yaml", []byte("invalid: yaml: content:"), 0644))
+	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/local.yaml", []byte("invalid: yaml: content:"), 0644))
 
 	_, err := DeleteFragment(context.Background(), cfg, DeleteFragmentRequest{
 		Name: "test-frag",
@@ -310,7 +311,7 @@ func TestDeleteFragment_ParseError(t *testing.T) {
 }
 
 func TestGetFragment_ValidationError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := GetFragment(context.Background(), cfg, GetFragmentRequest{
 		Name: "",
@@ -491,7 +492,7 @@ func setupBundleTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll("/project/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -521,7 +522,7 @@ prompts:
       # Refactoring
       Refactor this code for clarity
 `
-	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/test-bundle.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-bundle.yaml", []byte(bundleContent), 0644)
 
 	// Create another bundle
 	anotherBundle := `version: "1.0"
@@ -530,9 +531,9 @@ fragments:
     tags: ["python", "scripting"]
     content: Python development tips
 `
-	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/another.yaml", []byte(anotherBundle), 0644)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/another.yaml", []byte(anotherBundle), 0644)
 
-	loader := bundles.NewLoader([]string{"/project/.ctxloom/bundles"}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.BundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 

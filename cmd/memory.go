@@ -85,7 +85,7 @@ func init() {
 }
 
 func getMemoryDir(cfg *config.Config) string {
-	return filepath.Join(cfg.AppDir, "memory")
+	return filepath.Join(cfg.AppDir, "ephemeral", "memory")
 }
 
 func runMemoryList(cmd *cobra.Command, args []string) error {

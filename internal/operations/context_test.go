@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
 
@@ -126,7 +127,7 @@ func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll("/project/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
 	// Create test bundle with fragments
 	bundleContent := `version: "1.0"
@@ -156,15 +157,15 @@ fragments:
       Project: {{project_name}}
       Version: {{version}}
 `
-	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/dev.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
 
-	loader := bundles.NewLoader([]string{"/project/.ctxloom/bundles"}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.BundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 
 func TestAssembleContext_WithTags(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:   []string{"security"},
@@ -178,7 +179,7 @@ func TestAssembleContext_WithTags(t *testing.T) {
 
 func TestAssembleContext_WithFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{"dev#fragments/go-patterns"},
@@ -192,7 +193,7 @@ func TestAssembleContext_WithFragments(t *testing.T) {
 
 func TestAssembleContext_MultipleFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -210,7 +211,7 @@ func TestAssembleContext_MultipleFragments(t *testing.T) {
 
 func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{
@@ -228,7 +229,7 @@ func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"go-dev": {
 				Description: "Go developer profile",
@@ -252,7 +253,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"project": {
 				Description: "Project profile",
@@ -278,7 +279,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 
 func TestAssembleContext_EmptyRequest(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Loader: loader,
@@ -293,7 +294,7 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 
 func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:      []string{"security"},
@@ -449,7 +450,7 @@ func TestSubstituteVariables_DeeplyNestedSections(t *testing.T) {
 func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{}, // Empty config profiles
 	}
 
@@ -484,7 +485,7 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 	// Test that config-based resolution is tried first
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"config-profile": {
 				Description: "Profile from config",
@@ -516,7 +517,7 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{}, // Empty
 	}
 
@@ -541,7 +542,7 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{}, // Empty
 	}
 

@@ -10,6 +10,7 @@ import (
 )
 
 var remoteInstallForce bool
+var remoteLockNoSync bool
 
 var remoteLockCmd = &cobra.Command{
 	Use:   "lock",
@@ -19,8 +20,13 @@ var remoteLockCmd = &cobra.Command{
 The lockfile pins exact versions (commit SHAs) of remote dependencies for
 reproducible installations. Commit this file to your repository.
 
+By default, sync runs first to ensure all dependencies are installed before
+locking their versions. This prevents generating an incomplete lockfile if the
+ephemeral directory was cleared. Use --no-sync to skip this behavior.
+
 Examples:
-  ctxloom remote lock              # Generate lockfile from installed items`,
+  ctxloom remote lock              # Sync then generate lockfile
+  ctxloom remote lock --no-sync    # Generate lockfile without syncing`,
 	RunE: runRemoteLock,
 }
 
@@ -59,7 +65,13 @@ func runRemoteLock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	result, err := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{})
+	if !remoteLockNoSync {
+		fmt.Println("Syncing dependencies before generating lockfile...")
+	}
+
+	result, err := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{
+		SkipSync: remoteLockNoSync,
+	})
 	if err != nil {
 		return err
 	}
@@ -156,6 +168,8 @@ func init() {
 	remoteCmd.AddCommand(remoteInstallCmd)
 	remoteCmd.AddCommand(remoteOutdatedCmd)
 
+	remoteLockCmd.Flags().BoolVar(&remoteLockNoSync, "no-sync", false,
+		"Skip syncing dependencies before generating lockfile")
 	remoteInstallCmd.Flags().BoolVarP(&remoteInstallForce, "force", "f", false,
 		"Skip confirmation prompts")
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -95,7 +96,7 @@ func TestWriteRemoteItemResult_Fields(t *testing.T) {
 		Status:      "installed",
 		Reference:   "test/my-bundle@abc123",
 		ItemType:    "bundle",
-		LocalPath:   "/project/.ctxloom/bundles/test/my-bundle.yaml",
+		LocalPath:   paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml",
 		SHA:         "abc123d",
 		Overwritten: false,
 	}
@@ -103,7 +104,7 @@ func TestWriteRemoteItemResult_Fields(t *testing.T) {
 	assert.Equal(t, "installed", result.Status)
 	assert.Equal(t, "test/my-bundle@abc123", result.Reference)
 	assert.Equal(t, "bundle", result.ItemType)
-	assert.Contains(t, result.LocalPath, ".ctxloom/bundles")
+	assert.Contains(t, result.LocalPath, ".ctxloom/ephemeral/bundles")
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
 }
@@ -146,13 +147,13 @@ func TestPullItemRequest_Validation(t *testing.T) {
 
 func TestPullItemResult_Fields(t *testing.T) {
 	result := PullItemResult{
-		LocalPath:     "/project/.ctxloom/profiles/test/my-profile.yaml",
+		LocalPath:     paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml",
 		SHA:           "abc123d",
 		Overwritten:   true,
 		CascadePulled: []string{"test/bundle1", "test/bundle2"},
 	}
 
-	assert.Equal(t, "/project/.ctxloom/profiles/test/my-profile.yaml", result.LocalPath)
+	assert.Equal(t, paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml", result.LocalPath)
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.True(t, result.Overwritten)
 	assert.Len(t, result.CascadePulled, 2)
@@ -230,7 +231,7 @@ func TestConfigDeterminesWritePath(t *testing.T) {
 
 func TestWriteRemoteItem_WritesBundle(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "test/my-bundle",
@@ -244,7 +245,7 @@ func TestWriteRemoteItem_WritesBundle(t *testing.T) {
 	assert.Equal(t, "installed", result.Status)
 	assert.Equal(t, "test/my-bundle", result.Reference)
 	assert.Equal(t, "bundle", result.ItemType)
-	assert.Contains(t, result.LocalPath, "/project/.ctxloom/bundles/test/my-bundle.yaml")
+	assert.Contains(t, result.LocalPath, paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml")
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
 
@@ -260,7 +261,7 @@ func TestWriteRemoteItem_WritesBundle(t *testing.T) {
 
 func TestWriteRemoteItem_WritesProfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "test/my-profile",
@@ -273,14 +274,14 @@ func TestWriteRemoteItem_WritesProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "installed", result.Status)
 	assert.Equal(t, "profile", result.ItemType)
-	assert.Contains(t, result.LocalPath, "/project/.ctxloom/profiles/test/my-profile.yaml")
+	assert.Contains(t, result.LocalPath, paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml")
 }
 
 func TestWriteRemoteItem_UpdatesExisting(t *testing.T) {
 	// Updates (Overwritten=true) vs fresh installs matter for user feedback -
 	// users need to know if they're replacing existing content.
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	ctx := context.Background()
 
 	// Write initial content
@@ -314,7 +315,7 @@ func TestWriteRemoteItem_UpdatesExisting(t *testing.T) {
 
 func TestWriteRemoteItem_InvalidItemType(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "test/item",
@@ -330,7 +331,7 @@ func TestWriteRemoteItem_InvalidItemType(t *testing.T) {
 
 func TestWriteRemoteItem_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "", // Invalid empty reference
@@ -346,7 +347,7 @@ func TestWriteRemoteItem_InvalidReference(t *testing.T) {
 
 func TestWriteRemoteItem_TruncatesSHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "test/item",
@@ -362,7 +363,7 @@ func TestWriteRemoteItem_TruncatesSHA(t *testing.T) {
 
 func TestWriteRemoteItem_ShortSHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
 		Reference: "test/item",
@@ -404,9 +405,9 @@ func TestWriteRemoteItem_CreatesDirectories(t *testing.T) {
 func setupPullTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/project/.ctxloom", 0755)
+	_ = fs.MkdirAll(testBaseDir, 0755)
 
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, err := remote.NewRegistry(paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	return registry, fs
@@ -414,7 +415,7 @@ func setupPullTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 
 func TestFetchRemoteContent_FetchesBundle(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Add a test remote
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
@@ -459,7 +460,7 @@ fragments:
 
 func TestFetchRemoteContent_FetchesProfile(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -486,7 +487,7 @@ func TestFetchRemoteContent_FetchesProfile(t *testing.T) {
 
 func TestFetchRemoteContent_WithGitRef(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -510,7 +511,7 @@ func TestFetchRemoteContent_WithGitRef(t *testing.T) {
 }
 
 func TestFetchRemoteContent_MissingReference(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
 		Reference: "",
@@ -522,7 +523,7 @@ func TestFetchRemoteContent_MissingReference(t *testing.T) {
 }
 
 func TestFetchRemoteContent_MissingItemType(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
 		Reference: "test/bundle",
@@ -534,7 +535,7 @@ func TestFetchRemoteContent_MissingItemType(t *testing.T) {
 }
 
 func TestFetchRemoteContent_InvalidItemType(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
 		Reference: "test/bundle",
@@ -547,7 +548,7 @@ func TestFetchRemoteContent_InvalidItemType(t *testing.T) {
 
 func TestFetchRemoteContent_UnknownRemote(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Don't add any remotes
 
@@ -563,7 +564,7 @@ func TestFetchRemoteContent_UnknownRemote(t *testing.T) {
 
 func TestFetchRemoteContent_FetchError(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -584,7 +585,7 @@ func TestFetchRemoteContent_FetchError(t *testing.T) {
 
 func TestFetchRemoteContent_ResolveRefError(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -604,7 +605,7 @@ func TestFetchRemoteContent_ResolveRefError(t *testing.T) {
 
 func TestFetchRemoteContent_ShortSHA(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -626,7 +627,7 @@ func TestFetchRemoteContent_ShortSHA(t *testing.T) {
 
 func TestFetchRemoteContent_NestedPath(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -647,7 +648,7 @@ func TestFetchRemoteContent_NestedPath(t *testing.T) {
 
 func TestFetchRemoteContent_GetDefaultBranchError(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
@@ -671,7 +672,7 @@ func TestFetchRemoteContent_GetDefaultBranchError(t *testing.T) {
 
 func TestFetchRemoteContent_ParseRefError(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Invalid reference format
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -692,7 +693,7 @@ func TestFetchRemoteContent_ParseRefError(t *testing.T) {
 // one-command profile installation with all dependencies.
 
 func TestPullItem_InvalidItemType(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := PullItem(context.Background(), cfg, PullItemRequest{
 		Reference: "test/bundle",
@@ -704,7 +705,7 @@ func TestPullItem_InvalidItemType(t *testing.T) {
 }
 
 func TestPullItem_FragmentItemTypeInvalid(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := PullItem(context.Background(), cfg, PullItemRequest{
 		Reference: "test/item",
@@ -716,16 +717,16 @@ func TestPullItem_FragmentItemTypeInvalid(t *testing.T) {
 }
 
 func TestPullItem_BundleSuccess(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.Equal(t, "test/my-bundle", refStr)
 			assert.Equal(t, remote.ItemTypeBundle, opts.ItemType)
-			assert.Equal(t, "/project/.ctxloom", opts.LocalDir)
+			assert.Equal(t, testBaseDir, opts.LocalDir)
 			assert.False(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   "/project/.ctxloom/bundles/test/my-bundle.yaml",
+				LocalPath:   paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml",
 				SHA:         "abc123d",
 				Overwritten: false,
 			}, nil
@@ -739,20 +740,20 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "/project/.ctxloom/bundles/test/my-bundle.yaml", result.LocalPath)
+	assert.Equal(t, paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml", result.LocalPath)
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
 }
 
 func TestPullItem_ProfileSuccess(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.Equal(t, "test/my-profile", refStr)
 			assert.Equal(t, remote.ItemTypeProfile, opts.ItemType)
 			return &remote.PullResult{
-				LocalPath:   "/project/.ctxloom/profiles/test/my-profile.yaml",
+				LocalPath:   paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml",
 				SHA:         "def456a",
 				Overwritten: false,
 			}, nil
@@ -766,18 +767,18 @@ func TestPullItem_ProfileSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "/project/.ctxloom/profiles/test/my-profile.yaml", result.LocalPath)
+	assert.Equal(t, paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml", result.LocalPath)
 	assert.Equal(t, "def456a", result.SHA)
 }
 
 func TestPullItem_WithForce(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.True(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   "/project/.ctxloom/bundles/test/bundle.yaml",
+				LocalPath:   paths.BundlesPath(testBaseDir)+"/test/bundle.yaml",
 				SHA:         "abc123",
 				Overwritten: true,
 			}, nil
@@ -798,13 +799,13 @@ func TestPullItem_WithForce(t *testing.T) {
 func TestPullItem_WithCascade(t *testing.T) {
 	// Cascade mode pulls profile dependencies automatically - essential for
 	// complete profile installation without manual bundle tracking.
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.True(t, opts.Cascade)
 			return &remote.PullResult{
-				LocalPath:     "/project/.ctxloom/profiles/test/profile.yaml",
+				LocalPath:     paths.ProfilesPath(testBaseDir)+"/test/profile.yaml",
 				SHA:           "abc123",
 				Overwritten:   false,
 				CascadePulled: []string{"test/bundle1", "test/bundle2"},
@@ -826,7 +827,7 @@ func TestPullItem_WithCascade(t *testing.T) {
 }
 
 func TestPullItem_PullError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
@@ -851,7 +852,7 @@ func TestPullItem_UsesConfigBaseDir(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedLocalDir = opts.LocalDir
 			return &remote.PullResult{
-				LocalPath: "/custom/project/.ctxloom/bundles/test/bundle.yaml",
+				LocalPath: "/custom/project/.ctxloom/ephemeral/bundles/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},
@@ -869,22 +870,22 @@ func TestPullItem_UsesConfigBaseDir(t *testing.T) {
 
 func TestPullItem_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with a remote
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Use a mock puller to verify registry was created correctly
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			return &remote.PullResult{
-				LocalPath: "/project/.ctxloom/bundles/test/bundle.yaml",
+				LocalPath: paths.BundlesPath(testBaseDir)+"/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},
@@ -898,21 +899,21 @@ func TestPullItem_WithFS(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "/project/.ctxloom/bundles/test/bundle.yaml", result.LocalPath)
+	assert.Equal(t, paths.BundlesPath(testBaseDir)+"/test/bundle.yaml", result.LocalPath)
 }
 
 func TestPullItem_WithFSCreatesRegistry(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with a remote
 	remotesContent := `remotes:
   test:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	// Don't inject Puller - let it create one from registry
 	// This will fail when trying to actually pull, but we're testing

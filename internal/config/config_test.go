@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -629,8 +630,8 @@ func TestConfig_SourceName(t *testing.T) {
 func TestConfig_GetBundleDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create bundles directory
-	bundlesDir := filepath.Join(tmpDir, "bundles")
+	// Create bundles directory in ephemeral/
+	bundlesDir := filepath.Join(tmpDir, "ephemeral", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	cfg := &Config{AppPaths: []string{tmpDir}}
@@ -665,7 +666,7 @@ func TestConfig_GetPluginPaths(t *testing.T) {
 			AppPaths: []string{"/home/user/.ctxloom"},
 		}
 		paths := cfg.GetPluginPaths()
-		assert.Equal(t, []string{"/home/user/.ctxloom/plugins"}, paths)
+		assert.Equal(t, []string{"/home/user/.ctxloom/ephemeral/plugins"}, paths)
 	})
 }
 
@@ -674,7 +675,7 @@ func TestConfig_GetConfigFilePath(t *testing.T) {
 		cfg := &Config{AppPaths: []string{"/path/to/.ctxloom"}}
 		path, err := cfg.GetConfigFilePath()
 		require.NoError(t, err)
-		assert.Equal(t, "/path/to/.ctxloom/config.yaml", path)
+		assert.Equal(t, "/path/to/.ctxloom/persistent/config.yaml", path)
 	})
 
 	t.Run("errors when no AppPaths", func(t *testing.T) {
@@ -775,6 +776,9 @@ func TestResolveProfile_DiamondInheritance(t *testing.T) {
 func TestConfig_Save(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Create the persistent directory
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(tmpDir), 0755))
+
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
@@ -794,8 +798,8 @@ func TestConfig_Save(t *testing.T) {
 	err := cfg.Save()
 	require.NoError(t, err)
 
-	// Verify file was written
-	data, err := os.ReadFile(filepath.Join(tmpDir, "config.yaml"))
+	// Verify file was written to persistent dir
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
 	assert.Contains(t, string(data), "- dev")
@@ -834,11 +838,11 @@ func TestWithAppDir(t *testing.T) {
 func TestLoad_WithOptions(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	// Create .ctxloom directory structure
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	// Create .ctxloom directory structure with persistent subdir
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
-	// Create a valid config file
+	// Create a valid config file in persistent directory
 	configContent := `
 llm:
   plugins:
@@ -848,7 +852,7 @@ defaults:
   profiles:
     - test
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -1289,6 +1293,9 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 	tmpDir := t.TempDir()
 	trueVal := true
 
+	// Create the persistent directory
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(tmpDir), 0755))
+
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
@@ -1305,7 +1312,7 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 	err := cfg.Save()
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, "config.yaml"))
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "mcp")
 	assert.Contains(t, string(data), "test-cmd")
@@ -1314,13 +1321,16 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 func TestConfig_Save_PreservesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Write existing config with custom fields
+	// Create the persistent directory
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(tmpDir), 0755))
+
+	// Write existing config with custom fields to persistent directory
 	existingContent := `
 custom_field: preserved
 llm:
   plugins: {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(existingContent), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(tmpDir), []byte(existingContent), 0644))
 
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
@@ -1337,7 +1347,7 @@ llm:
 	err := cfg.Save()
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, "config.yaml"))
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	// Should preserve the custom field
 	assert.Contains(t, string(data), "custom_field")
@@ -1350,7 +1360,8 @@ llm:
 func TestConfig_GetDefaultProfiles_FromDirectoryProfile(t *testing.T) {
 	// Test when directory-based profiles have defaults
 	tmpDir := t.TempDir()
-	profilesDir := filepath.Join(tmpDir, "profiles")
+	// Profiles are stored in persistent/profiles/
+	profilesDir := paths.ProfilesPath(tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	// Create a profile file with default: true
@@ -1375,15 +1386,15 @@ description: A default profile
 
 func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
 llm:
   plugins: "should be a map not string"
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
 
 	// Now returns config with warnings instead of error for resilient startup
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
@@ -1425,8 +1436,8 @@ func TestResolveProfile_SessionEndHooks(t *testing.T) {
 func TestResilientStartup_MalformedConfig(t *testing.T) {
 	// Test that malformed config produces warnings but doesn't fail startup
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
 	// Create malformed YAML (array where object expected)
 	malformedYAML := `
@@ -1435,7 +1446,7 @@ llm:
     - this is wrong format
     claude-code: {}
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(malformedYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(malformedYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -1452,11 +1463,11 @@ llm:
 
 func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
 	// Completely unparseable YAML
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte("{{{{invalid"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -1469,8 +1480,8 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 
 func TestResilientStartup_NonExistentProfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
 
 	// Config references a non-existent profile
 	configYAML := `
@@ -1478,7 +1489,7 @@ defaults:
   profiles:
     - nonexistent-profile
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -1510,8 +1521,8 @@ func TestResilientStartup_EmptyConfig(t *testing.T) {
 
 func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
 	// Config with some valid and some invalid parts (unknown property in plugin)
 	// Schema validation may catch this, but we should still not fail
@@ -1524,7 +1535,7 @@ profiles:
   valid-profile:
     description: "This is valid"
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
@@ -1536,15 +1547,15 @@ profiles:
 func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 	// Test that schema validation warnings are collected
 	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
 
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
 llm:
   plugins: invalid-should-be-map
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(configYAML), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 

@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -233,10 +234,11 @@ func (l *Loader) Delete(name string) error {
 }
 
 // GetProfileDirs returns profile directories from ctxloom paths.
+// Profiles are stored in .ctxloom/persistent/profiles/.
 func GetProfileDirs(scmPaths []string) []string {
 	var dirs []string
 	for _, scmPath := range scmPaths {
-		profileDir := filepath.Join(scmPath, "profiles")
+		profileDir := paths.ProfilesPath(scmPath)
 		if info, err := os.Stat(profileDir); err == nil && info.IsDir() {
 			dirs = append(dirs, profileDir)
 		}

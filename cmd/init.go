@@ -68,12 +68,12 @@ func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-// ensureGitignoreEntry adds ctxloom memory directory to .gitignore if not already present.
-// This keeps session logs local (machine-specific, potentially large).
+// ensureGitignoreEntry adds ctxloom ephemeral directory to .gitignore if not already present.
+// This keeps ephemeral data local (synced bundles, session data, context files).
 func ensureGitignoreEntry(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	memoryEntry := ".ctxloom/memory/"
-	comment := "# ctxloom memory (local session data, not shared)"
+	ephemeralEntry := ".ctxloom/ephemeral/"
+	comment := "# ctxloom ephemeral data (synced bundles, session data, context files)"
 
 	// Read existing .gitignore if it exists
 	var lines []string
@@ -82,7 +82,7 @@ func ensureGitignoreEntry(projectDir string) error {
 		lines = strings.Split(string(content), "\n")
 		// Check if entry already exists
 		for _, line := range lines {
-			if strings.TrimSpace(line) == memoryEntry {
+			if strings.TrimSpace(line) == ephemeralEntry {
 				return nil // Already present
 			}
 		}
@@ -105,7 +105,7 @@ func ensureGitignoreEntry(projectDir string) error {
 	}
 
 	// Write comment and entry
-	if _, err := fmt.Fprintf(f, "\n%s\n%s\n", comment, memoryEntry); err != nil {
+	if _, err := fmt.Fprintf(f, "\n%s\n%s\n", comment, ephemeralEntry); err != nil {
 		return err
 	}
 
@@ -538,8 +538,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// Create the directory structure
 		dirs := []string{
 			appDir,
-			filepath.Join(appDir, "profiles"),
-			filepath.Join(appDir, "bundles"),
+			filepath.Join(appDir, "persistent"),
+			filepath.Join(appDir, "persistent", "profiles"),
+			filepath.Join(appDir, "ephemeral"),
+			filepath.Join(appDir, "ephemeral", "bundles"),
 		}
 
 		for _, dir := range dirs {
@@ -549,14 +551,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create config.yaml with selected engine and options
-		configPath := filepath.Join(appDir, "config.yaml")
+		configPath := filepath.Join(appDir, "persistent", "config.yaml")
 		configContent := generateConfig(selectedEngine)
 		if err := os.WriteFile(configPath, configContent, 0644); err != nil {
 			return fmt.Errorf("failed to create config.yaml: %w", err)
 		}
 
 		// Create remotes.yaml with default remote (ctxloom-default)
-		remotesPath := filepath.Join(appDir, "remotes.yaml")
+		remotesPath := filepath.Join(appDir, "persistent", "remotes.yaml")
 		remotesContent, err := resources.GetDefaultRemotes()
 		if err != nil {
 			return fmt.Errorf("failed to read default remotes: %w", err)
@@ -602,7 +604,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Update .gitignore to exclude .ctxloom/memory/ (session logs)
+		// Update .gitignore to exclude .ctxloom/ephemeral/ (synced bundles, session data)
 		if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
 		}

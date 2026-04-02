@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // VendorManager handles vendoring remote dependencies locally.
@@ -36,7 +38,7 @@ func WithVendorFetcherFactory(ff FetcherFactory) VendorOption {
 // NewVendorManager creates a new vendor manager.
 func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 	if baseDir == "" {
-		baseDir = ".ctxloom"
+		baseDir = paths.AppDirName
 	}
 	m := &VendorManager{
 		baseDir:        baseDir,
@@ -50,13 +52,14 @@ func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 }
 
 // VendorDir returns the vendor directory path.
+// Vendor directory is in .ctxloom/ephemeral/vendor.
 func (m *VendorManager) VendorDir() string {
-	return filepath.Join(m.baseDir, "vendor")
+	return paths.VendorPath(m.baseDir)
 }
 
 // IsVendored checks if vendor mode is enabled.
 func (m *VendorManager) IsVendored() bool {
-	configPath := filepath.Join(".ctxloom", "remotes.yaml")
+	configPath := paths.DefaultRemotesPath()
 	data, err := afero.ReadFile(m.fs, configPath)
 	if err != nil {
 		return false
@@ -74,10 +77,10 @@ func (m *VendorManager) IsVendored() bool {
 
 // SetVendorMode enables or disables vendor mode.
 func (m *VendorManager) SetVendorMode(enabled bool) error {
-	configPath := filepath.Join(".ctxloom", "remotes.yaml")
+	configPath := paths.DefaultRemotesPath()
 
 	// Ensure directory exists
-	if err := m.fs.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+	if err := m.fs.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755); err != nil {
 		return err
 	}
 

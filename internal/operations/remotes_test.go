@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -22,22 +23,22 @@ func TestGetBaseDir_UsesConfigPath(t *testing.T) {
 		{
 			name:     "nil config uses default",
 			cfg:      nil,
-			expected: ".ctxloom",
+			expected: paths.AppDirName,
 		},
 		{
 			name:     "empty AppPaths uses default",
 			cfg:      &config.Config{AppPaths: []string{}},
-			expected: ".ctxloom",
+			expected: paths.AppDirName,
 		},
 		{
 			name:     "uses first ctxloom path from config",
-			cfg:      &config.Config{AppPaths: []string{"/project/.ctxloom", "/home/user/.ctxloom"}},
-			expected: "/project/.ctxloom",
+			cfg:      &config.Config{AppPaths: []string{testBaseDir, "/home/user/" + paths.AppDirName}},
+			expected: testBaseDir,
 		},
 		{
 			name:     "single ctxloom path",
-			cfg:      &config.Config{AppPaths: []string{"/my/project/.ctxloom"}},
-			expected: "/my/project/.ctxloom",
+			cfg:      &config.Config{AppPaths: []string{"/my/project/" + paths.AppDirName}},
+			expected: "/my/project/" + paths.AppDirName,
 		},
 	}
 
@@ -197,9 +198,9 @@ func TestBrowseItemEntry_Fields(t *testing.T) {
 func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/project/.ctxloom", 0755)
+	_ = fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755)
 
-	registry, err := remote.NewRegistry("/project/.ctxloom/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	return registry, fs
@@ -239,16 +240,16 @@ func TestListRemotes_WithRemotes(t *testing.T) {
 
 func TestListRemotes_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 
 	// Create remotes.yaml with existing remotes
 	remotesContent := `remotes:
   test-remote:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := ListRemotes(context.Background(), cfg, ListRemotesRequest{
 		FS: fs,
@@ -261,9 +262,9 @@ func TestListRemotes_WithFS(t *testing.T) {
 
 func TestAddRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
 	result, err := AddRemote(context.Background(), cfg, AddRemoteRequest{
@@ -278,22 +279,22 @@ func TestAddRemote_WithFS(t *testing.T) {
 	assert.Equal(t, "alice", result.Name)
 
 	// Verify remote was written to FS
-	exists, _ := afero.Exists(fs, "/project/.ctxloom/remotes.yaml")
+	exists, _ := afero.Exists(fs, paths.RemotesPath(testBaseDir))
 	assert.True(t, exists)
 }
 
 func TestRemoveRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom", 0755))
+	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
 
 	// Create remotes.yaml with existing remote
 	remotesContent := `remotes:
   to-remove:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, "/project/.ctxloom/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := RemoveRemote(context.Background(), cfg, RemoveRemoteRequest{
 		Name: "to-remove",

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // =============================================================================
@@ -188,7 +189,7 @@ func setupSearchTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory
-	_ = fs.MkdirAll("/project/.ctxloom/bundles", 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
 
 	// Create a test bundle with fragments and prompts
 	bundleContent := `version: "1.0"
@@ -216,14 +217,14 @@ prompts:
     content: |
       Refactor this code
 `
-	_ = afero.WriteFile(fs, "/project/.ctxloom/bundles/dev-tools.yaml", []byte(bundleContent), 0644)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
 
-	loader := bundles.NewLoader([]string{"/project/.ctxloom/bundles"}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.BundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 	return fs, loader
 }
 
 func TestSearchContent_ValidationError(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	_, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "",
@@ -235,7 +236,7 @@ func TestSearchContent_ValidationError(t *testing.T) {
 
 func TestSearchContent_SearchFragmentsByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "security",
@@ -259,7 +260,7 @@ func TestSearchContent_SearchFragmentsByName(t *testing.T) {
 
 func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "tdd",
@@ -283,7 +284,7 @@ func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 
 func TestSearchContent_SearchPrompts(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "review",
@@ -306,7 +307,7 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 
 func TestSearchContent_SearchProfiles(t *testing.T) {
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"go-developer": {
 				Description: "Go development profile",
@@ -339,7 +340,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 
 func TestSearchContent_SearchMCPServers(t *testing.T) {
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		MCP: config.MCPConfig{
 			Servers: map[string]config.MCPServer{
 				"filesystem": {
@@ -368,7 +369,7 @@ func TestSearchContent_SearchMCPServers(t *testing.T) {
 func TestSearchContent_MultipleTypes(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"react-developer": {
 				Description: "React development profile",
@@ -402,7 +403,7 @@ func TestSearchContent_MultipleTypes(t *testing.T) {
 
 func TestSearchContent_SortByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing" and other fragments
@@ -423,7 +424,7 @@ func TestSearchContent_SortByName(t *testing.T) {
 
 func TestSearchContent_SortByRelevance(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "go",
@@ -443,7 +444,7 @@ func TestSearchContent_SortByRelevance(t *testing.T) {
 
 func TestSearchContent_WithLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a", // Should match many items
@@ -458,7 +459,7 @@ func TestSearchContent_WithLimit(t *testing.T) {
 
 func TestSearchContent_DefaultLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a",
@@ -474,7 +475,7 @@ func TestSearchContent_DefaultLimit(t *testing.T) {
 func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"test-profile": {Description: "Test"},
 		},
@@ -494,7 +495,7 @@ func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 func TestSearchContent_SortByType(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"test-profile": {Description: "Test profile"},
 		},
@@ -518,7 +519,7 @@ func TestSearchContent_SortByType(t *testing.T) {
 
 func TestSearchContent_SortDescending(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := &config.Config{AppPaths: []string{"/project/.ctxloom"}}
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing"
@@ -539,7 +540,7 @@ func TestSearchContent_SortDescending(t *testing.T) {
 
 func TestSearchContent_ProfileByDescription(t *testing.T) {
 	cfg := &config.Config{
-		AppPaths: []string{"/project/.ctxloom"},
+		AppPaths: []string{testBaseDir},
 		Profiles: map[string]config.Profile{
 			"my-profile": {
 				Description: "This is a unique description for searching",

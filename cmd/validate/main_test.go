@@ -2,9 +2,9 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,15 +41,15 @@ func TestRun_ValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Create .ctxloom directory and valid config
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	// Create .ctxloom directory with persistent subdir and valid config
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
 	validConfig := `
 defaults:
   profiles:
     - default
   llm_plugin: mock
 `
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(validConfig), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(validConfig), 0644))
 
 	err = run()
 	assert.NoError(t, err)
@@ -65,11 +65,11 @@ func TestRun_InvalidYAMLSyntax(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
 	invalidYAML := `
 default_profile: [invalid
 `
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(invalidYAML), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(invalidYAML), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -86,12 +86,12 @@ func TestRun_SchemaViolation(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
 	// Use an invalid type for default_profiles (should be array, not string)
 	invalidSchema := `
 default_profiles: "not-an-array"
 `
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(invalidSchema), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(invalidSchema), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -107,9 +107,9 @@ func TestRun_EmptyObjectConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
 	// Schema requires an object, so {} is minimal valid config
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte("{}"), 0644))
 
 	err = run()
 	assert.NoError(t, err)
@@ -124,8 +124,8 @@ func TestRun_NullConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(""), 0644))
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(""), 0644))
 
 	err = run()
 	assert.Error(t, err)
@@ -142,8 +142,8 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(".ctxloom", 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(".ctxloom", "bundles"), 0755))
+	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.BundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `
 version: "1.0"
@@ -183,7 +183,7 @@ profiles:
     fragments:
       - test-helpers
 `
-	require.NoError(t, os.WriteFile(".ctxloom/config.yaml", []byte(complexConfig), 0644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(complexConfig), 0644))
 
 	err = run()
 	assert.NoError(t, err)

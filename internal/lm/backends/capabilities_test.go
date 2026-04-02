@@ -518,7 +518,7 @@ func TestBaseSessionRegistry_RegisterSession(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify file was created
-	exists, _ := afero.Exists(fs, "/test/project/.ctxloom/test-registry.json")
+	exists, _ := afero.Exists(fs, "/test/project/.ctxloom/ephemeral/test-registry.json")
 	assert.True(t, exists)
 }
 

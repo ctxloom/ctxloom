@@ -488,21 +488,21 @@ func TestReference_LocalPath(t *testing.T) {
 			ref:      Reference{Remote: "alice", Path: "go-tools"},
 			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/bundles/alice/go-tools.yaml",
+			want:     "/home/user/.ctxloom/ephemeral/bundles/alice/go-tools.yaml",
 		},
 		{
 			name:     "simple profile",
 			ref:      Reference{Remote: "corp", Path: "security"},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile,
-			want:     ".ctxloom/profiles/corp/security.yaml",
+			want:     ".ctxloom/persistent/profiles/corp/security.yaml",
 		},
 		{
 			name:     "nested path",
 			ref:      Reference{Remote: "alice", Path: "lang/go/testing"},
 			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/bundles/alice/lang/go/testing.yaml",
+			want:     "/home/user/.ctxloom/ephemeral/bundles/alice/lang/go/testing.yaml",
 		},
 		{
 			name: "canonical HTTPS bundle",
@@ -515,7 +515,7 @@ func TestReference_LocalPath(t *testing.T) {
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile, // Should be ignored for canonical
-			want:     ".ctxloom/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
+			want:     ".ctxloom/ephemeral/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
 		},
 		{
 			name: "canonical SSH profile",
@@ -528,7 +528,7 @@ func TestReference_LocalPath(t *testing.T) {
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeBundle, // Should be ignored for canonical
-			want:     ".ctxloom/profiles/github.com/owner/repo/security.yaml",
+			want:     ".ctxloom/persistent/profiles/github.com/owner/repo/security.yaml",
 		},
 	}
 

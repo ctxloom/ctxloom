@@ -440,7 +440,7 @@ func TestPublishConvenienceFunction(t *testing.T) {
 	t.Run("returns error when file does not exist", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(".ctxloom", 0755))
-		registry, _ := NewRegistry(".ctxloom/remotes.yaml", WithRegistryFS(fs))
+		registry, _ := NewRegistry(".ctxloom/persistent/remotes.yaml", WithRegistryFS(fs))
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		opts := PublishOptions{

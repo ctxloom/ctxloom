@@ -34,7 +34,7 @@ type CompactionConfig struct {
 	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
-	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/memory)
+	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/ephemeral/memory)
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride backends.Backend // Optional: inject backend directly for testing (bypasses registry)
 }
@@ -325,7 +325,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 func (c *Compactor) saveDistilled(sessionID, content string) (string, error) {
 	outputDir := c.config.OutputDir
 	if outputDir == "" {
-		outputDir = ".ctxloom/memory"
+		outputDir = ".ctxloom/ephemeral/memory"
 	}
 	distilledDir := filepath.Join(outputDir, DistilledDir)
 	if err := os.MkdirAll(distilledDir, 0755); err != nil {

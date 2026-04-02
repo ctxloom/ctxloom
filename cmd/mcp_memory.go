@@ -13,16 +13,16 @@ import (
 )
 
 // getMemoryDir returns the path to the memory directory.
-// Falls back to ".ctxloom/memory" in the current directory if AppDir is not set.
+// Falls back to ".ctxloom/ephemeral/memory" in the current directory if AppDir is not set.
 func (s *mcpServer) getMemoryDir() string {
 	if s.cfg.AppDir != "" {
-		return filepath.Join(s.cfg.AppDir, "memory")
+		return filepath.Join(s.cfg.AppDir, "ephemeral", "memory")
 	}
 	// Fallback to current working directory
 	if wd, err := os.Getwd(); err == nil {
-		return filepath.Join(wd, ".ctxloom", "memory")
+		return filepath.Join(wd, ".ctxloom", "ephemeral", "memory")
 	}
-	return filepath.Join(".ctxloom", "memory")
+	return filepath.Join(".ctxloom", "ephemeral", "memory")
 }
 
 // getMemoryTools returns MCP tool definitions for memory features.

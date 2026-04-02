@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 func TestNewRegistry(t *testing.T) {
@@ -19,7 +21,7 @@ func TestNewRegistry(t *testing.T) {
 		registry, err := NewRegistry("")
 		require.NoError(t, err)
 		assert.NotNil(t, registry)
-		assert.Equal(t, filepath.Join(".ctxloom", "remotes.yaml"), registry.configPath)
+		assert.Equal(t, paths.DefaultRemotesPath(), registry.configPath)
 	})
 
 	t.Run("creates registry with custom path", func(t *testing.T) {

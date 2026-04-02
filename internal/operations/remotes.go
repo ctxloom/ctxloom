@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -26,7 +27,7 @@ func getBaseDir(cfg *config.Config) string {
 // getRegistry creates a registry using the config's ctxloom path.
 func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
 	baseDir := getBaseDir(cfg)
-	return remote.NewRegistry(filepath.Join(baseDir, "remotes.yaml"), opts...)
+	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
 // RemoteEntry represents a remote in operation results.

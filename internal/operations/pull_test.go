@@ -104,7 +104,7 @@ func TestWriteRemoteItemResult_Fields(t *testing.T) {
 	assert.Equal(t, "installed", result.Status)
 	assert.Equal(t, "test/my-bundle@abc123", result.Reference)
 	assert.Equal(t, "bundle", result.ItemType)
-	assert.Contains(t, result.LocalPath, ".ctxloom/ephemeral/bundles")
+	assert.Contains(t, result.LocalPath, ".ctxloom/cache/bundles")
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
 }
@@ -345,6 +345,100 @@ func TestWriteRemoteItem_InvalidReference(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid reference")
 }
 
+// =============================================================================
+// Pull Token Parsing Tests
+// =============================================================================
+// Pull tokens have format "itemType:remote/path@sha" which is different from
+// standard references. The colon prefix must NOT be interpreted as part of the
+// remote name, otherwise directories like "bundle:personal" get created.
+
+func TestParsePullToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		wantType string
+		wantRef  string
+		wantSHA  string
+		wantErr  bool
+	}{
+		{
+			name:     "bundle token",
+			token:    "bundle:personal/containers@abc123",
+			wantType: "bundle",
+			wantRef:  "personal/containers",
+			wantSHA:  "abc123",
+			wantErr:  false,
+		},
+		{
+			name:     "profile token",
+			token:    "profile:corp/security@def456789",
+			wantType: "profile",
+			wantRef:  "corp/security",
+			wantSHA:  "def456789",
+			wantErr:  false,
+		},
+		{
+			name:     "nested path",
+			token:    "bundle:remote/lang/go/testing@abc123",
+			wantType: "bundle",
+			wantRef:  "remote/lang/go/testing",
+			wantSHA:  "abc123",
+			wantErr:  false,
+		},
+		{
+			name:    "missing colon prefix",
+			token:   "personal/containers@abc123",
+			wantErr: true,
+		},
+		{
+			name:    "missing sha",
+			token:   "bundle:personal/containers",
+			wantErr: true,
+		},
+		{
+			name:    "empty token",
+			token:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			itemType, ref, sha, err := parsePullToken(tt.token)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantType, itemType)
+			assert.Equal(t, tt.wantRef, ref)
+			assert.Equal(t, tt.wantSHA, sha)
+		})
+	}
+}
+
+func TestWriteRemoteItem_PullTokenFormat(t *testing.T) {
+	// This test verifies the fix for colons in directory names.
+	// Pull tokens use format "bundle:remote/path@sha" which was being
+	// parsed incorrectly, creating directories like "bundle:personal".
+	fs := afero.NewMemMapFs()
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	// Use pull token format (as returned by FetchRemoteContent)
+	result, err := WriteRemoteItem(context.Background(), cfg, WriteRemoteItemRequest{
+		Reference: "bundle:personal/containers@abc123",
+		ItemType:  "bundle",
+		Content:   []byte("test content"),
+		SHA:       "abc123",
+		FS:        fs,
+	})
+
+	require.NoError(t, err)
+	// The local path should use "personal" as the remote, NOT "bundle:personal"
+	assert.Contains(t, result.LocalPath, "/personal/containers.yaml")
+	assert.NotContains(t, result.LocalPath, "bundle:personal")
+}
+
 func TestWriteRemoteItem_TruncatesSHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -407,7 +501,7 @@ func setupPullTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	fs := afero.NewMemMapFs()
 	_ = fs.MkdirAll(testBaseDir, 0755)
 
-	registry, err := remote.NewRegistry(paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", remote.WithRegistryFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
 	return registry, fs
@@ -485,7 +579,7 @@ func TestFetchRemoteContent_FetchesProfile(t *testing.T) {
 	assert.Contains(t, result.Content, "my-bundle")
 }
 
-func TestFetchRemoteContent_WithGitRef(t *testing.T) {
+func TestFetchRemoteContent_WithContentVersion(t *testing.T) {
 	registry, _ := setupPullTestRegistry(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
@@ -852,7 +946,7 @@ func TestPullItem_UsesConfigBaseDir(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedLocalDir = opts.LocalDir
 			return &remote.PullResult{
-				LocalPath: "/custom/project/.ctxloom/ephemeral/bundles/test/bundle.yaml",
+				LocalPath: "/custom/project/.ctxloom/cache/bundles/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},
@@ -877,7 +971,7 @@ func TestPullItem_WithFS(t *testing.T) {
   test:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
@@ -911,7 +1005,7 @@ func TestPullItem_WithFSCreatesRegistry(t *testing.T) {
   test:
     url: https://github.com/test/ctxloom
 `
-	require.NoError(t, afero.WriteFile(fs, paths.GetPersistentDir(testBaseDir)+"/remotes.yaml", []byte(remotesContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 

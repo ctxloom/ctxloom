@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/compression"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -263,7 +264,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Use first ctxloom path (project or home)
-	bundleDir := filepath.Join(cfg.AppPaths[0], "bundles")
+	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)
 	}
@@ -637,7 +638,8 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
 
-	result, err := remote.Publish(cmd.Context(), bundle.Path, remoteName, opts, registry, auth)
+	pm := remote.NewPublishManager(registry, auth)
+	result, err := pm.Publish(cmd.Context(), bundle.Path, remoteName, opts)
 	if err != nil {
 		return err
 	}
@@ -770,7 +772,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine destination path
-	bundleDir := filepath.Join(cfg.AppPaths[0], "bundles")
+	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
 	if err := os.MkdirAll(bundleDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bundles directory: %w", err)
 	}

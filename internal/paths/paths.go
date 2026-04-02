@@ -7,11 +7,9 @@ const (
 	// AppDirName is the name of the ctxloom directory.
 	AppDirName = ".ctxloom"
 
-	// PersistentDir is the subdirectory for persistent data (config, remotes, lock).
-	PersistentDir = "persistent"
-
-	// EphemeralDir is the subdirectory for ephemeral data (bundles, vendor, context).
-	EphemeralDir = "ephemeral"
+	// CacheDir is the subdirectory for cached/regeneratable data (bundles, vendor, context).
+	// These can be deleted and re-fetched from remotes.
+	CacheDir = "cache"
 
 	// ConfigFileName is the name of the config file (without extension).
 	ConfigFileName = "config"
@@ -41,59 +39,55 @@ const (
 	PluginsDir = "plugins"
 )
 
-// GetPersistentDir returns the persistent subdirectory path for the given app path.
-func GetPersistentDir(appPath string) string {
-	return filepath.Join(appPath, PersistentDir)
+// GetCacheDir returns the cache subdirectory path for the given app path.
+// Cache contains regeneratable content: bundles, vendor, context, memory.
+func GetCacheDir(appPath string) string {
+	return filepath.Join(appPath, CacheDir)
 }
 
-// GetEphemeralDir returns the ephemeral subdirectory path for the given app path.
-func GetEphemeralDir(appPath string) string {
-	return filepath.Join(appPath, EphemeralDir)
-}
-
-// ConfigPath returns the path to the config file.
+// ConfigPath returns the path to the config file (at appPath root).
 func ConfigPath(appPath string) string {
-	return filepath.Join(GetPersistentDir(appPath), ConfigFileName+".yaml")
+	return filepath.Join(appPath, ConfigFileName+".yaml")
 }
 
-// RemotesPath returns the path to the remotes file.
+// RemotesPath returns the path to the remotes file (at appPath root).
 func RemotesPath(appPath string) string {
-	return filepath.Join(GetPersistentDir(appPath), RemotesFileName+".yaml")
+	return filepath.Join(appPath, RemotesFileName+".yaml")
 }
 
-// LockPath returns the path to the lock file.
+// LockPath returns the path to the lock file (at appPath root).
 func LockPath(appPath string) string {
-	return filepath.Join(GetPersistentDir(appPath), LockFileName+".yaml")
+	return filepath.Join(appPath, LockFileName+".yaml")
 }
 
-// BundlesPath returns the path to the bundles directory.
-func BundlesPath(appPath string) string {
-	return filepath.Join(GetEphemeralDir(appPath), BundlesDir)
-}
-
-// VendorPath returns the path to the vendor directory.
-func VendorPath(appPath string) string {
-	return filepath.Join(GetEphemeralDir(appPath), VendorDir)
-}
-
-// ContextPath returns the path to the context directory.
-func ContextPath(appPath string) string {
-	return filepath.Join(GetEphemeralDir(appPath), ContextDir)
-}
-
-// ProfilesPath returns the path to the profiles directory.
+// ProfilesPath returns the path to the profiles directory (at appPath root).
 func ProfilesPath(appPath string) string {
-	return filepath.Join(GetPersistentDir(appPath), ProfilesDir)
+	return filepath.Join(appPath, ProfilesDir)
 }
 
-// MemoryPath returns the path to the memory directory.
+// BundlesPath returns the path to the bundles directory (under cache/).
+func BundlesPath(appPath string) string {
+	return filepath.Join(GetCacheDir(appPath), BundlesDir)
+}
+
+// VendorPath returns the path to the vendor directory (under cache/).
+func VendorPath(appPath string) string {
+	return filepath.Join(GetCacheDir(appPath), VendorDir)
+}
+
+// ContextPath returns the path to the context directory (under cache/).
+func ContextPath(appPath string) string {
+	return filepath.Join(GetCacheDir(appPath), ContextDir)
+}
+
+// MemoryPath returns the path to the memory directory (under cache/).
 func MemoryPath(appPath string) string {
-	return filepath.Join(GetEphemeralDir(appPath), MemoryDir)
+	return filepath.Join(GetCacheDir(appPath), MemoryDir)
 }
 
-// PluginsPath returns the path to the plugins directory.
+// PluginsPath returns the path to the plugins directory (under cache/).
 func PluginsPath(appPath string) string {
-	return filepath.Join(GetEphemeralDir(appPath), PluginsDir)
+	return filepath.Join(GetCacheDir(appPath), PluginsDir)
 }
 
 // DefaultAppDir returns the default app directory path relative to current directory.

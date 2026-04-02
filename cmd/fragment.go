@@ -135,7 +135,8 @@ Examples:
 		if len(args) > 0 {
 			query = args[0]
 		}
-		return runSearch(query, fragmentSearchTags, "fragment")
+		// Use unified search with local-only scope for fragments
+		return runUnifiedSearch(cmd.Context(), query, fragmentSearchTags, "fragment", true, false)
 	},
 }
 

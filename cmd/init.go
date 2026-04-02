@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/resources"
@@ -538,10 +539,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// Create the directory structure
 		dirs := []string{
 			appDir,
-			filepath.Join(appDir, "persistent"),
-			filepath.Join(appDir, "persistent", "profiles"),
-			filepath.Join(appDir, "ephemeral"),
-			filepath.Join(appDir, "ephemeral", "bundles"),
+			filepath.Join(appDir, paths.ProfilesDir),
+			paths.BundlesPath(appDir),
 		}
 
 		for _, dir := range dirs {
@@ -551,14 +550,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create config.yaml with selected engine and options
-		configPath := filepath.Join(appDir, "persistent", "config.yaml")
+		configPath := paths.ConfigPath(appDir)
 		configContent := generateConfig(selectedEngine)
 		if err := os.WriteFile(configPath, configContent, 0644); err != nil {
 			return fmt.Errorf("failed to create config.yaml: %w", err)
 		}
 
 		// Create remotes.yaml with default remote (ctxloom-default)
-		remotesPath := filepath.Join(appDir, "persistent", "remotes.yaml")
+		remotesPath := paths.RemotesPath(appDir)
 		remotesContent, err := resources.GetDefaultRemotes()
 		if err != nil {
 			return fmt.Errorf("failed to read default remotes: %w", err)

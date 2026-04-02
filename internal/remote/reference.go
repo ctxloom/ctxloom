@@ -16,7 +16,7 @@ import (
 //
 // Simple (requires remotes.yaml lookup):
 //   - "remote/path" → Remote="remote", Path="path"
-//   - "remote/path@ref" → with GitRef
+//   - "remote/path@ref" → with ContentVersion
 //   - "remote/nested/path@v1.0.0" → nested path with version
 //
 // HTTPS URL (canonical, self-contained):
@@ -52,10 +52,10 @@ func ParseReference(ref string) (*Reference, error) {
 
 // parseSimpleReference parses the simple "remote/path[@ref]" format.
 func parseSimpleReference(ref string) (*Reference, error) {
-	// Split off git ref if present
-	gitRef := ""
+	// Split off content version if present
+	contentVersion := ""
 	if idx := strings.LastIndex(ref, "@"); idx != -1 {
-		gitRef = ref[idx+1:]
+		contentVersion = ref[idx+1:]
 		ref = ref[:idx]
 	}
 
@@ -76,10 +76,10 @@ func parseSimpleReference(ref string) (*Reference, error) {
 	}
 
 	return &Reference{
-		Remote:      remote,
-		Path:        itemPath,
-		GitRef:      gitRef,
-		IsCanonical: false,
+		Remote:         remote,
+		Path:           itemPath,
+		ContentVersion: contentVersion,
+		IsCanonical:    false,
 	}, nil
 }
 
@@ -258,8 +258,8 @@ func (r *Reference) String() string {
 	if r.IsCanonical {
 		return r.CanonicalString()
 	}
-	if r.GitRef != "" {
-		return fmt.Sprintf("%s/%s@%s", r.Remote, r.Path, r.GitRef)
+	if r.ContentVersion != "" {
+		return fmt.Sprintf("%s/%s@%s", r.Remote, r.Path, r.ContentVersion)
 	}
 	return fmt.Sprintf("%s/%s", r.Remote, r.Path)
 }
@@ -290,10 +290,8 @@ func (r *Reference) BuildFilePath(itemType ItemType, version string) string {
 
 // LocalPath returns the local path where the item would be installed.
 // baseDir is the .ctxloom directory path.
-// Bundles go in ephemeral/bundles/, profiles go in persistent/profiles/.
+// Bundles go in cache/bundles/, profiles go in profiles/ (at root).
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
-	var subdir string
-	var dir string
 	var remoteName string
 
 	if r.IsCanonical {
@@ -305,20 +303,15 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 
 	switch itemType {
 	case ItemTypeBundle:
-		subdir = paths.EphemeralDir
-		dir = paths.BundlesDir
+		// Bundles: .ctxloom/cache/bundles/remote/path.yaml
+		return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, paths.CacheDir, paths.BundlesDir, remoteName, r.Path)
 	case ItemTypeProfile:
-		subdir = paths.PersistentDir
-		dir = paths.ProfilesDir
+		// Profiles: .ctxloom/profiles/remote/path.yaml (at root level, no cache layer)
+		return fmt.Sprintf("%s/%s/%s/%s.yaml", baseDir, paths.ProfilesDir, remoteName, r.Path)
 	default:
-		subdir = paths.EphemeralDir
-		dir = paths.BundlesDir
+		// Default to bundles
+		return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, paths.CacheDir, paths.BundlesDir, remoteName, r.Path)
 	}
-
-	// Store under remote name to avoid conflicts
-	// e.g., .ctxloom/ephemeral/bundles/github.com/owner/repo/go-tools.yaml
-	// e.g., .ctxloom/persistent/profiles/github.com/owner/repo/my-profile.yaml
-	return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, subdir, dir, remoteName, r.Path)
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.
@@ -400,12 +393,12 @@ func (r *Reference) ToCanonical(registry *Registry, itemType ItemType) (*Referen
 	}
 
 	return &Reference{
-		URL:         remote.URL,
-		Version:     remote.Version,
-		ItemType:    itemType,
-		Path:        r.Path,
-		GitRef:      r.GitRef,
-		IsCanonical: true,
+		URL:            remote.URL,
+		Version:        remote.Version,
+		ItemType:       itemType,
+		Path:           r.Path,
+		ContentVersion: r.ContentVersion,
+		IsCanonical:    true,
 	}, nil
 }
 
@@ -517,10 +510,7 @@ func (r *Reference) ToCanonicalWithVersion() string {
 }
 
 // EffectiveContentVersion returns the content version to use for fetching.
-// Prefers ContentVersion, falls back to GitRef for simple references.
+// Returns empty string if no version is specified (use HEAD/latest).
 func (r *Reference) EffectiveContentVersion() string {
-	if r.ContentVersion != "" {
-		return r.ContentVersion
-	}
-	return r.GitRef
+	return r.ContentVersion
 }

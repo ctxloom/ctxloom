@@ -256,7 +256,7 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 // They contain fragments from profiles, deduplicated and ordered.
 
 // TestWriteContextFile verifies that fragments are assembled into a context file.
-// The file is stored in .ctxloom/ephemeral/context/{hash}.md where hash is content-based.
+// The file is stored in .ctxloom/cache/context/{hash}.md where hash is content-based.
 func TestWriteContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -271,7 +271,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := paths.GetEphemeralDir(testBaseDir)+"/context/" + hash + ".md"
+	contextPath := paths.GetCacheDir(testBaseDir)+"/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")
@@ -551,7 +551,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 func TestApplyHooks_RegenerateContextWithTags(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "ephemeral", "bundles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with tagged fragments
@@ -600,7 +600,7 @@ fragments:
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "ephemeral", "bundles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with fragments
@@ -649,7 +649,7 @@ fragments:
 func TestApplyHooks_RegenerateContextUnresolvedProfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "ephemeral", "bundles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle with a fragment
@@ -706,7 +706,7 @@ fragments:
 func TestApplyHooks_RegenerateContextMissingFragment(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "ephemeral", "bundles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
 
 	// Create bundle but fragment doesn't exist

@@ -1003,17 +1003,17 @@ func TestMergeMCPConfig_NilInputs(t *testing.T) {
 				"test": {Command: "test-cmd"},
 			},
 		}
-		MergeMCPConfig(nil, src)
+		config.MergeMCPConfig(nil, src)
 	})
 
 	t.Run("nil src does nothing", func(t *testing.T) {
 		dest := &config.MCPConfig{}
-		MergeMCPConfig(dest, nil)
+		config.MergeMCPConfig(dest, nil)
 		assert.Nil(t, dest.Servers)
 	})
 
 	t.Run("both nil does nothing", func(t *testing.T) {
-		MergeMCPConfig(nil, nil)
+		config.MergeMCPConfig(nil, nil)
 	})
 }
 
@@ -1024,7 +1024,7 @@ func TestMergeMCPConfig_AutoRegisterCtxloom(t *testing.T) {
 		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
 		src := &config.MCPConfig{AutoRegisterCtxloom: &falseVal}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.False(t, *dest.AutoRegisterCtxloom)
 	})
@@ -1034,7 +1034,7 @@ func TestMergeMCPConfig_AutoRegisterCtxloom(t *testing.T) {
 		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
 		src := &config.MCPConfig{}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.True(t, *dest.AutoRegisterCtxloom)
 	})
@@ -1049,7 +1049,7 @@ func TestMergeMCPConfig_UnifiedServers(t *testing.T) {
 			},
 		}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.NotNil(t, dest.Servers)
 		assert.Equal(t, "test-cmd", dest.Servers["test-server"].Command)
@@ -1067,7 +1067,7 @@ func TestMergeMCPConfig_UnifiedServers(t *testing.T) {
 			},
 		}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.Equal(t, "new-cmd", dest.Servers["server"].Command)
 	})
@@ -1084,7 +1084,7 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 			},
 		}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.NotNil(t, dest.Plugins)
 		assert.Equal(t, "my-cmd", dest.Plugins["claude-code"]["my-server"].Command)
@@ -1109,7 +1109,7 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 			},
 		}
 
-		MergeMCPConfig(dest, src)
+		config.MergeMCPConfig(dest, src)
 
 		assert.Equal(t, "existing-cmd", dest.Plugins["claude-code"]["existing"].Command)
 		assert.Equal(t, "new-cmd", dest.Plugins["claude-code"]["new"].Command)

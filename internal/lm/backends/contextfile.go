@@ -17,8 +17,8 @@ import (
 const (
 	// SCMContextDir is the directory for ctxloom-managed files
 	SCMContextDir = ".ctxloom"
-	// SCMContextSubdir is the subdirectory for context files (ephemeral)
-	SCMContextSubdir = ".ctxloom/ephemeral/context"
+	// SCMContextSubdir is the subdirectory for context files (in cache)
+	SCMContextSubdir = ".ctxloom/cache/context"
 	// SCMContextFileEnv is the environment variable containing the context file path
 	SCMContextFileEnv = "CTXLOOM_CONTEXT_FILE"
 

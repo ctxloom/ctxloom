@@ -285,13 +285,6 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 	return result, nil
 }
 
-// Publish is a convenience function that creates a PublishManager and publishes.
-// Deprecated: Use NewPublishManager and the Publish method for better testability.
-func Publish(ctx context.Context, localPath string, remoteName string, opts PublishOptions, registry *Registry, auth AuthConfig) (*PublishResult, error) {
-	pm := NewPublishManager(registry, auth, WithPublishFS(opts.FS))
-	return pm.Publish(ctx, localPath, remoteName, opts)
-}
-
 // buildPublishPath constructs the remote file path for an item.
 func buildPublishPath(itemType ItemType, version, name string) string {
 	var dir string

@@ -23,11 +23,16 @@ type SearchResult struct {
 // SearchContentRequest contains parameters for searching content.
 type SearchContentRequest struct {
 	Query     string   `json:"query"`
-	Types     []string `json:"types"`      // fragment, prompt, profile, mcp_server
+	Types     []string `json:"types"`      // fragment, prompt, profile, mcp_server, bundle
 	Tags      []string `json:"tags"`       // Filter by tags (for fragments)
 	SortBy    string   `json:"sort_by"`    // name, type, relevance
 	SortOrder string   `json:"sort_order"` // asc, desc
 	Limit     int      `json:"limit"`
+
+	// Scope flags for unified search.
+	// When both are false, defaults to searching both local and remote.
+	SearchLocal  bool `json:"search_local"`  // Search local content (fragments, prompts, profiles, mcp_servers)
+	SearchRemote bool `json:"search_remote"` // Search remote content (bundles, profiles from remotes)
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
@@ -42,8 +47,8 @@ type SearchContentResult struct {
 
 // SearchContent searches across all content types.
 func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentRequest) (*SearchContentResult, error) {
-	if req.Query == "" {
-		return nil, fmt.Errorf("query is required")
+	if req.Query == "" && len(req.Tags) == 0 {
+		return nil, fmt.Errorf("query or tags required")
 	}
 	if req.Limit <= 0 {
 		req.Limit = 50

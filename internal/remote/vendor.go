@@ -52,7 +52,7 @@ func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 }
 
 // VendorDir returns the vendor directory path.
-// Vendor directory is in .ctxloom/ephemeral/vendor.
+// Vendor directory is in .ctxloom/cache/vendor.
 func (m *VendorManager) VendorDir() string {
 	return paths.VendorPath(m.baseDir)
 }
@@ -79,8 +79,8 @@ func (m *VendorManager) IsVendored() bool {
 func (m *VendorManager) SetVendorMode(enabled bool) error {
 	configPath := paths.DefaultRemotesPath()
 
-	// Ensure directory exists
-	if err := m.fs.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755); err != nil {
+	// Ensure base directory exists (remotes.yaml is at root level)
+	if err := m.fs.MkdirAll(paths.AppDirName, 0755); err != nil {
 		return err
 	}
 

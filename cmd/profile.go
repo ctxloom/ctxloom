@@ -533,7 +533,8 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Publishing profile %q to %s...\n", profileName, remoteName)
 
-	result, err := remote.Publish(cmd.Context(), profile.Path, remoteName, opts, registry, auth)
+	pm := remote.NewPublishManager(registry, auth)
+	result, err := pm.Publish(cmd.Context(), profile.Path, remoteName, opts)
 	if err != nil {
 		return err
 	}

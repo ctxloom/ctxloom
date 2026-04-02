@@ -742,7 +742,7 @@ func TestSetMCPAutoRegister_WithFS(t *testing.T) {
 	appDir := testBaseDir
 
 	// Create config directory and file
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 `
@@ -778,7 +778,7 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	appDir := testBaseDir
 
 	// Create config directory and file
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 `
@@ -818,7 +818,7 @@ func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 
 	// Create config directory with invalid YAML
 	// With resilient startup, this will load an empty config with warnings, not fail
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{invalid yaml"), 0644))
 
 	result, err := AddMCPServer(context.Background(), nil, AddMCPServerRequest{
@@ -841,7 +841,7 @@ func TestRemoveMCPServer_WithFS(t *testing.T) {
 	appDir := testBaseDir
 
 	// Create config with an existing server
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	configContent := `llm:
   plugins: {}
 mcp:
@@ -875,7 +875,7 @@ func TestRemoveMCPServer_WithFS_InvalidYAML(t *testing.T) {
 
 	// Create config directory with invalid YAML
 	// With resilient startup, this will load an empty config with warnings
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(appDir), 0755))
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{invalid yaml"), 0644))
 
 	_, err := RemoveMCPServer(context.Background(), nil, RemoveMCPServerRequest{

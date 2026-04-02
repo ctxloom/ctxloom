@@ -232,7 +232,7 @@ func TestLockfile_Count(t *testing.T) {
 func TestLockfileManager_Path(t *testing.T) {
 	manager := NewLockfileManager("/home/user/.ctxloom")
 	path := manager.Path()
-	expected := filepath.Join("/home/user/.ctxloom", "persistent", "lock.yaml")
+	expected := filepath.Join("/home/user/.ctxloom", "lock.yaml")
 
 	if path != expected {
 		t.Errorf("Path() = %q, want %q", path, expected)
@@ -242,7 +242,7 @@ func TestLockfileManager_Path(t *testing.T) {
 func TestLockfileManager_DefaultDir(t *testing.T) {
 	manager := NewLockfileManager("")
 	path := manager.Path()
-	expected := filepath.Join(".ctxloom", "persistent", "lock.yaml")
+	expected := filepath.Join(".ctxloom", "lock.yaml")
 
 	if path != expected {
 		t.Errorf("Path() = %q, want %q", path, expected)
@@ -478,8 +478,8 @@ func TestLockfile_GetEntry_Profile(t *testing.T) {
 
 func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll("/test/"+paths.PersistentDir, 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.PersistentDir+"/"+paths.LockFileName+".yaml", []byte("invalid: ["), 0644)
+	_ = fs.MkdirAll("/test", 0755)
+	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte("invalid: ["), 0644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	_, err := manager.Load()
@@ -492,8 +492,8 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// Write a lockfile without bundles/profiles maps
 	content := "version: 1\n"
-	_ = fs.MkdirAll("/test/"+paths.PersistentDir, 0755)
-	_ = afero.WriteFile(fs, "/test/"+paths.PersistentDir+"/"+paths.LockFileName+".yaml", []byte(content), 0644)
+	_ = fs.MkdirAll("/test", 0755)
+	_ = afero.WriteFile(fs, "/test/"+paths.LockFileName+".yaml", []byte(content), 0644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	lockfile, err := manager.Load()
@@ -514,8 +514,8 @@ func TestLockfileManager_Load_ReadError(t *testing.T) {
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists
 	baseFs := afero.NewMemMapFs()
-	_ = baseFs.MkdirAll("/test/"+paths.PersistentDir, 0755)
-	_ = afero.WriteFile(baseFs, "/test/"+paths.PersistentDir+"/"+paths.LockFileName+".yaml", []byte("version: 1\n"), 0000)
+	_ = baseFs.MkdirAll("/test", 0755)
+	_ = afero.WriteFile(baseFs, "/test/"+paths.LockFileName+".yaml", []byte("version: 1\n"), 0000)
 	fs := afero.NewReadOnlyFs(baseFs)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))

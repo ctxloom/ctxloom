@@ -34,7 +34,7 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	ref := &Reference{
 		Remote: "alice",
 		Path:   "security",
-		GitRef: "v1.0.0",
+		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
 		Name:    "alice",
@@ -90,7 +90,7 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	ref := &Reference{
 		Remote: "alice",
 		Path:   "secure",
-		GitRef: "v1.0.0",
+		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
 		Name:    "alice",
@@ -302,7 +302,7 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "/test/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/security.yaml", result.LocalPath)
+	assert.Equal(t, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 
 	// Verify file was written
@@ -432,8 +432,8 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create vendor config
-	require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.VendorDir+"/bundles/alice", 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.VendorDir+"/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
+	require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/alice", 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(paths.AppDirName), []byte("vendor: true\n"), 0644))
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
@@ -579,8 +579,8 @@ func TestCascadePullProfile(t *testing.T) {
 		fs := afero.NewMemMapFs()
 
 		// Create the cached bundle file
-		require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice", 0755))
-		require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/security.yaml", []byte("cached"), 0644))
+		require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice", 0755))
+		require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", []byte("cached"), 0644))
 
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
 
@@ -816,7 +816,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		ref := &Reference{
 			Remote: "alice",
 			Path:   "security",
-			GitRef: "v1.0.0",
+			ContentVersion: "v1.0.0",
 		}
 
 		content := []byte("test content\n")
@@ -825,11 +825,11 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		exists, err := afero.Exists(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		savedContent, err := afero.ReadFile(fs, paths.AppDirName+"/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		savedContent, err := afero.ReadFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
 		require.NoError(t, err)
 		assert.Equal(t, content, savedContent)
 	})
@@ -845,7 +845,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		ref := &Reference{
 			Remote: "alice",
 			Path:   "security",
-			GitRef: "v1.0.0",
+			ContentVersion: "v1.0.0",
 		}
 
 		content := []byte("custom content\n")
@@ -854,7 +854,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/custom/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		exists, err := afero.Exists(fs, "/custom/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
@@ -870,7 +870,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		ref := &Reference{
 			Remote: "alice",
 			Path:   "deep/nested/security",
-			GitRef: "v1.0.0",
+			ContentVersion: "v1.0.0",
 		}
 
 		content := []byte("nested content\n")
@@ -879,7 +879,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/test/"+paths.EphemeralDir+"/"+paths.BundlesDir+"/alice/deep/nested/security.yaml")
+		exists, err := afero.Exists(fs, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/deep/nested/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})

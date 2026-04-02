@@ -947,11 +947,4 @@ func mergeHooksConfig(dest *config.HooksConfig, src *config.HooksConfig) {
 	}
 }
 
-// MergeMCPConfig merges source MCP config into dest.
-// Later sources override earlier ones for the same server name.
-// MergeMCPConfig merges src MCP config into dest.
-// Deprecated: Use config.MergeMCPConfig directly.
-func MergeMCPConfig(dest *config.MCPConfig, src *config.MCPConfig) {
-	config.MergeMCPConfig(dest, src)
-}
 

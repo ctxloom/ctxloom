@@ -251,7 +251,7 @@ func (e *TestEnvironment) gitEnv() []string {
 // CreateProjectConfig creates the .ctxloom directory structure in the project.
 func (e *TestEnvironment) CreateProjectConfig() error {
 	dirs := []string{
-		filepath.Join(e.ProjectDir, ".ctxloom", "bundles"),
+		filepath.Join(e.ProjectDir, ".ctxloom", "cache", "bundles"),
 		filepath.Join(e.ProjectDir, ".ctxloom", "profiles"),
 	}
 	for _, dir := range dirs {

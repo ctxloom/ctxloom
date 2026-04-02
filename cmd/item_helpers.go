@@ -438,7 +438,8 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool
 
 	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
 
-	result, err := remote.Publish(cmd.Context(), bundle.Path, remoteName, opts, registry, auth)
+	pm := remote.NewPublishManager(registry, auth)
+	result, err := pm.Publish(cmd.Context(), bundle.Path, remoteName, opts)
 	if err != nil {
 		return err
 	}

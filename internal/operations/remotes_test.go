@@ -198,7 +198,7 @@ func TestBrowseItemEntry_Fields(t *testing.T) {
 func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	_ = fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755)
+	_ = fs.MkdirAll(testBaseDir, 0755)
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestListRemotes_WithRemotes(t *testing.T) {
 
 func TestListRemotes_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with existing remotes
 	remotesContent := `remotes:
@@ -262,7 +262,7 @@ func TestListRemotes_WithFS(t *testing.T) {
 
 func TestAddRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
@@ -285,7 +285,7 @@ func TestAddRemote_WithFS(t *testing.T) {
 
 func TestRemoveRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create remotes.yaml with existing remote
 	remotesContent := `remotes:

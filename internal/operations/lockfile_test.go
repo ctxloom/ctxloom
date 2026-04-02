@@ -350,7 +350,7 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 	// Create directory structure
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
 	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
 	cfg := &config.Config{
@@ -431,7 +431,7 @@ func TestInstallDependencies_EmptyLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create empty lockfile
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles: {}
 profiles: {}
@@ -455,7 +455,7 @@ func TestInstallDependencies_Success(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -501,7 +501,7 @@ func TestInstallDependencies_PartialFailure(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with multiple entries
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/bundle1:
@@ -557,7 +557,7 @@ profiles: {}
 func TestInstallDependencies_WithForce(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -603,7 +603,7 @@ profiles: {}
 
 func TestInstallDependencies_InvalidLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	// Write invalid YAML to cause parse error
 	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte("invalid: yaml: content: :::"), 0644))
 
@@ -620,7 +620,7 @@ func TestInstallDependencies_InvalidLockfile(t *testing.T) {
 
 func TestInstallDependencies_RegistryError(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create valid lockfile with entries
 	lockContent := `version: 1
@@ -659,7 +659,7 @@ func TestCheckOutdated_EmptyLockfile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create empty lockfile
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles: {}
 profiles: {}
@@ -683,7 +683,7 @@ func TestCheckOutdated_UpToDate(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -727,7 +727,7 @@ func TestCheckOutdated_OutdatedItems(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have old SHAs
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -782,7 +782,7 @@ func TestCheckOutdated_AllUpToDate(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have matching SHAs
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -834,7 +834,7 @@ func TestCheckOutdated_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have an invalid reference format
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   invalid-ref-no-slash:
@@ -866,7 +866,7 @@ func TestCheckOutdated_FetcherError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -910,7 +910,7 @@ func TestCheckOutdated_ShortSHA(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create lockfile with entries that have short SHAs (less than 7 chars)
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 	lockContent := `version: 1
 bundles:
   test/my-bundle:
@@ -960,7 +960,7 @@ profiles: {}
 
 func TestCheckOutdated_RegistryError(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(testBaseDir), 0755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
 	// Create valid lockfile with entries
 	lockContent := `version: 1

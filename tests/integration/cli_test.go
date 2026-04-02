@@ -41,7 +41,7 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 	t.Helper()
 
 	// Read existing bundle if present
-	bundlePath := ".ctxloom/ephemeral/bundles/local.yaml"
+	bundlePath := ".ctxloom/cache/bundles/local.yaml"
 	existing, _ := env.ReadFile(bundlePath)
 
 	// Build new bundle content
@@ -73,7 +73,7 @@ func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags
 
 func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content string) {
 	t.Helper()
-	path := fmt.Sprintf(".ctxloom/persistent/profiles/%s.yaml", name)
+	path := fmt.Sprintf(".ctxloom/profiles/%s.yaml", name)
 	require.NoError(t, env.WriteFile(path, content), "failed to write profile")
 }
 
@@ -254,7 +254,7 @@ fragments:
     content: |
       Go coding guidelines from subdirectory.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/lang.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/lang.yaml", bundleContent))
 
 	_ = env.Run("run", "-f", "lang#fragments/golang", "--print", "test")
 
@@ -491,7 +491,7 @@ fragments:
     content: |
       Test content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/test-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/test-bundle.yaml", bundleContent))
 
 	_ = env.Run("bundle", "list")
 
@@ -515,7 +515,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/show-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/show-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "show", "show-test")
 
@@ -541,7 +541,7 @@ func TestBundle_Create(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify bundle file was created
-	content, err := env.ReadFile(".ctxloom/ephemeral/bundles/my-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/cache/bundles/my-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "version:")
 	assert.Contains(t, content, "fragments:")
@@ -554,7 +554,7 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	content, err := env.ReadFile(".ctxloom/ephemeral/bundles/desc-bundle.yaml")
+	content, err := env.ReadFile(".ctxloom/cache/bundles/desc-bundle.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, content, "description: A test bundle")
 }
@@ -575,7 +575,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "fragment", "list", "test")
 
@@ -597,7 +597,7 @@ prompts:
     content: |
       Prompt content 2
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/prompt-bundle.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompt-bundle.yaml", bundleContent))
 
 	_ = env.Run("bundle", "prompt", "list", "prompt-bundle")
 
@@ -616,7 +616,7 @@ fragments:
     content: |
       This is the content to display
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/view-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/view-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "view", "view-test#fragments/display-frag")
 
@@ -635,7 +635,7 @@ fragments:
     content: |
       Export content
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/export-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/export-test.yaml", bundleContent))
 
 	_ = env.Run("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
@@ -778,7 +778,7 @@ prompts:
     content: |
       Summarize the following:
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompts.yaml", bundleContent))
 
 	_ = env.Run("prompt", "list")
 
@@ -797,7 +797,7 @@ prompts:
     content: |
       This is a test prompt with detailed instructions.
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/prompt-test.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompt-test.yaml", bundleContent))
 
 	_ = env.Run("prompt", "show", "prompt-test#prompts/test-prompt")
 
@@ -835,7 +835,7 @@ prompts:
     content: |
       Generate documentation for this code
 `
-	require.NoError(t, env.WriteFile(".ctxloom/ephemeral/bundles/search-prompts.yaml", bundleContent))
+	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/search-prompts.yaml", bundleContent))
 
 	_ = env.Run("search", "code")
 
@@ -875,7 +875,7 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 
 	// Verify directory structure was created
 	assert.True(t, env.FileExists(".ctxloom"), "Expected .ctxloom directory to exist")
-	assert.True(t, env.FileExists(".ctxloom/persistent/config.yaml"), "Expected .ctxloom/persistent/config.yaml to exist")
+	assert.True(t, env.FileExists(".ctxloom/config.yaml"), "Expected .ctxloom/config.yaml to exist")
 }
 
 // =============================================================================

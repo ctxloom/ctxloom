@@ -287,20 +287,20 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		}
 	}
 
-	// Resolve ref to SHA - use ContentVersion for canonical URLs, GitRef for simple refs
-	gitRef := ref.EffectiveContentVersion()
-	requestedVersion := gitRef // Store what user requested for export reconstruction
-	if gitRef == "" {
-		gitRef, err = fetcher.GetDefaultBranch(ctx, owner, repo)
+	// Resolve ref to SHA - use ContentVersion if specified, otherwise use default branch
+	contentVersion := ref.EffectiveContentVersion()
+	requestedVersion := contentVersion // Store what user requested for export reconstruction
+	if contentVersion == "" {
+		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get default branch: %w", err)
 		}
 		requestedVersion = "" // User didn't specify a version
 	}
 
-	sha, err := fetcher.ResolveRef(ctx, owner, repo, gitRef)
+	sha, err := fetcher.ResolveRef(ctx, owner, repo, contentVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve ref '%s': %w", gitRef, err)
+		return nil, fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
 	}
 
 	// Build file path and fetch content

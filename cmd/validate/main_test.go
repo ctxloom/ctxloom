@@ -41,8 +41,8 @@ func TestRun_ValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// Create .ctxloom directory with persistent subdir and valid config
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	// Create .ctxloom directory with valid config
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	validConfig := `
 defaults:
   profiles:
@@ -65,7 +65,7 @@ func TestRun_InvalidYAMLSyntax(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	invalidYAML := `
 default_profile: [invalid
 `
@@ -86,7 +86,7 @@ func TestRun_SchemaViolation(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	// Use an invalid type for default_profiles (should be array, not string)
 	invalidSchema := `
 default_profiles: "not-an-array"
@@ -107,7 +107,7 @@ func TestRun_EmptyObjectConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	// Schema requires an object, so {} is minimal valid config
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte("{}"), 0644))
 
@@ -124,7 +124,7 @@ func TestRun_NullConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(""), 0644))
 
 	err = run()
@@ -142,7 +142,7 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	require.NoError(t, os.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	require.NoError(t, os.MkdirAll(paths.BundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `

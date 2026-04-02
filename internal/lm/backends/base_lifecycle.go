@@ -92,7 +92,7 @@ func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, con
 
 	// Merge top-level hooks and MCP
 	mergeHooksConfig(l.hooks, &cfg.Hooks)
-	MergeMCPConfig(l.mcp, &cfg.MCP)
+	config.MergeMCPConfig(l.mcp, &cfg.MCP)
 
 	// Merge from default profiles
 	for _, profileName := range cfg.GetDefaultProfiles() {
@@ -101,7 +101,7 @@ func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, con
 			continue
 		}
 		mergeHooksConfig(l.hooks, &resolved.Hooks)
-		MergeMCPConfig(l.mcp, &resolved.MCP)
+		config.MergeMCPConfig(l.mcp, &resolved.MCP)
 	}
 }
 

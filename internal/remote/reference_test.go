@@ -17,7 +17,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "security",
-				GitRef: "",
+				ContentVersion: "",
 			},
 		},
 		{
@@ -26,7 +26,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "security",
-				GitRef: "v1.0.0",
+				ContentVersion: "v1.0.0",
 			},
 		},
 		{
@@ -35,7 +35,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "security",
-				GitRef: "abc1234",
+				ContentVersion: "abc1234",
 			},
 		},
 		{
@@ -44,7 +44,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "golang/best-practices",
-				GitRef: "",
+				ContentVersion: "",
 			},
 		},
 		{
@@ -53,7 +53,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "golang/best-practices",
-				GitRef: "v2.0.0",
+				ContentVersion: "v2.0.0",
 			},
 		},
 		{
@@ -62,7 +62,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "corp",
 				Path:   "lang/go/testing/mocks",
-				GitRef: "main",
+				ContentVersion: "main",
 			},
 		},
 		{
@@ -91,7 +91,7 @@ func TestParseReference_Simple(t *testing.T) {
 			want: &Reference{
 				Remote: "alice",
 				Path:   "email@domain",
-				GitRef: "v1.0.0",
+				ContentVersion: "v1.0.0",
 			},
 		},
 	}
@@ -115,8 +115,8 @@ func TestParseReference_Simple(t *testing.T) {
 			if got.Path != tt.want.Path {
 				t.Errorf("Path = %q, want %q", got.Path, tt.want.Path)
 			}
-			if got.GitRef != tt.want.GitRef {
-				t.Errorf("GitRef = %q, want %q", got.GitRef, tt.want.GitRef)
+			if got.ContentVersion != tt.want.ContentVersion {
+				t.Errorf("ContentVersion = %q, want %q", got.ContentVersion, tt.want.ContentVersion)
 			}
 			if got.IsCanonical {
 				t.Errorf("IsCanonical = true, want false for simple reference")
@@ -376,17 +376,17 @@ func TestReference_String(t *testing.T) {
 	}{
 		{
 			name: "simple without git ref",
-			ref:  Reference{Remote: "alice", Path: "security", GitRef: ""},
+			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: ""},
 			want: "alice/security",
 		},
 		{
 			name: "simple with git ref",
-			ref:  Reference{Remote: "alice", Path: "security", GitRef: "v1.0.0"},
+			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: "v1.0.0"},
 			want: "alice/security@v1.0.0",
 		},
 		{
 			name: "nested path with ref",
-			ref:  Reference{Remote: "corp", Path: "go/testing", GitRef: "main"},
+			ref:  Reference{Remote: "corp", Path: "go/testing", ContentVersion: "main"},
 			want: "corp/go/testing@main",
 		},
 		{
@@ -488,21 +488,21 @@ func TestReference_LocalPath(t *testing.T) {
 			ref:      Reference{Remote: "alice", Path: "go-tools"},
 			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/ephemeral/bundles/alice/go-tools.yaml",
+			want:     "/home/user/.ctxloom/cache/bundles/alice/go-tools.yaml",
 		},
 		{
 			name:     "simple profile",
 			ref:      Reference{Remote: "corp", Path: "security"},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile,
-			want:     ".ctxloom/persistent/profiles/corp/security.yaml",
+			want:     ".ctxloom/profiles/corp/security.yaml",
 		},
 		{
 			name:     "nested path",
 			ref:      Reference{Remote: "alice", Path: "lang/go/testing"},
 			baseDir:  "/home/user/.ctxloom",
 			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/ephemeral/bundles/alice/lang/go/testing.yaml",
+			want:     "/home/user/.ctxloom/cache/bundles/alice/lang/go/testing.yaml",
 		},
 		{
 			name: "canonical HTTPS bundle",
@@ -515,7 +515,7 @@ func TestReference_LocalPath(t *testing.T) {
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile, // Should be ignored for canonical
-			want:     ".ctxloom/ephemeral/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
+			want:     ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
 		},
 		{
 			name: "canonical SSH profile",
@@ -528,7 +528,7 @@ func TestReference_LocalPath(t *testing.T) {
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeBundle, // Should be ignored for canonical
-			want:     ".ctxloom/persistent/profiles/github.com/owner/repo/security.yaml",
+			want:     ".ctxloom/profiles/github.com/owner/repo/security.yaml",
 		},
 	}
 
@@ -761,7 +761,7 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 	}{
 		{
 			name: "simple reference without URL",
-			ref:  Reference{Remote: "alice", Path: "security", GitRef: "v1.0.0"},
+			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: "v1.0.0"},
 			want: "alice/security@v1.0.0",
 		},
 		{
@@ -828,26 +828,16 @@ func TestReference_EffectiveContentVersion(t *testing.T) {
 		want string
 	}{
 		{
-			name: "prefers ContentVersion",
+			name: "returns ContentVersion",
 			ref: Reference{
 				ContentVersion: "v1.2.3",
-				GitRef:         "main",
 			},
 			want: "v1.2.3",
 		},
 		{
-			name: "falls back to GitRef",
+			name: "empty returns empty",
 			ref: Reference{
 				ContentVersion: "",
-				GitRef:         "main",
-			},
-			want: "main",
-		},
-		{
-			name: "both empty",
-			ref: Reference{
-				ContentVersion: "",
-				GitRef:         "",
 			},
 			want: "",
 		},
@@ -985,7 +975,7 @@ func TestReference_ToCanonical(t *testing.T) {
 			ref: &Reference{
 				Remote:      "alice",
 				Path:        "security",
-				GitRef:      "v1.0.0",
+				ContentVersion:      "v1.0.0",
 				IsCanonical: false,
 			},
 			itemType: ItemTypeBundle,

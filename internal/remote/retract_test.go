@@ -16,7 +16,7 @@ func TestCheckRetracted(t *testing.T) {
 		mf.defaultBranch = "main"
 		// No manifest file set
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestCheckRetracted(t *testing.T) {
 		mf.defaultBranch = "main"
 		mf.files["ctxloom/v1/manifest.yaml"] = []byte("version: 1\n")
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -49,7 +49,7 @@ retracted:
     reason: "Security vulnerability found"
 `)
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -68,7 +68,7 @@ retracted:
     reason: "Deprecated, use new-bundle instead"
 `)
 
-		ref := &Reference{Path: "deprecated-bundle", GitRef: ""}
+		ref := &Reference{Path: "deprecated-bundle", ContentVersion: ""}
 		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -88,7 +88,7 @@ retracted:
     reason: "Retracted"
 `)
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -107,7 +107,7 @@ retracted:
     reason: "Retracted"
 `)
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
@@ -119,7 +119,7 @@ retracted:
 		mf.defaultBranch = "main"
 		mf.files["ctxloom/v1/manifest.yaml"] = []byte("invalid: yaml: [[")
 
-		ref := &Reference{Path: "security", GitRef: "v1.0.0"}
+		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
 		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
 
 		require.NoError(t, err)

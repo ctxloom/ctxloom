@@ -1,8 +1,0 @@
-version: 1
-locked_at: 2026-03-31T23:03:36.70147881Z
-bundles:
-    alice/security:
-        sha: abc123
-        url: https://github.com/alice/ctxloom
-        ctxloom_version: v1
-        fetched_at: 2026-03-31T23:03:36.701478594Z

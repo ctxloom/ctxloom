@@ -48,9 +48,9 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 }
 
 // Path returns the path to the lockfile.
-// Lockfile is stored in .ctxloom/persistent/lock.yaml.
+// Lockfile is stored at .ctxloom/lock.yaml (root level).
 func (m *LockfileManager) Path() string {
-	return filepath.Join(m.baseDir, paths.PersistentDir, lockfileName)
+	return filepath.Join(m.baseDir, lockfileName)
 }
 
 // Load reads the lockfile from disk.

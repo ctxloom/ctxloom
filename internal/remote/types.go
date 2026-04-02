@@ -232,7 +232,7 @@ const (
 //
 // Simple (requires remotes.yaml):
 //   - alice/security → Remote="alice", Path="security"
-//   - alice/security@v1.0.0 → with GitRef (content version)
+//   - alice/security@v1.0.0 → with ContentVersion
 //
 // HTTPS URL (canonical, self-contained):
 //   - https://github.com/owner/repo@v1/bundles/name (latest)
@@ -255,17 +255,15 @@ type Reference struct {
 	// Path is the item name/path (e.g., "core-practices" or "golang/best-practices")
 	Path string
 
-	// GitRef is the git reference (tag, branch, SHA) for simple format; empty means default branch
-	// Deprecated: Use ContentVersion for canonical URLs
-	GitRef string
-
 	// URL is the full repository URL (for URL-based refs); empty for simple format
 	URL string
 
 	// Version is the ctxloom schema version directory (e.g., "v1"); extracted from URL or remote config
 	Version string
 
-	// ContentVersion is the git tag or SHA for content versioning (from second @ in URL)
+	// ContentVersion is the git tag or SHA for content versioning
+	// For simple refs: from @version suffix (e.g., remote/path@v1.0.0)
+	// For canonical URLs: from second @ (e.g., repo@v1/bundles/name@v1.0.0)
 	// Empty means use HEAD/latest
 	ContentVersion string
 

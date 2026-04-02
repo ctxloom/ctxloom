@@ -166,7 +166,7 @@ func TestVendorManager_IsVendored(t *testing.T) {
 	})
 
 	t.Run("returns false when vendor not set", func(t *testing.T) {
-		require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
 		require.NoError(t, afero.WriteFile(fs, paths.DefaultRemotesPath(), []byte("remotes: {}\n"), 0644))
 
 		assert.False(t, manager.IsVendored())
@@ -200,7 +200,7 @@ func TestVendorManager_SetVendorMode(t *testing.T) {
 
 	t.Run("disables vendor mode", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
 		require.NoError(t, afero.WriteFile(fs, paths.DefaultRemotesPath(), []byte("vendor: true\nremotes: {}\n"), 0644))
 
 		manager := NewVendorManager(paths.AppDirName, WithVendorFS(fs))
@@ -215,7 +215,7 @@ func TestVendorManager_SetVendorMode(t *testing.T) {
 
 	t.Run("preserves existing config", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.GetPersistentDir(paths.AppDirName), 0755))
+		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
 		require.NoError(t, afero.WriteFile(fs, paths.DefaultRemotesPath(), []byte("remotes:\n  alice:\n    url: https://github.com/alice/ctxloom\n"), 0644))
 
 		manager := NewVendorManager(paths.AppDirName, WithVendorFS(fs))
@@ -267,8 +267,8 @@ func TestVendorManager_VendorAll(t *testing.T) {
 		err = manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
 		require.NoError(t, err)
 
-		// Verify vendored file exists - vendor is in ephemeral dir
-		vendorPath := filepath.Join("/test", paths.EphemeralDir, paths.VendorDir, "bundles", "alice", "security.yaml")
+		// Verify vendored file exists - vendor is in cache dir
+		vendorPath := filepath.Join("/test", paths.CacheDir, paths.VendorDir, "bundles", "alice", "security.yaml")
 		exists, err := afero.Exists(fs, vendorPath)
 		require.NoError(t, err)
 		assert.True(t, exists)

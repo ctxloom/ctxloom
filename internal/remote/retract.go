@@ -30,7 +30,7 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo, version s
 	for _, r := range manifest.Retracted {
 		if r.Type == itemType && r.Name == ref.Path {
 			// Check if the version matches
-			if r.Version == ref.GitRef || ref.GitRef == "" {
+			if r.Version == ref.ContentVersion || ref.ContentVersion == "" {
 				return true, r.Reason, nil
 			}
 		}

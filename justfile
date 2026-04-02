@@ -5,6 +5,32 @@ default: build
 # Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
 version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
 
+# ===== Version management (versionator) =====
+
+# Show current version
+show-version:
+    @versionator output version
+
+# Bump patch version (0.0.X)
+bump-patch:
+    versionator bump patch inc
+
+# Bump minor version (0.X.0)
+bump-minor:
+    versionator bump minor inc
+
+# Bump major version (X.0.0)
+bump-major:
+    versionator bump major inc
+
+# Auto-bump based on conventional commits (feat: -> minor, fix: -> patch)
+bump:
+    versionator bump
+
+# Create release (git tag + push)
+release:
+    versionator release push
+
 # Build the main binary with all features (delegates to devcontainer)
 build: dev-image
     just _run build

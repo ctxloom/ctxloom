@@ -50,3 +50,5 @@ internal/memory/vectordb/onnxlib/libonnxruntime.dylib
 coverage.html
 coverage.raw.out
 .cache/
+.cache/
+.claude/settings.local.json

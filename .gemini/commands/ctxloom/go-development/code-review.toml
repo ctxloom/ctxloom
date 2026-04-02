@@ -1,0 +1,1 @@
+prompt = "Review Go code for:\n- Idiomatic patterns\n- Error handling\n- Concurrency safety\n- Interface usage\n- Test coverage\n\nCode:\n{{code}}"

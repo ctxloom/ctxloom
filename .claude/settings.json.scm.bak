@@ -1,1 +1,15 @@
-{}
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/babbitt/go/bin/ctxloom\" hook inject-context --project \"/home/babbitt/workspace/ctxloom\" a37bcb0284724d75",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

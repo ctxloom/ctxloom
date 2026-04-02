@@ -7,13 +7,6 @@
       ],
       "cwd": "${CLAUDE_PROJECT_DIR}",
       "_ctxloom": "ctxloom-auto"
-    },
-    "scm": {
-      "command": "/home/babbitt/go/bin/scm",
-      "args": [
-        "mcp"
-      ],
-      "cwd": "${CLAUDE_PROJECT_DIR}"
     }
   }
 }

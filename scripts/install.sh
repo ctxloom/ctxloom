@@ -205,9 +205,20 @@ download_and_install() {
     ${use_sudo} mv "${temp_dir}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
     ${use_sudo} chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-    # macOS quarantine removal (because Apple loves to "protect" us from ourselves)
-    if [[ "${os}" == "darwin" ]] && command_exists xattr; then
-        ${use_sudo} xattr -d com.apple.quarantine "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+    # macOS Gatekeeper handling (because Apple loves to "protect" us from ourselves)
+    # On macOS Sequoia+, unsigned binaries downloaded from the internet get both
+    # com.apple.quarantine and com.apple.provenance xattrs. The quarantine flag
+    # triggers the "are you sure?" dialog, while provenance can cause the kernel
+    # to outright kill the process ("zsh: killed") before it even starts.
+    # Removing quarantine + re-signing ad-hoc clears both issues.
+    if [[ "${os}" == "darwin" ]]; then
+        if command_exists xattr; then
+            ${use_sudo} xattr -d com.apple.quarantine "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+            ${use_sudo} xattr -d com.apple.provenance "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+        fi
+        if command_exists codesign; then
+            ${use_sudo} codesign --force --sign - "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
+        fi
     fi
 
     log_success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"

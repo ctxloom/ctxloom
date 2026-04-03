@@ -1,8 +1,8 @@
-# ctxloom - Sophisticated Context Manager
+# ctxloom - Your context, always in the right thread.
 
 A CLI tool for managing context fragments and prompts for AI coding assistants.
 
-**Documentation:** [ctxloom.abbitt.me](https://ctxloom.abbitt.me)
+**Documentation:** [ctxloom.dev](https://ctxloom.dev)
 
 ## The Problem
 
@@ -40,7 +40,7 @@ ctxloom run -f core#fragments/tdd "Review this PR"
 ctxloom run -n                # Preview what context would be sent
 ```
 
-See the [Quick Start Guide](https://ctxloom.abbitt.me/getting-started/quickstart) for more.
+See the [Quick Start Guide](https://ctxloom.dev/getting-started/quickstart) for more.
 
 ## Key Concepts
 
@@ -52,7 +52,7 @@ See the [Quick Start Guide](https://ctxloom.abbitt.me/getting-started/quickstart
 | **Profile** | A named configuration that references bundles, tags, and variables |
 | **Remote** | A Git repository for sharing bundles and profiles |
 
-Learn more: [Concepts](https://ctxloom.abbitt.me/concepts/bundles)
+Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 
 ## Commands
 
@@ -72,12 +72,12 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 
 ## Documentation
 
-- [Installation](https://ctxloom.abbitt.me/getting-started/installation)
-- [Quick Start](https://ctxloom.abbitt.me/getting-started/quickstart)
-- [Configuration Guide](https://ctxloom.abbitt.me/guides/configuration)
-- [MCP Server Setup](https://ctxloom.abbitt.me/guides/mcp-server)
-- [CLI Reference](https://ctxloom.abbitt.me/reference/cli)
-- [Contributing](https://ctxloom.abbitt.me/contributing)
+- [Installation](https://ctxloom.dev/getting-started/installation)
+- [Quick Start](https://ctxloom.dev/getting-started/quickstart)
+- [Configuration Guide](https://ctxloom.dev/guides/configuration)
+- [MCP Server Setup](https://ctxloom.dev/guides/mcp-server)
+- [CLI Reference](https://ctxloom.dev/reference/cli)
+- [Contributing](https://ctxloom.dev/contributing)
 
 ## Development
 
@@ -106,4 +106,4 @@ just lint           # Lint code
 just install        # Build and install to ~/go/bin
 ```
 
-See [Contributing](https://ctxloom.abbitt.me/contributing) for full development guide.
+See [Contributing](https://ctxloom.dev/contributing) for full development guide.

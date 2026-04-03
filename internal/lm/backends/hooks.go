@@ -179,10 +179,18 @@ func (w *ClaudeCodeHookWriter) MCPConfigPath(projectDir string) string {
 	return filepath.Join(projectDir, ".mcp.json")
 }
 
+// claudeCodeStatusLine represents the statusLine configuration in settings.json.
+type claudeCodeStatusLine struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+	Padding int    `json:"padding,omitempty"`
+}
+
 // claudeCodeSettings represents the structure of .claude/settings.json
 // Note: MCP servers are now stored in .mcp.json, not here.
 type claudeCodeSettings struct {
-	Hooks map[string][]claudeCodeHookMatcher `json:"hooks,omitempty"`
+	Hooks      map[string][]claudeCodeHookMatcher `json:"hooks,omitempty"`
+	StatusLine *claudeCodeStatusLine               `json:"statusLine,omitempty"`
 	// Preserve other settings (including legacy mcpServers for backwards compat)
 	Other map[string]json.RawMessage `json:"-"`
 }
@@ -258,6 +266,9 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 		w.addBackendHooks(settings, backendHooks)
 	}
 
+	// Configure statusLine if not already set by the user
+	w.ensureStatusLine(settings)
+
 	// Write hooks to settings.json
 	if err := w.saveSettings(settingsPath, settings); err != nil {
 		return err
@@ -315,6 +326,17 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		delete(raw, "hooks")
 	}
 
+	// Extract statusLine separately
+	if slRaw, ok := raw["statusLine"]; ok {
+		var sl claudeCodeStatusLine
+		if err := json.Unmarshal(slRaw, &sl); err != nil {
+			w.warn("failed to parse statusLine in settings.json: %v", err)
+		} else {
+			settings.StatusLine = &sl
+		}
+		delete(raw, "statusLine")
+	}
+
 	// Remove mcpServers from settings.json if present (migrating to .mcp.json)
 	delete(raw, "mcpServers")
 
@@ -350,6 +372,11 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 	// Add hooks if non-empty
 	if len(settings.Hooks) > 0 {
 		output["hooks"] = settings.Hooks
+	}
+
+	// Add statusLine if configured
+	if settings.StatusLine != nil {
+		output["statusLine"] = settings.StatusLine
 	}
 
 	// Note: mcpServers are NOT written here - they go to .mcp.json
@@ -426,6 +453,29 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 
 	// Write MCP config back
 	return w.saveMCPConfig(mcpPath, mcpConfig)
+}
+
+// isCtxloomManagedStatusLine returns true if the statusLine command appears to be ctxloom-managed.
+func isCtxloomManagedStatusLine(sl *claudeCodeStatusLine) bool {
+	if sl == nil {
+		return false
+	}
+	return strings.Contains(sl.Command, "ctxloom") && strings.Contains(sl.Command, "meta hud")
+}
+
+// ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
+// If the user has configured their own statusLine (not ctxloom-managed), it is preserved.
+func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
+	// If statusLine is set and NOT ctxloom-managed, respect the user's config
+	if settings.StatusLine != nil && !isCtxloomManagedStatusLine(settings.StatusLine) {
+		return
+	}
+
+	// Set or update ctxloom-managed statusLine
+	settings.StatusLine = &claudeCodeStatusLine{
+		Type:    "command",
+		Command: GetCtxloomHudCommand(),
+	}
 }
 
 // removeCtxloomHooks removes all ctxloom-managed hooks from settings.

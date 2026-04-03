@@ -54,6 +54,16 @@ func GetContextInjectionCommand(hash, workDir string) string {
 	return fmt.Sprintf(`"%s" hook inject-context --project "%s" %s`, execPath, absWorkDir, hash)
 }
 
+// GetCtxloomHudCommand returns the command string for the ctxloom statusline HUD.
+// Uses absolute path to the current ctxloom binary.
+func GetCtxloomHudCommand() string {
+	execPath, err := GetExecutablePath()
+	if err != nil {
+		execPath = "ctxloom"
+	}
+	return fmt.Sprintf(`"%s" meta hud`, execPath)
+}
+
 // GetCtxloomMCPCommand returns the command (executable path) for the ctxloom MCP server.
 // Uses absolute path to the current ctxloom binary.
 func GetCtxloomMCPCommand() string {

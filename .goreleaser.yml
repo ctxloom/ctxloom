@@ -65,16 +65,18 @@ builds:
       - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
 
 # UPX compression for smaller binaries
+# NOTE: UPX is disabled for darwin - it breaks code signing and causes
+# "zsh: Killed" on macOS (especially Apple Silicon)
 upx:
   - ids: [ctxloom]
     enabled: true
-    goos: [linux, darwin, windows]
+    goos: [linux, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true
   - ids: [ctxloom-full]
     enabled: true
-    goos: [linux, darwin, windows]
+    goos: [linux, windows]
     goarch: [amd64, arm64]
     compress: best
     lzma: true

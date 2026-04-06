@@ -1,5 +1,4 @@
 # Binaries
-scm
 ctxloom
 bin/
 
@@ -21,7 +20,7 @@ go.work.sum
 *.pb.go
 
 # Local config
-.scm/
+.ctxloom/
 .mcp.json
 .tasks/
 

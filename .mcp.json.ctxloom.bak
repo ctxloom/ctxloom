@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "ctxloom": {
-      "command": "/usr/local/bin/ctxloom",
+      "command": "/usr/bin/ctxloom",
       "args": [
         "mcp"
       ],

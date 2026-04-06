@@ -1,5 +1,5 @@
 # Binaries
-scm
+ctxloom
 bin/
 
 # Generated man pages
@@ -20,7 +20,7 @@ go.work.sum
 *.pb.go
 
 # Local config
-.scm/
+.ctxloom/
 .mcp.json
 .tasks/
 

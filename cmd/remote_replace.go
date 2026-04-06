@@ -31,7 +31,7 @@ The local path must exist and point to a valid YAML file.
 
 Examples:
   ctxloom remote replace add alice/security ./local/security.yaml
-  ctxloom remote replace add corp/compliance ../corp-scm/compliance.yaml`,
+  ctxloom remote replace add corp/compliance ../corp-ctxloom/compliance.yaml`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref := args[0]

@@ -147,7 +147,7 @@ mutate-container:
 
 # Clean build artifacts
 clean:
-    rm -f ctxloom scm
+    rm -f ctxloom
     rm -rf bin/ man/
     go clean
 

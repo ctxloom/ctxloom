@@ -1099,7 +1099,20 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				},
 			},
 		},
-		// MCP server management
+		{
+				Name:        "update_remote",
+				Description: "Fetch the latest changes for cached remote repos. If name is specified, updates only that remote; otherwise updates all.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]interface{}{
+							"type":        "string",
+							"description": "Remote name to update (optional, updates all if omitted)",
+						},
+					},
+				},
+			},
+			// MCP server management
 		{
 			Name:        "list_mcp_servers",
 			Description: "List configured MCP servers",
@@ -1287,6 +1300,8 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolAddRemote(ctx, params.Arguments)
 	case "remove_remote":
 		result, err = s.toolRemoveRemote(ctx, params.Arguments)
+	case "update_remote":
+		result, err = s.toolUpdateRemote(ctx, params.Arguments)
 	// MCP server management
 	case "list_mcp_servers":
 		result, err = s.toolListMCPServers(ctx, params.Arguments)
@@ -1926,6 +1941,34 @@ func (s *mcpServer) toolRemoveRemote(ctx context.Context, args json.RawMessage) 
 		"status": result.Status,
 		"name":   result.Name,
 	}, nil
+}
+
+func (s *mcpServer) toolUpdateRemote(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	result, err := operations.UpdateRemote(ctx, s.cfg, operations.UpdateRemoteRequest{
+		Name: params.Name,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp := map[string]interface{}{
+		"status": result.Status,
+	}
+	if len(result.Updated) > 0 {
+		resp["updated"] = result.Updated
+	}
+	if len(result.Errors) > 0 {
+		resp["errors"] = result.Errors
+	}
+
+	return resp, nil
 }
 
 // ============================================================================

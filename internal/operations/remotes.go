@@ -30,6 +30,16 @@ func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
+// getCachedFetcher creates a fetcher that uses the local git clone cache.
+// Falls back to API-based fetchers if the cache is unavailable.
+func getCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
+	baseDir := getBaseDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+	factory := remote.NewCachedFetcherFactory(cache, remote.DefaultFetcherFactory)
+	return factory(repoURL, auth)
+}
+
 // RemoteEntry represents a remote in operation results.
 type RemoteEntry struct {
 	Name    string `json:"name"`
@@ -128,10 +138,8 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	// Verify the remote
 	fetcher := req.Fetcher
 	if fetcher == nil {
-		baseDir := getBaseDir(cfg)
-		auth := remote.LoadAuth(baseDir)
 		var err error
-		fetcher, err = registry.GetFetcher(req.Name, auth)
+		fetcher, err = getCachedFetcher(cfg, req.URL)
 		if err != nil {
 			_ = registry.Remove(req.Name)
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
@@ -199,6 +207,91 @@ func RemoveRemote(ctx context.Context, cfg *config.Config, req RemoveRemoteReque
 		Status: "removed",
 		Name:   req.Name,
 	}, nil
+}
+
+// UpdateRemoteRequest contains parameters for updating cached remote repos.
+type UpdateRemoteRequest struct {
+	// Name is an optional remote name. If empty, all remotes are updated.
+	Name string `json:"name,omitempty"`
+
+	// Registry is an optional pre-configured registry (for testing).
+	Registry *remote.Registry `json:"-"`
+}
+
+// UpdateRemoteResult contains the result of updating remote repos.
+type UpdateRemoteResult struct {
+	Status  string              `json:"status"`
+	Updated []UpdateRemoteEntry `json:"updated,omitempty"`
+	Errors  []string            `json:"errors,omitempty"`
+}
+
+// UpdateRemoteEntry represents a single updated remote.
+type UpdateRemoteEntry struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// UpdateRemote fetches the latest changes for cached remote repos.
+// If name is specified, only that remote is updated. Otherwise all remotes are updated.
+func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteRequest) (*UpdateRemoteResult, error) {
+	registry := req.Registry
+	if registry == nil {
+		var err error
+		registry, err = getRegistry(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load registry: %w", err)
+		}
+	}
+
+	baseDir := getBaseDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+
+	var remotes []*remote.Remote
+	if req.Name != "" {
+		rem, err := registry.Get(req.Name)
+		if err != nil {
+			return nil, err
+		}
+		remotes = []*remote.Remote{rem}
+	} else {
+		remotes = registry.List()
+	}
+
+	if len(remotes) == 0 {
+		return &UpdateRemoteResult{
+			Status: "empty",
+		}, nil
+	}
+
+	result := &UpdateRemoteResult{
+		Status: "completed",
+	}
+
+	for _, rem := range remotes {
+		forgeType, _, err := remote.DetectForge(rem.URL)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", rem.Name, err))
+			continue
+		}
+
+		_, err = cache.UpdateRepo(ctx, rem.URL, forgeType)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", rem.Name, err))
+			continue
+		}
+
+		result.Updated = append(result.Updated, UpdateRemoteEntry{
+			Name: rem.Name,
+			URL:  rem.URL,
+		})
+	}
+
+	if len(result.Errors) > 0 {
+		result.Status = "completed_with_errors"
+	}
+
+	return result, nil
 }
 
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
@@ -271,6 +364,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 				if req.GitHubFetcher != nil {
 					fetcher = req.GitHubFetcher
 				} else {
+					// SearchRepos needs API; the cached wrapper delegates SearchRepos to API automatically
 					fetcher = remote.NewGitHubFetcher(auth.GitHub)
 				}
 			case remote.ForgeGitLab:
@@ -390,9 +484,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 
 	fetcher := req.Fetcher
 	if fetcher == nil {
-		baseDir := getBaseDir(cfg)
-		auth := remote.LoadAuth(baseDir)
-		fetcher, err = remote.NewFetcher(rem.URL, auth)
+		fetcher, err = getCachedFetcher(cfg, rem.URL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -550,9 +642,6 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 		}, nil
 	}
 
-	baseDir := getBaseDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-
 	// Determine which types to search
 	var types []remote.ItemType
 	switch req.ItemType {
@@ -577,7 +666,7 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 			go func(r *remote.Remote, t remote.ItemType) {
 				defer wg.Done()
 
-				results, err := searchSingleRemote(ctx, r, t, query, auth)
+				results, err := searchSingleRemote(ctx, cfg, r, t, query)
 				if err != nil {
 					warningsCh <- fmt.Sprintf("%s (%s): %v", r.Name, t, err)
 					return
@@ -630,8 +719,8 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 }
 
 // searchSingleRemote searches a single remote for matching items.
-func searchSingleRemote(ctx context.Context, rem *remote.Remote, itemType remote.ItemType, query remote.SearchQuery, auth remote.AuthConfig) ([]remote.SearchResult, error) {
-	fetcher, err := remote.NewFetcher(rem.URL, auth)
+func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Remote, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
+	fetcher, err := getCachedFetcher(cfg, rem.URL)
 	if err != nil {
 		return nil, err
 	}

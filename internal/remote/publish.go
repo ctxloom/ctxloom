@@ -84,7 +84,7 @@ func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManag
 		registry:         registry,
 		auth:             auth,
 		publisherFactory: defaultPublisherFactory,
-		fetcherFactory:   defaultFetcherFactory,
+		fetcherFactory:   DefaultFetcherFactory,
 		fs:               afero.NewOsFs(),
 	}
 

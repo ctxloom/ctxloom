@@ -43,7 +43,7 @@ func NewVendorManager(baseDir string, opts ...VendorOption) *VendorManager {
 	m := &VendorManager{
 		baseDir:        baseDir,
 		fs:             afero.NewOsFs(),
-		fetcherFactory: defaultFetcherFactory,
+		fetcherFactory: DefaultFetcherFactory,
 	}
 	for _, opt := range opts {
 		opt(m)

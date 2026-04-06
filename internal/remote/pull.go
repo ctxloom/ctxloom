@@ -62,8 +62,8 @@ type profileYAML struct {
 // FetcherFactory creates Fetcher instances. Allows mocking for tests.
 type FetcherFactory func(repoURL string, auth AuthConfig) (Fetcher, error)
 
-// defaultFetcherFactory is the production implementation.
-func defaultFetcherFactory(repoURL string, auth AuthConfig) (Fetcher, error) {
+// DefaultFetcherFactory is the production implementation that creates API-based fetchers.
+func DefaultFetcherFactory(repoURL string, auth AuthConfig) (Fetcher, error) {
 	return NewFetcher(repoURL, auth)
 }
 
@@ -152,7 +152,7 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 	p := &Puller{
 		registry:        registry,
 		auth:            auth,
-		fetcherFactory:  defaultFetcherFactory,
+		fetcherFactory:  DefaultFetcherFactory,
 		terminalChecker: &defaultTerminalChecker{},
 		fs:              afero.NewOsFs(),
 	}

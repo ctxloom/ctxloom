@@ -541,13 +541,13 @@ func TestDefaultTerminalChecker(t *testing.T) {
 
 func TestDefaultFetcherFactory(t *testing.T) {
 	t.Run("creates GitHub fetcher", func(t *testing.T) {
-		fetcher, err := defaultFetcherFactory("https://github.com/owner/repo", AuthConfig{})
+		fetcher, err := DefaultFetcherFactory("https://github.com/owner/repo", AuthConfig{})
 		require.NoError(t, err)
 		assert.Equal(t, ForgeGitHub, fetcher.Forge())
 	})
 
 	t.Run("creates GitLab fetcher", func(t *testing.T) {
-		fetcher, err := defaultFetcherFactory("https://gitlab.com/owner/repo", AuthConfig{})
+		fetcher, err := DefaultFetcherFactory("https://gitlab.com/owner/repo", AuthConfig{})
 		require.NoError(t, err)
 		assert.Equal(t, ForgeGitLab, fetcher.Forge())
 	})

@@ -959,7 +959,8 @@ func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
 		Version: "v1",
 	}
 
-	_, err := searchSingleRemote(context.Background(), rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"}, remote.AuthConfig{})
+	cfg := &config.Config{}
+	_, err := searchSingleRemote(context.Background(), cfg, rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"})
 	require.Error(t, err)
 }
 
@@ -971,7 +972,8 @@ func TestSearchSingleRemote_ParseRepoURLError(t *testing.T) {
 	}
 
 	// NewFetcher will succeed but ParseRepoURL will fail with invalid URL
-	_, err := searchSingleRemote(context.Background(), rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"}, remote.AuthConfig{})
+	cfg := &config.Config{}
+	_, err := searchSingleRemote(context.Background(), cfg, rem, remote.ItemTypeBundle, remote.SearchQuery{Text: "test"})
 	require.Error(t, err)
 }
 

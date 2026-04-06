@@ -37,6 +37,9 @@ const (
 
 	// PluginsDir is the subdirectory for plugins.
 	PluginsDir = "plugins"
+
+	// ReposCacheDir is the subdirectory for cached git repo clones.
+	ReposCacheDir = "repos"
 )
 
 // GetCacheDir returns the cache subdirectory path for the given app path.
@@ -88,6 +91,11 @@ func MemoryPath(appPath string) string {
 // PluginsPath returns the path to the plugins directory (under cache/).
 func PluginsPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), PluginsDir)
+}
+
+// ReposCachePath returns the path to the repos cache directory (under cache/).
+func ReposCachePath(appPath string) string {
+	return filepath.Join(GetCacheDir(appPath), ReposCacheDir)
 }
 
 // DefaultAppDir returns the default app directory path relative to current directory.

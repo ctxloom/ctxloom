@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -88,7 +89,10 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
-		puller = remote.NewPuller(registry, auth)
+		// Use git clone cache to avoid API rate limiting
+		cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+		factory := remote.NewCachedFetcherFactory(cache, remote.DefaultFetcherFactory)
+		puller = remote.NewPuller(registry, auth, remote.WithFetcherFactory(factory))
 	}
 
 	result := &SyncDependenciesResult{

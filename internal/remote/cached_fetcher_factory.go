@@ -19,7 +19,7 @@ func NewCachedFetcherFactory(cache *RepoCache, fallback FetcherFactory) FetcherF
 		// Ensure the repo is cloned/up-to-date
 		repoDir, err := cache.EnsureRepo(context.Background(), repoURL, forgeType)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: git cache failed for %s, using API: %v\n", repoURL, err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: git cache clone failed for %s (falling back to API): %v\n", repoURL, err)
 			return fallback(repoURL, auth)
 		}
 
@@ -27,9 +27,11 @@ func NewCachedFetcherFactory(cache *RepoCache, fallback FetcherFactory) FetcherF
 		gitAuth := cache.authMethod(forgeType)
 		localFetcher, err := NewGitCloneFetcher(repoDir, normalizeCloneURL(repoURL), forgeType, gitAuth)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: failed to open cached repo, using API: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to open cached repo %s (falling back to API): %v\n", repoDir, err)
 			return fallback(repoURL, auth)
 		}
+
+		fmt.Fprintf(os.Stderr, "ctxloom: using cached clone for %s\n", repoURL)
 
 		// Wrap to delegate SearchRepos to API
 		return &cachedFetcherWithFallback{

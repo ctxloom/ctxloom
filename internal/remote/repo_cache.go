@@ -12,7 +12,6 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 // RepoCache manages local git clone caches of remote repositories.
@@ -161,34 +160,3 @@ func normalizeCloneURL(repoURL string) string {
 	return repoURL
 }
 
-// lsRemoteDefaultBranch uses ls-remote to determine the default branch
-// without cloning the repo. This is used by GitCloneFetcher when HEAD
-// is detached or unavailable.
-func lsRemoteDefaultBranch(ctx context.Context, repoURL string, auth transport.AuthMethod) (string, error) {
-	rem := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{repoURL},
-	})
-
-	refs, err := rem.ListContext(ctx, &git.ListOptions{Auth: auth})
-	if err != nil {
-		return "", fmt.Errorf("ls-remote failed: %w", err)
-	}
-
-	// Find HEAD symref target
-	for _, ref := range refs {
-		if ref.Name() == "HEAD" && ref.Target() != "" {
-			return ref.Target().Short(), nil
-		}
-	}
-
-	// Fallback: look for main or master
-	for _, ref := range refs {
-		name := ref.Name().Short()
-		if name == "main" || name == "master" {
-			return name, nil
-		}
-	}
-
-	return "main", nil
-}

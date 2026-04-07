@@ -158,28 +158,32 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 }
 
 // GetDefaultBranch returns the default branch name.
+// Uses only local data — no network calls. For shallow clones, HEAD
+// points to the default branch that was cloned.
 func (f *GitCloneFetcher) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
+	// Try HEAD directly — for non-bare clones (including shallow), HEAD
+	// points to the default branch
+	head, err := f.repo.Head()
+	if err == nil && head.Name().IsBranch() {
+		return head.Name().Short(), nil
+	}
+
 	// Try to read the origin HEAD symref
 	ref, err := f.repo.Reference(plumbing.NewRemoteReferenceName("origin", "HEAD"), true)
 	if err == nil {
 		name := ref.Target().Short()
-		// Strip "origin/" prefix if present
 		name = strings.TrimPrefix(name, "origin/")
 		if name != "" {
 			return name, nil
 		}
 	}
 
-	// Try HEAD directly (works for non-bare repos)
-	head, err := f.repo.Head()
-	if err == nil {
-		return head.Name().Short(), nil
-	}
-
-	// Fall back to ls-remote to determine default branch
-	branch, err := lsRemoteDefaultBranch(ctx, f.repoURL, f.auth)
-	if err == nil {
-		return branch, nil
+	// Look for common default branch names in remote refs
+	for _, name := range []string{"main", "master"} {
+		_, err := f.repo.Reference(plumbing.NewRemoteReferenceName("origin", name), false)
+		if err == nil {
+			return name, nil
+		}
 	}
 
 	return "main", nil

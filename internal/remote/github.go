@@ -53,9 +53,13 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 		httpClient = cfg.httpClient
 	} else if token != "" {
 		httpClient = &http.Client{
-			Transport: &tokenTransport{token: token},
+			Transport: &loggingTransport{base: &tokenTransport{token: token}},
 		}
 		hasToken = true
+	} else {
+		httpClient = &http.Client{
+			Transport: &loggingTransport{},
+		}
 	}
 
 	fetcher := &GitHubFetcher{
@@ -66,7 +70,9 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 
 	// Create unauthenticated fallback client for 401 retry
 	if hasToken {
-		fetcher.fallback = newRealGitHubClient(nil)
+		fetcher.fallback = newRealGitHubClient(&http.Client{
+			Transport: &loggingTransport{},
+		})
 	}
 
 	return fetcher
@@ -75,6 +81,26 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 // NewGitHubFetcherWithClient creates a GitHubFetcher with a custom client (for testing).
 func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
 	return &GitHubFetcher{client: client}
+}
+
+// loggingTransport logs every HTTP request to stderr for diagnostics.
+type loggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	fmt.Fprintf(os.Stderr, "ctxloom: GitHub API call: %s %s\n", req.Method, req.URL.String())
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	resp, err := base.RoundTrip(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API error: %v\n", err)
+	} else if resp.StatusCode >= 400 {
+		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API status: %d for %s\n", resp.StatusCode, req.URL.Path)
+	}
+	return resp, err
 }
 
 // tokenTransport adds authorization header to requests.

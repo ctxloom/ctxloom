@@ -36,6 +36,9 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	c.Dir = cmd.Dir
 	c.Env = cmd.Env
 
+	// Platform-specific command adjustments (e.g., Windows .cmd/.bat handling)
+	adjustPtyCommand(c, cmd)
+
 	// Create a done channel to signal goroutines to stop
 	done := make(chan struct{})
 	defer close(done)
@@ -57,13 +60,9 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 		if err == nil {
 			defer func() {
 				_ = term.Restore(int(os.Stdin.Fd()), oldState)
-				// Reset terminal to sane state after subprocess exits.
-				// term.State doesn't capture all attributes (like ONLCR),
-				// so we use stty sane to fix any line discipline corruption.
+				// Platform-specific terminal reset (stty sane on Unix, no-op on Windows)
 				if stdinIsTerm {
-					cmd := exec.Command("stty", "sane")
-					cmd.Stdin = os.Stdin
-					_ = cmd.Run()
+					resetTerminal()
 				}
 			}()
 		}

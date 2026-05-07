@@ -242,7 +242,12 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	var allFragments []config.FragmentRef
 
 	for _, profileName := range cfg.GetDefaultProfiles() {
-		profile, err := config.ResolveProfile(cfg.Profiles, profileName)
+		// Use the shared resolver so directory profiles (.ctxloom/profiles/<name>.yaml)
+		// fall back correctly and Profile.Bundles entries get expanded into
+		// fragment refs. Without this, a profile that only lists bundles
+		// produces zero fragments and apply_hooks silently skips writing the
+		// SessionStart context-injection hook.
+		profile, err := resolveProfile(cfg, profileName, loader, nil)
 		if err != nil {
 			continue
 		}
@@ -255,7 +260,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			}
 		}
 
-		// Add explicit fragments with their priorities
+		// Add explicit fragments with their priorities (bundle expansions
+		// were already appended by resolveProfile).
 		allFragments = append(allFragments, profile.Fragments...)
 	}
 

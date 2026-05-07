@@ -1312,3 +1312,124 @@ fragments:
 	}
 	assert.True(t, found, "should find nested bundle with path-based name")
 }
+
+// =============================================================================
+// ExpandBundleRefs Tests
+// =============================================================================
+//
+// ExpandBundleRefs is the bridge between profile-style bundle references
+// (which list bundles or cherry-picked items) and the GetFragment loading
+// pipeline (which expects canonical "<bundle>#fragments/<name>" refs).
+// These tests exercise each branch of the expansion grammar.
+
+// expandRefsFixture builds an afero-backed loader with two bundles:
+//
+//	test/alpha — contains fragments a1, a2 and a prompt p1
+//	test/beta  — contains fragments one, two
+//
+// One whole-bundle and one cherry-pick reference exercise both branches
+// of ExpandBundleRefs.
+func expandRefsFixture(t *testing.T) *Loader {
+	t.Helper()
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/bundles/test", 0755))
+
+	alpha := []byte(`version: "1.0.0"
+fragments:
+  a1:
+    content: "ALPHA-ONE"
+  a2:
+    content: "ALPHA-TWO"
+prompts:
+  p1:
+    content: "ALPHA-PROMPT"
+`)
+	beta := []byte(`version: "1.0.0"
+fragments:
+  one:
+    content: "BETA-ONE"
+  two:
+    content: "BETA-TWO"
+`)
+	require.NoError(t, afero.WriteFile(fs, "/bundles/test/alpha.yaml", alpha, 0644))
+	require.NoError(t, afero.WriteFile(fs, "/bundles/test/beta.yaml", beta, 0644))
+
+	return NewLoader([]string{"/bundles"}, false, WithFS(fs))
+}
+
+func TestLoader_ExpandBundleRefs_WholeBundleExpandsAllFragmentsSorted(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{"test/alpha"})
+
+	// Whole-bundle ref returns every fragment, alphabetically sorted to keep
+	// downstream context hashes stable across map-iteration randomness.
+	assert.Equal(t, []string{
+		"test/alpha#fragments/a1",
+		"test/alpha#fragments/a2",
+	}, got)
+}
+
+func TestLoader_ExpandBundleRefs_CanonicalHashSyntaxPassesThrough(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{"test/alpha#fragments/a2"})
+
+	assert.Equal(t, []string{"test/alpha#fragments/a2"}, got)
+}
+
+func TestLoader_ExpandBundleRefs_ColonSyntaxRewrittenToHash(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{"test/beta:fragments/two"})
+
+	assert.Equal(t, []string{"test/beta#fragments/two"}, got)
+}
+
+func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{
+		"test/alpha:prompts/p1", // prompt — not a fragment
+		"test/alpha:mcp",        // mcp section — not a fragment
+		"test/alpha#prompts/p1", // prompt via canonical syntax — also skipped
+	})
+
+	assert.Empty(t, got, "non-fragment refs must not become fragment names")
+}
+
+func TestLoader_ExpandBundleRefs_MissingBundleSkippedSilently(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{"test/does-not-exist", "test/alpha"})
+
+	// The missing bundle is dropped without an error so the rest of the
+	// profile still resolves — same tolerance LoadMultiple uses.
+	assert.Equal(t, []string{
+		"test/alpha#fragments/a1",
+		"test/alpha#fragments/a2",
+	}, got)
+}
+
+func TestLoader_ExpandBundleRefs_DeduplicatesAcrossRefs(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{
+		"test/alpha",                 // expands to a1, a2
+		"test/alpha#fragments/a1",    // duplicate of a1
+		"test/alpha:fragments/a2",    // duplicate of a2 via colon syntax
+	})
+
+	assert.Equal(t, []string{
+		"test/alpha#fragments/a1",
+		"test/alpha#fragments/a2",
+	}, got)
+}
+
+func TestLoader_ExpandBundleRefs_EmptyInputs(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	assert.Nil(t, loader.ExpandBundleRefs(nil))
+	assert.Nil(t, loader.ExpandBundleRefs([]string{}))
+	assert.Nil(t, loader.ExpandBundleRefs([]string{""}))
+}

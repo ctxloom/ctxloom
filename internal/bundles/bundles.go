@@ -829,3 +829,70 @@ func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
 
 	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
 }
+
+// ExpandBundleRefs expands profile bundle references into canonical fragment
+// names usable with GetFragment. See the Profile.Bundles documentation in
+// internal/profiles for the supported reference syntax.
+//
+// Supported reference forms:
+//
+//	"bundle"                        // every fragment in the bundle
+//	"bundle#fragments/name"         // a single fragment (canonical syntax)
+//	"bundle:fragments/name"         // a single fragment (profile syntax alias)
+//
+// Refs that target prompts or MCP servers (e.g. "bundle:prompts/x",
+// "bundle:mcp") are skipped, because they do not resolve to fragments.
+// Bundles that cannot be loaded are also skipped, mirroring the tolerant
+// behavior of LoadMultiple/GetFragment so a missing bundle does not abort
+// the whole assembly.
+//
+// The returned names are deduplicated and stable: whole-bundle expansions
+// are sorted alphabetically by fragment name so the resulting context hash
+// is reproducible.
+func (l *Loader) ExpandBundleRefs(refs []string) []string {
+	seen := collections.NewSet[string]()
+	var out []string
+	for _, ref := range refs {
+		for _, name := range l.expandBundleRef(ref) {
+			if seen.Has(name) {
+				continue
+			}
+			seen.Add(name)
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// expandBundleRef returns the canonical fragment names for a single ref.
+// See ExpandBundleRefs for the supported syntax.
+func (l *Loader) expandBundleRef(ref string) []string {
+	if ref == "" {
+		return nil
+	}
+
+	// Targeted ref: bundle{:|#}{fragments|prompts|mcp}/...
+	// Use IndexAny so we accept either separator. The bundle name itself may
+	// contain "/" (e.g. "remote/bundle") but never ":" or "#".
+	if idx := strings.IndexAny(ref, ":#"); idx != -1 {
+		bundleName := ref[:idx]
+		rest := ref[idx+1:]
+		if !strings.HasPrefix(rest, "fragments/") {
+			// Targeted at prompts, mcp, or unknown — not a fragment ref.
+			return nil
+		}
+		return []string{bundleName + "#" + rest}
+	}
+
+	// Whole-bundle ref: enumerate every fragment in the bundle.
+	b, err := l.Load(ref)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(b.Fragments))
+	for fragName := range b.Fragments {
+		names = append(names, ref+"#fragments/"+fragName)
+	}
+	sort.Strings(names)
+	return names
+}

@@ -69,7 +69,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// Process all profiles
 	for _, pName := range profileNames {
 		// Resolve profile with inheritance
-		profile, err := resolveProfile(cfg, pName, req.ProfileLoaderFunc)
+		profile, err := resolveProfile(cfg, pName, loader, req.ProfileLoaderFunc)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
 		}
@@ -201,38 +201,58 @@ func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
 	return result
 }
 
-// resolveProfile resolves a profile from config or directory.
-func resolveProfile(cfg *config.Config, name string, profileLoaderFunc func() ProfileLoader) (*config.Profile, error) {
-	// First try config-based resolution
-	profile, err := config.ResolveProfile(cfg.Profiles, name)
-	if err == nil {
-		return profile, nil
-	}
+// resolveProfile resolves a profile from config or directory and expands its
+// bundle references into fragment references.
+//
+// Profile.Bundles entries (whole bundles like "remote/bundle") and
+// Profile.BundleItems entries (cherry-picked items like
+// "remote/bundle:fragments/name") are expanded via the bundle loader and
+// appended to Fragments so a single downstream pipeline (GetFragment per
+// FragmentRef.Name) can load everything regardless of how the profile
+// referenced it.
+//
+// loader may be nil, in which case bundle expansion is skipped — callers
+// that don't have a bundle loader handy still get the inline Tags/Fragments
+// behavior, which is enough for the lightweight callers that only inspect
+// metadata.
+func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, profileLoaderFunc func() ProfileLoader) (*config.Profile, error) {
+	var profile *config.Profile
 
-	// Fall back to directory-based resolution
-	var loader ProfileLoader
-	if profileLoaderFunc != nil {
-		loader = profileLoaderFunc()
+	// First try config-based resolution (inline `profiles:` map in config.yaml).
+	if p, err := config.ResolveProfile(cfg.Profiles, name); err == nil {
+		profile = p
 	} else {
-		loader = cfg.GetProfileLoader()
-	}
-	resolved, err := loader.ResolveProfile(name, nil)
-	if err != nil {
-		return nil, fmt.Errorf("profile %s: %w", name, err)
+		// Fall back to directory-based resolution (.ctxloom/profiles/<name>.yaml).
+		var pLoader ProfileLoader
+		if profileLoaderFunc != nil {
+			pLoader = profileLoaderFunc()
+		} else {
+			pLoader = cfg.GetProfileLoader()
+		}
+		resolved, rerr := pLoader.ResolveProfile(name, nil)
+		if rerr != nil {
+			return nil, fmt.Errorf("profile %s: %w", name, rerr)
+		}
+		profile = &config.Profile{
+			Tags:      resolved.Tags,
+			Bundles:   resolved.Bundles,
+			Variables: resolved.Variables,
+		}
 	}
 
-	// Convert to config.Profile
-	// Convert string bundles to FragmentRef (priority 0 from directory profiles)
-	fragments := make([]config.FragmentRef, len(resolved.Bundles))
-	for i, b := range resolved.Bundles {
-		fragments[i] = config.FragmentRef{Name: b, Priority: 0}
+	// Expand Bundles and BundleItems into FragmentRefs via the bundle loader.
+	// Without this, profiles that only list bundles (the common case for
+	// directory profiles) would resolve to zero fragments.
+	if loader != nil {
+		refs := make([]string, 0, len(profile.Bundles)+len(profile.BundleItems))
+		refs = append(refs, profile.Bundles...)
+		refs = append(refs, profile.BundleItems...)
+		for _, expandedName := range loader.ExpandBundleRefs(refs) {
+			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: expandedName, Priority: 0})
+		}
 	}
 
-	return &config.Profile{
-		Tags:      resolved.Tags,
-		Fragments: fragments,
-		Variables: resolved.Variables,
-	}, nil
+	return profile, nil
 }
 
 // substituteVariables applies mustache variable substitution to content.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -62,7 +61,7 @@ func (f *GitCloneFetcher) FetchFile(ctx context.Context, owner, repo, filePath, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file reader: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	content, err := io.ReadAll(reader)
 	if err != nil {
@@ -91,7 +90,7 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 	for _, entry := range tree.Entries {
 		entries = append(entries, DirEntry{
 			Name:  entry.Name,
-			IsDir: entry.Mode.IsFile() == false,
+			IsDir: !entry.Mode.IsFile(),
 			SHA:   entry.Hash.String(),
 		})
 	}
@@ -255,25 +254,3 @@ func (f *GitCloneFetcher) resolveToCommitHash(ref string) (plumbing.Hash, error)
 	return plumbing.ZeroHash, fmt.Errorf("ref not found: %s", ref)
 }
 
-// pathInTree checks if a path exists in a tree. Helper for directory checks.
-func pathInTree(tree *object.Tree, p string) bool {
-	parts := strings.Split(path.Clean(p), "/")
-	current := tree
-	for i, part := range parts {
-		entry, err := current.FindEntry(part)
-		if err != nil {
-			return false
-		}
-		if i < len(parts)-1 {
-			// Need to traverse into subdirectory
-			subtree, err := current.Tree(part)
-			if err != nil {
-				return false
-			}
-			current = subtree
-		} else {
-			_ = entry // found the final component
-		}
-	}
-	return true
-}

@@ -66,8 +66,13 @@ RUN mkdir -p /opt/onnxruntime-embed && \
 # Install just (command runner)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
-# Install golangci-lint
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin
+# Install golangci-lint via `go install` so the build does not depend on
+# golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to
+# disagree with the tarball bytes served from GitHub releases (v2.12.2 at the
+# time of writing). `go install` uses the Go module checksum database, which
+# is the more reliable verification path. Binary lands in $GOPATH/bin (/go/bin),
+# already on PATH from the Go install step above.
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1
 
 # Install buf for protobuf
 RUN BIN="/usr/local/bin" && \

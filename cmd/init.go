@@ -384,6 +384,11 @@ Based on what you find, suggest matching content from **all configured remotes**
 2. Detect Dockerfile → search for "tag:docker" and "tag:container"
 3. Present all matches grouped by remote, let user choose
 
+**After installing a profile:**
+The first profile you install is auto-promoted to default in config.yaml,
+so ctxloom run will load it automatically. To switch defaults later, call
+update_profile with default: true on the new profile.
+
 If you'd prefer to skip this setup, just say "skip" and configure manually later.`
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.

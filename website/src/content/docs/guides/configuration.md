@@ -96,12 +96,13 @@ mcp:
 profiles:
   my-profile:
     description: "Inline profile"
-    default: false
     parents: []
     tags: []
     bundles: []
     variables:
       VARIABLE: "value"
+
+# To make a profile load by default, list it under defaults.profiles above.
 ```
 
 ## LM Plugins

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,6 +142,71 @@ func TestMCP_PushBundleTool_DryRunRoundTrips(t *testing.T) {
 	assert.Equal(t, "personal", resp["remote"])
 	assert.Equal(t, "ctxloom/v1/bundles/to-push.yaml", resp["target_path"])
 	assert.NotEmpty(t, resp["preview"])
+}
+
+// TestMCP_BundleToolSchemas_AreValidJSONSchema compiles each bundle tool's
+// InputSchema through the JSON Schema validator. Catches malformed schemas
+// before they hit a real client (where AI clients tend to silently drop
+// tools with bad schemas).
+func TestMCP_BundleToolSchemas_AreValidJSONSchema(t *testing.T) {
+	s, _ := newTestServer(t)
+	tools := s.getLocalTools()
+
+	bundleNames := map[string]bool{
+		"create_bundle": true, "update_bundle": true,
+		"delete_bundle": true, "push_bundle": true,
+	}
+
+	for _, tool := range tools {
+		if !bundleNames[tool.Name] {
+			continue
+		}
+		t.Run(tool.Name, func(t *testing.T) {
+			data, err := json.Marshal(tool.InputSchema)
+			require.NoError(t, err, "schema must marshal to JSON")
+
+			compiler := jsonschema.NewCompiler()
+			require.NoError(t, compiler.AddResource("schema.json", strings.NewReader(string(data))))
+			schema, err := compiler.Compile("schema.json")
+			require.NoError(t, err, "schema must compile as valid JSON Schema")
+			require.NotNil(t, schema)
+		})
+	}
+}
+
+// TestMCP_BundleToolSchemas_RejectInvalidArgs checks that the schemas
+// actually reject argument shapes they should — e.g. missing required name.
+func TestMCP_BundleToolSchemas_RejectInvalidArgs(t *testing.T) {
+	s, _ := newTestServer(t)
+	tools := s.getLocalTools()
+
+	cases := map[string]struct {
+		bad string // JSON args expected to fail validation
+	}{
+		"create_bundle": {bad: `{}`},                 // missing name
+		"update_bundle": {bad: `{}`},                 // missing name
+		"delete_bundle": {bad: `{}`},                 // missing name
+		"push_bundle":   {bad: `{"create_pr":true}`}, // missing path
+	}
+
+	for _, tool := range tools {
+		c, ok := cases[tool.Name]
+		if !ok {
+			continue
+		}
+		t.Run(tool.Name, func(t *testing.T) {
+			data, _ := json.Marshal(tool.InputSchema)
+			compiler := jsonschema.NewCompiler()
+			require.NoError(t, compiler.AddResource("schema.json", strings.NewReader(string(data))))
+			schema, err := compiler.Compile("schema.json")
+			require.NoError(t, err)
+
+			var parsed interface{}
+			require.NoError(t, json.Unmarshal([]byte(c.bad), &parsed))
+			err = schema.Validate(parsed)
+			assert.Error(t, err, "invalid args should fail schema validation")
+		})
+	}
 }
 
 func TestMCP_DeleteBundleTool(t *testing.T) {

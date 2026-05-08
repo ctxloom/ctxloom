@@ -941,3 +941,202 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 	// Default profile should be cleared in memory regardless
 	assert.NotContains(t, cfg.Defaults.Profiles, "frontend")
 }
+
+func TestCreateProfile_AutoPromotesWhenNoDefault(t *testing.T) {
+	// When no default profile is configured anywhere, creating a profile
+	// should auto-promote it as the default so `ctxloom run` doesn't launch
+	// with empty context.
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := paths.ProfilesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+	}
+
+	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
+		Name:   "first-profile",
+		Loader: loader,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "created", result.Status)
+
+	assert.Contains(t, cfg.Defaults.Profiles, "first-profile",
+		"first-ever profile should be auto-promoted to default")
+}
+
+func TestCreateProfile_DoesNotPromoteWhenDefaultAlreadySet(t *testing.T) {
+	// If a default profile is already configured, creating a new profile
+	// should NOT change the default.
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := paths.ProfilesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	// Pre-create an existing default profile on disk so the loader can find it.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "existing.yaml"),
+		[]byte("description: existing\n"), 0644))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+		Defaults: config.Defaults{Profiles: []string{"existing"}},
+	}
+
+	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
+		Name:   "second-profile",
+		Loader: loader,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"existing"}, cfg.Defaults.Profiles,
+		"existing default should be preserved when creating a non-default profile")
+}
+
+func TestLocalProfileNameFromPath(t *testing.T) {
+	cfg := &config.Config{AppPaths: []string{"/tmp/.ctxloom"}}
+
+	tests := []struct {
+		name     string
+		path     string
+		want     string
+		wantOk   bool
+	}{
+		{
+			name:   "top-level profile",
+			path:   "/tmp/.ctxloom/profiles/rust-developer.yaml",
+			want:   "rust-developer",
+			wantOk: true,
+		},
+		{
+			name:   "nested under remote",
+			path:   "/tmp/.ctxloom/profiles/github.com/ctxloom/ctxloom-default/rust-developer.yaml",
+			want:   "github.com/ctxloom/ctxloom-default/rust-developer",
+			wantOk: true,
+		},
+		{
+			name:   "yml extension",
+			path:   "/tmp/.ctxloom/profiles/personal/rust.yml",
+			want:   "personal/rust",
+			wantOk: true,
+		},
+		{
+			name:   "outside profiles dir",
+			path:   "/tmp/.ctxloom/cache/bundles/something.yaml",
+			want:   "",
+			wantOk: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := LocalProfileNameFromPath(cfg, tt.path)
+			assert.Equal(t, tt.wantOk, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPromoteToDefaultIfFirst_NoExistingDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+	}
+
+	promoted := PromoteToDefaultIfFirst(cfg, "my-profile")
+	assert.True(t, promoted)
+	assert.Contains(t, cfg.Defaults.Profiles, "my-profile")
+}
+
+func TestPromoteToDefaultIfFirst_ExistingDefault(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{Profiles: []string{"already-default"}},
+	}
+
+	promoted := PromoteToDefaultIfFirst(cfg, "new-profile")
+	assert.False(t, promoted)
+	assert.Equal(t, []string{"already-default"}, cfg.Defaults.Profiles)
+}
+
+// ensureAutoProfileFixture writes a minimal .ctxloom layout for auto-profile
+// tests: app dir + bundle dir, with `bundleNames` written as bundle YAML files.
+func ensureAutoProfileFixture(t *testing.T, bundleNames ...string) (string, *config.Config) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+	for _, name := range bundleNames {
+		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, name+".yaml"),
+			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: hi\n"), 0644))
+	}
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	return appDir, cfg
+}
+
+func TestEnsureAutoProfile_CreatesProfileWhenOnlyBundlesInstalled(t *testing.T) {
+	appDir, cfg := ensureAutoProfileFixture(t, "alpha", "beta")
+
+	EnsureAutoProfile(cfg)
+
+	// auto.yaml should now exist with both bundles in alphabetical order.
+	autoPath := filepath.Join(appDir, "profiles", "auto.yaml")
+	data, err := os.ReadFile(autoPath)
+	require.NoError(t, err, "auto profile should be written to %s", autoPath)
+	assert.Contains(t, string(data), "- alpha")
+	assert.Contains(t, string(data), "- beta")
+
+	// "auto" should be added to defaults.profiles.
+	assert.Equal(t, []string{"auto"}, cfg.Defaults.Profiles)
+}
+
+func TestEnsureAutoProfile_NoBundlesNoProfile(t *testing.T) {
+	appDir, cfg := ensureAutoProfileFixture(t /* no bundles */)
+
+	EnsureAutoProfile(cfg)
+
+	// Nothing to assemble → no auto profile created.
+	_, err := os.Stat(filepath.Join(appDir, "profiles", "auto.yaml"))
+	assert.True(t, os.IsNotExist(err), "auto profile should NOT be created when there are no bundles")
+	assert.Empty(t, cfg.Defaults.Profiles)
+}
+
+func TestEnsureAutoProfile_SkipsWhenUserProfileExists(t *testing.T) {
+	appDir, cfg := ensureAutoProfileFixture(t, "alpha")
+
+	// Pre-create a user profile.
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "mine.yaml"),
+		[]byte("description: my profile\n"), 0644))
+
+	EnsureAutoProfile(cfg)
+
+	// auto.yaml must not be created — user already has their own profile.
+	_, err := os.Stat(filepath.Join(profilesDir, "auto.yaml"))
+	assert.True(t, os.IsNotExist(err), "auto profile must not interfere with a user-created profile")
+	assert.Empty(t, cfg.Defaults.Profiles)
+}
+
+func TestEnsureAutoProfile_RegeneratesWhenBundleSetChanges(t *testing.T) {
+	appDir, cfg := ensureAutoProfileFixture(t, "alpha")
+
+	EnsureAutoProfile(cfg)
+
+	// Add a new bundle and re-run.
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache", "bundles", "beta.yaml"),
+		[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: hi\n"), 0644))
+
+	EnsureAutoProfile(cfg)
+
+	autoPath := filepath.Join(appDir, "profiles", "auto.yaml")
+	data, err := os.ReadFile(autoPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "- alpha")
+	assert.Contains(t, string(data), "- beta", "auto profile should be regenerated to include newly installed bundle")
+}

@@ -1336,6 +1336,56 @@ llm:
 // GetDefaultProfiles Additional Coverage
 // =============================================================================
 
+func TestConfig_GetDefaultProfiles_SingleProfileFallback(t *testing.T) {
+	// When no default is explicitly configured but exactly one profile is
+	// installed locally, GetDefaultProfiles should return it as a fallback so
+	// `ctxloom run` doesn't launch with empty context.
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	// Single profile, NOT marked default.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+
+	assert.Empty(t, cfg.ExplicitDefaultProfiles(),
+		"no default is explicitly configured")
+	assert.Equal(t, []string{"only"}, cfg.GetDefaultProfiles(),
+		"single installed profile should be returned by fallback")
+}
+
+func TestConfig_GetDefaultProfiles_MultipleProfilesNoDefault(t *testing.T) {
+	// When two profiles exist locally and none is marked default, the fallback
+	// must NOT pick one — ambiguity should bubble up so the user sees empty
+	// context (rather than silently loading a random profile).
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "a.yaml"),
+		[]byte("description: a\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "b.yaml"),
+		[]byte("description: b\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Nil(t, cfg.GetDefaultProfiles())
+}
+
+func TestConfig_ExplicitDefaultProfiles_IgnoresFallback(t *testing.T) {
+	// ExplicitDefaultProfiles must not trigger the single-profile fallback —
+	// auto-promote depends on this distinction.
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Empty(t, cfg.ExplicitDefaultProfiles())
+}
+
 // =============================================================================
 // Load Schema Validation Error
 // =============================================================================

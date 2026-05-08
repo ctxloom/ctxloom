@@ -12,10 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // Distiller compresses fragment/prompt content via an LLM. The operations
@@ -317,6 +320,228 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 	}
 
 	return &DeleteBundleResult{Status: "deleted", Name: req.Name, Path: bundle.Path}, nil
+}
+
+// PushBundleRequest is the input for PushBundle.
+//
+// The user told us "file path *only*": the path identifies which bundle to
+// push and (via its directory layout / enclosing git tree) implies the
+// remote target. Callers don't need to specify the remote name — but they
+// can override commit metadata.
+type PushBundleRequest struct {
+	Path     string `json:"path"`
+	Message  string `json:"message,omitempty"`
+	CreatePR bool   `json:"create_pr,omitempty"`
+	DryRun   bool   `json:"dry_run,omitempty"`
+
+	// PublishManager overrides the default registry-built one. Tests inject
+	// a manager backed by a mock Publisher; production callers leave this
+	// nil so a real network-backed manager is constructed from cfg.
+	PublishManager *remote.PublishManager `json:"-"`
+}
+
+// PushBundleResult reports what was (or would be) published.
+type PushBundleResult struct {
+	Status     string `json:"status"` // "preview" (dry-run), "pushed", "pr-created"
+	Path       string `json:"path"`
+	Remote     string `json:"remote"`      // Resolved registry name, or URL if no name match.
+	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. ctxloom/v1/bundles/foo.yaml).
+	Branch     string `json:"branch,omitempty"`
+	Message    string `json:"message,omitempty"`
+	CreatePR   bool   `json:"create_pr"`
+	SizeBytes  int    `json:"size_bytes,omitempty"`
+
+	// Set on real push (non-dry-run).
+	CommitSHA string `json:"commit_sha,omitempty"`
+	PRURL     string `json:"pr_url,omitempty"`
+
+	// Set on dry-run only — human-readable summary of what would happen.
+	Preview string `json:"preview,omitempty"`
+}
+
+// PushBundle publishes (or dry-runs) a local bundle file to a remote repo.
+// Remote inference order:
+//  1. <appPath>/cache/bundles/<remote>/<rest>.yaml — first segment is the remote
+//  2. <appPath>/cache/bundles/<rest>.yaml — registry default
+//  3. exactly one configured remote — use it
+//  4. error with candidate list
+//
+// Network is touched only for non-dry-run; this commit covers dry-run.
+func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
+	if req.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return nil, fmt.Errorf("no .ctxloom directory configured")
+	}
+
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+
+	// Read + parse the bundle to validate it before any inference.
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("read bundle: %w", err)
+	}
+	bundle, err := bundles.ParseBundle(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid bundle: %w", err)
+	}
+
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("load registry: %w", err)
+	}
+
+	remoteName, err := resolveRemoteForPath(cfg, registry, absPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Bundle name in target repo = filename without .yaml extension.
+	bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
+
+	rem, err := registry.Get(remoteName)
+	if err != nil {
+		return nil, fmt.Errorf("remote %q not found: %w", remoteName, err)
+	}
+	version := rem.Version
+	if version == "" {
+		version = "v1"
+	}
+	targetPath := fmt.Sprintf("ctxloom/%s/bundles/%s.yaml", version, bundleName)
+
+	message := req.Message
+	if message == "" {
+		message = fmt.Sprintf("Update bundle: %s", bundleName)
+	}
+
+	result := &PushBundleResult{
+		Path:       absPath,
+		Remote:     remoteName,
+		TargetPath: targetPath,
+		Message:    message,
+		CreatePR:   req.CreatePR,
+		SizeBytes:  len(data),
+	}
+	_ = bundle // parsed for validation; future enhancements can read fields
+
+	if req.DryRun {
+		action := "direct push"
+		if req.CreatePR {
+			action = "pull request"
+		}
+		result.Status = "preview"
+		result.Preview = fmt.Sprintf("Would publish %s (%d bytes) to %s as %s via %s; commit message: %q",
+			bundleName, len(data), rem.URL, targetPath, action, message)
+		return result, nil
+	}
+
+	pm := req.PublishManager
+	if pm == nil {
+		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.AppPaths[0]))
+	}
+
+	pubResult, err := pm.Publish(context.Background(), absPath, remoteName, remote.PublishOptions{
+		CreatePR: req.CreatePR,
+		Message:  message,
+		ItemType: remote.ItemTypeBundle,
+		Version:  version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("publish: %w", err)
+	}
+
+	result.CommitSHA = pubResult.SHA
+	result.PRURL = pubResult.PRURL
+	if req.CreatePR {
+		result.Status = "pr-created"
+	} else {
+		result.Status = "pushed"
+	}
+	return result, nil
+}
+
+// resolveRemoteForPath implements the inference order documented on
+// PushBundle. Returns the remote name to publish to.
+func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
+	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
+	cacheRoot := paths.BundlesPath(cfg.AppPaths[0])
+	if rel, err := filepath.Rel(cacheRoot, absPath); err == nil && !strings.HasPrefix(rel, "..") {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) >= 2 {
+			candidate := parts[0]
+			if registry.Has(candidate) {
+				return candidate, nil
+			}
+		}
+	}
+
+	// (2) Path is OUTSIDE .ctxloom and lives in a git working tree — match
+	// the tree's origin URL against the registry. Only triggers for paths
+	// outside the .ctxloom directory: a bundle inside .ctxloom/cache might
+	// be in the project's git tree, but that doesn't tell us where to push
+	// the bundle (the project repo is rarely a bundles repo).
+	if !isUnderCtxloom(cfg, absPath) {
+		if originURL, err := gitutil.GetOriginURL(absPath); err == nil {
+			if name := matchRemoteByURL(registry, originURL); name != "" {
+				return name, nil
+			}
+		}
+	}
+
+	// (3) Registry default.
+	if def := registry.GetDefault(); def != "" {
+		return def, nil
+	}
+
+	// (4) Exactly one configured remote.
+	all := registry.List()
+	if len(all) == 1 {
+		return all[0].Name, nil
+	}
+
+	// (5) Ambiguous — surface candidates so the user can pick.
+	if len(all) > 1 {
+		names := make([]string, 0, len(all))
+		for _, r := range all {
+			names = append(names, r.Name)
+		}
+		sort.Strings(names)
+		return "", fmt.Errorf("ambiguous remote: configure a default or move the bundle under cache/bundles/<remote>/. Candidates: %s",
+			strings.Join(names, ", "))
+	}
+
+	return "", fmt.Errorf("no remote configured: add one with `ctxloom remote add`")
+}
+
+// isUnderCtxloom reports whether absPath lives under cfg's .ctxloom directory.
+func isUnderCtxloom(cfg *config.Config, absPath string) bool {
+	for _, app := range cfg.AppPaths {
+		appAbs, err := filepath.Abs(app)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(appAbs, absPath)
+		if err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+			return true
+		}
+	}
+	return false
+}
+
+// matchRemoteByURL finds a registry entry whose URL matches the given URL
+// (after normalization). Returns "" if no match.
+func matchRemoteByURL(registry *remote.Registry, url string) string {
+	normalized := remote.NormalizeURL(url)
+	for _, r := range registry.List() {
+		if remote.NormalizeURL(r.URL) == normalized {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 func containsString(s []string, target string) bool {

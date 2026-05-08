@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	gogit "github.com/go-git/go-git/v5"
+	gogitConfig "github.com/go-git/go-git/v5/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -13,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // setupBundleTestDir creates a real-filesystem .ctxloom layout for bundle tests.
@@ -475,6 +478,343 @@ func TestDeleteBundle_NotFound(t *testing.T) {
 	_, err := DeleteBundle(context.Background(), cfg, DeleteBundleRequest{Name: "missing"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+// =============================================================================
+// L6: PushBundle remote inference (dry-run, no network)
+// =============================================================================
+
+// remotesYAML writes a remotes.yaml file under appDir for tests that need a
+// configured registry. Format follows resources/remotes.yaml.
+func writeRemotesYAML(t *testing.T, appDir, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(content), 0644))
+}
+
+func TestPushBundle_DryRun_FromCachedPath(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `remotes:
+  personal:
+    url: https://github.com/example/personal-bundles
+    version: v1
+`)
+
+	// Place a bundle under cache/bundles/<remote>/<name>.yaml
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "personal", "rust-tdd.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
+	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bundlePath,
+		DryRun: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "preview", result.Status)
+	assert.Equal(t, "personal", result.Remote, "<remote> segment of cache path is the source")
+	assert.Equal(t, "ctxloom/v1/bundles/rust-tdd.yaml", result.TargetPath)
+}
+
+func TestPushBundle_DryRun_FromLocalPath_UsesDefaultRemote(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: personal
+remotes:
+  personal:
+    url: https://github.com/example/personal
+    version: v1
+  ctxloom-default:
+    url: https://github.com/ctxloom/ctxloom-default
+    version: v1
+`)
+
+	createSeedBundle(t, cfg, "local-only") // lands at cache/bundles/local-only.yaml
+
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "local-only.yaml")
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bundlePath,
+		DryRun: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "personal", result.Remote, "default remote used when path lacks remote prefix")
+}
+
+func TestPushBundle_DryRun_FromLocalPath_SingleRemoteFallback(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `remotes:
+  only:
+    url: https://github.com/example/only
+    version: v1
+`)
+	createSeedBundle(t, cfg, "x")
+
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bundlePath,
+		DryRun: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "only", result.Remote,
+		"single configured remote is used when no default + no path prefix")
+}
+
+func TestPushBundle_DryRun_FromLocalPath_AmbiguousRemote_Errors(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `remotes:
+  a:
+    url: https://github.com/example/a
+    version: v1
+  b:
+    url: https://github.com/example/b
+    version: v1
+`)
+	createSeedBundle(t, cfg, "x")
+
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bundlePath,
+		DryRun: true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous", "error must surface that we can't pick")
+	assert.Contains(t, err.Error(), "a")
+	assert.Contains(t, err.Error(), "b")
+}
+
+func TestPushBundle_FileMissing_Errors(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   "/no/such/file.yaml",
+		DryRun: true,
+	})
+	require.Error(t, err)
+}
+
+func TestPushBundle_FileNotABundle_Errors(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: r
+remotes:
+  r:
+    url: https://github.com/x/y
+    version: v1
+`)
+
+	bogus := filepath.Join(paths.BundlesPath(appDir), "bogus.yaml")
+	require.NoError(t, os.WriteFile(bogus, []byte(":\n  -not yaml:\n"), 0644))
+
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bogus,
+		DryRun: true,
+	})
+	require.Error(t, err)
+}
+
+// TestPushBundle_PathOutsideCtxloom_GitRemoteFallback covers the "bundle is
+// in a git tree" case: the user has a checked-out copy of a bundles repo and
+// pushes a bundle from there. We infer the remote by matching the git tree's
+// origin URL to a configured registry entry.
+func TestPushBundle_PathOutsideCtxloom_GitRemoteFallback(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `remotes:
+  mine:
+    url: https://github.com/example/my-bundles
+    version: v1
+  unrelated:
+    url: https://github.com/example/other
+    version: v1
+`)
+
+	// Create a separate git repo OUTSIDE .ctxloom with origin=https://github.com/example/my-bundles
+	repoDir := filepath.Join(t.TempDir(), "checkout")
+	require.NoError(t, os.MkdirAll(repoDir, 0755))
+	repo, err := gogit.PlainInit(repoDir, false)
+	require.NoError(t, err)
+	_, err = repo.CreateRemote(&gogitConfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"https://github.com/example/my-bundles"},
+	})
+	require.NoError(t, err)
+
+	// Place a bundle file in the checkout.
+	bundlePath := filepath.Join(repoDir, "bundles", "checkout-bundle.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
+	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:   bundlePath,
+		DryRun: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "mine", result.Remote, "git origin URL should match registry remote 'mine'")
+}
+
+// TestPushBundle_DryRun_PreviewShape — full result shape for a dry-run:
+// commit_sha and pr_url are zero, preview is non-empty, no Publisher invoked.
+func TestPushBundle_DryRun_PreviewShape(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: personal
+remotes:
+  personal:
+    url: https://github.com/example/personal
+    version: v1
+`)
+	createSeedBundle(t, cfg, "shape-test")
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "shape-test.yaml")
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:     bundlePath,
+		Message:  "Add shape-test",
+		CreatePR: true,
+		DryRun:   true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "preview", result.Status)
+	assert.Empty(t, result.CommitSHA, "no real publish happens in dry-run")
+	assert.Empty(t, result.PRURL)
+	assert.NotEmpty(t, result.Preview)
+	assert.Equal(t, "Add shape-test", result.Message)
+	assert.True(t, result.CreatePR)
+	assert.Greater(t, result.SizeBytes, 0)
+}
+
+// =============================================================================
+// L7: PushBundle actual publish (mock Publisher)
+// =============================================================================
+
+// mockPublisher records Publisher calls so tests can verify wiring without
+// touching the network.
+type mockPublisher struct {
+	createOrUpdateCalls []createOrUpdateCall
+	createPRCalls       []createPRCall
+	returnCommitSHA     string
+	returnPRURL         string
+	returnErr           error
+}
+
+type createOrUpdateCall struct {
+	Owner, Repo, Path, Branch, Message string
+	Content                            []byte
+}
+
+type createPRCall struct {
+	Owner, Repo, Title, Body, Head, Base string
+}
+
+func (m *mockPublisher) CreateOrUpdateFile(_ context.Context, owner, repo, path, branch, message string, content []byte) (string, error) {
+	m.createOrUpdateCalls = append(m.createOrUpdateCalls, createOrUpdateCall{
+		Owner: owner, Repo: repo, Path: path, Branch: branch, Message: message, Content: content,
+	})
+	if m.returnErr != nil {
+		return "", m.returnErr
+	}
+	return m.returnCommitSHA, nil
+}
+
+func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title, body, head, base string) (string, error) {
+	m.createPRCalls = append(m.createPRCalls, createPRCall{
+		Owner: owner, Repo: repo, Title: title, Body: body, Head: head, Base: base,
+	})
+	if m.returnErr != nil {
+		return "", m.returnErr
+	}
+	return m.returnPRURL, nil
+}
+
+func (m *mockPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error  { return nil }
+func (m *mockPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string, error) {
+	return "", nil
+}
+
+// pushTestSetup returns a cfg + path + a callback for installing a custom
+// publish manager whose Publisher uses the given mock.
+func pushTestSetup(t *testing.T, mock *mockPublisher) (cfg *config.Config, bundlePath string, mgr *remote.PublishManager) {
+	t.Helper()
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: personal
+remotes:
+  personal:
+    url: https://github.com/example/personal-bundles
+    version: v1
+`)
+	createSeedBundle(t, cfg, "for-push")
+	bundlePath = filepath.Join(paths.BundlesPath(appDir), "for-push.yaml")
+
+	registry, err := remote.NewRegistry(filepath.Join(appDir, "remotes.yaml"))
+	require.NoError(t, err)
+
+	// Swap the Fetcher too so PublishManager.Publish doesn't hit GitHub when
+	// looking up the default branch / ref-resolving for PR mode.
+	mockFetcher := &remote.MockFetcher{DefaultBranch: "main"}
+	mgr = remote.NewPublishManager(registry, remote.AuthConfig{},
+		remote.WithPublisherFactory(func(_ string, _ remote.AuthConfig) (remote.Publisher, error) {
+			return mock, nil
+		}),
+		remote.WithPublishFetcherFactory(func(_ string, _ remote.AuthConfig) (remote.Fetcher, error) {
+			return mockFetcher, nil
+		}),
+	)
+	return cfg, bundlePath, mgr
+}
+
+func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
+	mock := &mockPublisher{returnCommitSHA: "abc1234"}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		Message:        "Add for-push",
+		PublishManager: mgr,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "pushed", result.Status)
+	assert.Equal(t, "abc1234", result.CommitSHA)
+	assert.Empty(t, result.PRURL)
+	require.Len(t, mock.createOrUpdateCalls, 1, "publisher should be invoked exactly once")
+	assert.Equal(t, 0, len(mock.createPRCalls))
+	assert.Equal(t, "Add for-push", mock.createOrUpdateCalls[0].Message)
+	assert.Equal(t, "ctxloom/v1/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
+}
+
+func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {
+	mock := &mockPublisher{
+		returnCommitSHA: "abc1234",
+		returnPRURL:     "https://github.com/example/personal-bundles/pull/42",
+	}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		CreatePR:       true,
+		PublishManager: mgr,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "pr-created", result.Status)
+	assert.Equal(t, "https://github.com/example/personal-bundles/pull/42", result.PRURL)
+	assert.NotEmpty(t, mock.createPRCalls, "PR path must invoke CreatePullRequest")
+}
+
+func TestPushBundle_DefaultMessage(t *testing.T) {
+	mock := &mockPublisher{returnCommitSHA: "x"}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		PublishManager: mgr,
+	})
+	require.NoError(t, err)
+	require.Len(t, mock.createOrUpdateCalls, 1)
+	assert.Contains(t, mock.createOrUpdateCalls[0].Message, "for-push",
+		"default message should reference the bundle name")
+}
+
+func TestPushBundle_PublisherError_Surfaces(t *testing.T) {
+	mock := &mockPublisher{returnErr: assert.AnError}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+
+	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
+		Path:           bundlePath,
+		PublishManager: mgr,
+	})
+	require.Error(t, err, "publisher errors must surface (unlike local-write fault tolerance)")
 }
 
 // TestCreateBundle_WithDescriptionTagsAuthor verifies that optional metadata

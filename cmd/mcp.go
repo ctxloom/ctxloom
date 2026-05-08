@@ -1005,6 +1005,112 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				},
 			},
 		},
+		// Bundle management
+		{
+			Name:        "create_bundle",
+			Description: "Create a new bundle in .ctxloom/cache/bundles/. A bundle is a YAML file containing fragments (markdown context), prompts (reusable commands), and/or MCP server definitions. Pass nested fragments/prompts/mcp_servers maps to author content in one call.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{
+						"type":        "string",
+						"description": "Bundle name (without extension). May include path segments to place under a remote subdirectory, e.g. 'personal/foo'.",
+					},
+					"description": map[string]interface{}{"type": "string", "description": "Human-readable description"},
+					"version":     map[string]interface{}{"type": "string", "description": "Bundle version (default: 1.0.0)"},
+					"tags":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Tags for discovery"},
+					"author":      map[string]interface{}{"type": "string", "description": "Author identifier"},
+					"fragments": map[string]interface{}{
+						"type":        "object",
+						"description": "Map of fragment name → {content, tags?, no_distill?}",
+						"additionalProperties": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"content"},
+							"properties": map[string]interface{}{
+								"content":    map[string]interface{}{"type": "string"},
+								"tags":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+								"no_distill": map[string]interface{}{"type": "boolean"},
+							},
+						},
+					},
+					"prompts": map[string]interface{}{
+						"type":        "object",
+						"description": "Map of prompt name → {content, description?, tags?, no_distill?}",
+						"additionalProperties": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"content"},
+							"properties": map[string]interface{}{
+								"content":     map[string]interface{}{"type": "string"},
+								"description": map[string]interface{}{"type": "string"},
+								"tags":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+								"no_distill":  map[string]interface{}{"type": "boolean"},
+							},
+						},
+					},
+					"mcp_servers": map[string]interface{}{
+						"type":        "object",
+						"description": "Map of server name → {command, args?, env?}",
+						"additionalProperties": map[string]interface{}{
+							"type":     "object",
+							"required": []string{"command"},
+							"properties": map[string]interface{}{
+								"command": map[string]interface{}{"type": "string"},
+								"args":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+								"env":     map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:        "update_bundle",
+			Description: "Update an existing bundle: change metadata, add/remove tags, set/remove fragments/prompts/MCP servers. Returns status:'no_changes' when the request is a no-op.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]interface{}{
+					"name":             map[string]interface{}{"type": "string", "description": "Bundle name"},
+					"set_description":  map[string]interface{}{"type": "string", "description": "Replace description"},
+					"set_version":      map[string]interface{}{"type": "string", "description": "Replace version"},
+					"add_tags":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"remove_tags":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"set_fragments":    map[string]interface{}{"type": "object", "description": "Map of fragment name → {content, tags?, no_distill?} (adds or overwrites)"},
+					"remove_fragments": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"set_prompts":      map[string]interface{}{"type": "object", "description": "Map of prompt name → {content, description?, tags?, no_distill?}"},
+					"remove_prompts":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"set_mcp_servers":  map[string]interface{}{"type": "object", "description": "Map of server name → {command, args?, env?}"},
+					"remove_mcp_servers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"distill":          map[string]interface{}{"type": "boolean", "description": "Wholesale distill toggle. Default true; set false to skip distillation entirely."},
+				},
+			},
+		},
+		{
+			Name:        "delete_bundle",
+			Description: "Delete a bundle file from .ctxloom/cache/bundles/.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string"},
+				},
+			},
+		},
+		{
+			Name:        "push_bundle",
+			Description: "Publish a local bundle YAML to a remote git repository. The path identifies which bundle to push; the remote is inferred from the path layout (cache/bundles/<remote>/...) or from the enclosing git tree's origin URL. Use dry_run:true to preview without network calls.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"path"},
+				"properties": map[string]interface{}{
+					"path":      map[string]interface{}{"type": "string", "description": "Local path to the bundle YAML file"},
+					"message":   map[string]interface{}{"type": "string", "description": "Commit message (default: 'Update bundle: <name>')"},
+					"create_pr": map[string]interface{}{"type": "boolean", "description": "Open a pull request instead of direct-pushing to the default branch"},
+					"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview without making any network calls"},
+				},
+			},
+		},
 		// Fragment management
 		{
 			Name:        "create_fragment",
@@ -1276,6 +1382,15 @@ func (s *mcpServer) handleToolsCall(ctx context.Context, req *mcpRequest) *mcpRe
 		result, err = s.toolUpdateProfile(ctx, params.Arguments)
 	case "delete_profile":
 		result, err = s.toolDeleteProfile(ctx, params.Arguments)
+	// Bundle management
+	case "create_bundle":
+		result, err = s.toolCreateBundle(ctx, params.Arguments)
+	case "update_bundle":
+		result, err = s.toolUpdateBundle(ctx, params.Arguments)
+	case "delete_bundle":
+		result, err = s.toolDeleteBundle(ctx, params.Arguments)
+	case "push_bundle":
+		result, err = s.toolPushBundle(ctx, params.Arguments)
 	// Fragment management
 	case "create_fragment":
 		result, err = s.toolCreateFragment(ctx, params.Arguments)
@@ -1812,6 +1927,158 @@ func (s *mcpServer) toolDeleteProfile(ctx context.Context, args json.RawMessage)
 		"status":  result.Status,
 		"profile": result.Profile,
 	}, nil
+}
+
+// ============================================================================
+// Bundle management tools
+// ============================================================================
+
+func (s *mcpServer) toolCreateBundle(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Name        string                                    `json:"name"`
+		Description string                                    `json:"description"`
+		Version     string                                    `json:"version"`
+		Tags        []string                                  `json:"tags"`
+		Author      string                                    `json:"author"`
+		Fragments   map[string]operations.BundleFragmentInput `json:"fragments"`
+		Prompts     map[string]operations.BundlePromptInput   `json:"prompts"`
+		MCPServers  map[string]operations.BundleMCPInput      `json:"mcp_servers"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	// AI-driven authoring: distill on by default to match the existing
+	// `bundle fragment edit` CLI behavior. The MCP layer wires the real
+	// LLM-backed Distiller; operations defaults to skip when nil, but here
+	// we want the production behavior.
+	distiller := s.bundleDistiller()
+
+	result, err := operations.CreateBundle(ctx, s.cfg, operations.CreateBundleRequest{
+		Name:        params.Name,
+		Description: params.Description,
+		Version:     params.Version,
+		Tags:        params.Tags,
+		Author:      params.Author,
+		Fragments:   params.Fragments,
+		Prompts:     params.Prompts,
+		MCPServers:  params.MCPServers,
+		Distiller:   distiller,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"status": result.Status,
+		"name":   result.Name,
+		"path":   result.Path,
+	}, nil
+}
+
+func (s *mcpServer) toolUpdateBundle(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Name             string                                    `json:"name"`
+		SetDescription   *string                                   `json:"set_description"`
+		SetVersion       *string                                   `json:"set_version"`
+		AddTags          []string                                  `json:"add_tags"`
+		RemoveTags       []string                                  `json:"remove_tags"`
+		SetFragments     map[string]operations.BundleFragmentInput `json:"set_fragments"`
+		RemoveFragments  []string                                  `json:"remove_fragments"`
+		SetPrompts       map[string]operations.BundlePromptInput   `json:"set_prompts"`
+		RemovePrompts    []string                                  `json:"remove_prompts"`
+		SetMCPServers    map[string]operations.BundleMCPInput      `json:"set_mcp_servers"`
+		RemoveMCPServers []string                                  `json:"remove_mcp_servers"`
+		Distill          *bool                                     `json:"distill"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+
+	result, err := operations.UpdateBundle(ctx, s.cfg, operations.UpdateBundleRequest{
+		Name:             params.Name,
+		SetDescription:   params.SetDescription,
+		SetVersion:       params.SetVersion,
+		AddTags:          params.AddTags,
+		RemoveTags:       params.RemoveTags,
+		SetFragments:     params.SetFragments,
+		RemoveFragments:  params.RemoveFragments,
+		SetPrompts:       params.SetPrompts,
+		RemovePrompts:    params.RemovePrompts,
+		SetMCPServers:    params.SetMCPServers,
+		RemoveMCPServers: params.RemoveMCPServers,
+		Distill:          params.Distill,
+		Distiller:        s.bundleDistiller(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"status":  result.Status,
+		"name":    result.Name,
+		"changes": result.Changes,
+		"path":    result.Path,
+	}, nil
+}
+
+func (s *mcpServer) toolDeleteBundle(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+	result, err := operations.DeleteBundle(ctx, s.cfg, operations.DeleteBundleRequest{Name: params.Name})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"status": result.Status,
+		"name":   result.Name,
+		"path":   result.Path,
+	}, nil
+}
+
+func (s *mcpServer) toolPushBundle(ctx context.Context, args json.RawMessage) (interface{}, error) {
+	var params struct {
+		Path     string `json:"path"`
+		Message  string `json:"message"`
+		CreatePR bool   `json:"create_pr"`
+		DryRun   bool   `json:"dry_run"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return nil, err
+	}
+	result, err := operations.PushBundle(ctx, s.cfg, operations.PushBundleRequest{
+		Path:     params.Path,
+		Message:  params.Message,
+		CreatePR: params.CreatePR,
+		DryRun:   params.DryRun,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"status":      result.Status,
+		"path":        result.Path,
+		"remote":      result.Remote,
+		"target_path": result.TargetPath,
+		"branch":      result.Branch,
+		"message":     result.Message,
+		"create_pr":   result.CreatePR,
+		"size_bytes":  result.SizeBytes,
+		"commit_sha":  result.CommitSHA,
+		"pr_url":      result.PRURL,
+		"preview":     result.Preview,
+	}, nil
+}
+
+// bundleDistiller is the production Distiller used by create_bundle /
+// update_bundle. Returns nil for now; the LLM-backed implementation will
+// be wired in a follow-up that exposes the cmd/bundle.go distill helpers
+// via internal/operations. AI sessions that want distillation today can
+// run `ctxloom bundle distill` after authoring.
+func (s *mcpServer) bundleDistiller() operations.Distiller {
+	return nil
 }
 
 // ============================================================================

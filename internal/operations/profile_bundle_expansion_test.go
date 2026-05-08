@@ -38,7 +38,6 @@ func writeBundleFixture(t *testing.T, root string) {
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
 	profileYAML := `description: "Test profile for bundle expansion"
-default: true
 bundles:
   - test/alpha
   - test/beta:fragments/two

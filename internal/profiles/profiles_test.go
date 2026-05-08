@@ -54,7 +54,6 @@ bundles:
   - bundle1
 `
 	profile2 := `description: Profile 2
-default: true
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile1.yaml"), []byte(profile1), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644))
@@ -220,21 +219,6 @@ func TestLoader_Delete_NotFound(t *testing.T) {
 
 	err := loader.Delete("nonexistent")
 	assert.Error(t, err)
-}
-
-func TestLoader_GetDefaults(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "default-profile.yaml"), []byte("default: true"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "regular-profile.yaml"), []byte("default: false"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "another-default.yaml"), []byte("default: true"), 0644))
-
-	loader := NewLoader([]string{tmpDir})
-	defaults := loader.GetDefaults()
-
-	assert.Len(t, defaults, 2)
-	assert.Contains(t, defaults, "another-default")
-	assert.Contains(t, defaults, "default-profile")
 }
 
 // =============================================================================

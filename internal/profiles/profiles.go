@@ -35,7 +35,6 @@ type Profile struct {
 	Name        string            `yaml:"-"`                      // Derived from filename
 	Path        string            `yaml:"-"`                      // Full path to the file
 	Description string            `yaml:"description,omitempty"`
-	Default     bool              `yaml:"default,omitempty"`      // Whether this is a default profile
 	Parents     []string          `yaml:"parents,omitempty"`      // Parent profiles to inherit from
 	Tags        []string          `yaml:"tags,omitempty"`         // Fragment tags to include
 
@@ -133,22 +132,6 @@ func (l *Loader) List() ([]*Profile, error) {
 	})
 
 	return profiles, nil
-}
-
-// GetDefaults returns the names of profiles that have default: true.
-func (l *Loader) GetDefaults() []string {
-	profiles, err := l.List()
-	if err != nil {
-		return nil
-	}
-
-	var defaults []string
-	for _, p := range profiles {
-		if p.Default {
-			defaults = append(defaults, p.Name)
-		}
-	}
-	return defaults
 }
 
 // Load loads a profile by name (supports subdirectory paths like "github/profile-name").

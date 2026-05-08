@@ -943,35 +943,14 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		assert.Contains(t, defaults, "dev")
 	})
 
-	t.Run("includes profiles with default true", func(t *testing.T) {
+	t.Run("no duplicates in defaults.profiles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		appDir := "/project/.ctxloom"
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Profiles: map[string]Profile{
-				"prod": {Default: true},
-				"dev":  {Default: false},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Contains(t, defaults, "prod")
-		assert.NotContains(t, defaults, "dev")
-	})
-
-	t.Run("no duplicates", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"prod"}},
-			Profiles: map[string]Profile{
-				"prod": {Default: true}, // Same profile also marked default
-			},
+			Defaults: Defaults{Profiles: []string{"prod", "prod"}},
+			Profiles: map[string]Profile{},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1356,29 +1335,6 @@ llm:
 // =============================================================================
 // GetDefaultProfiles Additional Coverage
 // =============================================================================
-
-func TestConfig_GetDefaultProfiles_FromDirectoryProfile(t *testing.T) {
-	// Test when directory-based profiles have defaults
-	tmpDir := t.TempDir()
-	// Profiles are stored in persistent/profiles/
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	// Create a profile file with default: true
-	profileContent := `
-default: true
-description: A default profile
-`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dir-profile.yaml"), []byte(profileContent), 0644))
-
-	cfg := &Config{
-		Profiles: map[string]Profile{},
-		AppPaths: []string{tmpDir},
-	}
-
-	defaults := cfg.GetDefaultProfiles()
-	assert.Contains(t, defaults, "dir-profile")
-}
 
 // =============================================================================
 // Load Schema Validation Error

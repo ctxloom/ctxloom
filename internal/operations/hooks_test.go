@@ -574,10 +574,10 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
-					Tags:    []string{"security"},
+					Tags: []string{"security"},
 				},
 			},
 		}, nil
@@ -617,9 +617,9 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default:   true,
 					Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
 				},
 			},
@@ -665,14 +665,13 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default", "broken-profile"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default:   true,
 					Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
 				},
-				// This profile will be in the default list but references a parent that doesn't exist
+				// This profile is in the default list but references a parent that doesn't exist
 				"broken-profile": {
-					Default: true,
 					Parents: []string{"nonexistent-parent"},
 				},
 			},
@@ -722,9 +721,9 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
 					// Reference both existing and non-existing fragments
 					Fragments: []config.FragmentRef{
 						{Name: "test#fragments/existing"},
@@ -777,10 +776,10 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{testBaseDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
-					Tags:    []string{"nonexistent-tag"}, // No fragments match this tag
+					Tags: []string{"nonexistent-tag"}, // No fragments match this tag
 				},
 			},
 		}, nil

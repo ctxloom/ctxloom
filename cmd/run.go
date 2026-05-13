@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -95,6 +97,25 @@ Examples:
 
 		// Assemble context using operations
 		ctx := context.Background()
+
+		// Auto-sync remote dependencies on startup if enabled (graceful failure).
+		// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
+		// on missing parent profiles or bundles that sync would have fetched.
+		if cfg.Sync.ShouldAutoSync() {
+			syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
+			result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
+			syncCancel()
+			if syncErr != nil {
+				if !errors.Is(syncErr, context.Canceled) {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
+				}
+			} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
+				fmt.Fprintf(os.Stderr, "ctxloom: %s\n", result.Message)
+			} else if result.Errors > 0 {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: sync completed with %d errors\n", result.Errors)
+			}
+		}
+
 		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
 			Profile:   runProfile,
 			Fragments: runFragments,

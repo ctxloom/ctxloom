@@ -355,19 +355,27 @@ func TestLoader_ResolveProfile_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestLoader_ResolveProfile_ParentNotFound verifies that an unresolvable parent
+// is treated as a warn-and-continue: resolution succeeds, that parent branch is
+// skipped, and the child's own settings still apply. This matches ctxloom's
+// fault-tolerance philosophy (CLAUDE.md) — a missing parent should not block
+// the user from reaching their LLM.
 func TestLoader_ResolveProfile_ParentNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	profile := `parents:
   - nonexistent-parent
+bundles:
+  - own-bundle
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(profile), 0644))
 
 	loader := NewLoader([]string{tmpDir})
-	_, err := loader.ResolveProfile("child", nil)
+	resolved, err := loader.ResolveProfile("child", nil)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to resolve parent")
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
 }
 
 // TestLoader_ResolveProfile_DiamondInheritance verifies diamond inheritance works correctly.
@@ -697,8 +705,10 @@ variables:
 	assert.Equal(t, "my-project", resolved.Variables["project_name"])
 }
 
-// TestLoader_ResolveProfile_URLParentNotSynced verifies error when URL parent
-// hasn't been synced locally.
+// TestLoader_ResolveProfile_URLParentNotSynced verifies that an unsynced URL
+// parent is skipped with a warning rather than aborting resolution. The child's
+// own settings still apply so the user can reach their LLM even when remote
+// dependencies haven't been pulled yet.
 func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -707,6 +717,8 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 	// Create child profile that references an unsynced parent
 	childProfile := `parents:
   - https://github.com/nonexistent/repo@v1/profiles/missing
+tags:
+  - own-tag
 `
 	require.NoError(t, afero.WriteFile(fs,
 		"/project/.ctxloom/persistent/profiles/child.yaml",
@@ -714,9 +726,10 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 
 	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 
-	_, err := loader.ResolveProfile("child", nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to resolve parent")
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-tag"}, resolved.Tags)
 }
 
 // TestLoader_ResolveProfile_MixedParents verifies resolution with both local

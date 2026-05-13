@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -313,6 +314,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Resolve parents first (depth-first)
 	// Clone visited map for each parent to handle diamond inheritance correctly.
 	// This allows shared ancestors to be resolved through different paths.
+	//
+	// Per ctxloom's fault-tolerance philosophy (CLAUDE.md), an unresolvable
+	// parent is a stderr warning and that branch is skipped — the rest of
+	// the profile still resolves so the user can reach their LLM. Circular
+	// references and depth-limit overruns remain fatal because continuing
+	// would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
 		// Convert URL references to local profile names
 		localParentName := toLocalProfileName(parent)
@@ -321,6 +328,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		parentVisited := cloneVisited(visited)
 		parentResolved, err := l.resolveProfileRecursive(localParentName, parentVisited, depth+1)
 		if err != nil {
+			if errors.Is(err, errs.ErrProfileNotFound) {
+				fmt.Fprintf(os.Stderr,
+					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote sync` to install)\n",
+					name, parent)
+				continue
+			}
 			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 		}
 		resolved.Merge(parentResolved)

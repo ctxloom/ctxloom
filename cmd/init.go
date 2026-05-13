@@ -384,6 +384,16 @@ Based on what you find, suggest matching content from **all configured remotes**
 2. Detect Dockerfile → search for "tag:docker" and "tag:container"
 3. Present all matches grouped by remote, let user choose
 
+**After installing**, audit the result:
+1. Use list_profiles to see installed profiles, list_fragments and list_prompts to see what's loadable
+2. Resolve each installed profile's bundle set (via get_profile, walking parents) and compute the union
+3. Identify any installed bundles or remote bundles the user pulled that aren't covered by an installed profile — those are "orphan bundles"
+4. If there are orphan bundles, offer to construct a new local profile that includes them:
+   - Suggest a name that reflects the project (e.g. "<project-stack>-defaults")
+   - Use create_profile with bundles=[...orphans], default=true so it's loaded automatically by ctxloom run
+   - If the user already has a default profile, ask whether to add to defaults or replace
+5. Confirm the final defaults.profiles list with the user before exiting
+
 If you'd prefer to skip this setup, just say "skip" and configure manually later.`
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.

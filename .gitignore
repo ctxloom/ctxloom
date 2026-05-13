@@ -52,3 +52,6 @@ coverage.raw.out
 .cache/
 .cache/
 .claude/settings.local.json
+
+# ctxloom ephemeral data (synced bundles, session data, context files)
+.ctxloom/ephemeral/

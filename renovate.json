@@ -29,6 +29,15 @@
       ],
       "depNameTemplate": "github.com/go-gremlins/gremlins",
       "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.devcontainer/Dockerfile$"],
+      "matchStrings": [
+        "go install github\\.com/benjaminabbitt/versionator@v(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/benjaminabbitt/versionator",
+      "datasourceTemplate": "go"
     }
   ],
   "packageRules": [
@@ -42,7 +51,10 @@
       "automerge": true
     },
     {
-      "matchDepNames": ["benjaminabbitt/versionator"],
+      "matchDepNames": [
+        "benjaminabbitt/versionator",
+        "github.com/benjaminabbitt/versionator"
+      ],
       "groupName": "versionator"
     }
   ]

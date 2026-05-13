@@ -1015,74 +1015,61 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				"properties": map[string]interface{}{
 					"name": map[string]interface{}{
 						"type":        "string",
-						"description": "Bundle name (without extension). May include path segments to place under a remote subdirectory, e.g. 'personal/foo'.",
+						"description": "Bundle name (without extension). May include forward-slash path segments to place under a remote subdirectory, e.g. 'personal/foo'. Path-traversal segments ('..'), absolute paths, and null bytes are rejected — names are validated by bundles.ValidateBundleName.",
 					},
 					"description": map[string]interface{}{"type": "string", "description": "Human-readable description"},
 					"version":     map[string]interface{}{"type": "string", "description": "Bundle version (default: 1.0.0)"},
 					"tags":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Tags for discovery"},
 					"author":      map[string]interface{}{"type": "string", "description": "Author identifier"},
 					"fragments": map[string]interface{}{
-						"type":        "object",
-						"description": "Map of fragment name → {content, tags?, no_distill?}",
-						"additionalProperties": map[string]interface{}{
-							"type":     "object",
-							"required": []string{"content"},
-							"properties": map[string]interface{}{
-								"content":    map[string]interface{}{"type": "string"},
-								"tags":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-								"no_distill": map[string]interface{}{"type": "boolean"},
-							},
-						},
+						"type":                 "object",
+						"description":          "Map of fragment name → fragment entry. Fragments are markdown context loaded into the AI session.",
+						"additionalProperties": bundleFragmentEntrySchema(true),
 					},
 					"prompts": map[string]interface{}{
-						"type":        "object",
-						"description": "Map of prompt name → {content, description?, tags?, no_distill?}",
-						"additionalProperties": map[string]interface{}{
-							"type":     "object",
-							"required": []string{"content"},
-							"properties": map[string]interface{}{
-								"content":     map[string]interface{}{"type": "string"},
-								"description": map[string]interface{}{"type": "string"},
-								"tags":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-								"no_distill":  map[string]interface{}{"type": "boolean"},
-							},
-						},
+						"type":                 "object",
+						"description":          "Map of prompt name → prompt entry. Prompts are reusable instructions surfaced as slash commands.",
+						"additionalProperties": bundlePromptEntrySchema(true),
 					},
 					"mcp_servers": map[string]interface{}{
-						"type":        "object",
-						"description": "Map of server name → {command, args?, env?}",
-						"additionalProperties": map[string]interface{}{
-							"type":     "object",
-							"required": []string{"command"},
-							"properties": map[string]interface{}{
-								"command": map[string]interface{}{"type": "string"},
-								"args":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-								"env":     map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
-							},
-						},
+						"type":                 "object",
+						"description":          "Map of server name → MCP server entry. Bundled MCP servers are auto-registered when the bundle is installed.",
+						"additionalProperties": bundleMCPEntrySchema(true),
 					},
 				},
 			},
 		},
 		{
 			Name:        "update_bundle",
-			Description: "Update an existing bundle: change metadata, add/remove tags, set/remove fragments/prompts/MCP servers. Returns status:'no_changes' when the request is a no-op.",
+			Description: "Update an existing bundle: change metadata, add/remove tags, set/remove fragments/prompts/MCP servers. Set entries fully replace any existing entry with the same name (use the same content if you only want to change metadata, since omitted fields become zero). Returns status:'no_changes' when the request is a no-op.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"name"},
 				"properties": map[string]interface{}{
-					"name":             map[string]interface{}{"type": "string", "description": "Bundle name"},
-					"set_description":  map[string]interface{}{"type": "string", "description": "Replace description"},
-					"set_version":      map[string]interface{}{"type": "string", "description": "Replace version"},
-					"add_tags":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"remove_tags":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"set_fragments":    map[string]interface{}{"type": "object", "description": "Map of fragment name → {content, tags?, no_distill?} (adds or overwrites)"},
+					"name":            map[string]interface{}{"type": "string", "description": "Bundle name. Same rules as create_bundle.name — slashes allowed; '..', absolute paths, and null bytes rejected."},
+					"set_description": map[string]interface{}{"type": "string", "description": "Replace description"},
+					"set_version":     map[string]interface{}{"type": "string", "description": "Replace version"},
+					"add_tags":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"remove_tags":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"set_fragments": map[string]interface{}{
+						"type":                 "object",
+						"description":          "Map of fragment name → fragment entry (adds new or overwrites existing). Tag-only edits still require sending content to avoid silently zeroing it.",
+						"additionalProperties": bundleFragmentEntrySchema(true),
+					},
 					"remove_fragments": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"set_prompts":      map[string]interface{}{"type": "object", "description": "Map of prompt name → {content, description?, tags?, no_distill?}"},
-					"remove_prompts":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"set_mcp_servers":  map[string]interface{}{"type": "object", "description": "Map of server name → {command, args?, env?}"},
+					"set_prompts": map[string]interface{}{
+						"type":                 "object",
+						"description":          "Map of prompt name → prompt entry (adds new or overwrites existing).",
+						"additionalProperties": bundlePromptEntrySchema(true),
+					},
+					"remove_prompts": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"set_mcp_servers": map[string]interface{}{
+						"type":                 "object",
+						"description":          "Map of server name → MCP server entry (adds new or overwrites existing).",
+						"additionalProperties": bundleMCPEntrySchema(true),
+					},
 					"remove_mcp_servers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					"distill":          map[string]interface{}{"type": "boolean", "description": "Wholesale distill toggle. Default true; set false to skip distillation entirely."},
+					"distill":            map[string]interface{}{"type": "boolean", "description": "Wholesale distill toggle. Default true; set false to skip distillation entirely."},
 				},
 			},
 		},
@@ -1093,7 +1080,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				"type":     "object",
 				"required": []string{"name"},
 				"properties": map[string]interface{}{
-					"name": map[string]interface{}{"type": "string"},
+					"name": map[string]interface{}{"type": "string", "description": "Bundle name. Same validation as create_bundle/update_bundle — '..', absolute paths, and null bytes rejected."},
 				},
 			},
 		},
@@ -1104,7 +1091,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				"type":     "object",
 				"required": []string{"path"},
 				"properties": map[string]interface{}{
-					"path":      map[string]interface{}{"type": "string", "description": "Local path to the bundle YAML file"},
+					"path":      map[string]interface{}{"type": "string", "description": "Local path to the bundle YAML file. Unlike bundle names, this is a real filesystem path and is NOT name-validated — it is consumed as-is by os.ReadFile, so callers (typically other MCP tools that just created the bundle) are responsible for supplying paths they trust. Push the absolute path returned by create_bundle when possible."},
 					"message":   map[string]interface{}{"type": "string", "description": "Commit message (default: 'Update bundle: <name>')"},
 					"create_pr": map[string]interface{}{"type": "boolean", "description": "Open a pull request instead of direct-pushing to the default branch"},
 					"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview without making any network calls"},
@@ -1948,10 +1935,11 @@ func (s *mcpServer) toolCreateBundle(ctx context.Context, args json.RawMessage) 
 		return nil, err
 	}
 
-	// AI-driven authoring: distill on by default to match the existing
-	// `bundle fragment edit` CLI behavior. The MCP layer wires the real
-	// LLM-backed Distiller; operations defaults to skip when nil, but here
-	// we want the production behavior.
+	// bundleDistiller returns nil when no LLM plugin is configured; the
+	// operations layer treats that as "save raw content" so authoring still
+	// succeeds — distillation can be triggered later via `ctxloom bundle
+	// distill`. When a plugin is configured, every new/changed fragment and
+	// prompt is compressed inline.
 	distiller := s.bundleDistiller()
 
 	result, err := operations.CreateBundle(ctx, s.cfg, operations.CreateBundleRequest{
@@ -2072,13 +2060,114 @@ func (s *mcpServer) toolPushBundle(ctx context.Context, args json.RawMessage) (i
 	}, nil
 }
 
-// bundleDistiller is the production Distiller used by create_bundle /
-// update_bundle. Returns nil for now; the LLM-backed implementation will
-// be wired in a follow-up that exposes the cmd/bundle.go distill helpers
-// via internal/operations. AI sessions that want distillation today can
-// run `ctxloom bundle distill` after authoring.
+// bundleFragmentEntrySchema returns the JSON Schema for a single fragment
+// entry inside fragments / set_fragments maps. requireContent controls whether
+// content is required; today every operation requires it (input types fully
+// replace existing entries on a name match), so callers pass true.
+func bundleFragmentEntrySchema(requireContent bool) map[string]interface{} {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"content":      map[string]interface{}{"type": "string", "description": "Raw fragment markdown content"},
+			"tags":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"notes":        map[string]interface{}{"type": "string", "description": "Human-readable notes; not sent to the AI"},
+			"installation": map[string]interface{}{"type": "string", "description": "Setup instructions surfaced to the AI on install"},
+			"no_distill":   map[string]interface{}{"type": "boolean", "description": "Skip LLM compression for this fragment"},
+		},
+	}
+	if requireContent {
+		schema["required"] = []string{"content"}
+	}
+	return schema
+}
+
+func bundlePromptEntrySchema(requireContent bool) map[string]interface{} {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"content":      map[string]interface{}{"type": "string", "description": "Raw prompt content (slash-command body)"},
+			"description":  map[string]interface{}{"type": "string"},
+			"tags":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"notes":        map[string]interface{}{"type": "string", "description": "Human-readable notes; not sent to the AI"},
+			"installation": map[string]interface{}{"type": "string", "description": "Setup instructions surfaced to the AI on install"},
+			"no_distill":   map[string]interface{}{"type": "boolean"},
+		},
+	}
+	if requireContent {
+		schema["required"] = []string{"content"}
+	}
+	return schema
+}
+
+func bundleMCPEntrySchema(requireCommand bool) map[string]interface{} {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"command":      map[string]interface{}{"type": "string"},
+			"args":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"env":          map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
+			"notes":        map[string]interface{}{"type": "string", "description": "Human-readable notes; not sent to the AI"},
+			"installation": map[string]interface{}{"type": "string", "description": "Setup instructions surfaced to the AI on install"},
+		},
+	}
+	if requireCommand {
+		schema["required"] = []string{"command"}
+	}
+	return schema
+}
+
+// bundleDistiller is the Distiller for create_bundle / update_bundle. Wires
+// the same compression/LLM pipeline used by `ctxloom bundle distill`: AST or
+// JSON structural compression first, falling back to an LLM plugin invocation
+// for text/markdown. Returns nil (operations layer treats nil as "save raw")
+// when no LLM plugin is configured or when config loading fails — distillation
+// is a best-effort enhancement, never a hard requirement.
 func (s *mcpServer) bundleDistiller() operations.Distiller {
-	return nil
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	pluginName := cfg.GetDefaultLLMPlugin()
+	if pluginName == "" {
+		return nil
+	}
+	prompt, err := loadDistillPrompt()
+	if err != nil {
+		return nil
+	}
+	return &mcpLLMDistiller{
+		pluginName: pluginName,
+		pluginEnv:  cfg.LM.Plugins[pluginName].Env,
+		prompt:     prompt,
+	}
+}
+
+// mcpLLMDistiller adapts the cmd/bundle.go distill helpers to the
+// operations.Distiller interface. State is captured at construction so each
+// Distill call is self-contained.
+type mcpLLMDistiller struct {
+	pluginName string
+	pluginEnv  map[string]string
+	prompt     string
+}
+
+func (d *mcpLLMDistiller) Distill(_ context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
+	var excludeName string
+	switch req.Kind {
+	case operations.DistillKindFragment:
+		excludeName = "fragments/" + req.Name
+	case operations.DistillKindPrompt:
+		excludeName = "prompts/" + req.Name
+	}
+	var siblingCtx string
+	if req.Bundle != nil {
+		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
+	}
+	distilled, modelID, err := distillWithModel(d.pluginName, d.pluginEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	if err != nil {
+		return operations.DistillResult{}, err
+	}
+	return operations.DistillResult{Distilled: distilled, ModelID: modelID}, nil
 }
 
 // ============================================================================

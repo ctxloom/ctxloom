@@ -21,15 +21,38 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// DistillKind tags whether a Distill call is for a fragment or a prompt.
+// The real LLM-backed distiller uses this to scope the sibling-context it
+// builds (excluding the item being distilled).
+type DistillKind string
+
+const (
+	DistillKindFragment DistillKind = "fragment"
+	DistillKindPrompt   DistillKind = "prompt"
+)
+
+// DistillRequest carries everything an implementation needs to compress a
+// single item. Bundle is the in-flight bundle (post-merge, pre-save) so the
+// distiller can read sibling items for context-aware compression.
+type DistillRequest struct {
+	Kind    DistillKind
+	Name    string
+	Content string
+	Bundle  *bundles.Bundle
+}
+
+// DistillResult is what an implementation returns on success.
+type DistillResult struct {
+	Distilled string
+	ModelID   string
+}
+
 // Distiller compresses fragment/prompt content via an LLM. The operations
 // layer is provider-agnostic: callers (MCP server, future CLI refactor) wire
 // up a real LLM-backed implementation; tests inject a mock. A nil Distiller
 // means "skip distillation"; bundles still save with raw content.
 type Distiller interface {
-	// Distill returns the distilled content and the model identifier that
-	// produced it. The name is the fragment/prompt key, useful for logging
-	// and for any sibling-context the implementation needs to assemble.
-	Distill(ctx context.Context, name, content string) (distilled, modelID string, err error)
+	Distill(ctx context.Context, req DistillRequest) (DistillResult, error)
 }
 
 // CreateBundleRequest is the input for CreateBundle.
@@ -51,28 +74,36 @@ type CreateBundleRequest struct {
 
 // BundleFragmentInput describes a fragment to add or update via operations.
 // Distillation is governed by NoDistill plus the request-level distill toggle
-// in UpdateBundleRequest (see L3/L4 tests).
+// in UpdateBundleRequest (see L3/L4 tests). BundleFragment has no Description
+// field; use Notes for human-readable annotations not sent to the AI and
+// Installation for setup instructions surfaced on install.
 type BundleFragmentInput struct {
-	Content     string   `json:"content"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	NoDistill   bool     `json:"no_distill,omitempty"`
+	Content      string   `json:"content"`
+	Tags         []string `json:"tags,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+	Installation string   `json:"installation,omitempty"`
+	NoDistill    bool     `json:"no_distill,omitempty"`
 }
 
 // BundlePromptInput describes a prompt to add or update via operations.
 type BundlePromptInput struct {
-	Content     string   `json:"content"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	NoDistill   bool     `json:"no_distill,omitempty"`
+	Content      string   `json:"content"`
+	Description  string   `json:"description,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+	Installation string   `json:"installation,omitempty"`
+	NoDistill    bool     `json:"no_distill,omitempty"`
 }
 
 // BundleMCPInput describes an MCP server entry to add or update via operations.
+// BundleMCP has no Description; use Notes for AI-invisible annotations and
+// Installation for setup instructions surfaced to the AI on install.
 type BundleMCPInput struct {
-	Command     string            `json:"command"`
-	Args        []string          `json:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Description string            `json:"description,omitempty"`
+	Command      string            `json:"command"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Notes        string            `json:"notes,omitempty"`
+	Installation string            `json:"installation,omitempty"`
 }
 
 // CreateBundleResult is what CreateBundle returns on success.
@@ -83,19 +114,34 @@ type CreateBundleResult struct {
 }
 
 // CreateBundle writes a new bundle YAML to .ctxloom/cache/bundles/<name>.yaml.
+//
+// Path safety: req.Name is validated via bundles.ValidateBundleName before
+// any filesystem call, so names containing "..", absolute paths, or null
+// bytes are rejected. Slash-separated names like "personal/foo" are
+// supported and land at .ctxloom/cache/bundles/personal/foo.yaml (parent
+// dirs are MkdirAll'd). In addition, requireSafeBundlePath rejects any
+// directory component already on disk that is a symlink — without this an
+// attacker who had planted .ctxloom/cache/bundles/personal -> /etc could
+// induce Save to write outside the bundles root.
 func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleRequest) (*CreateBundleResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if err := bundles.ValidateBundleName(req.Name); err != nil {
+		return nil, err
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
 	dir := paths.BundlesPath(cfg.AppPaths[0])
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	path := filepath.Join(dir, req.Name+".yaml")
+	if err := requireSafeBundlePath([]string{dir}, path); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
-	path := filepath.Join(dir, req.Name+".yaml")
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
 	}
@@ -116,7 +162,8 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	applyPromptInputs(bundle, req.Prompts)
 	applyMCPInputs(bundle, req.MCPServers)
 
-	distillFragments(ctx, bundle, namesNeedingDistill(bundle, req.Fragments), req.Distiller)
+	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
+	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Prompts), req.Distiller)
 
 	if err := bundle.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
@@ -167,9 +214,15 @@ type UpdateBundleResult struct {
 
 // UpdateBundle mutates a bundle in place. Returns "no_changes" when the request
 // produced no diff so callers can detect idempotent operations.
+//
+// Path safety: req.Name is validated via bundles.ValidateBundleName — see
+// CreateBundle for the contract.
 func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleRequest) (*UpdateBundleResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if err := bundles.ValidateBundleName(req.Name); err != nil {
+		return nil, err
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -179,6 +232,12 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	bundle, err := loader.Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
+	}
+	// Loader resolves the bundle name to whatever path it finds on disk; if
+	// any component (or the file itself) is a symlink, Save would follow it
+	// out of the bundles tree. Reject before mutating.
+	if err := requireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
+		return nil, err
 	}
 
 	var changes []string
@@ -205,20 +264,31 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 		}
 	}
 
-	// Track which fragments are new/updated so distill targets exactly those.
-	var distillTargets []string
+	// Track which fragments/prompts need (re)distillation: new items, or
+	// existing items whose content actually changed. Tag/notes-only edits
+	// must not wipe existing Distilled/DistilledBy/ContentHash and must not
+	// trigger a redistill (which would burn tokens for no semantic change).
+	var fragmentDistillTargets, promptDistillTargets []string
 	for name, in := range req.SetFragments {
 		if bundle.Fragments == nil {
 			bundle.Fragments = make(map[string]bundles.BundleFragment)
 		}
-		bundle.Fragments[name] = bundles.BundleFragment{
-			Tags:      in.Tags,
-			Content:   in.Content,
-			NoDistill: in.NoDistill,
+		existing, hadExisting := bundle.Fragments[name]
+		merged := existing
+		merged.Tags = in.Tags
+		merged.Notes = in.Notes
+		merged.Installation = in.Installation
+		merged.NoDistill = in.NoDistill
+		if !hadExisting || existing.Content != in.Content {
+			merged.Content = in.Content
+			merged.Distilled = ""
+			merged.DistilledBy = ""
+			merged.ContentHash = ""
+			if !in.NoDistill {
+				fragmentDistillTargets = append(fragmentDistillTargets, name)
+			}
 		}
-		if !in.NoDistill {
-			distillTargets = append(distillTargets, name)
-		}
+		bundle.Fragments[name] = merged
 		changes = append(changes, "set fragment: "+name)
 	}
 	for _, name := range req.RemoveFragments {
@@ -232,12 +302,23 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 		if bundle.Prompts == nil {
 			bundle.Prompts = make(map[string]bundles.BundlePrompt)
 		}
-		bundle.Prompts[name] = bundles.BundlePrompt{
-			Description: in.Description,
-			Tags:        in.Tags,
-			Content:     in.Content,
-			NoDistill:   in.NoDistill,
+		existing, hadExisting := bundle.Prompts[name]
+		merged := existing
+		merged.Description = in.Description
+		merged.Tags = in.Tags
+		merged.Notes = in.Notes
+		merged.Installation = in.Installation
+		merged.NoDistill = in.NoDistill
+		if !hadExisting || existing.Content != in.Content {
+			merged.Content = in.Content
+			merged.Distilled = ""
+			merged.DistilledBy = ""
+			merged.ContentHash = ""
+			if !in.NoDistill {
+				promptDistillTargets = append(promptDistillTargets, name)
+			}
 		}
+		bundle.Prompts[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
 	for _, name := range req.RemovePrompts {
@@ -251,11 +332,13 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 		if bundle.MCP == nil {
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
-		bundle.MCP[name] = bundles.BundleMCP{
-			Command: in.Command,
-			Args:    in.Args,
-			Env:     in.Env,
-		}
+		existing := bundle.MCP[name]
+		existing.Command = in.Command
+		existing.Args = in.Args
+		existing.Env = in.Env
+		existing.Notes = in.Notes
+		existing.Installation = in.Installation
+		bundle.MCP[name] = existing
 		changes = append(changes, "set mcp: "+name)
 	}
 	for _, name := range req.RemoveMCPServers {
@@ -271,8 +354,10 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 
 	wholesaleSkip := req.Distill != nil && !*req.Distill
 	if !wholesaleSkip {
-		sort.Strings(distillTargets)
-		distillFragments(ctx, bundle, distillTargets, req.Distiller)
+		sort.Strings(fragmentDistillTargets)
+		sort.Strings(promptDistillTargets)
+		distillFragments(ctx, bundle, fragmentDistillTargets, req.Distiller)
+		distillPrompts(ctx, bundle, promptDistillTargets, req.Distiller)
 	}
 
 	if err := bundle.Save(); err != nil {
@@ -301,9 +386,16 @@ type DeleteBundleResult struct {
 
 // DeleteBundle removes the bundle file from disk. Returns "not found" if the
 // bundle isn't installed.
+//
+// Path safety: req.Name is validated via bundles.ValidateBundleName before
+// the bundle is looked up, so AI-supplied names can't address files outside
+// the configured bundle search dirs. See CreateBundle for the contract.
 func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest) (*DeleteBundleResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if err := bundles.ValidateBundleName(req.Name); err != nil {
+		return nil, err
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
@@ -313,6 +405,13 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 	bundle, err := loader.Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
+	}
+	// os.Remove on a symlink removes the link (not its target), so delete
+	// is intrinsically safer than write — but a symlinked parent could
+	// still steer the loader at a file outside the bundles tree, so apply
+	// the same check Update uses.
+	if err := requireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
+		return nil, err
 	}
 
 	if err := os.Remove(bundle.Path); err != nil {
@@ -367,7 +466,7 @@ type PushBundleResult struct {
 //  4. error with candidate list
 //
 // Network is touched only for non-dry-run; this commit covers dry-run.
-func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
+func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
 	if req.Path == "" {
 		return nil, fmt.Errorf("path is required")
 	}
@@ -385,8 +484,7 @@ func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("read bundle: %w", err)
 	}
-	bundle, err := bundles.ParseBundle(data)
-	if err != nil {
+	if _, err := bundles.ParseBundle(data); err != nil {
 		return nil, fmt.Errorf("invalid bundle: %w", err)
 	}
 
@@ -426,7 +524,6 @@ func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*
 		CreatePR:   req.CreatePR,
 		SizeBytes:  len(data),
 	}
-	_ = bundle // parsed for validation; future enhancements can read fields
 
 	if req.DryRun {
 		action := "direct push"
@@ -444,7 +541,7 @@ func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.AppPaths[0]))
 	}
 
-	pubResult, err := pm.Publish(context.Background(), absPath, remoteName, remote.PublishOptions{
+	pubResult, err := pm.Publish(ctx, absPath, remoteName, remote.PublishOptions{
 		CreatePR: req.CreatePR,
 		Message:  message,
 		ItemType: remote.ItemTypeBundle,
@@ -469,7 +566,7 @@ func PushBundle(_ context.Context, cfg *config.Config, req PushBundleRequest) (*
 func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
 	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
 	cacheRoot := paths.BundlesPath(cfg.AppPaths[0])
-	if rel, err := filepath.Rel(cacheRoot, absPath); err == nil && !strings.HasPrefix(rel, "..") {
+	if rel, err := filepath.Rel(cacheRoot, absPath); err == nil && !isOutsideRel(rel) {
 		parts := strings.Split(filepath.ToSlash(rel), "/")
 		if len(parts) >= 2 {
 			candidate := parts[0]
@@ -525,11 +622,68 @@ func isUnderCtxloom(cfg *config.Config, absPath string) bool {
 			continue
 		}
 		rel, err := filepath.Rel(appAbs, absPath)
-		if err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+		if err == nil && !isOutsideRel(rel) && rel != "." {
 			return true
 		}
 	}
 	return false
+}
+
+// isOutsideRel reports whether a result from filepath.Rel escapes the base
+// directory. Naive `strings.HasPrefix(rel, "..")` misclassifies legitimate
+// names like "..hidden"; we need the separator to follow.
+func isOutsideRel(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// requireSafeBundlePath verifies that target lives under one of the given
+// bundle dirs AND that no directory component between the containing dir
+// and target (inclusive of target itself when it exists) is a symlink.
+// This closes the symlink-traversal vector that ValidateBundleName alone
+// cannot: a pre-existing symlink inside the bundles tree could otherwise
+// steer os.WriteFile to clobber files outside it.
+//
+// Bundle roots themselves may be symlinks (a legitimate user choice — e.g.,
+// ~/.ctxloom symlinked into a workspace). Only components below a root
+// are rejected. Non-existent trailing components are fine; they'll be
+// created by MkdirAll as real directories after this check passes.
+//
+// Returns an error if target is not under any of dirs, or if the walk hits
+// a symlink, or if Lstat fails for an unexpected reason.
+func requireSafeBundlePath(dirs []string, target string) error {
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target: %w", err)
+	}
+	for _, dir := range dirs {
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absDir, absTarget)
+		if err != nil || isOutsideRel(rel) {
+			continue
+		}
+		if rel == "." {
+			return nil
+		}
+		cur := absDir
+		for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+			cur = filepath.Join(cur, seg)
+			info, err := os.Lstat(cur)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				return fmt.Errorf("lstat %s: %w", cur, err)
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("invalid bundle path: %s is a symlink (traversal not allowed)", cur)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("bundle path %s not under any configured bundles directory", target)
 }
 
 // matchRemoteByURL finds a registry entry whose URL matches the given URL
@@ -575,9 +729,11 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 	}
 	for name, frag := range in {
 		b.Fragments[name] = bundles.BundleFragment{
-			Tags:      frag.Tags,
-			Content:   frag.Content,
-			NoDistill: frag.NoDistill,
+			Tags:         frag.Tags,
+			Notes:        frag.Notes,
+			Installation: frag.Installation,
+			Content:      frag.Content,
+			NoDistill:    frag.NoDistill,
 		}
 	}
 }
@@ -591,10 +747,12 @@ func applyPromptInputs(b *bundles.Bundle, in map[string]BundlePromptInput) {
 	}
 	for name, p := range in {
 		b.Prompts[name] = bundles.BundlePrompt{
-			Description: p.Description,
-			Tags:        p.Tags,
-			Content:     p.Content,
-			NoDistill:   p.NoDistill,
+			Description:  p.Description,
+			Tags:         p.Tags,
+			Notes:        p.Notes,
+			Installation: p.Installation,
+			Content:      p.Content,
+			NoDistill:    p.NoDistill,
 		}
 	}
 }
@@ -608,18 +766,18 @@ func applyMCPInputs(b *bundles.Bundle, in map[string]BundleMCPInput) {
 	}
 	for name, m := range in {
 		b.MCP[name] = bundles.BundleMCP{
-			Command: m.Command,
-			Args:    m.Args,
-			Env:     m.Env,
+			Command:      m.Command,
+			Args:         m.Args,
+			Env:          m.Env,
+			Notes:        m.Notes,
+			Installation: m.Installation,
 		}
 	}
 }
 
-// namesNeedingDistill picks fragment names whose NoDistill is unset. We
-// pass through the input map because b.Fragments[name].NoDistill round-trips
-// from the input but we want a deterministic order for tests; sorting here
-// keeps test mocks predictable.
-func namesNeedingDistill(b *bundles.Bundle, in map[string]BundleFragmentInput) []string {
+// namesNeedingFragmentDistill picks fragment names whose NoDistill is unset
+// and that landed in the bundle. Deterministic order keeps tests stable.
+func namesNeedingFragmentDistill(b *bundles.Bundle, in map[string]BundleFragmentInput) []string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -629,6 +787,25 @@ func namesNeedingDistill(b *bundles.Bundle, in map[string]BundleFragmentInput) [
 			continue
 		}
 		if _, ok := b.Fragments[name]; !ok {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// namesNeedingPromptDistill is the prompt counterpart.
+func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundlePromptInput) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(in))
+	for name, p := range in {
+		if p.NoDistill {
+			continue
+		}
+		if _, ok := b.Prompts[name]; !ok {
 			continue
 		}
 		names = append(names, name)
@@ -647,14 +824,43 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 	}
 	for _, name := range names {
 		frag := b.Fragments[name]
-		distilled, modelID, err := d.Distill(ctx, name, frag.Content)
+		res, err := d.Distill(ctx, DistillRequest{
+			Kind:    DistillKindFragment,
+			Name:    name,
+			Content: frag.Content,
+			Bundle:  b,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of fragment %q failed: %v\n", name, err)
 			continue
 		}
-		frag.Distilled = distilled
-		frag.DistilledBy = modelID
+		frag.Distilled = res.Distilled
+		frag.DistilledBy = res.ModelID
 		frag.ContentHash = frag.ComputeContentHash()
 		b.Fragments[name] = frag
+	}
+}
+
+// distillPrompts mirrors distillFragments for prompts.
+func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) {
+	if d == nil || len(names) == 0 {
+		return
+	}
+	for _, name := range names {
+		p := b.Prompts[name]
+		res, err := d.Distill(ctx, DistillRequest{
+			Kind:    DistillKindPrompt,
+			Name:    name,
+			Content: p.Content,
+			Bundle:  b,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of prompt %q failed: %v\n", name, err)
+			continue
+		}
+		p.Distilled = res.Distilled
+		p.DistilledBy = res.ModelID
+		p.ContentHash = p.ComputeContentHash()
+		b.Prompts[name] = p
 	}
 }

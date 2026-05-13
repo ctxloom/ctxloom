@@ -174,13 +174,17 @@ type recordingDistiller struct {
 }
 
 type distillCall struct {
+	Kind    DistillKind
 	Name    string
 	Content string
 }
 
-func (d *recordingDistiller) Distill(_ context.Context, name, content string) (string, string, error) {
-	d.calls = append(d.calls, distillCall{Name: name, Content: content})
-	return d.returnValue, d.returnModel, d.returnErr
+func (d *recordingDistiller) Distill(_ context.Context, req DistillRequest) (DistillResult, error) {
+	d.calls = append(d.calls, distillCall{Kind: req.Kind, Name: req.Name, Content: req.Content})
+	if d.returnErr != nil {
+		return DistillResult{}, d.returnErr
+	}
+	return DistillResult{Distilled: d.returnValue, ModelID: d.returnModel}, nil
 }
 
 // TestCreateBundle_DistillsFragmentByDefault verifies that when a Distiller is
@@ -840,4 +844,180 @@ func TestCreateBundle_WithDescriptionTagsAuthor(t *testing.T) {
 	assert.Equal(t, "Pinned for review", got.Description)
 	assert.Equal(t, []string{"rust", "test"}, got.Tags)
 	assert.Equal(t, "alice", got.Author)
+}
+
+// TestCreateBundle_RejectsPathTraversal — names like "../etc/passwd" must be
+// rejected before any filesystem call. ValidateBundleName covers the matrix;
+// here we only need to prove operations actually invokes it.
+func TestCreateBundle_RejectsPathTraversal(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	cases := []string{"../escape", "../../etc/passwd", "/absolute/evil", "with\x00null"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: name})
+			require.Error(t, err, "name %q must be rejected", name)
+		})
+	}
+}
+
+// TestCreateBundle_RejectsSymlinkInParent — if an attacker has planted a
+// symlink at cache/bundles/personal -> /tmp/evil-dir, CreateBundle must
+// refuse rather than follow the link and write outside the bundles root.
+// ValidateBundleName accepts "personal/foo" (the name is clean), so this
+// vector is closed by requireSafeBundlePath, not the name check.
+func TestCreateBundle_RejectsSymlinkInParent(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+
+	// Plant: cache/bundles/personal -> evil/ (outside the bundles root).
+	bundlesRoot := paths.BundlesPath(appDir)
+	evilDir := filepath.Join(t.TempDir(), "evil")
+	require.NoError(t, os.MkdirAll(evilDir, 0755))
+	require.NoError(t, os.Symlink(evilDir, filepath.Join(bundlesRoot, "personal")))
+
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
+	require.Error(t, err, "symlink in parent path must be rejected")
+	assert.Contains(t, err.Error(), "symlink")
+
+	// Belt and braces: nothing should have leaked into evilDir.
+	_, statErr := os.Stat(filepath.Join(evilDir, "foo.yaml"))
+	assert.True(t, os.IsNotExist(statErr), "no bundle file should exist in the symlink target")
+}
+
+// TestUpdateBundle_RejectsSymlinkedBundleFile — if the bundle file itself
+// is a symlink to some other YAML, Save would clobber the target. Refuse.
+func TestUpdateBundle_RejectsSymlinkedBundleFile(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	bundlesRoot := paths.BundlesPath(appDir)
+
+	// Plant a victim YAML elsewhere, then symlink a "bundle" at it.
+	victimDir := t.TempDir()
+	victimPath := filepath.Join(victimDir, "victim.yaml")
+	require.NoError(t, os.WriteFile(victimPath, []byte("version: \"9.9.9\"\n"), 0644))
+	require.NoError(t, os.Symlink(victimPath, filepath.Join(bundlesRoot, "trojan.yaml")))
+
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:           "trojan",
+		SetDescription: stringPtr("pwned"),
+	})
+	require.Error(t, err, "loading a symlinked bundle file must be rejected on Update")
+	assert.Contains(t, err.Error(), "symlink")
+
+	// Victim file unchanged.
+	data, _ := os.ReadFile(victimPath)
+	assert.Equal(t, "version: \"9.9.9\"\n", string(data), "victim content untouched")
+}
+
+// TestCreateBundle_NestedName_CreatesParentDir — nested names like
+// "personal/foo" must work end-to-end; previously the parent dir wasn't
+// MkdirAll'd and Save failed.
+func TestCreateBundle_NestedName_CreatesParentDir(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
+	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(paths.BundlesPath(appDir), "personal", "foo.yaml"))
+	require.NoError(t, err, "nested bundle file should exist on disk")
+}
+
+// TestUpdateBundle_TagOnlyEdit_PreservesDistilledState — re-setting a fragment
+// with the same content but a new tag must not wipe Distilled/DistilledBy/
+// ContentHash and must not call the Distiller again (it would burn tokens
+// for no semantic change).
+func TestUpdateBundle_TagOnlyEdit_PreservesDistilledState(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	// Seed with a fragment that has distilled state.
+	seedDistiller := &recordingDistiller{returnValue: "DISTILLED", returnModel: "seed-model"}
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:      "seed",
+		Distiller: seedDistiller,
+		Fragments: map[string]BundleFragmentInput{
+			"intro": {Content: "original content"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, seedDistiller.calls, 1, "initial create should distill once")
+
+	// Tag-only edit: same content, new tags.
+	updateDistiller := &recordingDistiller{returnValue: "REDISTILLED", returnModel: "new-model"}
+	result, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:      "seed",
+		Distiller: updateDistiller,
+		SetFragments: map[string]BundleFragmentInput{
+			"intro": {Content: "original content", Tags: []string{"added"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, updateDistiller.calls, "unchanged content must not re-distill")
+
+	data, err := os.ReadFile(result.Path)
+	require.NoError(t, err)
+	var got bundles.Bundle
+	require.NoError(t, yaml.Unmarshal(data, &got))
+
+	frag := got.Fragments["intro"]
+	assert.Equal(t, "DISTILLED", frag.Distilled, "distilled content preserved")
+	assert.Equal(t, "seed-model", frag.DistilledBy, "model id preserved")
+	assert.NotEmpty(t, frag.ContentHash, "content hash preserved")
+	assert.Equal(t, []string{"added"}, frag.Tags, "tag edit applied")
+}
+
+// TestCreateBundle_DistillsPromptsToo — prompts now go through the same
+// pipeline as fragments. Mirrors TestCreateBundle_DistillsFragmentByDefault.
+func TestCreateBundle_DistillsPromptsToo(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	d := &recordingDistiller{returnValue: "P-DISTILLED", returnModel: "m"}
+
+	result, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:      "prompt-distill",
+		Distiller: d,
+		Prompts: map[string]BundlePromptInput{
+			"review": {Content: "long review prompt"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, d.calls, 1)
+	assert.Equal(t, DistillKindPrompt, d.calls[0].Kind)
+
+	data, err := os.ReadFile(result.Path)
+	require.NoError(t, err)
+	var got bundles.Bundle
+	require.NoError(t, yaml.Unmarshal(data, &got))
+	assert.Equal(t, "P-DISTILLED", got.Prompts["review"].Distilled)
+	assert.Equal(t, "m", got.Prompts["review"].DistilledBy)
+	assert.NotEmpty(t, got.Prompts["review"].ContentHash)
+}
+
+// TestCreateBundle_NotesAndInstallationRoundTrip — Notes/Installation on
+// inputs must survive serialization for fragments, prompts, and MCP servers.
+func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	result, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name: "metadata",
+		Fragments: map[string]BundleFragmentInput{
+			"f": {Content: "x", Notes: "internal", Installation: "run X", NoDistill: true},
+		},
+		Prompts: map[string]BundlePromptInput{
+			"p": {Content: "y", Notes: "p-notes", Installation: "install y", NoDistill: true},
+		},
+		MCPServers: map[string]BundleMCPInput{
+			"m": {Command: "cmd", Notes: "m-notes", Installation: "install m"},
+		},
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(result.Path)
+	require.NoError(t, err)
+	var got bundles.Bundle
+	require.NoError(t, yaml.Unmarshal(data, &got))
+
+	assert.Equal(t, "internal", got.Fragments["f"].Notes)
+	assert.Equal(t, "run X", got.Fragments["f"].Installation)
+	assert.Equal(t, "p-notes", got.Prompts["p"].Notes)
+	assert.Equal(t, "install y", got.Prompts["p"].Installation)
+	assert.Equal(t, "m-notes", got.MCP["m"].Notes)
+	assert.Equal(t, "install m", got.MCP["m"].Installation)
 }

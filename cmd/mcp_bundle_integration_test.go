@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -89,10 +88,7 @@ func (c *mcpClient) recvByID(t *testing.T, id int) map[string]interface{} {
 	for time.Now().Before(deadline) {
 		line, err := c.stdout.ReadString('\n')
 		if err != nil {
-			if err == io.EOF {
-				continue
-			}
-			t.Fatalf("read stdout: %v", err)
+			t.Fatalf("read stdout (id=%d): %v", id, err)
 		}
 		var msg map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
@@ -284,5 +280,3 @@ func TestMCP_WireProtocol_InvalidArgs_ReturnsError(t *testing.T) {
 	t.Fatalf("expected error response, got: %v", resp)
 }
 
-// silence unused-import warning when the integration test is the only consumer
-var _ = fmt.Sprint

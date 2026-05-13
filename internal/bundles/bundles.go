@@ -313,7 +313,7 @@ func (l *Loader) Load(name string) (*Bundle, error) {
 // Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").
 func (l *Loader) Find(name string) (string, error) {
 	// Security: validate name
-	if err := validateBundleName(name); err != nil {
+	if err := ValidateBundleName(name); err != nil {
 		return "", err
 	}
 
@@ -488,8 +488,38 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	return &bundle, nil
 }
 
-// validateBundleName checks for path traversal and invalid characters.
-func validateBundleName(name string) error {
+// ValidateBundleName rejects bundle names that would escape the bundles
+// directory when joined to a base path. This is the single chokepoint for
+// path-traversal defense — every caller that builds a filesystem path from a
+// user/AI-supplied bundle name MUST run names through this first.
+//
+// Rejected:
+//   - Empty names.
+//   - Names containing null bytes (would truncate the path on some C APIs).
+//   - Names that resolve to a path starting with ".." after filepath.Clean
+//     (e.g. "../etc/passwd", "foo/../../escape", "../"+anything).
+//   - Absolute paths ("/etc/passwd", "C:\\Windows\\…").
+//
+// Accepted:
+//   - Simple names: "my-bundle".
+//   - Slash-separated names: "personal/foo", "alice/go-tools". These are
+//     used to place bundles under a remote subdirectory; filepath.Join keeps
+//     them under the bundles root.
+//   - Names that contain ".." in the middle without escaping after Clean
+//     (e.g. "foo/../bar" cleans to "bar" — safe but probably an AI bug).
+//
+// Threat model: MCP tools accept names from AI clients, so an untrusted name
+// could request ".." segments. Without this check, filepath.Join silently
+// resolves "../../../tmp/evil" into a path outside the bundles root and
+// Bundle.Save would write to it. Empirically verified during the bundle-MCP
+// review on feat/bundle-mcp-tools.
+//
+// Not covered by this function: symlinks already on disk inside the bundles
+// tree. ValidateBundleName only inspects the string; it doesn't lstat path
+// components. The operations layer pairs this with a requireSafeBundlePath
+// walk that rejects symlinked directory components and symlinked bundle
+// files — both defenses are needed.
+func ValidateBundleName(name string) error {
 	if name == "" {
 		return fmt.Errorf("empty bundle name")
 	}

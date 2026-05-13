@@ -474,7 +474,7 @@ version: "1.0"
 }
 
 // =============================================================================
-// validateBundleName Tests
+// ValidateBundleName Tests
 // =============================================================================
 
 func TestValidateBundleName(t *testing.T) {
@@ -493,7 +493,7 @@ func TestValidateBundleName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateBundleName(tt.input)
+			err := ValidateBundleName(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

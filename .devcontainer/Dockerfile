@@ -84,7 +84,7 @@ RUN BIN="/usr/local/bin" && \
 RUN go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 # Install versionator for version management
-RUN go install github.com/benjaminabbitt/versionator@v0.1.1
+RUN go install github.com/benjaminabbitt/versionator@v0.2.1
 
 # Runtime module/build cache in workspace (writable by any user, persists across runs)
 ENV GOMODCACHE="/workspace/.cache/go/mod"

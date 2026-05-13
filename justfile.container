@@ -6,7 +6,8 @@
 # - CGO builds: treesitter (CGO but static-linkable)
 
 # Get version from versionator (with fallback)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
 
 # Static linking flags for builds that support it
 static_ldflags := "-linkmode external -extldflags '-static -pthread'"

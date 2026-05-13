@@ -2,8 +2,9 @@
 default: build
 
 # Get version from versionator (with fallback for CI without versionator)
-# Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
+# Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
 
 # ===== Version management (versionator) =====
 

@@ -13,8 +13,9 @@ prerelease:
   enabled: false
 
   # Template for reference (used inline in justfile):
-  # Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
-  template: "{{ShortHash}}{{DirtyWithDot}}"
+  # Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
+  # DateTimeDirty requires versionator >= v0.2.0.
+  template: "{{ShortHash}}{{DateTimeDirty}}"
 
 # Build metadata configuration
 # Disabled for Go compatibility - Go modules ignore metadata after +

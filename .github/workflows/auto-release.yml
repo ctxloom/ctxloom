@@ -33,8 +33,10 @@ jobs:
 
       - name: Install versionator
         run: |
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
-          chmod +x /usr/local/bin/versionator
+          # Releases >= v0.1.1 ship as tarballs containing versionator-linux-amd64.
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.2.1/versionator-linux-amd64.tar.gz -o /tmp/versionator.tar.gz
+          tar -xzf /tmp/versionator.tar.gz -C /tmp
+          install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
 
       - name: Get current version
         id: current

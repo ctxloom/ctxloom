@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ var (
 	runSuppressWarnings bool
 	runPrint            bool
 	runVerbosity        int
+	runAssumeYes        bool
 )
 
 var runCmd = &cobra.Command{
@@ -101,7 +103,8 @@ Examples:
 		// Auto-sync remote dependencies on startup if enabled (graceful failure).
 		// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
 		// on missing parent profiles or bundles that sync would have fetched.
-		if cfg.Sync.ShouldAutoSync() {
+		// In a TTY, confirm with the user before installing anything new.
+		if cfg.Sync.ShouldAutoSync() && confirmSyncInstall(ctx, cfg) {
 			syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
 			result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
 			syncCancel()
@@ -261,6 +264,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
+	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 
 	// Register completions
 	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)
@@ -268,5 +272,47 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
+}
+
+// confirmSyncInstall returns true if startup sync should proceed.
+// In an interactive terminal with pending installs, it lists them and asks
+// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
+// auto-confirm so they don't hang. On any check error, it falls through to
+// the existing graceful-failure path in SyncOnStartup.
+func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
+	if runAssumeYes || !isInteractiveTerminal() {
+		return true
+	}
+
+	check, err := operations.CheckMissingDependencies(ctx, cfg, operations.CheckMissingDependenciesRequest{})
+	if err != nil || check == nil || check.Count == 0 {
+		return true
+	}
+
+	fmt.Fprintf(os.Stderr, "ctxloom will install %d missing dependenc%s:\n", check.Count, plural(check.Count, "y", "ies"))
+	for _, dep := range check.Missing {
+		fmt.Fprintf(os.Stderr, "  - %s (%s, from profile %q)\n", dep.Reference, dep.Type, dep.Profile)
+	}
+	fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	if answer == "y" || answer == "yes" {
+		return true
+	}
+	fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
+	return false
+}
+
+func plural(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }
 

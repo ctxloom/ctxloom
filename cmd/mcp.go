@@ -1092,7 +1092,8 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 				"required": []string{"path"},
 				"properties": map[string]interface{}{
 					"path":      map[string]interface{}{"type": "string", "description": "Local path to the bundle YAML file. Unlike bundle names, this is a real filesystem path and is NOT name-validated — it is consumed as-is by os.ReadFile, so callers (typically other MCP tools that just created the bundle) are responsible for supplying paths they trust. Push the absolute path returned by create_bundle when possible."},
-					"message":   map[string]interface{}{"type": "string", "description": "Commit message (default: 'Update bundle: <name>')"},
+					"title":     map[string]interface{}{"type": "string", "description": "PR title and commit subject. Kept short (capped at ~72 chars on the PR; overflow goes into the body). If omitted, the first line of 'message' is used; if 'message' is also empty, defaults to 'Update bundle: <name>'."},
+					"message":   map[string]interface{}{"type": "string", "description": "PR body / commit body. Long detail belongs here, not in 'title'."},
 					"create_pr": map[string]interface{}{"type": "boolean", "description": "Open a pull request instead of direct-pushing to the default branch"},
 					"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview without making any network calls"},
 				},
@@ -2029,6 +2030,7 @@ func (s *mcpServer) toolDeleteBundle(ctx context.Context, args json.RawMessage) 
 func (s *mcpServer) toolPushBundle(ctx context.Context, args json.RawMessage) (interface{}, error) {
 	var params struct {
 		Path     string `json:"path"`
+		Title    string `json:"title"`
 		Message  string `json:"message"`
 		CreatePR bool   `json:"create_pr"`
 		DryRun   bool   `json:"dry_run"`
@@ -2038,6 +2040,7 @@ func (s *mcpServer) toolPushBundle(ctx context.Context, args json.RawMessage) (i
 	}
 	result, err := operations.PushBundle(ctx, s.cfg, operations.PushBundleRequest{
 		Path:     params.Path,
+		Title:    params.Title,
 		Message:  params.Message,
 		CreatePR: params.CreatePR,
 		DryRun:   params.DryRun,
@@ -2051,6 +2054,7 @@ func (s *mcpServer) toolPushBundle(ctx context.Context, args json.RawMessage) (i
 		"remote":      result.Remote,
 		"target_path": result.TargetPath,
 		"branch":      result.Branch,
+		"title":       result.Title,
 		"message":     result.Message,
 		"create_pr":   result.CreatePR,
 		"size_bytes":  result.SizeBytes,

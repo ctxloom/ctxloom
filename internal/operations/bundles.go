@@ -428,7 +428,11 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 // remote target. Callers don't need to specify the remote name — but they
 // can override commit metadata.
 type PushBundleRequest struct {
-	Path     string `json:"path"`
+	Path string `json:"path"`
+	// Title is the PR title (and commit subject). Kept separate from Message
+	// because GitHub PR titles cap at 256 bytes — collapsing a long commit
+	// message into the title silently truncates body detail.
+	Title    string `json:"title,omitempty"`
 	Message  string `json:"message,omitempty"`
 	CreatePR bool   `json:"create_pr,omitempty"`
 	DryRun   bool   `json:"dry_run,omitempty"`
@@ -446,7 +450,8 @@ type PushBundleResult struct {
 	Remote     string `json:"remote"`      // Resolved registry name, or URL if no name match.
 	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. ctxloom/v1/bundles/foo.yaml).
 	Branch     string `json:"branch,omitempty"`
-	Message    string `json:"message,omitempty"`
+	Title      string `json:"title,omitempty"`   // PR title / commit subject
+	Message    string `json:"message,omitempty"` // PR body / commit body
 	CreatePR   bool   `json:"create_pr"`
 	SizeBytes  int    `json:"size_bytes,omitempty"`
 
@@ -511,15 +516,28 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 	targetPath := fmt.Sprintf("ctxloom/%s/bundles/%s.yaml", version, bundleName)
 
-	message := req.Message
-	if message == "" {
-		message = fmt.Sprintf("Update bundle: %s", bundleName)
+	// Resolve title/body the same way publish.go does, so the result accurately
+	// reflects what the PR will look like (title may be lifted from message).
+	title := strings.TrimSpace(req.Title)
+	message := strings.TrimSpace(req.Message)
+	if title == "" && message != "" {
+		if idx := strings.IndexByte(message, '\n'); idx >= 0 {
+			title = strings.TrimSpace(message[:idx])
+			message = strings.TrimSpace(message[idx+1:])
+		} else {
+			title = message
+			message = ""
+		}
+	}
+	if title == "" {
+		title = fmt.Sprintf("Update bundle: %s", bundleName)
 	}
 
 	result := &PushBundleResult{
 		Path:       absPath,
 		Remote:     remoteName,
 		TargetPath: targetPath,
+		Title:      title,
 		Message:    message,
 		CreatePR:   req.CreatePR,
 		SizeBytes:  len(data),
@@ -531,8 +549,8 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 			action = "pull request"
 		}
 		result.Status = "preview"
-		result.Preview = fmt.Sprintf("Would publish %s (%d bytes) to %s as %s via %s; commit message: %q",
-			bundleName, len(data), rem.URL, targetPath, action, message)
+		result.Preview = fmt.Sprintf("Would publish %s (%d bytes) to %s as %s via %s; title: %q",
+			bundleName, len(data), rem.URL, targetPath, action, title)
 		return result, nil
 	}
 
@@ -543,6 +561,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	pubResult, err := pm.Publish(ctx, absPath, remoteName, remote.PublishOptions{
 		CreatePR: req.CreatePR,
+		Title:    title,
 		Message:  message,
 		ItemType: remote.ItemTypeBundle,
 		Version:  version,

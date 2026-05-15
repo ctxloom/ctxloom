@@ -675,7 +675,9 @@ remotes:
 	assert.Empty(t, result.CommitSHA, "no real publish happens in dry-run")
 	assert.Empty(t, result.PRURL)
 	assert.NotEmpty(t, result.Preview)
-	assert.Equal(t, "Add shape-test", result.Message)
+	// Single-line input is lifted into Title; Message (PR body) is empty.
+	assert.Equal(t, "Add shape-test", result.Title)
+	assert.Empty(t, result.Message)
 	assert.True(t, result.CreatePR)
 	assert.Greater(t, result.SizeBytes, 0)
 }

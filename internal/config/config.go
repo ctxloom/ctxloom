@@ -103,42 +103,39 @@ func (c *Config) GetEditorCommand() (string, []string) {
 	return "nano", nil
 }
 
-// GetDefaultProfiles returns the default profiles from config.
-// Checks defaults.profiles array and profiles with default: true.
-func (c *Config) GetDefaultProfiles() []string {
+// ExplicitDefaultProfiles returns profiles named in the canonical
+// defaults.profiles array. This does NOT apply the single-profile fallback
+// used by GetDefaultProfiles. Use this when deciding whether to auto-promote
+// a newly-installed profile — auto-promote should only trigger when the
+// user has made no explicit choice.
+func (c *Config) ExplicitDefaultProfiles() []string {
 	seen := collections.NewSet[string]()
 	var defaults []string
-
-	// Helper to add without duplicates
-	addProfile := func(name string) {
+	for _, name := range c.Defaults.Profiles {
 		if name != "" && !seen.Has(name) {
 			seen.Add(name)
 			defaults = append(defaults, name)
 		}
 	}
-
-	// Check defaults.profiles array
-	for _, name := range c.Defaults.Profiles {
-		addProfile(name)
-	}
-
-	// Also check for profiles with default: true in config
-	for name, profile := range c.Profiles {
-		if profile.Default {
-			addProfile(name)
-		}
-	}
-
-	// Also check directory-based profiles with default: true
-	loader := c.GetProfileLoader()
-	for _, name := range loader.GetDefaults() {
-		addProfile(name)
-	}
-
-	if len(defaults) == 0 {
-		return nil
-	}
 	return defaults
+}
+
+// GetDefaultProfiles returns the default profiles to load for `ctxloom run`.
+// Reads the canonical defaults.profiles array. As a last-resort fallback, if
+// no default is configured but exactly one profile is installed locally, that
+// profile is returned — otherwise `ctxloom run` would launch with empty
+// context.
+func (c *Config) GetDefaultProfiles() []string {
+	defaults := c.ExplicitDefaultProfiles()
+	if len(defaults) > 0 {
+		return defaults
+	}
+
+	// Fallback: if exactly one profile is installed, treat it as the default.
+	if all, err := c.GetProfileLoader().List(); err == nil && len(all) == 1 {
+		return []string{all[0].Name}
+	}
+	return nil
 }
 
 // GetDefaultLLMPlugin returns the default LLM plugin name.
@@ -392,7 +389,6 @@ func (f FragmentRef) MarshalYAML() (interface{}, error) {
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
-	Default     bool              `mapstructure:"default" yaml:"default,omitempty"`           // Whether this is a default profile
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
 	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include

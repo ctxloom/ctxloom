@@ -3,14 +3,140 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
+
+// PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
+// if no explicit default is currently configured. Uses
+// ExplicitDefaultProfiles rather than GetDefaultProfiles so the single-profile
+// fallback does not suppress the promotion — auto-promote's job is to make
+// the implicit choice explicit on disk.
+// Save errors are warned but non-fatal — the caller's primary operation has
+// already succeeded by the time this is called.
+// Returns true if the profile was added and the config saved.
+func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
+	if cfg == nil || profileName == "" {
+		return false
+	}
+	if len(cfg.ExplicitDefaultProfiles()) > 0 {
+		return false
+	}
+	if !cfg.Defaults.AddDefaultProfile(profileName) {
+		return false
+	}
+	if err := cfg.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: set %q as default profile in memory but failed to persist: %v\n", profileName, err)
+		return false
+	}
+	return true
+}
+
+// LocalProfileNameFromPath returns the profile name (as used by the profile
+// loader) for a profile file path under cfg's base ctxloom directory.
+// Returns ("", false) if the path is not within the profiles directory.
+func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, bool) {
+	profilesDir := paths.ProfilesPath(getBaseDir(cfg))
+	rel, err := filepath.Rel(profilesDir, localPath)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	rel = strings.TrimSuffix(rel, ".yaml")
+	rel = strings.TrimSuffix(rel, ".yml")
+	if rel == "" {
+		return "", false
+	}
+	return rel, true
+}
+
+// autoProfileName is the name used for the synthetic profile generated when
+// the user has installed bundles but no profile.
+const autoProfileName = "auto"
+
+// EnsureAutoProfile keeps a synthetic "auto" profile in sync with the set of
+// installed bundles when (and only when) the user has installed at least one
+// bundle but no real profile of their own. The profile is written to
+// .ctxloom/profiles/auto.yaml and added to defaults.profiles in config.yaml,
+// so `ctxloom run` produces non-empty context out of the box.
+//
+// Idempotent on each call:
+//   - If any non-"auto" profile exists locally, do nothing — the user has
+//     committed to a profile of their own and the auto profile must not
+//     interfere.
+//   - If no bundles are installed, do nothing — there's nothing to assemble.
+//   - Otherwise, regenerate auto.yaml so its bundle list matches what's
+//     currently installed, and ensure "auto" is listed in defaults.profiles.
+//
+// Save/write errors are warned but non-fatal (fault-tolerance philosophy).
+func EnsureAutoProfile(cfg *config.Config) {
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return
+	}
+
+	profileLdr := profileLoader(cfg)
+	existingProfiles, err := profileLdr.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to list profiles for auto-profile generation: %v\n", err)
+		return
+	}
+	for _, p := range existingProfiles {
+		if p.Name != autoProfileName {
+			return
+		}
+	}
+
+	bundleLdr := bundleLoader(cfg)
+	bundleInfos, err := bundleLdr.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to list bundles for auto-profile generation: %v\n", err)
+		return
+	}
+	if len(bundleInfos) == 0 {
+		return
+	}
+
+	bundleNames := make([]string, 0, len(bundleInfos))
+	for _, b := range bundleInfos {
+		bundleNames = append(bundleNames, b.Name)
+	}
+	sort.Strings(bundleNames)
+
+	// Skip rewriting if the existing auto.yaml already lists the same bundles.
+	upToDate := false
+	if len(existingProfiles) == 1 && existingProfiles[0].Name == autoProfileName {
+		existingBundles := append([]string(nil), existingProfiles[0].Bundles...)
+		sort.Strings(existingBundles)
+		upToDate = slices.Equal(existingBundles, bundleNames)
+	}
+
+	if !upToDate {
+		autoProfile := &profiles.Profile{
+			Name:        autoProfileName,
+			Description: "Auto-generated profile listing every installed bundle. Regenerated on each `ctxloom run`; create your own profile to take over.",
+			Bundles:     bundleNames,
+		}
+		if err := profileLdr.Save(autoProfile); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to write auto profile: %v\n", err)
+			return
+		}
+	}
+
+	// Ensure "auto" is listed in defaults.profiles. AddDefaultProfile is a
+	// no-op when already present; we only Save() if something changed.
+	if cfg.Defaults.AddDefaultProfile(autoProfileName) {
+		if err := cfg.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: wrote auto profile but failed to mark it default in config: %v\n", err)
+		}
+	}
+}
 
 // ProfileEntry represents a profile in operation results.
 type ProfileEntry struct {
@@ -219,6 +345,10 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save default setting: %w", err)
 		}
+	} else {
+		// Auto-promote: if there is no default profile yet, this becomes it so
+		// that `ctxloom run` doesn't launch with empty context.
+		PromoteToDefaultIfFirst(cfg, req.Name)
 	}
 
 	return &CreateProfileResult{

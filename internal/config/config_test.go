@@ -943,35 +943,14 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		assert.Contains(t, defaults, "dev")
 	})
 
-	t.Run("includes profiles with default true", func(t *testing.T) {
+	t.Run("no duplicates in defaults.profiles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		appDir := "/project/.ctxloom"
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Profiles: map[string]Profile{
-				"prod": {Default: true},
-				"dev":  {Default: false},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Contains(t, defaults, "prod")
-		assert.NotContains(t, defaults, "dev")
-	})
-
-	t.Run("no duplicates", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"prod"}},
-			Profiles: map[string]Profile{
-				"prod": {Default: true}, // Same profile also marked default
-			},
+			Defaults: Defaults{Profiles: []string{"prod", "prod"}},
+			Profiles: map[string]Profile{},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1357,27 +1336,54 @@ llm:
 // GetDefaultProfiles Additional Coverage
 // =============================================================================
 
-func TestConfig_GetDefaultProfiles_FromDirectoryProfile(t *testing.T) {
-	// Test when directory-based profiles have defaults
+func TestConfig_GetDefaultProfiles_SingleProfileFallback(t *testing.T) {
+	// When no default is explicitly configured but exactly one profile is
+	// installed locally, GetDefaultProfiles should return it as a fallback so
+	// `ctxloom run` doesn't launch with empty context.
 	tmpDir := t.TempDir()
-	// Profiles are stored in persistent/profiles/
 	profilesDir := paths.ProfilesPath(tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
-	// Create a profile file with default: true
-	profileContent := `
-default: true
-description: A default profile
-`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dir-profile.yaml"), []byte(profileContent), 0644))
+	// Single profile, NOT marked default.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
 
-	cfg := &Config{
-		Profiles: map[string]Profile{},
-		AppPaths: []string{tmpDir},
-	}
+	cfg := &Config{AppPaths: []string{tmpDir}}
 
-	defaults := cfg.GetDefaultProfiles()
-	assert.Contains(t, defaults, "dir-profile")
+	assert.Empty(t, cfg.ExplicitDefaultProfiles(),
+		"no default is explicitly configured")
+	assert.Equal(t, []string{"only"}, cfg.GetDefaultProfiles(),
+		"single installed profile should be returned by fallback")
+}
+
+func TestConfig_GetDefaultProfiles_MultipleProfilesNoDefault(t *testing.T) {
+	// When two profiles exist locally and none is marked default, the fallback
+	// must NOT pick one — ambiguity should bubble up so the user sees empty
+	// context (rather than silently loading a random profile).
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "a.yaml"),
+		[]byte("description: a\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "b.yaml"),
+		[]byte("description: b\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Nil(t, cfg.GetDefaultProfiles())
+}
+
+func TestConfig_ExplicitDefaultProfiles_IgnoresFallback(t *testing.T) {
+	// ExplicitDefaultProfiles must not trigger the single-profile fallback —
+	// auto-promote depends on this distinction.
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Empty(t, cfg.ExplicitDefaultProfiles())
 }
 
 // =============================================================================

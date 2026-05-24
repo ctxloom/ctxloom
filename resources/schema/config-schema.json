@@ -220,10 +220,6 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "default": {
-            "type": "boolean",
-            "description": "Whether this profile is a default profile (automatically loaded when no explicit fragments/tags/profile specified)"
-          },
           "description": {
             "type": "string",
             "description": "Human-readable description of this profile"

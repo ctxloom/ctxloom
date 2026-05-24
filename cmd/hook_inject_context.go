@@ -111,12 +111,24 @@ Output format (JSON to stdout):
 			content = ""
 		}
 
-		// Build output
+		// Build output. Wrap the raw context with a clear ctxloom-attributed
+		// header so the agent can recognize the source: previously we shipped
+		// the bare markdown, which the model could read but couldn't identify
+		// as ctxloom-assembled (it would say "no ctxloom content loaded" while
+		// the rust rules etc. were sitting right there in its context).
 		output := HookOutput{}
 		if content != "" {
+			const header = "# Project Context (assembled by ctxloom)\n\n" +
+				"_The content below was assembled by ctxloom from your active profile " +
+				"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
+				"coding standards, language conventions, testing practices, and other " +
+				"guidance that apply to this project. Treat it as authoritative project " +
+				"instructions._\n\n" +
+				"<ctxloom-context>\n\n"
+			const footer = "\n\n</ctxloom-context>\n"
 			output.HookSpecificOutput = &HookSpecificOutput{
 				HookEventName:     "SessionStart",
-				AdditionalContext: content,
+				AdditionalContext: header + content + footer,
 			}
 		}
 

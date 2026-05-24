@@ -10,7 +10,6 @@ Profiles are stored in `.ctxloom/profiles/` as YAML files:
 
 ```yaml
 description: "Profile description"
-default: false                      # Mark as default profile
 
 parents:                            # Inherit from other profiles
   - base-profile
@@ -31,6 +30,9 @@ variables:                         # Template variables (Mustache)
   PROJECT_NAME: "my-app"
   DEBUG: "true"
 ```
+
+To mark a profile as the default for `ctxloom run`, list it under
+`defaults.profiles` in `.ctxloom/config.yaml` (see [Default Profiles](#default-profiles) below). The legacy per-file `default: true` flag is no longer supported.
 
 ## Content Reference Syntax
 
@@ -207,17 +209,7 @@ Or via the MCP tool when the profile uses inline fragment definitions.
 
 ## Default Profiles
 
-Mark a profile as default to load automatically:
-
-```yaml
-# .ctxloom/profiles/developer.yaml
-description: "Default dev profile"
-default: true
-bundles:
-  - standards
-```
-
-Or in config.yaml:
+List profiles to load automatically in `.ctxloom/config.yaml`:
 
 ```yaml
 defaults:
@@ -225,6 +217,16 @@ defaults:
     - developer
     - ctxloom-default/base
 ```
+
+This is the only way to mark a profile as default. ctxloom auto-promotes a
+profile here when:
+
+- you create the first profile (via `create_profile` or interactive setup), or
+- you `pull_remote` a profile and no default is configured yet, or
+- exactly one profile is installed locally (single-profile fallback at run time).
+
+If you want a different default later, edit `defaults.profiles` directly or
+call `update_profile <name> --default true`.
 
 ## Variables
 

@@ -390,8 +390,8 @@ Based on what you find, suggest matching content from **all configured remotes**
 3. Identify any installed bundles or remote bundles the user pulled that aren't covered by an installed profile — those are "orphan bundles"
 4. If there are orphan bundles, offer to construct a new local profile that includes them:
    - Suggest a name that reflects the project (e.g. "<project-stack>-defaults")
-   - Use create_profile with bundles=[...orphans], default=true so it's loaded automatically by ctxloom run
-   - If the user already has a default profile, ask whether to add to defaults or replace
+   - Use create_profile with bundles=[...orphans]; the first profile you install is auto-promoted to defaults.profiles, so ctxloom run will load it automatically
+   - To switch defaults later, call update_profile with default: true on the new profile
 5. Confirm the final defaults.profiles list with the user before exiting
 
 If you'd prefer to skip this setup, just say "skip" and configure manually later.`

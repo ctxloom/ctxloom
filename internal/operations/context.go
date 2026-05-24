@@ -61,6 +61,12 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	profileName := req.Profile
 	var profileNames []string
 	if profileName == "" && len(req.Fragments) == 0 && len(req.Tags) == 0 {
+		// If no profile/fragment/tag is selected, make sure there's *something*
+		// to assemble: when the user has installed bundles but never created a
+		// profile, synthesize an "auto" profile listing every installed bundle
+		// and add it to defaults.profiles. Idempotent and a no-op when the
+		// user already has their own profile.
+		EnsureAutoProfile(cfg)
 		profileNames = cfg.GetDefaultProfiles()
 	} else if profileName != "" {
 		profileNames = []string{profileName}

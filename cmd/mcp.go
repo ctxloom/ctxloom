@@ -889,7 +889,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 					},
 					"default": map[string]interface{}{
 						"type":        "boolean",
-						"description": "Set as default profile (optional)",
+						"description": "Add this profile to defaults.profiles in config.yaml. Usually unnecessary — the first installed profile is auto-promoted. Pass true only when the user wants this new profile to replace an existing default.",
 					},
 					"exclude_fragments": map[string]interface{}{
 						"type":        "array",
@@ -956,7 +956,7 @@ func (s *mcpServer) getLocalTools() []mcpToolInfo {
 					},
 					"default": map[string]interface{}{
 						"type":        "boolean",
-						"description": "Set as default profile (optional)",
+						"description": "Add (true) or remove (false) this profile from defaults.profiles in config.yaml. Use to switch which profile `ctxloom run` loads by default.",
 					},
 					"add_exclude_fragments": map[string]interface{}{
 						"type":        "array",
@@ -1797,6 +1797,16 @@ func (s *mcpServer) toolPullRemote(ctx context.Context, args json.RawMessage) (i
 		bundle, parseErr := bundles.ParseBundle([]byte(fetchResult.Content))
 		if parseErr == nil && bundle.Installation != "" {
 			result["installation"] = bundle.Installation
+		}
+	}
+
+	// Auto-promote a pulled profile to default when no default is configured.
+	// Without this, `ctxloom run` launches with empty context after a fresh init.
+	if params.ItemType == "profile" {
+		if name, ok := operations.LocalProfileNameFromPath(s.cfg, writeResult.LocalPath); ok {
+			if operations.PromoteToDefaultIfFirst(s.cfg, name) {
+				result["set_as_default"] = true
+			}
 		}
 	}
 

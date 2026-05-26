@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // getFS returns the provided filesystem or a default OS filesystem if nil.
@@ -34,4 +36,48 @@ func loadFreshConfig(fs afero.Fs, appDir string, testConfig *config.Config) (*co
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 	return cfg, nil
+}
+
+// newRepoCache creates a RepoCache rooted at the standard cache path for cfg.
+func newRepoCache(cfg *config.Config) *remote.RepoCache {
+	baseDir := getBaseDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+	return remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+}
+
+// newCachedFetcherFactory returns a FetcherFactory backed by the local clone
+// cache. All content/ref operations are local; SearchRepos is the only path
+// that may hit the forge API.
+func newCachedFetcherFactory(cfg *config.Config) remote.FetcherFactory {
+	return remote.NewCachedFetcherFactory(newRepoCache(cfg))
+}
+
+// getCachedFetcher returns a Fetcher for repoURL using the local clone cache.
+// Used by operations that need to read a single remote (browse, pull,
+// fetch-content); for bulk operations across many entries prefer newRepoCache
+// + UpdateRepo to dedup work per URL.
+func getCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
+	baseDir := getBaseDir(cfg)
+	auth := remote.LoadAuth(baseDir)
+	return newCachedFetcherFactory(cfg)(repoURL, auth)
+}
+
+// NewRepoCache returns a RepoCache rooted at the standard cache path for cfg.
+// Exported so cmd callers (e.g. `remote update`) can pre-fetch per-URL before
+// looping over many lockfile entries.
+func NewRepoCache(cfg *config.Config) *remote.RepoCache {
+	return newRepoCache(cfg)
+}
+
+// NewCachedFetcherFactory returns a FetcherFactory backed by the local clone
+// cache, exported for cmd callers that build their own Puller / iterate
+// remotes directly.
+func NewCachedFetcherFactory(cfg *config.Config) remote.FetcherFactory {
+	return newCachedFetcherFactory(cfg)
+}
+
+// GetCachedFetcher returns a Fetcher for repoURL using the local clone cache.
+// Exported version of getCachedFetcher for cmd callers.
+func GetCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
+	return getCachedFetcher(cfg, repoURL)
 }

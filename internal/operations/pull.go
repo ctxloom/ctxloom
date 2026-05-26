@@ -120,13 +120,11 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 		return nil, err
 	}
 
-	// Use injected fetcher or create one
+	// Use injected fetcher or create one backed by the local clone cache.
 	fetcher := req.Fetcher
 	if fetcher == nil {
-		baseDir := getBaseDir(cfg)
-		auth := remote.LoadAuth(baseDir)
 		var err error
-		fetcher, err = remote.NewFetcher(rem.URL, auth)
+		fetcher, err = getCachedFetcher(cfg, rem.URL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fetcher: %w", err)
 		}
@@ -323,7 +321,7 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		}
 
 		auth := remote.LoadAuth(baseDir)
-		puller = remote.NewPuller(registry, auth)
+		puller = remote.NewPuller(registry, auth, remote.WithFetcherFactory(newCachedFetcherFactory(cfg)))
 	}
 
 	opts := remote.PullOptions{
@@ -346,14 +344,13 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		CascadePulled: result.CascadePulled,
 	}
 
-	// Extract installation instructions from pulled bundle
-	if itemType == remote.ItemTypeBundle && result.LocalPath != "" {
-		data, readErr := afero.ReadFile(getFS(req.FS), result.LocalPath)
-		if readErr == nil {
-			bundle, parseErr := bundles.ParseBundle(data)
-			if parseErr == nil && bundle.Installation != "" {
-				pullResult.Installation = bundle.Installation
-			}
+	// Extract installation instructions from pulled bundle. After PR 1 the
+	// bundle bytes come back on result.Content (LocalPath is synthetic),
+	// so parse those directly instead of re-reading from disk.
+	if itemType == remote.ItemTypeBundle && len(result.Content) > 0 {
+		bundle, parseErr := bundles.ParseBundle(result.Content)
+		if parseErr == nil && bundle.Installation != "" {
+			pullResult.Installation = bundle.Installation
 		}
 	}
 

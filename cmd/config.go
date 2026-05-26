@@ -54,7 +54,7 @@ Available sections:
 		}
 
 		section := args[0]
-		var data interface{}
+		var data any
 
 		switch section {
 		case "defaults":

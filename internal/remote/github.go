@@ -84,21 +84,29 @@ func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
 }
 
 // loggingTransport logs every HTTP request to stderr for diagnostics.
+// Quiet by default; set CTXLOOM_DEBUG_HTTP=1 to enable. The cached-clone path
+// has eliminated most API traffic, so unconditional logging became noise on
+// every legitimate operation (discover, publish).
 type loggingTransport struct {
 	base http.RoundTripper
 }
 
 func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "ctxloom: GitHub API call: %s %s\n", req.Method, req.URL.String())
+	debug := os.Getenv("CTXLOOM_DEBUG_HTTP") == "1"
+	if debug {
+		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API call: %s %s\n", req.Method, req.URL.String())
+	}
 	base := t.base
 	if base == nil {
 		base = http.DefaultTransport
 	}
 	resp, err := base.RoundTrip(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API error: %v\n", err)
-	} else if resp.StatusCode >= 400 {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API status: %d for %s\n", resp.StatusCode, req.URL.Path)
+	if debug {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: GitHub API error: %v\n", err)
+		} else if resp.StatusCode >= 400 {
+			fmt.Fprintf(os.Stderr, "ctxloom: GitHub API status: %d for %s\n", resp.StatusCode, req.URL.Path)
+		}
 	}
 	return resp, err
 }

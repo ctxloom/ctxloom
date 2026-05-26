@@ -6,8 +6,14 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -958,6 +964,90 @@ profiles: {}
 	assert.Equal(t, "xyz99", result.Items[0].LatestSHA)
 }
 
+// TestCheckOutdated_DedupsFetcherPerURL asserts that when many lockfile
+// entries share a repo URL, the injected FetcherFactory is invoked only once
+// per unique URL — the cached fetcher is reused for every additional entry.
+// This is what makes the rework "no mass calls": even with 50 bundles in one
+// repo, we open the clone exactly once.
+func TestCheckOutdated_DedupsFetcherPerURL(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+
+	// Two remotes (two unique URLs), five bundles each → 10 entries total.
+	lockContent := `version: 1
+bundles:
+  alpha/one:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/two:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/three:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/four:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/five:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  beta/one:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/two:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/three:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/four:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/five:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+profiles: {}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
+
+	remotesContent := `remotes:
+  alpha:
+    url: https://github.com/alpha/repo
+  beta:
+    url: https://github.com/beta/repo
+`
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
+
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	mock := remote.NewMockFetcher()
+	mock.DefaultBranch = "main"
+	mock.Refs = map[string]string{"main": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+
+	factoryCalls := map[string]int{}
+	fetcherFactory := func(url string, auth remote.AuthConfig) (remote.Fetcher, error) {
+		factoryCalls[url]++
+		return mock, nil
+	}
+
+	cfg := testConfigWithSCMPath(testBaseDir)
+	_, err = CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
+		FS:             fs,
+		LockManager:    lockManager,
+		Registry:       registry,
+		FetcherFactory: fetcherFactory,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, factoryCalls["https://github.com/alpha/repo"],
+		"factory should be invoked exactly once per unique URL")
+	assert.Equal(t, 1, factoryCalls["https://github.com/beta/repo"],
+		"factory should be invoked exactly once per unique URL")
+	assert.Len(t, factoryCalls, 2, "exactly two unique URLs")
+}
+
 func TestCheckOutdated_RegistryError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
@@ -986,4 +1076,295 @@ profiles: {}
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initialize registry")
+}
+
+// TestUniqueRemoteURLs covers the dedup invariant that backs the production
+// CheckOutdated path: when many lockfile entries share a repo URL, the unique
+// list returned drives both `cache.UpdateRepo` (one git fetch) and fetcher
+// construction (one open per repo). The existing
+// TestCheckOutdated_DedupsFetcherPerURL test exercises the fetcher-loop side
+// indirectly; this test pins down the shared helper directly so both call
+// sites stay correct as the code evolves.
+func TestUniqueRemoteURLs(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+
+	remotesContent := `remotes:
+  alpha:
+    url: https://github.com/alpha/repo
+  beta:
+    url: https://github.com/beta/repo
+`
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	entries := []struct {
+		Type  remote.ItemType
+		Ref   string
+		Entry remote.LockEntry
+	}{
+		{remote.ItemTypeBundle, "alpha/one", remote.LockEntry{SHA: "a"}},
+		{remote.ItemTypeBundle, "alpha/two", remote.LockEntry{SHA: "a"}},
+		{remote.ItemTypeBundle, "beta/one", remote.LockEntry{SHA: "b"}},
+		{remote.ItemTypeBundle, "alpha/three", remote.LockEntry{SHA: "a"}},
+		{remote.ItemTypeBundle, "beta/two", remote.LockEntry{SHA: "b"}},
+		{remote.ItemTypeBundle, "ghost/one", remote.LockEntry{SHA: "g"}},
+	}
+
+	urls := uniqueRemoteURLs(entries, registry)
+
+	assert.Equal(t, []string{
+		"https://github.com/alpha/repo",
+		"https://github.com/beta/repo",
+	}, urls, "dedup by URL, preserve first-appearance order, skip unknown remotes")
+}
+
+func TestUniqueRemoteURLs_EmptyEntries(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte("remotes: {}\n"), 0644))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	urls := uniqueRemoteURLs(nil, registry)
+	assert.Empty(t, urls)
+}
+
+// countingRepoCache is a RepoUpdater that records every UpdateRepo call.
+// Used to assert that CheckOutdated's per-URL refresh pre-pass dedups
+// requests when many lockfile entries share a repo URL.
+type countingRepoCache struct {
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+func (c *countingRepoCache) UpdateRepo(_ context.Context, repoURL string, _ remote.ForgeType) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.calls == nil {
+		c.calls = map[string]int{}
+	}
+	c.calls[repoURL]++
+	return "", nil
+}
+
+// TestCheckOutdated_InjectedCacheDedupsPerURL asserts the production code
+// path that refreshes repos before iterating lockfile entries: when 10 entries
+// share 2 unique URLs, UpdateRepo is invoked exactly twice. The existing
+// TestCheckOutdated_DedupsFetcherPerURL injects a FetcherFactory which
+// short-circuits this branch — this test exercises it directly via the
+// RepoCache injection point.
+func TestCheckOutdated_InjectedCacheDedupsPerURL(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+
+	lockContent := `version: 1
+bundles:
+  alpha/one:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/two:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/three:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/four:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  alpha/five:
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    url: https://github.com/alpha/repo
+  beta/one:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/two:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/three:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/four:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+  beta/five:
+    sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    url: https://github.com/beta/repo
+profiles: {}
+`
+	require.NoError(t, afero.WriteFile(fs, paths.LockPath(testBaseDir), []byte(lockContent), 0644))
+
+	remotesContent := `remotes:
+  alpha:
+    url: https://github.com/alpha/repo
+  beta:
+    url: https://github.com/beta/repo
+`
+	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
+
+	lockManager := remote.NewLockfileManager(testBaseDir, remote.WithLockfileFS(fs))
+	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	require.NoError(t, err)
+
+	mock := remote.NewMockFetcher()
+	mock.DefaultBranch = "main"
+	mock.Refs = map[string]string{"main": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+
+	cache := &countingRepoCache{}
+
+	cfg := testConfigWithSCMPath(testBaseDir)
+	_, err = CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
+		FS:          fs,
+		LockManager: lockManager,
+		Registry:    registry,
+		FetcherFactory: func(_ string, _ remote.AuthConfig) (remote.Fetcher, error) {
+			return mock, nil
+		},
+		RepoCache: cache,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, cache.calls["https://github.com/alpha/repo"],
+		"UpdateRepo must be called exactly once per unique URL")
+	assert.Equal(t, 1, cache.calls["https://github.com/beta/repo"],
+		"UpdateRepo must be called exactly once per unique URL")
+	assert.Len(t, cache.calls, 2, "exactly two unique URLs refreshed")
+}
+
+// initLocalRepoWithFile creates a non-bare git repo at dir, writes filePath
+// with content, commits, and returns the resulting commit SHA. Used to build
+// file:// remotes for cache integration tests.
+func initLocalRepoWithFile(t *testing.T, dir, filePath, content string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0755))
+
+	repo, err := git.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	full := filepath.Join(dir, filePath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0755))
+	require.NoError(t, os.WriteFile(full, []byte(content), 0644))
+
+	_, err = wt.Add(filePath)
+	require.NoError(t, err)
+
+	sha, err := wt.Commit("init", &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return sha.String()
+}
+
+// TestCheckOutdated_RealCacheWithLocalRepos drives the production path
+// end-to-end against two real git repos served over file:// URLs. With
+// FetcherFactory==nil and a real RepoCache rooted at a temp dir, the test
+// proves that CheckOutdated:
+//
+//  1. Clones each unique URL exactly once into the repo cache (no extra
+//     clones for repeat entries from the same URL).
+//  2. Resolves the latest SHAs via the local clone (no API traffic).
+//  3. Returns "up_to_date" when the lockfile SHAs match what the local clones
+//     resolve.
+//
+// Combined with TestCheckOutdated_InjectedCacheDedupsPerURL above (which
+// asserts the dedup invariant with a counter), this covers both the
+// production wiring and the underlying behavior.
+func TestCheckOutdated_RealCacheWithLocalRepos(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(baseDir, 0755))
+
+	// Two source repos with a single commit each. The committed SHA is what
+	// the local clone will resolve "main" to, so we use it as the lockfile
+	// SHA — that's what makes the result come back as "up_to_date".
+	srcA := filepath.Join(tmpDir, "source-a")
+	shaA := initLocalRepoWithFile(t, srcA, "README.md", "alpha\n")
+	urlA := "file://" + srcA
+
+	srcB := filepath.Join(tmpDir, "source-b")
+	shaB := initLocalRepoWithFile(t, srcB, "README.md", "beta\n")
+	urlB := "file://" + srcB
+
+	// Lockfile with three entries from repo A and two from repo B — five
+	// total, two unique URLs. Without dedup we'd clone four extra times.
+	lockContent := fmt.Sprintf(`version: 1
+bundles:
+  alpha/one:
+    sha: %s
+    url: %s
+  alpha/two:
+    sha: %s
+    url: %s
+  alpha/three:
+    sha: %s
+    url: %s
+  beta/one:
+    sha: %s
+    url: %s
+  beta/two:
+    sha: %s
+    url: %s
+profiles: {}
+`, shaA, urlA, shaA, urlA, shaA, urlA, shaB, urlB, shaB, urlB)
+	require.NoError(t, os.WriteFile(paths.LockPath(baseDir), []byte(lockContent), 0644))
+
+	remotesContent := fmt.Sprintf(`remotes:
+  alpha:
+    url: %s
+  beta:
+    url: %s
+`, urlA, urlB)
+	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
+
+	cfg := &config.Config{AppPaths: []string{baseDir}}
+
+	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
+		// No injection — exercise the full production code path:
+		// real LockfileManager, real Registry, real RepoCache,
+		// real cached FetcherFactory.
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Each unique URL should have a single clone directory under the cache.
+	cacheRoot := paths.ReposCachePath(baseDir)
+	assert.DirExists(t, cacheRoot, "repos cache should be created")
+
+	// The cache lays out clones as <cacheRoot>/<host>/<owner>/<repo>; file://
+	// URLs have empty hostname, so they sit directly under <cacheRoot>/<path>.
+	// We don't pin the exact layout — just assert exactly two repo dirs exist
+	// under the cache, regardless of how they're nested.
+	repoDirs := countGitDirs(t, cacheRoot)
+	assert.Equal(t, 2, repoDirs, "exactly one clone per unique URL")
+
+	// Both lockfile SHAs match what the local clone resolves "main" to, so
+	// every entry should be up_to_date.
+	assert.Equal(t, "up_to_date", result.Status,
+		"all entries match their resolved SHAs, so status should be up_to_date")
+}
+
+// countGitDirs walks root and returns the number of directories that contain
+// a `.git` subdirectory or look like a bare git repo (HEAD file at top level).
+func countGitDirs(t *testing.T, root string) int {
+	t.Helper()
+	count := 0
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+			count++
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	return count
 }

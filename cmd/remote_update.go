@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -45,16 +46,18 @@ func runRemoteUpdate(cmd *cobra.Command, args []string) error {
 	auth := remote.LoadAuth("")
 	lockManager := remote.NewLockfileManager(".ctxloom")
 
+	cfg := loadConfigOrFallback(GetConfig, os.Stderr)
+
 	// If specific reference provided, update just that
 	if len(args) > 0 {
-		return updateSingle(cmd, args[0], registry, auth, lockManager)
+		return updateSingle(cmd, cfg, args[0], registry, auth, lockManager)
 	}
 
 	// Otherwise, check lockfile
-	return updateAll(cmd, registry, auth, lockManager)
+	return updateAll(cmd, cfg, registry, auth, lockManager)
 }
 
-func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
+func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
 	ref, err := remote.ParseReference(refStr)
 	if err != nil {
 		return fmt.Errorf("invalid reference: %w", err)
@@ -65,7 +68,15 @@ func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, 
 		return err
 	}
 
-	fetcher, err := remote.NewFetcher(rem.URL, auth)
+	// Refresh the local clone so we can detect updates.
+	cache := operations.NewRepoCache(cfg)
+	if forgeType, _, ferr := remote.DetectForge(rem.URL); ferr == nil {
+		if _, uerr := cache.UpdateRepo(cmd.Context(), rem.URL, forgeType); uerr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", rem.URL, uerr)
+		}
+	}
+
+	fetcher, err := operations.GetCachedFetcher(cfg, rem.URL)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
@@ -124,7 +135,7 @@ func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, 
 	}
 
 	// Apply update
-	puller := remote.NewPuller(registry, auth)
+	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
 	opts := remote.PullOptions{
 		ItemType: itemType,
 		Force:    updateForce,
@@ -140,7 +151,7 @@ func updateSingle(cmd *cobra.Command, refStr string, registry *remote.Registry, 
 	return nil
 }
 
-func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
+func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
 	lockfile, err := lockManager.Load()
 	if err != nil {
 		return err
@@ -167,6 +178,38 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 
 	fmt.Printf("Checking %d items for updates...\n\n", len(entries))
 
+	// Refresh all unique remote URLs once before iterating entries (one git
+	// fetch per repo instead of 2×N API calls).
+	cache := operations.NewRepoCache(cfg)
+	cachedFactory := operations.NewCachedFetcherFactory(cfg)
+	fetchedURLs := map[string]struct{}{}
+	for _, e := range entries {
+		if e.Entry.SHA == "" {
+			continue
+		}
+		ref, err := remote.ParseReference(e.Ref)
+		if err != nil {
+			continue
+		}
+		rem, err := registry.Get(ref.Remote)
+		if err != nil {
+			continue
+		}
+		if _, ok := fetchedURLs[rem.URL]; ok {
+			continue
+		}
+		fetchedURLs[rem.URL] = struct{}{}
+		forgeType, _, ferr := remote.DetectForge(rem.URL)
+		if ferr != nil {
+			continue
+		}
+		if _, uerr := cache.UpdateRepo(cmd.Context(), rem.URL, forgeType); uerr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", rem.URL, uerr)
+		}
+	}
+
+	fetcherByURL := map[string]remote.Fetcher{}
+
 	for _, e := range entries {
 		// Skip entries with empty SHA (incomplete lockfile entries)
 		if e.Entry.SHA == "" {
@@ -185,9 +228,13 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 			continue
 		}
 
-		fetcher, err := remote.NewFetcher(rem.URL, auth)
-		if err != nil {
-			continue
+		fetcher, ok := fetcherByURL[rem.URL]
+		if !ok {
+			fetcher, err = cachedFactory(rem.URL, auth)
+			if err != nil {
+				continue
+			}
+			fetcherByURL[rem.URL] = fetcher
 		}
 
 		owner, repo, err := remote.ParseRepoURL(rem.URL)
@@ -255,7 +302,7 @@ func updateAll(cmd *cobra.Command, registry *remote.Registry, auth remote.AuthCo
 
 	// Apply updates - profiles first, then bundles
 	fmt.Println("\nApplying updates...")
-	puller := remote.NewPuller(registry, auth)
+	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(cachedFactory))
 
 	updated := 0
 	failed := 0

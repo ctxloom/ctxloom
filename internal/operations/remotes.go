@@ -30,14 +30,10 @@ func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
-// getCachedFetcher creates a fetcher that uses the local git clone cache.
-// Falls back to API-based fetchers if the cache is unavailable.
-func getCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
-	baseDir := getBaseDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-	factory := remote.NewCachedFetcherFactory(cache, remote.DefaultFetcherFactory)
-	return factory(repoURL, auth)
+// GetRegistry is the exported alias for getRegistry, used by cmd-layer tool
+// handlers that need direct registry access (e.g. the trust_remote tool).
+func GetRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
+	return getRegistry(cfg, opts...)
 }
 
 // RemoteEntry represents a remote in operation results.
@@ -243,9 +239,7 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 		}
 	}
 
-	baseDir := getBaseDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+	cache := newRepoCache(cfg)
 
 	var remotes []*remote.Remote
 	if req.Name != "" {

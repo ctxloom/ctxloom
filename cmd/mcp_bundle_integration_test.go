@@ -71,7 +71,7 @@ func startMCPServer(t *testing.T, binPath, workDir string) *mcpClient {
 	return &mcpClient{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout)}
 }
 
-func (c *mcpClient) send(t *testing.T, msg map[string]interface{}) {
+func (c *mcpClient) send(t *testing.T, msg map[string]any) {
 	t.Helper()
 	data, err := json.Marshal(msg)
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func (c *mcpClient) send(t *testing.T, msg map[string]interface{}) {
 // recvByID consumes lines from stdout until it finds a response with the
 // given id; returns the parsed message. Notifications without an id are
 // skipped.
-func (c *mcpClient) recvByID(t *testing.T, id int) map[string]interface{} {
+func (c *mcpClient) recvByID(t *testing.T, id int) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -90,7 +90,7 @@ func (c *mcpClient) recvByID(t *testing.T, id int) map[string]interface{} {
 		if err != nil {
 			t.Fatalf("read stdout (id=%d): %v", id, err)
 		}
-		var msg map[string]interface{}
+		var msg map[string]any
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue // skip non-JSON noise
 		}
@@ -104,19 +104,19 @@ func (c *mcpClient) recvByID(t *testing.T, id int) map[string]interface{} {
 
 // extractToolResultJSON pulls the inner JSON from an MCP tool result —
 // MCP wraps tool returns in a content[]{type:text, text:<json>} envelope.
-func extractToolResultJSON(t *testing.T, msg map[string]interface{}) map[string]interface{} {
+func extractToolResultJSON(t *testing.T, msg map[string]any) map[string]any {
 	t.Helper()
 	require.Nil(t, msg["error"], "tool call returned an error: %v", msg["error"])
-	result, ok := msg["result"].(map[string]interface{})
+	result, ok := msg["result"].(map[string]any)
 	require.True(t, ok, "result is not a map: %v", msg)
-	content, ok := result["content"].([]interface{})
+	content, ok := result["content"].([]any)
 	require.True(t, ok, "result.content is not an array")
 	require.NotEmpty(t, content)
-	first, ok := content[0].(map[string]interface{})
+	first, ok := content[0].(map[string]any)
 	require.True(t, ok)
 	text, ok := first["text"].(string)
 	require.True(t, ok)
-	var inner map[string]interface{}
+	var inner map[string]any
 	require.NoError(t, json.Unmarshal([]byte(text), &inner))
 	return inner
 }
@@ -141,28 +141,28 @@ remotes:
 	c := startMCPServer(t, binPath, workDir)
 
 	// initialize / initialized handshake
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]interface{}{},
-			"clientInfo":      map[string]interface{}{"name": "test", "version": "0"},
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "test", "version": "0"},
 		},
 	})
 	_ = c.recvByID(t, 1)
-	c.send(t, map[string]interface{}{
-		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]interface{}{},
+	c.send(t, map[string]any{
+		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]any{},
 	})
 
 	// tools/list — confirm the four bundle tools are exposed.
-	c.send(t, map[string]interface{}{
-		"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]interface{}{},
+	c.send(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]any{},
 	})
 	resp := c.recvByID(t, 2)
-	tools := resp["result"].(map[string]interface{})["tools"].([]interface{})
+	tools := resp["result"].(map[string]any)["tools"].([]any)
 	names := make(map[string]bool)
 	for _, raw := range tools {
-		t := raw.(map[string]interface{})
+		t := raw.(map[string]any)
 		names[t["name"].(string)] = true
 	}
 	for _, expected := range []string{"create_bundle", "update_bundle", "delete_bundle", "push_bundle"} {
@@ -170,15 +170,15 @@ remotes:
 	}
 
 	// tools/call — create_bundle
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "create_bundle",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"name":        "wire-test",
 				"description": "wire-protocol smoke",
-				"fragments": map[string]interface{}{
-					"intro": map[string]interface{}{
+				"fragments": map[string]any{
+					"intro": map[string]any{
 						"content":    "hi",
 						"no_distill": true,
 					},
@@ -194,11 +194,11 @@ remotes:
 	require.NoError(t, err, "bundle file landed on disk via the wire path")
 
 	// tools/call — push_bundle dry-run
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "push_bundle",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"path":    bundlePath,
 				"dry_run": true,
 			},
@@ -211,11 +211,11 @@ remotes:
 	assert.NotEmpty(t, pushed["preview"])
 
 	// tools/call — delete_bundle
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "delete_bundle",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"name": "wire-test",
 			},
 		},
@@ -237,46 +237,48 @@ func TestMCP_WireProtocol_InvalidArgs_ReturnsError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.BundlesPath(appDir), 0755))
 
 	c := startMCPServer(t, binPath, workDir)
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "initialize",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]interface{}{},
-			"clientInfo":      map[string]interface{}{"name": "test", "version": "0"},
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "test", "version": "0"},
 		},
 	})
 	_ = c.recvByID(t, 1)
-	c.send(t, map[string]interface{}{
-		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]interface{}{},
+	c.send(t, map[string]any{
+		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]any{},
 	})
 
 	// create_bundle without a name — operations layer rejects this.
-	c.send(t, map[string]interface{}{
+	c.send(t, map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name":      "create_bundle",
-			"arguments": map[string]interface{}{},
+			"arguments": map[string]any{},
 		},
 	})
 	resp := c.recvByID(t, 2)
-	// Either result.isError=true (MCP error envelope) or top-level error is fine;
-	// either way the server stays up and returns a structured response.
-	if result, ok := resp["result"].(map[string]interface{}); ok {
-		// Error reported via isError flag inside content envelope.
-		isError, _ := result["isError"].(bool)
-		if isError {
-			content, _ := result["content"].([]interface{})
-			require.NotEmpty(t, content)
-			first := content[0].(map[string]interface{})
-			text, _ := first["text"].(string)
-			assert.Contains(t, text, "name is required")
-			return
-		}
-	}
-	// Otherwise top-level error is acceptable.
-	if _, ok := resp["error"]; ok {
-		return
-	}
-	t.Fatalf("expected error response, got: %v", resp)
+	// The SDK validates input against the tool's inferred JSON Schema
+	// before calling the handler. A missing required property produces
+	// this exact error message via the MCP isError envelope. We assert
+	// the full string — if a future SDK version reworks the wording,
+	// any downstream tooling that greps these errors needs to know, so
+	// the test should fail loudly rather than silently drift.
+	const wantErr = `validating "arguments": validating root: required: missing properties: ["name"]`
+
+	result, ok := resp["result"].(map[string]any)
+	require.True(t, ok, "expected result envelope, got: %v", resp)
+	isError, _ := result["isError"].(bool)
+	require.True(t, isError, "expected isError=true for schema validation failure, got: %v", result)
+
+	content, _ := result["content"].([]any)
+	require.NotEmpty(t, content, "isError result must include content")
+	first, _ := content[0].(map[string]any)
+	require.NotNil(t, first, "first content block must be a map")
+
+	text, _ := first["text"].(string)
+	assert.Equal(t, wantErr, text,
+		"SDK schema-validation error wording is part of the contract — update this test if the SDK changes the message")
 }
 

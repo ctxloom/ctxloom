@@ -84,8 +84,8 @@ func init() {
 	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: claude-code)")
 }
 
-func getMemoryDir(cfg *config.Config) string {
-	return filepath.Join(cfg.AppDir, "ephemeral", "memory")
+func getSessionsDir(cfg *config.Config) string {
+	return filepath.Join(cfg.AppDir, "sessions")
 }
 
 func runMemoryList(cmd *cobra.Command, args []string) error {
@@ -122,8 +122,8 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check which sessions have been compacted
-	memoryDir := getMemoryDir(cfg)
-	distilled, err := memory.ListDistilledSessions(memoryDir)
+	sessionsDir := getSessionsDir(cfg)
+	distilled, err := memory.ListDistilledSessions(sessionsDir)
 	if err != nil {
 		distilled = nil // Non-fatal
 	}
@@ -208,16 +208,16 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Entries: %d\n", len(session.Entries))
 
 	// Check for distilled version
-	memoryDir := getMemoryDir(cfg)
-	distilled, err := memory.LoadDistilledSession(memoryDir, sessionID)
+	sessionsDir := getSessionsDir(cfg)
+	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err == nil {
 		fmt.Println("\n--- Distilled Summary ---")
-		fmt.Printf("Created: %s\n", distilled.CreatedAt.Format(time.RFC3339))
-		fmt.Printf("Tokens: %d\n", distilled.TokenCount)
+		fmt.Printf("Created: %s\n", distilled.DistilledAt.Format(time.RFC3339))
+		fmt.Printf("Tokens: %d\n", distilled.TokensOut)
 		fmt.Println()
 
 		// Truncate if very long
-		content := distilled.Content
+		content := distilled.Body
 		if len(content) > 2000 {
 			content = content[:2000] + "\n\n... [truncated, use --full to see all]"
 		}
@@ -260,7 +260,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: compactSession,
 		WorkDir:   workDir,
-		OutputDir: getMemoryDir(cfg),
+		OutputDir: getSessionsDir(cfg),
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

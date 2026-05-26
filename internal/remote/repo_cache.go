@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
@@ -32,38 +33,57 @@ func NewRepoCache(baseDir string, auth AuthConfig) *RepoCache {
 
 // EnsureRepo clones a repo if it doesn't exist locally, returning the local path.
 // If the repo is already cloned, it returns immediately without fetching updates.
-// Use UpdateRepo to explicitly fetch updates.
+// Use UpdateRepo to explicitly fetch updates, or EnsureRef to make a specific ref
+// available locally (unshallowing if necessary).
 func (c *RepoCache) EnsureRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
+	return c.EnsureRef(ctx, repoURL, forgeType, "")
+}
+
+// EnsureRef ensures the clone exists and the given ref is locally resolvable.
+// For empty ref (default branch), a fresh shallow clone is enough.
+// For a tag or non-HEAD SHA, the clone is unshallowed on miss so all history is
+// available. No-op if the clone already contains the ref.
+func (c *RepoCache) EnsureRef(ctx context.Context, repoURL string, forgeType ForgeType, ref string) (string, error) {
 	repoDir := c.repoDirForURL(repoURL)
 
-	// If already cloned, return immediately
-	if _, err := git.PlainOpen(repoDir); err == nil {
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		// No existing clone or corrupt — clean up and clone fresh (shallow).
+		if rmErr := os.RemoveAll(repoDir); rmErr != nil && !os.IsNotExist(rmErr) {
+			return "", fmt.Errorf("failed to clean corrupt cache: %w", rmErr)
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(repoDir), 0755); mkErr != nil {
+			return "", fmt.Errorf("failed to create cache directory: %w", mkErr)
+		}
+
+		auth := c.authMethod(forgeType)
+		cloneURL := normalizeCloneURL(repoURL)
+		repo, err = git.PlainCloneContext(ctx, repoDir, false, &git.CloneOptions{
+			URL:   cloneURL,
+			Depth: 1,
+			Tags:  git.AllTags,
+			Auth:  auth,
+		})
+		if err != nil {
+			_ = os.RemoveAll(repoDir)
+			return "", fmt.Errorf("git clone failed: %w", err)
+		}
+	}
+
+	// Empty ref → default branch only, shallow clone covers it.
+	if ref == "" {
 		return repoDir, nil
 	}
 
-	// No existing clone or corrupt — clean up and clone fresh
-	if err := os.RemoveAll(repoDir); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("failed to clean corrupt cache: %w", err)
+	// Ref is already locally resolvable.
+	if refExistsLocally(repo, ref) {
+		return repoDir, nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(repoDir), 0755); err != nil {
-		return "", fmt.Errorf("failed to create cache directory: %w", err)
+	// Unshallow to make all branches/tags available, then re-check.
+	if err := c.unshallowRepo(ctx, repo, forgeType); err != nil {
+		return repoDir, fmt.Errorf("git fetch (unshallow) failed: %w", err)
 	}
-
-	auth := c.authMethod(forgeType)
-	cloneURL := normalizeCloneURL(repoURL)
-	_, err := git.PlainCloneContext(ctx, repoDir, false, &git.CloneOptions{
-		URL:   cloneURL,
-		Depth: 1,
-		Tags:  git.AllTags,
-		Auth:  auth,
-	})
-	if err != nil {
-		// Clean up partial clone
-		_ = os.RemoveAll(repoDir)
-		return "", fmt.Errorf("git clone failed: %w", err)
-	}
-
 	return repoDir, nil
 }
 
@@ -122,6 +142,49 @@ func (c *RepoCache) fetchRepo(ctx context.Context, repo *git.Repository, auth tr
 		return nil
 	}
 	return err
+}
+
+// unshallowRepo deepens a shallow clone so all branches and tags are locally
+// resolvable. Used on the first miss for a non-HEAD ref.
+func (c *RepoCache) unshallowRepo(ctx context.Context, repo *git.Repository, forgeType ForgeType) error {
+	auth := c.authMethod(forgeType)
+	err := repo.FetchContext(ctx, &git.FetchOptions{
+		Auth:  auth,
+		Depth: 0,
+		Tags:  git.AllTags,
+		Force: true,
+		RefSpecs: []config.RefSpec{
+			"+refs/heads/*:refs/remotes/origin/*",
+			"+refs/tags/*:refs/tags/*",
+		},
+	})
+	if err == git.NoErrAlreadyUpToDate {
+		return nil
+	}
+	return err
+}
+
+// refExistsLocally returns true if the given ref string can be resolved to a
+// commit hash from local refs alone. Mirrors the resolution chain in
+// GitCloneFetcher.resolveToCommitHash so callers stay consistent.
+func refExistsLocally(repo *git.Repository, ref string) bool {
+	if ref == "" {
+		return true
+	}
+	candidates := []string{
+		ref,
+		"refs/remotes/origin/" + ref,
+		"refs/tags/" + ref,
+	}
+	for _, c := range candidates {
+		if _, err := repo.ResolveRevision(plumbing.Revision(c)); err == nil {
+			return true
+		}
+	}
+	if tagRef, err := repo.Tag(ref); err == nil && tagRef != nil {
+		return true
+	}
+	return false
 }
 
 // authMethod returns the go-git auth method for the given forge type.

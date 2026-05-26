@@ -122,7 +122,13 @@ test-integration: build
 
 # Run all tests in container (matches CI environment)
 test-container:
-    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
+    #!/usr/bin/env bash
+    # See _run for why --user is skipped under rootless docker.
+    user_flag=(--user "$(id -u):$(id -g)")
+    if docker info 2>/dev/null | grep -q "rootless"; then
+        user_flag=()
+    fi
+    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom . && \
@@ -131,20 +137,26 @@ test-container:
 # ===== Mutation testing =====
 
 # Run mutation tests with gremlins (requires gremlins installed)
-mutate *ARGS:
+test-mutation *ARGS:
     gremlins unleash {{ARGS}}
 
 # Run mutation tests on specific package
-mutate-pkg PKG *ARGS:
+test-mutation-pkg PKG *ARGS:
     gremlins unleash ./{{PKG}}/... {{ARGS}}
 
 # Install gremlins
-mutate-install:
+test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 # Run mutation tests in container
-mutate-container:
-    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
+test-mutation-container:
+    #!/usr/bin/env bash
+    # See _run for why --user is skipped under rootless docker.
+    user_flag=(--user "$(id -u):$(id -g)")
+    if docker info 2>/dev/null | grep -q "rootless"; then
+        user_flag=()
+    fi
+    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
 
 # Clean build artifacts
 clean:
@@ -431,9 +443,19 @@ _run +ARGS:
         # Already inside container (devcontainer or CI), use container justfile directly
         just -f justfile.container {{ARGS}}
     else
-        # Run in container with justfile overlay and uid/gid mapping
+        # Run in container with justfile overlay and uid/gid mapping.
+        #
+        # Skip --user under rootless docker: the daemon already maps container
+        # root (uid 0) to the invoking host user, so an explicit --user 1000:1000
+        # lands on an unrelated subordinate uid that can neither write workspace
+        # files nor read mode-0700 dirs. Rootful daemons need --user to avoid
+        # leaving root-owned files in the host workspace.
+        user_flag=(--user "$(id -u):$(id -g)")
+        if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
+            user_flag=()
+        fi
         {{container_cmd}} run --rm \
-            --user "$(id -u):$(id -g)" \
+            "${user_flag[@]}" \
             -v "$(pwd):/workspace" \
             -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
             -w /workspace \

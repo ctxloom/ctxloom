@@ -112,10 +112,8 @@ Examples:
 				if !errors.Is(syncErr, context.Canceled) {
 					fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
 				}
-			} else if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
-				fmt.Fprintf(os.Stderr, "ctxloom: %s\n", result.Message)
-			} else if result.Errors > 0 {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: sync completed with %d errors\n", result.Errors)
+			} else {
+				writeSyncSummary(os.Stderr, result)
 			}
 		}
 

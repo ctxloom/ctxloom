@@ -22,8 +22,6 @@ const (
 	ChunkOverlapTokens = 500
 	// CharsPerToken is a rough estimate for token counting.
 	CharsPerToken = 4
-	// DistilledDir is the subdirectory for compacted summaries.
-	DistilledDir = "distilled"
 )
 
 // CompactionConfig holds settings for session compaction.
@@ -123,8 +121,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		return nil, fmt.Errorf("session %s has no entries", session.ID)
 	}
 
-	// Convert entries to text for chunking
-	logText := c.sessionToText(session)
+	// Extract plan blocks up front so they bypass the LLM compression pass
+	// and are re-attached verbatim to the final output.
+	plans := ExtractPlans(session)
+
+	// Convert entries to text for chunking, with placeholders replacing
+	// plan-bearing entries so the model doesn't try to summarize them.
+	logText := c.sessionToText(session, indexBlocksByEntry(plans))
 	result.TotalTokensIn = estimateTokens(logText)
 
 	// Chunk the log
@@ -162,8 +165,23 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		}
 	}
 
+	// Re-attach plan blocks verbatim after the LLM summary so they survive
+	// distillation unmodified.
+	body := strings.TrimSpace(combined)
+	if section := RenderPlans(plans); section != "" {
+		if body != "" {
+			body += "\n\n"
+		}
+		body += section
+	}
+
 	// Save distilled output
-	distilledPath, err := c.saveDistilled(session.ID, combined)
+	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
+		EntryCount: len(session.Entries),
+		TokensIn:   result.TotalTokensIn,
+		TokensOut:  result.TotalTokensOut,
+		PlanBlocks: len(plans),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("save distilled: %w", err)
 	}
@@ -174,10 +192,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 }
 
 // sessionToText converts a session to readable text for distillation.
-func (c *Compactor) sessionToText(session *backends.Session) string {
+// Entries that hold plan content are replaced with placeholders so the
+// summary LLM doesn't try to paraphrase them; the verbatim plan blocks
+// are appended to the final output separately.
+func (c *Compactor) sessionToText(session *backends.Session, plansByEntry map[int]PlanBlock) string {
 	var builder strings.Builder
 
-	for _, entry := range session.Entries {
+	for i, entry := range session.Entries {
+		if block, ok := plansByEntry[i]; ok {
+			_, _ = fmt.Fprintf(&builder, "## Tool Call: %s\n%s\n\n", entry.ToolName, PlaceholderForBlock(block))
+			continue
+		}
+
 		switch entry.Type {
 		case backends.EntryTypeUser:
 			builder.WriteString("## User\n")
@@ -321,65 +347,113 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// saveDistilled saves the distilled content to a file.
-func (c *Compactor) saveDistilled(sessionID, content string) (string, error) {
+// distilledMeta is the YAML front-matter stored at the top of every
+// distilled session .md file. Programmatic readers (e.g. the rectifier's
+// staleness check) consume these fields without parsing the body.
+type distilledMeta struct {
+	SessionID   string    `yaml:"session_id"`
+	DistilledAt time.Time `yaml:"distilled_at"`
+	SourcePath  string    `yaml:"source_path,omitempty"`
+	SourceMtime time.Time `yaml:"source_mtime,omitempty"`
+	EntryCount  int       `yaml:"entry_count"`
+	TokensIn    int       `yaml:"tokens_in,omitempty"`
+	TokensOut   int       `yaml:"tokens_out,omitempty"`
+	PlanBlocks  int       `yaml:"plan_blocks"`
+}
+
+// saveDistilled writes the distilled session as markdown with YAML
+// front-matter at <outputDir>/<sessionID>.md.
+func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
 	outputDir := c.config.OutputDir
 	if outputDir == "" {
-		outputDir = ".ctxloom/ephemeral/memory"
+		outputDir = ".ctxloom/sessions"
 	}
-	distilledDir := filepath.Join(outputDir, DistilledDir)
-	if err := os.MkdirAll(distilledDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return "", err
 	}
 
-	distilled := DistilledSession{
-		SessionID:   sessionID,
-		CreatedAt:   time.Now().UTC(),
-		Content:     content,
-		TokenCount:  estimateTokens(content),
-	}
+	meta.SessionID = sessionID
+	meta.DistilledAt = time.Now().UTC()
 
-	data, err := yaml.Marshal(distilled)
+	frontmatter, err := yaml.Marshal(meta)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshal frontmatter: %w", err)
 	}
 
-	path := filepath.Join(distilledDir, fmt.Sprintf("session-%s.yaml", sessionID))
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	var doc strings.Builder
+	doc.WriteString("---\n")
+	doc.Write(frontmatter)
+	doc.WriteString("---\n\n")
+	doc.WriteString("# Session summary\n\n")
+	doc.WriteString(strings.TrimSpace(body))
+	doc.WriteString("\n")
+
+	path := filepath.Join(outputDir, sessionID+".md")
+	if err := os.WriteFile(path, []byte(doc.String()), 0644); err != nil {
 		return "", err
 	}
 
 	return path, nil
 }
 
-// DistilledSession holds a compacted session summary.
+// DistilledSession is the loaded form of a distilled session .md file:
+// front-matter fields plus the full markdown body (everything after
+// the closing "---").
 type DistilledSession struct {
-	SessionID  string    `yaml:"session_id"`
-	CreatedAt  time.Time `yaml:"created_at"`
-	Content    string    `yaml:"content"`
-	TokenCount int       `yaml:"token_count"`
+	SessionID   string
+	DistilledAt time.Time
+	SourcePath  string
+	SourceMtime time.Time
+	EntryCount  int
+	TokensIn    int
+	TokensOut   int
+	PlanBlocks  int
+	Body        string
 }
 
-// LoadDistilledSession loads a distilled session summary.
-func LoadDistilledSession(memoryDir, sessionID string) (*DistilledSession, error) {
-	path := filepath.Join(memoryDir, DistilledDir, fmt.Sprintf("session-%s.yaml", sessionID))
+// LoadDistilledSession reads <sessionsDir>/<sessionID>.md.
+func LoadDistilledSession(sessionsDir, sessionID string) (*DistilledSession, error) {
+	path := filepath.Join(sessionsDir, sessionID+".md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-
-	var distilled DistilledSession
-	if err := yaml.Unmarshal(data, &distilled); err != nil {
-		return nil, err
-	}
-
-	return &distilled, nil
+	return parseDistilledMarkdown(data)
 }
 
-// ListDistilledSessions returns all distilled session IDs.
-func ListDistilledSessions(memoryDir string) ([]string, error) {
-	distilledDir := filepath.Join(memoryDir, DistilledDir)
-	entries, err := os.ReadDir(distilledDir)
+// parseDistilledMarkdown extracts front-matter + body from a distilled .md.
+func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
+	text := string(data)
+	if !strings.HasPrefix(text, "---\n") {
+		return nil, fmt.Errorf("distilled file missing front-matter")
+	}
+	rest := text[len("---\n"):]
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 {
+		return nil, fmt.Errorf("distilled file has unterminated front-matter")
+	}
+	var meta distilledMeta
+	if err := yaml.Unmarshal([]byte(rest[:end+1]), &meta); err != nil {
+		return nil, fmt.Errorf("parse front-matter: %w", err)
+	}
+	body := strings.TrimLeft(rest[end+len("\n---\n"):], "\n")
+	return &DistilledSession{
+		SessionID:   meta.SessionID,
+		DistilledAt: meta.DistilledAt,
+		SourcePath:  meta.SourcePath,
+		SourceMtime: meta.SourceMtime,
+		EntryCount:  meta.EntryCount,
+		TokensIn:    meta.TokensIn,
+		TokensOut:   meta.TokensOut,
+		PlanBlocks:  meta.PlanBlocks,
+		Body:        body,
+	}, nil
+}
+
+// ListDistilledSessions returns the IDs of every distilled .md file
+// directly under sessionsDir.
+func ListDistilledSessions(sessionsDir string) ([]string, error) {
+	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -393,13 +467,10 @@ func ListDistilledSessions(memoryDir string) ([]string, error) {
 			continue
 		}
 		name := entry.Name()
-		// Match session-*.yaml
-		if len(name) > 13 && name[:8] == "session-" && name[len(name)-5:] == ".yaml" {
-			sessionID := name[8 : len(name)-5]
-			sessions = append(sessions, sessionID)
+		if strings.HasSuffix(name, ".md") {
+			sessions = append(sessions, strings.TrimSuffix(name, ".md"))
 		}
 	}
-
 	return sessions, nil
 }
 
@@ -418,6 +489,10 @@ const sessionDistillPrompt = `You are a session summarizer. Given a conversation
 3. **Current State** - Where things stand at the end of this session
 4. **Open Items** - What's still pending or needs follow-up
 5. **Key Context** - Important information for continuing this work
+
+## Plan Blocks
+
+The log contains markers like ` + "`[plan-block #N — Label, preserved below]`" + ` where plans, task lists, and roadmap-style documents have been excised. These blocks are preserved verbatim elsewhere in the output. **Do not paraphrase or summarize the missing content.** Reference them by number when relevant (e.g. "see plan-block #2 for the migration roadmap"), but write nothing about what they contain.
 
 ## Rules
 

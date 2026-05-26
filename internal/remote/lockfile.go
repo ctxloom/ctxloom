@@ -13,12 +13,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-const lockfileName = paths.LockFileName + ".yaml"
+const (
+	lockfileName        = paths.LockFileName + ".yaml"
+	pendingLockfileName = paths.LockFileName + ".pending.yaml"
+)
 
-// LockfileManager handles reading and writing lockfiles.
+// LockfileManager handles reading and writing lockfiles. Each manager is
+// scoped to one role: "active" (lock.yaml — what BundleReader reads
+// against) or "pending" (lock.pending.yaml — proposed updates from a sync
+// that have not yet been approved through the review flow).
 type LockfileManager struct {
-	baseDir string
-	fs      afero.Fs
+	baseDir  string
+	fs       afero.Fs
+	filename string // lockfileName or pendingLockfileName
 }
 
 // LockfileOption is a functional option for configuring a LockfileManager.
@@ -31,15 +38,27 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 	}
 }
 
-// NewLockfileManager creates a new lockfile manager.
-// If baseDir is empty, uses the current directory's .ctxloom folder.
+// WithPendingLockfile re-points the manager at lock.pending.yaml instead of
+// the active lock.yaml. Used by SyncOnStartup so changed/added bundles
+// land in pending; the active file is left untouched until the user
+// approves the review.
+func WithPendingLockfile() LockfileOption {
+	return func(m *LockfileManager) {
+		m.filename = pendingLockfileName
+	}
+}
+
+// NewLockfileManager creates a new lockfile manager for the active lockfile.
+// If baseDir is empty, uses the current directory's .ctxloom folder. Pass
+// WithPendingLockfile to operate on the pending file instead.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
 		baseDir = paths.AppDirName
 	}
 	m := &LockfileManager{
-		baseDir: baseDir,
-		fs:      afero.NewOsFs(),
+		baseDir:  baseDir,
+		fs:       afero.NewOsFs(),
+		filename: lockfileName,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -47,10 +66,23 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 	return m
 }
 
-// Path returns the path to the lockfile.
-// Lockfile is stored at .ctxloom/lock.yaml (root level).
+// Path returns the path to the managed lockfile (active or pending).
 func (m *LockfileManager) Path() string {
-	return filepath.Join(m.baseDir, lockfileName)
+	return filepath.Join(m.baseDir, m.filename)
+}
+
+// IsPending reports whether this manager operates on lock.pending.yaml.
+func (m *LockfileManager) IsPending() bool { return m.filename == pendingLockfileName }
+
+// Delete removes the lockfile from disk (no-op if it doesn't exist). Used
+// after acknowledge_bundle_review to drop the pending file once its
+// contents have been merged into active.
+func (m *LockfileManager) Delete() error {
+	err := m.fs.Remove(m.Path())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete lockfile: %w", err)
+	}
+	return nil
 }
 
 // Load reads the lockfile from disk.

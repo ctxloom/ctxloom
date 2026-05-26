@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -54,6 +53,13 @@ type SyncDependenciesResult struct {
 	Updated   int        `json:"updated"`
 	Errors    int        `json:"errors"`
 	Message   string     `json:"message,omitempty"`
+
+	// Changes lists the bundle-level delta between active and pending
+	// lockfiles after this sync. Non-empty only when a bundle was added
+	// or its SHA changed AND its source remote is not TrustBundles=true.
+	// Consumed by the MCP review state in ctxServer (see
+	// docs/bundle-review-plan.md Phase 3). nil for non-bundle syncs.
+	Changes *BundleChangeSet `json:"-"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -85,14 +91,18 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		}
 	}
 
-	// Initialize puller
+	// Initialize puller. Bundle writes are redirected to the *pending*
+	// lockfile so the active lock.yaml stays at the old SHA until the
+	// user approves the review (docs/bundle-review-plan.md Phase 2.3).
 	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
-		// Use git clone cache to avoid API rate limiting
-		cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-		factory := remote.NewCachedFetcherFactory(cache, remote.DefaultFetcherFactory)
-		puller = remote.NewPuller(registry, auth, remote.WithFetcherFactory(factory))
+		pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
+		puller = remote.NewPuller(registry, auth,
+			remote.WithFetcherFactory(newCachedFetcherFactory(cfg)),
+			remote.WithLockfileManager(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))),
+			remote.WithBundleLockfileTarget(pendingMgr),
+		)
 	}
 
 	result := &SyncDependenciesResult{
@@ -145,10 +155,54 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		result.Status = "completed_with_errors"
 	}
 
+	// Compute the bundle-level delta between active and pending. Empty if
+	// nothing landed in pending (e.g. only profiles synced, or every
+	// bundle came from a trusted remote and was filtered out).
+	result.Changes = computeBundleChanges(cfg, registry, fs)
+
 	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
 		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
 
 	return result, nil
+}
+
+// computeBundleChanges loads the active + pending lockfiles and diffs them.
+// nil result means "nothing to review" — either no pending file exists or
+// every change was filtered out by TrustBundles.
+func computeBundleChanges(cfg *config.Config, registry *remote.Registry, fs afero.Fs) *BundleChangeSet {
+	baseDir := getBaseDir(cfg)
+	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
+
+	active, err := activeMgr.Load()
+	if err != nil {
+		return nil
+	}
+	pending, err := pendingMgr.Load()
+	if err != nil || pending.IsEmpty() {
+		return nil
+	}
+	cs := DiffLockfiles(active, pending, registry)
+	if cs.IsEmpty() {
+		return nil
+	}
+	return cs
+}
+
+// PendingBundleChanges returns the active↔pending diff for cfg using the
+// real OS filesystem. Used by the MCP startup path so review state gets
+// populated even when no fresh sync ran this session (e.g. the user
+// restarted while pending was still on disk from a previous run). nil
+// when there's nothing to review.
+func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
+	if cfg == nil {
+		return nil
+	}
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		registry = nil // diff degrades to "no trust filter" rather than aborting
+	}
+	return computeBundleChanges(cfg, registry, afero.NewOsFs())
 }
 
 // collectRemoteReferences collects all remote bundle and profile references from config.

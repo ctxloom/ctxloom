@@ -185,6 +185,9 @@ func searchRemotesForContent(ctx context.Context, query string, types []string) 
 	auth := remote.LoadAuth("")
 	parsedQuery := remote.ParseSearchQuery(query)
 
+	cfg := loadConfigOrFallback(GetConfig, os.Stderr)
+	cachedFactory := operations.NewCachedFetcherFactory(cfg)
+
 	// Determine item types to search
 	var itemTypes []remote.ItemType
 	for _, t := range types {
@@ -207,7 +210,7 @@ func searchRemotesForContent(ctx context.Context, query string, types []string) 
 			go func(r *remote.Remote, t remote.ItemType) {
 				defer wg.Done()
 
-				fetcher, err := remote.NewFetcher(r.URL, auth)
+				fetcher, err := cachedFactory(r.URL, auth)
 				if err != nil {
 					errorsCh <- fmt.Errorf("%s: %w", r.Name, err)
 					return
@@ -264,7 +267,7 @@ func searchRemoteManifest(ctx context.Context, fetcher remote.Fetcher, rem *remo
 	}
 
 	var manifest remote.Manifest
-	if err := parseYAML(manifestContent, &manifest); err != nil {
+	if err := yaml.Unmarshal(manifestContent, &manifest); err != nil {
 		return nil, err
 	}
 
@@ -387,7 +390,3 @@ func printRemoteResults(results []remote.SearchResult) {
 	fmt.Println("Install with: ctxloom pull <remote>/<name>")
 }
 
-// parseYAML is a helper to parse YAML content.
-func parseYAML(data []byte, v interface{}) error {
-	return yaml.Unmarshal(data, v)
-}

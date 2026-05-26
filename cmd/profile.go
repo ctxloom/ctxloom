@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -690,10 +691,14 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read source file: %w", err)
 	}
 
-	// Parse to validate it's valid YAML
-	var profileData map[string]interface{}
+	// Parse against the Profile schema so we catch malformed profiles
+	// (not just unparseable YAML) before copying them. The parsed value
+	// is discarded — we only copy the source file on disk — but
+	// validating shape surfaces "this isn't a profile" errors at import
+	// time instead of at the next ctxloom run.
+	var profileData config.Profile
 	if err := yaml.Unmarshal(srcData, &profileData); err != nil {
-		return fmt.Errorf("invalid profile file (not valid YAML): %w", err)
+		return fmt.Errorf("invalid profile file: %w", err)
 	}
 
 	// Determine destination path

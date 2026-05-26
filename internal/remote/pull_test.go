@@ -302,13 +302,19 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", result.LocalPath)
+	// Bundles no longer materialize on fs after PR 1 of the bundle-review
+	// plan. LocalPath is a synthetic "<remote>:name@sha" string and the
+	// fetched bytes come back on Content for callers that need them.
+	assert.Equal(t, "<remote>:alice/security@abc123def456", result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
+	assert.NotEmpty(t, result.Content)
 
-	// Verify file was written
-	exists, err := afero.Exists(fs, result.LocalPath)
-	require.NoError(t, err)
-	assert.True(t, exists)
+	// The lockfile is now the only on-disk record of the install.
+	lock, lerr := lm.Load()
+	require.NoError(t, lerr)
+	entry, ok := lock.GetEntry(ItemTypeBundle, "alice/security")
+	require.True(t, ok, "lockfile entry should exist")
+	assert.Equal(t, "abc123def456", entry.SHA)
 
 	// Verify security warning was displayed
 	assert.Contains(t, stdout.String(), "WARNING")
@@ -576,16 +582,20 @@ func TestCascadePullProfile(t *testing.T) {
 	})
 
 	t.Run("skips already cached bundles", func(t *testing.T) {
+		// After docs/bundle-review-plan.md PR 1, bundles no longer live as
+		// fs files — "cached" means "present in the lockfile." Seed a lock
+		// entry to prove cascadePullProfile honors that.
 		fs := afero.NewMemMapFs()
-
-		// Create the cached bundle file
-		require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice", 0755))
-		require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", []byte("cached"), 0644))
-
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		lockMgr := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+		lock := &Lockfile{Bundles: map[string]LockEntry{}, Profiles: map[string]LockEntry{}}
+		lock.AddEntry(ItemTypeBundle, "alice/security", LockEntry{SHA: "abc123", URL: "https://github.com/alice/ctxloom"})
+		require.NoError(t, lockMgr.Save(lock))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
+			WithLockfileManager(lockMgr),
 		)
 
 		profileContent := []byte("bundles:\n  - alice/security\n")

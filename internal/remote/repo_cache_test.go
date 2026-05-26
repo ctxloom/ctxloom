@@ -124,6 +124,54 @@ func TestRepoCache_UpdateRepo_NotYetCloned(t *testing.T) {
 	assert.DirExists(t, repoDir)
 }
 
+// TestRepoCache_EnsureRef_UnshallowsForOlderRef verifies that requesting a ref
+// not present in the initial shallow (depth=1) clone triggers an unshallow so
+// the ref becomes locally resolvable.
+func TestRepoCache_EnsureRef_UnshallowsForOlderRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+
+	repo, err := git.PlainInit(sourceDir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "a.txt"), []byte("a\n"), 0644))
+	_, err = wt.Add("a.txt")
+	require.NoError(t, err)
+	first, err := wt.Commit("first", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	_, err = repo.CreateTag("v0.1.0", first, nil)
+	require.NoError(t, err)
+
+	// Second commit so HEAD moves past the tag.
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "b.txt"), []byte("b\n"), 0644))
+	_, err = wt.Add("b.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("second", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+
+	// EnsureRef with empty ref should be enough for HEAD.
+	repoDir, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "")
+	require.NoError(t, err)
+	assert.DirExists(t, repoDir)
+
+	// Asking for the tag (which points at the older commit) should trigger
+	// the unshallow path and succeed.
+	repoDir2, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "v0.1.0")
+	require.NoError(t, err)
+	assert.Equal(t, repoDir, repoDir2)
+}
+
 func TestRepoCache_repoDirForURL(t *testing.T) {
 	cache := NewRepoCache("/tmp/cache", AuthConfig{})
 

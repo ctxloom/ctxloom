@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -50,7 +51,7 @@ func TestCompactor_SessionToText(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	assert.Contains(t, text, "## User\nHello")
 	assert.Contains(t, text, "## Assistant\nHi there!")
@@ -75,7 +76,7 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	// Should be truncated with "..."
 	assert.Contains(t, text, "...")
@@ -90,7 +91,7 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	assert.Contains(t, text, "[ERROR]")
 }
@@ -136,24 +137,29 @@ func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
 	assert.Greater(t, len(chunks), 1)
 }
 
-func TestDistilledSession_Serialization(t *testing.T) {
-	original := DistilledSession{
-		SessionID:  "test-session",
-		CreatedAt:  time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Content:    "This is the distilled content",
-		TokenCount: 100,
-	}
+func TestDistilledSession_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
 
-	data, err := yaml.Marshal(original)
+	c := &Compactor{config: CompactionConfig{OutputDir: tmpDir}}
+	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
+		EntryCount: 12,
+		TokensIn:   2000,
+		TokensOut:  300,
+		PlanBlocks: 2,
+	})
 	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmpDir, "round-trip.md"), path)
 
-	var loaded DistilledSession
-	err = yaml.Unmarshal(data, &loaded)
+	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
 	require.NoError(t, err)
-
-	assert.Equal(t, original.SessionID, loaded.SessionID)
-	assert.Equal(t, original.Content, loaded.Content)
-	assert.Equal(t, original.TokenCount, loaded.TokenCount)
+	assert.Equal(t, "round-trip", loaded.SessionID)
+	assert.Equal(t, 12, loaded.EntryCount)
+	assert.Equal(t, 2000, loaded.TokensIn)
+	assert.Equal(t, 300, loaded.TokensOut)
+	assert.Equal(t, 2, loaded.PlanBlocks)
+	assert.False(t, loaded.DistilledAt.IsZero())
+	assert.Contains(t, loaded.Body, "## Summary")
+	assert.Contains(t, loaded.Body, "Distilled body.")
 }
 
 func TestSessionEssence_Serialization(t *testing.T) {
@@ -177,26 +183,22 @@ func TestSessionEssence_Serialization(t *testing.T) {
 
 func TestLoadDistilledSession(t *testing.T) {
 	tmpDir := t.TempDir()
-	distilledDir := filepath.Join(tmpDir, DistilledDir)
-	require.NoError(t, os.MkdirAll(distilledDir, 0755))
 
-	// Create a test distilled session file
-	session := DistilledSession{
-		SessionID:  "abc123",
-		CreatedAt:  time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Content:    "Distilled content here",
-		TokenCount: 50,
-	}
-	data, err := yaml.Marshal(session)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-abc123.yaml"), data, 0644))
+	frontmatter := "---\n" +
+		"session_id: abc123\n" +
+		"distilled_at: 2024-01-15T10:00:00Z\n" +
+		"entry_count: 8\n" +
+		"plan_blocks: 0\n" +
+		"---\n\n" +
+		"# Session summary\n\nDistilled content here\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte(frontmatter), 0644))
 
-	// Load it
 	loaded, err := LoadDistilledSession(tmpDir, "abc123")
 	require.NoError(t, err)
 
 	assert.Equal(t, "abc123", loaded.SessionID)
-	assert.Equal(t, "Distilled content here", loaded.Content)
+	assert.Equal(t, 8, loaded.EntryCount)
+	assert.Contains(t, loaded.Body, "Distilled content here")
 }
 
 func TestLoadDistilledSession_NotFound(t *testing.T) {
@@ -208,13 +210,10 @@ func TestLoadDistilledSession_NotFound(t *testing.T) {
 
 func TestListDistilledSessions(t *testing.T) {
 	tmpDir := t.TempDir()
-	distilledDir := filepath.Join(tmpDir, DistilledDir)
-	require.NoError(t, os.MkdirAll(distilledDir, 0755))
 
-	// Create test files
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-abc123.yaml"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-def456.yaml"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "other.txt"), []byte("{}"), 0644)) // Should be ignored
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte("---\nsession_id: abc123\n---\n\n# x\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "def456.md"), []byte("---\nsession_id: def456\n---\n\n# x\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("ignored"), 0644))
 
 	sessions, err := ListDistilledSessions(tmpDir)
 	require.NoError(t, err)
@@ -641,6 +640,61 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCompact_PreservesPlansVerbatim(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	planBody := "1. design the schema\n2. migrate data with backfill\n3. verify with smoke tests"
+	toolInput, err := json.Marshal(map[string]string{"plan": planBody})
+	require.NoError(t, err)
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &backends.Session{
+			ID: "plan-survival",
+			Entries: []backends.SessionEntry{
+				{Type: backends.EntryTypeUser, Content: "make a plan"},
+				{
+					Type:      backends.EntryTypeToolUse,
+					ToolName:  "ExitPlanMode",
+					ToolInput: toolInput,
+				},
+				{Type: backends.EntryTypeAssistant, Content: "plan ready"},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	// Capture the prompt the LLM sees so we can assert plan content was
+	// excised in favor of a placeholder.
+	var sawLLMInput string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+			sawLLMInput = req.Prompt.Content
+			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan; see plan-block #1."))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	// The LLM should have seen the placeholder, never the plan body.
+	assert.Contains(t, sawLLMInput, "[plan-block #1 — ExitPlanMode, preserved below]")
+	assert.NotContains(t, sawLLMInput, planBody)
+
+	loaded, err := LoadDistilledSession(tmpDir, "plan-survival")
+	require.NoError(t, err)
+	assert.Equal(t, 1, loaded.PlanBlocks)
+	assert.Contains(t, loaded.Body, "## Preserved plans")
+	assert.Contains(t, loaded.Body, planBody)
+}
+
 func TestCompact_BySessionID(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -678,23 +732,3 @@ func TestCompact_BySessionID(t *testing.T) {
 	assert.Equal(t, "specific-session", result.SessionID)
 }
 
-func TestSaveDistilled(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	c := &Compactor{
-		config: CompactionConfig{
-			OutputDir: tmpDir,
-		},
-	}
-
-	path, err := c.saveDistilled("test-session-123", "Distilled content here")
-	require.NoError(t, err)
-
-	assert.Contains(t, path, "test-session-123")
-
-	// Verify file contents
-	loaded, err := LoadDistilledSession(tmpDir, "test-session-123")
-	require.NoError(t, err)
-	assert.Equal(t, "Distilled content here", loaded.Content)
-	assert.Equal(t, "test-session-123", loaded.SessionID)
-}

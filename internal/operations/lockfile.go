@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -245,6 +246,13 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 // FetcherFactory is a function that creates a Fetcher for a given URL.
 type FetcherFactory func(url string, auth remote.AuthConfig) (remote.Fetcher, error)
 
+// RepoUpdater is the subset of *remote.RepoCache that CheckOutdated needs for
+// its per-URL refresh pre-pass. Production uses *remote.RepoCache directly;
+// tests inject a counting mock so the dedup invariant is observable.
+type RepoUpdater interface {
+	UpdateRepo(ctx context.Context, repoURL string, forgeType remote.ForgeType) (string, error)
+}
+
 // CheckOutdatedRequest contains parameters for checking outdated items.
 type CheckOutdatedRequest struct {
 	// Testing injection points
@@ -252,6 +260,7 @@ type CheckOutdatedRequest struct {
 	LockManager    *remote.LockfileManager `json:"-"` // Optional lock manager for testing
 	Registry       *remote.Registry        `json:"-"` // Optional registry for testing
 	FetcherFactory FetcherFactory          `json:"-"` // Optional fetcher factory for testing
+	RepoCache      RepoUpdater             `json:"-"` // Optional repo updater for testing the per-URL refresh dedup
 }
 
 // OutdatedItem represents an item with a newer version available.
@@ -304,18 +313,46 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 		}
 	}
 
-	auth := remote.LoadAuth("")
+	auth := remote.LoadAuth(baseDir)
 	entries := lockfile.AllEntries()
 
-	// Use injected fetcher factory or default
+	// Use injected fetcher factory or the cached one. The cached factory clones
+	// once per repo URL and serves every subsequent resolve from the local
+	// clone — but it does not refresh on its own. We explicitly UpdateRepo per
+	// unique URL below so "outdated" can actually be detected.
 	fetcherFactory := req.FetcherFactory
 	if fetcherFactory == nil {
-		fetcherFactory = func(url string, auth remote.AuthConfig) (remote.Fetcher, error) {
-			return remote.NewFetcher(url, auth)
+		cached := newCachedFetcherFactory(cfg)
+		fetcherFactory = FetcherFactory(cached)
+	}
+
+	// Dedup repos so we run one git fetch per unique URL instead of 2×N API
+	// calls per lockfile entry. Run when we have a real cache to refresh —
+	// either an injected one (for tests asserting dedup) or the production
+	// default (when no fetcher mock is in play).
+	if req.RepoCache != nil || req.FetcherFactory == nil {
+		var cache RepoUpdater = req.RepoCache
+		if cache == nil {
+			cache = newRepoCache(cfg)
+		}
+		for _, url := range uniqueRemoteURLs(entries, registry) {
+			forgeType, _, err := remote.DetectForge(url)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, err)
+				continue
+			}
+			if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, err)
+				// Continue: stale data is still better than no data.
+			}
 		}
 	}
 
 	var outdated []OutdatedItem
+
+	// Reuse one fetcher per repo URL across entries so we don't reopen the
+	// clone repeatedly.
+	fetcherByURL := map[string]remote.Fetcher{}
 
 	for _, e := range entries {
 		ref, err := remote.ParseReference(e.Ref)
@@ -328,9 +365,13 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 			continue
 		}
 
-		fetcher, err := fetcherFactory(rem.URL, auth)
-		if err != nil {
-			continue
+		fetcher, ok := fetcherByURL[rem.URL]
+		if !ok {
+			fetcher, err = fetcherFactory(rem.URL, auth)
+			if err != nil {
+				continue
+			}
+			fetcherByURL[rem.URL] = fetcher
 		}
 
 		owner, repo, err := remote.ParseRepoURL(rem.URL)
@@ -380,4 +421,33 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 		Items:  outdated,
 		Total:  len(entries),
 	}, nil
+}
+
+// uniqueRemoteURLs returns the unique repo URLs referenced by entries, in the
+// order they first appear. Unparseable refs or unknown remotes are skipped.
+// Used to ensure per-URL operations (clone-cache refresh, fetcher
+// construction) run once per repo even when many lockfile entries share a URL.
+func uniqueRemoteURLs(entries []struct {
+	Type  remote.ItemType
+	Ref   string
+	Entry remote.LockEntry
+}, registry *remote.Registry) []string {
+	seen := map[string]struct{}{}
+	var urls []string
+	for _, e := range entries {
+		ref, err := remote.ParseReference(e.Ref)
+		if err != nil {
+			continue
+		}
+		rem, err := registry.Get(ref.Remote)
+		if err != nil {
+			continue
+		}
+		if _, ok := seen[rem.URL]; ok {
+			continue
+		}
+		seen[rem.URL] = struct{}{}
+		urls = append(urls, rem.URL)
+	}
+	return urls
 }

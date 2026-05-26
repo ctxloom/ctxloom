@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -271,7 +272,13 @@ type Loader struct {
 	fs              afero.Fs
 	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
+	seeded          map[string]*Bundle // Bundle-name → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
 }
+
+// seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
+// content lives only in Loader.seeded. LoadFile uses the prefix to short-
+// circuit straight back to the seeded bundle without touching the fs.
+const seededPathPrefix = "<seeded>:"
 
 // LoaderOption is a functional option for configuring a Loader.
 type LoaderOption func(*Loader)
@@ -280,6 +287,20 @@ type LoaderOption func(*Loader)
 func WithFS(fs afero.Fs) LoaderOption {
 	return func(l *Loader) {
 		l.fs = fs
+	}
+}
+
+// WithSeededBundles pre-populates the loader with parsed bundles indexed by
+// name. Seeded entries win over fs hits with the same name, which lets
+// remote-pinned bundles served from a git clone cache (see operations.
+// BundleReader) shadow any stale extracted copy left over from a previous
+// install. Each call merges its map into any prior seed.
+func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
+	return func(l *Loader) {
+		if l.seeded == nil {
+			l.seeded = make(map[string]*Bundle, len(seeded))
+		}
+		maps.Copy(l.seeded, seeded)
 	}
 }
 
@@ -298,16 +319,45 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 	return l
 }
 
+// seededPath builds the synthetic path used in BundleInfo for seeded bundles.
+// LoadFile inverts the encoding to recover the name.
+func seededPath(name string) string { return seededPathPrefix + name }
+
+// seededNameFromPath returns ("name", true) when path is a sentinel produced
+// by seededPath. Returns ("", false) for real fs paths.
+func seededNameFromPath(path string) (string, bool) {
+	if rest, ok := strings.CutPrefix(path, seededPathPrefix); ok {
+		return rest, true
+	}
+	return "", false
+}
+
 // Load reads a bundle by name.
 // Name can be:
 // - Simple name: "go-tools" -> searches for go-tools.yaml or go-tools/bundle.yaml
 // - Remote-qualified: "alice/go-tools" -> searches in alice/ subdirectory
+//
+// Seeded bundles (see WithSeededBundles) win over fs hits with the same
+// name; this is how remote-pinned bundles delivered by operations.
+// BundleReader shadow any stale extracted copy still on disk.
 func (l *Loader) Load(name string) (*Bundle, error) {
+	if b, ok := l.lookupSeeded(name); ok {
+		return b, nil
+	}
 	path, err := l.Find(name)
 	if err != nil {
 		return nil, err
 	}
 	return l.LoadFile(path)
+}
+
+// lookupSeeded returns the seeded bundle for name, if any. Cheap read-only.
+func (l *Loader) lookupSeeded(name string) (*Bundle, bool) {
+	if l.seeded == nil {
+		return nil, false
+	}
+	b, ok := l.seeded[name]
+	return b, ok
 }
 
 // Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").
@@ -341,7 +391,17 @@ func (l *Loader) Find(name string) (string, error) {
 // Results are cached to avoid redundant disk reads when the same bundle
 // is referenced multiple times (e.g., by multiple profiles).
 // This method is safe for concurrent use.
+//
+// Synthetic seeded-bundle paths (see seededPath) bypass the fs and return
+// the corresponding seeded bundle. Real fs paths use the on-disk cache.
 func (l *Loader) LoadFile(path string) (*Bundle, error) {
+	if name, ok := seededNameFromPath(path); ok {
+		if b, ok := l.lookupSeeded(name); ok {
+			return b, nil
+		}
+		return nil, fmt.Errorf("seeded bundle %q not found", name)
+	}
+
 	// Check cache first (read lock)
 	l.mu.RLock()
 	if cached, ok := l.cache[path]; ok {
@@ -377,10 +437,28 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	return bundle, nil
 }
 
-// List returns all available bundles.
+// List returns all available bundles. Seeded bundles are listed first so
+// that when an fs walk turns up a stale extracted copy with the same name,
+// the seeded entry stays authoritative.
 func (l *Loader) List() ([]*BundleInfo, error) {
 	var bundles []*BundleInfo
 	seen := collections.NewSet[string]()
+
+	// Seeded bundles take precedence — emit them with a sentinel path that
+	// LoadFile knows how to short-circuit.
+	for name, b := range l.seeded {
+		bundles = append(bundles, &BundleInfo{
+			Name:          name,
+			Path:          seededPath(name),
+			Version:       b.Version,
+			Description:   b.Description,
+			Tags:          b.Tags,
+			FragmentCount: b.FragmentCount(),
+			PromptCount:   b.PromptCount(),
+			MCPCount:      b.MCPCount(),
+		})
+		seen.Add(name)
+	}
 
 	// Search bundle directories recursively
 	for _, dir := range l.searchDirs {

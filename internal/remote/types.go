@@ -12,6 +12,12 @@ type Remote struct {
 	Name    string `yaml:"name" json:"name"`
 	URL     string `yaml:"url" json:"url"`
 	Version string `yaml:"version" json:"version"` // e.g., "v1" (version directory)
+
+	// TrustBundles, when true, suppresses the bundle-review prompt for
+	// changes coming from this remote (docs/bundle-review-plan.md Phase 2).
+	// Pending changes from a trusted remote are auto-applied into the
+	// active lockfile. Off by default — opt-in per remote.
+	TrustBundles bool `yaml:"trust_bundles,omitempty" json:"trust_bundles,omitempty"`
 }
 
 // SourceMeta contains provenance metadata embedded in installed fragments/prompts.

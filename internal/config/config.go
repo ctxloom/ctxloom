@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -655,6 +656,71 @@ func (c *Config) GetBundleDirs() []string {
 	return dirs
 }
 
+// SeededBundleLoader returns a bundles.Loader that sees fs-installed local
+// bundles plus every remote bundle in the active lockfile, pre-loaded from
+// the local git clone cache and SHA-pinned. This is the read-path loader
+// every caller should use after PR 1: remote bundles no longer live on disk
+// as extracted YAML, so the seeding step is what makes them visible at all.
+//
+// Failures are degraded gracefully (CLAUDE.md fault tolerance): a missing
+// lockfile, unregistered remote, or single bad SHA produces a stderr
+// warning and the loader returns the rest.
+func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
+	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
+	}
+	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
+}
+
+// loadRemoteBundleSeed materializes every lockfile-listed bundle from the
+// local git clone cache, parsed and ready to seed a bundles.Loader. Returns
+// nil when there is no lockfile or registry — caller treats nil as "no
+// remote bundles, just walk fs."
+func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	baseDir := c.AppPaths[0]
+
+	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir))
+	if err != nil {
+		return nil
+	}
+	lock, err := remote.NewLockfileManager(baseDir).Load()
+	if err != nil {
+		return nil
+	}
+	if lock.IsEmpty() {
+		return nil
+	}
+	auth := remote.LoadAuth(baseDir)
+	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+	factory := remote.NewCachedFetcherFactory(cache)
+	// Wrap in the caching decorator so repeated SeededBundleLoader calls
+	// within a session don't re-walk the clone for the same SHAs.
+	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
+
+	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
+	for name, err := range failures {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load remote bundle %q from cache: %v\n", name, err)
+	}
+
+	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
+	for name, data := range rawBytes {
+		b, perr := bundles.ParseBundle(data)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to parse remote bundle %q: %v\n", name, perr)
+			continue
+		}
+		b.Name = name
+		if entry, ok := lock.Bundles[name]; ok {
+			b.Path = fmt.Sprintf("<remote>:%s@%s", name, entry.SHA)
+		}
+		loaded[name] = b
+	}
+	return loaded
+}
+
 // SourceName returns a human-readable name for the config source.
 func (c *Config) SourceName() string {
 	switch c.Source {
@@ -1054,10 +1120,13 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 	}
 	appDir := c.AppPaths[0]
 
-	// Load each default profile and collect MCP servers
+	// Load each default profile and collect MCP servers.
+	// SeededBundleLoader includes remote bundles from the active lockfile;
+	// without it, MCP servers shipped in remote bundles silently disappear
+	// after extraction is removed (see docs/bundle-review-plan.md Phase 1.2).
 	profileLoader := c.GetProfileLoader()
-	bundleDirs := []string{filepath.Join(appDir, BundlesDir)}
-	bundleLoader := bundles.NewLoader(bundleDirs, false)
+	_ = appDir
+	bundleLoader := c.SeededBundleLoader(false)
 
 	for _, defaultProfile := range defaultProfiles {
 		profile, err := profileLoader.Load(defaultProfile)

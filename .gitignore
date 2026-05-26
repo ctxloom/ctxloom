@@ -1,6 +1,10 @@
 # Binaries
 ctxloom
 bin/
+scm-linux-amd64
+scm-darwin-amd64
+scm-darwin-arm64
+scm-windows-amd64.exe
 
 # Generated man pages
 man/

@@ -33,7 +33,63 @@ var (
 	runPrint            bool
 	runVerbosity        int
 	runAssumeYes        bool
+	runResumeSession    string
+	runResumeTasksFrom  string
+	runResumeNewSession bool
+	runResumeNoTasks    bool
 )
+
+// resolveResumeIntent decides whether this run resumes a prior session
+// and which parts to restore. Flag bypasses win over the picker;
+// non-interactive contexts (no TTY, no flags) silently fall through to
+// a fresh session.
+func resolveResumeIntent(mgr *sessions.Manager, workDir string) (sessions.Decision, error) {
+	switch {
+	case runResumeSession != "":
+		return sessions.Decision{
+			Action:         sessions.ResumeAction,
+			FromHarp:       runResumeSession,
+			RestoreSession: true,
+			RestoreTasks:   !runResumeNoTasks,
+		}, nil
+	case runResumeTasksFrom != "":
+		return sessions.Decision{
+			Action:         sessions.ResumeAction,
+			FromHarp:       runResumeTasksFrom,
+			RestoreSession: false,
+			RestoreTasks:   true,
+		}, nil
+	case runResumeNewSession:
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	if mgr == nil || !isInteractiveTerminal() {
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	entries, err := mgr.ListForProject(workDir)
+	if err != nil || len(entries) == 0 {
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	p := &sessions.Picker{
+		Entries: entries,
+		In:      os.Stdin,
+		Out:     os.Stderr,
+	}
+	return p.Run()
+}
+
+func resumePartsCSV(d sessions.Decision) string {
+	parts := make([]string, 0, 2)
+	if d.RestoreSession {
+		parts = append(parts, "session")
+	}
+	if d.RestoreTasks {
+		parts = append(parts, "tasks")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
 
 var runCmd = &cobra.Command{
 	Use:   "run [flags] [prompt...]",
@@ -170,22 +226,39 @@ Examples:
 			workDir = cwd
 		}
 
-		// Assign a harp name for this session pre-launch. The MCP server
-		// reads CTXLOOM_SESSION_HARP from env on initialize and surfaces it
-		// in ServerOptions.Instructions so the LLM knows its own name. The
-		// backend's native session UUID is bound later via Manager.BindSession
-		// (Phase 3 follow-up).
+		// Phase 3 session resolution: optional pre-launch resume picker,
+		// followed by a fresh harp assignment for the new session.
 		runEnv := map[string]string{}
 		for k, v := range pluginCfg.Env {
 			runEnv[k] = v
 		}
-		if sessMgr, err := sessions.Open(""); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", err)
-		} else if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
-			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+		sessMgr, sessMgrErr := sessions.Open("")
+		if sessMgrErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", sessMgrErr)
+		}
+		resume, err := resolveResumeIntent(sessMgr, workDir)
+		if err != nil {
+			return fmt.Errorf("resume intent: %w", err)
+		}
+		if resume.Action == sessions.QuitAction {
+			fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
+			return nil
+		}
+		if sessMgr != nil {
+			if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
+			} else {
+				runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+				if resume.Action == sessions.ResumeAction {
+					parts := resumePartsCSV(resume)
+					runEnv["CTXLOOM_RESUMED_FROM"] = resume.FromHarp
+					runEnv["CTXLOOM_RESUMED_PARTS"] = parts
+					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
+						entry.HarpName, resume.FromHarp, parts)
+				} else {
+					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
+				}
+			}
 		}
 
 		// Build request
@@ -282,6 +355,14 @@ func init() {
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
+
+	// Phase 3 resume flags. When none are passed, the interactive picker
+	// runs (TTY only); piped/non-interactive invocations fall through to
+	// a fresh session.
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session (essence + tasks). Skips the picker.")
+	runCmd.Flags().StringVar(&runResumeTasksFrom, "tasks-from", "", "Start a fresh session but hydrate tasks from the named harp session. Skips the picker.")
+	runCmd.Flags().BoolVar(&runResumeNewSession, "new-session", false, "Start a fresh session without resume. Skips the picker.")
+	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
 
 	// Register completions
 	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)

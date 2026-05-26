@@ -68,6 +68,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	}, opts)
 	s.installReviewMiddleware(server)
 	s.registerTools(server)
+	s.registerResources(server)
 
 	// A signal-driven cancellation is a clean shutdown, not an error.
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {

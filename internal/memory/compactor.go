@@ -214,6 +214,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		}
 	}
 
+	// Phase 3.6 plans split: write plans.md as an auxiliary file under
+	// the harp dir so plans are queryable without parsing essence.md.
+	// essence.md still contains the plans appended at body-write time;
+	// plans.md is a redundant copy, just easier to grep. Best-effort.
+	if harpName != "" && len(plans) > 0 {
+		if dir, err := harpSessionDir(harpName); err == nil {
+			if err := os.MkdirAll(dir, 0o755); err == nil {
+				_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte(RenderPlans(plans)), 0o644)
+			}
+		}
+	}
+
 	result.Duration = time.Since(start)
 	return result, nil
 }

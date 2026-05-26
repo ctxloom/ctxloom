@@ -124,6 +124,13 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Description: "A single prompt's content by name. Replaces the get_prompt tool.",
 		MIMEType:    "text/markdown",
 	}, s.handleResourcePrompt)
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://remotes/{name}/contents",
+		Name:        "remote contents",
+		Description: "Bundles and profiles available in a configured remote, by remote name. Replaces the browse_remote tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceRemoteContents)
 }
 
 func (s *ctxServer) handleResourceHelp(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -324,6 +331,21 @@ func (s *ctxServer) handleResourcePrompt(ctx context.Context, req *mcp.ReadResou
 		return nil, err
 	}
 	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+}
+
+func (s *ctxServer) handleResourceRemoteContents(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	// URI shape: ctxloom://remotes/<name>/contents — peel both the prefix
+	// and the trailing /contents segment.
+	rest := extractURIName(req.Params.URI, "ctxloom://remotes/")
+	name := strings.TrimSuffix(rest, "/contents")
+	if name == "" || name == rest {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.BrowseRemote(ctx, s.cfg, operations.BrowseRemoteRequest{Remote: name})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
 }
 
 // marshalResourceYAML is the common YAML-encoding wrapper used by every

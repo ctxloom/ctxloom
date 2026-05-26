@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 var (
@@ -169,6 +170,24 @@ Examples:
 			workDir = cwd
 		}
 
+		// Assign a harp name for this session pre-launch. The MCP server
+		// reads CTXLOOM_SESSION_HARP from env on initialize and surfaces it
+		// in ServerOptions.Instructions so the LLM knows its own name. The
+		// backend's native session UUID is bound later via Manager.BindSession
+		// (Phase 3 follow-up).
+		runEnv := map[string]string{}
+		for k, v := range pluginCfg.Env {
+			runEnv[k] = v
+		}
+		if sessMgr, err := sessions.Open(""); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", err)
+		} else if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
+			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+		}
+
 		// Build request
 		req := &pb.RunRequest{
 			Fragments: protoFragments,
@@ -177,7 +196,7 @@ Examples:
 				WorkDir:     workDir,
 				AutoApprove: true,
 				Mode:        mode,
-				Env:         pluginCfg.Env,
+				Env:         runEnv,
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},

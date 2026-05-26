@@ -46,7 +46,22 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	// regardless of current pending state, so clients reading initialize
 	// see the rules and can react when pending becomes non-empty later in
 	// the session. The middleware below is what actually enforces them.
-	opts := &mcp.ServerOptions{Instructions: reviewInstructionsBlock}
+	instructions := reviewInstructionsBlock
+	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
+		// Tell the LLM its own session name so it can self-reference
+		// ("save this as the swift-amber-falcon plan") and so plan-
+		// stamping / TodoWrite captures correlate the right harp.
+		sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
+		if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" {
+			parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
+			if parts == "" {
+				parts = "session,tasks"
+			}
+			sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
+		}
+		instructions += sessionLine
+	}
+	opts := &mcp.ServerOptions{Instructions: instructions}
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Version: Version,

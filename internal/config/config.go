@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 // Re-export path constants for backwards compatibility
@@ -1197,11 +1198,18 @@ func loadMCPFromBundleRef(bundleRef string, appDir string, loader *bundles.Loade
 }
 
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
-// in the active default profiles. Mirrors ResolveBundleMCPServers. Each
-// emitted hook carries SCM="bundle:<ref>" so apply-hooks can identify
-// ctxloom-managed entries when reconciling the backend's settings.json.
+// in the active default profiles, plus the always-on hooks shipped by
+// built-in bundles embedded in the binary (resources/builtin_bundles).
+// Mirrors ResolveBundleMCPServers. Each emitted hook carries SCM source
+// info so apply-hooks can identify ctxloom-managed entries when
+// reconciling the backend's settings.json.
 func (c *Config) ResolveBundleHooks() UnifiedHooks {
 	var result UnifiedHooks
+
+	// Built-in bundles are unconditional — they ship core ctxloom
+	// functionality (tasks auto-capture, plan-stamping). No profile
+	// gating, no remote pull.
+	result.Append(resolveBuiltinBundleHooks())
 
 	defaultProfiles := c.GetDefaultProfiles()
 	if len(defaultProfiles) == 0 || len(c.AppPaths) == 0 {
@@ -1222,6 +1230,35 @@ func (c *Config) ResolveBundleHooks() UnifiedHooks {
 		}
 	}
 	return result
+}
+
+// resolveBuiltinBundleHooks parses every YAML under
+// resources/builtin_bundles/ (embedded at build time) and returns the
+// merged hook set. Each hook is tagged with SCM="builtin:<name>" so the
+// apply-hooks reconciliation can identify built-in entries. Failures on
+// individual bundles are logged to stderr and skipped — built-in bundles
+// must never block startup.
+func resolveBuiltinBundleHooks() UnifiedHooks {
+	var out UnifiedHooks
+	names, err := resources.ListBuiltinBundles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		return out
+	}
+	for _, name := range names {
+		data, err := resources.GetBuiltinBundle(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		var b bundles.Bundle
+		if err := yaml.Unmarshal(data, &b); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		out.Append(extractHooksFromBundle(&b, "builtin:"+name))
+	}
+	return out
 }
 
 // Append concatenates each per-event slice from other onto u.

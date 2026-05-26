@@ -77,9 +77,13 @@ var sessionShowCmd = &cobra.Command{
 		if entry.SessionID == "" {
 			return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])
 		}
-		// Locate the distilled essence file. Today the compactor writes
-		// to <sessionsDir>/<sessionID>.md keyed by backend UUID; Phase 3.6
-		// will move to <harpDir>/essence.md.
+		// Prefer the Phase 3.6 harp-dir layout (~/.ctxloom/sessions/<harp>/
+		// essence.md); fall back to the legacy <sessionsDir>/<sessionID>.md
+		// path for sessions distilled before 3.6 landed.
+		if data, err := readHarpEssence(args[0]); err == nil {
+			_, _ = cmd.OutOrStdout().Write(data)
+			return nil
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
@@ -92,6 +96,17 @@ var sessionShowCmd = &cobra.Command{
 		_, _ = cmd.OutOrStdout().Write(data)
 		return nil
 	},
+}
+
+// readHarpEssence returns the bytes of ~/.ctxloom/sessions/<harp>/essence.md.
+// Errors when home can't be resolved or the file is missing; callers fall
+// back to the legacy layout in either case.
+func readHarpEssence(harpName string) ([]byte, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(home, ".ctxloom", "sessions", harpName, "essence.md"))
 }
 
 var sessionRenameCmd = &cobra.Command{

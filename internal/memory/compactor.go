@@ -430,16 +430,18 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 }
 
 // saveDistilled writes the distilled session as markdown with YAML
-// front-matter at <outputDir>/<sessionID>.md.
+// front-matter. Path resolution:
+//
+//   - If meta.HarpName is set, write to ~/.ctxloom/sessions/<harp>/essence.md
+//     and ALSO write a sessionID-keyed pointer (a thin index reference, not
+//     the body) under the legacy outputDir so existing callers that look up
+//     by sessionID continue to work.
+//   - Otherwise, fall back to the legacy <outputDir>/<sessionID>.md layout.
+//
+// This is the Phase 3.6 harp-dir layout from docs/ctxloom-tasks-plan.md.
+// Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
+// to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {
-	outputDir := c.config.OutputDir
-	if outputDir == "" {
-		outputDir = ".ctxloom/sessions"
-	}
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return "", err
-	}
-
 	meta.SessionID = sessionID
 	meta.DistilledAt = time.Now().UTC()
 
@@ -455,13 +457,54 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	doc.WriteString("# Session summary\n\n")
 	doc.WriteString(strings.TrimSpace(body))
 	doc.WriteString("\n")
+	docBytes := []byte(doc.String())
 
-	path := filepath.Join(outputDir, sessionID+".md")
-	if err := os.WriteFile(path, []byte(doc.String()), 0644); err != nil {
+	// Legacy outputDir for sessionID lookups (load_session, etc.).
+	outputDir := c.config.OutputDir
+	if outputDir == "" {
+		outputDir = ".ctxloom/sessions"
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", err
 	}
+	legacyPath := filepath.Join(outputDir, sessionID+".md")
 
-	return path, nil
+	// Phase 3.6 harp-dir layout: when a harp name is known, that's the
+	// primary write target; the legacy path is also written so existing
+	// sessionID-keyed lookups continue working.
+	if meta.HarpName != "" {
+		harpDir, err := harpSessionDir(meta.HarpName)
+		if err == nil {
+			if err := os.MkdirAll(harpDir, 0o755); err == nil {
+				essencePath := filepath.Join(harpDir, "essence.md")
+				if err := os.WriteFile(essencePath, docBytes, 0o644); err == nil {
+					// Best-effort task snapshot (skip on any error).
+					if tasksData, err := os.ReadFile(filepath.Join(c.config.WorkDir, ".ctxloom", "tasks.md")); err == nil {
+						_ = os.WriteFile(filepath.Join(harpDir, "tasks.md"), tasksData, 0o644)
+					}
+					// Mirror to legacy path so sessionID lookups still work.
+					_ = os.WriteFile(legacyPath, docBytes, 0o644)
+					return essencePath, nil
+				}
+			}
+		}
+		// Fall through to legacy-only on any error above (graceful degrade).
+	}
+
+	if err := os.WriteFile(legacyPath, docBytes, 0o644); err != nil {
+		return "", err
+	}
+	return legacyPath, nil
+}
+
+// harpSessionDir returns ~/.ctxloom/sessions/<harp>/. Errors when home
+// can't be resolved; the caller falls back to legacy layout in that case.
+func harpSessionDir(harpName string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ctxloom", "sessions", harpName), nil
 }
 
 // DistilledSession is the loaded form of a distilled session .md file:

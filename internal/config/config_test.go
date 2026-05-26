@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -1335,6 +1336,37 @@ func TestUnifiedHooks_Append(t *testing.T) {
 	assert.Len(t, dst.PostTool, 2)
 	assert.Equal(t, "Y", dst.PostTool[1].Matcher)
 	assert.Len(t, dst.PostFileEdit, 1)
+}
+
+// TestResolveBuiltinBundleHooks asserts the embedded tasks bundle is
+// parseable and its hooks ride through to UnifiedHooks tagged with the
+// builtin SCM marker. This is the regression guard for the "ctxloom
+// core functionality prompts/tasks ship with the binary" directive: if
+// the YAML in resources/builtin_bundles/ breaks or the embed directive
+// stops picking it up, apply-hooks would silently lose the auto-capture
+// + plan-stamping hooks. This test fires before that ships.
+func TestResolveBuiltinBundleHooks(t *testing.T) {
+	hooks := resolveBuiltinBundleHooks()
+
+	require.NotEmpty(t, hooks.PostTool, "tasks bundle must contribute a PostTool hook (TodoWrite capture)")
+	foundCapture := false
+	for _, h := range hooks.PostTool {
+		if h.Matcher == "TodoWrite" && strings.Contains(h.Command, "tasks capture") {
+			foundCapture = true
+			assert.Equal(t, "builtin:tasks", h.SCM, "builtin hook must be tagged with builtin:<name> SCM")
+		}
+	}
+	assert.True(t, foundCapture, "TodoWrite capture hook missing from builtin tasks bundle")
+
+	require.NotEmpty(t, hooks.PostFileEdit, "tasks bundle must contribute a PostFileEdit hook (stamp-plan)")
+	foundStamp := false
+	for _, h := range hooks.PostFileEdit {
+		if strings.Contains(h.Command, "tasks stamp-plan") {
+			foundStamp = true
+			assert.Equal(t, "builtin:tasks", h.SCM)
+		}
+	}
+	assert.True(t, foundStamp, "stamp-plan hook missing from builtin tasks bundle")
 }
 
 func TestHooksConfig_HasAny(t *testing.T) {

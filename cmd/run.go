@@ -258,6 +258,14 @@ Examples:
 				} else {
 					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
 				}
+				// Set the terminal window title to the harp name via the
+				// OSC2 escape sequence. Most terminals (xterm, iTerm2,
+				// alacritty, WezTerm, kitty, Windows Terminal) render it;
+				// the rest silently ignore the sequence. Skipped for
+				// non-TTY (CI, piped) so we don't pollute pipelines.
+				if isInteractiveTerminal() {
+					fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
+				}
 			}
 		}
 

@@ -344,6 +344,98 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeHookWriter_DedupsBundleShippedHooks is the regression
+// guard for the apply-hooks deduplication bug fixed in 3b6a7bf:
+// isCtxloomManagedHook previously matched only inject-context, so
+// bundle-shipped hooks (`ctxloom tasks capture --stdin`, `ctxloom
+// tasks stamp-plan`) accumulated duplicates on every WriteHooks call.
+//
+// The fix broadened the recognition to "any command whose executable
+// token is `ctxloom`". This test exercises that path: write hooks
+// twice, assert the count stays at the expected total.
+func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			PostTool: []config.Hook{
+				{Matcher: "TodoWrite", Command: "ctxloom tasks capture --stdin", Type: "command"},
+			},
+			PostFileEdit: []config.Hook{
+				{Command: "ctxloom tasks stamp-plan", Type: "command"},
+			},
+		},
+	}
+
+	// Write hooks three times. Without the fix, each apply would append
+	// a duplicate of the previous run's hooks.
+	for range 3 {
+		if err := writer.WriteHooks(cfg, tmpDir); err != nil {
+			t.Fatalf("WriteHooks: %v", err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Count occurrences of each ctxloom tasks hook across the entire
+	// PostToolUse tree.
+	hooks := settings["hooks"].(map[string]any)
+	postToolUse := hooks["PostToolUse"].([]any)
+	captureCount := 0
+	stampCount := 0
+	for _, matcher := range postToolUse {
+		m := matcher.(map[string]any)
+		hooksList := m["hooks"].([]any)
+		for _, h := range hooksList {
+			cmd := h.(map[string]any)["command"].(string)
+			if strings.Contains(cmd, "tasks capture") {
+				captureCount++
+			}
+			if strings.Contains(cmd, "tasks stamp-plan") {
+				stampCount++
+			}
+		}
+	}
+	if captureCount != 1 {
+		t.Errorf("expected exactly 1 `tasks capture` hook after 3 applies, got %d", captureCount)
+	}
+	if stampCount != 1 {
+		t.Errorf("expected exactly 1 `tasks stamp-plan` hook after 3 applies, got %d", stampCount)
+	}
+}
+
+// TestIsCtxloomManagedHook covers the predicate that drives the dedup
+// pass. Pre-3b6a7bf this only matched inject-context.
+func TestIsCtxloomManagedHook(t *testing.T) {
+	cases := map[string]bool{
+		// All ctxloom invocations are managed.
+		"ctxloom hook inject-context --project /p hash":   true,
+		"ctxloom tasks capture --stdin":                   true,
+		"ctxloom tasks stamp-plan":                        true,
+		`"/usr/bin/ctxloom" meta hud`:                     true,
+		"/home/me/go/bin/ctxloom tasks capture --stdin":   true,
+		`"C:\Tools\ctxloom.exe" tasks stamp-plan`:         true,
+		// Not ctxloom.
+		"echo 'user hook'":                                false,
+		"node /opt/somewhere/script.js":                   false,
+		"/usr/local/bin/ctxloomctl whatever":              false,
+		"":                                                false,
+	}
+	for cmd, want := range cases {
+		if got := isCtxloomManagedHook(cmd); got != want {
+			t.Errorf("isCtxloomManagedHook(%q) = %v; want %v", cmd, got, want)
+		}
+	}
+}
+
 func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}

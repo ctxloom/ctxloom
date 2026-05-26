@@ -851,9 +851,31 @@ func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 }
 
 // isCtxloomManagedHook returns true if the hook command appears to be ctxloom-managed.
+// isCtxloomManagedHook reports whether a hook command was installed by
+// ctxloom. We treat ANY command whose executable token is `ctxloom`
+// (bare, absolute path, or quoted) as ctxloom-managed. Examples:
+//
+//	ctxloom hook inject-context …
+//	ctxloom tasks capture --stdin
+//	ctxloom tasks stamp-plan
+//	"/usr/bin/ctxloom" meta hud
+//	/home/me/go/bin/ctxloom tasks capture --stdin
+//
+// Without this broad recognition, removeCtxloomHooks only catches the
+// legacy inject-context entry and bundle-shipped hooks (tasks capture,
+// stamp-plan) accumulate duplicates on every apply-hooks run.
 func isCtxloomManagedHook(command string) bool {
-	// ctxloom inject-context hooks contain both "ctxloom" and "inject-context"
-	return strings.Contains(command, "ctxloom") && strings.Contains(command, "inject-context")
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	exe := strings.Trim(fields[0], `"'`)
+	// Strip any directory prefix and any .exe suffix.
+	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
+		exe = exe[i+1:]
+	}
+	exe = strings.TrimSuffix(exe, ".exe")
+	return exe == "ctxloom"
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.

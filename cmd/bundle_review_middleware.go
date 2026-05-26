@@ -62,6 +62,11 @@ var allowedDuringReview = map[string]struct{}{
 
 	// Session compaction (reduces only, doesn't expose bundle bytes).
 	"compact_session": {},
+
+	// Tasks — file-local state, no bundle content involvement.
+	"task_list":       {},
+	"task_add":        {},
+	"task_set_status": {},
 }
 
 // installReviewMiddleware wires the gate-and-prepend behavior into the SDK

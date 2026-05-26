@@ -208,4 +208,5 @@ func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerMCPServerTools(server)
 	s.registerMemoryTools(server)
 	s.registerReviewTools(server)
+	s.registerTaskTools(server)
 }

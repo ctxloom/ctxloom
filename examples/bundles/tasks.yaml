@@ -54,8 +54,11 @@ hooks:
       command: ctxloom tasks capture --stdin
       type: command
   post_file_edit:
-    - matcher: ".*"
-      command: ctxloom tasks stamp-plan
+    # Matcher intentionally omitted — defaults to Edit|Write per
+    # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file
+    # filtering happens inside stamp-plan via memory.IsPlanFile so the
+    # hook is cheap to install on every Edit/Write call.
+    - command: ctxloom tasks stamp-plan
       type: command
 
 fragments:

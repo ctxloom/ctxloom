@@ -276,40 +276,55 @@ func (s *ctxServer) handleListSessions(_ context.Context, _ *mcp.CallToolRequest
 }
 
 func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolRequest, in loadSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
-	sessionID := in.SessionID
 	if in.HarpName != "" {
-		resolved, err := resolveHarpToSessionID(in.HarpName)
-		if err != nil {
-			return nil, nil, err
-		}
-		sessionID = resolved
+		// Harp-native path: read ~/.ctxloom/sessions/<harp>/essence.md
+		// directly. No backend-history detour, no SessionID binding step.
+		// If the file is missing the user can run `ctxloom session distill`
+		// (when that subcommand lands) or just compact again.
+		return s.loadHarpEssence(in.HarpName)
 	}
-	if sessionID == "" {
+	if in.SessionID == "" {
 		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
 	}
-	return s.loadOrDistillSession(ctx, sessionID, in.Backend, in.Model, 0)
+	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, 0)
 }
 
-// resolveHarpToSessionID looks up a harp name in ~/.ctxloom/sessions/index.yaml
-// and returns the bound session_id. Errors when the harp is unknown or
-// when the entry exists but hasn't been bound yet (i.e., the spawned LLM's
-// MCP server hasn't called initialize for that harp).
-func resolveHarpToSessionID(harpName string) (string, error) {
+// loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
+// it as a loadSessionResult. The harp-dir layout (Phase 3.6) is keyed by
+// the human-readable harp name, so this path is independent of backend
+// session UUIDs. Errors when the harp is unknown to the index or its
+// essence.md doesn't exist (compact_session hasn't run for this harp yet).
+func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	mgr, err := sessions.Open("")
 	if err != nil {
-		return "", fmt.Errorf("session index: %w", err)
+		return nil, nil, fmt.Errorf("session index: %w", err)
 	}
 	entry, err := mgr.Find(harpName)
 	if err != nil {
-		return "", fmt.Errorf("lookup harp %q: %w", harpName, err)
+		return nil, nil, fmt.Errorf("lookup harp %q: %w", harpName, err)
 	}
 	if entry == nil {
-		return "", fmt.Errorf("harp not found in index: %q", harpName)
+		return nil, nil, fmt.Errorf("harp not found in index: %q", harpName)
 	}
-	if entry.SessionID == "" {
-		return "", fmt.Errorf("harp %q is pending (no backend session ID bound yet)", harpName)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, nil, fmt.Errorf("home dir: %w", err)
 	}
-	return entry.SessionID, nil
+	essencePath := filepath.Join(home, ".ctxloom", "sessions", harpName, "essence.md")
+	data, err := os.ReadFile(essencePath)
+	if err != nil {
+		return nil, &loadSessionResult{
+			Loaded:  false,
+			Message: fmt.Sprintf("No distilled essence for %s yet. Run `ctxloom session distill %s` or compact_session to generate one.", harpName, harpName),
+		}, nil
+	}
+	return nil, &loadSessionResult{
+		Loaded:    true,
+		SessionID: entry.SessionID, // may be empty; not load-bearing
+		Content:   string(data),
+		WasCached: true,
+		CreatedAt: entry.StartedAt.Format("2006-01-02 15:04:05"),
+	}, nil
 }
 
 func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolRequest, in recoverSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {

@@ -131,20 +131,18 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 		return Decision{}, actionLoop
 	}
 
-	// Letter-prefix commands: s<N>, t<N>, d<N>[s|t].
+	// Letter-prefix commands: s<N>, t<N>. A `d<N>` distill keystroke is
+	// deliberately not supported — sessions that didn't compact while
+	// alive stay summary-less. Re-running the harp is the resume path,
+	// not a retroactive distillation rescue.
 	if len(low) >= 2 {
 		prefix := low[0]
 		rest := strings.TrimSpace(low[1:])
-		switch prefix {
-		case 's', 't':
+		if prefix == 's' || prefix == 't' {
 			if n, ok := parseRowNumber(rest); ok {
 				p.toggleCheck(n, prefix == 's')
 				return Decision{}, actionLoop
 			}
-		case 'd':
-			// Distillation is not wired in this commit; surface a hint.
-			fmt.Fprintln(p.Out, "(distill not yet available — coming with the compactor revision)")
-			return Decision{}, actionLoop
 		}
 	}
 

@@ -165,9 +165,11 @@ remotes:
 		t := raw.(map[string]any)
 		names[t["name"].(string)] = true
 	}
-	for _, expected := range []string{"create_bundle", "update_bundle", "delete_bundle", "push_bundle"} {
+	// push_bundle was demoted to CLI in Phase 4 Lever B (7200da0).
+	for _, expected := range []string{"create_bundle", "update_bundle", "delete_bundle"} {
 		assert.True(t, names[expected], "tool %q surfaces over MCP", expected)
 	}
+	assert.False(t, names["push_bundle"], "push_bundle should no longer be an MCP tool")
 
 	// tools/call — create_bundle
 	c.send(t, map[string]any{
@@ -193,22 +195,10 @@ remotes:
 	_, err := os.Stat(bundlePath)
 	require.NoError(t, err, "bundle file landed on disk via the wire path")
 
-	// tools/call — push_bundle dry-run
-	c.send(t, map[string]any{
-		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-		"params": map[string]any{
-			"name": "push_bundle",
-			"arguments": map[string]any{
-				"path":    bundlePath,
-				"dry_run": true,
-			},
-		},
-	})
-	pushed := extractToolResultJSON(t, c.recvByID(t, 4))
-	assert.Equal(t, "preview", pushed["status"])
-	assert.Equal(t, "personal", pushed["remote"])
-	assert.Equal(t, "ctxloom/v1/bundles/wire-test.yaml", pushed["target_path"])
-	assert.NotEmpty(t, pushed["preview"])
+	// push_bundle dry-run was previously exercised here over MCP; it now
+	// runs only via `ctxloom bundle push --dry-run` (Phase 4 Lever B).
+	// The CLI surface is covered by cmd/bundle.go's own tests, so this
+	// integration block is no longer needed.
 
 	// tools/call — delete_bundle
 	c.send(t, map[string]any{

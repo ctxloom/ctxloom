@@ -179,9 +179,12 @@ func TestBundleTools_Registered(t *testing.T) {
 		got[tool.Name] = true
 	}
 
-	for _, name := range []string{"create_bundle", "update_bundle", "delete_bundle", "push_bundle"} {
+	// push_bundle was demoted to CLI in Phase 4 Lever B (7200da0); only
+	// the bundle authoring trio remains as MCP tools.
+	for _, name := range []string{"create_bundle", "update_bundle", "delete_bundle"} {
 		assert.True(t, got[name], "tool %q should be registered via registerBundleTools", name)
 	}
+	assert.False(t, got["push_bundle"], "push_bundle should no longer be an MCP tool (Phase 4 Lever B)")
 }
 
 // TestBundleTools_RequiredFields verifies the SDK's schema reflection

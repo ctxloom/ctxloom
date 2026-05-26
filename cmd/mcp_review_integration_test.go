@@ -157,9 +157,14 @@ func TestMCP_WireProtocol_ReviewGate_BlocksAndUnblocks(t *testing.T) {
 	assert.Contains(t, body, `tool "assemble_context" is blocked`)
 
 	// 2. An allowlisted tool succeeds, but the template prepends to it.
-	listResp := callTool(t, c, 11, "list_remotes", map[string]any{})
-	require.False(t, resultIsError(t, listResp),
-		"list_remotes is on the allowlist; should not be blocked")
+	// list_remotes used to play this role; after Phase 4 Lever A it's a
+	// resource, not a tool. compact_session is the next-best stand-in:
+	// it's allowlisted, reduces (doesn't expose bundle bytes), and the
+	// failure path is benign here (no current session yet).
+	listResp := callTool(t, c, 11, "compact_session", map[string]any{})
+	// compact_session may itself return isError (no current session in the
+	// fixture); what we're testing is that the middleware DIDN'T short-
+	// circuit it with the blocked-tool message.
 	listBody := firstContentText(t, listResp)
 	assert.Contains(t, listBody, "ctxloom bundle review required",
 		"every allowed call should prepend the review template until acknowledged")
@@ -184,7 +189,7 @@ func TestMCP_WireProtocol_ReviewGate_BlocksAndUnblocks(t *testing.T) {
 
 	// 4. After acknowledge, formerly-blocked tools succeed and no longer
 	// prepend the template.
-	postResp := callTool(t, c, 13, "list_remotes", map[string]any{})
+	postResp := callTool(t, c, 13, "task_list", map[string]any{})
 	postBody := firstContentText(t, postResp)
 	assert.NotContains(t, postBody, "ctxloom bundle review required",
 		"once pending clears, the template prepend must stop")
@@ -220,7 +225,7 @@ func TestMCP_WireProtocol_DeclineKeepsOldContent(t *testing.T) {
 	assert.NotContains(t, active, "ccccccc", "declined new bundle must not appear")
 
 	// Gate is released.
-	postResp := callTool(t, c, 21, "list_remotes", map[string]any{})
+	postResp := callTool(t, c, 21, "task_list", map[string]any{})
 	assert.False(t, resultIsError(t, postResp))
 	assert.NotContains(t, firstContentText(t, postResp), "ctxloom bundle review required")
 }
@@ -327,7 +332,7 @@ func TestMCP_WireProtocol_AutoApproveBypass(t *testing.T) {
 	// The bypass either auto-merges at startup or simply never engages
 	// the review state. Either way, gated tools must succeed and the
 	// template must not appear in their output.
-	resp := callTool(t, c, 50, "list_remotes", map[string]any{})
+	resp := callTool(t, c, 50, "task_list", map[string]any{})
 	assert.False(t, resultIsError(t, resp))
 	body := firstContentText(t, resp)
 	assert.NotContains(t, body, "ctxloom bundle review required",

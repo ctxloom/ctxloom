@@ -138,8 +138,12 @@ func TestPicker_MKeystrokeExpandsHorizon(t *testing.T) {
 	assert.Contains(t, out, "old")
 }
 
-func TestPicker_DistillKeystrokeIsHelpful(t *testing.T) {
+func TestPicker_DistillKeystrokeNotSupported(t *testing.T) {
+	// `d` is not a wired command — sessions without summaries can't be
+	// retroactively distilled. The keystroke should fall through to the
+	// generic "unrecognized" handler so the user sees a clear error
+	// instead of silent acceptance.
 	entries := makeEntries(1, time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC))
 	_, out := runPicker(t, entries, "d1\n1\n")
-	assert.Contains(t, out, "distill not yet available")
+	assert.Contains(t, out, "unrecognized")
 }

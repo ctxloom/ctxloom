@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
@@ -23,9 +24,15 @@ import (
 // happen incrementally without re-architecting the server each time.
 
 const (
-	resourceHelpURI            = "ctxloom://help"
-	resourceSessionsRecentURI  = "ctxloom://sessions/recent"
-	resourceTasksSummaryURI    = "ctxloom://tasks/summary"
+	resourceHelpURI           = "ctxloom://help"
+	resourceSessionsRecentURI = "ctxloom://sessions/recent"
+	resourceTasksSummaryURI   = "ctxloom://tasks/summary"
+	resourceFragmentsURI      = "ctxloom://fragments"
+	resourceProfilesURI       = "ctxloom://profiles"
+	resourcePromptsURI        = "ctxloom://prompts"
+	resourceRemotesURI        = "ctxloom://remotes"
+	resourceMCPServersURI     = "ctxloom://mcp-servers"
+	resourceSessionsURI       = "ctxloom://sessions"
 )
 
 func (s *ctxServer) registerResources(server *mcp.Server) {
@@ -49,6 +56,74 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Description: "Per-status task counts plus harp IDs currently in-progress. Cheap; safe to poll.",
 		MIMEType:    "application/yaml",
 	}, s.handleResourceTasksSummary)
+
+	// Listing resources (Phase 4 Lever A migration). Each one mirrors a
+	// formerly-MCP-tool listing endpoint. The corresponding tools have
+	// been pruned from their register*Tools functions.
+	server.AddResource(&mcp.Resource{
+		URI:         resourceFragmentsURI,
+		Name:        "fragments",
+		Description: "All local context fragments with tags and source locations. Replaces the list_fragments tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceFragments)
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceProfilesURI,
+		Name:        "profiles",
+		Description: "All configured profiles with their bundle lists. Replaces the list_profiles tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceProfiles)
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourcePromptsURI,
+		Name:        "prompts",
+		Description: "All available prompts with descriptions. Replaces the list_prompts tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourcePrompts)
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceRemotesURI,
+		Name:        "remotes",
+		Description: "Configured remote sources. Replaces the list_remotes tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceRemotes)
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceMCPServersURI,
+		Name:        "mcp servers",
+		Description: "Configured MCP servers per backend. Replaces the list_mcp_servers tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceMCPServers)
+
+	server.AddResource(&mcp.Resource{
+		URI:         resourceSessionsURI,
+		Name:        "sessions",
+		Description: "All harp-named sessions across every project. For the cwd-filtered view, use ctxloom://sessions/recent.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceSessionsAll)
+
+	// Templated resources for single-record lookup. URI templates use
+	// RFC 6570; the handler parses the URI to extract the {name} segment.
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://fragments/{name}",
+		Name:        "fragment",
+		Description: "A single fragment's content by name. Replaces the get_fragment tool.",
+		MIMEType:    "text/markdown",
+	}, s.handleResourceFragment)
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://profiles/{name}",
+		Name:        "profile",
+		Description: "A single profile's config by name. Replaces the get_profile tool.",
+		MIMEType:    "application/yaml",
+	}, s.handleResourceProfile)
+
+	server.AddResourceTemplate(&mcp.ResourceTemplate{
+		URITemplate: "ctxloom://prompts/{name}",
+		Name:        "prompt",
+		Description: "A single prompt's content by name. Replaces the get_prompt tool.",
+		MIMEType:    "text/markdown",
+	}, s.handleResourcePrompt)
 }
 
 func (s *ctxServer) handleResourceHelp(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -144,6 +219,122 @@ func (s *ctxServer) handleResourceTasksSummary(_ context.Context, req *mcp.ReadR
 		return nil, fmt.Errorf("marshal summary: %w", err)
 	}
 	return resourceText(req.Params.URI, "application/yaml", string(out)), nil
+}
+
+// --- Listings (Phase 4 Lever A) ---
+
+func (s *ctxServer) handleResourceFragments(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListFragments(ctx, s.cfg, operations.ListFragmentsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+func (s *ctxServer) handleResourceProfiles(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListProfiles(ctx, s.cfg, operations.ListProfilesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+func (s *ctxServer) handleResourcePrompts(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListPrompts(ctx, s.cfg, operations.ListPromptsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+func (s *ctxServer) handleResourceRemotes(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListRemotes(ctx, s.cfg, operations.ListRemotesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+func (s *ctxServer) handleResourceMCPServers(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListMCPServers(ctx, s.cfg, operations.ListMCPServersRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+// handleResourceSessionsAll returns every harp-named session in the index,
+// not project-filtered. Mirrors `ctxloom session list --all`.
+func (s *ctxServer) handleResourceSessionsAll(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return nil, err
+	}
+	idx, err := mgr.Load()
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, idx)
+}
+
+// --- Single-record templates (Phase 4 Lever A) ---
+
+// extractURIName pulls the trailing `{name}` segment off a URI like
+// "ctxloom://fragments/<name>". Returns the empty string when no segment
+// is present (the SDK should never call our template handler in that
+// case, but we tolerate it).
+func extractURIName(uri, prefix string) string {
+	if !strings.HasPrefix(uri, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(uri, prefix)
+}
+
+func (s *ctxServer) handleResourceFragment(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://fragments/")
+	if name == "" {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.GetFragment(ctx, s.cfg, operations.GetFragmentRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+}
+
+func (s *ctxServer) handleResourceProfile(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://profiles/")
+	if name == "" {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.GetProfile(ctx, s.cfg, operations.GetProfileRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	return marshalResourceYAML(req.Params.URI, result)
+}
+
+func (s *ctxServer) handleResourcePrompt(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://prompts/")
+	if name == "" {
+		return nil, mcp.ResourceNotFoundError(req.Params.URI)
+	}
+	result, err := operations.GetPrompt(ctx, s.cfg, operations.GetPromptRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	return resourceText(req.Params.URI, "text/markdown", result.Content), nil
+}
+
+// marshalResourceYAML is the common YAML-encoding wrapper used by every
+// list-style resource handler. Saves a few lines per handler and keeps
+// the MIME type consistent.
+func marshalResourceYAML(uri string, v any) (*mcp.ReadResourceResult, error) {
+	out, err := yaml.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal resource: %w", err)
+	}
+	return resourceText(uri, "application/yaml", string(out)), nil
 }
 
 // resourceText wraps a string body into the SDK's text-resource response

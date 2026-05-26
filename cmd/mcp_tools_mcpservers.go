@@ -1,11 +1,7 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 type listMCPServersInput struct {
@@ -34,22 +30,13 @@ type setMCPAutoRegisterInput struct {
 // field on each operation's result. The legacy implementation stamps
 // s.cfg = result.Config after every successful mutation so subsequent
 // tool calls see the new state. We preserve that pattern here.
+// registerMCPServerTools is a no-op stub after Phase 4.
+//
+//   Lever A (listings → resources):
+//     list_mcp_servers → ctxloom://mcp-servers
+//   Lever B (writes → CLI):
+//     add_mcp_server | remove_mcp_server | set_mcp_auto_register
+//        → ctxloom mcp add | remove | auto-register
 func (s *ctxServer) registerMCPServerTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_mcp_servers",
-			Description: "List configured MCP servers",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in listMCPServersInput) (*mcp.CallToolResult, *operations.ListMCPServersResult, error) {
-			result, err := operations.ListMCPServers(ctx, s.cfg, operations.ListMCPServersRequest{
-				Query:     in.Query,
-				SortBy:    in.SortBy,
-				SortOrder: in.SortOrder,
-			})
-			return nil, result, err
-		})
-
-	// Phase 4 Lever B: add_mcp_server, remove_mcp_server,
-	// set_mcp_auto_register moved to CLI.
-	//   ctxloom mcp add | remove | auto-register
+	_ = server
 }

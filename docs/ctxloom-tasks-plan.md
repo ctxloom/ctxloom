@@ -580,22 +580,32 @@ Phase 4 splits into three PRs:
 
 E1 and E2 are independent of each other and of E3. E3 depends on whichever PR introduces the 5-tool task surface.
 
-### 4.8 Current implementation status
+### 4.8 Implementation status (post-Phase-4)
 
-As of the `feat/bundle-mcp-tools` branch:
+All three sub-levers landed on `feat/bundle-mcp-tools`:
 
-- **Resources framework landed** in `cmd/mcp_resources.go` (additive — no tools removed yet). Three concrete resources registered:
-  - `ctxloom://help` — self-documents the URI scheme
-  - `ctxloom://sessions/recent` — harp-named sessions for cwd, YAML, capped at 25 rows
-  - `ctxloom://tasks/summary` — per-status counts + in-progress IDs
+**Lever A — listings → MCP resources.** `cmd/mcp_resources.go` now hosts:
+- `ctxloom://help` (markdown index)
+- `ctxloom://fragments`, `ctxloom://fragments/{name}` (replaces list/get_fragment)
+- `ctxloom://profiles`, `ctxloom://profiles/{name}` (replaces list/get_profile)
+- `ctxloom://prompts`, `ctxloom://prompts/{name}` (replaces list/get_prompt)
+- `ctxloom://remotes` (replaces list_remotes; browse_remote remains pending — needs a templated `ctxloom://remotes/{name}/contents` template if it comes back)
+- `ctxloom://mcp-servers` (replaces list_mcp_servers)
+- `ctxloom://sessions` (all projects), `ctxloom://sessions/recent` (cwd-filtered)
+- `ctxloom://tasks/summary` (replaces task_summary)
 
-  The framework demonstrates the pattern; the remaining 9 listings → resources migration (`ctxloom://bundles`, `ctxloom://fragments/{name}`, etc.) is deferred to focused follow-up PRs.
+**Lever B — write tools → CLI.** Removed registrations for 15 write tools; each remains available via the existing cobra command surface. Affected register* stubs in `cmd/mcp_tools_{remotes,bundles,mcpservers,profiles,fragments}.go` are no-op'd with comments pointing to the CLI replacement. Allowlist in `cmd/bundle_review_middleware.go` drops the corresponding entries.
 
-- **Lever B (CLI demotion)** — deferred. All 14 target tools still register; the CLI commands they'd be demoted to already exist (`ctxloom remote add/rm/discover`, `ctxloom profile create/delete`, `ctxloom fragment create`, etc., per existing cobra surface). When the bundle skill prompt that nudges Claude toward Bash+CLI ships in `ctxloom-default`, the tool removals can land as a follow-up.
+**4.4 task tightening.** Task surface is `task_list`, `task_add`, `task_set_status` (3 tools); summary is the `include_summary` flag on `task_list` plus `ctxloom://tasks/summary`.
 
-- **Task tightening (4.4)** — done in PR B. Task surface is `task_list`, `task_add`, `task_set_status` (3 tools); `task_summary` is the `include_summary` flag on `task_list` plus the `ctxloom://tasks/summary` resource added here.
+**Surviving MCP tools** (~14, ≈70% reduction from the ~46 naïve baseline):
+- Review machinery: `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, `trust_remote`
+- Bundle authoring: `create_bundle`, `update_bundle`, `delete_bundle`
+- Tasks: `task_list`, `task_add`, `task_set_status`
+- Sessions: `load_session`, `recover_session`, `compact_session`, `get_previous_session`
+- Context assembly: `assemble_context`, `search_content`, `apply_hooks`, `sync_dependencies`
 
-Current MCP footprint: ~41 tools (today) + 5 new (review/tasks/sessions across earlier commits) − 0 (we haven't removed any yet) = ~46. Lever A + B follow-ups will bring this to ~20.
+Dead-code handler closures + input/result types are intentionally left in their files for ease of revert; `go vet` is clean and lint-info diagnostics for unused private types are tolerated.
 
 ---
 

@@ -142,17 +142,14 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 		},
 		s.handleCompactSession)
 
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_sessions",
-			Description: "List all sessions from the backend with their compaction status",
-		},
-		s.handleListSessions)
+	// Phase 4 Lever A: list_sessions and browse_session_history moved to
+	// resources. Use ctxloom://sessions (all projects) or
+	// ctxloom://sessions/recent (cwd-filtered, AI-friendly summary).
 
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "load_session",
-			Description: "Distill and load context from a session. Use browse_session_history to find session IDs.",
+			Description: "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent.",
 		},
 		s.handleLoadSession)
 
@@ -162,13 +159,6 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 			Description: "Recover context from the current session after /clear. Uses the stable process ID from CTXLOOM_STAMP to find the previous session, or falls back to the most recent session.",
 		},
 		s.handleRecoverSession)
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "browse_session_history",
-			Description: "Browse recent sessions with AI-generated summaries. Shows sessions from the last 3 days with a brief essence of each. Use this to find and load a specific session.",
-		},
-		s.handleBrowseSessionHistory)
 
 	mcp.AddTool(server,
 		&mcp.Tool{

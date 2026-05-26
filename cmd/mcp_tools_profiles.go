@@ -1,11 +1,7 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 type listProfilesInput struct {
@@ -58,33 +54,13 @@ type deleteProfileInput struct {
 	Name string `json:"name" jsonschema:"Profile name to delete"`
 }
 
+// registerProfileTools is a no-op stub after Phase 4.
+//
+//   Lever A (listings → resources):
+//     list_profiles → ctxloom://profiles
+//     get_profile   → ctxloom://profiles/{name}
+//   Lever B (writes → CLI):
+//     create_profile | update_profile | delete_profile → ctxloom profile *
 func (s *ctxServer) registerProfileTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_profiles",
-			Description: "List all configured profiles with their descriptions",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in listProfilesInput) (*mcp.CallToolResult, *operations.ListProfilesResult, error) {
-			result, err := operations.ListProfiles(ctx, s.cfg, operations.ListProfilesRequest{
-				Query:     in.Query,
-				SortBy:    in.SortBy,
-				SortOrder: in.SortOrder,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "get_profile",
-			Description: "Get a profile's configuration including fragments, tags, and variables",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in getProfileInput) (*mcp.CallToolResult, *operations.GetProfileResult, error) {
-			result, err := operations.GetProfile(ctx, s.cfg, operations.GetProfileRequest{
-				Name: in.Name,
-			})
-			return nil, result, err
-		})
-
-	// Phase 4 Lever B: create_profile, update_profile, delete_profile moved
-	// to CLI. Use ctxloom profile create | edit | delete.
+	_ = server
 }

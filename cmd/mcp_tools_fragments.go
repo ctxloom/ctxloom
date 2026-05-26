@@ -1,11 +1,7 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // Input types for fragment tools. Fields without "omitempty" are required;
@@ -43,36 +39,14 @@ type deleteFragmentResult struct {
 	Status string `json:"status"`
 }
 
+// registerFragmentTools is a no-op stub after Phase 4.
+//
+//   Lever A (listings → resources):
+//     list_fragments → ctxloom://fragments
+//     get_fragment   → ctxloom://fragments/{name}
+//   Lever B (writes → CLI):
+//     create_fragment → ctxloom fragment create <bundle> <name>
+//     delete_fragment → ctxloom fragment delete <ref>
 func (s *ctxServer) registerFragmentTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_fragments",
-			Description: "List available local context fragments with their tags and source locations",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in listFragmentsInput) (*mcp.CallToolResult, *operations.ListFragmentsResult, error) {
-			result, err := operations.ListFragments(ctx, s.cfg, operations.ListFragmentsRequest{
-				Query:     in.Query,
-				Tags:      in.Tags,
-				SortBy:    in.SortBy,
-				SortOrder: in.SortOrder,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "get_fragment",
-			Description: "Get a local fragment's content by name",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in getFragmentInput) (*mcp.CallToolResult, *operations.GetFragmentResult, error) {
-			result, err := operations.GetFragment(ctx, s.cfg, operations.GetFragmentRequest{
-				Name: in.Name,
-			})
-			return nil, result, err
-		})
-
-	// Phase 4 Lever B: create_fragment and delete_fragment moved to CLI.
-	//   ctxloom fragment create <bundle> <name>
-	//   ctxloom fragment delete <ref>
-	// The handler closures remain in this file as dead code for now.
+	_ = server
 }

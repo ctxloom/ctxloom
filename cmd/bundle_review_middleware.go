@@ -24,18 +24,8 @@ var allowedDuringReview = map[string]struct{}{
 	"show_bundle_verbatim":      {},
 	"trust_remote":              {},
 
-	// Pure metadata listings — no bundle bodies returned.
-	"list_remotes":      {},
-	"list_profiles":     {},
-	"list_prompts":      {},
-	"list_fragments":    {},
-	"list_mcp_servers":  {},
-	"list_sessions":     {},
-
-	// Metadata get/browse — same rule as above.
-	"get_profile":            {},
-	"browse_session_history": {},
-	"get_previous_session":   {},
+	// Recovery (reads prior session content but doesn't expose bundle bytes).
+	"get_previous_session": {},
 
 	// Local-only bundle mutations (Phase 4: bundles stay as tools because
 	// authoring is frequent and integrates with the review gate).
@@ -46,17 +36,16 @@ var allowedDuringReview = map[string]struct{}{
 	// Session compaction (reduces only, doesn't expose bundle bytes).
 	"compact_session": {},
 
-	// Phase 4 Lever B removals: add_remote, remove_remote, update_remote,
-	// discover_remotes, search_remotes, pull_remote, push_bundle,
-	// add_mcp_server, remove_mcp_server, set_mcp_auto_register,
-	// create_profile, update_profile, delete_profile, create_fragment,
-	// delete_fragment — all moved to CLI; no allowlist entries needed.
-	//
-	// Phase 4 Lever A removals (deferred from this commit; tools currently
-	// still registered): list_*, get_*, browse_* — to be migrated to
-	// MCP resources alongside the existing ctxloom://help, ctxloom://
-	// sessions/recent, ctxloom://tasks/summary. While they're still tools,
-	// they need allowlist entries below.
+	// Phase 4 footprint cut:
+	//   Lever A — list_*/get_*/browse_* migrated to MCP resources
+	//             (ctxloom://fragments, profiles, prompts, remotes,
+	//             mcp-servers, sessions[/recent], plus templated lookups
+	//             ctxloom://fragments/{name} etc.). Resources are never
+	//             gated by this middleware.
+	//   Lever B — add/remove/update/create/delete/discover/search/push
+	//             tools moved to CLI surface (ctxloom remote, mcp, profile,
+	//             fragment, bundle subcommands). They are no longer
+	//             callable as MCP tools, so they need no allowlist entry.
 
 	// Tasks — file-local state, no bundle content involvement.
 	"task_list":       {},

@@ -102,6 +102,12 @@ func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir s
 	return p.Run()
 }
 
+// execCommand is the seam tests override to avoid actually shelling
+// out. Production points it at exec.Command; tests substitute a fake
+// that records the arguments and returns a harmless exec.Cmd (e.g.,
+// /bin/true) so .Run() succeeds without side effects.
+var execCommand = exec.Command
+
 // shellOutDistill is the picker's `d<N>` callback. It runs
 // `ctxloom session distill <harp>` as a child process so the picker
 // doesn't need to depend on cobra, the compactor, or any LLM
@@ -111,7 +117,7 @@ func shellOutDistill(harpName string) error {
 	if err != nil {
 		exe = "ctxloom"
 	}
-	c := exec.Command(exe, "session", "distill", harpName)
+	c := execCommand(exe, "session", "distill", harpName)
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
 	return c.Run()

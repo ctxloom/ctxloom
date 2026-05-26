@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -101,6 +102,52 @@ func TestResolveResumeIntentWith_FlagPrecedence(t *testing.T) {
 		NewSession: true,
 	}, nil, "/p", true)
 	assert.Equal(t, "winner", dec.FromHarp, "--session beats --tasks-from + --new-session")
+}
+
+// TestShellOutDistill covers the picker's `d<N>` callback. We replace
+// the execCommand seam with a fake that returns /bin/true (or echo on
+// platforms where true is non-standard), records the invocation
+// arguments, and confirms the subprocess sees the expected harp.
+func TestShellOutDistill(t *testing.T) {
+	var captured []string
+	orig := execCommand
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		captured = append([]string{name}, args...)
+		// Return a real but harmless Cmd. /bin/true exits 0 on Linux/macOS
+		// without producing any output. exec.Command never actually runs
+		// during construction — only on .Run(), so this is safe even on
+		// systems that don't have /bin/true (the test would fail at .Run
+		// with a clear error rather than silently passing).
+		return exec.Command("/bin/true")
+	}
+	t.Cleanup(func() { execCommand = orig })
+
+	err := shellOutDistill("swift-amber-falcon")
+	require.NoError(t, err, "fake /bin/true should succeed")
+
+	require.Len(t, captured, 4, "expected: exe session distill <harp>")
+	assert.Equal(t, "session", captured[1])
+	assert.Equal(t, "distill", captured[2])
+	assert.Equal(t, "swift-amber-falcon", captured[3])
+	// captured[0] is os.Executable() result (the test binary path);
+	// we don't pin the exact value because it varies between CI and
+	// local runs, but it should be non-empty.
+	assert.NotEmpty(t, captured[0])
+}
+
+// TestShellOutDistill_PropagatesError covers the failure path: when
+// the subprocess exits non-zero, shellOutDistill must surface that as
+// an error rather than swallowing it. The picker's d<N> handler shows
+// the error to the user.
+func TestShellOutDistill_PropagatesError(t *testing.T) {
+	orig := execCommand
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("/bin/false") // always exits 1
+	}
+	t.Cleanup(func() { execCommand = orig })
+
+	err := shellOutDistill("any-harp")
+	assert.Error(t, err, "non-zero exit must propagate")
 }
 
 // TestResumePartsCSV covers the small helper that encodes the

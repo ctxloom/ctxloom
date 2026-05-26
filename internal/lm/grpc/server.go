@@ -53,15 +53,15 @@ func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
 	stdoutWriter := &streamWriter{stream: stream, isStderr: false}
 	stderrWriter := &streamWriter{stream: stream, isStderr: true}
 
-	// Build setup request from RunRequest
+	// Build setup request from RunRequest. Treat nil Options as
+	// fully-default so callers using proto-zero-values don't crash —
+	// use the generated Get* accessors throughout (they're nil-safe).
 	opts := req.GetOptions()
-	workDir := ""
-	env := make(map[string]string)
-	verbosity := uint32(0)
-	if opts != nil {
-		workDir = opts.WorkDir
-		env = opts.Env
-		verbosity = opts.Verbosity
+	workDir := opts.GetWorkDir()
+	env := opts.GetEnv()
+	verbosity := opts.GetVerbosity()
+	if env == nil {
+		env = make(map[string]string)
 	}
 
 	// Setup the backend (skip for distillation/minimal mode)
@@ -80,13 +80,13 @@ func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
 	// Build execute request from RunRequest
 	execReq := &backends.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
-		Mode:        backends.ExecutionMode(opts.Mode),
-		Model:       opts.Model,
+		Mode:        backends.ExecutionMode(opts.GetMode()),
+		Model:       opts.GetModel(),
 		Env:         env,
 		Verbosity:   verbosity,
-		DryRun:      opts.DryRun,
-		AutoApprove: opts.AutoApprove,
-		Temperature: opts.Temperature,
+		DryRun:      opts.GetDryRun(),
+		AutoApprove: opts.GetAutoApprove(),
+		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
 	}
 

@@ -1,10 +1,14 @@
 package backends
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -340,6 +344,128 @@ func TestClaudeSkills_RegisterAll(t *testing.T) {
 	err := skills.RegisterAll("/tmp", skillList)
 	// We expect this to succeed or fail due to file I/O, not panic
 	_ = err
+}
+
+// TestClaudeSkills_Register_WritesToWorkdir exercises the on-disk
+// effect of Register against a tempdir, then asserts the slash-
+// command file and manifest entry land where we expect. Tightens the
+// existing "doesn't panic" smoke test.
+func TestClaudeSkills_Register_WritesToWorkdir(t *testing.T) {
+	workDir := t.TempDir()
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	require.NoError(t, skills.Register(workDir, Skill{
+		Name:        "test-skill",
+		Description: "Test skill",
+		Content:     "# Test Skill\n\nTest content",
+	}))
+
+	// Slash command file must exist somewhere under .claude/commands/.
+	cmds, err := os.ReadDir(filepath.Join(workDir, ".claude", "commands"))
+	require.NoError(t, err)
+	var found bool
+	for _, e := range cmds {
+		if strings.Contains(e.Name(), "test-skill") {
+			found = true
+		}
+	}
+	assert.True(t, found, "test-skill command file must land under .claude/commands/")
+
+	// Manifest must track it for later Clear/List.
+	manifest, err := os.ReadFile(filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest"))
+	require.NoError(t, err)
+	assert.Contains(t, string(manifest), "test-skill")
+}
+
+// TestClaudeSkills_RegisterFromContent covers the bundle-driven path
+// (used by apply-hooks when a bundle ships prompts).
+func TestClaudeSkills_RegisterFromContent(t *testing.T) {
+	workDir := t.TempDir()
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+
+	enabled := true
+	content := &bundles.LoadedContent{Name: "from-bundle", Content: "body"}
+	content.Plugins.LM.ClaudeCode.Enabled = &enabled
+	content.Plugins.LM.ClaudeCode.Description = "From a bundle"
+
+	require.NoError(t, skills.RegisterFromContent(workDir, []*bundles.LoadedContent{content}))
+	// Check the manifest tracks it.
+	manifest, err := os.ReadFile(filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest"))
+	require.NoError(t, err)
+	assert.Contains(t, string(manifest), "from-bundle")
+}
+
+// TestClaudeSkills_List_NoManifest returns empty + nil when nothing
+// has been registered yet.
+func TestClaudeSkills_List_NoManifest(t *testing.T) {
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	names, err := skills.List(t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, names)
+}
+
+// TestClaudeSkills_List_StripsExtension reads back what Register wrote
+// and confirms the .md suffix is gone from the returned names.
+func TestClaudeSkills_List_StripsExtension(t *testing.T) {
+	workDir := t.TempDir()
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	require.NoError(t, skills.RegisterAll(workDir, []Skill{
+		{Name: "a", Content: "x"},
+		{Name: "b", Content: "y"},
+	}))
+
+	names, err := skills.List(workDir)
+	require.NoError(t, err)
+	for _, n := range names {
+		assert.NotContains(t, n, ".md", "List must strip the .md suffix")
+	}
+	// Both registered skills should appear.
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+	}
+	// names from WriteCommandFiles include subdir prefixes; check for
+	// any name containing "a" or "b".
+	var hasA, hasB bool
+	for n := range got {
+		if strings.HasSuffix(n, "a") {
+			hasA = true
+		}
+		if strings.HasSuffix(n, "b") {
+			hasB = true
+		}
+	}
+	assert.True(t, hasA && hasB, "both registered skills must surface in List: %v", names)
+}
+
+// TestClaudeSkills_Clear removes registered skills + manifest. After
+// Clear, List returns empty again.
+func TestClaudeSkills_Clear(t *testing.T) {
+	workDir := t.TempDir()
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	require.NoError(t, skills.Register(workDir, Skill{
+		Name: "doomed", Content: "x", Description: "to be cleared",
+	}))
+
+	// Sanity check
+	before, _ := skills.List(workDir)
+	require.NotEmpty(t, before, "fixture should have produced an entry")
+
+	require.NoError(t, skills.Clear(workDir))
+
+	after, err := skills.List(workDir)
+	require.NoError(t, err)
+	assert.Empty(t, after, "Clear must remove all tracked skills")
+
+	// Manifest itself is gone.
+	_, err = os.Stat(filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest"))
+	assert.True(t, os.IsNotExist(err), "manifest file must be removed")
+}
+
+// TestClaudeSkills_Clear_NoManifest is a no-op when no manifest exists
+// (fresh workdir).
+func TestClaudeSkills_Clear_NoManifest(t *testing.T) {
+	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	require.NoError(t, skills.Clear(t.TempDir()), "Clear without manifest must succeed")
 }
 
 // =============================================================================

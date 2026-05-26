@@ -209,23 +209,22 @@ ctxloom tasks summary
 
 ## Phase 2 — Auto-capture hook + `ctxloom-default-tasks` bundle
 
-### 2.1 Hook script
+### 2.1 Inline hook in the bundle YAML
 
-Bundle ships at `hooks/post-todowrite.sh`:
-```bash
-#!/usr/bin/env bash
-exec ctxloom tasks capture --stdin
-```
+The bundle declares its hooks inline — no shipped shell script files, no separate `hooks.yaml`. The `Bundle` struct gained a `Hooks BundleHooks` field that mirrors `config.UnifiedHooks` (cycle-safe: `internal/bundles` can't import `internal/config`, so the types are duplicated and converted at the boundary).
 
-Bundle's `hooks.yaml`:
 ```yaml
+# ctxloom-default-tasks bundle
 hooks:
-  - event: PostToolUse
-    matcher: TodoWrite
-    script: hooks/post-todowrite.sh
+  post_tool:
+    - matcher: TodoWrite
+      command: ctxloom tasks capture --stdin
+      type: command
 ```
 
-The existing `internal/lm/backends/hooks.go` already maps `PostToolUse` + matcher into the Claude Code settings.json shape — see `internal/lm/backends/hooks_test.go:96`. No new hook plumbing needed.
+`Config.ResolveBundleHooks()` walks the active default profiles' bundles, extracts each bundle's `Hooks`, tags every entry with `SCM: "bundle:<ref>"` so apply-hooks knows it owns them, and `ApplyHooks` merges the result into `cfg.Hooks.Unified` before writing the backend's settings.json. The existing `PostToolUse` / matcher plumbing in `internal/lm/backends/hooks.go` consumes the merged config unchanged.
+
+**Authoring path:** the canonical home for `tasks.yaml` is `github.com/ctxloom/ctxloom-default`. Until that lands, the bundle can be dropped into `.ctxloom/cache/bundles/ctxloom-default/tasks.yaml` locally for dogfooding — it'll be overwritten on the next sync from upstream, which is fine for the experimental phase.
 
 ### 2.2 Skill prompt nudge
 

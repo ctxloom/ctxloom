@@ -73,9 +73,46 @@ type Bundle struct {
 	Prompts   map[string]BundlePrompt   `yaml:"prompts,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
 
+	// Hooks shipped with this bundle (e.g. PostToolUse(TodoWrite) capture).
+	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
+	// Bundle-shipped hooks are subject to the same review gate as bundle
+	// fragments/prompts/MCP: a remote-sourced bundle whose SHA changed must
+	// be acknowledged before its hooks fire (see docs/bundle-review-plan.md).
+	Hooks BundleHooks `yaml:"hooks,omitempty"`
+
 	// Internal fields (not serialized)
 	Name string `yaml:"-"` // Bundle name (from path)
 	Path string `yaml:"-"` // File path for saving
+}
+
+// BundleHook mirrors the shape of config.Hook without importing internal/config
+// (would create a cycle: config already imports bundles). The conversion to
+// config.Hook lives at the operations boundary in config.ResolveBundleHooks.
+type BundleHook struct {
+	Matcher string `yaml:"matcher,omitempty"`
+	Command string `yaml:"command,omitempty"`
+	Type    string `yaml:"type,omitempty"`
+	Prompt  string `yaml:"prompt,omitempty"`
+	Timeout int    `yaml:"timeout,omitempty"`
+	Async   bool   `yaml:"async,omitempty"`
+}
+
+// BundleHooks mirrors config.UnifiedHooks. Same lifecycle events; backend-
+// specific hooks are deliberately not supported in bundles (would couple
+// authoring to a particular backend's tool naming).
+type BundleHooks struct {
+	PreTool      []BundleHook `yaml:"pre_tool,omitempty"`
+	PostTool     []BundleHook `yaml:"post_tool,omitempty"`
+	SessionStart []BundleHook `yaml:"session_start,omitempty"`
+	SessionEnd   []BundleHook `yaml:"session_end,omitempty"`
+	PreShell     []BundleHook `yaml:"pre_shell,omitempty"`
+	PostFileEdit []BundleHook `yaml:"post_file_edit,omitempty"`
+}
+
+// HasAny reports whether the bundle ships any hooks. Used by the loader to
+// skip the merge cost for hookless bundles.
+func (h BundleHooks) HasAny() bool {
+	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
 }
 
 // BundleMCP defines an MCP server within a bundle.

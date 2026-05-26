@@ -232,6 +232,23 @@ type HooksConfig struct {
 	Plugins map[string]BackendHooks    `mapstructure:"plugins" yaml:"plugins,omitempty"`
 }
 
+// hasAny reports whether any hook is configured. Used by Save() to decide
+// whether to emit the `hooks` key at all (vs. delete it from the file).
+func (h HooksConfig) hasAny() bool {
+	u := h.Unified
+	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
+		return true
+	}
+	for _, backend := range h.Plugins {
+		for _, hooks := range backend {
+			if len(hooks) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // BackendHooks holds backend-native hook events (passthrough to backend config).
 // Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
 type BackendHooks map[string][]Hook
@@ -833,6 +850,12 @@ func (c *Config) Save() error {
 		delete(existing, "mcp")
 	}
 
+	if c.Hooks.hasAny() {
+		existing["hooks"] = c.Hooks
+	} else {
+		delete(existing, "hooks")
+	}
+
 	data, err := yaml.Marshal(existing)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -1171,6 +1194,96 @@ func loadMCPFromBundleRef(bundleRef string, appDir string, loader *bundles.Loade
 	}
 
 	return extractMCPFromBundle(bundle, bundleRef)
+}
+
+// ResolveBundleHooks aggregates hooks shipped by every bundle referenced
+// in the active default profiles. Mirrors ResolveBundleMCPServers. Each
+// emitted hook carries SCM="bundle:<ref>" so apply-hooks can identify
+// ctxloom-managed entries when reconciling the backend's settings.json.
+func (c *Config) ResolveBundleHooks() UnifiedHooks {
+	var result UnifiedHooks
+
+	defaultProfiles := c.GetDefaultProfiles()
+	if len(defaultProfiles) == 0 || len(c.AppPaths) == 0 {
+		return result
+	}
+	appDir := c.AppPaths[0]
+	profileLoader := c.GetProfileLoader()
+	bundleLoader := c.SeededBundleLoader(false)
+
+	for _, defaultProfile := range defaultProfiles {
+		profile, err := profileLoader.Load(defaultProfile)
+		if err != nil {
+			continue
+		}
+		for _, bundleRef := range profile.Bundles {
+			hooks := loadHooksFromBundleRef(bundleRef, appDir, bundleLoader)
+			result.Append(hooks)
+		}
+	}
+	return result
+}
+
+// Append concatenates each per-event slice from other onto u.
+func (u *UnifiedHooks) Append(other UnifiedHooks) {
+	u.PreTool = append(u.PreTool, other.PreTool...)
+	u.PostTool = append(u.PostTool, other.PostTool...)
+	u.SessionStart = append(u.SessionStart, other.SessionStart...)
+	u.SessionEnd = append(u.SessionEnd, other.SessionEnd...)
+	u.PreShell = append(u.PreShell, other.PreShell...)
+	u.PostFileEdit = append(u.PostFileEdit, other.PostFileEdit...)
+}
+
+func loadHooksFromBundleRef(bundleRef, appDir string, loader *bundles.Loader) UnifiedHooks {
+	var result UnifiedHooks
+	ref, err := remote.ParseReference(bundleRef)
+	if err != nil {
+		// Local bundle by name.
+		bundle, err := loader.Load(bundleRef)
+		if err != nil {
+			return result
+		}
+		return extractHooksFromBundle(bundle, bundleRef)
+	}
+	localPath := ref.LocalPath(appDir, remote.ItemTypeBundle)
+	bundle, err := loader.LoadFile(localPath)
+	if err != nil {
+		return result
+	}
+	return extractHooksFromBundle(bundle, bundleRef)
+}
+
+func extractHooksFromBundle(bundle *bundles.Bundle, source string) UnifiedHooks {
+	if !bundle.Hooks.HasAny() {
+		return UnifiedHooks{}
+	}
+	marker := "bundle:" + source
+	convert := func(in []bundles.BundleHook) []Hook {
+		if len(in) == 0 {
+			return nil
+		}
+		out := make([]Hook, len(in))
+		for i, h := range in {
+			out[i] = Hook{
+				Matcher: h.Matcher,
+				Command: h.Command,
+				Type:    h.Type,
+				Prompt:  h.Prompt,
+				Timeout: h.Timeout,
+				Async:   h.Async,
+				SCM:     marker,
+			}
+		}
+		return out
+	}
+	return UnifiedHooks{
+		PreTool:      convert(bundle.Hooks.PreTool),
+		PostTool:     convert(bundle.Hooks.PostTool),
+		SessionStart: convert(bundle.Hooks.SessionStart),
+		SessionEnd:   convert(bundle.Hooks.SessionEnd),
+		PreShell:     convert(bundle.Hooks.PreShell),
+		PostFileEdit: convert(bundle.Hooks.PostFileEdit),
+	}
 }
 
 // extractMCPFromBundle extracts MCP servers from a loaded bundle.

@@ -114,6 +114,10 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		}
 
 		hooksCfg := &freshCfg.Hooks
+		// Merge bundle-shipped hooks. Each is tagged with SCM="bundle:<ref>"
+		// so apply-hooks knows it owns these entries; subsequent runs
+		// reconcile rather than duplicate.
+		hooksCfg.Unified.Append(freshCfg.ResolveBundleHooks())
 		if contextHash != "" {
 			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
 		}

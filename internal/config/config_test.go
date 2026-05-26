@@ -1265,6 +1265,89 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 }
 
 // =============================================================================
+// ResolveBundleHooks / loadHooksFromBundleRef Tests
+// =============================================================================
+
+func TestLoadHooksFromBundleRef_LocalBundle(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlesDir := filepath.Join(tmpDir, "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `
+name: with-hooks
+version: "1.0"
+hooks:
+  post_tool:
+    - matcher: TodoWrite
+      command: ctxloom tasks capture --stdin
+      type: command
+  post_file_edit:
+    - matcher: ".*-plan\\.md$"
+      command: ctxloom tasks stamp-plan
+      type: command
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	result := loadHooksFromBundleRef("with-hooks", tmpDir, loader)
+
+	require.Len(t, result.PostTool, 1)
+	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
+	assert.Equal(t, "ctxloom tasks capture --stdin", result.PostTool[0].Command)
+	assert.Equal(t, "bundle:with-hooks", result.PostTool[0].SCM, "bundle-shipped hooks must be tagged with their origin")
+
+	require.Len(t, result.PostFileEdit, 1)
+	assert.Contains(t, result.PostFileEdit[0].Matcher, "plan")
+}
+
+func TestLoadHooksFromBundleRef_NoHooksField(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlesDir := filepath.Join(tmpDir, "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	// A bundle without any hooks should produce a zero-valued UnifiedHooks.
+	bundleContent := `
+name: no-hooks
+version: "1.0"
+mcp:
+  some-server:
+    command: foo
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	result := loadHooksFromBundleRef("no-hooks", tmpDir, loader)
+
+	assert.Empty(t, result.PostTool)
+	assert.Empty(t, result.PreTool)
+	assert.Empty(t, result.PostFileEdit)
+}
+
+func TestUnifiedHooks_Append(t *testing.T) {
+	dst := UnifiedHooks{
+		PostTool: []Hook{{Matcher: "X", Command: "x"}},
+	}
+	src := UnifiedHooks{
+		PostTool:     []Hook{{Matcher: "Y", Command: "y"}},
+		PostFileEdit: []Hook{{Matcher: "Z", Command: "z"}},
+	}
+	dst.Append(src)
+	assert.Len(t, dst.PostTool, 2)
+	assert.Equal(t, "Y", dst.PostTool[1].Matcher)
+	assert.Len(t, dst.PostFileEdit, 1)
+}
+
+func TestHooksConfig_HasAny(t *testing.T) {
+	assert.False(t, HooksConfig{}.hasAny())
+	withUnified := HooksConfig{Unified: UnifiedHooks{PostTool: []Hook{{Command: "x"}}}}
+	assert.True(t, withUnified.hasAny())
+	withPlugin := HooksConfig{Plugins: map[string]BackendHooks{
+		"claude-code": {"PostToolUse": []Hook{{Command: "x"}}},
+	}}
+	assert.True(t, withPlugin.hasAny())
+}
+
+// =============================================================================
 // Save Additional Coverage
 // =============================================================================
 

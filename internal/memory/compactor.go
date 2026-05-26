@@ -204,12 +204,23 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.DistilledPath = distilledPath
 
 	// Best-effort: update the session index so the picker shows this
-	// summary on next render. Failure is non-fatal (graceful degrade —
-	// the on-disk essence still has the summary in its frontmatter).
-	if harpName != "" && summary != "" {
+	// summary on next render AND records the backend's session.ID
+	// against this harp so `ctxloom session distill <harp>` can find
+	// the transcript again later. The bind here is forward-looking —
+	// the compactor already has session.ID in hand because it just
+	// distilled this session; we're just persisting it. No backend-
+	// history scan involved.
+	if harpName != "" {
 		if mgr, err := sessions.Open(""); err == nil {
-			if err := mgr.SetSummary(harpName, summary); err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
+			if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
+				if err := mgr.BindSession(harpName, session.ID, ""); err != nil {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: index bind failed: %v\n", err)
+				}
+			}
+			if summary != "" {
+				if err := mgr.SetSummary(harpName, summary); err != nil {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
+				}
 			}
 		}
 	}

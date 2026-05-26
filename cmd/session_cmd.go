@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
@@ -143,10 +144,99 @@ var sessionForgetCmd = &cobra.Command{
 	},
 }
 
+var sessionDistillCmd = &cobra.Command{
+	Use:   "distill <harp-name>",
+	Short: "Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.",
+	Long: `Looks up the harp's bound session_id in ~/.ctxloom/sessions/index.yaml,
+runs the compactor on that backend session, and writes a fresh essence.md
+under the harp directory. Errors if the harp has no session_id bound
+yet (sessions need at least one MCP tool call for the bind middleware
+to forward-record the ID).`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionDistill,
+}
+
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
+}
+
+// runSessionDistill is the cobra RunE for `ctxloom session distill <harp>`.
+// It composes:
+//   1. Look up the harp in the session index.
+//   2. Read its bound session_id (set forward at compact time and/or
+//      by the MCP session-bind middleware on first tool call).
+//   3. Run memory.Compactor against that session_id.
+//   4. The compactor's existing write path stamps the harp dir
+//      essence.md + the index summary.
+//
+// Sessions whose bind step never landed (the bind middleware would have
+// needed at least one MCP method call) error here with a clear message.
+// Pre-release sessions are unaffected by design; we don't backfill harp
+// names for them.
+func runSessionDistill(cmd *cobra.Command, args []string) error {
+	harpName := args[0]
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return fmt.Errorf("session index: %w", err)
+	}
+	entry, err := mgr.Find(harpName)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return fmt.Errorf("harp not found: %q", harpName)
+	}
+	if entry.SessionID == "" {
+		return fmt.Errorf("harp %q has no session_id bound — the bind middleware needs at least one MCP tool call during the session's lifetime to record it. This session is unrecoverable for distillation.", harpName)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.AppRoot == "" {
+		return fmt.Errorf("project root not found; run inside a project with .ctxloom/")
+	}
+
+	// CTXLOOM_SESSION_HARP must be set for the compactor's harp-dir
+	// write path to fire. Override the env for the duration of this
+	// invocation so the harp gets the essence.
+	prev := os.Getenv("CTXLOOM_SESSION_HARP")
+	_ = os.Setenv("CTXLOOM_SESSION_HARP", harpName)
+	defer func() {
+		if prev == "" {
+			_ = os.Unsetenv("CTXLOOM_SESSION_HARP")
+		} else {
+			_ = os.Setenv("CTXLOOM_SESSION_HARP", prev)
+		}
+	}()
+
+	backendName := entry.Backend
+	if backendName == "" {
+		backendName = cfg.GetDefaultLLMPlugin()
+	}
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: distilling %s (session_id=%s)...\n", harpName, entry.SessionID)
+	compactor, err := memory.NewCompactor(memory.CompactionConfig{
+		Plugin:    cfg.GetCompactionPlugin(),
+		Model:     cfg.GetCompactionModel(),
+		Backend:   backendName,
+		ChunkSize: cfg.GetCompactionChunkSize(),
+		SessionID: entry.SessionID,
+		WorkDir:   entry.ProjectDir,
+	})
+	if err != nil {
+		return fmt.Errorf("create compactor: %w", err)
+	}
+	result, err := compactor.Compact(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("distillation failed: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
+		harpName, result.Duration, result.ChunksCreated, result.TotalTokensIn, result.TotalTokensOut, result.DistilledPath)
+	return nil
 }
 
 // renderSessionTable writes a tab-aligned listing of session entries to w.

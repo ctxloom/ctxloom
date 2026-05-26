@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -73,8 +74,24 @@ func resolveResumeIntent(mgr *sessions.Manager, workDir string) (sessions.Decisi
 		Entries: entries,
 		In:      os.Stdin,
 		Out:     os.Stderr,
+		Distill: shellOutDistill,
 	}
 	return p.Run()
+}
+
+// shellOutDistill is the picker's `d<N>` callback. It runs
+// `ctxloom session distill <harp>` as a child process so the picker
+// doesn't need to depend on cobra, the compactor, or any LLM
+// machinery itself. Stdout/stderr are piped through to the user.
+func shellOutDistill(harpName string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "ctxloom"
+	}
+	c := exec.Command(exe, "session", "distill", harpName)
+	c.Stdout = os.Stderr
+	c.Stderr = os.Stderr
+	return c.Run()
 }
 
 func resumePartsCSV(d sessions.Decision) string {

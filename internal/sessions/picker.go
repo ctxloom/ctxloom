@@ -45,17 +45,18 @@ const (
 // stderr/stdin — no alt-screen, no raw mode. Decoupled from os.* via
 // in/out fields so it's testable end-to-end.
 type Picker struct {
-	Entries        []Entry
-	In             io.Reader  // line-buffered input source
-	Out            io.Writer  // rendering target (typically os.Stderr)
-	HorizonCount   int        // 0 → DefaultHorizonCount
-	HorizonDays    int        // 0 → DefaultHorizonDays
-	Now            func() time.Time // injectable clock for tests; nil → time.Now
-	checkSession   []bool     // [s] state per visible row
-	checkTasks     []bool     // [t] state per visible row
-	revealAll      bool       // toggled by `m` keystroke
-	scanner        *bufio.Scanner
-	horizonReveal  int        // how many `m` keystrokes have been pressed (additive horizon)
+	Entries       []Entry
+	In            io.Reader        // line-buffered input source
+	Out           io.Writer        // rendering target (typically os.Stderr)
+	Distill       DistillFunc      // optional: invoked by the `d<N>` keystroke
+	HorizonCount  int              // 0 → DefaultHorizonCount
+	HorizonDays   int              // 0 → DefaultHorizonDays
+	Now           func() time.Time // injectable clock for tests; nil → time.Now
+	checkSession  []bool           // [s] state per visible row
+	checkTasks    []bool           // [t] state per visible row
+	revealAll     bool             // toggled by `m` keystroke
+	scanner       *bufio.Scanner
+	horizonReveal int              // how many `m` keystrokes have been pressed (additive horizon)
 }
 
 // Run loops render → read → handle until a Decision is produced.
@@ -131,16 +132,19 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 		return Decision{}, actionLoop
 	}
 
-	// Letter-prefix commands: s<N>, t<N>. A `d<N>` distill keystroke is
-	// deliberately not supported — sessions that didn't compact while
-	// alive stay summary-less. Re-running the harp is the resume path,
-	// not a retroactive distillation rescue.
+	// Letter-prefix commands: s<N>, t<N>, d<N>.
 	if len(low) >= 2 {
 		prefix := low[0]
 		rest := strings.TrimSpace(low[1:])
-		if prefix == 's' || prefix == 't' {
+		switch prefix {
+		case 's', 't':
 			if n, ok := parseRowNumber(rest); ok {
 				p.toggleCheck(n, prefix == 's')
+				return Decision{}, actionLoop
+			}
+		case 'd':
+			if n, ok := parseRowNumber(rest); ok {
+				p.distillRow(n)
 				return Decision{}, actionLoop
 			}
 		}
@@ -163,6 +167,39 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 
 	fmt.Fprintf(p.Out, "unrecognized input: %q. Try a row number, n, m, s<N>, t<N>, or q.\n", line)
 	return Decision{}, actionLoop
+}
+
+// DistillFunc shells out to force-distill a harp. Injected from the
+// caller (cmd/run.go) so this package stays decoupled from cobra and
+// the cmd binary. When nil, the keystroke surfaces a helpful error.
+type DistillFunc func(harpName string) error
+
+// distillRow invokes the picker's distill callback for visible row n
+// (1-based). On success the index entry now has a summary, so the
+// picker re-render will show it. On failure the error is surfaced
+// inline; the picker keeps looping for the user's next keystroke.
+func (p *Picker) distillRow(n int) {
+	visible := p.visible()
+	if n < 1 || n > len(visible) {
+		fmt.Fprintf(p.Out, "row %d out of range (1..%d)\n", n, len(visible))
+		return
+	}
+	if p.Distill == nil {
+		fmt.Fprintln(p.Out, "(distill not available in this context)")
+		return
+	}
+	harp := p.Entries[visible[n-1]].HarpName
+	fmt.Fprintf(p.Out, "distilling %s (this may take a moment)...\n", harp)
+	if err := p.Distill(harp); err != nil {
+		fmt.Fprintf(p.Out, "distill failed: %v\n", err)
+		return
+	}
+	// Reload the entry from disk so the summary surfaces on re-render.
+	if mgr, err := Open(""); err == nil {
+		if updated, _ := mgr.Find(harp); updated != nil {
+			p.Entries[visible[n-1]] = *updated
+		}
+	}
 }
 
 // toggleCheck flips the [s] (session) or [t] (tasks) box on visible row n
@@ -225,7 +262,7 @@ func (p *Picker) render() {
 		fmt.Fprintf(p.Out, "\n  (%d older sessions hidden; press m to reveal)\n", len(p.Entries)-len(visible))
 	}
 	fmt.Fprintln(p.Out, "")
-	fmt.Fprintf(p.Out, "Choose [1-%d] resume · n new · s<N>/t<N> toggle · m more · q quit\n> ", len(visible))
+	fmt.Fprintf(p.Out, "Choose [1-%d] resume · n new · s<N>/t<N> toggle · d<N> distill · m more · q quit\n> ", len(visible))
 }
 
 func checkbox(checked bool) string {

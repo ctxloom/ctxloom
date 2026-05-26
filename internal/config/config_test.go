@@ -1353,7 +1353,9 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	for _, h := range hooks.PostTool {
 		if h.Matcher == "TodoWrite" && strings.Contains(h.Command, "tasks capture") {
 			foundCapture = true
-			assert.Equal(t, "builtin:tasks", h.SCM, "builtin hook must be tagged with builtin:<name> SCM")
+			// extractHooksFromBundle universally prepends "bundle:" so
+			// the marker chain reads as "bundle:builtin:<name>".
+			assert.Equal(t, "bundle:builtin:tasks", h.SCM)
 		}
 	}
 	assert.True(t, foundCapture, "TodoWrite capture hook missing from builtin tasks bundle")
@@ -1363,7 +1365,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	for _, h := range hooks.PostFileEdit {
 		if strings.Contains(h.Command, "tasks stamp-plan") {
 			foundStamp = true
-			assert.Equal(t, "builtin:tasks", h.SCM)
+			assert.Equal(t, "bundle:builtin:tasks", h.SCM)
 		}
 	}
 	assert.True(t, foundStamp, "stamp-plan hook missing from builtin tasks bundle")

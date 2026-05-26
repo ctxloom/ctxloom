@@ -138,12 +138,30 @@ func TestPicker_MKeystrokeExpandsHorizon(t *testing.T) {
 	assert.Contains(t, out, "old")
 }
 
-func TestPicker_DistillKeystrokeNotSupported(t *testing.T) {
-	// `d` is not a wired command — sessions without summaries can't be
-	// retroactively distilled. The keystroke should fall through to the
-	// generic "unrecognized" handler so the user sees a clear error
-	// instead of silent acceptance.
+func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
+	entries := makeEntries(1, time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC))
+	var out bytes.Buffer
+	called := false
+	gotHarp := ""
+	p := &Picker{
+		Entries: entries,
+		In:      strings.NewReader("d1\n1\n"),
+		Out:     &out,
+		Now:     fixedNow(time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)),
+		Distill: func(harp string) error {
+			called = true
+			gotHarp = harp
+			return nil
+		},
+	}
+	_, err := p.Run()
+	require.NoError(t, err)
+	assert.True(t, called, "d1 must invoke the picker's Distill callback")
+	assert.Equal(t, "row-a", gotHarp)
+}
+
+func TestPicker_DistillKeystroke_WithoutCallback(t *testing.T) {
 	entries := makeEntries(1, time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC))
 	_, out := runPicker(t, entries, "d1\n1\n")
-	assert.Contains(t, out, "unrecognized")
+	assert.Contains(t, out, "distill not available", "no callback → helpful message, not a crash")
 }

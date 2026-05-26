@@ -732,3 +732,77 @@ func TestCompact_BySessionID(t *testing.T) {
 	assert.Equal(t, "specific-session", result.SessionID)
 }
 
+// =============================================================================
+// parseLLMFrontmatter — Phase 3.5.2
+// =============================================================================
+
+func TestParseLLMFrontmatter_HappyPath(t *testing.T) {
+	in := `---
+summary: Designed bundle review on startup; landed PR f1262a4
+---
+
+### Open Items
+- thing one
+- thing two
+`
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Equal(t, "Designed bundle review on startup; landed PR f1262a4", summary)
+	assert.Contains(t, body, "### Open Items")
+	assert.NotContains(t, body, "summary:")
+}
+
+func TestParseLLMFrontmatter_NoLeadingDashes(t *testing.T) {
+	in := "### Open Items\n- thing\n"
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+	assert.Empty(t, summary)
+	assert.Equal(t, in, body, "body should pass through unchanged on parse failure")
+}
+
+func TestParseLLMFrontmatter_NoClosingDashes(t *testing.T) {
+	in := "---\nsummary: x\n# missing close\n"
+	_, _, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+}
+
+func TestParseLLMFrontmatter_MalformedYAML(t *testing.T) {
+	in := "---\nsummary: [unterminated\n---\nbody\n"
+	_, _, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+}
+
+func TestParseLLMFrontmatter_TruncatesLongSummary(t *testing.T) {
+	long := "this summary is exactly eighty characters long without trailing punctuation."
+	require.Less(t, len(long), 80, "fixture sanity")
+	overlong := long + " plus extra content that should be chopped off here"
+	in := "---\nsummary: " + overlong + "\n---\n\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.LessOrEqual(t, len(summary), 80)
+}
+
+func TestParseLLMFrontmatter_FirstLineOnlyIfMultiline(t *testing.T) {
+	in := "---\nsummary: |\n  line one\n  line two\n---\n\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.NotContains(t, summary, "\n")
+	assert.Equal(t, "line one", summary)
+}
+
+func TestParseLLMFrontmatter_StripsLeadingWhitespace(t *testing.T) {
+	// Some LLMs put a stray blank line or whitespace before the ---. Tolerate it.
+	in := "\n\n  \n---\nsummary: ok\n---\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Equal(t, "ok", summary)
+}
+
+func TestParseLLMFrontmatter_EmptySummaryStillSucceeds(t *testing.T) {
+	in := "---\nsummary: \n---\nbody\n"
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Empty(t, summary)
+	assert.Equal(t, "body\n", body)
+}
+

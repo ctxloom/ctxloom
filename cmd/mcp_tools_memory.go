@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // Memory-tool input types. All session-targeting tools accept an optional
@@ -28,7 +29,8 @@ type listSessionsInput struct {
 }
 
 type loadSessionInput struct {
-	SessionID string `json:"session_id" jsonschema:"Session ID to load (use browse_session_history or list_sessions to find IDs)"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"Backend-native session ID (UUID). Either session_id or harp_name is required."`
+	HarpName  string `json:"harp_name,omitempty" jsonschema:"Harp-named session reference (e.g. \"swift-amber-falcon\") from ~/.ctxloom/sessions/index.yaml. Resolved to a session_id via the index; if both are passed, harp_name wins."`
 	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to claude-code)"`
 	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
 }
@@ -284,7 +286,40 @@ func (s *ctxServer) handleListSessions(_ context.Context, _ *mcp.CallToolRequest
 }
 
 func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolRequest, in loadSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
-	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, 0)
+	sessionID := in.SessionID
+	if in.HarpName != "" {
+		resolved, err := resolveHarpToSessionID(in.HarpName)
+		if err != nil {
+			return nil, nil, err
+		}
+		sessionID = resolved
+	}
+	if sessionID == "" {
+		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
+	}
+	return s.loadOrDistillSession(ctx, sessionID, in.Backend, in.Model, 0)
+}
+
+// resolveHarpToSessionID looks up a harp name in ~/.ctxloom/sessions/index.yaml
+// and returns the bound session_id. Errors when the harp is unknown or
+// when the entry exists but hasn't been bound yet (i.e., the spawned LLM's
+// MCP server hasn't called initialize for that harp).
+func resolveHarpToSessionID(harpName string) (string, error) {
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return "", fmt.Errorf("session index: %w", err)
+	}
+	entry, err := mgr.Find(harpName)
+	if err != nil {
+		return "", fmt.Errorf("lookup harp %q: %w", harpName, err)
+	}
+	if entry == nil {
+		return "", fmt.Errorf("harp not found in index: %q", harpName)
+	}
+	if entry.SessionID == "" {
+		return "", fmt.Errorf("harp %q is pending (no backend session ID bound yet)", harpName)
+	}
+	return entry.SessionID, nil
 }
 
 func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolRequest, in recoverSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {

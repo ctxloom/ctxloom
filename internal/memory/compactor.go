@@ -13,6 +13,7 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 const (
@@ -165,9 +166,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		}
 	}
 
+	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
+	// missing/malformed, fall through with empty summary: the picker
+	// shows "(no summary)" and the user can re-run distill on demand.
+	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
+	if !hadFM {
+		fmt.Fprintln(os.Stderr, "ctxloom: warning: distillation lacks YAML frontmatter; summary will be empty")
+		cleanedBody = strings.TrimSpace(combined)
+	}
+
 	// Re-attach plan blocks verbatim after the LLM summary so they survive
 	// distillation unmodified.
-	body := strings.TrimSpace(combined)
+	body := cleanedBody
 	if section := RenderPlans(plans); section != "" {
 		if body != "" {
 			body += "\n\n"
@@ -175,17 +185,34 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		body += section
 	}
 
+	// Harp name (when running inside a ctxloom-managed session) lets the
+	// picker key everything by name rather than session UUID.
+	harpName := os.Getenv("CTXLOOM_SESSION_HARP")
+
 	// Save distilled output
 	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
 		EntryCount: len(session.Entries),
 		TokensIn:   result.TotalTokensIn,
 		TokensOut:  result.TotalTokensOut,
 		PlanBlocks: len(plans),
+		Summary:    summary,
+		HarpName:   harpName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("save distilled: %w", err)
 	}
 	result.DistilledPath = distilledPath
+
+	// Best-effort: update the session index so the picker shows this
+	// summary on next render. Failure is non-fatal (graceful degrade —
+	// the on-disk essence still has the summary in its frontmatter).
+	if harpName != "" && summary != "" {
+		if mgr, err := sessions.Open(""); err == nil {
+			if err := mgr.SetSummary(harpName, summary); err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
+			}
+		}
+	}
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -349,9 +376,11 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 
 // distilledMeta is the YAML front-matter stored at the top of every
 // distilled session .md file. Programmatic readers (e.g. the rectifier's
-// staleness check) consume these fields without parsing the body.
+// staleness check, the resume picker) consume these fields without
+// parsing the body.
 type distilledMeta struct {
 	SessionID   string    `yaml:"session_id"`
+	HarpName    string    `yaml:"harp_name,omitempty"`
 	DistilledAt time.Time `yaml:"distilled_at"`
 	SourcePath  string    `yaml:"source_path,omitempty"`
 	SourceMtime time.Time `yaml:"source_mtime,omitempty"`
@@ -359,6 +388,45 @@ type distilledMeta struct {
 	TokensIn    int       `yaml:"tokens_in,omitempty"`
 	TokensOut   int       `yaml:"tokens_out,omitempty"`
 	PlanBlocks  int       `yaml:"plan_blocks"`
+	// Summary is the one-line essence emitted by the LLM in its own YAML
+	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
+	// no valid frontmatter (graceful degrade: picker shows "no summary").
+	Summary string `yaml:"summary,omitempty"`
+}
+
+// parseLLMFrontmatter peels a leading YAML block off the LLM-produced
+// distillation, returning the summary value and the body sans frontmatter.
+// On any failure (no leading ---, no closing ---, malformed YAML), returns
+// ("", original, false) so callers can fall back without corrupting output.
+// Summary is trimmed and capped at 80 chars per the prompt spec.
+func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
+	trimmed := strings.TrimLeft(out, " \t\r\n")
+	if !strings.HasPrefix(trimmed, "---\n") {
+		return "", out, false
+	}
+	rest := trimmed[len("---\n"):]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return "", out, false
+	}
+	block := rest[:end]
+	var parsed struct {
+		Summary string `yaml:"summary"`
+	}
+	if err := yaml.Unmarshal([]byte(block), &parsed); err != nil {
+		return "", out, false
+	}
+	bodyText := strings.TrimLeft(rest[end+len("\n---"):], "\r\n")
+	summary = strings.TrimSpace(parsed.Summary)
+	// Take only the first line in case the LLM emitted a multi-line value
+	// despite the prompt.
+	if i := strings.IndexByte(summary, '\n'); i >= 0 {
+		summary = strings.TrimSpace(summary[:i])
+	}
+	if len(summary) > 80 {
+		summary = summary[:80]
+	}
+	return summary, bodyText, true
 }
 
 // saveDistilled writes the distilled session as markdown with YAML
@@ -480,14 +548,52 @@ func estimateTokens(text string) int {
 }
 
 // sessionDistillPrompt is the system prompt for session distillation.
+// Phase 3.5.2: requires a leading YAML frontmatter block carrying a
+// one-line summary so the resume picker can render row summaries without
+// a second LLM call. Body sections are ordered with Open Items first
+// to optimize the resume use case ("what do I need to pick up?").
 const sessionDistillPrompt = `You are a session summarizer. Given a conversation log between a user and an AI assistant, extract the essential information for future reference.
+
+## Output Format
+
+Begin your output with a YAML frontmatter block in this exact form:
+
+    ---
+    summary: <one line, ≤80 characters, no quotes, no trailing period>
+    ---
+
+The summary line must capture the session's purpose in a single line —
+what was being worked on and (if applicable) the key outcome. Style: like
+a git commit subject. Examples:
+  - Designed bundle review on startup; landed PR f1262a4
+  - Hardened bundle tools — path traversal, distill state
+  - Spike: ctxloom-tasks replacement design
+
+After the closing ` + "`---`" + ` and a blank line, emit the full structured body:
+
+### Open Items
+- [pending item 1]
+- [pending item 2]
+
+### State
+[current state of the work]
+
+### Decisions
+- [decision 1]
+- [decision 2]
+
+### Completed
+- [what was done]
+
+### Key Context
+- [important context for next session]
 
 ## What to Extract
 
-1. **Decisions Made** - What was decided and why
-2. **Work Completed** - What was actually accomplished (not just attempted)
-3. **Current State** - Where things stand at the end of this session
-4. **Open Items** - What's still pending or needs follow-up
+1. **Open Items** - What's still pending or needs follow-up (most important for resume)
+2. **Current State** - Where things stand at the end of this session
+3. **Decisions Made** - What was decided and why
+4. **Work Completed** - What was actually accomplished (not just attempted)
 5. **Key Context** - Important information for continuing this work
 
 ## Plan Blocks
@@ -503,30 +609,6 @@ The log contains markers like ` + "`[plan-block #N — Label, preserved below]`"
 - Skip failed attempts unless the lesson learned is important
 - Skip verbose tool outputs - just note what was done
 - Skip small talk and confirmations
-
-## Output Format
-
-Use this structure:
-
-### Summary
-[1-2 sentence overview of what happened]
-
-### Decisions
-- [decision 1]
-- [decision 2]
-
-### Completed
-- [what was done]
-
-### State
-[current state of the work]
-
-### Open Items
-- [pending item 1]
-- [pending item 2]
-
-### Key Context
-- [important context for next session]
 `
 
 // EssencesDir is the subdirectory for session essences.

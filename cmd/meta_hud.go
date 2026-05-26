@@ -163,6 +163,12 @@ func formatHud(session claudeSessionJSON, info ctxloomHudInfo) string {
 		parts = append(parts, fmt.Sprintf("%s%s%s", colorDim, strings.Join(ctxParts, " "), colorReset))
 	}
 
+	// Harp session name (Phase 3.5.1). Surfaced here so the user sees
+	// the session's identity in the status bar at all times.
+	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
+		parts = append(parts, fmt.Sprintf("%s⌁ %s%s", colorDim, harp, colorReset))
+	}
+
 	// Worktree indicator
 	if session.Worktree.Name != "" {
 		branch := session.Worktree.Branch

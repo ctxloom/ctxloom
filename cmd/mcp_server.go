@@ -67,7 +67,6 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 		Version: Version,
 	}, opts)
 	s.installReviewMiddleware(server)
-	s.installSessionBindMiddleware(server)
 	s.registerTools(server)
 	s.registerResources(server)
 

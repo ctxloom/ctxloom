@@ -81,12 +81,8 @@ func (s *ctxServer) registerBundleTools(server *mcp.Server) {
 		},
 		s.handleDeleteBundle)
 
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "push_bundle",
-			Description: "Push a local bundle to its remote repository. Optionally opens a pull request.",
-		},
-		s.handlePushBundle)
+	// Phase 4 Lever B: push_bundle moved to CLI.
+	//   ctxloom bundle push <path> [--create-pr]
 }
 
 // Bundle tool handlers are named methods (not closures inside

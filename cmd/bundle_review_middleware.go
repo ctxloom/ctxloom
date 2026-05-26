@@ -34,34 +34,29 @@ var allowedDuringReview = map[string]struct{}{
 
 	// Metadata get/browse — same rule as above.
 	"get_profile":            {},
-	"browse_remote":          {},
 	"browse_session_history": {},
-	"search_remotes":         {},
-	"discover_remotes":       {},
 	"get_previous_session":   {},
 
-	// Local-only mutations — don't touch remote bundle bytes.
-	"create_bundle":  {},
-	"update_bundle":  {},
-	"delete_bundle":  {},
-	"create_fragment": {},
-	"delete_fragment": {},
-	"create_profile":  {},
-	"update_profile":  {},
-	"delete_profile":  {},
-
-	// Config mutations — no fetch, no execution.
-	"add_remote":             {},
-	"remove_remote":          {},
-	"add_mcp_server":         {},
-	"remove_mcp_server":      {},
-	"set_mcp_auto_register":  {},
-
-	// Outbound (writes to remote, no read of unreviewed bytes back).
-	"push_bundle": {},
+	// Local-only bundle mutations (Phase 4: bundles stay as tools because
+	// authoring is frequent and integrates with the review gate).
+	"create_bundle": {},
+	"update_bundle": {},
+	"delete_bundle": {},
 
 	// Session compaction (reduces only, doesn't expose bundle bytes).
 	"compact_session": {},
+
+	// Phase 4 Lever B removals: add_remote, remove_remote, update_remote,
+	// discover_remotes, search_remotes, pull_remote, push_bundle,
+	// add_mcp_server, remove_mcp_server, set_mcp_auto_register,
+	// create_profile, update_profile, delete_profile, create_fragment,
+	// delete_fragment — all moved to CLI; no allowlist entries needed.
+	//
+	// Phase 4 Lever A removals (deferred from this commit; tools currently
+	// still registered): list_*, get_*, browse_* — to be migrated to
+	// MCP resources alongside the existing ctxloom://help, ctxloom://
+	// sessions/recent, ctxloom://tasks/summary. While they're still tools,
+	// they need allowlist entries below.
 
 	// Tasks — file-local state, no bundle content involvement.
 	"task_list":       {},

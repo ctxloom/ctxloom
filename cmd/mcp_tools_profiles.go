@@ -85,61 +85,6 @@ func (s *ctxServer) registerProfileTools(server *mcp.Server) {
 			return nil, result, err
 		})
 
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "create_profile",
-			Description: "Create a new profile with bundles, tags, and/or parent profiles",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in createProfileInput) (*mcp.CallToolResult, *operations.CreateProfileResult, error) {
-			result, err := operations.CreateProfile(ctx, s.cfg, operations.CreateProfileRequest{
-				Name:             in.Name,
-				Description:      in.Description,
-				Parents:          in.Parents,
-				Bundles:          in.Bundles,
-				Tags:             in.Tags,
-				Default:          in.Default,
-				ExcludeFragments: in.ExcludeFragments,
-				ExcludePrompts:   in.ExcludePrompts,
-				ExcludeMCP:       in.ExcludeMCP,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "update_profile",
-			Description: "Update an existing profile by adding/removing bundles, tags, or parents",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in updateProfileInput) (*mcp.CallToolResult, *operations.UpdateProfileResult, error) {
-			result, err := operations.UpdateProfile(ctx, s.cfg, operations.UpdateProfileRequest{
-				Name:                   in.Name,
-				Description:            in.Description,
-				AddParents:             in.AddParents,
-				RemoveParents:          in.RemoveParents,
-				AddBundles:             in.AddBundles,
-				RemoveBundles:          in.RemoveBundles,
-				AddTags:                in.AddTags,
-				RemoveTags:             in.RemoveTags,
-				Default:                in.Default,
-				AddExcludeFragments:    in.AddExcludeFragments,
-				RemoveExcludeFragments: in.RemoveExcludeFragments,
-				AddExcludePrompts:      in.AddExcludePrompts,
-				RemoveExcludePrompts:   in.RemoveExcludePrompts,
-				AddExcludeMCP:          in.AddExcludeMCP,
-				RemoveExcludeMCP:       in.RemoveExcludeMCP,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "delete_profile",
-			Description: "Delete a profile",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in deleteProfileInput) (*mcp.CallToolResult, *operations.DeleteProfileResult, error) {
-			result, err := operations.DeleteProfile(ctx, s.cfg, operations.DeleteProfileRequest{
-				Name: in.Name,
-			})
-			return nil, result, err
-		})
+	// Phase 4 Lever B: create_profile, update_profile, delete_profile moved
+	// to CLI. Use ctxloom profile create | edit | delete.
 }

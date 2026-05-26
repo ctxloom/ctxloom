@@ -71,33 +71,8 @@ func (s *ctxServer) registerFragmentTools(server *mcp.Server) {
 			return nil, result, err
 		})
 
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "create_fragment",
-			Description: "Create a new context fragment",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in createFragmentInput) (*mcp.CallToolResult, *operations.CreateFragmentResult, error) {
-			result, err := operations.CreateFragment(ctx, s.cfg, operations.CreateFragmentRequest{
-				Name:    in.Name,
-				Content: in.Content,
-				Tags:    in.Tags,
-				Version: in.Version,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "delete_fragment",
-			Description: "Delete a local context fragment",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in deleteFragmentInput) (*mcp.CallToolResult, *deleteFragmentResult, error) {
-			_, err := operations.DeleteFragment(ctx, s.cfg, operations.DeleteFragmentRequest{
-				Name: in.Name,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			return nil, &deleteFragmentResult{Status: "deleted"}, nil
-		})
+	// Phase 4 Lever B: create_fragment and delete_fragment moved to CLI.
+	//   ctxloom fragment create <bundle> <name>
+	//   ctxloom fragment delete <ref>
+	// The handler closures remain in this file as dead code for now.
 }

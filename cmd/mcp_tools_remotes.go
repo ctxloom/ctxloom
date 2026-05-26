@@ -65,101 +65,22 @@ type updateRemoteInput struct {
 	Name string `json:"name,omitempty" jsonschema:"Remote name to update (omit to update all)"`
 }
 
+// registerRemoteTools is a no-op on the SDK server after Phase 4.
+//
+// Lever A (listings → resources): list_remotes and browse_remote are
+// now served via ctxloom://remotes and ctxloom://remotes/{name}/contents.
+//
+// Lever B (writes → CLI): add_remote, remove_remote, update_remote,
+// discover_remotes, search_remotes, and pull_remote are no longer
+// callable as MCP tools. They remain available via the CLI:
+//
+//	ctxloom remote add | rm | update | search | discover
+//	ctxloom remote pull <ref>
+//
+// The handler closures live in this file for now as dead code; a future
+// commit can prune them once we're certain we won't want them back.
 func (s *ctxServer) registerRemoteTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_remotes",
-			Description: "List configured remote sources for fragments and prompts",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ listRemotesInput) (*mcp.CallToolResult, *operations.ListRemotesResult, error) {
-			result, err := operations.ListRemotes(ctx, s.cfg, operations.ListRemotesRequest{})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "search_remotes",
-			Description: "Search for bundles and profiles across ALL configured remotes. Use this when looking for a fragment or profile by name without knowing which remote contains it.",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in searchRemotesInput) (*mcp.CallToolResult, *operations.SearchRemotesResult, error) {
-			result, err := operations.SearchRemotes(ctx, s.cfg, operations.SearchRemotesRequest{
-				Query:    in.Query,
-				ItemType: in.ItemType,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "discover_remotes",
-			Description: "Search GitHub/GitLab for ctxloom repositories containing fragments and prompts",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in discoverRemotesInput) (*mcp.CallToolResult, *operations.DiscoverRemotesResult, error) {
-			result, err := operations.DiscoverRemotes(ctx, s.cfg, operations.DiscoverRemotesRequest{
-				Query:    in.Query,
-				Source:   in.Source,
-				MinStars: in.MinStars,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "browse_remote",
-			Description: "List items (fragments, prompts, profiles) available in a remote repository",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in browseRemoteInput) (*mcp.CallToolResult, *operations.BrowseRemoteResult, error) {
-			result, err := operations.BrowseRemote(ctx, s.cfg, operations.BrowseRemoteRequest{
-				Remote:   in.Remote,
-				ItemType: in.ItemType,
-				Path:     in.Path,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "pull_remote",
-			Description: "Pull (install) a bundle or profile from a remote repository. Fetches and installs in one step.",
-		},
-		s.handlePullRemote)
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "add_remote",
-			Description: "Register a new remote source for fragments and prompts",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in addRemoteInput) (*mcp.CallToolResult, *operations.AddRemoteResult, error) {
-			result, err := operations.AddRemote(ctx, s.cfg, operations.AddRemoteRequest{
-				Name: in.Name,
-				URL:  in.URL,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "remove_remote",
-			Description: "Remove a registered remote source",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in removeRemoteInput) (*mcp.CallToolResult, *operations.RemoveRemoteResult, error) {
-			result, err := operations.RemoveRemote(ctx, s.cfg, operations.RemoveRemoteRequest{
-				Name: in.Name,
-			})
-			return nil, result, err
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "update_remote",
-			Description: "Fetch the latest changes for cached remote repos. If name is specified, updates only that remote; otherwise updates all.",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in updateRemoteInput) (*mcp.CallToolResult, *operations.UpdateRemoteResult, error) {
-			result, err := operations.UpdateRemote(ctx, s.cfg, operations.UpdateRemoteRequest{
-				Name: in.Name,
-			})
-			return nil, result, err
-		})
+	_ = server
 }
 
 // handlePullRemote is broken out because it composes two operations

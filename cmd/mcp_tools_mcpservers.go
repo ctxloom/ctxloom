@@ -49,61 +49,7 @@ func (s *ctxServer) registerMCPServerTools(server *mcp.Server) {
 			return nil, result, err
 		})
 
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "add_mcp_server",
-			Description: "Add an MCP server to the configuration",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in addMCPServerInput) (*mcp.CallToolResult, *operations.AddMCPServerResult, error) {
-			result, err := operations.AddMCPServer(ctx, s.cfg, operations.AddMCPServerRequest{
-				Name:    in.Name,
-				Command: in.Command,
-				Args:    in.Args,
-				Backend: in.Backend,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			if result.Config != nil {
-				s.cfg = result.Config
-			}
-			return nil, result, nil
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "remove_mcp_server",
-			Description: "Remove an MCP server from the configuration",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in removeMCPServerInput) (*mcp.CallToolResult, *operations.RemoveMCPServerResult, error) {
-			result, err := operations.RemoveMCPServer(ctx, s.cfg, operations.RemoveMCPServerRequest{
-				Name:    in.Name,
-				Backend: in.Backend,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			if result.Config != nil {
-				s.cfg = result.Config
-			}
-			return nil, result, nil
-		})
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "set_mcp_auto_register",
-			Description: "Enable or disable auto-registration of ctxloom's own MCP server",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in setMCPAutoRegisterInput) (*mcp.CallToolResult, *operations.SetMCPAutoRegisterResult, error) {
-			result, err := operations.SetMCPAutoRegister(ctx, s.cfg, operations.SetMCPAutoRegisterRequest{
-				Enabled: in.Enabled,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			if result.Config != nil {
-				s.cfg = result.Config
-			}
-			return nil, result, nil
-		})
+	// Phase 4 Lever B: add_mcp_server, remove_mcp_server,
+	// set_mcp_auto_register moved to CLI.
+	//   ctxloom mcp add | remove | auto-register
 }

@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
@@ -188,9 +190,6 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if entry == nil {
 		return fmt.Errorf("harp not found: %q", harpName)
 	}
-	if entry.SessionID == "" {
-		return fmt.Errorf("harp %q has no session_id bound — the bind middleware needs at least one MCP tool call during the session's lifetime to record it. This session is unrecoverable for distillation.", harpName)
-	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -205,13 +204,31 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		backendName = cfg.GetDefaultLLMPlugin()
 	}
 
-	fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: distilling %s (session_id=%s)...\n", harpName, entry.SessionID)
+	// If no session_id was forward-bound, fall back to a time-window
+	// lookup against the backend's transcript list. The harp index
+	// always records started_at (and, since MarkEnded on shutdown,
+	// ended_at), so we have a small interval to match against the
+	// backend's SessionMeta.StartTime values.
+	sessionID := entry.SessionID
+	if sessionID == "" {
+		found, err := discoverSessionByTime(backendName, entry.ProjectDir, entry.StartedAt, entry.EndedAt)
+		if err != nil {
+			return fmt.Errorf("harp %q has no session_id bound and time-window discovery failed: %w", harpName, err)
+		}
+		sessionID = found
+		// Persist the discovery so future distill calls skip the lookup.
+		if err := mgr.BindSession(harpName, sessionID, ""); err == nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: bound %s → %s via time-window match\n", harpName, sessionID)
+		}
+	}
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Plugin:    cfg.GetCompactionPlugin(),
 		Model:     cfg.GetCompactionModel(),
 		Backend:   backendName,
 		ChunkSize: cfg.GetCompactionChunkSize(),
-		SessionID: entry.SessionID,
+		SessionID: sessionID,
 		WorkDir:   entry.ProjectDir,
 		HarpName:  harpName,
 	})
@@ -244,6 +261,85 @@ func renderSessionTable(w io.Writer, entries []sessions.Entry) {
 		)
 	}
 	_ = tw.Flush()
+}
+
+// discoverSessionByTime scans the backend's session list for the entry
+// whose StartTime best matches the harp's recorded started_at (and, when
+// available, ended_at). Used as a fallback when forward-bind never
+// recorded a session_id — typically a session that ended without any
+// MCP method call (no bind middleware trigger, no compact_session).
+//
+// The match algorithm is intentionally simple: closest StartTime within
+// a 5-minute window, tie-broken by lowest |start diff| + |end diff|.
+// Two ctxloom-launched LLM sessions starting within 5 minutes of each
+// other against the same backend would be ambiguous, but Claude's UUID
+// transcripts are project-scoped (ListSessions is workDir-filtered) so
+// practical collisions are rare.
+func discoverSessionByTime(backendName, workDir string, harpStarted time.Time, harpEnded *time.Time) (string, error) {
+	if workDir == "" {
+		return "", fmt.Errorf("workDir required for time-window discovery")
+	}
+	backend := backends.Get(backendName)
+	if backend == nil {
+		return "", fmt.Errorf("unknown backend: %s", backendName)
+	}
+	history := backend.History()
+	if history == nil {
+		return "", fmt.Errorf("backend %q does not support session history", backendName)
+	}
+	metas, err := history.ListSessions(workDir)
+	if err != nil {
+		return "", fmt.Errorf("list backend sessions: %w", err)
+	}
+	bestID := selectClosestSession(metas, harpStarted, harpEnded, sessionDiscoveryWindow)
+	if bestID == "" {
+		return "", fmt.Errorf("no backend session within %v of harp start time %s", sessionDiscoveryWindow, harpStarted.Format(time.RFC3339))
+	}
+	return bestID, nil
+}
+
+// sessionDiscoveryWindow caps how far the time-window matcher will look
+// for a backend session matching a harp's recorded start time. 5 minutes
+// is generous — Claude's session UUIDs usually land within seconds of
+// ctxloom run minting the harp, but slow startups (cold cache, large
+// initial context) can drift past a minute. Tightening this risks
+// missing valid matches; widening it risks cross-matching unrelated
+// sessions in heavy-use projects.
+const sessionDiscoveryWindow = 5 * time.Minute
+
+// selectClosestSession is the pure matching function under
+// discoverSessionByTime. Returns the SessionMeta.ID whose StartTime
+// best matches harpStarted within window. Tie-broken by adding the
+// |EndTime - harpEnded| delta when both endpoints are known. Returns
+// the empty string when no candidate falls inside the window.
+//
+// Extracted as a top-level function so we can unit-test the matching
+// logic without needing to spin up a backend registry.
+func selectClosestSession(metas []backends.SessionMeta, harpStarted time.Time, harpEnded *time.Time, window time.Duration) string {
+	bestID := ""
+	bestScore := time.Duration(-1)
+	for _, m := range metas {
+		startDiff := absDuration(m.StartTime.Sub(harpStarted))
+		if startDiff > window {
+			continue
+		}
+		score := startDiff
+		if harpEnded != nil && !m.EndTime.IsZero() {
+			score += absDuration(m.EndTime.Sub(*harpEnded))
+		}
+		if bestScore < 0 || score < bestScore {
+			bestScore = score
+			bestID = m.ID
+		}
+	}
+	return bestID
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 // resolveSessionsDir mirrors the sessions-dir resolution from

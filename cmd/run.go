@@ -261,10 +261,12 @@ Examples:
 			fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
 			return nil
 		}
+		var activeHarp string
 		if sessMgr != nil {
 			if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
 			} else {
+				activeHarp = entry.HarpName
 				runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
 				if resume.Action == sessions.ResumeAction {
 					parts := resumePartsCSV(resume)
@@ -284,6 +286,18 @@ Examples:
 					fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
 				}
 			}
+		}
+		// Mark the harp ended on whatever exit path we take — clean
+		// return, ctrl+c, or panic. The end timestamp lets the time-
+		// window fallback in `ctxloom session distill` find this
+		// session's transcript even when the bind middleware never
+		// fired (session ended before any MCP method was processed).
+		if activeHarp != "" && sessMgr != nil {
+			defer func() {
+				if err := sessMgr.MarkEnded(activeHarp, time.Now()); err != nil {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: session end-mark failed: %v\n", err)
+				}
+			}()
 		}
 
 		// Build request

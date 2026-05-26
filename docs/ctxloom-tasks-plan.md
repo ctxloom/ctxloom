@@ -42,7 +42,10 @@ End-to-end flow once the bundle is active:
 - **Task storage**: single-file flesler-style markdown at `.ctxloom/tasks.md`. Sectioned by status; harp ID inline so the LLM echoes it back through TodoWrite.
 - **Reconciliation**: harp-id-in-text primary, `sha256(text)[:12]` fallback. Mirror-snapshot — items absent from a TodoWrite move to Archived, not deleted.
 - **Auto-capture channel**: `PostToolUse(TodoWrite)` hook shipped by the embedded `tasks` bundle (resources/builtin_bundles/tasks.yaml).
-- **Session naming**: harp minted by `ctxloom run` pre-LLM-launch. `session.ID` bound forward via the compactor and a first-tool-call middleware. No backward-looking history scan.
+- **Session naming**: harp minted by `ctxloom run` pre-LLM-launch. `session.ID` bound forward via three paths, in order of when they fire:
+  1. First-tool-call middleware (`cmd/session_bind.go`) catches the typical case.
+  2. Compact-time bind in the compactor catches sessions that compacted but somehow skipped the middleware.
+  3. Time-window discovery in `ctxloom session distill <harp>` (`selectClosestSession`) is the rescue path for sessions that ended without ever triggering an MCP method. It matches against `backend.History().ListSessions()` using the harp's `started_at` (always recorded) and `ended_at` (recorded by `defer` on `ctxloom run` shutdown), within a 5-minute window, end-time tie-broken. Found ID is persisted back to the index for next time.
 - **Pre-release sessions** (no harp at all): out of scope. They stay un-named and un-distillable.
 - **Resume UI**: line-based numbered picker, not a TUI. Per-row `[s]`/`[t]` checkboxes via `s<N>`/`t<N>`. `d<N>` shells out to `ctxloom session distill <harp>`. Default horizon: min(10, last 7 days). `m` reveals more.
 - **One-line summary**: produced as part of the long-essence distillation in a single LLM call (compactor prompt requires it as YAML frontmatter). Picker reads only the frontmatter; task-snapshot summaries are derived deterministically.

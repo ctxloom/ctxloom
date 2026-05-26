@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -146,6 +147,52 @@ var sessionForgetCmd = &cobra.Command{
 	},
 }
 
+// sessionBindCmd is the SessionStart hook target. It's the primary
+// path for recording harp → session_id mapping in the index: Claude
+// Code (and other backends with SessionStart hooks) fire this exactly
+// once per session, with the backend's session ID and transcript path
+// already in the payload. The middleware-based bind and the time-
+// window discovery in `session distill` remain as fallbacks for cases
+// where this hook didn't fire for some reason.
+var sessionBindCmd = &cobra.Command{
+	Use:    "bind",
+	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
+	Hidden: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		harp := os.Getenv("CTXLOOM_SESSION_HARP")
+		if harp == "" {
+			return nil // no active harp; silently succeed
+		}
+		raw, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+		var payload struct {
+			SessionID      string `json:"session_id"`
+			TranscriptPath string `json:"transcript_path"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			// Malformed payload — no-op rather than failing the hook.
+			return nil
+		}
+		if payload.SessionID == "" {
+			return nil
+		}
+		mgr, err := sessions.Open("")
+		if err != nil {
+			return fmt.Errorf("session index: %w", err)
+		}
+		entry, _ := mgr.Find(harp)
+		if entry == nil || entry.SessionID != "" {
+			return nil // not in index or already bound — idempotent
+		}
+		if err := mgr.BindSession(harp, payload.SessionID, payload.TranscriptPath); err != nil {
+			return fmt.Errorf("bind: %w", err)
+		}
+		return nil
+	},
+}
+
 var sessionDistillCmd = &cobra.Command{
 	Use:   "distill <harp-name>",
 	Short: "Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.",
@@ -160,7 +207,7 @@ to forward-record the ID).`,
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd, sessionBindCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

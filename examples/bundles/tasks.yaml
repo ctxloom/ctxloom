@@ -1,13 +1,8 @@
-# Draft of the ctxloom-default-tasks bundle. The canonical home for this
-# file is github.com/ctxloom/ctxloom-default; this copy is a reference for
-# promotion, not loaded by the running ctxloom instance.
-#
-# Installing this bundle:
-#   1. ctxloom remote pull ctxloom-default
-#   2. The bundle review gate (see docs/bundle-review-plan.md) prompts the
-#      user to acknowledge the new bundle and its hooks before they fire.
-#   3. ctxloom apply-hooks (or restart the backend) so the hooks land in
-#      the backend's settings.json.
+# Built-in ctxloom tasks bundle. Embedded into the ctxloom binary via
+# resources/embed.go and surfaced through Config.ResolveBundleHooks
+# unconditionally — no profile reference required, no remote pull, no
+# manual install. The same YAML is mirrored at examples/bundles/tasks.yaml
+# for users who want to inspect or fork it.
 
 version: 1.0.0
 tags:
@@ -49,6 +44,17 @@ installation: |
   before Phase 3 (session harp-naming) ships.
 
 hooks:
+  session_start:
+    # Fires once per backend session with the session_id and
+    # transcript_path in the JSON payload. ctxloom session bind reads
+    # those, looks up CTXLOOM_SESSION_HARP from env, and records the
+    # mapping in ~/.ctxloom/sessions/index.yaml. This is the primary
+    # bind path — `ctxloom session distill` and the resume picker rely
+    # on the resulting index entry. The MCP-side bind middleware and
+    # the time-window fallback in `session distill` remain as defense
+    # in depth.
+    - command: ctxloom session bind
+      type: command
   post_tool:
     - matcher: TodoWrite
       command: ctxloom tasks capture --stdin

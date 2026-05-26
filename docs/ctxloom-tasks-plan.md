@@ -42,11 +42,12 @@ End-to-end flow once the bundle is active:
 - **Task storage**: single-file flesler-style markdown at `.ctxloom/tasks.md`. Sectioned by status; harp ID inline so the LLM echoes it back through TodoWrite.
 - **Reconciliation**: harp-id-in-text primary, `sha256(text)[:12]` fallback. Mirror-snapshot — items absent from a TodoWrite move to Archived, not deleted.
 - **Auto-capture channel**: `PostToolUse(TodoWrite)` hook shipped by the embedded `tasks` bundle (resources/builtin_bundles/tasks.yaml).
-- **Session naming**: harp minted by `ctxloom run` pre-LLM-launch. `session.ID` bound forward via three paths, in order of when they fire:
-  1. First-tool-call middleware (`cmd/session_bind.go`) catches the typical case.
-  2. Compact-time bind in the compactor catches sessions that compacted but somehow skipped the middleware.
-  3. Time-window discovery in `ctxloom session distill <harp>` (`selectClosestSession`) is the rescue path for sessions that ended without ever triggering an MCP method. It matches against `backend.History().ListSessions()` using the harp's `started_at` (always recorded) and `ended_at` (recorded by `defer` on `ctxloom run` shutdown), within a 5-minute window, end-time tie-broken. Found ID is persisted back to the index for next time.
-- **Pre-release sessions** (no harp at all): out of scope. They stay un-named and un-distillable.
+- **Session naming**: harp minted by `ctxloom run` pre-LLM-launch. `session.ID` bound forward via four layered paths, primary first:
+  1. **SessionStart hook** (`ctxloom session bind --stdin`, shipped by the embedded tasks bundle). Fires once at session creation with `session_id` + `transcript_path` in the JSON payload — the direct, designed-for-this path. Idempotent.
+  2. **First-tool-call middleware** (`cmd/session_bind.go`) safety net for cases where the SessionStart hook didn't fire (version mismatch, hook config drift, alternate backend).
+  3. **Compact-time bind** in the compactor for sessions that somehow reached compact without binding earlier.
+  4. **Time-window discovery** in `ctxloom session distill <harp>` (`selectClosestSession`) — last-resort rescue for sessions that ended without any of the above firing. Matches against `backend.History().ListSessions()` using the harp's `started_at` (always recorded) and `ended_at` (recorded by `defer` on `ctxloom run` shutdown), within a 5-minute window, end-time tie-broken. Found ID is persisted back to the index.
+- **No-harp sessions** (no harp at all — pre-this-release, or sessions spawned outside `ctxloom run`): out of scope. They stay un-named.
 - **Resume UI**: line-based numbered picker, not a TUI. Per-row `[s]`/`[t]` checkboxes via `s<N>`/`t<N>`. `d<N>` shells out to `ctxloom session distill <harp>`. Default horizon: min(10, last 7 days). `m` reveals more.
 - **One-line summary**: produced as part of the long-essence distillation in a single LLM call (compactor prompt requires it as YAML frontmatter). Picker reads only the frontmatter; task-snapshot summaries are derived deterministically.
 - **MCP footprint**: ~46 tools naïve → 18 tools shipped. Listings became resources (`ctxloom://fragments`, `…/profiles`, `…/prompts`, `…/remotes`, `…/mcp-servers`, `…/sessions`, `…/sessions/recent`, `…/tasks/summary`, `…/help`, plus templated `…/{name}` for fragments/profiles/prompts and `…/remotes/{name}/contents`). Writes moved to existing cobra CLI commands.

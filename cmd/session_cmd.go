@@ -200,19 +200,6 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("project root not found; run inside a project with .ctxloom/")
 	}
 
-	// CTXLOOM_SESSION_HARP must be set for the compactor's harp-dir
-	// write path to fire. Override the env for the duration of this
-	// invocation so the harp gets the essence.
-	prev := os.Getenv("CTXLOOM_SESSION_HARP")
-	_ = os.Setenv("CTXLOOM_SESSION_HARP", harpName)
-	defer func() {
-		if prev == "" {
-			_ = os.Unsetenv("CTXLOOM_SESSION_HARP")
-		} else {
-			_ = os.Setenv("CTXLOOM_SESSION_HARP", prev)
-		}
-	}()
-
 	backendName := entry.Backend
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLMPlugin()
@@ -226,6 +213,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: entry.SessionID,
 		WorkDir:   entry.ProjectDir,
+		HarpName:  harpName,
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

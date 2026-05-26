@@ -123,8 +123,9 @@ var tasksSummaryCmd = &cobra.Command{
 // this subcommand is the entry point that the bundle's shell script will
 // pipe to.
 var tasksCaptureCmd = &cobra.Command{
-	Use:   "capture",
-	Short: "Reconcile a TodoWrite snapshot from stdin (internal — used by the auto-capture hook)",
+	Use:    "capture",
+	Short:  "Reconcile a TodoWrite snapshot from stdin (internal — used by the auto-capture hook)",
+	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		store, err := openCLITaskStore()
 		if err != nil {
@@ -154,8 +155,9 @@ var tasksCaptureCmd = &cobra.Command{
 // frontmatter. No-op when CTXLOOM_SESSION_HARP is unset or the edited
 // file isn't a plan file.
 var tasksStampPlanCmd = &cobra.Command{
-	Use:   "stamp-plan",
-	Short: "Stamp the active session's harp name into a plan file's frontmatter (internal — used by the PostFileEdit hook)",
+	Use:    "stamp-plan",
+	Short:  "Stamp the active session's harp name into a plan file's frontmatter (internal — used by the PostFileEdit hook)",
+	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		harp := os.Getenv("CTXLOOM_SESSION_HARP")
 		if harp == "" {

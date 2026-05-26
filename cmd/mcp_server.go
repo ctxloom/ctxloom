@@ -203,26 +203,21 @@ func (s *ctxServer) applyHooksIfNotPending(ctx context.Context) {
 	}
 }
 
-// registerTools wires every ctxloom tool into the SDK server. The
-// implementation grows file-by-file as the migration progresses
-// (mcp_tools_fragments.go, mcp_tools_profiles.go, etc.). Once parity is
-// reached and the cobra RunE is swapped, the old runMCPServer and its
-// 37 tool handler functions get deleted.
+// registerTools wires every ctxloom tool into the SDK server.
 //
-// Each per-category register call lives in its own file and is added to
-// this function as that category is migrated. An empty registerTools is
-// a valid intermediate state: the SDK server returns an empty tools list
-// and continues to serve initialize/notifications correctly.
+// Phase 4 removed five entire register*Tools functions (fragments,
+// profiles, prompts, mcp servers, remotes). Listings from those domains
+// now ride on MCP resources (ctxloom://fragments, profiles, prompts,
+// remotes, mcp-servers — see registerResources); writes are CLI-only
+// via the existing cobra surface. Their tool files were deleted.
+//
+// Each per-category register call lives in its own file. registerTools
+// is the only thing the SDK server needs at construction.
 func (s *ctxServer) registerTools(server *mcp.Server) {
-	s.registerFragmentTools(server)
-	s.registerProfileTools(server)
-	s.registerPromptTools(server)
 	s.registerContextTools(server)
-	s.registerRemoteTools(server)
 	s.registerBundleTools(server)
 	s.registerHooksTools(server)
 	s.registerSyncTools(server)
-	s.registerMCPServerTools(server)
 	s.registerMemoryTools(server)
 	s.registerReviewTools(server)
 	s.registerTaskTools(server)

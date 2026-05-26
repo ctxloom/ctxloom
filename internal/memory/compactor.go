@@ -34,6 +34,7 @@ type CompactionConfig struct {
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
 	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/ephemeral/memory)
+	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride backends.Backend // Optional: inject backend directly for testing (bypasses registry)
 }
@@ -186,8 +187,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 
 	// Harp name (when running inside a ctxloom-managed session) lets the
-	// picker key everything by name rather than session UUID.
-	harpName := os.Getenv("CTXLOOM_SESSION_HARP")
+	// picker key everything by name rather than session UUID. The config
+	// field wins over the env var so `ctxloom session distill <harp>`
+	// can override without process-env mutation.
+	harpName := c.config.HarpName
+	if harpName == "" {
+		harpName = os.Getenv("CTXLOOM_SESSION_HARP")
+	}
 
 	// Save distilled output
 	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{

@@ -1,0 +1,167 @@
+package cmd
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/sessions"
+)
+
+var sessionCmd = &cobra.Command{
+	Use:   "session",
+	Short: "Browse and manage harp-named sessions",
+	Long: `Read and manage the harp-keyed session index at
+~/.ctxloom/sessions/index.yaml. Use to list/show/rename/forget
+sessions without launching the LLM. Sessions appear here automatically
+once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
+}
+
+var (
+	sessionListAll bool
+)
+
+var sessionListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List harp-named sessions (default: current project; --all for everything)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := sessions.Open("")
+		if err != nil {
+			return err
+		}
+		idx, err := mgr.Load()
+		if err != nil {
+			return err
+		}
+		entries := idx.Sessions
+		if !sessionListAll {
+			wd, _ := os.Getwd()
+			filtered := entries[:0]
+			for _, e := range entries {
+				if e.ProjectDir == wd {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
+		}
+		if len(entries) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "(no sessions)")
+			return nil
+		}
+		renderSessionTable(cmd.OutOrStdout(), entries)
+		return nil
+	},
+}
+
+var sessionShowCmd = &cobra.Command{
+	Use:   "show <harp-name>",
+	Short: "Print the distilled essence of a harp-named session",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := sessions.Open("")
+		if err != nil {
+			return err
+		}
+		entry, err := mgr.Find(args[0])
+		if err != nil {
+			return err
+		}
+		if entry == nil {
+			return fmt.Errorf("harp not found: %q", args[0])
+		}
+		if entry.SessionID == "" {
+			return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])
+		}
+		// Locate the distilled essence file. Today the compactor writes
+		// to <sessionsDir>/<sessionID>.md keyed by backend UUID; Phase 3.6
+		// will move to <harpDir>/essence.md.
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		path := filepath.Join(resolveSessionsDir(cfg), entry.SessionID+".md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read essence: %w (run `ctxloom session distill %s` to compact this session first)", err, args[0])
+		}
+		_, _ = cmd.OutOrStdout().Write(data)
+		return nil
+	},
+}
+
+var sessionRenameCmd = &cobra.Command{
+	Use:   "rename <old-harp> <new-harp>",
+	Short: "Rename a harp entry. The backend transcript is unaffected.",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := sessions.Open("")
+		if err != nil {
+			return err
+		}
+		if err := mgr.Rename(args[0], args[1]); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "renamed %s → %s\n", args[0], args[1])
+		return nil
+	},
+}
+
+var sessionForgetCmd = &cobra.Command{
+	Use:   "forget <harp-name>",
+	Short: "Drop a harp entry from the index. Transcript and essence files stay on disk.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := sessions.Open("")
+		if err != nil {
+			return err
+		}
+		if err := mgr.Forget(args[0]); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "forgot %s\n", args[0])
+		return nil
+	},
+}
+
+func init() {
+	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd)
+	rootCmd.AddCommand(sessionCmd)
+}
+
+// renderSessionTable writes a tab-aligned listing of session entries to w.
+// Entries are assumed pre-sorted by the caller; this function only formats.
+func renderSessionTable(w io.Writer, entries []sessions.Entry) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "HARP\tSTARTED\tSUMMARY")
+	for _, e := range entries {
+		summary := e.Summary
+		if summary == "" {
+			summary = "(no summary)"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n",
+			e.HarpName,
+			e.StartedAt.Local().Format("2006-01-02 15:04"),
+			summary,
+		)
+	}
+	_ = tw.Flush()
+}
+
+// resolveSessionsDir mirrors the sessions-dir resolution from
+// cmd/mcp_tools_memory.go so CLI lookups land at the same path the
+// MCP server writes to. Kept local to avoid coupling cmd files.
+func resolveSessionsDir(cfg *config.Config) string {
+	if cfg.AppDir != "" {
+		return filepath.Join(cfg.AppDir, "sessions")
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return filepath.Join(wd, ".ctxloom", "sessions")
+	}
+	return filepath.Join(".ctxloom", "sessions")
+}

@@ -231,6 +231,69 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// Rename changes the harp name of an existing entry to newName, leaving
+// SessionID and other fields intact. Errors if oldName doesn't exist or
+// newName is already in use.
+func (m *Manager) Rename(oldName, newName string) error {
+	if newName == "" {
+		return fmt.Errorf("newName required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := filelock.Lock(m.path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return err
+	}
+	targetIdx := -1
+	for i := range idx.Sessions {
+		if idx.Sessions[i].HarpName == newName {
+			return fmt.Errorf("name already in use: %q", newName)
+		}
+		if idx.Sessions[i].HarpName == oldName {
+			targetIdx = i
+		}
+	}
+	if targetIdx < 0 {
+		return fmt.Errorf("harp not found: %q", oldName)
+	}
+	idx.Sessions[targetIdx].HarpName = newName
+	return m.saveLocked(idx)
+}
+
+// Forget removes the harp entry from the index. The backend transcript
+// and any cached distilled essence are left untouched on disk — only the
+// harp-keyed pointer goes away.
+func (m *Manager) Forget(harpName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := filelock.Lock(m.path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i := range idx.Sessions {
+		if idx.Sessions[i].HarpName != harpName {
+			continue
+		}
+		idx.Sessions = append(idx.Sessions[:i], idx.Sessions[i+1:]...)
+		return m.saveLocked(idx)
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
 // SetSummary updates the one-line summary cached on the index entry.
 // Mirrors the `summary:` line from the compacted essence.md frontmatter.
 func (m *Manager) SetSummary(harpName, summary string) error {

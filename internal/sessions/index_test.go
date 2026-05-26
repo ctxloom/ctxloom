@@ -109,3 +109,43 @@ func TestFind_MissingReturnsNilNoError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
+
+func TestRename(t *testing.T) {
+	m := newManager(t)
+	e, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.Rename(e.HarpName, "shiny-new-name"))
+
+	// Old name no longer present.
+	old, _ := m.Find(e.HarpName)
+	assert.Nil(t, old)
+	// New name carries the original SessionID slot (empty here) and project.
+	nu, _ := m.Find("shiny-new-name")
+	require.NotNil(t, nu)
+	assert.Equal(t, "/proj", nu.ProjectDir)
+}
+
+func TestRename_CollisionErrors(t *testing.T) {
+	m := newManager(t)
+	a, _ := m.AssignHarp("/proj", "claude-code")
+	b, _ := m.AssignHarp("/proj", "claude-code")
+	assert.Error(t, m.Rename(a.HarpName, b.HarpName))
+}
+
+func TestRename_UnknownSourceErrors(t *testing.T) {
+	m := newManager(t)
+	assert.Error(t, m.Rename("does-not-exist", "shiny"))
+}
+
+func TestForget(t *testing.T) {
+	m := newManager(t)
+	a, _ := m.AssignHarp("/proj", "claude-code")
+	b, _ := m.AssignHarp("/proj", "claude-code")
+
+	require.NoError(t, m.Forget(a.HarpName))
+	assert.Error(t, m.Forget(a.HarpName), "second forget should error since entry is gone")
+
+	idx, err := m.Load()
+	require.NoError(t, err)
+	require.Len(t, idx.Sessions, 1)
+	assert.Equal(t, b.HarpName, idx.Sessions[0].HarpName)
+}

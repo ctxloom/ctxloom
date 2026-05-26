@@ -42,6 +42,14 @@ type PlanBlock struct {
 // Both legs are anchored: a basename match or a docs/<name>-plan.md path.
 var planFileRegex = regexp.MustCompile(`(?i)(^|/)(current_)?plan[^/]*\.md$|^docs/[^/]+-plan\.md$`)
 
+// IsPlanFile reports whether the given file path matches the canonical
+// plan-file pattern (CURRENT_PLAN.md, *plan*.md, docs/*-plan.md). Used by
+// callers outside this package (e.g. the stamp-plan hook in internal/tasks)
+// to share the single regex source of truth.
+func IsPlanFile(path string) bool {
+	return planFileRegex.MatchString(path)
+}
+
 // IsPlanEntry reports whether an entry should be preserved verbatim.
 func IsPlanEntry(entry backends.SessionEntry) bool {
 	if entry.Type != backends.EntryTypeToolUse {

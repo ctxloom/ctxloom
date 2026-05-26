@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -147,6 +148,36 @@ var tasksCaptureCmd = &cobra.Command{
 	},
 }
 
+// tasksStampPlanCmd reads a Claude Code PostToolUse(Edit|Write) hook
+// payload on stdin and, when the edited file matches the plan-file
+// pattern, stamps the active session's harp name into the file's YAML
+// frontmatter. No-op when CTXLOOM_SESSION_HARP is unset or the edited
+// file isn't a plan file.
+var tasksStampPlanCmd = &cobra.Command{
+	Use:   "stamp-plan",
+	Short: "Stamp the active session's harp name into a plan file's frontmatter (internal — used by the PostFileEdit hook)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		harp := os.Getenv("CTXLOOM_SESSION_HARP")
+		if harp == "" {
+			// No active session — silent no-op so the hook is safe to
+			// install before Phase 3's session naming ships.
+			return nil
+		}
+		raw, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+		path, err := parseEditPayload(raw)
+		if err != nil || path == "" {
+			return nil // malformed or no file_path — silent no-op
+		}
+		if !memory.IsPlanFile(path) {
+			return nil
+		}
+		return tasks.StampPlanFile(path, harp)
+	},
+}
+
 func init() {
 	tasksListCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	tasksListCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
@@ -154,8 +185,29 @@ func init() {
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 
-	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksCaptureCmd)
+	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksCaptureCmd, tasksStampPlanCmd)
 	rootCmd.AddCommand(tasksCmd)
+}
+
+// parseEditPayload extracts tool_input.file_path from a Claude Code hook
+// payload. Accepts both the wrapped (tool_input) and bare shapes for
+// resilience.
+func parseEditPayload(raw []byte) (string, error) {
+	type input struct {
+		FilePath string `json:"file_path"`
+	}
+	type wrapper struct {
+		ToolInput *input `json:"tool_input"`
+		input
+	}
+	var w wrapper
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return "", err
+	}
+	if w.ToolInput != nil && w.ToolInput.FilePath != "" {
+		return w.ToolInput.FilePath, nil
+	}
+	return w.FilePath, nil
 }
 
 func openCLITaskStore() (*tasks.Store, error) {

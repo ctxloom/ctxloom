@@ -40,30 +40,53 @@ var (
 	runResumeNoTasks    bool
 )
 
+// resumeFlags bundles the four CLI flags that govern resume behavior
+// so resolveResumeIntent can be tested without setting package globals.
+type resumeFlags struct {
+	Session    string // --session <harp>
+	TasksFrom  string // --tasks-from <harp>
+	NewSession bool   // --new-session
+	NoTasks    bool   // --no-tasks (modifier on --session)
+}
+
 // resolveResumeIntent decides whether this run resumes a prior session
 // and which parts to restore. Flag bypasses win over the picker;
 // non-interactive contexts (no TTY, no flags) silently fall through to
 // a fresh session.
 func resolveResumeIntent(mgr *sessions.Manager, workDir string) (sessions.Decision, error) {
+	flags := resumeFlags{
+		Session:    runResumeSession,
+		TasksFrom:  runResumeTasksFrom,
+		NewSession: runResumeNewSession,
+		NoTasks:    runResumeNoTasks,
+	}
+	return resolveResumeIntentWith(flags, mgr, workDir, isInteractiveTerminal())
+}
+
+// resolveResumeIntentWith is the IoC seam: takes the resume flags, the
+// session manager, the work directory, and a "stdin is a TTY" boolean.
+// All side-effect surfaces are arguments, so the decision tree is
+// trivially unit-testable across the flag matrix.
+func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir string, isTTY bool) (sessions.Decision, error) {
 	switch {
-	case runResumeSession != "":
+	case flags.Session != "":
 		return sessions.Decision{
 			Action:         sessions.ResumeAction,
-			FromHarp:       runResumeSession,
+			FromHarp:       flags.Session,
 			RestoreSession: true,
-			RestoreTasks:   !runResumeNoTasks,
+			RestoreTasks:   !flags.NoTasks,
 		}, nil
-	case runResumeTasksFrom != "":
+	case flags.TasksFrom != "":
 		return sessions.Decision{
 			Action:         sessions.ResumeAction,
-			FromHarp:       runResumeTasksFrom,
+			FromHarp:       flags.TasksFrom,
 			RestoreSession: false,
 			RestoreTasks:   true,
 		}, nil
-	case runResumeNewSession:
+	case flags.NewSession:
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
-	if mgr == nil || !isInteractiveTerminal() {
+	if mgr == nil || !isTTY {
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
 	entries, err := mgr.ListForProject(workDir)

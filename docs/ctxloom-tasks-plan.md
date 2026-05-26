@@ -598,12 +598,15 @@ All three sub-levers landed on `feat/bundle-mcp-tools`:
 
 **4.4 task tightening.** Task surface is `task_list`, `task_add`, `task_set_status` (3 tools); summary is the `include_summary` flag on `task_list` plus `ctxloom://tasks/summary`.
 
-**Surviving MCP tools** (~14, ≈70% reduction from the ~46 naïve baseline):
-- Review machinery: `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, `trust_remote`
-- Bundle authoring: `create_bundle`, `update_bundle`, `delete_bundle`
-- Tasks: `task_list`, `task_add`, `task_set_status`
-- Sessions: `load_session`, `recover_session`, `compact_session`, `get_previous_session`
-- Context assembly: `assemble_context`, `search_content`, `apply_hooks`, `sync_dependencies`
+**Surviving MCP tools** (18, ≈60% reduction from the ~46 naïve baseline; verified live by tools/list against the running server):
+
+- Review machinery (4): `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, `trust_remote`
+- Bundle authoring (3): `create_bundle`, `update_bundle`, `delete_bundle`
+- Tasks (3): `task_list`, `task_add`, `task_set_status`
+- Sessions (4): `load_session`, `recover_session`, `compact_session`, `get_previous_session`
+- Context (4): `assemble_context`, `search_content`, `apply_hooks`, `sync_dependencies`
+
+**Live resources** (9, verified via resources/list): `ctxloom://help`, `fragments`, `fragments/{name}`, `profiles`, `profiles/{name}`, `prompts`, `prompts/{name}`, `remotes`, `mcp-servers`, `sessions`, `sessions/recent`, `tasks/summary`.
 
 Dead-code handler closures + input/result types are intentionally left in their files for ease of revert; `go vet` is clean and lint-info diagnostics for unused private types are tolerated.
 

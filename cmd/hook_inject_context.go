@@ -78,15 +78,7 @@ Output format (JSON to stdout):
 		}
 
 		// Determine work directory from --project flag, git root, or current directory
-		workDir := injectContextProject
-		if workDir == "" {
-			// Fallback to git root or current directory
-			if root, err := gitutil.FindRoot("."); err == nil {
-				workDir = root
-			} else {
-				workDir = "."
-			}
-		}
+		workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
 
 		// Register session for /clear recovery
 		backend := backends.Get(injectContextBackend)
@@ -111,26 +103,10 @@ Output format (JSON to stdout):
 			content = ""
 		}
 
-		// Build output. Wrap the raw context with a clear ctxloom-attributed
-		// header so the agent can recognize the source: previously we shipped
-		// the bare markdown, which the model could read but couldn't identify
-		// as ctxloom-assembled (it would say "no ctxloom content loaded" while
-		// the rust rules etc. were sitting right there in its context).
-		output := HookOutput{}
-		if content != "" {
-			const header = "# Project Context (assembled by ctxloom)\n\n" +
-				"_The content below was assembled by ctxloom from your active profile " +
-				"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
-				"coding standards, language conventions, testing practices, and other " +
-				"guidance that apply to this project. Treat it as authoritative project " +
-				"instructions._\n\n" +
-				"<ctxloom-context>\n\n"
-			const footer = "\n\n</ctxloom-context>\n"
-			output.HookSpecificOutput = &HookSpecificOutput{
-				HookEventName:     "SessionStart",
-				AdditionalContext: header + content + footer,
-			}
-		}
+		// Build output via the extracted helper so the wrapping logic
+		// (header/footer, empty-content handling, SessionStart event
+		// name) is unit-testable without the surrounding hook plumbing.
+		output := buildInjectContextOutput(content)
 
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
@@ -141,6 +117,56 @@ Output format (JSON to stdout):
 		}
 		return nil
 	},
+}
+
+// buildInjectContextOutput wraps the raw context content in the
+// ctxloom-attributed envelope that SessionStart hooks receive. Empty
+// content produces an empty HookOutput (no AdditionalContext field) so
+// the LLM doesn't see a misleading "ctxloom content loaded" header
+// when ctxloom actually had nothing to inject.
+//
+// Extracted as a pure function so the wrapping format is testable
+// without spinning up the full hook plumbing.
+func buildInjectContextOutput(content string) HookOutput {
+	if content == "" {
+		return HookOutput{}
+	}
+	const header = "# Project Context (assembled by ctxloom)\n\n" +
+		"_The content below was assembled by ctxloom from your active profile " +
+		"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
+		"coding standards, language conventions, testing practices, and other " +
+		"guidance that apply to this project. Treat it as authoritative project " +
+		"instructions._\n\n" +
+		"<ctxloom-context>\n\n"
+	const footer = "\n\n</ctxloom-context>\n"
+	return HookOutput{
+		HookSpecificOutput: &HookSpecificOutput{
+			HookEventName:     "SessionStart",
+			AdditionalContext: header + content + footer,
+		},
+	}
+}
+
+// resolveInjectContextWorkDir picks the directory ctxloom should treat
+// as the project root for an inject-context call. Precedence:
+//
+//  1. Explicit --project flag value, if non-empty.
+//  2. Git repository root containing the current directory.
+//  3. Fall back to ".".
+//
+// findRoot is the injectable git-root finder; production uses
+// gitutil.FindRoot, tests pass a stub that returns a known value or
+// an error to exercise each branch.
+func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, error)) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	if findRoot != nil {
+		if root, err := findRoot("."); err == nil {
+			return root
+		}
+	}
+	return "."
 }
 
 func init() {

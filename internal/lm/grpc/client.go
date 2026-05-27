@@ -70,8 +70,8 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdo
 
 // PluginClient manages the lifecycle of a plugin process.
 type PluginClient struct {
-	client *plugin.Client
-	grpc   *GRPCClient
+	conn pluginConnection
+	grpc *GRPCClient
 }
 
 // verbosityToHclogLevel converts verbosity count to hclog level.
@@ -87,6 +87,40 @@ func verbosityToHclogLevel(verbosity int) hclog.Level {
 	default:
 		return hclog.Error
 	}
+}
+
+// pluginConnection is the abstraction over the hashicorp/go-plugin
+// machinery that NewPluginClient depends on. Production
+// dialPluginConnection wraps a real *plugin.Client; tests inject a
+// fake that returns canned errors at each lifecycle step.
+type pluginConnection interface {
+	// Client returns the plugin's gRPC client interface, or an error if
+	// the subprocess didn't come up.
+	Client() (plugin.ClientProtocol, error)
+	// Kill terminates the underlying subprocess. Idempotent.
+	Kill()
+}
+
+// realPluginConnection adapts *plugin.Client to pluginConnection.
+type realPluginConnection struct {
+	client *plugin.Client
+}
+
+func (r *realPluginConnection) Client() (plugin.ClientProtocol, error) { return r.client.Client() }
+func (r *realPluginConnection) Kill()                                  { r.client.Kill() }
+
+// dialPluginConnection is the IoC seam tests override to avoid spawning
+// real subprocesses. Production points it at the real go-plugin machinery.
+var dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+	return &realPluginConnection{client: plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig: HandshakeConfig,
+		Plugins:         PluginMap,
+		Cmd:             exec.Command(cmd, args...),
+		AllowedProtocols: []plugin.Protocol{
+			plugin.ProtocolGRPC,
+		},
+		Logger: logger,
+	})}
 }
 
 // NewPluginClient creates a new plugin client that spawns the given command.
@@ -105,39 +139,31 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 		Level:  level,
 	})
 
-	client := plugin.NewClient(&plugin.ClientConfig{
-		HandshakeConfig: HandshakeConfig,
-		Plugins:         PluginMap,
-		Cmd:             exec.Command(cmd, args...),
-		AllowedProtocols: []plugin.Protocol{
-			plugin.ProtocolGRPC,
-		},
-		Logger: logger,
-	})
+	conn := dialPluginConnection(cmd, args, logger)
 
 	// Connect via gRPC
-	rpcClient, err := client.Client()
+	rpcClient, err := conn.Client()
 	if err != nil {
-		client.Kill()
+		conn.Kill()
 		return nil, err
 	}
 
 	// Dispense the plugin
 	raw, err := rpcClient.Dispense(PluginName)
 	if err != nil {
-		client.Kill()
+		conn.Kill()
 		return nil, err
 	}
 
 	grpcClient, ok := raw.(*GRPCClient)
 	if !ok {
-		client.Kill()
+		conn.Kill()
 		return nil, fmt.Errorf("unexpected plugin type: %T", raw)
 	}
 
 	return &PluginClient{
-		client: client,
-		grpc:   grpcClient,
+		conn: conn,
+		grpc: grpcClient,
 	}, nil
 }
 
@@ -171,7 +197,7 @@ func (p *PluginClient) RunWithModelInfo(ctx context.Context, req *RunRequest, st
 
 // Kill terminates the plugin process.
 func (p *PluginClient) Kill() {
-	if p.client != nil {
-		p.client.Kill()
+	if p.conn != nil {
+		p.conn.Kill()
 	}
 }

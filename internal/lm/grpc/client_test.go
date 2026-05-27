@@ -7,6 +7,8 @@ import (
 	"io"
 	"testing"
 
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -161,6 +163,150 @@ func TestGRPCClient_Run_PassesRequestThrough(t *testing.T) {
 	_, err := c.Run(context.Background(), req, io.Discard, io.Discard)
 	require.NoError(t, err)
 	assert.Equal(t, req, fake.lastRunReq, "request must reach the underlying client unchanged")
+}
+
+// fakePluginConnection is a stand-in for plugin.Client in tests of
+// NewPluginClient. It satisfies the pluginConnection interface with
+// configurable error responses at each lifecycle step.
+type fakePluginConnection struct {
+	clientResult plugin.ClientProtocol
+	clientErr    error
+	killCalls    int
+}
+
+func (f *fakePluginConnection) Client() (plugin.ClientProtocol, error) {
+	return f.clientResult, f.clientErr
+}
+func (f *fakePluginConnection) Kill() { f.killCalls++ }
+
+// fakeClientProtocol is the rpcClient handle that go-plugin's Client()
+// returns. Tests use it to control Dispense() behavior.
+type fakeClientProtocol struct {
+	dispenseResult any
+	dispenseErr    error
+}
+
+func (f *fakeClientProtocol) Close() error                                { return nil }
+func (f *fakeClientProtocol) Dispense(name string) (any, error) {
+	return f.dispenseResult, f.dispenseErr
+}
+func (f *fakeClientProtocol) Ping() error { return nil }
+
+func TestNewPluginClient_ClientErrorTriggersKill(t *testing.T) {
+	fake := &fakePluginConnection{clientErr: errors.New("dial failed")}
+	orig := dialPluginConnection
+	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+		return fake
+	}
+	t.Cleanup(func() { dialPluginConnection = orig })
+
+	_, err := NewPluginClient("dummy", nil, 0)
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Client() fails")
+}
+
+func TestNewPluginClient_DispenseErrorTriggersKill(t *testing.T) {
+	fake := &fakePluginConnection{
+		clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")},
+	}
+	orig := dialPluginConnection
+	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+		return fake
+	}
+	t.Cleanup(func() { dialPluginConnection = orig })
+
+	_, err := NewPluginClient("dummy", nil, 0)
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Dispense() fails")
+}
+
+func TestNewPluginClient_WrongTypeTriggersKill(t *testing.T) {
+	fake := &fakePluginConnection{
+		clientResult: &fakeClientProtocol{
+			dispenseResult: "not a *GRPCClient", // string instead of *GRPCClient
+		},
+	}
+	orig := dialPluginConnection
+	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+		return fake
+	}
+	t.Cleanup(func() { dialPluginConnection = orig })
+
+	_, err := NewPluginClient("dummy", nil, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected plugin type")
+	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked on type assertion failure")
+}
+
+func TestNewPluginClient_HappyPath(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeAIPluginClient{}}
+	fake := &fakePluginConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
+	}
+	orig := dialPluginConnection
+	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+		return fake
+	}
+	t.Cleanup(func() { dialPluginConnection = orig })
+
+	pc, err := NewPluginClient("dummy", nil, 0)
+	require.NoError(t, err)
+	require.NotNil(t, pc)
+	assert.Equal(t, 0, fake.killCalls, "Kill must NOT be invoked on success")
+
+	// PluginClient.Kill delegates to the connection.
+	pc.Kill()
+	assert.Equal(t, 1, fake.killCalls)
+}
+
+func TestNewPluginClient_KillIsNilSafe(t *testing.T) {
+	// A PluginClient with nil conn (constructed for tests) must not
+	// panic when Kill is called.
+	pc := &PluginClient{}
+	pc.Kill() // no panic
+}
+
+// TestNewSelfInvokingClient_UsesOsExecutable confirms the wrapper
+// resolves the current binary and passes "plugin serve <backend>"
+// args. We capture the dial seam's inputs to verify.
+func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
+	var gotCmd string
+	var gotArgs []string
+	fake := &fakePluginConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: &GRPCClient{client: &fakeAIPluginClient{}}},
+	}
+	orig := dialPluginConnection
+	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+		gotCmd = cmd
+		gotArgs = args
+		return fake
+	}
+	t.Cleanup(func() { dialPluginConnection = orig })
+
+	_, err := NewSelfInvokingClient("claude-code", 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, gotCmd, "self-invoking client must pass the current executable path")
+	assert.Equal(t, []string{"plugin", "serve", "claude-code"}, gotArgs)
+}
+
+// TestPluginClient_InfoAndRunDelegate confirms PluginClient passes
+// through Info/Run/RunWithModelInfo to its embedded GRPCClient.
+func TestPluginClient_InfoAndRunDelegate(t *testing.T) {
+	fake := &fakeAIPluginClient{infoResp: &PluginInfo{Name: "x"}}
+	pc := &PluginClient{grpc: &GRPCClient{client: fake}}
+
+	info, err := pc.Info(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "x", info.Name)
+	assert.Equal(t, 1, fake.gotInfoCalls)
+
+	stream := &fakeStream{responses: []*RunResponse{
+		{Output: &RunResponse_ExitCode{ExitCode: 7}},
+	}}
+	fake.runStream = stream
+	exit, err := pc.Run(t.Context(), &RunRequest{}, io.Discard, io.Discard)
+	require.NoError(t, err)
+	assert.Equal(t, int32(7), exit)
 }
 
 func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {

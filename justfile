@@ -59,9 +59,15 @@ plugin-list:
 build-verbose:
     go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
 
-# Run all tests (builds ctxloom first for acceptance tests)
+# Run all tests (builds ctxloom first for acceptance tests).
+# Coverage is filtered through .coverignore so generated files
+# (protobuf, gRPC) don't drag the reported number down.
 test: build
-    go test -race -coverprofile=coverage.out ./...
+    #!/usr/bin/env bash
+    set -e
+    go test -race -coverprofile=coverage.raw.out ./...
+    just _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
 
 # Run tests with verbose output
 test-verbose:

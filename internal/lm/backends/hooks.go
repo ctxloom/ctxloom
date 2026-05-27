@@ -160,6 +160,11 @@ func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// ctxloomPath is resolved once at WriteSettings entry and used by
+	// every addHook call to rewrite bare `ctxloom` commands into
+	// absolute paths. Empty disables the rewrite (the test override
+	// path).
+	ctxloomPath string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -239,6 +244,11 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 	if hooks == nil {
 		hooks = &config.HooksConfig{}
 	}
+
+	// Resolve the ctxloom binary path ONCE per call so the dozen or so
+	// addHook invocations downstream each share a single
+	// GetExecutablePath() syscall rather than re-resolving.
+	w.ctxloomPath = resolveCtxloomPath()
 
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
@@ -560,7 +570,7 @@ func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, bac
 func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName string, h config.Hook) {
 	ccHook := claudeCodeHook{
 		Type:    h.Type,
-		Command: h.Command,
+		Command: resolveCtxloomCommand(h.Command, w.ctxloomPath),
 		Prompt:  h.Prompt,
 		Timeout: h.Timeout,
 		Async:   h.Async,
@@ -659,10 +669,11 @@ func computeMCPServerHash(s config.MCPServer) string {
 }
 
 // GeminiHookWriter writes hooks to Gemini CLI's settings.json format.
-// GeminiHookWriter writes hooks to Gemini's settings.json format.
 type GeminiHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// ctxloomPath mirrors the Claude writer's field; see comment there.
+	ctxloomPath string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -706,6 +717,9 @@ func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.
 	if hooks == nil {
 		hooks = &config.HooksConfig{}
 	}
+
+	// One GetExecutablePath() call covers every addHook in this batch.
+	w.ctxloomPath = resolveCtxloomPath()
 
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
@@ -851,6 +865,47 @@ func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 }
 
 // isCtxloomManagedHook returns true if the hook command appears to be ctxloom-managed.
+// resolveCtxloomCommand rewrites a hook command whose first token is
+// the bare word `ctxloom` so the supplied absolute path appears in
+// the materialized settings.json instead. Without this, a hook like
+// `ctxloom tasks capture --stdin` fails when the user's PATH ctxloom
+// is an older version that lacks the `tasks` subcommand (or when
+// ctxloom isn't on PATH at all).
+//
+// exePath is resolved once per WriteSettings call by the caller
+// (ClaudeCodeHookWriter.WriteSettings / GeminiHookWriter.WriteSettings)
+// so multi-hook installs make exactly one GetExecutablePath() call.
+// Empty exePath disables the rewrite — useful for tests AND for the
+// odd case where we genuinely can't resolve the binary, in which
+// case passing the bare command through is the safer fall-through.
+//
+// Commands that already use an absolute path, a different binary, or
+// a shell pipeline ($0/shell vars) are passed through unchanged.
+func resolveCtxloomCommand(command, exePath string) string {
+	if exePath == "" {
+		return command
+	}
+	trimmed := strings.TrimLeft(command, " \t")
+	if !strings.HasPrefix(trimmed, "ctxloom ") && trimmed != "ctxloom" {
+		return command
+	}
+	// Quote the path so spaces in install locations don't break the
+	// command split downstream. Mirrors how inject-context is written.
+	return `"` + exePath + `"` + strings.TrimPrefix(trimmed, "ctxloom")
+}
+
+// resolveCtxloomPath returns the absolute path of the running ctxloom
+// binary, or "" on failure. Centralizes the GetExecutablePath call so
+// each WriteSettings invocation only spends one syscall regardless of
+// how many hook entries it materializes.
+func resolveCtxloomPath() string {
+	exe, err := GetExecutablePath()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
 // isCtxloomManagedHook reports whether a hook command was installed by
 // ctxloom. We treat ANY command whose executable token is `ctxloom`
 // (bare, absolute path, or quoted) as ctxloom-managed. Examples:
@@ -913,7 +968,7 @@ func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHook
 // addHook adds a single hook to the settings for the given event.
 func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h config.Hook) {
 	hook := geminiHook{
-		Command: h.Command,
+		Command: resolveCtxloomCommand(h.Command, w.ctxloomPath),
 		SCM:     computeHookHash(h),
 	}
 

@@ -62,3 +62,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0011](0011-skip-transcript-symlink.md) | Skip transcript symlink in harp directory | Deferred |
 | [0012](0012-skip-harp-go-extraction.md) | Skip `harp-go` extraction | Deferred |
 | [0013](0013-keep-tasks-bundle-embedded.md) | Keep `ctxloom-default-tasks` embedded | Deferred |
+| [0014](0014-remove-transcript-scan-binding.md) | Remove transcript-scan / marker session binding | Accepted |

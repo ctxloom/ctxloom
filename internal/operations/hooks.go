@@ -113,14 +113,13 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 			return nil, ctx.Err()
 		}
 
-		hooksCfg := &freshCfg.Hooks
-		// Merge bundle-shipped hooks. Each is tagged with SCM="bundle:<ref>"
-		// so apply-hooks knows it owns these entries; subsequent runs
-		// reconcile rather than duplicate.
-		hooksCfg.Unified.Append(freshCfg.ResolveBundleHooks())
-		if contextHash != "" {
-			hooksCfg.Unified.SessionStart = append(hooksCfg.Unified.SessionStart, backends.NewContextInjectionHook(contextHash, workDir))
-		}
+		// Assemble the complete managed hook set (config-level + default-profile
+		// + bundle-shipped + context-injection) via the shared assembler, so
+		// this write and the `ctxloom run` Setup path produce an identical set —
+		// see AssembleManagedHooks. A fresh HooksConfig per backend also avoids
+		// the duplicate-hook accumulation that aliasing freshCfg.Hooks across
+		// the loop would cause.
+		hooksCfg := backends.AssembleManagedHooks(freshCfg, workDir, contextHash)
 
 		if err := backends.WriteSettings(backendName, hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
 			return nil, fmt.Errorf("failed to apply %s settings: %w", backendName, err)

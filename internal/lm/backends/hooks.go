@@ -1040,6 +1040,69 @@ func NewContextInjectionHook(hash, workDir string) config.Hook {
 	}
 }
 
+// AppendManagedDynamicHooks appends the ctxloom-managed hooks that are
+// assembled dynamically (rather than read verbatim from one config block) onto
+// unified: the bundle-shipped hooks (SCM-tagged — e.g. `session bind`,
+// `tasks capture`, `stamp-plan`) and, when contextHash is non-empty, the
+// SessionStart context-injection hook.
+//
+// Both writers of settings.json route through this: the `ctxloom run` Setup
+// path (BaseLifecycle.MergeConfigHooks) and operations.ApplyHooks. WriteSettings
+// reconciles by removing ALL ctxloom hooks and re-adding only the writer's
+// assembled set, so any writer that assembled a partial set silently dropped
+// the rest. That is exactly what broke forward-bind: Setup never resolved
+// bundle hooks, so every `ctxloom run` session launched with a settings.json
+// missing `session bind`; apply-hooks could likewise drop inject-context.
+// Keeping the assembly in one place guarantees every writer produces an
+// identical, complete managed set.
+func AppendManagedDynamicHooks(unified *config.UnifiedHooks, cfg *config.Config, workDir, contextHash string) {
+	if unified == nil || cfg == nil {
+		return
+	}
+	unified.Append(cfg.ResolveBundleHooks())
+	if contextHash != "" {
+		unified.SessionStart = append(unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
+	}
+}
+
+// AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
+// writer of a backend settings file must produce identically: config-level
+// hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
+// contextHash is non-empty) the context-injection hook.
+//
+// Both writers route through this — the `ctxloom run` Setup path
+// (BaseLifecycle.MergeConfigHooks) and operations.ApplyHooks. WriteSettings
+// reconciles by removing ALL ctxloom hooks and re-adding only the writer's
+// assembled set, so any divergence between the writers silently drops whatever
+// one assembled but the other didn't. Setup used to merge default-profile
+// hooks while apply-hooks did not, so a profile-shipped SessionStart hook would
+// be written at Setup and dropped by the next apply-hooks reconcile — the same
+// class of failure that broke forward-bind. Keeping the full assembly here
+// guarantees both writers produce an identical, complete set.
+//
+// Returns a fresh HooksConfig each call (never aliases cfg.Hooks), so callers
+// that invoke it in a loop — e.g. apply-hooks across every backend — cannot
+// accumulate duplicate hooks by mutating shared config state.
+func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *config.HooksConfig {
+	hooks := &config.HooksConfig{Plugins: make(map[string]config.BackendHooks)}
+	if cfg == nil {
+		return hooks
+	}
+	// Config-level hooks.
+	mergeHooksConfig(hooks, &cfg.Hooks)
+	// Default-profile-shipped hooks.
+	for _, profileName := range cfg.GetDefaultProfiles() {
+		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
+		if err != nil {
+			continue
+		}
+		mergeHooksConfig(hooks, &resolved.Hooks)
+	}
+	// Bundle-shipped hooks + the context-injection hook.
+	AppendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash)
+	return hooks
+}
+
 // shellSingleQuote wraps s in single quotes for safe interpolation into a
 // /bin/sh command string, escaping embedded single quotes as the standard
 // '\'' idiom. Unlike double-quoting, single quotes neutralize spaces, $,

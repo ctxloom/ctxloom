@@ -1,20 +1,17 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/iox"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
@@ -151,12 +148,12 @@ var sessionForgetCmd = &cobra.Command{
 	},
 }
 
-// sessionBindCmd is the SessionStart hook target. It's the primary
-// path for recording harp → session_id mapping in the index: Claude
-// Code (and other backends with SessionStart hooks) fire this exactly
-// once per session, with the backend's session ID and transcript path
-// already in the payload. The compactor and the transcript-scan
-// fallback in `session distill` remain as belt-and-suspenders.
+// sessionBindCmd is the SessionStart hook target and the sole path for
+// recording the harp → session_id mapping in the index: Claude Code (and
+// other backends with SessionStart hooks) fire this exactly once per
+// session, with the backend's session ID and transcript path already in
+// the documented hook payload. The compactor also forward-binds at
+// compact time as a backstop.
 var sessionBindCmd = &cobra.Command{
 	Use:    "bind",
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
@@ -212,8 +209,7 @@ var sessionDistillCmd = &cobra.Command{
 	Long: `Looks up the harp's bound session_id in ~/.ctxloom/sessions/index.yaml,
 runs the compactor on that backend session, and writes a fresh essence.md
 under the harp directory. Errors if the harp has no session_id bound
-yet (sessions need at least one MCP tool call for the bind middleware
-to forward-record the ID).`,
+(the SessionStart bind hook records it for sessions launched via ctxloom run).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionDistill,
 }
@@ -227,14 +223,13 @@ func init() {
 // runSessionDistill is the cobra RunE for `ctxloom session distill <harp>`.
 // It composes:
 //   1. Look up the harp in the session index.
-//   2. Read its bound session_id (set forward at compact time and/or
-//      by the MCP session-bind middleware on first tool call).
+//   2. Read its bound session_id (recorded forward by the SessionStart
+//      bind hook, or by the compactor at compact time).
 //   3. Run memory.Compactor against that session_id.
 //   4. The compactor's existing write path stamps the harp dir
 //      essence.md + the index summary.
 //
-// Sessions whose bind step never landed (the bind middleware would have
-// needed at least one MCP method call) error here with a clear message.
+// Sessions whose bind step never landed error here with a clear message.
 // Pre-release sessions are unaffected by design; we don't backfill harp
 // names for them.
 func runSessionDistill(cmd *cobra.Command, args []string) error {
@@ -264,30 +259,18 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		backendName = cfg.GetDefaultLLMPlugin()
 	}
 
-	// If no session_id was forward-bound, fall back to scanning the
-	// backend's transcripts for the harp name. The harp appears in
-	// every session's MCP Instructions block (sent on initialize and
-	// recorded in the jsonl as part of the assistant's context), plus
-	// in any tool output that echoed it (list_sessions, task_list,
-	// etc.). Content match is exact — no timing, no clock skew.
-	// Progress notes go to stderr as best-effort status. A failed write
-	// here must not abort an otherwise-successful distillation, so the
-	// captured error is intentionally left unchecked.
-	progress := iox.NewErrWriter(cmd.ErrOrStderr())
-
+	// session_id is recorded forward by the `ctxloom session bind`
+	// SessionStart hook (see sessionBindCmd), which reads it straight from
+	// the backend's documented hook payload. A harp with no bound ID never
+	// started a backend session under that hook — there is nothing to
+	// distill, so fail clearly rather than guess at a binding.
 	sessionID := entry.SessionID
 	if sessionID == "" {
-		found, err := discoverSessionByHarpName(backendName, entry.ProjectDir, harpName)
-		if err != nil {
-			return fmt.Errorf("harp %q has no session_id bound and transcript scan failed: %w", harpName, err)
-		}
-		sessionID = found
-		// Persist the discovery so future distill calls skip the scan.
-		if err := mgr.BindSession(harpName, sessionID, ""); err == nil {
-			progress.Printf("ctxloom: bound %s → %s via transcript scan\n", harpName, sessionID)
-		}
+		return fmt.Errorf("harp %q has no session_id bound; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
 	}
 
+	// Progress notes go to stderr as best-effort status.
+	progress := iox.NewErrWriter(cmd.ErrOrStderr())
 	progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Plugin:    cfg.GetCompactionPlugin(),
@@ -332,146 +315,6 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 		return err
 	}
 	return w.Err()
-}
-
-// harpSessionMarkerPrefix tags a session with its own harp name in a
-// uniquely-greppable form. ctxloom emits the full marker into the MCP
-// ServerOptions.Instructions block (cmd/mcp_server.go), so it lands in the
-// session's raw transcript exactly once — in that session's own
-// instructions. Transcript-scan discovery anchors on it (see
-// discoverSessionByHarpName) to latch onto the session that IS the harp,
-// not one that merely mentions it. Kept distinct from any human-readable
-// prose so discovery never depends on wording that may change.
-const harpSessionMarkerPrefix = "ctxloom harp session: "
-
-// harpSessionMarker returns the canonical discovery marker for a harp. The
-// name is double-quoted so the marker is self-delimiting: a substring scan
-// for `…: "foo"` won't spuriously match `…: "foo-bar"`. Both the emitter and
-// the scanner call this, so the wire format can't drift.
-func harpSessionMarker(harp string) string {
-	return harpSessionMarkerPrefix + `"` + harp + `"`
-}
-
-// discoverSessionByHarpName finds the backend session that IS the given
-// harp, used as last-resort rescue when no forward-bind landed.
-//
-// It scans each transcript for the canonical marker `<prefix><harp>` that
-// ctxloom injects into ServerOptions.Instructions (see harpSessionMarker /
-// cmd/mcp_server.go), but counts a hit ONLY when the marker rides in that
-// transcript's MCP-instructions entry — the one Claude Code writes the
-// instructions block into at session init. So a match means this session IS
-// the harp, never one that merely *mentions* it.
-//
-// Why scope to the instructions entry: the marker is plain text, so a
-// transcript that discusses a harp (this session distilling another, picker
-// listings, list_sessions / task_list output, or — in this very repo — code
-// that quotes the marker format) carries the bytes in conversational
-// entries. A whole-file byte scan would mis-bind to the wrong conversation.
-// The marker only lands in the instructions entry of the session it belongs
-// to, so gating on that entry is exact: no other session's instructions
-// carry this harp's marker.
-//
-// How the entry is identified: Claude Code records the instructions block as
-// a `type: attachment` entry (attachment.type `mcp_instructions_delta`) whose
-// addedBlocks hold each server's instructions text; the normalized parser
-// drops it, and the schema is undocumented and unstable
-// (anthropics/claude-code#53516). We decode only the few fields that identify
-// the entry, and only on lines whose raw bytes already carry the marker
-// prefix — see fileContainsMarker. If that subtype string drifts, discovery
-// degrades to "not auto-discoverable, bind explicitly" rather than
-// mis-binding. Sessions that predate the marker are likewise not
-// auto-discoverable.
-//
-// Per project: typically <100 sessions. Linear scan is fine; the first
-// marker hit wins since harps are unique by construction.
-func discoverSessionByHarpName(backendName, workDir, harpName string) (string, error) {
-	if workDir == "" {
-		return "", fmt.Errorf("workDir required for transcript scan")
-	}
-	if harpName == "" {
-		return "", fmt.Errorf("harpName required")
-	}
-	backend := backends.Get(backendName)
-	if backend == nil {
-		return "", fmt.Errorf("unknown backend: %s", backendName)
-	}
-	history := backend.History()
-	if history == nil {
-		return "", fmt.Errorf("backend %q does not support session history", backendName)
-	}
-	metas, err := history.ListSessions(workDir)
-	if err != nil {
-		return "", fmt.Errorf("list backend sessions: %w", err)
-	}
-
-	marker := harpSessionMarker(harpName)
-	for _, m := range metas {
-		if m.Path != "" && fileContainsMarker(m.Path, marker) {
-			return m.ID, nil
-		}
-	}
-	return "", fmt.Errorf("no backend session in %q carries the ctxloom marker for harp %q (only sessions started after the marker landed are auto-discoverable; bind it explicitly otherwise)", workDir, harpName)
-}
-
-// instructionsAttachmentType is the attachment subtype Claude Code stamps on
-// the entry that records an MCP server's `initialize` instructions block. The
-// harp marker is appended to ServerOptions.Instructions (cmd/mcp_server.go),
-// so the canonical marker lands in exactly this entry — once, at session
-// init. Scanning is scoped to it (see fileContainsMarker) so a later
-// conversational mention of the marker can never be mistaken for the binding.
-// Part of Claude Code's undocumented transcript schema
-// (anthropics/claude-code#53516); if it drifts, discovery degrades to
-// "bind explicitly" rather than mis-binding.
-const instructionsAttachmentType = "mcp_instructions_delta"
-
-// fileContainsMarker reports whether the transcript at path carries marker in
-// its MCP-instructions entry — i.e. whether this session IS the harp, not one
-// that merely mentions it (see discoverSessionByHarpName for why this matters).
-//
-// The whole file is read because a single jsonl entry can exceed
-// bufio.Scanner's line limit (megabytes). Each line is one transcript entry.
-// We cheaply pre-filter to lines whose RAW bytes carry the marker prefix
-// (quote-free, so it survives JSON escaping), then decode only those: the
-// marker rides JSON-encoded inside the instructions delta's addedBlocks, so
-// its quotes are backslash-escaped on the wire and a raw scan for the
-// literal-quote marker would miss it. Matching the *decoded* block restores
-// the quotes and keeps the self-delimiting guarantee. A read error, or a line
-// that doesn't decode, is treated as "no match" — a transcript or entry we
-// can't read can't be the one we want. Cost is irrelevant on this rare
-// fallback path.
-func fileContainsMarker(path, marker string) bool {
-	if marker == "" {
-		return false
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	prefix := []byte(harpSessionMarkerPrefix)
-	for line := range bytes.Lines(data) {
-		if !bytes.Contains(line, prefix) {
-			continue
-		}
-		var entry struct {
-			Type       string `json:"type"`
-			Attachment struct {
-				Type        string   `json:"type"`
-				AddedBlocks []string `json:"addedBlocks"`
-			} `json:"attachment"`
-		}
-		if json.Unmarshal(line, &entry) != nil {
-			continue
-		}
-		if entry.Type != "attachment" || entry.Attachment.Type != instructionsAttachmentType {
-			continue
-		}
-		for _, block := range entry.Attachment.AddedBlocks {
-			if strings.Contains(block, marker) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // resolveSessionsDir mirrors the sessions-dir resolution from

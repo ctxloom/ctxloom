@@ -557,9 +557,22 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
 
-	// Without context hash, SessionStart should remain empty
 	hooks := lifecycle.GetHooks()
-	assert.Empty(t, hooks.Unified.SessionStart)
+	// Without a context hash, the context-injection hook is omitted...
+	for _, h := range hooks.Unified.SessionStart {
+		assert.NotContains(t, h.Command, "inject-context",
+			"context-injection hook must not be added when contextHash is empty")
+	}
+	// ...but the bundle-shipped SessionStart hooks (e.g. `session bind`) are
+	// still assembled. Setup omitting these is what left every `ctxloom run`
+	// session launching without forward-bind.
+	var hasBind bool
+	for _, h := range hooks.Unified.SessionStart {
+		if strings.Contains(h.Command, "session bind") {
+			hasBind = true
+		}
+	}
+	assert.True(t, hasBind, "bundle `session bind` hook should be present even without a context hash")
 }
 
 func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
@@ -619,6 +632,98 @@ func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
 	// Should still have context injection hook
 	hooks := lifecycle.GetHooks()
 	assert.NotEmpty(t, hooks.Unified.SessionStart)
+}
+
+// sessionStartCommands returns the SessionStart hook commands in order.
+func sessionStartCommands(h config.UnifiedHooks) []string {
+	cmds := make([]string, 0, len(h.SessionStart))
+	for _, hook := range h.SessionStart {
+		cmds = append(cmds, hook.Command)
+	}
+	return cmds
+}
+
+// TestAssembleManagedHooks_IncludesProfileSessionStartHook locks in the
+// writer-parity contract: a profile-shipped SessionStart hook must appear in
+// the set assembled by AssembleManagedHooks (the operations.ApplyHooks path),
+// not only the `ctxloom run` Setup path. Before this, Setup merged default-
+// profile hooks and apply-hooks did not, so the next apply-hooks reconcile
+// dropped the profile hook — the same drop-on-clobber class that broke
+// forward-bind.
+func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
+	cfg := &config.Config{
+		Hooks:    config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		Defaults: config.Defaults{Profiles: []string{"p"}},
+		Profiles: map[string]config.Profile{
+			"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
+				SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+			}}},
+		},
+	}
+
+	assembled := AssembleManagedHooks(cfg, "/tmp", "")
+
+	assert.Contains(t, sessionStartCommands(assembled.Unified), "profile-session-start",
+		"profile-shipped SessionStart hook must be in the assembled set used by apply-hooks")
+}
+
+// TestAssembleManagedHooks_MatchesSetup is the core regression guard against the
+// two writers diverging: the set MergeConfigHooks (Setup) writes must equal the
+// set AssembleManagedHooks (apply-hooks) writes, for a config exercising both
+// config-level and profile-level SessionStart hooks. Divergence here is exactly
+// what lets WriteSettings' remove-then-add reconcile drop a managed hook.
+func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
+	newCfg := func() *config.Config {
+		return &config.Config{
+			Hooks: config.HooksConfig{
+				Unified: config.UnifiedHooks{
+					SessionStart: []config.Hook{{Command: "config-session-start", Type: "command"}},
+				},
+				Plugins: make(map[string]config.BackendHooks),
+			},
+			MCP:      config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+			Defaults: config.Defaults{Profiles: []string{"p"}},
+			Profiles: map[string]config.Profile{
+				"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
+					SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+				}}},
+			},
+		}
+	}
+
+	// Setup path.
+	lifecycle := NewClaudeLifecycle(NewClaudeCode())
+	lifecycle.MergeConfigHooks(newCfg(), "/tmp", "hash123")
+	setupCmds := sessionStartCommands(lifecycle.GetHooks().Unified)
+
+	// apply-hooks path.
+	assembled := AssembleManagedHooks(newCfg(), "/tmp", "hash123")
+	applyCmds := sessionStartCommands(assembled.Unified)
+
+	assert.Equal(t, setupCmds, applyCmds,
+		"Setup (MergeConfigHooks) and apply-hooks (AssembleManagedHooks) must produce an identical SessionStart set")
+}
+
+// TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
+// apply-hooks calls AssembleManagedHooks once per backend in a loop. If it
+// aliased and appended to cfg.Hooks (the old `hooksCfg := &freshCfg.Hooks`
+// pattern), the second backend would accumulate duplicate bundle/inject hooks.
+// Asserting two calls return identical-length sets proves it builds fresh.
+func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
+	cfg := &config.Config{
+		Hooks: config.HooksConfig{
+			Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "config-session-start"}}},
+			Plugins: make(map[string]config.BackendHooks),
+		},
+	}
+
+	first := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	second := AssembleManagedHooks(cfg, "/tmp", "hash123")
+
+	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
+		"repeated calls must not accumulate hooks via shared config state")
+	assert.Len(t, cfg.Hooks.Unified.SessionStart, 1,
+		"AssembleManagedHooks must not mutate the caller's config.Hooks")
 }
 
 // =============================================================================

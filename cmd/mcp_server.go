@@ -61,11 +61,6 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 			sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
 		}
 		instructions += sessionLine
-		// Canonical, greppable marker for `session distill`'s raw-transcript
-		// scan (see harpSessionMarker / discoverSessionByHarpName). On its own
-		// line and distinct from the prose above so discovery never depends on
-		// wording. Lands in the transcript as part of this instructions block.
-		instructions += "\n\n" + harpSessionMarker(harp)
 	}
 	opts := &mcp.ServerOptions{Instructions: instructions}
 	server := mcp.NewServer(&mcp.Implementation{

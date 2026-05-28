@@ -191,10 +191,13 @@ run *ARGS:
     go run . {{ARGS}}
 
 # Build, compress, and install to ~/go/bin (standard Go location)
+# Atomic rename instead of pkill+cp: replacing the directory entry leaves the
+# busy inode mapped for any running ctxloom (avoids ETXTBSY and never dumps a
+# live ctxloom-managed session); new launches pick up the new binary.
 install: build-compressed
     mkdir -p ~/go/bin
-    -pkill -x ctxloom && sleep 0.5
-    cp ctxloom ~/go/bin/
+    cp ctxloom ~/go/bin/ctxloom.new
+    mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom
 
 # Uninstall from ~/go/bin
 uninstall:

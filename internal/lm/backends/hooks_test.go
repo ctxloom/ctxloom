@@ -355,12 +355,6 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 // twice, assert the count stays at the expected total.
 func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Pin the executable path so the bundle-command rewrite produces a
-	// stable absolute path that the dedup pass can recognize. Without
-	// this, the test binary's basename (something.test) drives the
-	// rewrite output and isCtxloomManagedHook can't match it.
-	SetExecutablePathForTesting("/install/bin/ctxloom")
-	t.Cleanup(func() { SetExecutablePathForTesting("") })
 
 	writer := &ClaudeCodeHookWriter{}
 
@@ -419,94 +413,63 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	}
 }
 
-// TestResolveCtxloomCommand covers the hook-write-time rewrite that
-// replaces bare `ctxloom` with the absolute path passed in by the
-// caller. Without this, a bundle-shipped hook like
-// `ctxloom tasks capture --stdin` runs against whatever ctxloom
-// happens to be on PATH — which can be an older version missing
-// the subcommand. Fix for the user-reported error:
-// "unknown command 'tasks' for 'ctxloom'".
-//
-// The exePath is resolved once per WriteSettings call and threaded
-// through this function as a parameter so multi-hook installs share
-// a single GetExecutablePath() syscall.
-func TestResolveCtxloomCommand(t *testing.T) {
-	const exe = "/install/bin/ctxloom"
 
-	t.Run("rewrites_bare_ctxloom_prefix", func(t *testing.T) {
-		got := resolveCtxloomCommand("ctxloom tasks capture --stdin", exe)
-		assert.Equal(t, `"/install/bin/ctxloom" tasks capture --stdin`, got)
-	})
-
-	t.Run("rewrites_bare_ctxloom_alone", func(t *testing.T) {
-		got := resolveCtxloomCommand("ctxloom", exe)
-		assert.Equal(t, `"/install/bin/ctxloom"`, got)
-	})
-
-	t.Run("trims_leading_whitespace", func(t *testing.T) {
-		got := resolveCtxloomCommand("  ctxloom tasks stamp-plan", exe)
-		assert.Equal(t, `"/install/bin/ctxloom" tasks stamp-plan`, got)
-	})
-
-	t.Run("passes_through_absolute_path", func(t *testing.T) {
-		cmd := `"/usr/local/bin/ctxloom" hook inject-context …`
-		got := resolveCtxloomCommand(cmd, exe)
-		assert.Equal(t, cmd, got, "absolute-path commands must not be rewritten")
-	})
-
-	t.Run("passes_through_other_binaries", func(t *testing.T) {
-		cmd := `echo 'user hook'`
-		assert.Equal(t, cmd, resolveCtxloomCommand(cmd, exe))
-	})
-
-	t.Run("passes_through_ctxloomctl_prefix", func(t *testing.T) {
-		// Confounding prefix: ctxloomctl is NOT ctxloom.
-		cmd := "ctxloomctl status"
-		assert.Equal(t, cmd, resolveCtxloomCommand(cmd, exe))
-	})
-
-	t.Run("empty_exepath_disables_rewrite", func(t *testing.T) {
-		// When the caller couldn't resolve the binary (or for tests that
-		// want to assert the bare-command codepath), passing exePath=""
-		// is the safe fall-through.
-		got := resolveCtxloomCommand("ctxloom tasks capture", "")
-		assert.Equal(t, "ctxloom tasks capture", got)
-	})
-}
-
-// TestClaudeCodeHookWriter_RewritesBareCtxloomCommands is the end-to-
-// end integration: write a bundle-style hook whose Command is bare
-// `ctxloom tasks capture --stdin` and confirm the materialized
-// settings.json contains the resolved absolute path. Regression
-// guard for the user-reported hook failure.
-func TestClaudeCodeHookWriter_RewritesBareCtxloomCommands(t *testing.T) {
+// TestClaudeCodeHookWriter_WritesBareCtxloomCommands asserts that every
+// ctxloom-rooted command the writer emits — the inject-context
+// SessionStart hook, the statusLine HUD command, and the
+// auto-registered MCP server entry — is written as the bare name
+// `ctxloom`, never an absolute path. Baking the path in is what caused
+// the `/usr/bin/ctxloom` regression: the file kept pointing at a binary
+// that had since moved to `~/go/bin/ctxloom`. Bare commands re-resolve
+// via PATH at fire time and so can't go stale. The pinned exe path here
+// proves the resolved path does NOT leak into the file.
+func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	tmpDir := t.TempDir()
-	SetExecutablePathForTesting("/install/bin/ctxloom")
+	SetExecutablePathForTesting("/install/now/ctxloom")
 	t.Cleanup(func() { SetExecutablePathForTesting("") })
 
 	writer := &ClaudeCodeHookWriter{}
+	// Inject-context hook is constructed exactly the way the lifecycle
+	// constructs it — through the public constructor.
 	cfg := &config.HooksConfig{Unified: config.UnifiedHooks{
+		SessionStart: []config.Hook{NewContextInjectionHook("abc123", tmpDir)},
 		PostTool: []config.Hook{
 			{Matcher: "TodoWrite", Command: "ctxloom tasks capture --stdin", Type: "command"},
 		},
 	}}
 	require.NoError(t, writer.WriteHooks(cfg, tmpDir))
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
+	settingsData, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
-	// Parse the settings rather than string-matching the JSON-escaped
-	// form (which encodes the embedded quotes around the path as \").
 	var settings map[string]any
-	require.NoError(t, json.Unmarshal(data, &settings))
+	require.NoError(t, json.Unmarshal(settingsData, &settings))
+
+	statusLine := settings["statusLine"].(map[string]any)
+	assert.Equal(t, "ctxloom meta hud", statusLine["command"],
+		"statusLine must be bare; got %q", statusLine["command"])
+
 	hooks := settings["hooks"].(map[string]any)
+
+	sessionStart := hooks["SessionStart"].([]any)
+	require.NotEmpty(t, sessionStart)
+	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	assert.True(t, strings.HasPrefix(injectCmd, "ctxloom hook inject-context "),
+		"inject-context hook must be bare; got %q", injectCmd)
+
 	post := hooks["PostToolUse"].([]any)
 	require.NotEmpty(t, post)
-	first := post[0].(map[string]any)
-	entries := first["hooks"].([]any)
-	require.NotEmpty(t, entries)
-	cmd := entries[0].(map[string]any)["command"].(string)
-	assert.Equal(t, `"/install/bin/ctxloom" tasks capture --stdin`, cmd,
-		"hook command should be the rewritten absolute-path form")
+	bundleCmd := post[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	assert.Equal(t, "ctxloom tasks capture --stdin", bundleCmd,
+		"bundle-shipped hook must stay bare; got %q", bundleCmd)
+
+	// .mcp.json: auto-registered ctxloom MCP server command is bare too.
+	mcpData, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
+	require.NoError(t, err)
+	var mcpConfig map[string]any
+	require.NoError(t, json.Unmarshal(mcpData, &mcpConfig))
+	ctxloomServer := mcpConfig["mcpServers"].(map[string]any)["ctxloom"].(map[string]any)
+	assert.Equal(t, "ctxloom", ctxloomServer["command"],
+		"auto-registered MCP server command must be bare; got %q", ctxloomServer["command"])
 }
 
 // TestIsCtxloomManagedHook covers the predicate that drives the dedup

@@ -23,6 +23,9 @@ var allowedDuringReview = map[string]struct{}{
 	"decline_bundle":            {},
 	"show_bundle_verbatim":      {},
 	"trust_remote":              {},
+	"pin_bundle":                {},
+	"unpin_bundle":              {},
+	"approve_remote_pending":    {},
 
 	// Recovery (reads prior session content but doesn't expose bundle bytes).
 	"get_previous_session": {},

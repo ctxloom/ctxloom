@@ -297,6 +297,14 @@ type LockEntry struct {
 
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
+
+	// Pinned freezes this entry at the recorded SHA. While true,
+	// DiffLockfiles suppresses any pending-vs-active SHA change for the
+	// bundle — review template no longer surfaces it. Toggled via the
+	// pin_bundle / unpin_bundle MCP tools. The flag lives on the active
+	// lockfile entry; the puller still fetches new SHAs into pending so
+	// the user can unpin and inspect later if needed.
+	Pinned bool `yaml:"pinned,omitempty" json:"pinned,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.

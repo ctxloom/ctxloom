@@ -4,18 +4,21 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/compression"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -54,9 +57,11 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 	}
 
 	bundleDirs := cfg.GetBundleDirs()
+	out := cmd.OutOrStdout()
 	if len(bundleDirs) == 0 {
-		fmt.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/bundles")
-		return nil
+		w := iox.NewErrWriter(out)
+		w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/bundles")
+		return w.Err()
 	}
 
 	loader := bundles.NewLoader(bundleDirs, false)
@@ -65,22 +70,32 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list bundles: %w", err)
 	}
 
-	if len(bundleInfos) == 0 {
-		fmt.Println("No bundles installed.")
-		fmt.Println("Install bundles with: ctxloom install <remote>/bundle-name")
-		return nil
+	return renderBundleList(out, bundleInfos)
+}
+
+// renderBundleList writes the human-readable summary of installed bundles
+// to out. Extracted from runBundleList so the formatting decisions (the
+// `1 MCP server`/`N MCP servers` singular/plural rule, the optional
+// Tags/Contains lines, the empty-list hint) can be unit-tested without
+// touching the loader.
+func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
+	w := iox.NewErrWriter(out)
+	if len(infos) == 0 {
+		w.Println("No bundles installed.")
+		w.Println("Install bundles with: ctxloom install <remote>/bundle-name")
+		return w.Err()
 	}
 
-	fmt.Printf("Installed bundles (%d):\n\n", len(bundleInfos))
-	for _, info := range bundleInfos {
-		fmt.Printf("  %s", info.Name)
+	w.Printf("Installed bundles (%d):\n\n", len(infos))
+	for _, info := range infos {
+		w.Printf("  %s", info.Name)
 		if info.Version != "" {
-			fmt.Printf(" (v%s)", info.Version)
+			w.Printf(" (v%s)", info.Version)
 		}
-		fmt.Println()
+		w.Println()
 
 		if info.Description != "" {
-			fmt.Printf("    %s\n", info.Description)
+			w.Printf("    %s\n", info.Description)
 		}
 
 		var parts []string
@@ -98,15 +113,14 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if len(parts) > 0 {
-			fmt.Printf("    Contains: %s\n", strings.Join(parts, ", "))
+			w.Printf("    Contains: %s\n", strings.Join(parts, ", "))
 		}
 		if len(info.Tags) > 0 {
-			fmt.Printf("    Tags: %s\n", strings.Join(info.Tags, ", "))
+			w.Printf("    Tags: %s\n", strings.Join(info.Tags, ", "))
 		}
-		fmt.Println()
+		w.Println()
 	}
-
-	return nil
+	return w.Err()
 }
 
 var bundleShowCmd = &cobra.Command{
@@ -141,103 +155,118 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	// Header
-	fmt.Printf("Bundle: %s\n", bundle.Name)
+	return renderBundleShow(cmd.OutOrStdout(), bundle)
+}
+
+// renderBundleShow writes the detailed bundle view to out. Sections
+// (MCP/Fragments/Prompts/Notes) are suppressed when empty. Fragment and
+// prompt entries are decorated with their tag list and a `(distilled)`
+// or `(no_distill)` marker; fragments also get a 70-char first-line
+// preview, prompts get the optional Description.
+func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("Bundle: %s\n", bundle.Name)
 	if bundle.Version != "" {
-		fmt.Printf("Version: %s\n", bundle.Version)
+		w.Printf("Version: %s\n", bundle.Version)
 	}
 	if bundle.Author != "" {
-		fmt.Printf("Author: %s\n", bundle.Author)
+		w.Printf("Author: %s\n", bundle.Author)
 	}
 	if bundle.Description != "" {
-		fmt.Printf("Description: %s\n", bundle.Description)
+		w.Printf("Description: %s\n", bundle.Description)
 	}
 	if len(bundle.Tags) > 0 {
-		fmt.Printf("Tags: %s\n", strings.Join(bundle.Tags, ", "))
+		w.Printf("Tags: %s\n", strings.Join(bundle.Tags, ", "))
 	}
-	fmt.Printf("Path: %s\n", bundle.Path)
-	fmt.Println()
+	w.Printf("Path: %s\n", bundle.Path)
+	w.Println()
 
-	// MCP Servers
 	if bundle.HasMCP() {
-		fmt.Printf("MCP Servers (%d):\n", bundle.MCPCount())
+		w.Printf("MCP Servers (%d):\n", bundle.MCPCount())
 		for _, name := range bundle.MCPNames() {
-			mcp := bundle.MCP[name]
-			fmt.Printf("  - %s\n", name)
-			fmt.Printf("      Command: %s\n", mcp.Command)
-			if len(mcp.Args) > 0 {
-				fmt.Printf("      Args: %s\n", strings.Join(mcp.Args, " "))
-			}
-			if len(mcp.Env) > 0 {
-				fmt.Println("      Env:")
-				for k, v := range mcp.Env {
-					fmt.Printf("        %s=%s\n", k, v)
-				}
-			}
-			if mcp.Notes != "" {
-				fmt.Printf("      Notes: %s\n", mcp.Notes)
-			}
-			if mcp.Installation != "" {
-				fmt.Printf("      Installation: %s\n", mcp.Installation)
-			}
+			renderBundleMCPEntry(w, name, bundle.MCP[name])
 		}
-		fmt.Println()
+		w.Println()
 	}
 
-	// Fragments
 	if len(bundle.Fragments) > 0 {
-		fmt.Printf("Fragments (%d):\n", len(bundle.Fragments))
+		w.Printf("Fragments (%d):\n", len(bundle.Fragments))
 		for _, name := range bundle.FragmentNames() {
-			frag := bundle.Fragments[name]
-			fmt.Printf("  - %s", name)
-			if len(frag.Tags) > 0 {
-				fmt.Printf(" [%s]", strings.Join(frag.Tags, ", "))
-			}
-			if frag.Distilled != "" {
-				fmt.Printf(" (distilled)")
-			} else if frag.NoDistill {
-				fmt.Printf(" (no_distill)")
-			}
-			fmt.Println()
-			// Show first line of content
-			firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
-			if len(firstLine) > 70 {
-				firstLine = firstLine[:67] + "..."
-			}
-			fmt.Printf("      %s\n", firstLine)
+			renderBundleFragmentEntry(w, name, bundle.Fragments[name])
 		}
-		fmt.Println()
+		w.Println()
 	}
 
-	// Prompts
 	if len(bundle.Prompts) > 0 {
-		fmt.Printf("Prompts (%d):\n", len(bundle.Prompts))
+		w.Printf("Prompts (%d):\n", len(bundle.Prompts))
 		for _, name := range bundle.PromptNames() {
-			prompt := bundle.Prompts[name]
-			fmt.Printf("  - %s", name)
-			if len(prompt.Tags) > 0 {
-				fmt.Printf(" [%s]", strings.Join(prompt.Tags, ", "))
-			}
-			if prompt.Distilled != "" {
-				fmt.Printf(" (distilled)")
-			} else if prompt.NoDistill {
-				fmt.Printf(" (no_distill)")
-			}
-			fmt.Println()
-			if prompt.Description != "" {
-				fmt.Printf("      %s\n", prompt.Description)
-			}
+			renderBundlePromptEntry(w, name, bundle.Prompts[name])
 		}
-		fmt.Println()
+		w.Println()
 	}
 
-	// Notes
 	if bundle.Notes != "" {
-		fmt.Println("Notes:")
-		fmt.Printf("  %s\n", bundle.Notes)
+		w.Println("Notes:")
+		w.Printf("  %s\n", bundle.Notes)
 	}
+	return w.Err()
+}
 
-	return nil
+func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) {
+	w.Printf("  - %s\n", name)
+	w.Printf("      Command: %s\n", mcp.Command)
+	if len(mcp.Args) > 0 {
+		w.Printf("      Args: %s\n", strings.Join(mcp.Args, " "))
+	}
+	if len(mcp.Env) > 0 {
+		w.Println("      Env:")
+		for k, v := range mcp.Env {
+			w.Printf("        %s=%s\n", k, v)
+		}
+	}
+	if mcp.Notes != "" {
+		w.Printf("      Notes: %s\n", mcp.Notes)
+	}
+	if mcp.Installation != "" {
+		w.Printf("      Installation: %s\n", mcp.Installation)
+	}
+}
+
+func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.BundleFragment) {
+	w.Printf("  - %s", name)
+	if len(frag.Tags) > 0 {
+		w.Printf(" [%s]", strings.Join(frag.Tags, ", "))
+	}
+	switch {
+	case frag.Distilled != "":
+		w.Print(" (distilled)")
+	case frag.NoDistill:
+		w.Print(" (no_distill)")
+	}
+	w.Println()
+
+	firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
+	if len(firstLine) > 70 {
+		firstLine = firstLine[:67] + "..."
+	}
+	w.Printf("      %s\n", firstLine)
+}
+
+func renderBundlePromptEntry(w *iox.ErrWriter, name string, prompt bundles.BundlePrompt) {
+	w.Printf("  - %s", name)
+	if len(prompt.Tags) > 0 {
+		w.Printf(" [%s]", strings.Join(prompt.Tags, ", "))
+	}
+	switch {
+	case prompt.Distilled != "":
+		w.Print(" (distilled)")
+	case prompt.NoDistill:
+		w.Print(" (no_distill)")
+	}
+	w.Println()
+	if prompt.Description != "" {
+		w.Printf("      %s\n", prompt.Description)
+	}
 }
 
 var bundleCreateDesc string
@@ -263,21 +292,37 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Use first ctxloom path (project or home)
 	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
-		return fmt.Errorf("failed to create bundles directory: %w", err)
+	bundlePath, err := writeBundleSkeleton(afero.NewOsFs(), bundleDir, name, bundleCreateDesc)
+	if err != nil {
+		return err
+	}
+
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("Created bundle: %s\n", bundlePath)
+	w.Println("Edit the file to add your fragments and prompts.")
+
+	return w.Err()
+}
+
+// writeBundleSkeleton creates a starter bundle YAML at <bundleDir>/<name>.yaml
+// on fs, refusing to overwrite an existing file. Returns the path it
+// wrote (for the user-visible success line) and any error encountered.
+// Extracted from runBundleCreate so the "already exists" guard and the
+// initial bundle shape are testable without a real filesystem.
+func writeBundleSkeleton(fs afero.Fs, bundleDir, name, description string) (string, error) {
+	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create bundles directory: %w", err)
 	}
 
 	bundlePath := filepath.Join(bundleDir, name+".yaml")
-	if _, err := os.Stat(bundlePath); err == nil {
-		return fmt.Errorf("bundle already exists: %s", bundlePath)
+	if _, err := fs.Stat(bundlePath); err == nil {
+		return "", fmt.Errorf("bundle already exists: %s", bundlePath)
 	}
 
-	// Create bundle skeleton
 	bundle := bundles.Bundle{
 		Version:     "1.0.0",
-		Description: bundleCreateDesc,
+		Description: description,
 		Tags:        []string{},
 		Fragments: map[string]bundles.BundleFragment{
 			"example": {
@@ -293,20 +338,14 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 			},
 		},
 	}
-
 	data, err := yaml.Marshal(&bundle)
 	if err != nil {
-		return fmt.Errorf("failed to marshal bundle: %w", err)
+		return "", fmt.Errorf("failed to marshal bundle: %w", err)
 	}
-
-	if err := os.WriteFile(bundlePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write bundle: %w", err)
+	if err := afero.WriteFile(fs, bundlePath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write bundle: %w", err)
 	}
-
-	fmt.Printf("Created bundle: %s\n", bundlePath)
-	fmt.Println("Edit the file to add your fragments and prompts.")
-
-	return nil
+	return bundlePath, nil
 }
 
 // bundleEdit flags
@@ -360,134 +399,170 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	modified := false
-
-	// Update description
-	if bundleEditDesc != "" {
-		bundle.Description = bundleEditDesc
-		modified = true
+	edits := bundleEdits{
+		Description:    bundleEditDesc,
+		Version:        bundleEditVersion,
+		AddTags:        bundleEditAddTags,
+		RemoveTags:     bundleEditRemoveTags,
+		AddFragments:   bundleEditAddFragment,
+		RemoveFragments: bundleEditRemoveFragment,
+		AddPrompts:     bundleEditAddPrompt,
+		RemovePrompts:  bundleEditRemovePrompt,
+		AddMCP:         bundleEditAddMCP,
+		RemoveMCP:      bundleEditRemoveMCP,
 	}
 
-	// Update version
-	if bundleEditVersion != "" {
-		bundle.Version = bundleEditVersion
-		modified = true
-	}
-
-	// Add tags
-	for _, tag := range bundleEditAddTags {
-		if !sliceContains(bundle.Tags, tag) {
-			bundle.Tags = append(bundle.Tags, tag)
-			modified = true
-		}
-	}
-
-	// Remove tags
-	for _, tag := range bundleEditRemoveTags {
-		bundle.Tags = sliceRemove(bundle.Tags, tag)
-		modified = true
-	}
-
-	// Add fragments (creates empty placeholder)
-	for _, fragName := range bundleEditAddFragment {
-		if bundle.Fragments == nil {
-			bundle.Fragments = make(map[string]bundles.BundleFragment)
-		}
-		if _, exists := bundle.Fragments[fragName]; !exists {
-			bundle.Fragments[fragName] = bundles.BundleFragment{
-				Content: "# " + fragName + "\n\nAdd content here.",
-			}
-			modified = true
-			fmt.Printf("Added fragment: %s\n", fragName)
-		} else {
-			fmt.Printf("Fragment already exists: %s\n", fragName)
-		}
-	}
-
-	// Remove fragments
-	for _, fragName := range bundleEditRemoveFragment {
-		if bundle.Fragments != nil {
-			if _, exists := bundle.Fragments[fragName]; exists {
-				delete(bundle.Fragments, fragName)
-				modified = true
-				fmt.Printf("Removed fragment: %s\n", fragName)
-			} else {
-				fmt.Printf("Fragment not found: %s\n", fragName)
-			}
-		}
-	}
-
-	// Add prompts (creates empty placeholder)
-	for _, promptName := range bundleEditAddPrompt {
-		if bundle.Prompts == nil {
-			bundle.Prompts = make(map[string]bundles.BundlePrompt)
-		}
-		if _, exists := bundle.Prompts[promptName]; !exists {
-			bundle.Prompts[promptName] = bundles.BundlePrompt{
-				Description: promptName,
-				Content:     "Add prompt content here.",
-			}
-			modified = true
-			fmt.Printf("Added prompt: %s\n", promptName)
-		} else {
-			fmt.Printf("Prompt already exists: %s\n", promptName)
-		}
-	}
-
-	// Remove prompts
-	for _, promptName := range bundleEditRemovePrompt {
-		if bundle.Prompts != nil {
-			if _, exists := bundle.Prompts[promptName]; exists {
-				delete(bundle.Prompts, promptName)
-				modified = true
-				fmt.Printf("Removed prompt: %s\n", promptName)
-			} else {
-				fmt.Printf("Prompt not found: %s\n", promptName)
-			}
-		}
-	}
-
-	// Add MCP servers (creates placeholder)
-	for _, mcpName := range bundleEditAddMCP {
-		if bundle.MCP == nil {
-			bundle.MCP = make(map[string]bundles.BundleMCP)
-		}
-		if _, exists := bundle.MCP[mcpName]; !exists {
-			bundle.MCP[mcpName] = bundles.BundleMCP{
-				Command: mcpName,
-			}
-			modified = true
-			fmt.Printf("Added MCP server: %s\n", mcpName)
-		} else {
-			fmt.Printf("MCP server already exists: %s\n", mcpName)
-		}
-	}
-
-	// Remove MCP servers
-	for _, mcpName := range bundleEditRemoveMCP {
-		if bundle.MCP != nil {
-			if _, exists := bundle.MCP[mcpName]; exists {
-				delete(bundle.MCP, mcpName)
-				modified = true
-				fmt.Printf("Removed MCP server: %s\n", mcpName)
-			} else {
-				fmt.Printf("MCP server not found: %s\n", mcpName)
-			}
-		}
-	}
-
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	modified := applyBundleEdits(bundle, edits, w)
 	if !modified {
-		fmt.Println("No changes made. Use flags to specify what to edit.")
+		w.Println("No changes made. Use flags to specify what to edit.")
+		if w.Err() != nil {
+			return w.Err()
+		}
 		return cmd.Help()
 	}
 
-	// Save the bundle
 	if err := bundle.Save(); err != nil {
 		return fmt.Errorf("failed to save bundle: %w", err)
 	}
 
-	fmt.Printf("Updated bundle: %s\n", bundle.Path)
-	return nil
+	w.Printf("Updated bundle: %s\n", bundle.Path)
+	return w.Err()
+}
+
+// bundleEdits bundles every mutation the `bundle edit` command supports.
+// Empty strings / nil slices mean "no change to that slot". Pointer types
+// would let the caller distinguish "unset" from "set to empty" if a
+// future use case needs it; for now, current callers treat empty as
+// "no change", which matches cobra's flag-defaulting behavior.
+type bundleEdits struct {
+	Description     string
+	Version         string
+	AddTags         []string
+	RemoveTags      []string
+	AddFragments    []string
+	RemoveFragments []string
+	AddPrompts      []string
+	RemovePrompts   []string
+	AddMCP          []string
+	RemoveMCP       []string
+}
+
+// applyBundleEdits updates b in place per edits, writing one
+// human-readable status line per attempted change to out. Returns true
+// iff at least one change actually landed. Duplicate-adds and
+// absent-removes for items are echoed as informational lines, mirroring
+// applyProfileMutations.
+//
+// Extracted from runBundleEdit so the 10-slot mutation matrix (plus
+// version + description) is testable without bundle loader IO. Note:
+// RemoveTags currently always sets modified=true even when the tag
+// wasn't present — preserved to match the original behavior; callers
+// relying on the truth value should not infer "tag was actually removed."
+func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bool {
+	modified := false
+
+	if edits.Description != "" {
+		b.Description = edits.Description
+		modified = true
+	}
+	if edits.Version != "" {
+		b.Version = edits.Version
+		modified = true
+	}
+
+	for _, tag := range edits.AddTags {
+		if !sliceContains(b.Tags, tag) {
+			b.Tags = append(b.Tags, tag)
+			modified = true
+		}
+	}
+	for _, tag := range edits.RemoveTags {
+		b.Tags = sliceRemove(b.Tags, tag)
+		modified = true
+	}
+
+	if b.Fragments == nil && len(edits.AddFragments) > 0 {
+		b.Fragments = make(map[string]bundles.BundleFragment)
+	}
+	for _, fragName := range edits.AddFragments {
+		if _, exists := b.Fragments[fragName]; exists {
+			w.Printf("Fragment already exists: %s\n", fragName)
+			continue
+		}
+		b.Fragments[fragName] = bundles.BundleFragment{
+			Content: "# " + fragName + "\n\nAdd content here.",
+		}
+		modified = true
+		w.Printf("Added fragment: %s\n", fragName)
+	}
+	for _, fragName := range edits.RemoveFragments {
+		if b.Fragments == nil {
+			continue
+		}
+		if _, exists := b.Fragments[fragName]; !exists {
+			w.Printf("Fragment not found: %s\n", fragName)
+			continue
+		}
+		delete(b.Fragments, fragName)
+		modified = true
+		w.Printf("Removed fragment: %s\n", fragName)
+	}
+
+	if b.Prompts == nil && len(edits.AddPrompts) > 0 {
+		b.Prompts = make(map[string]bundles.BundlePrompt)
+	}
+	for _, promptName := range edits.AddPrompts {
+		if _, exists := b.Prompts[promptName]; exists {
+			w.Printf("Prompt already exists: %s\n", promptName)
+			continue
+		}
+		b.Prompts[promptName] = bundles.BundlePrompt{
+			Description: promptName,
+			Content:     "Add prompt content here.",
+		}
+		modified = true
+		w.Printf("Added prompt: %s\n", promptName)
+	}
+	for _, promptName := range edits.RemovePrompts {
+		if b.Prompts == nil {
+			continue
+		}
+		if _, exists := b.Prompts[promptName]; !exists {
+			w.Printf("Prompt not found: %s\n", promptName)
+			continue
+		}
+		delete(b.Prompts, promptName)
+		modified = true
+		w.Printf("Removed prompt: %s\n", promptName)
+	}
+
+	if b.MCP == nil && len(edits.AddMCP) > 0 {
+		b.MCP = make(map[string]bundles.BundleMCP)
+	}
+	for _, mcpName := range edits.AddMCP {
+		if _, exists := b.MCP[mcpName]; exists {
+			w.Printf("MCP server already exists: %s\n", mcpName)
+			continue
+		}
+		b.MCP[mcpName] = bundles.BundleMCP{Command: mcpName}
+		modified = true
+		w.Printf("Added MCP server: %s\n", mcpName)
+	}
+	for _, mcpName := range edits.RemoveMCP {
+		if b.MCP == nil {
+			continue
+		}
+		if _, exists := b.MCP[mcpName]; !exists {
+			w.Printf("MCP server not found: %s\n", mcpName)
+			continue
+		}
+		delete(b.MCP, mcpName)
+		modified = true
+		w.Printf("Removed MCP server: %s\n", mcpName)
+	}
+
+	return modified
 }
 
 func sliceContains(slice []string, item string) bool {
@@ -544,23 +619,52 @@ func runBundleDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	// Confirm deletion
-	if !bundleDeleteForce {
-		fmt.Printf("Delete bundle %q at %s? [y/N] ", name, bundle.Path)
-		var confirm string
-		_, _ = fmt.Scanln(&confirm)
-		if confirm != "y" && confirm != "Y" {
-			fmt.Println("Cancelled.")
-			return nil
+	confirm := stdinConfirmer(cmd.InOrStdin())
+	return deleteBundleFile(afero.NewOsFs(), name, bundle.Path, bundleDeleteForce, confirm, cmd.OutOrStdout())
+}
+
+// confirmFn returns true iff the user confirms an interactive prompt.
+// The prompt text is passed in so the helper can phrase its own
+// question; the function itself owns reading input.
+type confirmFn func(prompt string) bool
+
+// stdinConfirmer builds a confirmFn that reads one line from in (defaults
+// to os.Stdin via cobra), printing prompt to os.Stderr first. Only "y"
+// or "Y" counts as confirmation; anything else (including EOF) is a no.
+func stdinConfirmer(in io.Reader) confirmFn {
+	return func(prompt string) bool {
+		fmt.Fprint(os.Stderr, prompt)
+		var answer string
+		// Scanln on a Reader requires fmt.Fscanln. EOF / read errors
+		// land here as err != nil with answer == "", which the
+		// comparison naturally treats as "no".
+		_, _ = fmt.Fscanln(in, &answer)
+		return answer == "y" || answer == "Y"
+	}
+}
+
+// deleteBundleFile removes the bundle file at path on fs. When force is
+// false, confirm is consulted with a "Delete bundle... [y/N]" prompt
+// first; a negative response prints "Cancelled." to out and returns nil
+// without touching the file. Returns an error iff the file removal
+// itself failed.
+//
+// Extracted from runBundleDelete so the confirm-gating decision and the
+// cancellation message are testable without driving stdin.
+func deleteBundleFile(fs afero.Fs, name, path string, force bool, confirm confirmFn, out io.Writer) error {
+	w := iox.NewErrWriter(out)
+	if !force {
+		prompt := fmt.Sprintf("Delete bundle %q at %s? [y/N] ", name, path)
+		if !confirm(prompt) {
+			w.Println("Cancelled.")
+			return w.Err()
 		}
 	}
-
-	if err := os.Remove(bundle.Path); err != nil {
+	if err := fs.Remove(path); err != nil {
 		return fmt.Errorf("failed to delete bundle: %w", err)
 	}
-
-	fmt.Printf("Deleted bundle: %s\n", bundle.Path)
-	return nil
+	w.Printf("Deleted bundle: %s\n", path)
+	return w.Err()
 }
 
 var (
@@ -697,41 +801,55 @@ func runBundleExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	// Read source file
-	srcData, err := os.ReadFile(bundle.Path)
+	destDir := ""
+	if len(args) > 1 {
+		destDir = args[1]
+	}
+	destPath, err := exportBundleFile(afero.NewOsFs(), bundle.Path, bundleExportOutput, destDir)
 	if err != nil {
-		return fmt.Errorf("failed to read bundle: %w", err)
+		return err
 	}
 
-	// Determine destination path
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("Exported: %s -> %s\n", bundle.Path, destPath)
+	return w.Err()
+}
+
+// exportBundleFile copies srcPath to a destination chosen by the
+// outputFile / destDir pair. Exactly one must be non-empty. The
+// destination directory (or parent dir of outputFile) is created if
+// missing. Returns the resolved destination path on success.
+//
+// Extracted from runBundleExport so the (-o <file> vs <dest-dir>)
+// dispatch and the missing-arg error are testable against a MemMapFs.
+func exportBundleFile(fs afero.Fs, srcPath, outputFile, destDir string) (string, error) {
+	srcData, err := afero.ReadFile(fs, srcPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read bundle: %w", err)
+	}
+
 	var destPath string
-	if bundleExportOutput != "" {
-		// Use -o flag value directly as file path
-		destPath = bundleExportOutput
-		// Ensure parent directory exists
+	switch {
+	case outputFile != "":
+		destPath = outputFile
 		if dir := filepath.Dir(destPath); dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed to create destination directory: %w", err)
+			if err := fs.MkdirAll(dir, 0755); err != nil {
+				return "", fmt.Errorf("failed to create destination directory: %w", err)
 			}
 		}
-	} else if len(args) > 1 {
-		// Use positional arg as directory
-		destDir := args[1]
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			return fmt.Errorf("failed to create destination directory: %w", err)
+	case destDir != "":
+		if err := fs.MkdirAll(destDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create destination directory: %w", err)
 		}
-		destPath = filepath.Join(destDir, filepath.Base(bundle.Path))
-	} else {
-		return fmt.Errorf("either -o <file> or <dest-dir> must be specified")
+		destPath = filepath.Join(destDir, filepath.Base(srcPath))
+	default:
+		return "", fmt.Errorf("either -o <file> or <dest-dir> must be specified")
 	}
 
-	// Write to destination
-	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
-		return fmt.Errorf("failed to write bundle: %w", err)
+	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write bundle: %w", err)
 	}
-
-	fmt.Printf("Exported: %s -> %s\n", bundle.Path, destPath)
-	return nil
+	return destPath, nil
 }
 
 var bundleImportForce bool
@@ -759,41 +877,52 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Verify source exists and is valid
-	srcData, err := os.ReadFile(srcPath)
+	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
+	destPath, bundle, err := importBundleFile(afero.NewOsFs(), srcPath, bundleDir, bundleImportForce)
 	if err != nil {
-		return fmt.Errorf("failed to read source file: %w", err)
+		return err
 	}
 
-	// Parse to validate it's a valid bundle
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("Imported: %s -> %s\n", srcPath, destPath)
+	w.Printf("  Version: %s\n", bundle.Version)
+	w.Printf("  Fragments: %d, Prompts: %d, MCP: %d\n", len(bundle.Fragments), len(bundle.Prompts), len(bundle.MCP))
+
+	return w.Err()
+}
+
+// importBundleFile reads srcPath via fs, validates it parses as a bundle,
+// then copies it into bundleDir (creating bundleDir if needed). force=false
+// errors when the destination exists. Returns the destination path and the
+// parsed bundle (for caller-side summary output) on success.
+//
+// Extracted from runBundleImport so the validation + overwrite-guard
+// decision tree is testable against a MemMapFs without touching real
+// .ctxloom/bundles/.
+func importBundleFile(fs afero.Fs, srcPath, bundleDir string, force bool) (string, *bundles.Bundle, error) {
+	srcData, err := afero.ReadFile(fs, srcPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read source file: %w", err)
+	}
+
 	bundle, err := bundles.ParseBundle(srcData)
 	if err != nil {
-		return fmt.Errorf("invalid bundle file: %w", err)
+		return "", nil, fmt.Errorf("invalid bundle file: %w", err)
 	}
 
-	// Determine destination path
-	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
-		return fmt.Errorf("failed to create bundles directory: %w", err)
+	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
+		return "", nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
 
 	destPath := filepath.Join(bundleDir, filepath.Base(srcPath))
-
-	// Check if destination exists
-	if _, err := os.Stat(destPath); err == nil && !bundleImportForce {
-		return fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
+	if _, err := fs.Stat(destPath); err == nil && !force {
+		return "", nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
 	}
 
-	// Write to destination
-	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
-		return fmt.Errorf("failed to write bundle: %w", err)
+	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
+		return "", nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
-
-	fmt.Printf("Imported: %s -> %s\n", srcPath, destPath)
-	fmt.Printf("  Version: %s\n", bundle.Version)
-	fmt.Printf("  Fragments: %d, Prompts: %d, MCP: %d\n", len(bundle.Fragments), len(bundle.Prompts), len(bundle.MCP))
-
-	return nil
+	return destPath, bundle, nil
 }
 
 var bundleViewCmd = &cobra.Command{
@@ -836,96 +965,118 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 
 	loader := bundles.NewLoader(bundleDirs, false)
 
-	// Parse reference: bundle-name or bundle-name#path
-	bundleName := ref
-	itemPath := ""
-	if idx := strings.Index(ref, "#"); idx != -1 {
-		bundleName = ref[:idx]
-		itemPath = ref[idx+1:]
-	}
+	bundleName, itemPath := parseBundleViewRef(ref)
 
 	bundle, err := loader.Load(bundleName)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", bundleName)
 	}
 
-	// If no path, show full bundle YAML
+	out := cmd.OutOrStdout()
+
+	// If no path, show full bundle YAML.
 	if itemPath == "" {
 		data, err := os.ReadFile(bundle.Path)
 		if err != nil {
 			return fmt.Errorf("failed to read bundle: %w", err)
 		}
-		fmt.Print(string(data))
+		_, _ = out.Write(data)
 		return nil
 	}
 
-	// Parse path: type/name
-	parts := strings.SplitN(itemPath, "/", 2)
-	if len(parts) != 2 {
+	return renderBundleViewItem(out, bundle, itemPath, bundleViewDistilled)
+}
+
+// parseBundleViewRef splits a `view` argument like `mybundle` or
+// `mybundle#fragments/intro` into its (bundleName, itemPath) parts.
+// Empty itemPath signals "render the whole bundle YAML"; non-empty
+// goes through renderBundleViewItem's type/name switch.
+func parseBundleViewRef(ref string) (bundleName, itemPath string) {
+	if before, after, ok := strings.Cut(ref, "#"); ok {
+		return before, after
+	}
+	return ref, ""
+}
+
+// renderBundleViewItem dispatches on the item type prefix in itemPath
+// (fragments/prompts/mcp). For fragments/prompts, the distilled view is
+// preferred when useDistilled is true AND the entry has a distilled
+// payload; otherwise the raw Content is rendered. For mcp, the entry is
+// YAML-marshaled. A single-MCP bundle's lone server is returned even if
+// the name doesn't match — convenient for `view bundle#mcp/default`
+// against bundles that only ship one server under an arbitrary key.
+func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string, useDistilled bool) error {
+	itemType, itemName, ok := strings.Cut(itemPath, "/")
+	if !ok {
 		return fmt.Errorf("invalid path format: %s (expected type/name)", itemPath)
 	}
-	itemType := parts[0]
-	itemName := parts[1]
 
+	w := iox.NewErrWriter(out)
 	switch itemType {
 	case "fragments":
 		frag, ok := bundle.Fragments[itemName]
 		if !ok {
 			return fmt.Errorf("fragment not found: %s", itemName)
 		}
-		content := frag.Content
-		if bundleViewDistilled && frag.Distilled != "" {
-			content = frag.Distilled
-			fmt.Println("# (distilled version)")
-		}
-		fmt.Print(content)
-		if !strings.HasSuffix(content, "\n") {
-			fmt.Println()
-		}
+		writeViewContent(w, frag.Content, frag.Distilled, useDistilled)
+		return w.Err()
 
 	case "prompts":
 		prompt, ok := bundle.Prompts[itemName]
 		if !ok {
 			return fmt.Errorf("prompt not found: %s", itemName)
 		}
-		content := prompt.Content
-		if bundleViewDistilled && prompt.Distilled != "" {
-			content = prompt.Distilled
-			fmt.Println("# (distilled version)")
-		}
-		fmt.Print(content)
-		if !strings.HasSuffix(content, "\n") {
-			fmt.Println()
-		}
+		writeViewContent(w, prompt.Content, prompt.Distilled, useDistilled)
+		return w.Err()
 
 	case "mcp":
-		mcp, ok := bundle.MCP[itemName]
+		mcp, name, ok := lookupBundleMCP(bundle, itemName)
 		if !ok {
-			// Try "default" if single MCP and name doesn't match
-			if len(bundle.MCP) == 1 {
-				for name, m := range bundle.MCP {
-					mcp = m
-					itemName = name
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				return fmt.Errorf("mcp server not found: %s", itemName)
-			}
+			return fmt.Errorf("mcp server not found: %s", itemName)
 		}
 		data, err := yaml.Marshal(mcp)
 		if err != nil {
 			return fmt.Errorf("failed to marshal MCP config: %w", err)
 		}
-		fmt.Printf("# MCP Server: %s\n", itemName)
-		fmt.Print(string(data))
+		w.Printf("# MCP Server: %s\n", name)
+		w.WriteRaw(data)
+		return w.Err()
 
 	default:
 		return fmt.Errorf("unknown item type: %s (expected fragments, prompts, or mcp)", itemType)
 	}
+}
 
-	return nil
+// writeViewContent picks between distilled and raw content per the
+// useDistilled flag and ensures a trailing newline. Used by both
+// the fragments and prompts arms of renderBundleViewItem.
+func writeViewContent(w *iox.ErrWriter, raw, distilled string, useDistilled bool) {
+	content := raw
+	if useDistilled && distilled != "" {
+		content = distilled
+		w.Println("# (distilled version)")
+	}
+	w.Print(content)
+	if !strings.HasSuffix(content, "\n") {
+		w.Println()
+	}
+}
+
+// lookupBundleMCP returns the MCP entry for itemName from the bundle.
+// If the name doesn't match and the bundle ships exactly one MCP server,
+// returns that server (with its real name) — this convenience lets
+// `view <bundle>#mcp/default` work against single-server bundles
+// regardless of the server's actual key.
+func lookupBundleMCP(bundle *bundles.Bundle, itemName string) (bundles.BundleMCP, string, bool) {
+	if mcp, ok := bundle.MCP[itemName]; ok {
+		return mcp, itemName, true
+	}
+	if len(bundle.MCP) == 1 {
+		for name, mcp := range bundle.MCP {
+			return mcp, name, true
+		}
+	}
+	return bundles.BundleMCP{}, "", false
 }
 
 var bundleDistillForce bool
@@ -1183,9 +1334,9 @@ func loadDistillPrompt() (string, error) {
 func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 	var ctx strings.Builder
 
-	_, _ = fmt.Fprintf(&ctx, "Bundle: %s", bundle.Description)
+	fmt.Fprintf(&ctx, "Bundle: %s", bundle.Description)
 	if bundle.Version != "" {
-		_, _ = fmt.Fprintf(&ctx, " (v%s)", bundle.Version)
+		fmt.Fprintf(&ctx, " (v%s)", bundle.Version)
 	}
 	ctx.WriteString("\n")
 
@@ -1207,7 +1358,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 			if len(firstLine) > 60 {
 				firstLine = firstLine[:57] + "..."
 			}
-			_, _ = fmt.Fprintf(&ctx, "- %s: %s\n", name, firstLine)
+			fmt.Fprintf(&ctx, "- %s: %s\n", name, firstLine)
 		}
 		ctx.WriteString("\n")
 	}
@@ -1226,7 +1377,7 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 					desc = desc[:57] + "..."
 				}
 			}
-			_, _ = fmt.Fprintf(&ctx, "- %s: %s\n", name, desc)
+			fmt.Fprintf(&ctx, "- %s: %s\n", name, desc)
 		}
 	}
 
@@ -1429,20 +1580,28 @@ func runBundleFragmentList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", bundleName)
 	}
 
+	return renderBundleFragmentList(cmd.OutOrStdout(), bundle)
+}
+
+// renderBundleFragmentList writes one line per fragment to out:
+// `<name>[ [tag1, tag2]]`. Empty bundle gets a helpful one-line hint.
+// Iteration order follows the map iteration order (intentionally
+// unordered — the show command's FragmentNames() produces a stable
+// sort instead).
+func renderBundleFragmentList(out io.Writer, bundle *bundles.Bundle) error {
+	w := iox.NewErrWriter(out)
 	if len(bundle.Fragments) == 0 {
-		fmt.Println("No fragments in this bundle.")
-		return nil
+		w.Println("No fragments in this bundle.")
+		return w.Err()
 	}
-
 	for name, frag := range bundle.Fragments {
-		fmt.Printf("%s", name)
+		w.Printf("%s", name)
 		if len(frag.Tags) > 0 {
-			fmt.Printf(" [%s]", strings.Join(frag.Tags, ", "))
+			w.Printf(" [%s]", strings.Join(frag.Tags, ", "))
 		}
-		fmt.Println()
+		w.Println()
 	}
-
-	return nil
+	return w.Err()
 }
 
 var bundleFragmentEditCmd = &cobra.Command{
@@ -1565,16 +1724,22 @@ func runBundlePromptList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", bundleName)
 	}
 
+	return renderBundlePromptList(cmd.OutOrStdout(), bundle)
+}
+
+// renderBundlePromptList writes one line per prompt name to out, or a
+// one-line hint when the bundle has no prompts. Names only — tag and
+// description rendering live in renderBundlePromptEntry (used by show).
+func renderBundlePromptList(out io.Writer, bundle *bundles.Bundle) error {
+	w := iox.NewErrWriter(out)
 	if len(bundle.Prompts) == 0 {
-		fmt.Println("No prompts in this bundle.")
-		return nil
+		w.Println("No prompts in this bundle.")
+		return w.Err()
 	}
-
 	for name := range bundle.Prompts {
-		fmt.Println(name)
+		w.Println(name)
 	}
-
-	return nil
+	return w.Err()
 }
 
 var bundlePromptEditCmd = &cobra.Command{

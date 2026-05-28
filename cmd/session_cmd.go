@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -54,11 +55,11 @@ var sessionListCmd = &cobra.Command{
 			entries = filtered
 		}
 		if len(entries) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "(no sessions)")
-			return nil
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Println("(no sessions)")
+			return w.Err()
 		}
-		renderSessionTable(cmd.OutOrStdout(), entries)
-		return nil
+		return renderSessionTable(cmd.OutOrStdout(), entries)
 	},
 }
 
@@ -125,8 +126,9 @@ var sessionRenameCmd = &cobra.Command{
 		if err := mgr.Rename(args[0], args[1]); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "renamed %s → %s\n", args[0], args[1])
-		return nil
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("renamed %s → %s\n", args[0], args[1])
+		return w.Err()
 	},
 }
 
@@ -142,8 +144,9 @@ var sessionForgetCmd = &cobra.Command{
 		if err := mgr.Forget(args[0]); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "forgot %s\n", args[0])
-		return nil
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("forgot %s\n", args[0])
+		return w.Err()
 	},
 }
 
@@ -266,6 +269,11 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	// recorded in the jsonl as part of the assistant's context), plus
 	// in any tool output that echoed it (list_sessions, task_list,
 	// etc.). Content match is exact — no timing, no clock skew.
+	// Progress notes go to stderr as best-effort status. A failed write
+	// here must not abort an otherwise-successful distillation, so the
+	// captured error is intentionally left unchecked.
+	progress := iox.NewErrWriter(cmd.ErrOrStderr())
+
 	sessionID := entry.SessionID
 	if sessionID == "" {
 		found, err := discoverSessionByHarpName(backendName, entry.ProjectDir, harpName)
@@ -275,11 +283,11 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		sessionID = found
 		// Persist the discovery so future distill calls skip the scan.
 		if err := mgr.BindSession(harpName, sessionID, ""); err == nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: bound %s → %s via transcript scan\n", harpName, sessionID)
+			progress.Printf("ctxloom: bound %s → %s via transcript scan\n", harpName, sessionID)
 		}
 	}
 
-	fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
+	progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Plugin:    cfg.GetCompactionPlugin(),
 		Model:     cfg.GetCompactionModel(),
@@ -296,28 +304,33 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("distillation failed: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("distilled %s in %s (%d chunks, %d → %d tokens)\nessence: %s\n",
 		harpName, result.Duration, result.ChunksCreated, result.TotalTokensIn, result.TotalTokensOut, result.DistilledPath)
-	return nil
+	return w.Err()
 }
 
 // renderSessionTable writes a tab-aligned listing of session entries to w.
 // Entries are assumed pre-sorted by the caller; this function only formats.
-func renderSessionTable(w io.Writer, entries []sessions.Entry) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "HARP\tSTARTED\tSUMMARY")
+func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	w := iox.NewErrWriter(tw)
+	w.Println("HARP\tSTARTED\tSUMMARY")
 	for _, e := range entries {
 		summary := e.Summary
 		if summary == "" {
 			summary = "(no summary)"
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n",
+		w.Printf("%s\t%s\t%s\n",
 			e.HarpName,
 			e.StartedAt.Local().Format("2006-01-02 15:04"),
 			summary,
 		)
 	}
-	_ = tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	return w.Err()
 }
 
 // discoverSessionByHarpName scans every backend transcript for the

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -323,12 +324,13 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 			result, err := puller.Pull(cmd.Context(), u.Ref, opts)
 			if err != nil {
-				if strings.Contains(err.Error(), "cancelled") {
+				switch classifyPullError(err) {
+				case pullOutcomeSkipped:
 					fmt.Println("  Skipped")
-				} else if strings.Contains(err.Error(), "file not found") || strings.Contains(err.Error(), "404") {
+				case pullOutcomeRemoved:
 					fmt.Println("  Removed from remote (no longer exists)")
 					removedFromRemote = append(removedFromRemote, u)
-				} else {
+				case pullOutcomeFailed:
 					fmt.Printf("  Error: %v\n", err)
 					failed++
 				}
@@ -354,12 +356,13 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 			result, err := puller.Pull(cmd.Context(), u.Ref, opts)
 			if err != nil {
-				if strings.Contains(err.Error(), "cancelled") {
+				switch classifyPullError(err) {
+				case pullOutcomeSkipped:
 					fmt.Println("  Skipped")
-				} else if strings.Contains(err.Error(), "file not found") || strings.Contains(err.Error(), "404") {
+				case pullOutcomeRemoved:
 					fmt.Println("  Removed from remote (no longer exists)")
 					removedFromRemote = append(removedFromRemote, u)
-				} else {
+				case pullOutcomeFailed:
 					fmt.Printf("  Error: %v\n", err)
 					failed++
 				}
@@ -478,16 +481,28 @@ type bundleAnalysis struct {
 	Warnings []string          // Non-fatal warnings encountered during analysis
 }
 
-// analyzeBundleReferences checks for orphaned, missing, and invalid bundle references.
+// analyzeBundleReferences checks for orphaned, missing, and invalid bundle
+// references against the active lockfile. Production callers use this form
+// (real OS filesystem rooted at .ctxloom); tests should call
+// analyzeBundleReferencesWithFS directly so they can inject an afero
+// MemMapFs and an arbitrary base dir.
 func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
+	return analyzeBundleReferencesWithFS(lockfile, afero.NewOsFs(), ".ctxloom")
+}
+
+// analyzeBundleReferencesWithFS is the seam'd implementation. fs is the
+// filesystem to walk; appDir is the base under which "profiles/" and
+// "bundles/" subdirs live. Always returns a non-nil result; partial
+// failures land in Warnings so the caller can surface them.
+func analyzeBundleReferencesWithFS(lockfile *remote.Lockfile, fs afero.Fs, appDir string) *bundleAnalysis {
 	result := &bundleAnalysis{}
 
 	// Collect all bundle references from all profiles
 	referencedBundles := make(map[string]bool)
 
 	// Scan local profile files
-	profileDir := filepath.Join(".ctxloom", "profiles")
-	err := filepath.Walk(profileDir, func(path string, info os.FileInfo, err error) error {
+	profileDir := filepath.Join(appDir, "profiles")
+	err := afero.Walk(fs, profileDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Warn but continue walking
 			result.Warnings = append(result.Warnings, fmt.Sprintf("error accessing %s: %v", path, err))
@@ -497,7 +512,7 @@ func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
 			return nil
 		}
 
-		content, err := os.ReadFile(path)
+		content, err := afero.ReadFile(fs, path)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("error reading %s: %v", path, err))
 			return nil
@@ -517,10 +532,7 @@ func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
 			}
 
 			// Strip any item path suffix (e.g., #fragments/name)
-			bundleRef := bundle
-			if idx := strings.Index(bundle, "#"); idx != -1 {
-				bundleRef = bundle[:idx]
-			}
+			bundleRef, _, _ := strings.Cut(bundle, "#")
 
 			// Validate the reference format (should contain "/")
 			if !strings.Contains(bundleRef, "/") {
@@ -554,8 +566,8 @@ func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
 	for ref := range referencedBundles {
 		if _, exists := lockfile.Bundles[ref]; !exists {
 			// Check if the bundle file exists locally at the local name path
-			bundlePath := filepath.Join(".ctxloom", "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
-			if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
+			bundlePath := filepath.Join(appDir, "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
+			if _, err := fs.Stat(bundlePath); os.IsNotExist(err) {
 				result.Missing = append(result.Missing, ref)
 			}
 		}
@@ -569,6 +581,36 @@ func shortSHA(sha string) string {
 		return sha[:7]
 	}
 	return sha
+}
+
+// pullOutcome describes how a per-item Pull error should be reported.
+// Extracted so the (user-visible) classification rules can be unit-tested
+// without spinning up a Puller. The matching is intentionally substring-
+// based — the upstream errors flow through several layers of wrapping
+// (forge client → fetcher → puller) and don't carry a stable typed value
+// we can errors.Is on. If forge error shapes change, this is the one
+// place to update.
+type pullOutcome int
+
+const (
+	pullOutcomeFailed pullOutcome = iota // generic error, count as failure
+	pullOutcomeSkipped                   // user-cancelled prompt or context cancel
+	pullOutcomeRemoved                   // remote no longer has this ref/file
+)
+
+func classifyPullError(err error) pullOutcome {
+	if err == nil {
+		return pullOutcomeFailed // caller shouldn't ask in this case
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "cancelled"):
+		return pullOutcomeSkipped
+	case strings.Contains(msg, "file not found"), strings.Contains(msg, "404"):
+		return pullOutcomeRemoved
+	default:
+		return pullOutcomeFailed
+	}
 }
 
 // checkDefaultProfiles returns names of default profiles that don't exist.

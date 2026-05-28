@@ -91,4 +91,46 @@ func TestDiffLockfiles(t *testing.T) {
 		cs := DiffLockfiles(prev, curr, nil)
 		assert.True(t, cs.IsEmpty(), "removed bundles do not surface in review")
 	})
+
+	t.Run("pinned active entry suppresses Modified", func(t *testing.T) {
+		// User pinned alice/security at SHA aaa. Even though pending
+		// records a new SHA, the review template must not surface it.
+		prev := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+			"alice/security": {SHA: "aaa", Pinned: true},
+		}}
+		curr := mkLock(map[string]string{"alice/security": "bbb"})
+		cs := DiffLockfiles(prev, curr, nil)
+		assert.True(t, cs.IsEmpty(), "pinned entries must not generate review noise")
+	})
+
+	t.Run("pinned active entry does NOT suppress unrelated bundles", func(t *testing.T) {
+		// Pinning one bundle must not silence the rest.
+		prev := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+			"alice/security": {SHA: "aaa", Pinned: true},
+			"bob/other":      {SHA: "ccc"},
+		}}
+		curr := mkLock(map[string]string{
+			"alice/security": "bbb",
+			"bob/other":      "ddd",
+		})
+		cs := DiffLockfiles(prev, curr, nil)
+		require.Len(t, cs.Modified, 1)
+		assert.Equal(t, "bob/other", cs.Modified[0].Name, "only the un-pinned bundle surfaces")
+	})
+
+	t.Run("pin flag on prev does not block new Added entries", func(t *testing.T) {
+		// A new bundle (not in prev at all) can't be pinned because
+		// there's no active entry yet. The Added path must still fire.
+		prev := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+			"alice/security": {SHA: "aaa", Pinned: true},
+		}}
+		curr := mkLock(map[string]string{
+			"alice/security": "aaa", // same SHA → no Modified
+			"alice/fresh":    "fff", // new → Added
+		})
+		cs := DiffLockfiles(prev, curr, nil)
+		require.Len(t, cs.Added, 1)
+		assert.Equal(t, "alice/fresh", cs.Added[0].Name)
+		assert.Empty(t, cs.Modified)
+	})
 }

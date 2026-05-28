@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -54,37 +56,43 @@ var profileListCmd = &cobra.Command{
 			return nil
 		}
 
-		// Get default profiles from config
 		defaultProfiles := make(map[string]bool)
 		for _, name := range cfg.Defaults.Profiles {
 			defaultProfiles[name] = true
 		}
+		return renderProfileList(cmd.OutOrStdout(), profileList, defaultProfiles)
+	},
+}
 
-		fmt.Printf("Profiles (%d):\n", len(profileList))
-		for _, p := range profileList {
-			fmt.Printf("  %s", p.Name)
-			if defaultProfiles[p.Name] {
-				fmt.Printf(" (default)")
-			}
-			fmt.Println()
-			if p.Description != "" {
-				fmt.Printf("    %s\n", p.Description)
-			}
-
-			var parts []string
-			if len(p.Parents) > 0 {
-				parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(p.Parents, ", ")))
-			}
-			if len(p.Bundles) > 0 {
-				parts = append(parts, fmt.Sprintf("%d bundles", len(p.Bundles)))
-			}
-			if len(parts) > 0 {
-				fmt.Printf("    %s\n", strings.Join(parts, ", "))
-			}
+// renderProfileList writes the human-readable summary of a profile list
+// to out. Extracted from profileListCmd's RunE so the formatting decisions
+// (default-tag, parents/bundles line, description indentation) are
+// testable without invoking cobra or touching the real config.
+func renderProfileList(out io.Writer, list []*profiles.Profile, defaults map[string]bool) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("Profiles (%d):\n", len(list))
+	for _, p := range list {
+		w.Printf("  %s", p.Name)
+		if defaults[p.Name] {
+			w.Printf(" (default)")
+		}
+		w.Println()
+		if p.Description != "" {
+			w.Printf("    %s\n", p.Description)
 		}
 
-		return nil
-	},
+		var parts []string
+		if len(p.Parents) > 0 {
+			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(p.Parents, ", ")))
+		}
+		if len(p.Bundles) > 0 {
+			parts = append(parts, fmt.Sprintf("%d bundles", len(p.Bundles)))
+		}
+		if len(parts) > 0 {
+			w.Printf("    %s\n", strings.Join(parts, ", "))
+		}
+	}
+	return w.Err()
 }
 
 var (
@@ -218,60 +226,47 @@ var profileShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-
-		fmt.Printf("Profile: %s\n", p.Name)
-		fmt.Printf("Path: %s\n", p.Path)
-		if cfg.Defaults.IsDefaultProfile(p.Name) {
-			fmt.Println("Default: yes")
-		}
-		if p.Description != "" {
-			fmt.Printf("Description: %s\n", p.Description)
-		}
-		if len(p.Parents) > 0 {
-			fmt.Println("Parents:")
-			for _, parent := range p.Parents {
-				fmt.Printf("  - %s\n", parent)
-			}
-		}
-		if len(p.Bundles) > 0 {
-			fmt.Println("Bundles:")
-			for _, b := range p.Bundles {
-				fmt.Printf("  - %s\n", b)
-			}
-		}
-		if len(p.Tags) > 0 {
-			fmt.Println("Tags:")
-			for _, t := range p.Tags {
-				fmt.Printf("  - %s\n", t)
-			}
-		}
-		if len(p.Variables) > 0 {
-			fmt.Println("Variables:")
-			for k, v := range p.Variables {
-				fmt.Printf("  %s: %s\n", k, v)
-			}
-		}
-		if len(p.ExcludeFragments) > 0 {
-			fmt.Println("Excluded fragments:")
-			for _, f := range p.ExcludeFragments {
-				fmt.Printf("  - %s\n", f)
-			}
-		}
-		if len(p.ExcludePrompts) > 0 {
-			fmt.Println("Excluded prompts:")
-			for _, pr := range p.ExcludePrompts {
-				fmt.Printf("  - %s\n", pr)
-			}
-		}
-		if len(p.ExcludeMCP) > 0 {
-			fmt.Println("Excluded MCP servers:")
-			for _, m := range p.ExcludeMCP {
-				fmt.Printf("  - %s\n", m)
-			}
-		}
-
-		return nil
+		return renderProfileShow(cmd.OutOrStdout(), p, cfg.Defaults.IsDefaultProfile(p.Name))
 	},
+}
+
+// renderProfileShow writes the human-readable detail view of one profile
+// to out. Each optional section (description, parents, bundles, tags,
+// variables, exclude_*) is suppressed when empty. Extracted from
+// profileShowCmd's RunE.
+func renderProfileShow(out io.Writer, p *profiles.Profile, isDefault bool) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("Profile: %s\n", p.Name)
+	w.Printf("Path: %s\n", p.Path)
+	if isDefault {
+		w.Println("Default: yes")
+	}
+	if p.Description != "" {
+		w.Printf("Description: %s\n", p.Description)
+	}
+	writeBulletList(w, "Parents", p.Parents)
+	writeBulletList(w, "Bundles", p.Bundles)
+	writeBulletList(w, "Tags", p.Tags)
+	if len(p.Variables) > 0 {
+		w.Println("Variables:")
+		for k, v := range p.Variables {
+			w.Printf("  %s: %s\n", k, v)
+		}
+	}
+	writeBulletList(w, "Excluded fragments", p.ExcludeFragments)
+	writeBulletList(w, "Excluded prompts", p.ExcludePrompts)
+	writeBulletList(w, "Excluded MCP servers", p.ExcludeMCP)
+	return w.Err()
+}
+
+func writeBulletList(w *iox.ErrWriter, heading string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	w.Printf("%s:\n", heading)
+	for _, item := range items {
+		w.Printf("  - %s\n", item)
+	}
 }
 
 var profileUpdateCmd = &cobra.Command{
@@ -306,136 +301,129 @@ Examples:
 			return fmt.Errorf("profile %q not found", name)
 		}
 
-		modified := false
-
-		// Update description if provided
+		mut := profileMutations{
+			AddParents:             profileUpdateAddParents,
+			RemoveParents:          profileUpdateRemoveParents,
+			AddBundles:             profileUpdateAddBundles,
+			RemoveBundles:          profileUpdateRemoveBundles,
+			AddExcludeFragments:    profileUpdateAddExcludeFragments,
+			RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
+			AddExcludePrompts:      profileUpdateAddExcludePrompts,
+			RemoveExcludePrompts:   profileUpdateRemoveExcludePrompts,
+			AddExcludeMCP:          profileUpdateAddExcludeMCP,
+			RemoveExcludeMCP:       profileUpdateRemoveExcludeMCP,
+		}
 		if cmd.Flags().Changed("description") {
-			p.Description = profileUpdateDescription
-			modified = true
+			d := profileUpdateDescription
+			mut.SetDescription = &d
 		}
 
-		// Add parents
-		for _, parent := range profileUpdateAddParents {
-			if !slices.Contains(p.Parents, parent) {
-				p.Parents = append(p.Parents, parent)
-				fmt.Printf("Added parent: %s\n", parent)
-				modified = true
-			} else {
-				fmt.Printf("Parent already present: %s\n", parent)
-			}
-		}
-
-		// Remove parents
-		for _, parent := range profileUpdateRemoveParents {
-			if idx := slices.Index(p.Parents, parent); idx >= 0 {
-				p.Parents = slices.Delete(p.Parents, idx, idx+1)
-				fmt.Printf("Removed parent: %s\n", parent)
-				modified = true
-			} else {
-				fmt.Printf("Parent not found: %s\n", parent)
-			}
-		}
-
-		// Add bundles
-		for _, b := range profileUpdateAddBundles {
-			if !slices.Contains(p.Bundles, b) {
-				p.Bundles = append(p.Bundles, b)
-				fmt.Printf("Added bundle: %s\n", b)
-				modified = true
-			} else {
-				fmt.Printf("Bundle already present: %s\n", b)
-			}
-		}
-
-		// Remove bundles
-		for _, b := range profileUpdateRemoveBundles {
-			if idx := slices.Index(p.Bundles, b); idx >= 0 {
-				p.Bundles = slices.Delete(p.Bundles, idx, idx+1)
-				fmt.Printf("Removed bundle: %s\n", b)
-				modified = true
-			} else {
-				fmt.Printf("Bundle not found: %s\n", b)
-			}
-		}
-
-		// Add exclude fragments
-		for _, f := range profileUpdateAddExcludeFragments {
-			if !slices.Contains(p.ExcludeFragments, f) {
-				p.ExcludeFragments = append(p.ExcludeFragments, f)
-				fmt.Printf("Added exclude fragment: %s\n", f)
-				modified = true
-			} else {
-				fmt.Printf("Fragment already excluded: %s\n", f)
-			}
-		}
-
-		// Remove exclude fragments
-		for _, f := range profileUpdateRemoveExcludeFragments {
-			if idx := slices.Index(p.ExcludeFragments, f); idx >= 0 {
-				p.ExcludeFragments = slices.Delete(p.ExcludeFragments, idx, idx+1)
-				fmt.Printf("Removed exclude fragment: %s\n", f)
-				modified = true
-			} else {
-				fmt.Printf("Fragment not excluded: %s\n", f)
-			}
-		}
-
-		// Add exclude prompts
-		for _, pr := range profileUpdateAddExcludePrompts {
-			if !slices.Contains(p.ExcludePrompts, pr) {
-				p.ExcludePrompts = append(p.ExcludePrompts, pr)
-				fmt.Printf("Added exclude prompt: %s\n", pr)
-				modified = true
-			} else {
-				fmt.Printf("Prompt already excluded: %s\n", pr)
-			}
-		}
-
-		// Remove exclude prompts
-		for _, pr := range profileUpdateRemoveExcludePrompts {
-			if idx := slices.Index(p.ExcludePrompts, pr); idx >= 0 {
-				p.ExcludePrompts = slices.Delete(p.ExcludePrompts, idx, idx+1)
-				fmt.Printf("Removed exclude prompt: %s\n", pr)
-				modified = true
-			} else {
-				fmt.Printf("Prompt not excluded: %s\n", pr)
-			}
-		}
-
-		// Add exclude MCP
-		for _, m := range profileUpdateAddExcludeMCP {
-			if !slices.Contains(p.ExcludeMCP, m) {
-				p.ExcludeMCP = append(p.ExcludeMCP, m)
-				fmt.Printf("Added exclude MCP: %s\n", m)
-				modified = true
-			} else {
-				fmt.Printf("MCP already excluded: %s\n", m)
-			}
-		}
-
-		// Remove exclude MCP
-		for _, m := range profileUpdateRemoveExcludeMCP {
-			if idx := slices.Index(p.ExcludeMCP, m); idx >= 0 {
-				p.ExcludeMCP = slices.Delete(p.ExcludeMCP, idx, idx+1)
-				fmt.Printf("Removed exclude MCP: %s\n", m)
-				modified = true
-			} else {
-				fmt.Printf("MCP not excluded: %s\n", m)
-			}
-		}
-
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		modified := applyProfileMutations(p, mut, w)
 		if !modified {
-			fmt.Println("No changes made.")
-			return nil
+			w.Println("No changes made.")
+			return w.Err()
 		}
 
 		if err := loader.Save(p); err != nil {
 			return fmt.Errorf("failed to save profile: %w", err)
 		}
 
-		fmt.Printf("Modified profile %q\n", name)
-		return nil
+		w.Printf("Modified profile %q\n", name)
+		return w.Err()
 	},
+}
+
+// profileMutations bundles the set of changes a `profile modify` invocation
+// wants to apply. Nil SetDescription means leave Description alone;
+// non-nil (even pointing at "") means overwrite. Slices are read-only —
+// applyProfileMutations does not mutate them.
+type profileMutations struct {
+	SetDescription         *string
+	AddParents             []string
+	RemoveParents          []string
+	AddBundles             []string
+	RemoveBundles          []string
+	AddExcludeFragments    []string
+	RemoveExcludeFragments []string
+	AddExcludePrompts      []string
+	RemoveExcludePrompts   []string
+	AddExcludeMCP          []string
+	RemoveExcludeMCP       []string
+}
+
+// applyProfileMutations updates p in place per m, writing one
+// human-readable status line per attempted change to out. Returns true
+// iff at least one change actually landed (versus duplicates that
+// no-op'd). Duplicate-adds and absent-removes are not errors — they're
+// echoed as informational lines so a `profile modify` script run twice
+// reports cleanly rather than failing.
+//
+// Extracted from profileUpdateCmd's RunE so the decision matrix
+// (10 slice-mutation branches plus the description toggle) is testable
+// without spinning up cobra or touching the profile loader.
+func applyProfileMutations(p *profiles.Profile, m profileMutations, w *iox.ErrWriter) bool {
+	modified := false
+
+	if m.SetDescription != nil {
+		p.Description = *m.SetDescription
+		modified = true
+	}
+
+	// Message templates intentionally vary per slot — these strings are
+	// part of the CLI surface and someone may have scripted against them.
+	type messages struct {
+		added, duplicate, removed, absent string
+	}
+	type slot struct {
+		field   *[]string
+		add, rm []string
+		msgs    messages
+	}
+	slots := []slot{
+		{&p.Parents, m.AddParents, m.RemoveParents, messages{
+			"Added parent: %s\n", "Parent already present: %s\n",
+			"Removed parent: %s\n", "Parent not found: %s\n",
+		}},
+		{&p.Bundles, m.AddBundles, m.RemoveBundles, messages{
+			"Added bundle: %s\n", "Bundle already present: %s\n",
+			"Removed bundle: %s\n", "Bundle not found: %s\n",
+		}},
+		{&p.ExcludeFragments, m.AddExcludeFragments, m.RemoveExcludeFragments, messages{
+			"Added exclude fragment: %s\n", "Fragment already excluded: %s\n",
+			"Removed exclude fragment: %s\n", "Fragment not excluded: %s\n",
+		}},
+		{&p.ExcludePrompts, m.AddExcludePrompts, m.RemoveExcludePrompts, messages{
+			"Added exclude prompt: %s\n", "Prompt already excluded: %s\n",
+			"Removed exclude prompt: %s\n", "Prompt not excluded: %s\n",
+		}},
+		{&p.ExcludeMCP, m.AddExcludeMCP, m.RemoveExcludeMCP, messages{
+			"Added exclude MCP: %s\n", "MCP already excluded: %s\n",
+			"Removed exclude MCP: %s\n", "MCP not excluded: %s\n",
+		}},
+	}
+	for _, s := range slots {
+		for _, item := range s.add {
+			if slices.Contains(*s.field, item) {
+				w.Printf(s.msgs.duplicate, item)
+				continue
+			}
+			*s.field = append(*s.field, item)
+			w.Printf(s.msgs.added, item)
+			modified = true
+		}
+		for _, item := range s.rm {
+			idx := slices.Index(*s.field, item)
+			if idx < 0 {
+				w.Printf(s.msgs.absent, item)
+				continue
+			}
+			*s.field = slices.Delete(*s.field, idx, idx+1)
+			w.Printf(s.msgs.removed, item)
+			modified = true
+		}
+	}
+	return modified
 }
 
 var (

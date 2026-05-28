@@ -184,16 +184,17 @@ func renderReviewTemplate(cs *operations.BundleChangeSet) string {
 	}
 	b.WriteString("Reply:\n")
 	b.WriteString("  A               Approve all this session\n")
+	b.WriteString("  A <remote>      Approve all pending from one remote (no trust persisted)\n")
 	b.WriteString("  D               Decline all (keep previous SHAs, skip new installs)\n")
 	b.WriteString("  D <name>        Decline one\n")
 	b.WriteString("  T <remote>      Trust remote going forward (persists to config)\n")
 	b.WriteString("  S <name>        Show bundle verbatim\n")
-	b.WriteString("  R               Review each one at a time\n")
+	b.WriteString("  P <name>        Pin one at its current active SHA (stops future review noise for it)\n")
 	return b.String()
 }
 
 // reviewInstructionsBlock is the text appended to ServerOptions.Instructions
 // so the client sees it on initialize. Tells the model how to behave when
 // a pending review is in effect.
-const reviewInstructionsBlock = `If a bundle review is pending, the FIRST content of your FIRST response MUST be the review template, verbatim, in a fenced block. Do not paraphrase or summarize. Do not call any other tool. Wait for the user's choice, then call acknowledge_bundle_review, decline_bundle, show_bundle_verbatim, or trust_remote. Continue until pending clears.`
+const reviewInstructionsBlock = `If a bundle review is pending, the FIRST content of your FIRST response MUST be the review template, verbatim, in a fenced block. Do not paraphrase or summarize. Do not call any other tool. Wait for the user's choice, then call acknowledge_bundle_review, decline_bundle, show_bundle_verbatim, trust_remote, pin_bundle, unpin_bundle, or approve_remote_pending. Continue until pending clears.`
 

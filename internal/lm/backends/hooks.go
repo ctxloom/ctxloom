@@ -160,11 +160,6 @@ func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
-	// ctxloomPath is resolved once at WriteSettings entry and used by
-	// every addHook call to rewrite bare `ctxloom` commands into
-	// absolute paths. Empty disables the rewrite (the test override
-	// path).
-	ctxloomPath string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -244,11 +239,6 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 	if hooks == nil {
 		hooks = &config.HooksConfig{}
 	}
-
-	// Resolve the ctxloom binary path ONCE per call so the dozen or so
-	// addHook invocations downstream each share a single
-	// GetExecutablePath() syscall rather than re-resolving.
-	w.ctxloomPath = resolveCtxloomPath()
 
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
@@ -481,10 +471,12 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 		return
 	}
 
-	// Set or update ctxloom-managed statusLine
+	// Set or update ctxloom-managed statusLine. Bare `ctxloom` resolves
+	// via PATH at fire time — see GetExecutablePath for the rationale
+	// behind not baking an absolute path into the file.
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
-		Command: GetCtxloomHudCommand(),
+		Command: ctxloomBinary + " meta hud",
 	}
 }
 
@@ -570,7 +562,7 @@ func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, bac
 func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName string, h config.Hook) {
 	ccHook := claudeCodeHook{
 		Type:    h.Type,
-		Command: resolveCtxloomCommand(h.Command, w.ctxloomPath),
+		Command: h.Command,
 		Prompt:  h.Prompt,
 		Timeout: h.Timeout,
 		Async:   h.Async,
@@ -618,8 +610,8 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 	// Auto-register ctxloom's own MCP server unless disabled
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		mcpConfig.MCPServers[AppMCPServerName] = claudeCodeMCPServer{
-			Command: GetCtxloomMCPCommand(),
-			Args:    GetCtxloomMCPArgs(),
+			Command: ctxloomBinary,
+			Args:    ctxloomMCPArgs,
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
 			SCM:     "ctxloom-auto",              // Marker for auto-registered ctxloom server
 		}
@@ -672,8 +664,6 @@ func computeMCPServerHash(s config.MCPServer) string {
 type GeminiHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
-	// ctxloomPath mirrors the Claude writer's field; see comment there.
-	ctxloomPath string
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -717,9 +707,6 @@ func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.
 	if hooks == nil {
 		hooks = &config.HooksConfig{}
 	}
-
-	// One GetExecutablePath() call covers every addHook in this batch.
-	w.ctxloomPath = resolveCtxloomPath()
 
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
@@ -864,47 +851,20 @@ func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 	}
 }
 
-// isCtxloomManagedHook returns true if the hook command appears to be ctxloom-managed.
-// resolveCtxloomCommand rewrites a hook command whose first token is
-// the bare word `ctxloom` so the supplied absolute path appears in
-// the materialized settings.json instead. Without this, a hook like
-// `ctxloom tasks capture --stdin` fails when the user's PATH ctxloom
-// is an older version that lacks the `tasks` subcommand (or when
-// ctxloom isn't on PATH at all).
-//
-// exePath is resolved once per WriteSettings call by the caller
-// (ClaudeCodeHookWriter.WriteSettings / GeminiHookWriter.WriteSettings)
-// so multi-hook installs make exactly one GetExecutablePath() call.
-// Empty exePath disables the rewrite — useful for tests AND for the
-// odd case where we genuinely can't resolve the binary, in which
-// case passing the bare command through is the safer fall-through.
-//
-// Commands that already use an absolute path, a different binary, or
-// a shell pipeline ($0/shell vars) are passed through unchanged.
-func resolveCtxloomCommand(command, exePath string) string {
-	if exePath == "" {
-		return command
-	}
-	trimmed := strings.TrimLeft(command, " \t")
-	if !strings.HasPrefix(trimmed, "ctxloom ") && trimmed != "ctxloom" {
-		return command
-	}
-	// Quote the path so spaces in install locations don't break the
-	// command split downstream. Mirrors how inject-context is written.
-	return `"` + exePath + `"` + strings.TrimPrefix(trimmed, "ctxloom")
-}
+// ctxloomBinary is the bare executable name written into hook commands,
+// the statusLine, and the auto-registered MCP server entry. We
+// deliberately do NOT bake an absolute path into these files: a path
+// goes stale the moment the binary moves (the `/usr/bin/ctxloom`
+// regression), whereas a bare name re-resolves against PATH every time
+// the command fires. The currently-running binary's path is still
+// available in-process via GetExecutablePath — used by WarnOnCtxloomPathSkew
+// to flag the one case bare can't handle (a different ctxloom earlier on
+// PATH), and by relaunch code that must re-exec itself.
+const ctxloomBinary = "ctxloom"
 
-// resolveCtxloomPath returns the absolute path of the running ctxloom
-// binary, or "" on failure. Centralizes the GetExecutablePath call so
-// each WriteSettings invocation only spends one syscall regardless of
-// how many hook entries it materializes.
-func resolveCtxloomPath() string {
-	exe, err := GetExecutablePath()
-	if err != nil {
-		return ""
-	}
-	return exe
-}
+// ctxloomMCPArgs is the arg list passed to the ctxloom binary when it
+// is auto-registered as an MCP server.
+var ctxloomMCPArgs = []string{"mcp"}
 
 // isCtxloomManagedHook reports whether a hook command was installed by
 // ctxloom. We treat ANY command whose executable token is `ctxloom`
@@ -968,7 +928,7 @@ func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHook
 // addHook adds a single hook to the settings for the given event.
 func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h config.Hook) {
 	hook := geminiHook{
-		Command: resolveCtxloomCommand(h.Command, w.ctxloomPath),
+		Command: h.Command,
 		SCM:     computeHookHash(h),
 	}
 
@@ -992,8 +952,8 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 	// Auto-register ctxloom's own MCP server unless disabled
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		settings.MCPServers[AppMCPServerName] = geminiMCPServer{
-			Command: GetCtxloomMCPCommand(),
-			Args:    GetCtxloomMCPArgs(),
+			Command: ctxloomBinary,
+			Args:    ctxloomMCPArgs,
 			SCM:     "ctxloom-auto",
 		}
 	}
@@ -1035,12 +995,21 @@ func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.M
 // ContextInjectionTimeout is the timeout for the context injection hook in seconds.
 const ContextInjectionTimeout = 60
 
-// NewContextInjectionHook creates a hook for context injection using the symlinked ctxloom binary.
-// hash is the context file hash to pass to the inject-context command.
+// NewContextInjectionHook creates the SessionStart hook that injects
+// assembled context into the agent. The Command is emitted as the bare
+// name `ctxloom` (see ctxloomBinary) so it re-resolves via PATH at fire
+// time and never goes stale when the binary moves.
+//
 // workDir is the project directory where the context file lives.
+// Resolved to an absolute path because Claude Code can launch the
+// hook from a different cwd.
 func NewContextInjectionHook(hash, workDir string) config.Hook {
+	absWorkDir := workDir
+	if abs, err := filepath.Abs(workDir); err == nil {
+		absWorkDir = abs
+	}
 	return config.Hook{
-		Command: GetContextInjectionCommand(hash, workDir),
+		Command: fmt.Sprintf(`ctxloom hook inject-context --project "%s" %s`, absWorkDir, hash),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
 	}

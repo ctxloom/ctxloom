@@ -98,6 +98,15 @@ func TestRenderReviewTemplate(t *testing.T) {
 		assert.Contains(t, out, "r/mod aaaa111 → bbbb222 (from r)")
 		assert.Contains(t, out, "Reply:")
 		assert.Contains(t, out, "A               Approve all")
+		// Pin shortcut must be visible alongside the rest of the reply
+		// menu so users can freeze a noisy bundle without leaving the
+		// review flow.
+		assert.Contains(t, out, "P <name>")
+		assert.Contains(t, out, "Pin one at its current active SHA")
+		// Per-remote batch approval — narrower than T (trust) since it
+		// doesn't persist any future-trust setting.
+		assert.Contains(t, out, "A <remote>")
+		assert.Contains(t, out, "Approve all pending from one remote")
 	})
 }
 
@@ -123,12 +132,18 @@ func TestAllowedDuringReview(t *testing.T) {
 		}
 	}
 
-	// Sanity: at least the four review tools must be allowed.
+	// Sanity: the review-flow tools must be allowed. pin_bundle and
+	// unpin_bundle don't fetch bundle bytes or execute bundle code, so
+	// they're safe to permit while pending — and the user needs them
+	// to act on the new 'P <name>' template option.
 	for _, name := range []string{
 		"acknowledge_bundle_review",
 		"decline_bundle",
 		"show_bundle_verbatim",
 		"trust_remote",
+		"pin_bundle",
+		"unpin_bundle",
+		"approve_remote_pending",
 	} {
 		if _, ok := allowedDuringReview[name]; !ok {
 			t.Errorf("review tool %q must be on allowlist", name)

@@ -1,4 +1,4 @@
-// Symlink tests verify the executable path resolution and command generation.
+// Symlink tests verify the executable path resolution.
 package backends
 
 import (
@@ -17,59 +17,14 @@ func TestGetExecutablePath(t *testing.T) {
 	assert.Equal(t, "/test/path/to/ctxloom", path)
 }
 
-func TestGetContextInjectionCommand(t *testing.T) {
-	SetExecutablePathForTesting("/usr/local/bin/ctxloom")
-	defer SetExecutablePathForTesting("")
-
-	tests := []struct {
-		name     string
-		hash     string
-		workDir  string
-		expected string
-	}{
-		{
-			name:     "standard hash with absolute workDir",
-			hash:     "abc123def456",
-			workDir:  "/home/user/project",
-			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/home/user/project" abc123def456`,
-		},
-		{
-			name:     "short hash",
-			hash:     "abc",
-			workDir:  "/project",
-			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/project" abc`,
-		},
-		{
-			name:     "empty hash",
-			hash:     "",
-			workDir:  "/project",
-			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/project" `,
-		},
-		{
-			name:     "path with spaces",
-			hash:     "abc123",
-			workDir:  "/home/user/my project",
-			expected: `"/usr/local/bin/ctxloom" hook inject-context --project "/home/user/my project" abc123`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GetContextInjectionCommand(tt.hash, tt.workDir)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestGetCtxloomMCPCommand(t *testing.T) {
-	SetExecutablePathForTesting("/home/user/go/bin/ctxloom")
-	defer SetExecutablePathForTesting("")
-
-	cmd := GetCtxloomMCPCommand()
-	assert.Equal(t, "/home/user/go/bin/ctxloom", cmd)
-}
-
-func TestGetCtxloomMCPArgs(t *testing.T) {
-	args := GetCtxloomMCPArgs()
-	assert.Equal(t, []string{"mcp"}, args)
+// TestCtxloomPathSkewed pins the comparison that drives the startup
+// version-skew warning: a different ctxloom earlier on PATH than the
+// running binary is the one failure bare commands can't catch.
+func TestCtxloomPathSkewed(t *testing.T) {
+	assert.True(t, ctxloomPathSkewed("/home/u/go/bin/ctxloom", "/usr/bin/ctxloom"),
+		"a different binary on PATH is skew")
+	assert.False(t, ctxloomPathSkewed("/home/u/go/bin/ctxloom", "/home/u/go/bin/ctxloom"),
+		"same path is not skew")
+	assert.False(t, ctxloomPathSkewed("/home/u/go/bin/ctxloom", ""),
+		"not on PATH is not treated as skew")
 }

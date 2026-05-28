@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -101,6 +102,11 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	for _, warning := range cfg.Warnings {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
 	}
+
+	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
+	// resolve via PATH at fire time. Flag the one case that can't catch:
+	// a different ctxloom shadowing the running binary on PATH.
+	backends.WarnOnCtxloomPathSkew()
 
 	// Purge any leftover extracted bundle YAML copies from the pre-PR-1
 	// era (docs/bundle-review-plan.md Phase 1.4). With the read path now

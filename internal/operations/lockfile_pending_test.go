@@ -147,4 +147,72 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 		require.NotNil(t, lock)
 		assert.Len(t, lock.Bundles, 1)
 	})
+
+	writeActive := func(t *testing.T, cfg *config.Config, entries map[string]string) {
+		t.Helper()
+		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
+		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		for name, sha := range entries {
+			lock.Bundles[name] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}
+		}
+		require.NoError(t, mgr.Save(lock))
+	}
+
+	t.Run("SetBundlePin flips the flag and persists", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writeActive(t, cfg, map[string]string{"r/a": "sha1"})
+
+		found, err := SetBundlePin(cfg, "r/a", true)
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		active := readActive(t, cfg)
+		require.Contains(t, active.Bundles, "r/a")
+		assert.True(t, active.Bundles["r/a"].Pinned)
+	})
+
+	t.Run("SetBundlePin idempotent on repeated true", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writeActive(t, cfg, map[string]string{"r/a": "sha1"})
+
+		_, _ = SetBundlePin(cfg, "r/a", true)
+		found, err := SetBundlePin(cfg, "r/a", true)
+		require.NoError(t, err, "second pin must not error")
+		assert.True(t, found)
+	})
+
+	t.Run("SetBundlePin unpin clears the flag", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writeActive(t, cfg, map[string]string{"r/a": "sha1"})
+
+		_, _ = SetBundlePin(cfg, "r/a", true)
+		found, err := SetBundlePin(cfg, "r/a", false)
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		active := readActive(t, cfg)
+		assert.False(t, active.Bundles["r/a"].Pinned)
+	})
+
+	t.Run("SetBundlePin unknown bundle returns false, no error", func(t *testing.T) {
+		// "Not in the active lockfile" is a user-visible state, not a
+		// programmer error. The MCP handler turns this into a friendly
+		// message.
+		cfg := mkCfg(t)
+		writeActive(t, cfg, map[string]string{"r/a": "sha1"})
+
+		found, err := SetBundlePin(cfg, "r/never-existed", true)
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+
+	t.Run("LoadActiveLockfile mirrors LoadPendingLockfile", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writeActive(t, cfg, map[string]string{"r/a": "sha1"})
+
+		lock, err := LoadActiveLockfile(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, lock)
+		assert.Len(t, lock.Bundles, 1)
+	})
 }

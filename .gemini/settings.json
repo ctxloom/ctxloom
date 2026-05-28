@@ -1,7 +1,25 @@
 {
+  "hooks": {
+    "AfterTool": [
+      {
+        "command": "ctxloom tasks capture --stdin"
+      },
+      {
+        "command": "ctxloom tasks capture --stdin"
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "ctxloom session bind"
+      },
+      {
+        "command": "ctxloom session bind"
+      }
+    ]
+  },
   "mcpServers": {
     "ctxloom": {
-      "command": "/usr/bin/ctxloom",
+      "command": "ctxloom",
       "args": [
         "mcp"
       ]

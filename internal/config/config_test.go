@@ -1371,6 +1371,36 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	assert.True(t, foundStamp, "stamp-plan hook missing from builtin tasks bundle")
 }
 
+// TestResolveBuiltinBundleMCPServers asserts the built-in MCP-server
+// path doesn't error against the embedded YAMLs and that any servers
+// that DO ship from a built-in are tagged with the builtin SCM marker.
+// The current sole built-in (tasks.yaml) ships no MCP servers, so the
+// real call must produce an empty (non-nil) map. The SCM-tag invariant
+// is exercised via extractMCPFromBundle with "builtin:<name>" as the
+// source — the same code path resolveBuiltinBundleMCPServers takes.
+func TestResolveBuiltinBundleMCPServers(t *testing.T) {
+	got := resolveBuiltinBundleMCPServers()
+	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
+
+	// Sanity: any future built-in MCP server must carry the builtin SCM
+	// marker so apply-mcp can identify it as ctxloom-managed.
+	for name, server := range got {
+		assert.True(t, strings.HasPrefix(server.SCM, "builtin:"),
+			"server %q from built-in bundle must have SCM prefix builtin:, got %q", name, server.SCM)
+	}
+
+	// Pin the contract directly: a synthetic builtin source through
+	// extractMCPFromBundle produces the expected SCM tag.
+	synthetic := extractMCPFromBundle(&bundles.Bundle{
+		MCP: map[string]bundles.BundleMCP{
+			"synthetic": {Command: "fake"},
+		},
+	}, "builtin:future-bundle")
+	require.Contains(t, synthetic, "synthetic")
+	assert.Equal(t, "bundle:builtin:future-bundle", synthetic["synthetic"].SCM,
+		"extractMCPFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
+}
+
 func TestHooksConfig_HasAny(t *testing.T) {
 	assert.False(t, HooksConfig{}.hasAny())
 	withUnified := HooksConfig{Unified: UnifiedHooks{PostTool: []Hook{{Command: "x"}}}}

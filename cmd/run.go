@@ -113,14 +113,48 @@ var execCommand = exec.Command
 // doesn't need to depend on cobra, the compactor, or any LLM
 // machinery itself. Stdout/stderr are piped through to the user.
 func shellOutDistill(harpName string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = "ctxloom"
-	}
+	exe := resolveSelfExecutable()
 	c := execCommand(exe, "session", "distill", harpName)
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
 	return c.Run()
+}
+
+// osExecutable and osStat are seams the tests override to drive the
+// resolveSelfExecutable decision tree without depending on the real
+// filesystem or the real binary path.
+var (
+	osExecutable = os.Executable
+	osStat       = os.Stat
+)
+
+// resolveSelfExecutable returns the path to use when re-invoking ctxloom
+// from inside a running ctxloom process. Prefers the OS-reported absolute
+// path (one syscall: `readlink /proc/self/exe` on Linux, `_NSGetExecutablePath`
+// on macOS, `GetModuleFileNameW` on Windows), and falls back to bare
+// `"ctxloom"` (a PATH lookup) in two cases:
+//
+//  1. The OS call itself errored (rare; AIX, some sandboxed environments).
+//  2. The returned path no longer points at a live binary. On Linux,
+//     `os.Executable()` returns a literal `"<path> (deleted)"` string after
+//     the binary is replaced via unlink+recreate (the typical `go install`
+//     upgrade pattern). exec'ing that path fails at .Run() time, which is
+//     recoverable but ugly. We strip the suffix, stat the result, and only
+//     use it if the file still exists.
+func resolveSelfExecutable() string {
+	const fallback = "ctxloom"
+	exe, err := osExecutable()
+	if err != nil {
+		return fallback
+	}
+	// Linux: "/path/ctxloom (deleted)" after the running inode is unlinked.
+	if trimmed, ok := strings.CutSuffix(exe, " (deleted)"); ok {
+		exe = trimmed
+	}
+	if _, err := osStat(exe); err != nil {
+		return fallback
+	}
+	return exe
 }
 
 func resumePartsCSV(d sessions.Decision) string {

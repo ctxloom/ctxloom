@@ -331,7 +331,7 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 	// either an injected one (for tests asserting dedup) or the production
 	// default (when no fetcher mock is in play).
 	if req.RepoCache != nil || req.FetcherFactory == nil {
-		var cache RepoUpdater = req.RepoCache
+		cache := req.RepoCache
 		if cache == nil {
 			cache = newRepoCache(cfg)
 		}

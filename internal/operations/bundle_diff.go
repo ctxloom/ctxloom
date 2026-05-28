@@ -75,6 +75,14 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 			continue
 		}
 		old, existed := prevBundles[name]
+		// Pinned entries on the active side never surface a change:
+		// the user has explicitly frozen this bundle at the active SHA
+		// and doesn't want to see review noise for it. The pending
+		// lockfile still records the new SHA so an unpin + re-review
+		// flow remains possible later.
+		if existed && old.Pinned {
+			continue
+		}
 		switch {
 		case !existed:
 			cs.Added = append(cs.Added, BundleChange{

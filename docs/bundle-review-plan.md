@@ -1,23 +1,14 @@
-# Bundle Review on Startup — Implementation Plan
+# Bundle Review branch — retrospective and what's next
 
-> **Status:** implemented end-to-end on `feat/bundle-mcp-tools` (2026-05-25). All four phases landed in a single sweep on top of the SDK migration. Build and `just test` green.
-> **Living document** — keep this in sync with conversation decisions and PR progress.
+> **Status:** implemented end-to-end on `feat/bundle-mcp-tools` (2026-05-25); audit + post-merge coverage push landed 2026-05-26/27. **Living document** — keep in sync with conversation decisions and follow-up PR progress.
 
-## Implementation notes (post-execution)
+The branch landed bundle review on startup with SHA-keyed reads, a native task layer replacing flesler/mcp-tasks, harp-named sessions with a pre-launch picker, an MCP footprint cut (~46 → 18 tools + 12 resources), an embedded tasks bundle, hook command path-rewriting, and a coverage push that brought the aggregate to ~60%. The pre-implementation design lived as Phase 1–4 specs; the code is now the source of truth. Anything genuinely subtle is captured below.
 
-The codebase that received this work differed from the plan's mental model in two ways. Both adjustments are documented here for future readers; the substantive guarantees (hash-per-bundle reads, review gate, deferred hooks) are intact.
+---
 
-1. **There is no per-bundle "extracted dir."** Bundles ship as single YAML files; `pull.Pull` previously copied them to `.ctxloom/cache/bundles/<remote>/<path>.yaml`. "Extraction" in Phase 1.2 was interpreted as removing that file copy. `operations.PurgeExtractedBundles` keys on `_source.SHA` presence so locally-authored bundles survive.
+## What shipped (retrospective)
 
-2. **`BundleReader` is split.** `internal/remote/bundle_reader.go` owns the bytes-only fetch (no `bundles` import). `internal/operations/bundle_reader.go` provides `NewBundleReaderForConfig` and `NewBundleReaderForLockfile` (which `show_bundle_verbatim` uses against pending). The loader-seeding pipeline lives on `(*config.Config).SeededBundleLoader(...)` in `internal/config/config.go` so `internal/lm/backends` and `internal/config` callers can build seeded loaders without depending on `internal/operations` (cycle).
-
-The plan referenced legacy line numbers in `cmd/mcp.go` (e.g. `handleInitialize`, `handleToolsCall`). Those locations are gone after the SDK migration. The SDK equivalents used:
-
-- `mcp.ServerOptions.Instructions` (set on `NewServer`) for the initialize-time injection (Phase 3.2). The text lives in `cmd/bundle_review.go::reviewInstructionsBlock`.
-- `Server.AddReceivingMiddleware` for the gate + prepend chokepoint (Phase 4.1/4.2). The discriminator is `method == "tools/call"`.
-- `cmd/bundle_review_middleware.go` carries the `allowedDuringReview` map and the `reviewMiddleware` function.
-
-## Where each phase landed
+### Where each phase landed
 
 | Phase | Symbol(s) |
 |---|---|
@@ -33,287 +24,171 @@ The plan referenced legacy line numbers in `cmd/mcp.go` (e.g. `handleInitialize`
 | 4.1 + 4.2 Gate + prepend | `cmd/bundle_review_middleware.go` |
 | 4.3 Review tools | `cmd/mcp_tools_review.go` — `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, `trust_remote` |
 
-## Tests
+### Tests
 
 | Suite | File |
 |---|---|
-| Diff | `internal/operations/bundle_diff_test.go` |
-| Pending lockfile lifecycle | `internal/operations/lockfile_pending_test.go` |
+| Diff (incl. pinned-active suppression) | `internal/operations/bundle_diff_test.go` |
+| Pending lockfile lifecycle + pin/unpin | `internal/operations/lockfile_pending_test.go` |
 | Legacy cleanup | `internal/operations/legacy_cleanup_test.go` |
 | Review state + template + gate allowlist | `cmd/bundle_review_test.go` |
+| Structural bundle diff (`diffBundleYAMLs`) | `cmd/mcp_tools_review_test.go` |
+| Wire-protocol gate behavior (init-pending → blocked → ack/decline → unblocked, instructions carry protocol text, env-var bypass, tools/list lists review tools) | `cmd/mcp_review_integration_test.go` |
 
-Wire-protocol integration test extension (the plan's "extend test from commit `87ee531`") and the full `bundle_reader_test.go` (which requires a real git clone cache fixture) are deferred follow-ups.
+### Implementation notes
 
----
+The codebase that received this work differed from the plan's mental model in two ways. The substantive guarantees (hash-per-bundle reads, review gate, deferred hooks) are intact.
 
-## Problem
+1. **There is no per-bundle "extracted dir."** Bundles ship as single YAML files; `pull.Pull` previously copied them to `.ctxloom/cache/bundles/<remote>/<path>.yaml`. "Extraction" in Phase 1.2 was interpreted as removing that file copy. `operations.PurgeExtractedBundles` keys on `_source.SHA` presence so locally-authored bundles survive.
 
-ctxloom syncs bundles from remote sources on MCP server startup. Bundle content can contain prompt injection that activates as soon as the agent reads it. Today, new and modified bundles enter the agent's context without any user awareness — there's no point at which the user is told "these bundles changed since last session, want to review them?"
+2. **`BundleReader` is split.** `internal/remote/bundle_reader.go` owns the bytes-only fetch (no `bundles` import). `internal/operations/bundle_reader.go` provides `NewBundleReaderForConfig` and `NewBundleReaderForLockfile` (which `show_bundle_verbatim` uses against pending). The loader-seeding pipeline lives on `(*config.Config).SeededBundleLoader(...)` in `internal/config/config.go` so `internal/lm/backends` and `internal/config` callers can build seeded loaders without depending on `internal/operations` (cycle).
 
-## Goals
+The plan referenced legacy line numbers in `cmd/mcp.go` (`handleInitialize`, `handleToolsCall`). Those locations are gone after the SDK migration. The SDK equivalents used:
 
-1. Detect new/modified bundles after `SyncOnStartup`.
-2. Hard-block bundle-touching tools until the user has reviewed.
-3. Present a fixed-template review prompt verbatim, dual-injected (MCP `initialize.instructions` + sticky tool-result prepend).
-4. Let the user approve, decline (keep prior SHA), or trust a remote — per-bundle or in bulk.
-5. Surface friction up-front (never silent auto-approval based on heuristics).
-6. Provide an explicit env-var bypass for non-interactive runs.
+- `mcp.ServerOptions.Instructions` (set on `NewServer`) for the initialize-time injection (Phase 3.2). The text lives in `cmd/bundle_review.go::reviewInstructionsBlock`.
+- `Server.AddReceivingMiddleware` for the gate + prepend chokepoint (Phase 4.1/4.2). The discriminator is `method == "tools/call"`.
+- `cmd/bundle_review_middleware.go` carries the `allowedDuringReview` map and the `reviewMiddleware` function.
 
-## Design summary
+### Settled design choices (for the record)
 
-- **Sync = git fetch into clone cache.** No extraction step. The local git clone cache *is* the storage (see commits `7239b65`, `969d9c0`).
-- **Lockfile records active SHA per bundle.** That's the only ctxloom-side state for "which version is in use."
-- **Bundle reads go through a `BundleReader`** that calls `Fetcher.FetchFile(owner, repo, path, sha)` on demand. SHA comes from lockfile, so reads are version-pinned automatically.
-- **Decline** = lockfile keeps the prior SHA. The new SHA is in the git cache (unreferenced, harmless) until a future approve.
-- **Approve** = lockfile advances. Same Fetcher call now returns the new content.
-- **Local bundles** (project-authored, no remote) keep their fs path and bypass the reader.
-
-### Why this shape
-
-- Rollback of fs content rejected as unclean (overwrites + race window).
-- Content-addressed extraction (`bundles/<name>@<sha>/`) rejected as unnecessary fs cruft — git is already content-addressed; exposing that is cleaner than mirroring it on fs.
-- Per-session decline persistence (no permanent pin); user can promote to an explicit `Reference.ContentVersion` pin later if they want.
-- Hard-block (B3) chosen over soft-block — friction surfaces immediately; gated tools are an explicit allowlist.
-
-## Existing infrastructure to leverage
-
-- `internal/remote/git_clone_fetcher.go:46` — `FetchFile(ctx, owner, repo, path, ref)` reads any file at any ref from the local clone. Already local-only (commit `969d9c0`).
-- `internal/remote/cached_fetcher_factory.go:16` — `NewCachedFetcherFactory` wraps fetchers so all content reads route through `cache.EnsureRef → GitCloneFetcher`. `BundleReader` must use this factory; never the raw `DefaultFetcherFactory` (API path).
-- `internal/remote/lockfile.go` — `Lockfile{Bundles, Profiles}` keyed by ref; each `LockEntry` carries `SHA`. Diff target.
-- Existing pinning landscape: `Remote.Version` (schema dir), `Reference.ContentVersion` (explicit content pin), `LockEntry.SHA` (recorded fetch). Decline integrates by keeping the lockfile SHA stable.
-
----
-
-## Phase 1 — Remove extraction; route reads through `BundleReader`
-
-Today, sync extracts bundle content from the clone cache into on-disk active paths. Replace with on-demand fetching.
-
-### 1.1 New `internal/remote/bundle_reader.go`
-```go
-type BundleReader struct {
-    registry *Registry
-    factory  FetcherFactory  // must be NewCachedFetcherFactory(cache)
-    lock     *Lockfile
-}
-func (r *BundleReader) ReadFile(ctx, bundleName, relPath string) ([]byte, error)
-func (r *BundleReader) ListFiles(ctx, bundleName, relDir string) ([]DirEntry, error)
-```
-Internals: lookup `lock.Bundles[bundleName]` → derive (remote URL, bundle path, sha) → resolve `Fetcher` via factory → `FetchFile(owner, repo, path+relPath, sha)`. Local-only bundles (no lockfile entry pointing to a remote) fall through to existing fs read.
-
-### 1.2 Delete extraction in `internal/remote/pull.go`
-Pull keeps clone-cache update behavior. Lockfile update still happens. Active fs writes for bundle content are removed.
-
-### 1.3 Migrate read sites
-Per the code map (`cmd/mcp.go`):
-- `assemble_context` (1566), `get_fragment` (1494), `get_prompt` (1605), `search_content` (1626)
-- Any direct fs reads in `internal/operations/helpers.go`
-
-Route each through `BundleReader`. Local bundles unchanged.
-
-**Coordination with `EnsureAutoProfile`** (added by PR #2, lives in `internal/operations/profiles.go`, called from `AssembleContext`): the auto-profile synthesizer enumerates installed bundles by walking `.ctxloom/bundles/<name>/` on disk. Once extraction is removed in 1.2, that directory is gone — the source of truth for "installed bundles" becomes the lockfile (`lock.Bundles` keys). `EnsureAutoProfile` must be updated to read from the lockfile (and treat local-only bundles separately, since they still live on disk). Tracked together with the rest of 1.3 — same PR, same review surface.
-
-### 1.4 Legacy extracted-dir cleanup
-The old extraction path `.ctxloom/bundles/<name>/` is now redundant — `BundleReader` serves the same bytes from the git clone cache. New on-disk state (`lock.pending.yaml`) lives next to `lock.yaml`, *outside* `.ctxloom/bundles/`, so there is no name collision.
-
-On startup: unconditionally `rm -rf .ctxloom/bundles/` if it exists, log a one-line stderr notice (`ctxloom: removed legacy extracted bundle dir .ctxloom/bundles/`), and continue. No prompt, no env-var gate, no first-run-detection marker — the rename of the new state out of the old path is what makes this safe.
-
-### 1.5 (Deferred) in-memory read cache
-`BundleReader` could cache `(bundleName, sha, relPath) → bytes` for the session. Add only if profiling shows it.
-
----
-
-## Phase 2 — Pending lockfile + diff
-
-### 2.1 `internal/operations/bundle_diff.go`
-```go
-type BundleChangeSet struct {
-    Added    []BundleChange  // not in prev lockfile
-    Modified []BundleChange  // SHA differs from prev
-}
-type BundleChange struct {
-    Name, Remote, OldSHA, NewSHA string
-    Size int64
-}
-func DiffLockfiles(prev, curr *Lockfile, reg *Registry) *BundleChangeSet
-```
-Filter out entries whose source remote has `TrustBundles: true`.
-
-### 2.2 Remote schema — `internal/remote/types.go:11-14`
-Add `TrustBundles bool \`yaml:"trust_bundles,omitempty"\`` to `Remote`. Round-trip via `internal/remote/registry.go:108-120`.
-
-### 2.3 Split lockfile: active + pending
-- `lock.yaml` — active (what `BundleReader` reads against).
-- `lock.pending.yaml` — proposed updates from the latest sync.
-
-`SyncOnStartup` writes new entries into pending if SHA differs from active, or if active doesn't have the bundle. Sync no longer touches `lock.yaml` for changed bundles. Result returns `BundleChangeSet`.
-
-- For modified bundles: `BundleReader` keeps reading old content (active SHA) until approve.
-- For new bundles: not in active lockfile → `BundleReader` returns "bundle not installed" until approve.
-
----
-
-## Phase 3 — MCP review state + initialize wiring
-
-### 3.1 `mcpServer` struct — `cmd/mcp.go:372`
-```go
-type mcpServer struct {
-    ...existing...
-    review *bundleReviewState
-}
-type bundleReviewState struct {
-    mu      sync.Mutex
-    pending *operations.BundleChangeSet
-}
-```
-`pending == nil` means no review needed. Clearing `pending` is the "acknowledged" signal.
-
-### 3.2 `handleInitialize` — `cmd/mcp.go:521`
-After `SyncOnStartup`:
-- If `result.Changes` non-empty AND `CTXLOOM_AUTO_APPROVE_BUNDLES != "1"`:
-  - Populate `s.review.pending`.
-  - **Defer hook application** — do not run the existing post-sync hook phase yet.
-  - Append review protocol text to `initialize.instructions`.
-- If env var set: log stderr warning listing changes, merge pending into active immediately, apply hooks as today, append `{ts, sha_list, remote_list}` to a `last_auto_approved` entry in the lockfile for audit, skip review state.
-
-### 3.3 Deferred hook application
-Bundle-shipped hook scripts can execute arbitrary code, so they MUST NOT run while bundle content is unreviewed. State machine:
-
-- `pending != nil` → hooks deferred (existing apply-hooks startup phase is skipped this run).
-- `pending == nil` at startup → hooks applied as today.
-- `pending` transitions to nil via `acknowledge_bundle_review` (merge → apply hooks against the NEW active set), `decline_bundle` with no entries left (apply hooks against the still-OLD active set — no new code introduced), or `trust_remote` clearing the last entry (same as acknowledge for those bundles, then apply hooks).
-
-Hook application is therefore triggered from exactly two places: end of `handleInitialize` when no pending, and end of whichever review-tool handler clears `pending`. Wrap it in a helper (`applyHooksIfNotPending`) to keep the invariant in one spot.
-
-### 3.4 Fixed review template (inline const in `cmd/mcp.go`)
-```
-⚠️ ctxloom bundle review required
-
-These bundles changed since last session. Bundle content can contain prompt
-injection. Until you respond, bundle-touching tools are blocked.
-
-NEW:
-  - {name} @ {newSha[:8]} (from {remote}, {size}B)
-
-MODIFIED:
-  - {name} {oldSha[:8]} → {newSha[:8]} (from {remote}, {size}B)
-
-Reply:
-  A               Approve all this session
-  D               Decline all (keep previous SHAs, skip new installs)
-  D <name>        Decline one
-  T <remote>      Trust remote going forward (persists to config)
-  S <name>        Show bundle verbatim
-  R               Review each one at a time
-```
-
-Instructions block (added to `initialize.instructions`):
-> If a bundle review is pending, the FIRST content of your FIRST response MUST be the review template, verbatim, in a fenced block. Do not paraphrase or summarize. Do not call any other tool. Wait for the user's choice, then call `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, or `trust_remote`. Continue until pending clears.
-
----
-
-## Phase 4 — Tool gate, prepend middleware, new tools
-
-### 4.1 Gate — top of `handleToolsCall` (`cmd/mcp.go:1324`)
-```go
-if s.review.hasPending() && !reviewAllowed(params.Name) {
-    return blockedToolResult(params.Name, s.review.pending)
-}
-```
-
-Categorization principle: BLOCK anything that (a) returns bundle bodies to the model, (b) executes bundle-provided code (hooks), (c) replays prior session content that may contain bundle output the user hasn't re-approved, or (d) can re-trigger sync / mutate the pending set. ALLOW everything else.
-
-**ALLOWED during pending review:**
-
-| Category | Tools |
-|---|---|
-| Review machinery (new) | `acknowledge_bundle_review`, `decline_bundle`, `show_bundle_verbatim`, `trust_remote` |
-| Pure metadata listings | `list_remotes`, `list_profiles`, `list_prompts`, `list_fragments`, `list_mcp_servers`, `list_sessions`, `list_bundles` (if present) |
-| Metadata get/browse (no bundle bodies) | `get_profile`, `browse_remote`, `browse_session_history`, `search_remotes`, `discover_remotes`, `get_previous_session` |
-| Local-only mutations | `create_bundle`, `update_bundle`, `delete_bundle`, `create_fragment`, `delete_fragment`, `create_profile`, `update_profile`, `delete_profile` |
-| Config mutations (no fetch) | `add_remote` (registration only, confirmed at `cmd/mcp.go:1165`), `remove_remote`, `add_mcp_server`, `remove_mcp_server`, `set_mcp_auto_register` |
-| Outbound | `push_bundle` |
-| Session compaction (reduces only) | `compact_session` |
-
-**BLOCKED during pending review:**
-
-| Reason | Tools |
-|---|---|
-| Returns bundle bodies | `assemble_context`, `get_fragment`, `get_prompt`, `search_content` |
-| Replays prior session content (may include bundle output) | `load_session`, `recover_session` |
-| Executes bundle-provided code | `apply_hooks` |
-| Triggers fetch / re-sync (would re-stack pending) | `update_remote` (fetches, per its description at `cmd/mcp.go:1198`), `pull_remote`, `sync_dependencies` |
-
-**Verify before merging PR 3:** confirm `list_prompts` returns only metadata (names) and not prompt bodies. `cmd/mcp.go:785` schema suggests metadata-only; double-check the handler. If the handler embeds body text, move to blocked.
-
-**Block response shape:** `blockedToolResult` returns an MCP tool result whose content is the rendered review template + a one-line "tool `<name>` is blocked until acknowledged" suffix. No partial data leaks.
-
-### 4.2 Prepend middleware — before result marshalling (`cmd/mcp.go:1454`)
-If `s.review.hasPending()`, prepend the rendered template to the tool result content. Keeps the protocol visible on every allowed call until acknowledged.
-
-### 4.3 New tools (register in `getLocalTools`, `cmd/mcp.go:571`)
-
-**`acknowledge_bundle_review(decision: "approve_all")`**
-- Merge `lock.pending.yaml` into `lock.yaml`. Clear `s.review.pending`.
-
-**`decline_bundle(name?: string)`**
-- No name → drop all pending entries; modified bundles continue reading at active SHA; new bundles stay uninstalled. Clear `s.review.pending`.
-- With name → drop just that entry. Clear `pending` if empty.
-
-**`show_bundle_verbatim(name: string)`**
-- Construct a temporary `BundleReader` against the *pending* lockfile to read the new SHA via `Fetcher.FetchFile`. Return raw bytes in a fenced block with header `name (sha=<newSha>, from <remote>)`. Does not mutate state.
-
-**`trust_remote(name: string, trust: bool)`**
-- Mutate `Remote.TrustBundles`, persist via `registry.save()` (`internal/remote/registry.go:96`).
-- If `trust=true`: auto-approve any pending entries from that remote (move into active lockfile, prune from `s.review.pending`). Clear `pending` if empty.
-
----
-
-## Testing
-
-- **Unit** `bundle_reader_test.go` — reads at active SHA; falls back to fs for local bundles; uses cached factory (no API path).
-- **Unit** `bundle_diff_test.go` — added/modified detection; trust-filter exclusion.
-- **Unit** `mcp_review_test.go` — gate blocks/allows correct tools (table-driven over the full allow/block lists from 4.1); `acknowledge_bundle_review` merges lockfiles AND applies hooks; `decline_bundle` (named + bulk) preserves prior SHAs AND applies hooks against the old set when `pending` clears; `trust_remote` prunes matching pending entries AND triggers hook application iff `pending` reaches empty.
-- **Unit** deferred-hooks invariant — startup with non-empty pending does NOT invoke the hook phase; only the review-tool path that clears pending does.
-- **Integration** — extend wire-protocol test from commit `87ee531`:
-  - Init with pending → `assemble_context` blocked → `acknowledge_bundle_review` → succeeds with new content.
-  - Init with pending → `decline_bundle` → `assemble_context` succeeds with old content.
-- **Migration test** — legacy extracted bundle dir → cleanup runs, `BundleReader` serves content from git cache instead.
-- **Manual** — fresh sync of new remote with bundle, observe template at startup; modify upstream, sync, decline, verify old content still served; `CTXLOOM_AUTO_APPROVE_BUNDLES=1` bypass logs warning.
-
----
-
-## PRs (in order)
-
-1. **PR 1 — `BundleReader` + remove extraction.** Phase 1. Structural change but no user-visible behavior shift (reads produce the same bytes via different mechanism). Legacy dir cleanup included.
-2. **PR 2 — Pending lockfile + diff.** Phase 2. Lockfile split, `BundleChangeSet`, `TrustBundles` schema field.
-3. **PR 3 — Review flow.** Phases 3 + 4. MCP review state, initialize wiring, template, gate, prepend middleware, new tools, env-var bypass. Tests at each layer.
-
-Each PR is independently revertable; behavior change visible to users lands only in PR 3.
-
----
-
-## Deferred / follow-ups
-
-- In-memory read cache in `BundleReader` if profiling warrants.
-- `ctxloom gc` command to prune the git clone cache.
-- Promoting repeated session declines into permanent `Reference.ContentVersion` pins in config.
-- A "show one, then re-present template with ✓ marker" UX loop for the `R` (review each) flow.
-
----
-
-## Open items resolved
-
-- **Injection site:** both — `initialize.instructions` + sticky tool-result prepend.
-- **Change scope:** new bundles + content-modified bundles (SHA diff). Profile/hook deltas excluded from this iteration.
-- **Trust persistence:** per-session approve default; per-remote trust persisted via config flag (`TrustBundles`).
+- **Storage model:** version-aware getter at repo layer (`BundleReader → cacheFetcher → GitCloneFetcher`). No fs extraction.
+- **Injection sites:** both `initialize.instructions` + sticky tool-result prepend.
+- **Change scope:** new bundles + content-modified bundles (SHA diff). Profile/hook deltas excluded.
+- **Trust persistence:** per-session approve default; per-remote trust persisted via the `TrustBundles` config flag.
 - **Non-interactive bypass:** explicit env var `CTXLOOM_AUTO_APPROVE_BUNDLES=1` with stderr warning. No TTY-magic.
 - **Block scope:** B3 (hard block — only allowlisted tools callable until acknowledged).
 - **Template authoring:** fixed verbatim template, not natural-language paraphrase.
 - **Decline persistence:** per-session only.
 - **Decline of NEW bundle:** don't install at all.
-- **Storage model:** version-aware getter at repo layer (`BundleReader → cacheFetcher → GitCloneFetcher`). No fs extraction.
 
-## Open items remaining
+---
 
-- Concrete name + signature for the legacy-dir cleanup prompt/env-var pair (revisit in PR 1).
-- Exact JSON Schema shape for the new tools' params (write during PR 3 to match conventions from commit `e7a865f`).
+## Open issues — audited 2026-05-26
+
+Original assumptions and what the code audit found.
+
+- **Bundle review gate ordering.** *Verified.* Built-in bundles bypass the review gate **structurally**, not via an allowlist: built-ins are loaded directly from `resources/builtin_bundles/` by `resolveBuiltinBundleHooks` (`internal/config/config.go:1241`) and never enter the lockfile, so `DiffLockfiles` (`internal/operations/bundle_diff.go:61`) can't produce a `BundleChange` for them. Remote bundles take the puller path, land in `lock.pending.yaml`, and feed the review state. SCM tagging (`builtin:<name>`, `bundle:<source>`) is consumed by `isCtxloomManagedHook` at reconcile time as defense-in-depth.
+  - **Latent gap (dormant):** `ResolveBundleMCPServers` (`internal/config/config.go:1132`) doesn't iterate built-ins, only profile-referenced bundles. The single shipped built-in (`tasks.yaml`) declares no MCP servers, so this is harmless today; any future built-in that ships MCP servers would silently drop them.
+- **OSC2 terminal title.** *Spec-consistent, smoke-test still pending.* Code at `cmd/run.go:315` emits `\033]2;ctxloom · <harp>\007` gated on `isInteractiveTerminal()`. Microsoft's console-virtual-terminal-sequences spec lists OSC2 as supported on Windows Terminal, matching the code comment's claim. Failure mode is cosmetic (literal escape on a dumb terminal); no functional impact. Defer the actual Windows Terminal smoke-test until someone runs ctxloom there.
+- **Picker `d<N>` resilience.** *Verified, behavior stronger than the original claim.* `shellOutDistill` (`cmd/run.go:115`) calls `os.Executable()` on **each keystroke**, not at picker construction. If it errors, falls back to bare `"ctxloom"` → PATH lookup. The picker absorbs distill failures inline (`internal/sessions/picker.go:193`) and keeps looping.
+  - **Doc nit (this file's previous claim):** prior text said the failure mode was "documented in the picker comment". It isn't. The `shellOutDistill` doc comment describes the shell-out shape but doesn't mention the binary-moves-mid-session case. Fix when convenient — either by adding the line to the comment, or by accepting that the fallback chain (bare → PATH) makes the failure rare enough to skip.
+- **Backend session-id binding precedence.** *Verified at the caller layer; latent storage-layer risk now closed.* Three layers (SessionStart hook `bindSessionFromPayload` at `cmd/session_cmd.go:196`, compact-time at `internal/memory/compactor.go:221`, transcript scan in `runSessionDistill` at `cmd/session_cmd.go:269`) all short-circuit when `entry.SessionID != ""` *before* calling `BindSession`. `session_cmd_test.go::already_bound_is_idempotent` pins the SessionStart caller's no-op behavior. Storage-layer defense-in-depth landed: `BindSession` (`internal/sessions/index.go:144`) now no-ops when the entry is already bound to any SessionID, not just the same one. Pinned by `TestBindSession_FirstBindWinsOnDifferentID`.
+
+### Latent gaps surfaced by the audit (resolved 2026-05-27)
+
+- **Built-in bundles dropped from `ResolveBundleMCPServers`** — *fixed.* `resolveBuiltinBundleMCPServers` mirrors `resolveBuiltinBundleHooks`; any future built-in shipping MCP servers is now picked up with `SCM=builtin:<name>`. Pinned by `TestResolveBuiltinBundleMCPServers`.
+- **Picker `d<N>` doesn't catch `(deleted)` suffix** — *fixed.* `cmd/run.go::resolveSelfExecutable` strips the suffix, stat-verifies the result, and falls back to bare `"ctxloom"` (PATH lookup) when either step fails. Five unit tests cover the matrix.
+
+---
+
+## Coverage gaps
+
+Current state (raw, post-2026-05-27 coverage push):
+
+| Package | Coverage | Why it's not 100% |
+|---|---|---|
+| `cmd` | 23.8% (was 13.4%) | list/show/view/mutation/diff/create/edit/delete/export/import surfaces are all extracted and tested; remainder is largely cobra wiring + auth-bearing network publish |
+| `internal/lm/grpc` | 43.9% | most uncovered is generated protobuf (filtered out by `.coverignore`); the remaining gap is hashicorp/go-plugin subprocess machinery |
+| `internal/lm/backends` | 74.9% (was 68%) | claude/gemini history surfaces fully tested; codex now has the same afero seam + tests; remaining is `claudecode.go::Setup/Execute/Cleanup` which wraps real `exec.Cmd` (explicit anti-goal — see "What stops us going further" below) |
+| `internal/sessions` | 84.8% (was 82%) | incidental gain from `BindSession` defense-in-depth + test |
+| `internal/operations` | 84.1% (was 84.0%) | gained from pin/unpin + diff-suppression tests |
+| `internal/config` | 77.5% (was 78.3%) | new `resolveBuiltinBundleMCPServers` adds an uncovered "list-builtins errored" branch; the happy path is covered |
+| `internal/ptyrunner` | 70.7% | PTY syscalls — genuinely heroic, deferred indefinitely |
+| `internal/filelock` | 75% | edge cases on contention; low-value |
+
+### Wins landed this session
+
+| Target | Before | After | Change |
+|---|---|---|---|
+| `cmd/config.go` helpers (renderConfigYAML, resolveConfigSection, renderConfigSection) | untested | 100% on extracted surface | +tests |
+| `cmd/profile.go` helpers (renderProfileList, renderProfileShow, applyProfileMutations + writeBulletList) | untested | extracted + tested across the 10-branch mutation matrix | +tests |
+| `cmd/bundle.go` helpers (cleanDistilledOutput, isStructuredContent, buildSiblingContext; renderBundleList/Show + per-entry helpers; renderBundleFragmentList/PromptList; parseBundleViewRef, renderBundleViewItem, writeViewContent, lookupBundleMCP) | untested | extracted + tested | +tests |
+| `cmd/remote_update.go` (shortSHA, classifyPullError; analyzeBundleReferencesWithFS afero seam) | untested | extracted + tested across orphan/missing/invalid branches | +seam, +tests |
+| `internal/lm/backends/codex.go` | 0% on history surface (no afero seam) | seam added; 14 hermetic tests covering JSONL parse, YYYY/MM/DD walk, all entry types | +seam, +tests |
+| `internal/lm/backends/claude_capabilities.go` registry methods | 0% (registry silently bypassed the fs seam) | constructor fix + 7 tests | +bug fix, +tests |
+| Bundle review UX: `pin_bundle` / `unpin_bundle` / `approve_remote_pending` MCP tools; `Pinned` flag on `LockEntry`; `DiffLockfiles` skips pinned; `show_bundle_verbatim` returns structural diff via `diffBundleYAMLs` | feature didn't exist | shipped + tested at unit and template-allowlist layers | +feature, +tests |
+| `cmd/bundle.go` create/import/export (`writeBundleSkeleton`, `importBundleFile`, `exportBundleFile`) | untested | afero-seam'd + 15 tests covering happy/missing/malformed/overwrite/dispatch | +seam, +tests |
+| `cmd/bundle.go` edit/delete (`applyBundleEdits`, `deleteBundleFile`, `stdinConfirmer`) | untested | mutation matrix extracted + confirm seam'd; 20 tests | +seam, +tests |
+
+### Cheapest remaining wins
+
+None standing. The bundle.go create/edit/delete/export/import RunE bodies all have afero seams as of 2026-05-27. What's left is either explicit anti-goal territory (see below) or genuinely covered.
+
+### What stops us going further
+
+- **PTY syscalls** in `ptyrunner` — platform-conditional, requires real terminals or significant fakery
+- **End-to-end LLM-driven flows** (`compact_session` against a real plugin) — would need a fake-plugin server fixture
+- **`internal/lm/grpc::NewPluginClient`** still has hashicorp/go-plugin internals we don't mock; the cheaply-mockable surface is already covered via `dialPluginConnection`
+- **`exec.Cmd` lifecycle** in claudecode.go (Setup/Execute/Cleanup) — wrapping `exec.Cmd` is an anti-goal: too thick a seam for too little signal, since the value is the actual subprocess behavior
+
+---
+
+## Pattern catalog for future expansion
+
+Repeatable techniques the coverage push established. Use these for any subsequent gap-closure work:
+
+1. **IoC seam over `exec.Command`** — `var execCommand = exec.Command`. Tests override; production unchanged. Example: `cmd/run.go::shellOutDistill`.
+2. **Pure-helper extraction from cobra RunE** — pull decision logic out; cobra wrapper composes flags into a struct and delegates. Example: `cmd/run.go::resolveResumeIntentWith` + `resumeFlags`.
+3. **Interface mock for third-party concrete types** — wrap with our own interface, swap in tests. Example: `internal/lm/grpc::pluginConnection` over `*plugin.Client`.
+4. **Afero filesystem injection** — already widespread; just exercise more cases against the fake fs. Propagate to nested constructors (see the `WithClaudeSessionFS` → registry fix on 2026-05-27).
+5. **In-process MCP handler tests** — `&ctxServer{}` + `withProjectDir(t)`, no subprocess. Example: `cmd/mcp_resources_test.go`.
+6. **Wire-protocol subprocess tests** — only when SDK serialization or registration is the contract being pinned. Example: `cmd/mcp_resources_integration_test.go`.
+
+Avoid these (genuine heroics):
+- Subprocess tests for code that's not protocol-shaped
+- PTY/TTY emulation
+- End-to-end tests requiring a real LLM
+- Wrapping `exec.Cmd` to test subprocess lifecycle
+
+---
+
+## Deferrals
+
+Speculative follow-ups are captured as individual ADRs under [`docs/adr/`](adr/README.md) — one decision per file, each with status, context, decision, and a revive trigger. The bundle-review-specific deferrals are ADRs [0001](adr/0001-skip-bundlereader-cache.md) – [0005](adr/0005-skip-fetcher-fixture-tests.md); the tasks/sessions/distribution deferrals are ADRs [0006](adr/0006-skip-task-link-session.md) – [0013](adr/0013-keep-tasks-bundle-embedded.md).
+
+---
+
+## Reference: what landed on this branch (commit map)
+
+For navigation; the rationale behind any decision lives in its commit message.
+
+```
+ea53d01 fix(hooks): rewrite bare `ctxloom` in bundle hooks to absolute path
+4b3a922 test: cmd/init helpers — gitignore upkeep + config template
+eba058b feat: dial seam in lm/grpc + helper extracts in cmd/hook_inject_context
+f99c321 chore: apply .coverignore filter to canonical `just test` coverage
+fc19001 test: lm/grpc 13% → 37%, lm/backends 67% → 68%, fix nil-deref bug
+b38f202 test: ratchet resources to 87% and gitutil to 87% (was 33% and 42%)
+6e00508 test: mock exec.Command + wire-protocol resources integration
+d37237b test: retrofit IoC seams + unit coverage for cmd/ surfaces
+37681b2 feat(sessions): replace time-window matcher with transcript-content scan
+949bcc7 chore(sessions): remove first-tool-call bind middleware
+fc59b5e feat(sessions): SessionStart hook is now the primary bind path
+5cf7642 feat(sessions): time-window fallback for un-bound harps + ended_at logging
+762278e docs: collapse plan from 674 lines to 104 — what-shipped record
+fb81825 chore: trim Phase 4 leftovers — stub files, env-var hack, hidden hook commands
+e2f1712 feat(sessions): restore force-distill path
+99792cc feat(run,sessions): OSC2 window title + regression tests for hook dedup and builtin bundles
+299470e chore(mcp): prune dead handler closures and input/result types from Phase 4
+f414574 feat(sessions): plans.md split + browse_remote templated resource
+3b6a7bf fix(hooks): recognize all ctxloom-managed hooks for dedup, not just inject-context
+7ebe82c fix: drop picker `d<N>` distill keystroke + repair Phase 4 tests  (reverted by e2f1712)
+c36b387 feat(bundles): ship core ctxloom bundles in the binary via go:embed
+b66eb5e feat(sessions): load_session reads harp essence directly
+2be2c6a docs: correct surviving-tool count after Phase 4 verification
+15a5d94 feat(mcp): migrate listings to resources, remove their tools (Phase 4 Lever A)
+7200da0 feat(mcp): demote 15 write tools to CLI-only (Phase 4 Lever B)
+f89ad57 fix(bundle): drop explicit `.*` matcher from tasks bundle post_file_edit hook
+9be0f8d feat(mcp): resources framework + 3 starter resources (Phase 4.1 partial)
+e3a195d feat(memory): compactor writes essence under harp-dir layout (Phase 3.6)
+1d2b418 feat(sessions): ctxloom session CLI surface + Rename/Forget index ops
+0ae387a feat(sessions): resume by harp + frontmatter summaries + hud display
+2679ece feat(run): wire pre-launch resume picker into ctxloom run
+cce0a2a feat(sessions): pre-launch resume picker with per-row checkboxes
+f0e7d48 feat(sessions): harp-named session index + pre-launch assignment
+f1b886f feat(tasks): plan-stamping hook + draft ctxloom-default-tasks bundle
+599d699 feat(bundles): ship hooks declaratively from bundle YAML
+303170f feat(tasks): file-backed task store + MCP tools + ctxloom tasks CLI
+b287dac feat(harp): native Go port of harp-core for ID generation
+c0605d7 docs: draft ctxloom-tasks replacement plan
+```

@@ -182,9 +182,9 @@ tidy:
 fmt:
     go fmt ./...
 
-# Lint code (requires golangci-lint)
-lint:
-    golangci-lint run
+# Lint code (delegates to devcontainer for the pinned golangci-lint)
+lint: dev-image
+    just _run lint
 
 # Run the CLI
 run *ARGS:

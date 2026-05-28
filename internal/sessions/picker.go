@@ -2,11 +2,12 @@ package sessions
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/iox"
 )
 
 // Decision is what the picker returns: either resume an existing session,
@@ -54,7 +55,6 @@ type Picker struct {
 	Now           func() time.Time // injectable clock for tests; nil → time.Now
 	checkSession  []bool           // [s] state per visible row
 	checkTasks    []bool           // [t] state per visible row
-	revealAll     bool             // toggled by `m` keystroke
 	scanner       *bufio.Scanner
 	horizonReveal int              // how many `m` keystrokes have been pressed (additive horizon)
 }
@@ -150,10 +150,11 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 		}
 	}
 
+	w := p.diag()
 	if n, ok := parseRowNumber(low); ok {
 		visible := p.visible()
 		if n < 1 || n > len(visible) {
-			fmt.Fprintf(p.Out, "row %d out of range (1..%d)\n", n, len(visible))
+			w.Printf("row %d out of range (1..%d)\n", n, len(visible))
 			return Decision{}, actionLoop
 		}
 		entryIdx := visible[n-1]
@@ -165,7 +166,7 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 		}, actionResolved
 	}
 
-	fmt.Fprintf(p.Out, "unrecognized input: %q. Try a row number, n, m, s<N>, t<N>, or q.\n", line)
+	w.Printf("unrecognized input: %q. Try a row number, n, m, s<N>, t<N>, or q.\n", line)
 	return Decision{}, actionLoop
 }
 
@@ -179,19 +180,20 @@ type DistillFunc func(harpName string) error
 // picker re-render will show it. On failure the error is surfaced
 // inline; the picker keeps looping for the user's next keystroke.
 func (p *Picker) distillRow(n int) {
+	w := p.diag()
 	visible := p.visible()
 	if n < 1 || n > len(visible) {
-		fmt.Fprintf(p.Out, "row %d out of range (1..%d)\n", n, len(visible))
+		w.Printf("row %d out of range (1..%d)\n", n, len(visible))
 		return
 	}
 	if p.Distill == nil {
-		fmt.Fprintln(p.Out, "(distill not available in this context)")
+		w.Println("(distill not available in this context)")
 		return
 	}
 	harp := p.Entries[visible[n-1]].HarpName
-	fmt.Fprintf(p.Out, "distilling %s (this may take a moment)...\n", harp)
+	w.Printf("distilling %s (this may take a moment)...\n", harp)
 	if err := p.Distill(harp); err != nil {
-		fmt.Fprintf(p.Out, "distill failed: %v\n", err)
+		w.Printf("distill failed: %v\n", err)
 		return
 	}
 	// Reload the entry from disk so the summary surfaces on re-render.
@@ -207,7 +209,8 @@ func (p *Picker) distillRow(n int) {
 func (p *Picker) toggleCheck(n int, isSession bool) {
 	visible := p.visible()
 	if n < 1 || n > len(visible) {
-		fmt.Fprintf(p.Out, "row %d out of range (1..%d)\n", n, len(visible))
+		w := p.diag()
+		w.Printf("row %d out of range (1..%d)\n", n, len(visible))
 		return
 	}
 	entryIdx := visible[n-1]
@@ -239,13 +242,24 @@ func (p *Picker) visible() []int {
 	return out
 }
 
+// diag returns a best-effort writer over p.Out for the picker's
+// interactive prompts and inline messages. The picker is a transient
+// stderr UI whose render/handle methods have no error-return path, so a
+// failed terminal write is intentionally dropped: the iox.ErrWriter
+// captures it but callers don't inspect Err() (a broken terminal at this
+// point isn't something the picker can recover from anyway).
+func (p *Picker) diag() *iox.ErrWriter {
+	return iox.NewErrWriter(p.Out)
+}
+
 // render writes the current picker state to p.Out.
 func (p *Picker) render() {
+	w := p.diag()
 	visible := p.visible()
-	fmt.Fprintln(p.Out, "")
+	w.Println("")
 	for i, entryIdx := range visible {
 		e := p.Entries[entryIdx]
-		fmt.Fprintf(p.Out, " [%d] [s%s] [t%s] %s   %s\n",
+		w.Printf(" [%d] [s%s] [t%s] %s   %s\n",
 			i+1,
 			checkbox(p.checkSession[entryIdx]),
 			checkbox(p.checkTasks[entryIdx]),
@@ -253,16 +267,16 @@ func (p *Picker) render() {
 			e.StartedAt.Local().Format("2006-01-02 15:04"),
 		)
 		if e.Summary != "" {
-			fmt.Fprintf(p.Out, "       session: %s\n", e.Summary)
+			w.Printf("       session: %s\n", e.Summary)
 		} else {
-			fmt.Fprintf(p.Out, "       session: (no summary)\n")
+			w.Printf("       session: (no summary)\n")
 		}
 	}
 	if len(visible) < len(p.Entries) {
-		fmt.Fprintf(p.Out, "\n  (%d older sessions hidden; press m to reveal)\n", len(p.Entries)-len(visible))
+		w.Printf("\n  (%d older sessions hidden; press m to reveal)\n", len(p.Entries)-len(visible))
 	}
-	fmt.Fprintln(p.Out, "")
-	fmt.Fprintf(p.Out, "Choose [1-%d] resume · n new · s<N>/t<N> toggle · d<N> distill · m more · q quit\n> ", len(visible))
+	w.Println("")
+	w.Printf("Choose [1-%d] resume · n new · s<N>/t<N> toggle · d<N> distill · m more · q quit\n> ", len(visible))
 }
 
 func checkbox(checked bool) string {

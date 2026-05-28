@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
@@ -66,8 +67,9 @@ var tasksAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-		return nil
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
 	},
 }
 
@@ -84,8 +86,9 @@ var tasksStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-		return nil
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
 	},
 }
 
@@ -107,13 +110,14 @@ var tasksSummaryCmd = &cobra.Command{
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+		w := iox.NewErrWriter(cmd.OutOrStdout())
 		for _, k := range keys {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%d\n", k, sum.Counts[k])
+			w.Printf("%s\t%d\n", k, sum.Counts[k])
 		}
 		if len(sum.InProgress) > 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
+			w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
 		}
-		return nil
+		return w.Err()
 	},
 }
 
@@ -143,9 +147,10 @@ var tasksCaptureCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "added=%d updated=%d archived=%d\n",
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("added=%d updated=%d archived=%d\n",
 			len(diff.Added), len(diff.Updated), len(diff.Archived))
-		return nil
+		return w.Err()
 	},
 }
 
@@ -226,19 +231,20 @@ func writeJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-func renderTaskTable(w io.Writer, list []tasks.Task) error {
+func renderTaskTable(out io.Writer, list []tasks.Task) error {
+	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
-		fmt.Fprintln(w, "(no tasks)")
-		return nil
+		w.Println("(no tasks)")
+		return w.Err()
 	}
 	for _, t := range list {
 		check := " "
 		if t.Checked {
 			check = "x"
 		}
-		fmt.Fprintf(w, "[%s] %-22s  %-12s  %s\n", check, t.HarpID, t.Status, t.Text)
+		w.Printf("[%s] %-22s  %-12s  %s\n", check, t.HarpID, t.Status, t.Text)
 	}
-	return nil
+	return w.Err()
 }
 
 // todoEntry mirrors one element of Claude Code's TodoWrite tool_input.todos

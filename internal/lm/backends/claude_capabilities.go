@@ -173,15 +173,19 @@ func WithClaudeSessionHomeDir(dir string) ClaudeSessionHistoryOption {
 }
 
 // NewClaudeSessionHistory creates a new Claude session history handler.
+// The registry shares h.fs so a single WithClaudeSessionFS option
+// hermetically swaps both surfaces — otherwise the underlying registry
+// would still hit the real filesystem during RegisterSession /
+// GetPreviousSession.
 func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOption) *ClaudeSessionHistory {
 	h := &ClaudeSessionHistory{
-		backend:  backend,
-		registry: NewBaseSessionRegistry("claude-session-registry.json"),
-		fs:       afero.NewOsFs(),
+		backend: backend,
+		fs:      afero.NewOsFs(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
+	h.registry = NewBaseSessionRegistry("claude-session-registry.json", WithRegistryFS(h.fs))
 	return h
 }
 
@@ -421,14 +425,20 @@ func (h *ClaudeSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 }
 
 // TranscriptPathFromHook computes the transcript path from hook input.
-// For Claude, we compute the path from sessionID + workDir.
+// For Claude, we compute the path from sessionID + workDir. Honors the
+// h.homeDir override when set so tests can pin the expected path
+// without depending on $HOME.
 func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
 	if sessionID == "" {
 		return ""
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	homeDir := h.homeDir
+	if homeDir == "" {
+		hd, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		homeDir = hd
 	}
 	absPath, err := filepath.Abs(workDir)
 	if err != nil {

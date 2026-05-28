@@ -65,6 +65,25 @@ func TestBindSession_Idempotent(t *testing.T) {
 	require.NoError(t, m.BindSession(entry.HarpName, "uuid-1", "/t1"))
 }
 
+func TestBindSession_FirstBindWinsOnDifferentID(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "first-id", "/orig"))
+
+	// Storage-layer defense-in-depth: a second bind with a different
+	// SessionID must not clobber the first. Caller-side short-circuits
+	// already guard against this, but a TOCTOU race between Find and
+	// BindSession (or a future binder that forgets the check) would
+	// otherwise let a stale ID overwrite a fresh one.
+	require.NoError(t, m.BindSession(entry.HarpName, "second-id", "/new"))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, "first-id", found.SessionID, "first bind wins")
+	assert.Equal(t, "/orig", found.TranscriptPath, "transcript path also pinned to first bind")
+}
+
 func TestBindSession_UnknownHarpErrors(t *testing.T) {
 	m := newManager(t)
 	assert.Error(t, m.BindSession("nope-nope-nope", "uuid", ""))

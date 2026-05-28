@@ -140,7 +140,9 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 // BindSession fills in the backend-native session ID and transcript path
 // for an existing harp-named entry. Called from the MCP initialize
 // handler once the backend has bootstrapped enough to know its session
-// UUID. No-op if the entry is already bound.
+// UUID. First bind wins: once SessionID is set, subsequent calls with a
+// different ID are silently dropped so a stale binder cannot clobber a
+// fresh one through a TOCTOU race between Find and BindSession.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -159,8 +161,12 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 		if idx.Sessions[i].HarpName != harpName {
 			continue
 		}
-		// Idempotent: already bound is fine.
-		if idx.Sessions[i].SessionID == sessionID {
+		// First bind wins. Same ID is a no-op (idempotent re-runs);
+		// a different ID over an already-bound entry is also a no-op
+		// — defense-in-depth for the SessionStart-vs-compact-vs-scan
+		// race the caller-side `entry.SessionID != ""` checks already
+		// guard against.
+		if idx.Sessions[i].SessionID != "" {
 			return nil
 		}
 		idx.Sessions[i].SessionID = sessionID

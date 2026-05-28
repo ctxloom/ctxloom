@@ -146,3 +146,44 @@ func LoadPendingLockfile(cfg *config.Config) (*remote.Lockfile, error) {
 	}
 	return lock, nil
 }
+
+// LoadActiveLockfile returns the active lockfile (or an empty one if not
+// yet on disk). Mirrors LoadPendingLockfile. Used by pin_bundle to report
+// the pinned SHA back to the caller.
+func LoadActiveLockfile(cfg *config.Config) (*remote.Lockfile, error) {
+	baseDir := getBaseDir(cfg)
+	return remote.NewLockfileManager(baseDir).Load()
+}
+
+// SetBundlePin flips the Pinned flag on the active lockfile entry for
+// name. Returns whether the entry was present. Persists the lockfile on
+// success. ErrNotFound (false, nil) is the "no such bundle in active
+// lock" signal; callers surface that as a friendly error rather than
+// treating it as a failure.
+//
+// Pinning is metadata-only: the SHA stays where it is, and future syncs
+// still pull new SHAs into pending. The pin's effect is that
+// DiffLockfiles no longer surfaces the change in the review template,
+// so the user stops seeing review prompts for this bundle.
+func SetBundlePin(cfg *config.Config, name string, pinned bool) (bool, error) {
+	baseDir := getBaseDir(cfg)
+	activeMgr := remote.NewLockfileManager(baseDir)
+	active, err := activeMgr.Load()
+	if err != nil {
+		return false, fmt.Errorf("load active lockfile: %w", err)
+	}
+	entry, ok := active.GetEntry(remote.ItemTypeBundle, name)
+	if !ok {
+		return false, nil
+	}
+	if entry.Pinned == pinned {
+		// Idempotent: nothing to save.
+		return true, nil
+	}
+	entry.Pinned = pinned
+	active.AddEntry(remote.ItemTypeBundle, name, entry)
+	if err := activeMgr.Save(active); err != nil {
+		return true, fmt.Errorf("save active lockfile: %w", err)
+	}
+	return true, nil
+}

@@ -1127,12 +1127,22 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 	return nil
 }
 
-// ResolveBundleMCPServers loads MCP servers from bundles referenced in the default profiles.
-// It returns a map of server name to MCPServer configuration.
+// ResolveBundleMCPServers loads MCP servers from bundles referenced in the
+// default profiles, plus servers shipped by built-in bundles embedded in
+// the binary (resources/builtin_bundles). Mirrors ResolveBundleHooks: any
+// future built-in that ships an MCP server is picked up automatically,
+// tagged with SCM="builtin:<name>" so reconciliation can identify it.
+// Returns a map of server name to MCPServer configuration.
 func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 	result := make(map[string]MCPServer)
 
-	// Get the default profile names
+	// Built-in bundles are unconditional — they ship core ctxloom
+	// functionality and aren't gated on profile membership. Run them
+	// first so profile-sourced servers can intentionally override.
+	for name, server := range resolveBuiltinBundleMCPServers() {
+		result[name] = server
+	}
+
 	defaultProfiles := c.GetDefaultProfiles()
 	if len(defaultProfiles) == 0 {
 		return result
@@ -1168,6 +1178,37 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 	}
 
 	return result
+}
+
+// resolveBuiltinBundleMCPServers parses every YAML under
+// resources/builtin_bundles/ (embedded at build time) and returns the
+// merged MCP-server map. Mirrors resolveBuiltinBundleHooks. Each server
+// is tagged with SCM="builtin:<name>" so apply-* reconciliation can
+// identify built-in entries. Failures on individual bundles are logged
+// to stderr and skipped — built-in bundles must never block startup.
+func resolveBuiltinBundleMCPServers() map[string]MCPServer {
+	out := make(map[string]MCPServer)
+	names, err := resources.ListBuiltinBundles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		return out
+	}
+	for _, name := range names {
+		data, err := resources.GetBuiltinBundle(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		var b bundles.Bundle
+		if err := yaml.Unmarshal(data, &b); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name) {
+			out[serverName] = server
+		}
+	}
+	return out
 }
 
 // loadMCPFromBundleRef loads MCP servers from a bundle reference (URL or name).

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -333,21 +334,56 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 	return w.Err()
 }
 
-// discoverSessionByHarpName scans every backend transcript for the
-// given project, looking for the harp name string in entry content,
-// tool input/output, or tool name. Used as last-resort rescue when no
-// forward-bind landed.
+// harpSessionMarkerPrefix tags a session with its own harp name in a
+// uniquely-greppable form. ctxloom emits the full marker into the MCP
+// ServerOptions.Instructions block (cmd/mcp_server.go), so it lands in the
+// session's raw transcript exactly once — in that session's own
+// instructions. Transcript-scan discovery anchors on it (see
+// discoverSessionByHarpName) to latch onto the session that IS the harp,
+// not one that merely mentions it. Kept distinct from any human-readable
+// prose so discovery never depends on wording that may change.
+const harpSessionMarkerPrefix = "ctxloom harp session: "
+
+// harpSessionMarker returns the canonical discovery marker for a harp. The
+// name is double-quoted so the marker is self-delimiting: a substring scan
+// for `…: "foo"` won't spuriously match `…: "foo-bar"`. Both the emitter and
+// the scanner call this, so the wire format can't drift.
+func harpSessionMarker(harp string) string {
+	return harpSessionMarkerPrefix + `"` + harp + `"`
+}
+
+// discoverSessionByHarpName finds the backend session that IS the given
+// harp, used as last-resort rescue when no forward-bind landed.
 //
-// The harp name is guaranteed to appear in any session ctxloom
-// launched: ServerOptions.Instructions on the MCP initialize response
-// includes "Your session is named `<harp>`. …", and Claude Code
-// records the resolved system context in the jsonl. Tool outputs from
-// list_sessions / task_list / etc. echo harp IDs too, so even sessions
-// where the system context was somehow lost can match on later turns.
+// It scans each transcript for the canonical marker `<prefix><harp>` that
+// ctxloom injects into ServerOptions.Instructions (see harpSessionMarker /
+// cmd/mcp_server.go), but counts a hit ONLY when the marker rides in that
+// transcript's MCP-instructions entry — the one Claude Code writes the
+// instructions block into at session init. So a match means this session IS
+// the harp, never one that merely *mentions* it.
 //
-// Per project: typically <100 sessions, each <500 entries. Linear scan
-// is fine. We stop at the first match because harps are unique by
-// construction.
+// Why scope to the instructions entry: the marker is plain text, so a
+// transcript that discusses a harp (this session distilling another, picker
+// listings, list_sessions / task_list output, or — in this very repo — code
+// that quotes the marker format) carries the bytes in conversational
+// entries. A whole-file byte scan would mis-bind to the wrong conversation.
+// The marker only lands in the instructions entry of the session it belongs
+// to, so gating on that entry is exact: no other session's instructions
+// carry this harp's marker.
+//
+// How the entry is identified: Claude Code records the instructions block as
+// a `type: attachment` entry (attachment.type `mcp_instructions_delta`) whose
+// addedBlocks hold each server's instructions text; the normalized parser
+// drops it, and the schema is undocumented and unstable
+// (anthropics/claude-code#53516). We decode only the few fields that identify
+// the entry, and only on lines whose raw bytes already carry the marker
+// prefix — see fileContainsMarker. If that subtype string drifts, discovery
+// degrades to "not auto-discoverable, bind explicitly" rather than
+// mis-binding. Sessions that predate the marker are likewise not
+// auto-discoverable.
+//
+// Per project: typically <100 sessions. Linear scan is fine; the first
+// marker hit wins since harps are unique by construction.
 func discoverSessionByHarpName(backendName, workDir, harpName string) (string, error) {
 	if workDir == "" {
 		return "", fmt.Errorf("workDir required for transcript scan")
@@ -367,45 +403,73 @@ func discoverSessionByHarpName(backendName, workDir, harpName string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("list backend sessions: %w", err)
 	}
+
+	marker := harpSessionMarker(harpName)
 	for _, m := range metas {
-		session, err := history.GetSession(workDir, m.ID)
-		if err != nil || session == nil {
-			continue
-		}
-		if sessionContainsHarpName(session, harpName) {
+		if m.Path != "" && fileContainsMarker(m.Path, marker) {
 			return m.ID, nil
 		}
 	}
-	return "", fmt.Errorf("no backend session in %q contains harp name %q", workDir, harpName)
+	return "", fmt.Errorf("no backend session in %q carries the ctxloom marker for harp %q (only sessions started after the marker landed are auto-discoverable; bind it explicitly otherwise)", workDir, harpName)
 }
 
-// sessionContainsHarpName scans every entry in a session for the harp
-// name string. Extracted as a top-level pure function so the matching
-// logic is unit-testable without standing up a backend registry.
-func sessionContainsHarpName(session *backends.Session, harpName string) bool {
-	if session == nil || harpName == "" {
+// instructionsAttachmentType is the attachment subtype Claude Code stamps on
+// the entry that records an MCP server's `initialize` instructions block. The
+// harp marker is appended to ServerOptions.Instructions (cmd/mcp_server.go),
+// so the canonical marker lands in exactly this entry — once, at session
+// init. Scanning is scoped to it (see fileContainsMarker) so a later
+// conversational mention of the marker can never be mistaken for the binding.
+// Part of Claude Code's undocumented transcript schema
+// (anthropics/claude-code#53516); if it drifts, discovery degrades to
+// "bind explicitly" rather than mis-binding.
+const instructionsAttachmentType = "mcp_instructions_delta"
+
+// fileContainsMarker reports whether the transcript at path carries marker in
+// its MCP-instructions entry — i.e. whether this session IS the harp, not one
+// that merely mentions it (see discoverSessionByHarpName for why this matters).
+//
+// The whole file is read because a single jsonl entry can exceed
+// bufio.Scanner's line limit (megabytes). Each line is one transcript entry.
+// We cheaply pre-filter to lines whose RAW bytes carry the marker prefix
+// (quote-free, so it survives JSON escaping), then decode only those: the
+// marker rides JSON-encoded inside the instructions delta's addedBlocks, so
+// its quotes are backslash-escaped on the wire and a raw scan for the
+// literal-quote marker would miss it. Matching the *decoded* block restores
+// the quotes and keeps the self-delimiting guarantee. A read error, or a line
+// that doesn't decode, is treated as "no match" — a transcript or entry we
+// can't read can't be the one we want. Cost is irrelevant on this rare
+// fallback path.
+func fileContainsMarker(path, marker string) bool {
+	if marker == "" {
 		return false
 	}
-	for _, e := range session.Entries {
-		if entryMentionsHarp(e, harpName) {
-			return true
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	prefix := []byte(harpSessionMarkerPrefix)
+	for line := range bytes.Lines(data) {
+		if !bytes.Contains(line, prefix) {
+			continue
 		}
-	}
-	return false
-}
-
-func entryMentionsHarp(e backends.SessionEntry, harpName string) bool {
-	if strings.Contains(e.Content, harpName) {
-		return true
-	}
-	if strings.Contains(e.ToolOutput, harpName) {
-		return true
-	}
-	if strings.Contains(e.ToolName, harpName) {
-		return true
-	}
-	if len(e.ToolInput) > 0 && strings.Contains(string(e.ToolInput), harpName) {
-		return true
+		var entry struct {
+			Type       string `json:"type"`
+			Attachment struct {
+				Type        string   `json:"type"`
+				AddedBlocks []string `json:"addedBlocks"`
+			} `json:"attachment"`
+		}
+		if json.Unmarshal(line, &entry) != nil {
+			continue
+		}
+		if entry.Type != "attachment" || entry.Attachment.Type != instructionsAttachmentType {
+			continue
+		}
+		for _, block := range entry.Attachment.AddedBlocks {
+			if strings.Contains(block, marker) {
+				return true
+			}
+		}
 	}
 	return false
 }

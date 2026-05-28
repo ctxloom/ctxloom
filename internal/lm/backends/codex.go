@@ -198,6 +198,7 @@ func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error
 		sessions = append(sessions, SessionMeta{
 			ID:        relPath,
 			StartTime: info.ModTime(),
+			Path:      path,
 		})
 		return nil
 	})

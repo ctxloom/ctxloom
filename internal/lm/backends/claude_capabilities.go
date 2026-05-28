@@ -226,6 +226,7 @@ func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]SessionMeta, erro
 		sessions = append(sessions, SessionMeta{
 			ID:        strings.TrimSuffix(entry.Name(), ".jsonl"),
 			StartTime: entry.ModTime(), // Approximate - would need to read file for exact
+			Path:      filepath.Join(projectDir, entry.Name()),
 		})
 	}
 

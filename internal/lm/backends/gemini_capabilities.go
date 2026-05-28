@@ -352,6 +352,7 @@ func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, er
 		sessions = append(sessions, SessionMeta{
 			ID:        strings.TrimSuffix(entry.Name(), ".json"),
 			StartTime: entry.ModTime(), // Approximate
+			Path:      filepath.Join(chatsDir, entry.Name()),
 		})
 	}
 

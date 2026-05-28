@@ -880,17 +880,42 @@ var ctxloomMCPArgs = []string{"mcp"}
 // legacy inject-context entry and bundle-shipped hooks (tasks capture,
 // stamp-plan) accumulate duplicates on every apply-hooks run.
 func isCtxloomManagedHook(command string) bool {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
+	exe := firstShellToken(command)
+	if exe == "" {
 		return false
 	}
-	exe := strings.Trim(fields[0], `"'`)
 	// Strip any directory prefix and any .exe suffix.
 	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
 		exe = exe[i+1:]
 	}
 	exe = strings.TrimSuffix(exe, ".exe")
+	// Defensive: drop any stray surrounding quote chars left by a
+	// malformed (unbalanced) quoting in the source command.
+	exe = strings.Trim(exe, `"'`)
 	return exe == "ctxloom"
+}
+
+// firstShellToken returns the leading executable token of a /bin/sh-style
+// command string, honoring a single- or double-quoted path that may
+// contain spaces (e.g. `"/Apps/My Tools/ctxloom" mcp` → `/Apps/My
+// Tools/ctxloom`). An unquoted token ends at the first whitespace. This
+// is intentionally minimal — just enough to identify the executable, not
+// a full shell-word parser.
+func firstShellToken(command string) string {
+	command = strings.TrimLeft(command, " \t")
+	if command == "" {
+		return ""
+	}
+	if q := command[0]; q == '"' || q == '\'' {
+		if end := strings.IndexByte(command[1:], q); end >= 0 {
+			return command[1 : 1+end]
+		}
+		return command[1:] // unterminated quote: take the remainder
+	}
+	if i := strings.IndexAny(command, " \t"); i >= 0 {
+		return command[:i]
+	}
+	return command
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.
@@ -1009,10 +1034,19 @@ func NewContextInjectionHook(hash, workDir string) config.Hook {
 		absWorkDir = abs
 	}
 	return config.Hook{
-		Command: fmt.Sprintf(`ctxloom hook inject-context --project "%s" %s`, absWorkDir, hash),
+		Command: fmt.Sprintf("ctxloom hook inject-context --project %s %s", shellSingleQuote(absWorkDir), hash),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
 	}
+}
+
+// shellSingleQuote wraps s in single quotes for safe interpolation into a
+// /bin/sh command string, escaping embedded single quotes as the standard
+// '\'' idiom. Unlike double-quoting, single quotes neutralize spaces, $,
+// backticks, and backslashes — so a project path containing any of those
+// can't break the command split or inject shell behavior.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // mergeHooksConfig merges source hooks into dest hooks.

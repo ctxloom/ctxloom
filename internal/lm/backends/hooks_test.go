@@ -472,6 +472,23 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 		"auto-registered MCP server command must be bare; got %q", ctxloomServer["command"])
 }
 
+// TestNewContextInjectionHook_ShellQuotesProjectPath pins the shell-safe
+// quoting of the --project path: spaces, single quotes, and shell
+// metacharacters must not break the command split or inject behavior when
+// /bin/sh runs the hook.
+func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
+	h := NewContextInjectionHook("hash1", "/tmp/My Project")
+	assert.Contains(t, h.Command, `--project '/tmp/My Project' hash1`,
+		"path with spaces must be single-quoted; got %q", h.Command)
+
+	h = NewContextInjectionHook("hash2", "/tmp/it's mine")
+	assert.Contains(t, h.Command, `--project '/tmp/it'\''s mine' hash2`,
+		"embedded single quote must use the '\\'' idiom; got %q", h.Command)
+
+	assert.True(t, strings.HasPrefix(h.Command, "ctxloom hook inject-context "),
+		"bare-ctxloom prefix invariant must hold; got %q", h.Command)
+}
+
 // TestIsCtxloomManagedHook covers the predicate that drives the dedup
 // pass. Pre-3b6a7bf this only matched inject-context.
 func TestIsCtxloomManagedHook(t *testing.T) {
@@ -483,6 +500,10 @@ func TestIsCtxloomManagedHook(t *testing.T) {
 		`"/usr/bin/ctxloom" meta hud`:                     true,
 		"/home/me/go/bin/ctxloom tasks capture --stdin":   true,
 		`"C:\Tools\ctxloom.exe" tasks stamp-plan`:         true,
+		// Quoted executable path containing spaces — strings.Fields used to
+		// split this mid-path and miss it, leaving dup hooks to accumulate.
+		`"/Apps/My Tools/ctxloom" mcp`:                    true,
+		`'/Apps/My Tools/ctxloom' tasks stamp-plan`:       true,
 		// Not ctxloom.
 		"echo 'user hook'":                                false,
 		"node /opt/somewhere/script.js":                   false,

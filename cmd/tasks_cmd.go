@@ -192,6 +192,14 @@ func init() {
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 
+	// `--stdin` is accepted (and is the only supported input) so the
+	// auto-capture hook command shipped by the embedded tasks bundle
+	// (`ctxloom tasks capture --stdin`) parses. Without this flag declared,
+	// cobra rejects the hook invocation with "unknown flag: --stdin" and every
+	// TodoWrite capture silently fails. The command reads stdin regardless of
+	// the flag's value.
+	tasksCaptureCmd.Flags().Bool("stdin", true, "read the TodoWrite payload from stdin (the only supported input)")
+
 	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksCaptureCmd, tasksStampPlanCmd)
 	rootCmd.AddCommand(tasksCmd)
 }

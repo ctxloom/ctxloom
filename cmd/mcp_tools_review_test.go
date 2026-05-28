@@ -5,9 +5,15 @@
 package cmd
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // =============================================================================
@@ -175,4 +181,47 @@ hooks:
 `
 	got := diffBundleYAMLs([]byte(before), []byte(after))
 	assert.Contains(t, got, "PreTool: 0 → 1")
+}
+
+// =============================================================================
+// handleAcknowledgeBundleReview — disk reconciliation
+// =============================================================================
+
+func writePendingBundle(t *testing.T, baseDir string, entries map[string]remote.LockEntry) {
+	t.Helper()
+	mgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
+	require.NoError(t, mgr.Save(&remote.Lockfile{Bundles: entries, Profiles: map[string]remote.LockEntry{}}))
+}
+
+func TestHandleAcknowledgeBundleReview_ReconcilesFromDisk(t *testing.T) {
+	// Regression: a CLI `remote sync` can write lock.pending.yaml while the
+	// MCP server is already running, so the in-memory review tracker never
+	// sees it. acknowledge_bundle_review must merge what's on disk rather
+	// than reporting "no pending".
+	dir := withProjectDir(t)
+	baseDir := filepath.Join(dir, ".ctxloom")
+	writePendingBundle(t, baseDir, map[string]remote.LockEntry{"r/a": {SHA: "111"}})
+
+	s := &ctxServer{cfg: &config.Config{AppPaths: []string{baseDir}}, review: &bundleReviewState{}}
+	require.False(t, s.review.hasPending(), "precondition: in-memory tracker empty")
+
+	_, res, err := s.handleAcknowledgeBundleReview(context.Background(), nil, acknowledgeBundleReviewInput{})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, "approved", res.Status)
+	assert.Equal(t, 1, res.Merged)
+
+	active, err := remote.NewLockfileManager(baseDir).Load()
+	require.NoError(t, err)
+	assert.Contains(t, active.Bundles, "r/a", "pending entry merged into active")
+}
+
+func TestHandleAcknowledgeBundleReview_TrulyEmptyReportsNoPending(t *testing.T) {
+	dir := withProjectDir(t)
+	s := &ctxServer{cfg: &config.Config{AppPaths: []string{filepath.Join(dir, ".ctxloom")}}, review: &bundleReviewState{}}
+
+	_, res, err := s.handleAcknowledgeBundleReview(context.Background(), nil, acknowledgeBundleReviewInput{})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, "no_pending", res.Status)
 }

@@ -79,6 +79,11 @@ Original assumptions and what the code audit found.
 - **Built-in bundles dropped from `ResolveBundleMCPServers`** — *fixed.* `resolveBuiltinBundleMCPServers` mirrors `resolveBuiltinBundleHooks`; any future built-in shipping MCP servers is now picked up with `SCM=builtin:<name>`. Pinned by `TestResolveBuiltinBundleMCPServers`.
 - **Picker `d<N>` doesn't catch `(deleted)` suffix** — *fixed.* `cmd/run.go::resolveSelfExecutable` strips the suffix, stat-verifies the result, and falls back to bare `"ctxloom"` (PATH lookup) when either step fails. Five unit tests cover the matrix.
 
+### Trust + acknowledge reconciliation (fixed 2026-05-28)
+
+- **Trusted bundles were orphaned in pending.** Sync routes every bundle write to `lock.pending.yaml`; `DiffLockfiles` filtered trusted remotes *out of the review changeset*, but nothing promoted them into active — so trusted bundles sat in pending forever and their fragments never materialized. *Fixed:* `operations.PromoteTrustedPendingBundles` lifts trusted-remote pending entries straight into active (pin overrides trust), called from `SyncDependencies` and `PendingBundleChanges`. Trust now truly bypasses the gate. Pinned by `TestPromoteTrustedPendingBundles`.
+- **`acknowledge_bundle_review` desynced from disk.** The handler keyed off in-memory `s.review`, which is only populated at MCP startup. A CLI `ctxloom remote sync` while the server is running (or trusted-orphan leftovers) left the file holding entries the tracker never saw → "No bundle review pending" despite a non-empty `lock.pending.yaml`. *Fixed:* `handleAcknowledgeBundleReview` treats the pending file on disk as authoritative. Pinned by `TestHandleAcknowledgeBundleReview_ReconcilesFromDisk`.
+
 ---
 
 ## Coverage gaps

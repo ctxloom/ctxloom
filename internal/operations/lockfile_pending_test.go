@@ -3,6 +3,7 @@ package operations
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -214,5 +215,120 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, lock)
 		assert.Len(t, lock.Bundles, 1)
+	})
+}
+
+func TestPromoteTrustedPendingBundles(t *testing.T) {
+	mkCfg := func(t *testing.T) *config.Config {
+		t.Helper()
+		return &config.Config{AppPaths: []string{t.TempDir()}}
+	}
+
+	// trustedRegistry returns a registry where "trusted" carries
+	// TrustBundles=true and "untrusted" does not.
+	trustedRegistry := func(t *testing.T) *remote.Registry {
+		t.Helper()
+		reg, err := remote.NewRegistry("", remote.WithRegistryFS(afero.NewMemMapFs()))
+		require.NoError(t, err)
+		require.NoError(t, reg.Add("trusted", "https://github.com/trusted/repo"))
+		require.NoError(t, reg.SetTrustBundles("trusted", true))
+		require.NoError(t, reg.Add("untrusted", "https://github.com/untrusted/repo"))
+		return reg
+	}
+
+	writePendingEntries := func(t *testing.T, cfg *config.Config, entries map[string]remote.LockEntry) {
+		t.Helper()
+		mgr := remote.NewLockfileManager(cfg.AppPaths[0], remote.WithPendingLockfile())
+		require.NoError(t, mgr.Save(&remote.Lockfile{Bundles: entries, Profiles: map[string]remote.LockEntry{}}))
+	}
+
+	writeActiveEntries := func(t *testing.T, cfg *config.Config, entries map[string]remote.LockEntry) {
+		t.Helper()
+		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
+		require.NoError(t, mgr.Save(&remote.Lockfile{Bundles: entries, Profiles: map[string]remote.LockEntry{}}))
+	}
+
+	loadActive := func(t *testing.T, cfg *config.Config) *remote.Lockfile {
+		t.Helper()
+		lock, err := remote.NewLockfileManager(cfg.AppPaths[0]).Load()
+		require.NoError(t, err)
+		return lock
+	}
+
+	loadPending := func(t *testing.T, cfg *config.Config) *remote.Lockfile {
+		t.Helper()
+		lock, err := remote.NewLockfileManager(cfg.AppPaths[0], remote.WithPendingLockfile()).Load()
+		require.NoError(t, err)
+		return lock
+	}
+
+	t.Run("promotes trusted entries and leaves untrusted in pending", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writePendingEntries(t, cfg, map[string]remote.LockEntry{
+			"trusted/x":   {SHA: "111"},
+			"untrusted/y": {SHA: "222"},
+		})
+
+		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"trusted/x"}, promoted)
+
+		active := loadActive(t, cfg)
+		assert.Contains(t, active.Bundles, "trusted/x")
+		assert.NotContains(t, active.Bundles, "untrusted/y")
+
+		pending := loadPending(t, cfg)
+		assert.NotContains(t, pending.Bundles, "trusted/x")
+		assert.Contains(t, pending.Bundles, "untrusted/y", "untrusted stays for review")
+	})
+
+	t.Run("pin overrides trust: pinned active entry is not promoted", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writeActiveEntries(t, cfg, map[string]remote.LockEntry{
+			"trusted/x": {SHA: "old", Pinned: true},
+		})
+		writePendingEntries(t, cfg, map[string]remote.LockEntry{
+			"trusted/x": {SHA: "new"},
+		})
+
+		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
+		require.NoError(t, err)
+		assert.Empty(t, promoted)
+
+		assert.Equal(t, "old", loadActive(t, cfg).Bundles["trusted/x"].SHA, "pinned SHA unchanged")
+		assert.Contains(t, loadPending(t, cfg).Bundles, "trusted/x", "new SHA still pending behind the pin")
+	})
+
+	t.Run("nil registry trusts nothing", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writePendingEntries(t, cfg, map[string]remote.LockEntry{
+			"trusted/x": {SHA: "111"},
+		})
+
+		promoted, err := PromoteTrustedPendingBundles(cfg, nil, afero.NewOsFs())
+		require.NoError(t, err)
+		assert.Empty(t, promoted)
+		assert.Empty(t, loadActive(t, cfg).Bundles)
+		assert.Contains(t, loadPending(t, cfg).Bundles, "trusted/x")
+	})
+
+	t.Run("deletes pending file when every entry is promoted", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writePendingEntries(t, cfg, map[string]remote.LockEntry{
+			"trusted/x": {SHA: "111"},
+			"trusted/z": {SHA: "333"},
+		})
+
+		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"trusted/x", "trusted/z"}, promoted)
+		assert.True(t, loadPending(t, cfg).IsEmpty(), "pending should be drained")
+	})
+
+	t.Run("empty pending is a no-op", func(t *testing.T) {
+		cfg := mkCfg(t)
+		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
+		require.NoError(t, err)
+		assert.Empty(t, promoted)
 	})
 }

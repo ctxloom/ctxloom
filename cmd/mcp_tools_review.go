@@ -155,8 +155,13 @@ func (s *ctxServer) registerReviewTools(server *mcp.Server) {
 }
 
 func (s *ctxServer) handleAcknowledgeBundleReview(ctx context.Context, _ *mcp.CallToolRequest, _ acknowledgeBundleReviewInput) (*mcp.CallToolResult, *acknowledgeBundleReviewResult, error) {
-	pending := s.review.snapshot()
-	if pending.IsEmpty() {
+	// The in-memory review state is populated at server startup, but the
+	// pending lockfile can change out-of-band — e.g. a `ctxloom remote
+	// sync` from the CLI while this server is already running. Treat the
+	// file on disk as authoritative: if it holds entries, there's a review
+	// to approve even when the in-memory tracker never saw them.
+	diskPending, _ := operations.LoadPendingLockfile(s.cfg)
+	if !s.review.hasPending() && diskPending == nil {
 		return nil, &acknowledgeBundleReviewResult{Status: "no_pending", Message: "No bundle review pending."}, nil
 	}
 	merged, err := operations.MergePendingLockfileCount(s.cfg)

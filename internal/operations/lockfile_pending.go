@@ -3,6 +3,9 @@ package operations
 import (
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -96,6 +99,63 @@ func PromotePendingBundles(cfg *config.Config, names []string) error {
 		return pendingMgr.Delete()
 	}
 	return pendingMgr.Save(pending)
+}
+
+// PromoteTrustedPendingBundles lifts every pending bundle whose source
+// remote is marked TrustBundles=true straight into the active lockfile,
+// dropping it from pending. Trust means "apply without review", so these
+// changes bypass the review gate entirely instead of being orphaned in
+// pending (where nothing would ever promote them).
+//
+// Pin overrides trust: a pending entry whose active counterpart is Pinned
+// is left in place — the user has explicitly frozen that bundle at its
+// active SHA, and a per-bundle pin is more specific than per-remote trust.
+//
+// fs is threaded so callers inside SyncDependencies operate on the same
+// (possibly in-memory) filesystem as the rest of the sync; pass
+// afero.NewOsFs() for real-disk callers. A nil registry trusts no remote,
+// making this a no-op. Returns the names promoted.
+func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry, fs afero.Fs) ([]string, error) {
+	baseDir := getBaseDir(cfg)
+	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
+	pending, err := pendingMgr.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load pending lockfile: %w", err)
+	}
+	if pending.IsEmpty() {
+		return nil, nil
+	}
+
+	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	active, err := activeMgr.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load active lockfile: %w", err)
+	}
+
+	var promoted []string
+	for name, entry := range pending.Bundles {
+		remoteName, _, _ := strings.Cut(name, "/")
+		if !isTrustedRemote(registry, remoteName) {
+			continue
+		}
+		if old, ok := active.GetEntry(remote.ItemTypeBundle, name); ok && old.Pinned {
+			continue
+		}
+		active.AddEntry(remote.ItemTypeBundle, name, entry)
+		pending.RemoveEntry(remote.ItemTypeBundle, name)
+		promoted = append(promoted, name)
+	}
+
+	if len(promoted) == 0 {
+		return nil, nil
+	}
+	if err := activeMgr.Save(active); err != nil {
+		return nil, fmt.Errorf("save active lockfile: %w", err)
+	}
+	if pending.IsEmpty() {
+		return promoted, pendingMgr.Delete()
+	}
+	return promoted, pendingMgr.Save(pending)
 }
 
 // DropPendingBundle removes one bundle from the pending lockfile (used by

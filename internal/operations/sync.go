@@ -155,9 +155,19 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		result.Status = "completed_with_errors"
 	}
 
+	// Trusted remotes bypass the review gate: lift their freshly-pulled
+	// entries out of pending and into active before diffing, so they apply
+	// without ever surfacing for review (and are never stranded in
+	// pending). Fault-tolerant — a failure here just leaves them pending.
+	if promoted, err := PromoteTrustedPendingBundles(cfg, registry, fs); err != nil {
+		zap.L().Warn("failed to promote trusted pending bundles", zap.Error(err))
+	} else if len(promoted) > 0 {
+		zap.L().Info("auto-applied trusted bundles", zap.Strings("bundles", promoted))
+	}
+
 	// Compute the bundle-level delta between active and pending. Empty if
 	// nothing landed in pending (e.g. only profiles synced, or every
-	// bundle came from a trusted remote and was filtered out).
+	// bundle came from a trusted remote and was promoted above).
 	result.Changes = computeBundleChanges(cfg, registry, fs)
 
 	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
@@ -202,7 +212,14 @@ func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
 	if err != nil {
 		registry = nil // diff degrades to "no trust filter" rather than aborting
 	}
-	return computeBundleChanges(cfg, registry, afero.NewOsFs())
+	fs := afero.NewOsFs()
+	// A pending file carried over from a previous session may strand
+	// trusted bundles that were never promoted. Lift them into active here
+	// too, so the startup reconcile path matches a fresh sync.
+	if _, err := PromoteTrustedPendingBundles(cfg, registry, fs); err != nil {
+		zap.L().Warn("failed to promote trusted pending bundles", zap.Error(err))
+	}
+	return computeBundleChanges(cfg, registry, fs)
 }
 
 // collectRemoteReferences collects all remote bundle and profile references from config.

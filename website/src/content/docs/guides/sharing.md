@@ -11,23 +11,22 @@ A ctxloom repository follows this structure:
 ```
 my-ctxloom-repo/
 ├── ctxloom/
-│   └── v1/
-│       ├── bundles/
-│       │   ├── my-bundle.yaml
-│       │   └── another-bundle.yaml
-│       └── profiles/
-│           └── my-profile.yaml
+│   ├── bundles/
+│   │   ├── my-bundle.yaml
+│   │   └── another-bundle.yaml
+│   └── profiles/
+│       └── my-profile.yaml
 └── README.md
 ```
 
-The `ctxloom/v1/` directory is required for ctxloom to recognize the repository as a valid remote.
+The `ctxloom/` directory is required for ctxloom to recognize the repository as a valid remote.
 
 ## Creating a Bundle
 
 ### Bundle File Structure
 
 ```yaml
-# ctxloom/v1/bundles/go-development.yaml
+# ctxloom/bundles/go-development.yaml
 version: "1.0"
 description: Go development context and best practices
 author: your-name
@@ -93,7 +92,7 @@ prompts:
 ## Creating a Profile
 
 ```yaml
-# ctxloom/v1/profiles/go-developer.yaml
+# ctxloom/profiles/go-developer.yaml
 description: Complete Go development environment
 parents:
   - base-developer  # Inherit from another profile
@@ -116,7 +115,7 @@ cd my-ctxloom-bundles
 git init
 
 # Create structure
-mkdir -p ctxloom/v1/bundles ctxloom/v1/profiles
+mkdir -p ctxloom/bundles ctxloom/profiles
 ```
 
 ### 2. Add Your Content
@@ -246,21 +245,20 @@ For larger organizations:
 ```
 org-ctxloom/
 ├── ctxloom/
-│   └── v1/
-│       ├── bundles/
-│       │   ├── frontend/
-│       │   │   ├── react.yaml
-│       │   │   └── typescript.yaml
-│       │   ├── backend/
-│       │   │   ├── go.yaml
-│       │   │   └── python.yaml
-│       │   └── shared/
-│       │       ├── security.yaml
-│       │       └── testing.yaml
-│       └── profiles/
-│           ├── frontend-dev.yaml
-│           ├── backend-dev.yaml
-│           └── fullstack-dev.yaml
+│   ├── bundles/
+│   │   ├── frontend/
+│   │   │   ├── react.yaml
+│   │   │   └── typescript.yaml
+│   │   ├── backend/
+│   │   │   ├── go.yaml
+│   │   │   └── python.yaml
+│   │   └── shared/
+│   │       ├── security.yaml
+│   │       └── testing.yaml
+│   └── profiles/
+│       ├── frontend-dev.yaml
+│       ├── backend-dev.yaml
+│       └── fullstack-dev.yaml
 └── README.md
 ```
 
@@ -276,7 +274,7 @@ Before publishing, validate your bundles:
 
 ```bash
 # Check YAML syntax
-yamllint ctxloom/v1/bundles/my-bundle.yaml
+yamllint ctxloom/bundles/my-bundle.yaml
 
 # Test loading
 ctxloom fragment show my-bundle#fragments/testing

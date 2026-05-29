@@ -50,7 +50,7 @@ To mark a profile as the default for `ctxloom run`, list it under
 
 | Format | Description |
 |--------|-------------|
-| `https://github.com/user/repo@v1/bundles/name` | Full URL with version |
+| `https://github.com/user/repo@bundles/name@v1.2.3` | Full URL with pinned content version |
 | `git@github.com:user/repo#fragments/name` | Git SSH format |
 
 ## Using Profiles

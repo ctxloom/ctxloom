@@ -11,7 +11,7 @@ Accepted.
 The remote/forge integration tasks (git-transport E2E, bundle resolution, the MCP
 review gate) need a "remote" that the clone/fetch/cache transport can pull from.
 The original plan called for a `gitea/gitea` container helper in
-`tests/integration/testenv` that boots a forge, seeds a `ctxloom/v1` repo, and
+`tests/integration/testenv` that boots a forge, seeds a `ctxloom` repo, and
 returns a clone URL + token, skipping when docker is unavailable.
 
 Two facts shaped the decision:

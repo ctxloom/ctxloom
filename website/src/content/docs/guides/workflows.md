@@ -93,13 +93,13 @@ git commit -m "Update ctxloom configuration"
 
 ```bash
 mkdir team-ctxloom && cd team-ctxloom
-mkdir -p ctxloom/v1/bundles ctxloom/v1/profiles
+mkdir -p ctxloom/bundles ctxloom/profiles
 ```
 
 2. **Add team standards**:
 
 ```yaml
-# ctxloom/v1/bundles/team-standards.yaml
+# ctxloom/bundles/team-standards.yaml
 version: "1.0"
 description: Team coding standards
 fragments:
@@ -114,7 +114,7 @@ fragments:
 3. **Create team profile**:
 
 ```yaml
-# ctxloom/v1/profiles/team-developer.yaml
+# ctxloom/profiles/team-developer.yaml
 description: Standard team development environment
 bundles:
   - team-standards

@@ -4,4 +4,3 @@
 remotes:
   ctxloom-default:
     url: https://github.com/ctxloom/ctxloom-default
-    version: v1

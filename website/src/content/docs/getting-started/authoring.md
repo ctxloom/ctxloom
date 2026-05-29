@@ -188,16 +188,15 @@ To share bundles via GitHub/GitLab, create a repository with this structure:
 ```
 my-ctxloom-repo/
 ├── ctxloom/
-│   └── v1/
-│       ├── bundles/
-│       │   ├── go-development.yaml
-│       │   └── testing-patterns.yaml
-│       └── profiles/
-│           └── go-developer.yaml
+│   ├── bundles/
+│   │   ├── go-development.yaml
+│   │   └── testing-patterns.yaml
+│   └── profiles/
+│       └── go-developer.yaml
 └── README.md
 ```
 
-The `ctxloom/v1/` directory is **required** for ctxloom to recognize the repository.
+The `ctxloom/` directory is **required** for ctxloom to recognize the repository.
 
 ### Naming for Discovery
 
@@ -211,10 +210,10 @@ Name your repository `ctxloom` or `ctxloom-*` to be discoverable:
 
 ```bash
 # Create repo structure
-mkdir -p ctxloom/v1/bundles ctxloom/v1/profiles
+mkdir -p ctxloom/bundles ctxloom/profiles
 
 # Copy your bundles
-cp .ctxloom/bundles/my-standards.yaml ctxloom/v1/bundles/
+cp .ctxloom/bundles/my-standards.yaml ctxloom/bundles/
 
 # Push to GitHub
 git init

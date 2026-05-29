@@ -36,24 +36,24 @@ func newGitLabFetcher(t *testing.T, stub *testenv.ForgeStub) *remote.GitLabFetch
 
 func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	stub := testenv.NewForgeStub(t)
-	stub.AddFile("ctxloom/v1/bundles/present.yaml", []byte("version: 1.0.0\n"))
+	stub.AddFile("ctxloom/bundles/present.yaml", []byte("version: 1.0.0\n"))
 	f := newGitHubFetcher(t, stub)
 	ctx := context.Background()
 
 	t.Run("FetchFile happy path round-trips content", func(t *testing.T) {
-		data, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/present.yaml", "main")
+		data, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/present.yaml", "main")
 		require.NoError(t, err)
 		assert.Equal(t, "version: 1.0.0\n", string(data))
 	})
 
 	t.Run("FetchFile 404 -> ErrRemoteContentNotFound", func(t *testing.T) {
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/missing.yaml", "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/missing.yaml", "main")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
 
 	t.Run("ListDir 404 -> ErrRemoteContentNotFound", func(t *testing.T) {
-		_, err := f.ListDir(ctx, "owner", "repo", "ctxloom/v1/nonexistent", "main")
+		_, err := f.ListDir(ctx, "owner", "repo", "ctxloom/nonexistent", "main")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
@@ -65,7 +65,7 @@ func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	})
 
 	t.Run("ListDir lists registered directory entries", func(t *testing.T) {
-		entries, err := f.ListDir(ctx, "owner", "repo", "ctxloom/v1/bundles", "main")
+		entries, err := f.ListDir(ctx, "owner", "repo", "ctxloom/bundles", "main")
 		require.NoError(t, err)
 		var names []string
 		for _, e := range entries {
@@ -77,18 +77,18 @@ func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 
 func TestForgeAPI_GitLab_NotFoundMapsToSentinel(t *testing.T) {
 	stub := testenv.NewForgeStub(t)
-	stub.AddFile("ctxloom/v1/bundles/present.yaml", []byte("version: 1.0.0\n"))
+	stub.AddFile("ctxloom/bundles/present.yaml", []byte("version: 1.0.0\n"))
 	f := newGitLabFetcher(t, stub)
 	ctx := context.Background()
 
 	t.Run("FetchFile happy path round-trips content", func(t *testing.T) {
-		data, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/present.yaml", "main")
+		data, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/present.yaml", "main")
 		require.NoError(t, err)
 		assert.Equal(t, "version: 1.0.0\n", string(data))
 	})
 
 	t.Run("FetchFile 404 -> ErrRemoteContentNotFound", func(t *testing.T) {
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/missing.yaml", "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/missing.yaml", "main")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
@@ -104,7 +104,7 @@ func TestForgeAPI_Unauthorized(t *testing.T) {
 		stub := testenv.NewForgeStub(t)
 		stub.Unauthorized = true
 		f := newGitHubFetcher(t, stub)
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/x.yaml", "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/x.yaml", "main")
 		require.Error(t, err)
 		// A 401 is not a 404 — it must NOT be mistaken for missing content.
 		assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound)
@@ -114,7 +114,7 @@ func TestForgeAPI_Unauthorized(t *testing.T) {
 		stub := testenv.NewForgeStub(t)
 		stub.Unauthorized = true
 		f := newGitLabFetcher(t, stub)
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/v1/bundles/x.yaml", "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/x.yaml", "main")
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})

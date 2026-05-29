@@ -316,6 +316,19 @@ func (e *TestEnvironment) HomeFileExists(relPath string) bool {
 	return err == nil
 }
 
+// Command builds an *exec.Cmd for the ctxloom binary with the isolated
+// environment, ready to run in the project directory. Unlike Run, it does not
+// touch the shared last-output state, so it is safe to build and run many of
+// these concurrently (e.g. cross-process store-contention tests). extraEnv
+// entries ("KEY=VALUE") are appended after the isolated environment, so they
+// win over any inherited value.
+func (e *TestEnvironment) Command(extraEnv []string, args ...string) *exec.Cmd {
+	cmd := exec.Command(e.AppBinary, args...)
+	cmd.Dir = e.ProjectDir
+	cmd.Env = append(e.isolatedEnv(), extraEnv...)
+	return cmd
+}
+
 // Run executes ctxloom with the given arguments in the project directory.
 func (e *TestEnvironment) Run(args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)

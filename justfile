@@ -126,6 +126,14 @@ test-coverage: cover
 test-integration: build
     go test -v -tags integration ./tests/integration/...
 
+# Run integration tests matching a -run PATTERN (requires ctxloom binary)
+test-integration-run PATTERN: build
+    go test -v -tags integration -run '{{PATTERN}}' ./tests/integration/...
+
+# Run a single package's tests under -race (fast local iteration)
+test-pkg PKG *ARGS:
+    go test -race {{ARGS}} {{PKG}}
+
 # Run all tests in container (matches CI environment)
 test-container:
     #!/usr/bin/env bash

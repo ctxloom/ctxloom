@@ -124,6 +124,10 @@ test:
 test-treesitter:
     CGO_ENABLED=1 go test -race -tags treesitter ./internal/compression/...
 
+# Run a single package's tests under -race (fast iteration inside the container)
+test-pkg PKG *ARGS:
+    go test -race {{ARGS}} {{PKG}}
+
 # Run integration tests (requires ctxloom binary)
 test-integration: build
     go test -v -tags integration ./tests/integration/...

@@ -52,14 +52,20 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	stopResize := startResizeHandler(ptty)
 	defer stopResize()
 
+	// Snapshot os.Stdin once. The stdin-copy goroutine below outlives this
+	// function (it parks in Read until the next input event), so it must not
+	// re-read the os.Stdin global — a caller that reassigns os.Stdin afterward
+	// would otherwise race the parked goroutine.
+	stdin := os.Stdin
+
 	// Set stdin to raw mode if it's a terminal
 	var oldState *term.State
-	stdinIsTerm := term.IsTerminal(int(os.Stdin.Fd()))
+	stdinIsTerm := term.IsTerminal(int(stdin.Fd()))
 	if stdinIsTerm {
-		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+		oldState, err = term.MakeRaw(int(stdin.Fd()))
 		if err == nil {
 			defer func() {
-				_ = term.Restore(int(os.Stdin.Fd()), oldState)
+				_ = term.Restore(int(stdin.Fd()), oldState)
 				// Platform-specific terminal reset (stty sane on Unix, no-op on Windows)
 				if stdinIsTerm {
 					resetTerminal()
@@ -80,7 +86,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	go func() {
 		buf := make([]byte, 1024)
 		for {
-			n, err := os.Stdin.Read(buf)
+			n, err := stdin.Read(buf)
 			if err != nil {
 				return
 			}

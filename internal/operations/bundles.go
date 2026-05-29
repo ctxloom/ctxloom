@@ -448,7 +448,7 @@ type PushBundleResult struct {
 	Status     string `json:"status"` // "preview" (dry-run), "pushed", "pr-created"
 	Path       string `json:"path"`
 	Remote     string `json:"remote"`      // Resolved registry name, or URL if no name match.
-	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. ctxloom/v1/bundles/foo.yaml).
+	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. ctxloom/bundles/foo.yaml).
 	Branch     string `json:"branch,omitempty"`
 	Title      string `json:"title,omitempty"`   // PR title / commit subject
 	Message    string `json:"message,omitempty"` // PR body / commit body

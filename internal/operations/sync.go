@@ -367,10 +367,15 @@ func syncItem(ctx context.Context, cfg *config.Config, puller Puller, registry *
 		}
 	}
 
-	// Pull the item
+	// Pull the item. Sync stages bundle changes into the *pending* lockfile
+	// for the bundle-review gate (it does not activate them), so the pull must
+	// be Blind: there is no interactive confirmation to give — the review IS
+	// the confirmation — and any content display would both be premature and
+	// corrupt a non-interactive caller's stream (e.g. the MCP server's stdout).
 	opts := remote.PullOptions{
 		LocalDir: baseDir,
 		Force:    force,
+		Blind:    true,
 		ItemType: itemType,
 		Cascade:  true, // Pull referenced bundles for profiles
 	}

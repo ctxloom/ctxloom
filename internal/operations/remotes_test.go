@@ -343,7 +343,7 @@ func TestAddRemote_InvalidRepo(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "ctxloom/v1/")
+	assert.Contains(t, result.Warning, "ctxloom/")
 }
 
 func TestAddRemote_Duplicate(t *testing.T) {
@@ -433,7 +433,7 @@ func TestAddRemote_ValidationFailed(t *testing.T) {
 	// Should succeed but include warning
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "ctxloom/v1")
+	assert.Contains(t, result.Warning, "ctxloom/")
 }
 
 func TestRemoveRemote_EmptyName(t *testing.T) {

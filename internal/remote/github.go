@@ -330,11 +330,11 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid ctxloom structure.
 func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	// Check for ctxloom/v1/ directory
-	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
+	// Check for the ctxloom/ directory
+	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
 	if err != nil {
 		if f.shouldRetry401(resp, err) {
-			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
+			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {

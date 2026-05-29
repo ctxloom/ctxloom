@@ -158,7 +158,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		URL:    rem.URL,
 	}
 	if !valid {
-		result.Warning = "repository does not have ctxloom/v1/ directory structure"
+		result.Warning = "repository does not have a ctxloom/ directory structure"
 	}
 
 	return result, nil

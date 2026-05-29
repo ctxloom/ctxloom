@@ -24,7 +24,7 @@ var remoteDiscoverCmd = &cobra.Command{
 	Long: `Discover ctxloom repositories on GitHub and GitLab.
 
 Searches for repositories named 'ctxloom' or starting with 'ctxloom-'.
-Only repositories with valid ctxloom/v1/ structure are shown.
+Only repositories with valid ctxloom/ structure are shown.
 
 Examples:
   ctxloom remote discover                      # Find all ctxloom repos

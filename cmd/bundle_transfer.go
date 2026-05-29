@@ -121,7 +121,7 @@ The bundle is copied as-is, preserving all content including distilled versions.
 Use -o to specify an output file path directly.
 
 Examples:
-  ctxloom bundle export go-tools ../ctxloom-default/ctxloom/v1/bundles
+  ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
   ctxloom bundle export my-bundle ./exports
   ctxloom bundle export my-bundle -o exported.yaml`,
 	Args: cobra.RangeArgs(1, 2),
@@ -209,7 +209,7 @@ The bundle is copied into the local .ctxloom/bundles directory.
 Use --force to overwrite an existing bundle.
 
 Examples:
-  ctxloom bundle import ../ctxloom-default/ctxloom/v1/bundles/go-tools.yaml
+  ctxloom bundle import ../ctxloom-default/ctxloom/bundles/go-tools.yaml
   ctxloom bundle import ./my-bundle.yaml --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,

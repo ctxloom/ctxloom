@@ -26,7 +26,7 @@ type GitRepo struct {
 
 // SeedGitRepo creates a bare git repo whose default branch (main) contains the
 // given files (path -> content), and returns it. Paths are repo-relative and may
-// contain slashes (e.g. "ctxloom/v1/bundles/x.yaml"). The repo is created under
+// contain slashes (e.g. "ctxloom/bundles/x.yaml"). The repo is created under
 // t.TempDir(), so it is cleaned up automatically.
 func SeedGitRepo(t *testing.T, files map[string]string) *GitRepo {
 	t.Helper()
@@ -113,12 +113,12 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// CtxloomV1Layout returns a minimal ctxloom/v1 repo layout (a bundle plus
+// CtxloomV1Layout returns a minimal ctxloom repo layout (a bundle plus
 // direct + inheriting profiles) suitable for seeding a GitRepo. The bundle
 // ships an mcp server and a hook so resolution/apply can be asserted.
 func CtxloomV1Layout() map[string]string {
 	return map[string]string{
-		"ctxloom/v1/bundles/demo.yaml": strings.TrimSpace(`
+		"ctxloom/bundles/demo.yaml": strings.TrimSpace(`
 version: 1.0.0
 author: test
 description: Demo bundle with an MCP server and a hook
@@ -136,12 +136,12 @@ hooks:
     - command: echo demo-hook
       type: command
 `) + "\n",
-		"ctxloom/v1/profiles/base.yaml": strings.TrimSpace(`
+		"ctxloom/profiles/base.yaml": strings.TrimSpace(`
 description: Base profile referencing the demo bundle directly
 bundles:
   - demo
 `) + "\n",
-		"ctxloom/v1/profiles/child.yaml": strings.TrimSpace(`
+		"ctxloom/profiles/child.yaml": strings.TrimSpace(`
 description: Child profile that only inherits demo via its parent
 parents:
   - base

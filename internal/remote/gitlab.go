@@ -206,7 +206,7 @@ func (f *GitLabFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid ctxloom structure.
 func (f *GitLabFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	path := "ctxloom/v1"
+	path := "ctxloom"
 	opts := &gitlab.ListTreeOptions{
 		Path: &path,
 	}

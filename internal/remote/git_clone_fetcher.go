@@ -154,7 +154,7 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 		return false, nil
 	}
 
-	_, err = tree.Tree("ctxloom/v1")
+	_, err = tree.Tree("ctxloom")
 	return err == nil, nil
 }
 

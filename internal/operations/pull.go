@@ -159,15 +159,10 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 	// Generate pull token (item_type:reference@SHA for re-fetch capability)
 	pullToken := fmt.Sprintf("%s:%s/%s@%s", req.ItemType, ref.Remote, ref.Path, sha)
 
-	shortSHA := sha
-	if len(sha) > 7 {
-		shortSHA = sha[:7]
-	}
-
 	return &FetchRemoteContentResult{
 		Reference:  req.Reference,
 		ItemType:   req.ItemType,
-		SHA:        shortSHA,
+		SHA:        shortSHA(sha),
 		FullSHA:    sha,
 		SourceURL:  rem.URL,
 		FilePath:   filePath,
@@ -248,11 +243,6 @@ func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteIte
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	shortSHA := req.SHA
-	if len(shortSHA) > 7 {
-		shortSHA = shortSHA[:7]
-	}
-
 	status := "installed"
 	if overwritten {
 		status = "updated"
@@ -263,7 +253,7 @@ func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteIte
 		Reference:   req.Reference,
 		ItemType:    req.ItemType,
 		LocalPath:   localPath,
-		SHA:         shortSHA,
+		SHA:         shortSHA(req.SHA),
 		Overwritten: overwritten,
 	}, nil
 }

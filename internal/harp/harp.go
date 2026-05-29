@@ -28,7 +28,7 @@ var (
 
 func parseList(data string) []string {
 	lines := strings.Split(strings.TrimRight(data, "\n"), "\n")
-	out := lines[:0]
+	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if line != "" {
 			out = append(out, line)

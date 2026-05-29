@@ -9,11 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// withProjectDir cd's into a fresh tempdir for the duration of the test.
-// The MCP task handlers resolve the project root via os.Getwd, so all
-// fixture state lives there and is cleaned up automatically.
+// withProjectDir cd's into a fresh tempdir for the duration of the test and
+// clears the session env vars so openSessionTaskStore falls back to the
+// legacy cwd-based store under the tempdir. Without clearing the harp env,
+// a test run inside a real ctxloom session would resolve to that session's
+// shared harp store and leak state across tests.
 func withProjectDir(t *testing.T) string {
 	t.Helper()
+	t.Setenv("CTXLOOM_SESSION_HARP", "")
+	t.Setenv("CTXLOOM_RESUMED_FROM", "")
+	t.Setenv("CTXLOOM_RESUMED_PARTS", "")
 	orig, err := os.Getwd()
 	require.NoError(t, err)
 	dir := t.TempDir()
@@ -102,38 +107,6 @@ func TestHandleTaskSetStatus_UnknownHarpIDErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestParseTodoWritePayload_Shapes(t *testing.T) {
-	cases := map[string]string{
-		"tool_input wrapper": `{"tool_input":{"todos":[{"content":"a","status":"in_progress"},{"content":"b","status":"completed"}]}}`,
-		"bare todos":         `{"todos":[{"content":"a","status":"in_progress"},{"content":"b","status":"completed"}]}`,
-		"bare array":         `[{"content":"a","status":"in_progress"},{"content":"b","status":"completed"}]`,
-		"text alias":         `{"todos":[{"text":"a","status":"in_progress"},{"text":"b","status":"completed"}]}`,
-	}
-	for name, raw := range cases {
-		t.Run(name, func(t *testing.T) {
-			items, err := parseTodoWritePayload([]byte(raw))
-			require.NoError(t, err)
-			require.Len(t, items, 2)
-			assert.Equal(t, "a", items[0].Text)
-			assert.Equal(t, "In Progress", items[0].Status)
-			assert.Equal(t, "b", items[1].Text)
-			assert.Equal(t, "Done", items[1].Status)
-		})
-	}
-}
-
-func TestParseTodoWritePayload_Empty(t *testing.T) {
-	// Empty wrapper, empty array, malformed JSON — all yield nil items,
-	// no error. The capture path will then archive everything still in
-	// the store, which is the correct mirror-snapshot behavior.
-	cases := []string{`{}`, `{"todos":[]}`, `[]`, `not json at all`}
-	for _, raw := range cases {
-		items, err := parseTodoWritePayload([]byte(raw))
-		assert.NoError(t, err, raw)
-		assert.Empty(t, items, raw)
-	}
-}
-
 // TestParseEditPayload covers the stamp-plan hook's stdin parser.
 // Two payload shapes (wrapped + bare) plus malformed/empty inputs.
 // The contract: any failure mode produces empty path + nil error
@@ -159,9 +132,9 @@ func TestParseEditPayload(t *testing.T) {
 }
 
 // TestParseEditPayload_MalformedJSON exercises the explicit-error path.
-// Unlike parseTodoWritePayload (which is fault-tolerant), parseEdit
-// returns the json.Unmarshal error so the caller can decide whether to
-// log; the stamp-plan command itself ignores the error and no-ops.
+// parseEditPayload returns the json.Unmarshal error so the caller can
+// decide whether to log; the stamp-plan command itself ignores the error
+// and no-ops.
 func TestParseEditPayload_MalformedJSON(t *testing.T) {
 	_, err := parseEditPayload([]byte("not json"))
 	assert.Error(t, err)

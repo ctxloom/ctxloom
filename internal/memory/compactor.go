@@ -13,7 +13,9 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 )
 
 const (
@@ -277,7 +279,7 @@ func (c *Compactor) sessionToText(session *backends.Session, plansByEntry map[in
 				// Truncate large arguments
 				args := string(entry.ToolInput)
 				if len(args) > 500 {
-					args = args[:500] + "..."
+					args = textutil.TruncateBytes(args, 500) + "..."
 				}
 				_, _ = fmt.Fprintf(&builder, "Arguments: %s\n", args)
 			}
@@ -288,7 +290,7 @@ func (c *Compactor) sessionToText(session *backends.Session, plansByEntry map[in
 			// Truncate large output
 			output := entry.ToolOutput
 			if len(output) > 500 {
-				output = output[:500] + "..."
+				output = textutil.TruncateBytes(output, 500) + "..."
 			}
 			builder.WriteString(output)
 			if entry.IsError {
@@ -453,7 +455,7 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 		summary = strings.TrimSpace(summary[:i])
 	}
 	if len(summary) > 80 {
-		summary = summary[:80]
+		summary = textutil.TruncateBytes(summary, 80)
 	}
 	return summary, bodyText, true
 }
@@ -507,11 +509,14 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 			if err := os.MkdirAll(harpDir, 0o755); err == nil {
 				essencePath := filepath.Join(harpDir, "essence.md")
 				if err := os.WriteFile(essencePath, docBytes, 0o644); err == nil {
-					// Best-effort task snapshot (skip on any error).
-					if tasksData, err := os.ReadFile(filepath.Join(c.config.WorkDir, ".ctxloom", "tasks.md")); err == nil {
-						_ = os.WriteFile(filepath.Join(harpDir, "tasks.md"), tasksData, 0o644)
-					}
-					// Mirror to legacy path so sessionID lookups still work.
+					// NB: the active task store already lives at
+					// <harpDir>/tasks.md (see tasks.OpenSession migration), so
+					// we deliberately do NOT copy the legacy project
+					// .ctxloom/tasks.md here — that read is a no-op once the
+					// project file has migrated away, and would clobber the
+					// live store if a stray project file lingered.
+					//
+					// Mirror essence to legacy path so sessionID lookups still work.
 					_ = os.WriteFile(legacyPath, docBytes, 0o644)
 					return essencePath, nil
 				}
@@ -528,12 +533,10 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 
 // harpSessionDir returns ~/.ctxloom/sessions/<harp>/. Errors when home
 // can't be resolved; the caller falls back to legacy layout in that case.
+// Delegates to paths.HarpDir so the task store and the compactor resolve
+// the same root.
 func harpSessionDir(harpName string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".ctxloom", "sessions", harpName), nil
+	return paths.HarpDir(harpName)
 }
 
 // DistilledSession is the loaded form of a distilled session .md file:

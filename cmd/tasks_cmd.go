@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -36,7 +37,7 @@ var tasksListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tasks, optionally filtered by status or term",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openCLITaskStore()
+		store, err := openSessionTaskStore()
 		if err != nil {
 			return err
 		}
@@ -58,7 +59,7 @@ var tasksAddCmd = &cobra.Command{
 	Short: "Add a new task",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openCLITaskStore()
+		store, err := openSessionTaskStore()
 		if err != nil {
 			return err
 		}
@@ -78,7 +79,7 @@ var tasksStatusCmd = &cobra.Command{
 	Short: "Change the status of a task",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openCLITaskStore()
+		store, err := openSessionTaskStore()
 		if err != nil {
 			return err
 		}
@@ -96,7 +97,7 @@ var tasksSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openCLITaskStore()
+		store, err := openSessionTaskStore()
 		if err != nil {
 			return err
 		}
@@ -117,39 +118,6 @@ var tasksSummaryCmd = &cobra.Command{
 		if len(sum.InProgress) > 0 {
 			w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
 		}
-		return w.Err()
-	},
-}
-
-// tasksCaptureCmd consumes a Claude Code PostToolUse(TodoWrite) hook
-// payload on stdin and reconciles it against the project store. Wiring
-// into the actual hook lands with PR C (the ctxloom-default-tasks bundle);
-// this subcommand is the entry point that the bundle's shell script will
-// pipe to.
-var tasksCaptureCmd = &cobra.Command{
-	Use:    "capture",
-	Short:  "Reconcile a TodoWrite snapshot from stdin (internal — used by the auto-capture hook)",
-	Hidden: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openCLITaskStore()
-		if err != nil {
-			return err
-		}
-		raw, err := io.ReadAll(cmd.InOrStdin())
-		if err != nil {
-			return fmt.Errorf("read stdin: %w", err)
-		}
-		items, err := parseTodoWritePayload(raw)
-		if err != nil {
-			return fmt.Errorf("parse payload: %w", err)
-		}
-		diff, err := store.Reconcile(items)
-		if err != nil {
-			return err
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("added=%d updated=%d archived=%d\n",
-			len(diff.Added), len(diff.Updated), len(diff.Archived))
 		return w.Err()
 	},
 }
@@ -192,15 +160,7 @@ func init() {
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 
-	// `--stdin` is accepted (and is the only supported input) so the
-	// auto-capture hook command shipped by the embedded tasks bundle
-	// (`ctxloom tasks capture --stdin`) parses. Without this flag declared,
-	// cobra rejects the hook invocation with "unknown flag: --stdin" and every
-	// TodoWrite capture silently fails. The command reads stdin regardless of
-	// the flag's value.
-	tasksCaptureCmd.Flags().Bool("stdin", true, "read the TodoWrite payload from stdin (the only supported input)")
-
-	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksCaptureCmd, tasksStampPlanCmd)
+	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksStampPlanCmd)
 	rootCmd.AddCommand(tasksCmd)
 }
 
@@ -225,12 +185,52 @@ func parseEditPayload(raw []byte) (string, error) {
 	return w.FilePath, nil
 }
 
-func openCLITaskStore() (*tasks.Store, error) {
+// openSessionTaskStore resolves the active task store for the current
+// session context. When CTXLOOM_SESSION_HARP is set the store is the
+// harp-keyed ~/.ctxloom/sessions/<harp>/tasks.md (migrated on first use from
+// the resumed-from session, or from the legacy project file for a fresh
+// session); otherwise it falls back to the legacy <cwd>/.ctxloom/tasks.md.
+// Shared by the CLI `tasks` subcommands, the MCP task tools, and the task
+// summary resource so all three resolve the same store.
+func openSessionTaskStore() (*tasks.Store, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("getwd: %w", err)
 	}
-	return tasks.Open(wd)
+	var sessionsRoot string
+	if os.Getenv("CTXLOOM_SESSION_HARP") != "" {
+		if root, err := paths.HomeSessionsDir(); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: cannot resolve sessions dir: %v\n", err)
+		} else {
+			sessionsRoot = root
+		}
+	}
+	return tasks.OpenSession(tasks.SessionConfig{
+		Harp:         os.Getenv("CTXLOOM_SESSION_HARP"),
+		ResumedFrom:  os.Getenv("CTXLOOM_RESUMED_FROM"),
+		RestoreTasks: resumeRestoresTasks(),
+		SessionsRoot: sessionsRoot,
+		ProjectDir:   wd,
+	})
+}
+
+// resumeRestoresTasks reports whether a resume elected to carry tasks
+// forward. Mirrors the convention used elsewhere: an empty parts list on a
+// resume defaults to "session,tasks".
+func resumeRestoresTasks() bool {
+	if os.Getenv("CTXLOOM_RESUMED_FROM") == "" {
+		return false
+	}
+	parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
+	if parts == "" {
+		return true
+	}
+	for _, p := range strings.Split(parts, ",") {
+		if strings.TrimSpace(p) == "tasks" {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w io.Writer, v any) error {
@@ -255,59 +255,3 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 	return w.Err()
 }
 
-// todoEntry mirrors one element of Claude Code's TodoWrite tool_input.todos
-// array. `text` is a tolerated alias used by some clients.
-type todoEntry struct {
-	Content string `json:"content"`
-	Text    string `json:"text"`
-	Status  string `json:"status"`
-}
-
-// parseTodoWritePayload accepts the JSON shape Claude Code emits in a
-// PostToolUse hook for the TodoWrite tool:
-//
-//	{ "tool_input": { "todos": [ {"content": "...", "status": "..."}, ... ] } }
-//
-// Also tolerated for ad-hoc use: `{ "todos": [...] }` and a bare `[...]` array.
-// Empty payload is valid — it means "no active todos"; reconcile will then
-// archive everything currently in the store.
-func parseTodoWritePayload(raw []byte) ([]tasks.SnapshotItem, error) {
-	type wrapper struct {
-		Todos     []todoEntry `json:"todos"`
-		ToolInput *struct {
-			Todos []todoEntry `json:"todos"`
-		} `json:"tool_input"`
-	}
-	var w wrapper
-	if err := json.Unmarshal(raw, &w); err == nil {
-		switch {
-		case len(w.Todos) > 0:
-			return todosToItems(w.Todos), nil
-		case w.ToolInput != nil && len(w.ToolInput.Todos) > 0:
-			return todosToItems(w.ToolInput.Todos), nil
-		}
-	}
-	var arr []todoEntry
-	if err := json.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
-		return todosToItems(arr), nil
-	}
-	return nil, nil
-}
-
-func todosToItems(todos []todoEntry) []tasks.SnapshotItem {
-	items := make([]tasks.SnapshotItem, 0, len(todos))
-	for _, td := range todos {
-		text := td.Content
-		if text == "" {
-			text = td.Text
-		}
-		if text == "" {
-			continue
-		}
-		items = append(items, tasks.SnapshotItem{
-			Text:   text,
-			Status: tasks.MapTodoStatus(td.Status),
-		})
-	}
-	return items
-}

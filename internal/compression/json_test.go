@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestJSONCompressor_InvalidJSONDegradesToVerbatim(t *testing.T) {
+	c := NewJSONCompressor()
+	input := `{not valid json,,,`
+
+	result, err := c.Compress(context.Background(), input, 0.5)
+	require.NoError(t, err, "invalid JSON must degrade, not error")
+	assert.Equal(t, input, result.Content, "content should pass through verbatim")
+	assert.Equal(t, 1.0, result.Ratio)
+}
+
 func TestJSONCompressor_Basic(t *testing.T) {
 	c := NewJSONCompressor()
 	ctx := context.Background()

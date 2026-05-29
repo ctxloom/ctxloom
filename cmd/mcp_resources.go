@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,7 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
 // Phase 4.1 foundation. Resources are the LCD-cheap counterpart to tools:
@@ -195,11 +193,7 @@ func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.Rea
 }
 
 func (s *ctxServer) handleResourceTasksSummary(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
-	}
-	store, err := tasks.Open(wd)
+	store, err := openSessionTaskStore()
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +368,3 @@ func resourceText(uri, mimeType, body string) *mcp.ReadResourceResult {
 		},
 	}
 }
-
-// suppress unused-import false-positive when filepath is not referenced
-// in some compile paths; harmless.
-var _ = filepath.Join

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -32,6 +33,7 @@ type ApplyHooksResult struct {
 	Status      string   `json:"status"`
 	Backends    []string `json:"backends"`
 	ContextHash string   `json:"context_hash,omitempty"`
+	Errors      []string `json:"errors,omitempty"` // per-backend failures; non-empty => partial success
 }
 
 // ApplyHooks applies ctxloom hooks to backend configuration files.
@@ -82,11 +84,16 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		}
 		contextHash, err = regenerateContext(freshCfg, workDir, bundleOpts, contextOpts...)
 		if err != nil {
-			return nil, err
+			// Fault tolerance: a context-regen failure must not block hook
+			// application. Warn and continue with an empty context hash so the
+			// SessionStart injection hook is simply omitted this round.
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: regenerate context failed: %v\n", err)
+			contextHash = ""
 		}
 	}
 
 	applied := []string{}
+	var applyErrors []string
 
 	// Load MCP servers from profile bundles
 	bundleMCP := freshCfg.ResolveBundleMCPServers()
@@ -121,25 +128,42 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		// the loop would cause.
 		hooksCfg := backends.AssembleManagedHooks(freshCfg, workDir, contextHash)
 
+		// Fault tolerance: a single backend's failure must not abort the
+		// others. Record the error, warn, and move on — a partially applied
+		// set beats none, and the failure is surfaced in the result.
 		if err := backends.WriteSettings(backendName, hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
-			return nil, fmt.Errorf("failed to apply %s settings: %w", backendName, err)
+			msg := fmt.Sprintf("failed to apply %s settings: %v", backendName, err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			applyErrors = append(applyErrors, msg)
+			continue
 		}
 
 		// Write command files (each backend handles its own format)
 		if len(prompts) > 0 {
 			cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(fs)}
 			if err := backends.WriteCommandFilesFor(backendName, workDir, prompts, cmdOpts...); err != nil {
-				return nil, fmt.Errorf("failed to write %s commands: %w", backendName, err)
+				msg := fmt.Sprintf("failed to write %s commands: %v", backendName, err)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+				applyErrors = append(applyErrors, msg)
+				continue
 			}
 		}
 
 		applied = append(applied, backendName)
 	}
 
+	// Partial success is success: report which backends took and which
+	// failed rather than collapsing the whole call to an error.
+	status := "applied"
+	if len(applyErrors) > 0 {
+		status = "partial"
+	}
+
 	return &ApplyHooksResult{
-		Status:      "applied",
+		Status:      status,
 		Backends:    applied,
 		ContextHash: contextHash,
+		Errors:      applyErrors,
 	}, nil
 }
 

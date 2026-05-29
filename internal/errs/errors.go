@@ -20,6 +20,11 @@ var (
 
 	// ErrRemoteNotFound indicates a remote could not be located.
 	ErrRemoteNotFound = errors.New("remote not found")
+
+	// ErrRemoteContentNotFound indicates a file, directory, or ref does not
+	// exist on a remote (forge 404). Fetchers wrap it so callers can detect
+	// "content removed on remote" via errors.Is instead of matching error text.
+	ErrRemoteContentNotFound = errors.New("not found")
 )
 
 // Configuration errors indicate problems with configuration.
@@ -30,3 +35,9 @@ var (
 	// ErrInvalidReference indicates a malformed bundle/profile reference.
 	ErrInvalidReference = errors.New("invalid reference")
 )
+
+// ErrCancelled indicates an install/pull was deliberately abandoned — a user
+// declined a confirmation prompt, or a retracted version was refused. Distinct
+// from context.Canceled (a cancelled context); callers use errors.Is to treat
+// a cancellation as "skipped" rather than a hard failure.
+var ErrCancelled = errors.New("cancelled")

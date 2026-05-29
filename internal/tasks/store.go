@@ -7,7 +7,7 @@
 //	<!-- ctxloom-tasks:v1 -->
 //
 //	## In Progress
-//	- [ ] `swift-amber-falcon` implement TodoWrite hook
+//	- [ ] `swift-amber-falcon` implement the storage layer
 //
 //	## To Do
 //	- [ ] `quiet-silver-meadow` write storage layer
@@ -17,7 +17,7 @@
 //
 // v1 caveat: non-task lines between tasks (free-form notes, blockquotes,
 // etc.) are NOT preserved across mutations. The file is rewritten in a
-// canonical shape on every Store.Add / SetStatus / Reconcile. If you want
+// canonical shape on every Store.Add / SetStatus. If you want
 // to keep notes alongside tasks, put them elsewhere for now. This will be
 // addressed in a v2 if needed.
 package tasks
@@ -31,7 +31,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
 )
 
@@ -58,8 +60,16 @@ type Task struct {
 
 // Store is a file-backed task store. tasks.md is the source of truth;
 // every mutation reads, modifies, and atomically rewrites the file.
+//
+// The store is driven concurrently by separate processes (the MCP server,
+// the bare `ctxloom tasks` CLI, and the out-of-process PostToolUse capture
+// hook) as well as goroutines within one process. Mutations therefore hold
+// both an in-process mutex and a cross-process advisory file lock spanning
+// the whole read-modify-write, and rewrites go through a unique temp file so
+// concurrent writers never collide on a fixed temp name.
 type Store struct {
 	path string
+	mu   sync.Mutex
 }
 
 // Open returns a Store rooted at <projectDir>/.ctxloom/tasks.md. The file
@@ -79,6 +89,8 @@ func (s *Store) Path() string { return s.path }
 // (empty = no filter). Term is matched case-insensitively as a substring
 // of the trimmed task text.
 func (s *Store) List(statuses []string, term string) ([]Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	all, err := s.snapshot()
 	if err != nil {
 		return nil, err
@@ -96,6 +108,15 @@ func (s *Store) Add(text, status string) (Task, error) {
 	if status == "" {
 		status = StatusToDo
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := filelock.Lock(s.path + ".lock")
+	if err != nil {
+		return Task{}, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
 	all, err := s.snapshot()
 	if err != nil {
 		return Task{}, err
@@ -120,6 +141,15 @@ func (s *Store) SetStatus(harpID, status string) (Task, error) {
 	if status == "" {
 		return Task{}, fmt.Errorf("status required")
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := filelock.Lock(s.path + ".lock")
+	if err != nil {
+		return Task{}, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
 	all, err := s.snapshot()
 	if err != nil {
 		return Task{}, err
@@ -139,7 +169,11 @@ func (s *Store) SetStatus(harpID, status string) (Task, error) {
 }
 
 // Snapshot returns every task in the store, in file order.
-func (s *Store) Snapshot() ([]Task, error) { return s.snapshot() }
+func (s *Store) Snapshot() ([]Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.snapshot()
+}
 
 // Summary holds counts per status and the harp IDs currently in-progress.
 type Summary struct {
@@ -151,6 +185,8 @@ type Summary struct {
 // the task_summary MCP surface and as the source for the one-line summary
 // written to ~/.ctxloom/sessions/<harp>/tasks.md on compaction.
 func (s *Store) Summarize() (Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	all, err := s.snapshot()
 	if err != nil {
 		return Summary{}, err
@@ -178,16 +214,39 @@ func (s *Store) snapshot() ([]Task, error) {
 	return parseFile(string(data)), nil
 }
 
+// write atomically rewrites the file. Callers must hold s.mu and the file
+// lock. A unique temp name (rather than a fixed "<path>.tmp") keeps
+// concurrent writers — even ones that slip past the advisory lock — from
+// clobbering each other's in-flight temp file before the rename.
 func (s *Store) write(tasks []Task) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	body := renderFile(tasks)
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, ".tasks-*.md.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(body); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 func statusIsDone(status string) bool {

@@ -55,16 +55,43 @@ func (s *ctxServer) registerSyncTools(server *mcp.Server) {
 			if in.Lock != nil {
 				lock = *in.Lock
 			}
-			applyHooks := true
+			wantHooks := true
 			if in.ApplyHooks != nil {
-				applyHooks = *in.ApplyHooks
+				wantHooks = *in.ApplyHooks
 			}
+
+			// SECURITY: never let SyncDependencies blind-apply hooks. Bundle-
+			// shipped hooks are arbitrary code and must clear the same
+			// bundle-review gate the startup path enforces — otherwise a
+			// runtime sync that pulls a new/untrusted bundle would run its
+			// hooks before the user ever sees the review template. We sync
+			// with ApplyHooks=false, route any freshly-pulled changes through
+			// the review state, and apply hooks ourselves only once nothing is
+			// pending (mirrors mcp_server.go startup()).
 			result, err := operations.SyncDependencies(ctx, s.cfg, operations.SyncDependenciesRequest{
 				Profiles:   in.Profiles,
 				Force:      in.Force,
 				Lock:       lock,
-				ApplyHooks: applyHooks,
+				ApplyHooks: false,
 			})
-			return nil, result, err
+			if err != nil {
+				return nil, result, err
+			}
+
+			s.handleSyncChanges(ctx, result.Changes)
+			if wantHooks {
+				s.applyHooksIfNotPending(ctx)
+			}
+
+			// If the sync surfaced changes needing review, return the review
+			// template directly: the review middleware only prepends it when a
+			// review was already pending at call entry, which it was not here.
+			if pending := s.review.snapshot(); !pending.IsEmpty() {
+				body := renderReviewTemplate(pending) + "\n" + result.Message
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: body}},
+				}, nil, nil
+			}
+			return nil, result, nil
 		})
 }

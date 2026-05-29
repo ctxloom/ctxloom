@@ -2,7 +2,6 @@ package operations
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -187,7 +186,6 @@ func ClearPendingLockfile(cfg *config.Config) error {
 	if err := pendingMgr.Delete(); err != nil {
 		return fmt.Errorf("delete pending lockfile: %w", err)
 	}
-	_ = os.Stderr // placeholder to keep os imported when other callers shrink
 	return nil
 }
 

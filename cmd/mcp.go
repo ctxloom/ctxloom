@@ -23,14 +23,19 @@ RUNNING AS MCP SERVER:
   ctxloom mcp serve        Alias for running as MCP server
 
   Available tools when running as server:
-    Context: list_fragments, get_fragment, create_fragment, delete_fragment, assemble_context
-    Profiles: list_profiles, get_profile, create_profile, update_profile, delete_profile
-    Prompts: list_prompts, get_prompt
-    Search: search_content
-    Hooks: apply_hooks
-    MCP Servers: list_mcp_servers, add_mcp_server, remove_mcp_server, set_mcp_auto_register
-    Remotes: list_remotes, add_remote, remove_remote, search_remotes, browse_remote, pull_remote
-    Sync: sync_dependencies
+    Context:  assemble_context, search_content
+    Hooks:    apply_hooks
+    Sync:     sync_dependencies
+    Bundles:  create_bundle, update_bundle, delete_bundle
+    Review:   acknowledge_bundle_review, decline_bundle, show_bundle_verbatim,
+              trust_remote, approve_remote_pending, pin_bundle, unpin_bundle
+    Sessions: compact_session, load_session, get_previous_session, recover_session
+    Tasks:    task_add, task_list, task_set_status
+
+  Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
+  sessions) are exposed as MCP resources (ctxloom://...), not tools. Other
+  management (remotes, profiles, fragments, mcp servers) is CLI-only via the
+  corresponding subcommands.
 
 MANAGING MCP SERVERS:
   ctxloom mcp list         List configured MCP servers

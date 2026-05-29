@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -63,7 +62,7 @@ func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_list",
-			Description: "List tasks from .ctxloom/tasks.md, optionally filtered by status or text term. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference it elsewhere (e.g. in TodoWrite) so the auto-capture hook can correlate.",
+			Description: "List tasks from .ctxloom/tasks.md, optionally filtered by status or text term. Pass include_summary=true to also get per-status counts and the in-progress harp IDs. Echo a task's harp_id back when you reference that task in a later call (e.g. task_set_status).",
 		},
 		s.handleTaskList)
 
@@ -83,7 +82,7 @@ func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 }
 
 func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
-	store, err := openTaskStore()
+	store, err := openSessionTaskStore()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -106,7 +105,7 @@ func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in
 }
 
 func (s *ctxServer) handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	store, err := openTaskStore()
+	store, err := openSessionTaskStore()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,7 +117,7 @@ func (s *ctxServer) handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in 
 }
 
 func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	store, err := openTaskStore()
+	store, err := openSessionTaskStore()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -127,16 +126,6 @@ func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolReques
 		return nil, nil, fmt.Errorf("set status: %w", err)
 	}
 	return nil, &taskSetStatusResult{Path: store.Path(), Task: toTaskOut(task)}, nil
-}
-
-// openTaskStore resolves the project root from the MCP server's working
-// directory (process cwd) — mirrors the convention in cmd/mcp_tools_memory.go.
-func openTaskStore() (*tasks.Store, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
-	}
-	return tasks.Open(wd)
 }
 
 func toTaskOut(t tasks.Task) taskOut {

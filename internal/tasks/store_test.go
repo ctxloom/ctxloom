@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -62,6 +63,41 @@ func TestAdd_EmptyTextRejected(t *testing.T) {
 	s, _ := newTestStore(t)
 	if _, err := s.Add("   ", ""); err == nil {
 		t.Error("blank text should error")
+	}
+}
+
+// TestAdd_ConcurrentNoLostWrites hammers Add from many goroutines sharing one
+// Store. The mutex + file lock must serialize the read-modify-write so every
+// task lands with a unique harp ID and none are lost to a clobbered rewrite.
+// Run with -race to catch unsynchronized access to the backing file.
+func TestAdd_ConcurrentNoLostWrites(t *testing.T) {
+	s, _ := newTestStore(t)
+	const n = 50
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			if _, err := s.Add("task "+string(rune('a'+i%26)), ""); err != nil {
+				t.Errorf("concurrent Add: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	all, err := s.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(all) != n {
+		t.Fatalf("expected %d tasks after concurrent Add, got %d", n, len(all))
+	}
+	seen := make(map[string]bool, n)
+	for _, task := range all {
+		if seen[task.HarpID] {
+			t.Errorf("duplicate harp ID survived concurrent Add: %s", task.HarpID)
+		}
+		seen[task.HarpID] = true
 	}
 }
 

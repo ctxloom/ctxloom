@@ -13,35 +13,34 @@ tags:
 author: ctxloom
 
 description: |
-  Persistent task tracking via ctxloom's native task store. Auto-captures
-  Claude Code TodoWrite snapshots into .ctxloom/tasks.md keyed by harp
-  IDs. Stamps the active session's harp name into plan files as they're
+  Persistent task tracking via ctxloom's native task store. Tasks live in
+  .ctxloom/tasks.md keyed by harp IDs and are managed through built-in MCP
+  tools. Stamps the active session's harp name into plan files as they're
   edited. Replaces the flesler/mcp-tasks dependency with built-in MCP
   tools and a tiny declarative hook surface.
 
 notes: |
   This bundle ships two hooks:
 
-    1. PostTool matcher=TodoWrite → ctxloom tasks capture --stdin
-       Mirror-snapshots Claude's active todo set into .ctxloom/tasks.md.
-       Items disappearing from the snapshot move to "Archived" rather
-       than being deleted. To preserve task identity across calls, echo
-       the harp ID in the todo content: e.g.
-         {"content": "`swift-amber-falcon` finish the storage layer",
-          "status": "in_progress"}
-       Items without a harp ID get matched by sha256(text)[:12]; novel
-       items get fresh harp IDs.
+    1. SessionStart → ctxloom session bind
+       Records the backend session_id ↔ harp mapping in
+       ~/.ctxloom/sessions/index.yaml so resume and `session distill`
+       can find the session.
 
     2. PostFileEdit matcher=plan files → ctxloom tasks stamp-plan
        Records the active session's harp name in the file's YAML
        frontmatter `sessions:` list. Plans and sessions cross-reference
        automatically.
 
+  Tasks themselves are created and updated through the MCP tools
+  (task_add / task_set_status) or the `ctxloom tasks` CLI — there is no
+  TodoWrite auto-capture.
+
 installation: |
   After install, run `ctxloom apply-hooks` (or restart your backend) so
-  the hooks are written into the backend's settings.json. Both hooks are
-  no-ops when CTXLOOM_SESSION_HARP is unset, so they're safe to install
-  before Phase 3 (session harp-naming) ships.
+  the hooks are written into the backend's settings.json. The hooks are
+  safe to install before session harp-naming is active (stamp-plan no-ops
+  when CTXLOOM_SESSION_HARP is unset).
 
 hooks:
   session_start:
@@ -54,10 +53,6 @@ hooks:
     # the time-window fallback in `session distill` remain as defense
     # in depth.
     - command: ctxloom session bind
-      type: command
-  post_tool:
-    - matcher: TodoWrite
-      command: ctxloom tasks capture --stdin
       type: command
   post_file_edit:
     # Matcher intentionally omitted — defaults to Edit|Write per
@@ -89,22 +84,9 @@ fragments:
       - `task_set_status({harp_id, status})` — move a task between
         sections.
 
-      ## Auto-capture
-
-      Your TodoWrite calls are auto-captured into `.ctxloom/tasks.md` via
-      a PostTool hook shipped with this bundle. Mirror-snapshot semantics:
-      ctxloom's task set reflects your last TodoWrite. Items missing from
-      a TodoWrite snapshot move to `Archived` (not deleted).
-
-      To preserve task identity across calls, **echo the harp ID in each
-      todo's content**:
-
-          {"content": "`swift-amber-falcon` finish the storage layer",
-           "status": "in_progress"}
-
-      The harp ID appears in `task_list` output exactly so you can echo
-      it back. Items without a harp ID get text-hash-matched against
-      existing tasks; novel items get new harp IDs.
+      Tasks are created and updated only through these tools (or the
+      `ctxloom tasks` CLI). The harp ID appears in `task_list` output so
+      you can reference a specific task in later calls.
 
       ## Plan stamping
 

@@ -117,14 +117,40 @@ func (c *RepoCache) RepoDirForURL(repoURL string) string {
 func (c *RepoCache) repoDirForURL(repoURL string) string {
 	u, err := url.Parse(normalizeCloneURL(repoURL))
 	if err != nil {
-		return filepath.Join(c.baseDir, sanitizePath(repoURL))
+		return c.safeRepoPath(sanitizePath(repoURL))
 	}
 
 	host := u.Hostname()
 	path := strings.Trim(u.Path, "/")
 	path = strings.TrimSuffix(path, ".git")
 
-	return filepath.Join(c.baseDir, host, path)
+	return c.safeRepoPath(host, path)
+}
+
+// safeRepoPath joins parts under baseDir, guaranteeing the result stays inside
+// baseDir. SECURITY: the returned dir is later RemoveAll'd and cloned into, so
+// a crafted repo URL with ".." segments must not traverse out of the cache.
+// We drop empty, ".", and ".." segments before joining (so filepath.Join can't
+// collapse a "../" back out), then verify containment with filepath.Rel as
+// defense in depth, falling back to baseDir if anything still escapes.
+func (c *RepoCache) safeRepoPath(parts ...string) string {
+	var clean []string
+	for _, p := range parts {
+		for _, seg := range strings.FieldsFunc(p, func(r rune) bool {
+			return r == '/' || r == filepath.Separator
+		}) {
+			if seg == "" || seg == "." || seg == ".." {
+				continue
+			}
+			clean = append(clean, seg)
+		}
+	}
+	joined := filepath.Join(append([]string{c.baseDir}, clean...)...)
+	rel, err := filepath.Rel(c.baseDir, joined)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return c.baseDir
+	}
+	return joined
 }
 
 // fetchRepo fetches updates for an existing clone.

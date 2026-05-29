@@ -10,6 +10,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// shortSHALen is the number of hex characters in an abbreviated commit SHA.
+const shortSHALen = 7
+
+// shortSHA abbreviates a commit SHA to shortSHALen characters, returning it
+// unchanged when shorter. Guards against panics on malformed/short SHAs read
+// from a lockfile.
+func shortSHA(sha string) string {
+	if len(sha) > shortSHALen {
+		return sha[:shortSHALen]
+	}
+	return sha
+}
+
 // getFS returns the provided filesystem or a default OS filesystem if nil.
 func getFS(fs afero.Fs) afero.Fs {
 	if fs == nil {

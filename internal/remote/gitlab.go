@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // GitLabFetcher implements Fetcher for GitLab repositories.
@@ -88,7 +90,7 @@ func (f *GitLabFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 	content, resp, err := f.client.RepositoryFiles().GetRawFile(projectID(owner, repo), path, opts, gitlab.WithContext(ctx))
 	if err != nil {
 		if resp != nil && resp.StatusCode == 404 {
-			return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, path)
+			return nil, fmt.Errorf("file not found: %s/%s/%s: %w", owner, repo, path, errs.ErrRemoteContentNotFound)
 		}
 		return nil, fmt.Errorf("failed to fetch file: %w", err)
 	}
@@ -147,7 +149,7 @@ func (f *GitLabFetcher) ResolveRef(ctx context.Context, owner, repo, ref string)
 		return tag.Commit.ID, nil
 	}
 
-	return "", fmt.Errorf("ref not found: %s", ref)
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
 // SearchRepos finds ctxloom repositories.

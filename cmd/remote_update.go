@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -602,15 +604,13 @@ func classifyPullError(err error) pullOutcome {
 	if err == nil {
 		return pullOutcomeFailed // caller shouldn't ask in this case
 	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "cancelled"):
+	if errors.Is(err, errs.ErrCancelled) {
 		return pullOutcomeSkipped
-	case strings.Contains(msg, "file not found"), strings.Contains(msg, "404"):
-		return pullOutcomeRemoved
-	default:
-		return pullOutcomeFailed
 	}
+	if errors.Is(err, errs.ErrRemoteContentNotFound) {
+		return pullOutcomeRemoved
+	}
+	return pullOutcomeFailed
 }
 
 // checkDefaultProfiles returns names of default profiles that don't exist.

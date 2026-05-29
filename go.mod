@@ -6,6 +6,7 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/cbroglie/mustache v1.4.0
 	github.com/go-git/go-git/v5 v5.16.4
+	github.com/gofrs/flock v0.13.0
 	github.com/google/go-github/v60 v60.0.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0

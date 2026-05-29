@@ -45,7 +45,7 @@ func ListBuiltinCommands() ([]string, error) {
 
 // GetBuiltinBundle returns the raw YAML bytes for a built-in bundle embedded
 // in the binary. Built-in bundles ship core ctxloom functionality (e.g.
-// tasks auto-capture + plan-stamping hooks, skill prompts) so users get it
+// session-bind + plan-stamping hooks, skill prompts) so users get it
 // without needing to pull anything from a remote.
 func GetBuiltinBundle(name string) ([]byte, error) {
 	return resourcesFS.ReadFile("builtin_bundles/" + name + ".yaml")

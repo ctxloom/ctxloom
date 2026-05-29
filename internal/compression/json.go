@@ -7,6 +7,8 @@ import (
 	"math"
 	"strings"
 	"unicode"
+
+	"github.com/ctxloom/ctxloom/internal/textutil"
 )
 
 // JSONCompressor compresses JSON while preserving structure (keys, types).
@@ -43,19 +45,21 @@ func (c *JSONCompressor) CanHandle(ct ContentType) bool {
 
 // Compress reduces JSON size while preserving structure.
 func (c *JSONCompressor) Compress(ctx context.Context, content string, ratio float64) (Result, error) {
-	// Parse JSON
+	// Parse JSON. Fault tolerance: invalid JSON degrades to verbatim
+	// pass-through rather than failing the caller.
 	var data any
 	if err := json.Unmarshal([]byte(content), &data); err != nil {
-		return Result{}, fmt.Errorf("invalid JSON: %w", err)
+		return verbatimResult(content, "json-compressor"), nil
 	}
 
 	// Compress the structure
 	compressed, stats := c.compressValue(data, 0)
 
-	// Marshal back to JSON
+	// Marshal back to JSON. A marshal failure on already-parsed data is not
+	// expected, but degrade to verbatim rather than erroring out.
 	output, err := json.MarshalIndent(compressed, "", "  ")
 	if err != nil {
-		return Result{}, fmt.Errorf("failed to marshal compressed JSON: %w", err)
+		return verbatimResult(content, "json-compressor"), nil
 	}
 
 	return Result{
@@ -165,8 +169,8 @@ func (c *JSONCompressor) compressString(s string, stats *compressStats) string {
 		return s
 	}
 
-	// Truncate long strings
-	truncated := s[:c.MaxValueLength] + "..."
+	// Truncate long strings on a rune boundary so multibyte runes aren't split.
+	truncated := textutil.TruncateBytes(s, c.MaxValueLength) + "..."
 	stats.compressed = append(stats.compressed, "long string")
 	return truncated
 }

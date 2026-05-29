@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,26 @@ func createTestRepo(t *testing.T, dir string) string {
 	require.NoError(t, err)
 
 	return repoDir
+}
+
+func TestRepoCache_repoDirForURL_RejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+	cache := NewRepoCache(base, AuthConfig{})
+
+	// A crafted URL with ".." segments must not escape the cache dir, since
+	// the result is later RemoveAll'd and cloned into.
+	traversal := []string{
+		"https://evil.com/../../../../etc/passwd",
+		"https://host/a/../../../../../tmp/pwned",
+		"ssh://git@host/../../outside",
+	}
+	for _, u := range traversal {
+		dir := cache.repoDirForURL(u)
+		rel, err := filepath.Rel(base, dir)
+		require.NoError(t, err, "repoDirForURL(%q) = %q", u, dir)
+		assert.False(t, rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)),
+			"repoDirForURL(%q) = %q escaped base %q (rel=%q)", u, dir, base, rel)
+	}
 }
 
 func TestRepoCache_EnsureRepo_Clone(t *testing.T) {

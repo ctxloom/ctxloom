@@ -1,0 +1,297 @@
+package bundles
+
+import (
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/ctxloom/internal/errs"
+)
+
+// Loader loads bundles from disk (and an optional in-memory seed), caching
+// parsed results for the lifetime of the loader.
+type Loader struct {
+	searchDirs      []string
+	preferDistilled bool
+	fs              afero.Fs
+	mu              sync.RWMutex       // Protects cache
+	cache           map[string]*Bundle // Cache of loaded bundles by path
+	seeded          map[string]*Bundle // Bundle-name → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+}
+
+// seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
+// content lives only in Loader.seeded. LoadFile uses the prefix to short-
+// circuit straight back to the seeded bundle without touching the fs.
+const seededPathPrefix = "<seeded>:"
+
+// LoaderOption is a functional option for configuring a Loader.
+type LoaderOption func(*Loader)
+
+// WithFS sets a custom filesystem implementation (for testing).
+func WithFS(fs afero.Fs) LoaderOption {
+	return func(l *Loader) {
+		l.fs = fs
+	}
+}
+
+// WithSeededBundles pre-populates the loader with parsed bundles indexed by
+// name. Seeded entries win over fs hits with the same name, which lets
+// remote-pinned bundles served from a git clone cache (see operations.
+// BundleReader) shadow any stale extracted copy left over from a previous
+// install. Each call merges its map into any prior seed.
+func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
+	return func(l *Loader) {
+		if l.seeded == nil {
+			l.seeded = make(map[string]*Bundle, len(seeded))
+		}
+		maps.Copy(l.seeded, seeded)
+	}
+}
+
+// NewLoader creates a bundle loader.
+// The loader caches loaded bundles in memory to avoid redundant disk reads.
+func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
+	l := &Loader{
+		searchDirs:      searchDirs,
+		preferDistilled: preferDistilled,
+		fs:              afero.NewOsFs(),
+		cache:           make(map[string]*Bundle),
+	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l
+}
+
+// seededPath builds the synthetic path used in BundleInfo for seeded bundles.
+// LoadFile inverts the encoding to recover the name.
+func seededPath(name string) string { return seededPathPrefix + name }
+
+// seededNameFromPath returns ("name", true) when path is a sentinel produced
+// by seededPath. Returns ("", false) for real fs paths.
+func seededNameFromPath(path string) (string, bool) {
+	if rest, ok := strings.CutPrefix(path, seededPathPrefix); ok {
+		return rest, true
+	}
+	return "", false
+}
+
+// Load reads a bundle by name.
+// Name can be:
+// - Simple name: "go-tools" -> searches for go-tools.yaml or go-tools/bundle.yaml
+// - Remote-qualified: "alice/go-tools" -> searches in alice/ subdirectory
+//
+// Seeded bundles (see WithSeededBundles) win over fs hits with the same
+// name; this is how remote-pinned bundles delivered by operations.
+// BundleReader shadow any stale extracted copy still on disk.
+func (l *Loader) Load(name string) (*Bundle, error) {
+	if b, ok := l.lookupSeeded(name); ok {
+		return b, nil
+	}
+	path, err := l.Find(name)
+	if err != nil {
+		return nil, err
+	}
+	return l.LoadFile(path)
+}
+
+// lookupSeeded returns the seeded bundle for name, if any. Cheap read-only.
+func (l *Loader) lookupSeeded(name string) (*Bundle, bool) {
+	if l.seeded == nil {
+		return nil, false
+	}
+	b, ok := l.seeded[name]
+	return b, ok
+}
+
+// Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").
+func (l *Loader) Find(name string) (string, error) {
+	// Security: validate name
+	if err := ValidateBundleName(name); err != nil {
+		return "", err
+	}
+
+	// Convert forward slashes to OS-specific separator
+	osName := filepath.FromSlash(name)
+
+	for _, dir := range l.searchDirs {
+		// Try direct path: name.yaml
+		path := filepath.Join(dir, osName+".yaml")
+		if _, err := l.fs.Stat(path); err == nil {
+			return path, nil
+		}
+
+		// Try directory path: name/bundle.yaml
+		path = filepath.Join(dir, osName, "bundle.yaml")
+		if _, err := l.fs.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
+}
+
+// LoadFile reads a bundle from a specific path.
+// Results are cached to avoid redundant disk reads when the same bundle
+// is referenced multiple times (e.g., by multiple profiles).
+// This method is safe for concurrent use.
+//
+// Synthetic seeded-bundle paths (see seededPath) bypass the fs and return
+// the corresponding seeded bundle. Real fs paths use the on-disk cache.
+func (l *Loader) LoadFile(path string) (*Bundle, error) {
+	if name, ok := seededNameFromPath(path); ok {
+		if b, ok := l.lookupSeeded(name); ok {
+			return b, nil
+		}
+		return nil, fmt.Errorf("seeded bundle %q not found", name)
+	}
+
+	// Check cache first (read lock)
+	l.mu.RLock()
+	if cached, ok := l.cache[path]; ok {
+		l.mu.RUnlock()
+		return cached, nil
+	}
+	l.mu.RUnlock()
+
+	// Load from disk (no lock held during I/O)
+	data, err := afero.ReadFile(l.fs, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read bundle: %w", err)
+	}
+
+	bundle, err := ParseBundle(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse bundle %s: %w", path, err)
+	}
+
+	bundle.Path = path
+	bundle.Name = extractBundleName(path)
+
+	// Cache for future loads (write lock)
+	l.mu.Lock()
+	// Double-check in case another goroutine cached it while we were loading
+	if cached, ok := l.cache[path]; ok {
+		l.mu.Unlock()
+		return cached, nil
+	}
+	l.cache[path] = bundle
+	l.mu.Unlock()
+
+	return bundle, nil
+}
+
+// List returns all available bundles. Seeded bundles are listed first so
+// that when an fs walk turns up a stale extracted copy with the same name,
+// the seeded entry stays authoritative.
+func (l *Loader) List() ([]*BundleInfo, error) {
+	var bundles []*BundleInfo
+	seen := collections.NewSet[string]()
+
+	// Seeded bundles take precedence — emit them with a sentinel path that
+	// LoadFile knows how to short-circuit.
+	for name, b := range l.seeded {
+		bundles = append(bundles, &BundleInfo{
+			Name:          name,
+			Path:          seededPath(name),
+			Version:       b.Version,
+			Description:   b.Description,
+			Tags:          b.Tags,
+			FragmentCount: b.FragmentCount(),
+			PromptCount:   b.PromptCount(),
+			MCPCount:      b.MCPCount(),
+		})
+		seen.Add(name)
+	}
+
+	// Search bundle directories recursively
+	for _, dir := range l.searchDirs {
+		exists, err := afero.DirExists(l.fs, dir)
+		if err != nil || !exists {
+			continue
+		}
+
+		_ = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil // Skip directories we can't read
+			}
+			if info.IsDir() {
+				// Check for bundle.yaml in directories
+				bundlePath := filepath.Join(path, "bundle.yaml")
+				if _, err := l.fs.Stat(bundlePath); err == nil {
+					relPath, _ := filepath.Rel(dir, path)
+					bundleName := NormalizeBundleName(filepath.ToSlash(relPath))
+					if seen.Has(bundleName) {
+						return nil
+					}
+					bundleInfo, err := l.loadBundleInfo(bundlePath, bundleName)
+					if err == nil {
+						bundles = append(bundles, bundleInfo)
+						seen.Add(bundleName)
+					}
+				}
+				return nil
+			}
+
+			name := info.Name()
+			// Check for .yaml files (bundle files)
+			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
+				relPath, _ := filepath.Rel(dir, path)
+				bundleName := NormalizeBundleName(strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml"))
+				if seen.Has(bundleName) {
+					return nil
+				}
+				bundleInfo, err := l.loadBundleInfo(path, bundleName)
+				if err == nil {
+					bundles = append(bundles, bundleInfo)
+					seen.Add(bundleName)
+				}
+			}
+			return nil
+		})
+	}
+
+	// Sort by name
+	sort.Slice(bundles, func(i, j int) bool {
+		return bundles[i].Name < bundles[j].Name
+	})
+
+	return bundles, nil
+}
+
+// BundleInfo holds metadata about a bundle without loading full content.
+type BundleInfo struct {
+	Name          string
+	Path          string
+	Version       string
+	Description   string
+	Tags          []string
+	FragmentCount int
+	PromptCount   int
+	MCPCount      int
+}
+
+func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
+	bundle, err := l.LoadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BundleInfo{
+		Name:          name,
+		Path:          path,
+		Version:       bundle.Version,
+		Description:   bundle.Description,
+		Tags:          bundle.Tags,
+		FragmentCount: bundle.FragmentCount(),
+		PromptCount:   bundle.PromptCount(),
+		MCPCount:      bundle.MCPCount(),
+	}, nil
+}

@@ -132,8 +132,30 @@ func (m *LockfileManager) Save(lockfile *Lockfile) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	// Write to a unique temp file and rename into place. The lockfile is the
+	// sole on-disk trust/provenance record; a torn write would corrupt it.
+	// Rename is atomic on the same filesystem (pattern from commit 4caf8e2).
 	path := m.Path()
-	if err := afero.WriteFile(m.fs, path, data, 0644); err != nil {
+	tmp, err := afero.TempFile(m.fs, m.baseDir, ".lock-*.yaml.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp lockfile: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = m.fs.Remove(tmpName)
+		return fmt.Errorf("failed to write lockfile: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = m.fs.Remove(tmpName)
+		return fmt.Errorf("failed to write lockfile: %w", err)
+	}
+	if err := m.fs.Chmod(tmpName, 0644); err != nil {
+		_ = m.fs.Remove(tmpName)
+		return fmt.Errorf("failed to write lockfile: %w", err)
+	}
+	if err := m.fs.Rename(tmpName, path); err != nil {
+		_ = m.fs.Remove(tmpName)
 		return fmt.Errorf("failed to write lockfile: %w", err)
 	}
 

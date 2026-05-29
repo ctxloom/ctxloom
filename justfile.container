@@ -120,6 +120,10 @@ release: build-all compress-all
 test:
     go test -race -coverprofile=coverage.out ./...
 
+# Run tests with the treesitter (CGO) build tag — exercises the code compressor
+test-treesitter:
+    CGO_ENABLED=1 go test -race -tags treesitter ./internal/compression/...
+
 # Run integration tests (requires ctxloom binary)
 test-integration: build
     go test -v -tags integration ./tests/integration/...

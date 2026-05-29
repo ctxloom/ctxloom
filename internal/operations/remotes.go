@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -379,7 +381,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 				return
 			}
 
-			filtered := repos[:0]
+			filtered := make([]remote.RepoInfo, 0, len(repos))
 			for _, r := range repos {
 				if r.Stars >= req.MinStars {
 					filtered = append(filtered, r)
@@ -511,9 +513,9 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 
 		entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
 		if err != nil {
-			// Only warn if it's not a "not found" error (directory genuinely doesn't exist)
-			errStr := err.Error()
-			if !strings.Contains(errStr, "not found") && !strings.Contains(errStr, "404") {
+			// Only warn if it's not a "not found" error (directory genuinely
+			// doesn't exist) — matched by sentinel, not error text.
+			if !errors.Is(err, errs.ErrRemoteContentNotFound) {
 				warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
 				warnings = append(warnings, warning)
 				fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)

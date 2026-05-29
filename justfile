@@ -488,9 +488,9 @@ dev-build-treesitter: dev-image
 dev-build-full: dev-image
     just _run build-full
 
-# Run tests with ONNX (inside devcontainer)
-dev-test-onnx: dev-image
-    just _run test-onnx
+# Run treesitter (CGO) tests inside devcontainer
+dev-test-treesitter: dev-image
+    just _run test-treesitter
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image

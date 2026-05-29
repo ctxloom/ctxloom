@@ -1,0 +1,485 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/compression"
+	"github.com/ctxloom/ctxloom/internal/config"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+)
+
+var bundleDistillForce bool
+var bundleDistillDryRun bool
+var bundleDistillPlugin string
+
+var bundleDistillCmd = &cobra.Command{
+	Use:   "distill <file-pattern>...",
+	Short: "Distill bundle files to create token-efficient versions",
+	Long: `Distill bundle files to create minimal-token versions that preserve meaning.
+
+This command processes each fragment and prompt in the bundle through an LLM
+to create a compressed version. The distilled content, content hash, and
+model info are written back to the bundle file.
+
+Supports glob patterns to process multiple files at once.
+
+Examples:
+  ctxloom bundle distill ./my-bundle.yaml                    # Single file
+  ctxloom bundle distill .ctxloom/bundles/*.yaml                 # All bundles in directory
+  ctxloom bundle distill .ctxloom/bundles/**/*.yaml              # Recursive
+  ctxloom bundle distill bundle1.yaml bundle2.yaml           # Multiple files
+  ctxloom bundle distill ./my-bundle.yaml --force            # Re-distill all items
+  ctxloom bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runBundleDistill,
+}
+
+func runBundleDistill(cmd *cobra.Command, args []string) error {
+	// Expand glob patterns to get list of files
+	var files []string
+	for _, pattern := range args {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return fmt.Errorf("invalid pattern %q: %w", pattern, err)
+		}
+		if len(matches) == 0 {
+			// Try as literal path
+			if _, err := os.Stat(pattern); err == nil {
+				files = append(files, pattern)
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: no files match %q\n", pattern)
+			}
+		} else {
+			files = append(files, matches...)
+		}
+	}
+
+	if len(files) == 0 {
+		return fmt.Errorf("no files found matching patterns")
+	}
+
+	// Load config for plugin settings
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Determine plugin to use
+	pluginName := bundleDistillPlugin
+	if pluginName == "" {
+		pluginName = cfg.GetDefaultLLMPlugin()
+	}
+
+	// Get plugin env config
+	pluginCfg := cfg.LM.Plugins[pluginName]
+
+	// Load distill prompt
+	distillPrompt, err := loadDistillPrompt()
+	if err != nil {
+		return err
+	}
+
+	// Process each file
+	totalFiles := 0
+	totalItems := 0
+	totalSkipped := 0
+
+	for _, filePath := range files {
+		// Read and parse bundle
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
+			continue
+		}
+
+		bundle, err := bundles.ParseBundle(data)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", filePath, err)
+			continue
+		}
+		bundle.Path = filePath
+
+		fmt.Printf("Processing: %s\n", filePath)
+		modified := false
+
+		// Distill each fragment
+		for name, frag := range bundle.Fragments {
+			if frag.NoDistill {
+				fmt.Printf("  Skipping fragment %s (no_distill)\n", name)
+				totalSkipped++
+				continue
+			}
+
+			if !bundleDistillForce && !frag.NeedsDistill() {
+				fmt.Printf("  Skipping fragment %s (unchanged)\n", name)
+				totalSkipped++
+				continue
+			}
+
+			if bundleDistillDryRun {
+				fmt.Printf("  Would distill fragment: %s\n", name)
+				totalItems++
+				continue
+			}
+
+			fmt.Printf("  Distilling fragment: %s...", name)
+
+			// Build sibling context
+			siblingCtx := buildSiblingContext(bundle, "fragments/"+name)
+
+			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, name, frag.Content, distillPrompt, siblingCtx)
+			if err != nil {
+				fmt.Printf(" FAILED: %v\n", err)
+				continue
+			}
+
+			frag.Distilled = distilled
+			frag.ContentHash = frag.ComputeContentHash()
+			frag.DistilledBy = modelID
+			bundle.Fragments[name] = frag
+			modified = true
+			totalItems++
+
+			fmt.Printf(" OK (%s)\n", modelID)
+		}
+
+		// Distill each prompt
+		for name, prompt := range bundle.Prompts {
+			if prompt.NoDistill {
+				fmt.Printf("  Skipping prompt %s (no_distill)\n", name)
+				totalSkipped++
+				continue
+			}
+
+			if !bundleDistillForce && !prompt.NeedsDistill() {
+				fmt.Printf("  Skipping prompt %s (unchanged)\n", name)
+				totalSkipped++
+				continue
+			}
+
+			if bundleDistillDryRun {
+				fmt.Printf("  Would distill prompt: %s\n", name)
+				totalItems++
+				continue
+			}
+
+			fmt.Printf("  Distilling prompt: %s...", name)
+
+			// Build sibling context
+			siblingCtx := buildSiblingContext(bundle, "prompts/"+name)
+
+			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, name, prompt.Content, distillPrompt, siblingCtx)
+			if err != nil {
+				fmt.Printf(" FAILED: %v\n", err)
+				continue
+			}
+
+			prompt.Distilled = distilled
+			prompt.ContentHash = prompt.ComputeContentHash()
+			prompt.DistilledBy = modelID
+			bundle.Prompts[name] = prompt
+			modified = true
+			totalItems++
+
+			fmt.Printf(" OK (%s)\n", modelID)
+		}
+
+		// Save bundle if modified
+		if modified && !bundleDistillDryRun {
+			if err := bundle.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error saving %s: %v\n", filePath, err)
+				continue
+			}
+			totalFiles++
+		}
+	}
+
+	// Summary
+	if bundleDistillDryRun {
+		fmt.Printf("\nDry run: would distill %d items\n", totalItems)
+	} else {
+		var parts []string
+		if totalItems > 0 {
+			parts = append(parts, fmt.Sprintf("distilled %d items in %d files", totalItems, totalFiles))
+		}
+		if totalSkipped > 0 {
+			parts = append(parts, fmt.Sprintf("skipped %d", totalSkipped))
+		}
+		if len(parts) > 0 {
+			fmt.Printf("\n%s\n", strings.Join(parts, ", "))
+		} else {
+			fmt.Println("\nNo items to distill.")
+		}
+	}
+
+	return nil
+}
+
+// defaultDistillPrompt is used when no distill prompt is found in bundles.
+const defaultDistillPrompt = `You are a context compression assistant for AI coding assistants.
+
+TASK: Compress the content by removing unimportant words while preserving meaning.
+
+PRESERVE (never remove):
+- Code syntax and exact patterns
+- Function/file/variable names (breadcrumbs for navigation)
+- Error handling rules and edge cases
+- Actionable instructions ("DO X", "NEVER do Y")
+- Technical constraints and requirements
+
+COMPRESS AGGRESSIVELY:
+- Verbose explanations of "why"
+- Redundant examples (keep 1 best example per concept)
+- Motivational/philosophical content
+- Historical context unless directly actionable
+
+RULES:
+- Use bullet points and abbreviations where clear
+- Do NOT add new information or rephrase semantics
+- Output format: same structure, fewer words
+- Target: 30-50% of original size
+
+Output only the compressed content.`
+
+// loadDistillPrompt loads the distillation prompt from bundles.
+func loadDistillPrompt() (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return defaultDistillPrompt, nil
+	}
+
+	// Try to load "distill" prompt from bundles
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	prompt, err := loader.GetPrompt("distill")
+	if err == nil && prompt.Content != "" {
+		return strings.TrimSpace(prompt.Content), nil
+	}
+
+	// Use default prompt
+	return defaultDistillPrompt, nil
+}
+
+// buildSiblingContext creates context about sibling items in a bundle.
+func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
+	var ctx strings.Builder
+
+	fmt.Fprintf(&ctx, "Bundle: %s", bundle.Description)
+	if bundle.Version != "" {
+		fmt.Fprintf(&ctx, " (v%s)", bundle.Version)
+	}
+	ctx.WriteString("\n")
+
+	if len(bundle.Tags) > 0 {
+		ctx.WriteString("Tags: ")
+		ctx.WriteString(strings.Join(bundle.Tags, ", "))
+		ctx.WriteString("\n")
+	}
+	ctx.WriteString("\n")
+
+	// List sibling fragments
+	if len(bundle.Fragments) > 1 || (len(bundle.Fragments) == 1 && !strings.HasPrefix(excludeName, "fragments/")) {
+		ctx.WriteString("Sibling fragments:\n")
+		for name, frag := range bundle.Fragments {
+			if "fragments/"+name == excludeName {
+				continue
+			}
+			firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
+			if len(firstLine) > 60 {
+				firstLine = firstLine[:57] + "..."
+			}
+			fmt.Fprintf(&ctx, "- %s: %s\n", name, firstLine)
+		}
+		ctx.WriteString("\n")
+	}
+
+	// List sibling prompts
+	if len(bundle.Prompts) > 1 || (len(bundle.Prompts) == 1 && !strings.HasPrefix(excludeName, "prompts/")) {
+		ctx.WriteString("Sibling prompts:\n")
+		for name, prompt := range bundle.Prompts {
+			if "prompts/"+name == excludeName {
+				continue
+			}
+			desc := prompt.Description
+			if desc == "" {
+				desc = strings.Split(strings.TrimSpace(prompt.Content), "\n")[0]
+				if len(desc) > 60 {
+					desc = desc[:57] + "..."
+				}
+			}
+			fmt.Fprintf(&ctx, "- %s: %s\n", name, desc)
+		}
+	}
+
+	return ctx.String()
+}
+
+// compressionRouter is a shared router for AST/JSON compression.
+var compressionRouter = compression.NewRouter()
+
+// distillWithModel sends content through compression and returns distilled content and model ID.
+// It first tries AST-based compression for code and JSON structure compression for JSON content.
+// For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
+func distillWithModel(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	ctx := context.Background()
+
+	// Detect content type and try AST/JSON compression first
+	contentType := compression.DetectContentType(name, content)
+
+	// For code and JSON, try fast local compression
+	if isStructuredContent(contentType) {
+		result, err := compressionRouter.CompressWithType(ctx, contentType, content, 0.5)
+		if err == nil && result.Ratio < 0.7 {
+			// Good compression achieved with AST/JSON - use it
+			return result.Content, result.ModelID, nil
+		}
+		// If compression didn't achieve good ratio or failed, fall back to LLM
+	}
+
+	// For text content or when AST compression isn't effective, use LLM
+	return distillWithLLM(pluginName, env, name, content, distillPrompt, siblingCtx)
+}
+
+// isStructuredContent returns true for content types that can be compressed structurally.
+func isStructuredContent(ct compression.ContentType) bool {
+	switch ct {
+	case compression.ContentTypeGo, compression.ContentTypePython, compression.ContentTypeJavaScript,
+		compression.ContentTypeTypeScript, compression.ContentTypeRust, compression.ContentTypeJava,
+		compression.ContentTypeJSON:
+		return true
+	}
+	return false
+}
+
+// distillWithLLM sends content through the LLM and returns distilled content and model ID.
+func distillWithLLM(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	// Build content to distill
+	var builder strings.Builder
+
+	if siblingCtx != "" {
+		builder.WriteString("<bundle_context>\n")
+		builder.WriteString(siblingCtx)
+		builder.WriteString("\n</bundle_context>\n\n")
+		builder.WriteString("CONTEXT-AWARE COMPRESSION:\n")
+		builder.WriteString("- The bundle_context shows sibling items that will be loaded together\n")
+		builder.WriteString("- DO NOT repeat concepts already covered by siblings - reference them instead\n")
+		builder.WriteString("- Compress knowing this content will be loaded alongside those siblings\n\n")
+	}
+
+	builder.WriteString("<content_to_compress>\n# ")
+	builder.WriteString(name)
+	builder.WriteString("\n\n")
+	builder.WriteString(content)
+	builder.WriteString("\n</content_to_compress>")
+
+	// Create plugin client
+	client, err := pb.NewSelfInvokingClient(pluginName, 0)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to start plugin: %w", err)
+	}
+	defer client.Kill()
+
+	// Build request
+	req := &pb.RunRequest{
+		Prompt: &pb.Fragment{
+			Content: builder.String(),
+		},
+		Fragments: []*pb.Fragment{
+			{Content: distillPrompt},
+		},
+		Options: &pb.RunOptions{
+			AutoApprove: true,
+			Mode:        pb.ExecutionMode_ONESHOT,
+			Env:         env,
+		},
+	}
+
+	// Execute and capture model info
+	var stdout, stderr bytes.Buffer
+	result, err := client.RunWithModelInfo(context.Background(), req, &stdout, &stderr)
+	if err != nil {
+		return "", "", err
+	}
+
+	if result.ExitCode != 0 {
+		return "", "", fmt.Errorf("LLM exited with code %d: %s", result.ExitCode, stderr.String())
+	}
+
+	// Build model ID from model info
+	modelID := pluginName
+	if result.ModelInfo != nil {
+		if result.ModelInfo.ModelName != "" {
+			modelID = result.ModelInfo.ModelName
+		}
+		if result.ModelInfo.ModelVersion != "" {
+			modelID = fmt.Sprintf("%s:%s", modelID, result.ModelInfo.ModelVersion)
+		}
+	}
+
+	// Clean up distilled content
+	distilled := cleanDistilledOutput(strings.TrimSpace(stdout.String()))
+
+	return distilled, modelID, nil
+}
+
+// preambleRe matches markdown horizontal rules/separators
+var preambleRe = regexp.MustCompile(`(?m)^-{3,}\s*$`)
+
+// codeFenceRe matches opening code fences
+var codeFenceRe = regexp.MustCompile("^```[a-z]*\\s*\n")
+
+// conversationalStarts are patterns LLMs add despite instructions
+var conversationalStarts = []string{
+	"here's ", "here is ", "below is ", "below you'll find ",
+	"the compressed version", "the following ",
+	"i've compressed ", "i have compressed ", "my compressed version",
+}
+
+// cleanDistilledOutput removes LLM preamble artifacts.
+func cleanDistilledOutput(content string) string {
+	content = strings.TrimSpace(content)
+	foundPreamble := false
+
+	// Check for conversational prefixes
+	lower := strings.ToLower(content)
+	for _, prefix := range conversationalStarts {
+		if strings.HasPrefix(lower, prefix) {
+			foundPreamble = true
+			if idx := strings.Index(content, "\n"); idx != -1 {
+				content = strings.TrimSpace(content[idx+1:])
+			}
+			break
+		}
+	}
+
+	// Strip separator if preamble was found
+	if foundPreamble {
+		if loc := preambleRe.FindStringIndex(content); loc != nil && loc[0] < 100 {
+			after := content[loc[1]:]
+			if len(after) > 0 && after[0] == '\n' {
+				after = after[1:]
+			}
+			content = strings.TrimSpace(after)
+		}
+	}
+
+	// Strip code fence if present
+	if loc := codeFenceRe.FindStringIndex(content); loc != nil && loc[0] == 0 {
+		content = content[loc[1]:]
+		if idx := strings.LastIndex(content, "```"); idx != -1 {
+			if strings.TrimSpace(content[idx+3:]) == "" {
+				content = strings.TrimSpace(content[:idx])
+			}
+		}
+	}
+
+	return content
+}

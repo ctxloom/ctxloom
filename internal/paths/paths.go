@@ -1,7 +1,10 @@
 // Package paths provides shared path constants for ctxloom.
 package paths
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+)
 
 const (
 	// AppDirName is the name of the ctxloom directory.
@@ -40,7 +43,45 @@ const (
 
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
+
+	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
+	SessionsDir = "sessions"
+
+	// TasksFileName is the name of the task store file.
+	TasksFileName = "tasks.md"
 )
+
+// HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
+// that holds the session index and per-harp session dirs. This is the
+// single source of truth for the sessions root; both the task store and the
+// memory compactor resolve harp paths through it so they cannot diverge.
+func HomeSessionsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, SessionsDir), nil
+}
+
+// HarpDir returns ~/.ctxloom/sessions/<harp>/. Errors when the home dir
+// can't be resolved; callers fall back to the legacy layout in that case.
+func HarpDir(harp string) (string, error) {
+	root, err := HomeSessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, harp), nil
+}
+
+// HarpTasksPath returns ~/.ctxloom/sessions/<harp>/tasks.md — the active
+// task store for a harp-named session.
+func HarpTasksPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, TasksFileName), nil
+}
 
 // GetCacheDir returns the cache subdirectory path for the given app path.
 // Cache contains regeneratable content: bundles, vendor, context, memory.

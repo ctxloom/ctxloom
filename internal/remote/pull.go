@@ -3,6 +3,7 @@ package remote
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // PullOptions configures pull behavior.
@@ -306,7 +309,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 				return nil, err
 			}
 			if !confirmed {
-				return nil, fmt.Errorf("installation cancelled: version retracted")
+				return nil, fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
 			}
 		}
 	}
@@ -370,7 +373,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 			return nil, fmt.Errorf("failed to read confirmation: %w", err)
 		}
 		if !confirmed {
-			return nil, fmt.Errorf("installation cancelled")
+			return nil, fmt.Errorf("installation cancelled: %w", errs.ErrCancelled)
 		}
 	}
 
@@ -417,7 +420,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 						return nil, fmt.Errorf("failed to read confirmation: %w", perr)
 					}
 					if !confirmed {
-						return nil, fmt.Errorf("overwrite cancelled")
+						return nil, fmt.Errorf("overwrite cancelled: %w", errs.ErrCancelled)
 					}
 				}
 			}
@@ -512,7 +515,7 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 
 		_, err = p.Pull(ctx, bundleRef, bundleOpts)
 		if err != nil {
-			if strings.Contains(err.Error(), "cancelled") {
+			if errors.Is(err, errs.ErrCancelled) {
 				_, _ = fmt.Fprintf(opts.Stdout, "    Skipped\n")
 				continue
 			}

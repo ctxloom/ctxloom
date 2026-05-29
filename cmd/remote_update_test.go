@@ -7,10 +7,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // =============================================================================
@@ -39,12 +40,13 @@ func TestShortSHA_Empty(t *testing.T) {
 // =============================================================================
 
 func TestClassifyPullError_Skipped(t *testing.T) {
-	// Anything mentioning "cancelled" reads as a user-initiated skip
-	// (interactive confirmation declined, ctx canceled).
+	// A cancellation reads as a user-initiated skip. It's now identified by the
+	// errs.ErrCancelled sentinel (via errors.Is), not by substring, so it
+	// survives arbitrary wrapping.
 	cases := []error{
-		errors.New("operation cancelled by user"),
-		errors.New("pull cancelled"),
-		fmt.Errorf("wrapped: %w", errors.New("user cancelled review")),
+		errs.ErrCancelled,
+		fmt.Errorf("installation cancelled: %w", errs.ErrCancelled),
+		fmt.Errorf("puller: %w", fmt.Errorf("overwrite cancelled: %w", errs.ErrCancelled)),
 	}
 	for _, e := range cases {
 		t.Run(e.Error(), func(t *testing.T) {
@@ -54,12 +56,12 @@ func TestClassifyPullError_Skipped(t *testing.T) {
 }
 
 func TestClassifyPullError_Removed(t *testing.T) {
-	// Forge-layer "not found" surfaces as either of these messages.
+	// Forge-layer "not found" is identified by the errs.ErrRemoteContentNotFound
+	// sentinel (via errors.Is), which fetchers wrap around their 404 errors.
 	cases := []error{
-		errors.New("file not found"),
-		errors.New("github API returned 404"),
-		errors.New("404 Not Found"),
-		fmt.Errorf("wrapped: %w", errors.New("file not found at path")),
+		errs.ErrRemoteContentNotFound,
+		fmt.Errorf("file not found: owner/repo/x: %w", errs.ErrRemoteContentNotFound),
+		fmt.Errorf("puller: %w", fmt.Errorf("ref not found: v9: %w", errs.ErrRemoteContentNotFound)),
 	}
 	for _, e := range cases {
 		t.Run(e.Error(), func(t *testing.T) {
@@ -86,17 +88,17 @@ func TestClassifyPullError_FailedByDefault(t *testing.T) {
 func TestClassifyPullError_PrecedenceCancelledBeforeRemoved(t *testing.T) {
 	// If both signals are present, cancelled wins (it's the more specific
 	// user-action signal). Pin this so a future refactor that re-orders the
-	// switch doesn't silently change behavior.
-	err := errors.New("cancelled: file not found")
+	// checks doesn't silently change behavior.
+	err := fmt.Errorf("file not found: %w", errs.ErrCancelled)
 	assert.Equal(t, pullOutcomeSkipped, classifyPullError(err))
 }
 
-func TestClassifyPullError_CaseSensitive(t *testing.T) {
-	// classifyPullError uses strings.Contains, which is case-sensitive.
-	// Document that here so future-you sees the expected behavior on
-	// capitalized variants — they fall through to Failed.
-	assert.Equal(t, pullOutcomeFailed, classifyPullError(errors.New("CANCELLED")))
-	assert.Equal(t, pullOutcomeFailed, classifyPullError(errors.New("File Not Found")))
+func TestClassifyPullError_PlainTextWithoutSentinelIsFailed(t *testing.T) {
+	// classifyPullError now matches sentinels via errors.Is, not error text.
+	// A plain error that merely mentions "cancelled" or "not found" — but
+	// doesn't wrap a sentinel — falls through to Failed.
+	assert.Equal(t, pullOutcomeFailed, classifyPullError(errors.New("operation cancelled by user")))
+	assert.Equal(t, pullOutcomeFailed, classifyPullError(errors.New("file not found")))
 }
 
 func TestClassifyPullError_NilGuards(t *testing.T) {
@@ -110,11 +112,10 @@ func TestClassifyPullError_NilGuards(t *testing.T) {
 // =============================================================================
 
 func TestClassifyPullError_DeeplyWrapped(t *testing.T) {
-	inner := errors.New("file not found")
+	inner := fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound)
 	mid := fmt.Errorf("fetcher: %w", inner)
 	outer := fmt.Errorf("puller: %w", mid)
 	assert.Equal(t, pullOutcomeRemoved, classifyPullError(outer))
-	// Sanity: also check the substring really survives wrapping (this is
-	// the contract that justifies the substring-match design).
-	assert.True(t, strings.Contains(outer.Error(), "file not found"))
+	// Sanity: errors.Is finds the sentinel through arbitrary wrapping.
+	assert.True(t, errors.Is(outer, errs.ErrRemoteContentNotFound))
 }

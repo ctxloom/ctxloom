@@ -56,6 +56,19 @@ type Result struct {
 	ModelID string
 }
 
+// verbatimResult returns content uncompressed (Ratio 1.0) tagged with modelID.
+// Compressors use it to degrade gracefully: when input can't be parsed, the
+// content passes through unchanged rather than failing the whole pipeline.
+func verbatimResult(content, modelID string) Result {
+	return Result{
+		Content:        content,
+		OriginalSize:   len(content),
+		CompressedSize: len(content),
+		Ratio:          1.0,
+		ModelID:        modelID,
+	}
+}
+
 // DetectContentType determines the content type from file extension or content analysis.
 func DetectContentType(filename string, content string) ContentType {
 	// Check by extension first

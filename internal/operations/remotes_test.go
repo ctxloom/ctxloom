@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -748,9 +749,10 @@ func TestBrowseRemote_BrowseDirNotFound(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	// Create a fetcher that returns 404 (not found)
+	// Create a fetcher that returns 404 (not found). Real fetchers wrap the
+	// typed sentinel; BrowseRemote detects it via errors.Is.
 	fetcher := remote.NewMockFetcher()
-	fetcher.ListDirErr = fmt.Errorf("404 not found")
+	fetcher.ListDirErr = fmt.Errorf("404 not found: %w", errs.ErrRemoteContentNotFound)
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:   "alice",

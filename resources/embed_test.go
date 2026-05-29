@@ -115,9 +115,13 @@ func TestGetBuiltinBundle(t *testing.T) {
 	if !strings.Contains(string(data), "version:") {
 		t.Error("tasks bundle should declare a version")
 	}
-	// And it should ship its two namesake hooks.
-	if !strings.Contains(string(data), "tasks capture") {
-		t.Error("tasks bundle should ship the capture hook")
+	// It ships the stamp-plan hook; it must NOT ship a TodoWrite capture
+	// hook (auto-capture was removed — tasks go through the MCP tools/CLI).
+	if !strings.Contains(string(data), "tasks stamp-plan") {
+		t.Error("tasks bundle should ship the stamp-plan hook")
+	}
+	if strings.Contains(string(data), "tasks capture") {
+		t.Error("tasks bundle must not ship the removed TodoWrite capture hook")
 	}
 }
 

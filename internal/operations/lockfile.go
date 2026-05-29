@@ -215,7 +215,7 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 	var errors []string
 
 	for _, e := range entries {
-		ref := fmt.Sprintf("%s@%s", e.Ref, e.Entry.SHA[:7])
+		ref := fmt.Sprintf("%s@%s", e.Ref, shortSHA(e.Entry.SHA))
 
 		opts := remote.PullOptions{
 			Force:    req.Force,
@@ -390,20 +390,11 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 		}
 
 		if latestSHA != e.Entry.SHA {
-			lockedShort := e.Entry.SHA
-			if len(lockedShort) > 7 {
-				lockedShort = lockedShort[:7]
-			}
-			latestShort := latestSHA
-			if len(latestShort) > 7 {
-				latestShort = latestShort[:7]
-			}
-
 			outdated = append(outdated, OutdatedItem{
 				Type:      string(e.Type),
 				Reference: e.Ref,
-				LockedSHA: lockedShort,
-				LatestSHA: latestShort,
+				LockedSHA: shortSHA(e.Entry.SHA),
+				LatestSHA: shortSHA(latestSHA),
 			})
 		}
 	}

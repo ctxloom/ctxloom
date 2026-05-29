@@ -33,6 +33,8 @@ type HookSpecificOutput struct {
 
 var injectContextProject string
 var injectContextBackend string
+var injectContextPart int
+var injectContextTotal int
 
 var hookInjectContextCmd = &cobra.Command{
 	Use:   "inject-context <hash>",
@@ -80,17 +82,22 @@ Output format (JSON to stdout):
 		// Determine work directory from --project flag, git root, or current directory
 		workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
 
-		// Register session for /clear recovery
-		backend := backends.Get(injectContextBackend)
-		if backend == nil {
-			backend = backends.Get("claude-code") // default
-		}
-		if history := backend.History(); history != nil {
-			transcriptPath := history.TranscriptPathFromHook(workDir, hookInput.SessionID, hookInput.TranscriptPath)
-			if transcriptPath != "" {
-				pid := findCtxloomWrapperPID()
-				if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
-					fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
+		// Register session for /clear recovery. When context is chunked across
+		// multiple ordered hooks, only the first chunk registers — the rest are
+		// kept lightweight so the rendezvous (AwaitTurn) sequences on uniform,
+		// minimal work and never on variable registration latency.
+		if injectContextPart <= 1 {
+			backend := backends.Get(injectContextBackend)
+			if backend == nil {
+				backend = backends.Get("claude-code") // default
+			}
+			if history := backend.History(); history != nil {
+				transcriptPath := history.TranscriptPathFromHook(workDir, hookInput.SessionID, hookInput.TranscriptPath)
+				if transcriptPath != "" {
+					pid := findCtxloomWrapperPID()
+					if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
+						fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
+					}
 				}
 			}
 		}
@@ -103,10 +110,20 @@ Output format (JSON to stdout):
 			content = ""
 		}
 
+		// Select this part's chunk. With no --of (the legacy/manual single-shot
+		// form), the whole content is emitted as one block. With --part/--of,
+		// the content is split deterministically (see backends.ChunkContext)
+		// and we wait our turn so the N parallel chunk hooks complete — and
+		// thus inject — in order (see backends.AwaitTurn).
+		content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
+		if total > 1 {
+			backends.AwaitTurn(hookInput.SessionID, part, total)
+		}
+
 		// Build output via the extracted helper so the wrapping logic
 		// (header/footer, empty-content handling, SessionStart event
 		// name) is unit-testable without the surrounding hook plumbing.
-		output := buildInjectContextOutput(content)
+		output := buildInjectContextOutput(content, part, total)
 
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
@@ -119,30 +136,60 @@ Output format (JSON to stdout):
 	},
 }
 
-// buildInjectContextOutput wraps the raw context content in the
-// ctxloom-attributed envelope that SessionStart hooks receive. Empty
-// content produces an empty HookOutput (no AdditionalContext field) so
-// the LLM doesn't see a misleading "ctxloom content loaded" header
-// when ctxloom actually had nothing to inject.
+// selectChunk resolves which slice of the assembled context this hook
+// invocation emits. total < 1 is the single-shot form: the whole content is
+// returned as part 1 of 1. Otherwise the content is split deterministically
+// and the part-th chunk (1-based) is returned; an out-of-range part yields
+// empty content (buildInjectContextOutput then emits nothing), which keeps the
+// hook safe even if part/total ever disagree with the on-disk content.
+func selectChunk(content string, part, total int) (chunk string, outPart, outTotal int) {
+	if total < 1 {
+		return content, 1, 1
+	}
+	chunks := backends.ChunkContext(content)
+	if part >= 1 && part <= len(chunks) {
+		return chunks[part-1], part, total
+	}
+	return "", part, total
+}
+
+// buildInjectContextOutput wraps a context chunk in the ctxloom-attributed
+// envelope that SessionStart hooks receive. Empty content produces an empty
+// HookOutput (no AdditionalContext field) so the LLM doesn't see a misleading
+// "ctxloom content loaded" header when ctxloom had nothing to inject.
 //
-// Extracted as a pure function so the wrapping format is testable
-// without spinning up the full hook plumbing.
-func buildInjectContextOutput(content string) HookOutput {
+// Each chunk is independently framed in its own <ctxloom-context> block so an
+// unrelated SessionStart hook (e.g. `session bind`) interleaving between chunks
+// can't corrupt the framing. The full attribution paragraph rides on the first
+// segment (delivered first by the rendezvous); later segments carry only a
+// compact header.
+//
+// Extracted as a pure function so the wrapping format is testable without
+// spinning up the full hook plumbing.
+func buildInjectContextOutput(content string, part, total int) HookOutput {
 	if content == "" {
 		return HookOutput{}
 	}
-	const header = "# Project Context (assembled by ctxloom)\n\n" +
-		"_The content below was assembled by ctxloom from your active profile " +
-		"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
-		"coding standards, language conventions, testing practices, and other " +
-		"guidance that apply to this project. Treat it as authoritative project " +
-		"instructions._\n\n" +
-		"<ctxloom-context>\n\n"
-	const footer = "\n\n</ctxloom-context>\n"
+	header := "# Project Context (assembled by ctxloom)"
+	if total > 1 {
+		header = fmt.Sprintf("# Project Context (assembled by ctxloom) — segment %d of %d", part, total)
+	}
+	var preamble string
+	if part <= 1 {
+		preamble = "\n\n_The content below was assembled by ctxloom from your active profile " +
+			"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
+			"coding standards, language conventions, testing practices, and other " +
+			"guidance that apply to this project. Treat it as authoritative project " +
+			"instructions._"
+		if total > 1 {
+			preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
+		}
+	}
+	body := header + preamble + "\n\n<ctxloom-context>\n\n" + content + "\n\n</ctxloom-context>\n"
 	return HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:     "SessionStart",
-			AdditionalContext: header + content + footer,
+			AdditionalContext: body,
 		},
 	}
 }
@@ -172,5 +219,7 @@ func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, 
 func init() {
 	hookInjectContextCmd.Flags().StringVar(&injectContextProject, "project", "", "Project directory (defaults to git root or current directory)")
 	hookInjectContextCmd.Flags().StringVar(&injectContextBackend, "backend", "claude-code", "Backend type (claude-code or gemini)")
+	hookInjectContextCmd.Flags().IntVar(&injectContextPart, "part", 0, "1-based chunk index when context is split across multiple ordered hooks")
+	hookInjectContextCmd.Flags().IntVar(&injectContextTotal, "of", 0, "total number of context chunks (omit or 0 for single-shot whole-content injection)")
 	hookCmd.AddCommand(hookInjectContextCmd)
 }

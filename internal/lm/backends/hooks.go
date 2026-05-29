@@ -190,7 +190,7 @@ type claudeCodeStatusLine struct {
 // Note: MCP servers are now stored in .mcp.json, not here.
 type claudeCodeSettings struct {
 	Hooks      map[string][]claudeCodeHookMatcher `json:"hooks,omitempty"`
-	StatusLine *claudeCodeStatusLine               `json:"statusLine,omitempty"`
+	StatusLine *claudeCodeStatusLine              `json:"statusLine,omitempty"`
 	// Preserve other settings (including legacy mcpServers for backwards compat)
 	Other map[string]json.RawMessage `json:"-"`
 }
@@ -205,7 +205,7 @@ type claudeCodeMCPConfig struct {
 type claudeCodeMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
-	Cwd     string   `json:"cwd,omitempty"` // Working directory for the server
+	Cwd     string   `json:"cwd,omitempty"`      // Working directory for the server
 	SCM     string   `json:"_ctxloom,omitempty"` // Marker identifying ctxloom-managed servers
 }
 
@@ -613,7 +613,7 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 			Command: ctxloomBinary,
 			Args:    ctxloomMCPArgs,
 			Cwd:     "${CLAUDE_PROJECT_DIR}", // Run in project directory so findAppDir works
-			SCM:     "ctxloom-auto",              // Marker for auto-registered ctxloom server
+			SCM:     "ctxloom-auto",          // Marker for auto-registered ctxloom server
 		}
 	}
 
@@ -678,8 +678,8 @@ func (w *GeminiHookWriter) HooksPath(projectDir string) string {
 
 // geminiSettings represents the structure of .gemini/settings.json
 type geminiSettings struct {
-	Hooks      map[string][]geminiHook      `json:"hooks,omitempty"`
-	MCPServers map[string]geminiMCPServer   `json:"mcpServers,omitempty"`
+	Hooks      map[string][]geminiHook    `json:"hooks,omitempty"`
+	MCPServers map[string]geminiMCPServer `json:"mcpServers,omitempty"`
 	// Preserve other settings
 	Other map[string]json.RawMessage `json:"-"`
 }
@@ -871,13 +871,12 @@ var ctxloomMCPArgs = []string{"mcp"}
 // (bare, absolute path, or quoted) as ctxloom-managed. Examples:
 //
 //	ctxloom hook inject-context …
-//	ctxloom tasks capture --stdin
 //	ctxloom tasks stamp-plan
 //	"/usr/bin/ctxloom" meta hud
-//	/home/me/go/bin/ctxloom tasks capture --stdin
+//	/home/me/go/bin/ctxloom session bind
 //
 // Without this broad recognition, removeCtxloomHooks only catches the
-// legacy inject-context entry and bundle-shipped hooks (tasks capture,
+// legacy inject-context entry and bundle-shipped hooks (session bind,
 // stamp-plan) accumulate duplicates on every apply-hooks run.
 func isCtxloomManagedHook(command string) bool {
 	exe := firstShellToken(command)
@@ -1029,21 +1028,61 @@ const ContextInjectionTimeout = 60
 // Resolved to an absolute path because Claude Code can launch the
 // hook from a different cwd.
 func NewContextInjectionHook(hash, workDir string) config.Hook {
-	absWorkDir := workDir
-	if abs, err := filepath.Abs(workDir); err == nil {
-		absWorkDir = abs
-	}
 	return config.Hook{
-		Command: fmt.Sprintf("ctxloom hook inject-context --project %s %s", shellSingleQuote(absWorkDir), hash),
+		Command: fmt.Sprintf("ctxloom hook inject-context --project %s %s", shellSingleQuote(absOrSelf(workDir)), hash),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
 	}
 }
 
+// NewContextInjectionChunkHook builds one of N ordered context-injection hooks.
+// Each invocation emits a single sub-cap chunk (part k of total) and uses the
+// flock rendezvous (AwaitTurn) to complete in order, so the harness — which
+// injects parallel hook output in completion order — sees the chunks in
+// sequence. See NewContextInjectionHooks for when chunking kicks in.
+func NewContextInjectionChunkHook(hash, workDir string, part, total int) config.Hook {
+	return config.Hook{
+		Command: fmt.Sprintf("ctxloom hook inject-context --project %s --part %d --of %d %s",
+			shellSingleQuote(absOrSelf(workDir)), part, total, hash),
+		Type:    "command",
+		Timeout: ContextInjectionTimeout,
+	}
+}
+
+// absOrSelf resolves workDir to an absolute path (Claude Code may launch the
+// hook from a different cwd), falling back to the input on error.
+func absOrSelf(workDir string) string {
+	if abs, err := filepath.Abs(workDir); err == nil {
+		return abs
+	}
+	return workDir
+}
+
+// NewContextInjectionHooks returns the SessionStart context-injection hook(s)
+// for the given content hash. It reads the (content-addressed, immutable)
+// context file to decide the split: content that fits in one sub-cap chunk —
+// or a missing/unreadable file — yields a single legacy whole-content hook;
+// larger content yields N ordered chunk hooks. Reading the file here and in the
+// hook with the same ChunkContext guarantees write-time and run-time agree on
+// N. Best-effort by design: any read error falls back to the single hook (the
+// runtime hook then emits nothing if the file is truly empty).
+func NewContextInjectionHooks(hash, workDir string) []config.Hook {
+	content, _ := ReadContextFile(workDir, hash)
+	chunks := ChunkContext(content)
+	if len(chunks) <= 1 {
+		return []config.Hook{NewContextInjectionHook(hash, workDir)}
+	}
+	hooks := make([]config.Hook, 0, len(chunks))
+	for k := 1; k <= len(chunks); k++ {
+		hooks = append(hooks, NewContextInjectionChunkHook(hash, workDir, k, len(chunks)))
+	}
+	return hooks
+}
+
 // AppendManagedDynamicHooks appends the ctxloom-managed hooks that are
 // assembled dynamically (rather than read verbatim from one config block) onto
 // unified: the bundle-shipped hooks (SCM-tagged — e.g. `session bind`,
-// `tasks capture`, `stamp-plan`) and, when contextHash is non-empty, the
+// `stamp-plan`) and, when contextHash is non-empty, the
 // SessionStart context-injection hook.
 //
 // Both writers of settings.json route through this: the `ctxloom run` Setup
@@ -1061,7 +1100,7 @@ func AppendManagedDynamicHooks(unified *config.UnifiedHooks, cfg *config.Config,
 	}
 	unified.Append(cfg.ResolveBundleHooks())
 	if contextHash != "" {
-		unified.SessionStart = append(unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
+		unified.SessionStart = append(unified.SessionStart, NewContextInjectionHooks(contextHash, workDir)...)
 	}
 }
 
@@ -1105,7 +1144,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *conf
 
 // shellSingleQuote wraps s in single quotes for safe interpolation into a
 // /bin/sh command string, escaping embedded single quotes as the standard
-// '\'' idiom. Unlike double-quoting, single quotes neutralize spaces, $,
+// '\” idiom. Unlike double-quoting, single quotes neutralize spaces, $,
 // backticks, and backslashes — so a project path containing any of those
 // can't break the command split or inject shell behavior.
 func shellSingleQuote(s string) string {
@@ -1139,5 +1178,3 @@ func mergeHooksConfig(dest *config.HooksConfig, src *config.HooksConfig) {
 		}
 	}
 }
-
-

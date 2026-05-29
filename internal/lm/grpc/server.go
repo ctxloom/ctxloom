@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/hashicorp/go-plugin"
@@ -49,9 +50,13 @@ func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*PluginInfo, error) {
 
 // Run executes the backend and streams output.
 func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
-	// Create writers that send output over the stream
-	stdoutWriter := &streamWriter{stream: stream, isStderr: false}
-	stderrWriter := &streamWriter{stream: stream, isStderr: true}
+	// Create writers that send output over the stream. os/exec copies
+	// stdout and stderr from separate goroutines, so both writers may call
+	// stream.Send concurrently — which gRPC forbids. Share one mutex so
+	// sends are serialized.
+	var sendMu sync.Mutex
+	stdoutWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: false}
+	stderrWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: true}
 
 	// Build setup request from RunRequest. Treat nil Options as
 	// fully-default so callers using proto-zero-values don't crash —
@@ -147,9 +152,12 @@ func convertModelInfoToProto(m *backends.ModelInfo) *ModelInfo {
 	}
 }
 
-// streamWriter writes to a gRPC stream.
+// streamWriter writes to a gRPC stream. sendMu is shared between the stdout
+// and stderr writers so their concurrent Write calls never invoke
+// stream.Send concurrently (gRPC forbids concurrent Send on one stream).
 type streamWriter struct {
 	stream   AIPlugin_RunServer
+	sendMu   *sync.Mutex
 	isStderr bool
 }
 
@@ -161,6 +169,8 @@ func (w *streamWriter) Write(p []byte) (int, error) {
 		resp = &RunResponse{Output: &RunResponse_Stdout{Stdout: p}}
 	}
 
+	w.sendMu.Lock()
+	defer w.sendMu.Unlock()
 	if err := w.stream.Send(resp); err != nil {
 		return 0, err
 	}

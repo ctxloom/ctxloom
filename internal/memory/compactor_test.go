@@ -32,8 +32,10 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic("memory test setup: " + err.Error())
 	}
-	os.Setenv("HOME", tmpHome)
-	os.Unsetenv("CTXLOOM_SESSION_HARP")
+	if err := os.Setenv("HOME", tmpHome); err != nil {
+		panic("memory test setup: " + err.Error())
+	}
+	_ = os.Unsetenv("CTXLOOM_SESSION_HARP")
 	code := m.Run()
 	_ = os.RemoveAll(tmpHome)
 	os.Exit(code)
@@ -46,7 +48,7 @@ func TestEstimateTokens(t *testing.T) {
 		expected int
 	}{
 		{"empty string", "", 0},
-		{"short string", "test", 1}, // 4 chars / 4 = 1
+		{"short string", "test", 1},                 // 4 chars / 4 = 1
 		{"longer string", "hello world testing", 4}, // 19 chars / 4 = 4
 	}
 
@@ -490,16 +492,18 @@ type mockBackend struct {
 	history backends.SessionHistory
 }
 
-func (m *mockBackend) Name() string                                       { return "mock-test" }
-func (m *mockBackend) Version() string                                    { return "1.0.0" }
-func (m *mockBackend) SupportedModes() []backends.ExecutionMode           { return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot} }
-func (m *mockBackend) Lifecycle() backends.LifecycleHandler               { return nil }
-func (m *mockBackend) Skills() backends.SkillRegistry                     { return nil }
-func (m *mockBackend) Context() backends.ContextProvider                  { return nil }
-func (m *mockBackend) MCP() backends.MCPManager                           { return nil }
-func (m *mockBackend) History() backends.SessionHistory                   { return m.history }
-func (m *mockBackend) WorkDir() string                                    { return "" }
-func (m *mockBackend) SetWorkDir(string)                                  {}
+func (m *mockBackend) Name() string    { return "mock-test" }
+func (m *mockBackend) Version() string { return "1.0.0" }
+func (m *mockBackend) SupportedModes() []backends.ExecutionMode {
+	return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot}
+}
+func (m *mockBackend) Lifecycle() backends.LifecycleHandler                { return nil }
+func (m *mockBackend) Skills() backends.SkillRegistry                      { return nil }
+func (m *mockBackend) Context() backends.ContextProvider                   { return nil }
+func (m *mockBackend) MCP() backends.MCPManager                            { return nil }
+func (m *mockBackend) History() backends.SessionHistory                    { return m.history }
+func (m *mockBackend) WorkDir() string                                     { return "" }
+func (m *mockBackend) SetWorkDir(string)                                   {}
 func (m *mockBackend) Setup(context.Context, *backends.SetupRequest) error { return nil }
 func (m *mockBackend) Execute(context.Context, *backends.ExecuteRequest, io.Writer, io.Writer) (*backends.ExecuteResult, error) {
 	return &backends.ExecuteResult{ExitCode: 0}, nil
@@ -826,4 +830,3 @@ func TestParseLLMFrontmatter_EmptySummaryStillSucceeds(t *testing.T) {
 	assert.Empty(t, summary)
 	assert.Equal(t, "body\n", body)
 }
-

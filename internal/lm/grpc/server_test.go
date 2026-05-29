@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,8 +48,9 @@ var _ googlegrpc.ServerStreamingServer[RunResponse] = (*fakeRunServer)(nil)
 func TestStreamWriter_StdoutAndStderr(t *testing.T) {
 	stream := newFakeRunServer()
 
-	stdoutW := &streamWriter{stream: stream, isStderr: false}
-	stderrW := &streamWriter{stream: stream, isStderr: true}
+	var sendMu sync.Mutex
+	stdoutW := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: false}
+	stderrW := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: true}
 
 	n, err := stdoutW.Write([]byte("hi"))
 	require.NoError(t, err)
@@ -68,7 +70,7 @@ func TestStreamWriter_StdoutAndStderr(t *testing.T) {
 func TestStreamWriter_PropagatesSendError(t *testing.T) {
 	want := errors.New("send broken")
 	stream := &erroringRunServer{err: want}
-	w := &streamWriter{stream: stream}
+	w := &streamWriter{stream: stream, sendMu: &sync.Mutex{}}
 	_, err := w.Write([]byte("x"))
 	assert.ErrorIs(t, err, want)
 }

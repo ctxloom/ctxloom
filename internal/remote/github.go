@@ -3,12 +3,15 @@ package remote
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/google/go-github/v60/github"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
@@ -136,8 +139,10 @@ func is401Error(resp *github.Response, err error) bool {
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		return true
 	}
-	// Also check error message for 401
-	if err != nil && strings.Contains(err.Error(), "401") {
+	// Fall back to the typed go-github error rather than matching "401" in
+	// the message text.
+	var gerr *github.ErrorResponse
+	if errors.As(err, &gerr) && gerr.Response != nil && gerr.Response.StatusCode == http.StatusUnauthorized {
 		return true
 	}
 	return false
@@ -167,7 +172,7 @@ func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {
-				return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, path)
+				return nil, fmt.Errorf("file not found: %s/%s/%s: %w", owner, repo, path, errs.ErrRemoteContentNotFound)
 			}
 			return nil, fmt.Errorf("failed to fetch file: %w", err)
 		}
@@ -200,7 +205,7 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {
-				return nil, fmt.Errorf("directory not found: %s/%s/%s", owner, repo, path)
+				return nil, fmt.Errorf("directory not found: %s/%s/%s: %w", owner, repo, path, errs.ErrRemoteContentNotFound)
 			}
 			return nil, fmt.Errorf("failed to list directory: %w", err)
 		}
@@ -266,7 +271,7 @@ func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubC
 		}
 	}
 
-	return "", fmt.Errorf("ref not found: %s", ref)
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
 // SearchRepos finds ctxloom repositories.

@@ -23,6 +23,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // Entry is one row in index.yaml.
@@ -172,10 +173,37 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 		idx.Sessions[i].SessionID = sessionID
 		if transcriptPath != "" {
 			idx.Sessions[i].TranscriptPath = transcriptPath
+			// Drop a convenience symlink in the harp dir pointing at the
+			// live transcript so the session's tasks.md, essence.md, and
+			// transcript.jsonl all live in one place. Best-effort: a
+			// failure must not block the bind.
+			linkTranscriptIntoHarpDir(harpName, transcriptPath)
 		}
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found in index: %q", harpName)
+}
+
+// linkTranscriptIntoHarpDir creates ~/.ctxloom/sessions/<harp>/transcript.jsonl
+// as a symlink to the backend's live transcript. Best-effort: any failure
+// (home unresolved, no symlink privilege on Windows, etc.) is warned and
+// swallowed so it never blocks a session bind. Idempotent — an existing link
+// is replaced.
+func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
+	dir, err := paths.HarpDir(harpName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		return
+	}
+	link := filepath.Join(dir, "transcript.jsonl")
+	_ = os.Remove(link) // replace any stale link; ignore absence
+	if err := os.Symlink(transcriptPath, link); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+	}
 }
 
 // Find returns a copy of the entry with the given harp name, or nil if

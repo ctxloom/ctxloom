@@ -13,6 +13,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
+// reductionPct formats the in→out token reduction as a percentage, guarding
+// the in==0 case (a zero-input distill) that would otherwise divide by zero
+// and render as "NaN%" or "+Inf%".
+func reductionPct(in, out int) string {
+	if in <= 0 {
+		return "0%"
+	}
+	return fmt.Sprintf("%.0f%%", 100*(1-float64(out)/float64(in)))
+}
+
 // Memory-tool input types. All session-targeting tools accept an optional
 // session_id and an optional backend override. The defaults come from cfg
 // (cfg.LM.GetDefaultPlugin() for backend, current session for ID).
@@ -161,7 +171,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		ChunksProcessed: result.ChunksCreated,
 		TokensIn:        result.TotalTokensIn,
 		TokensOut:       result.TotalTokensOut,
-		Reduction:       fmt.Sprintf("%.0f%%", 100*(1-float64(result.TotalTokensOut)/float64(result.TotalTokensIn))),
+		Reduction:       reductionPct(result.TotalTokensIn, result.TotalTokensOut),
 		Duration:        result.Duration.String(),
 		OutputPath:      result.DistilledPath,
 	}, nil
@@ -388,7 +398,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		Duration:  compactResult.Duration.String(),
 		TokensIn:  compactResult.TotalTokensIn,
 		TokensOut: compactResult.TotalTokensOut,
-		Reduction: fmt.Sprintf("%.0f%%", 100*(1-float64(compactResult.TotalTokensOut)/float64(compactResult.TotalTokensIn))),
+		Reduction: reductionPct(compactResult.TotalTokensIn, compactResult.TotalTokensOut),
 		PID:       pid,
 	}, nil
 }

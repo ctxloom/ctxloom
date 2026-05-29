@@ -49,6 +49,11 @@ const (
 
 	// TasksFileName is the name of the task store file.
 	TasksFileName = "tasks.md"
+
+	// PlanFileExt is the suffix for a session's plan documents. Plans live
+	// directly in the harp session directory (alongside tasks.md) as
+	// <descriptive-name>.plan.md files; a session may hold several.
+	PlanFileExt = ".plan.md"
 )
 
 // HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
@@ -81,6 +86,18 @@ func HarpTasksPath(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, TasksFileName), nil
+}
+
+// HarpPlanPath returns ~/.ctxloom/sessions/<harp>/<name>.plan.md — a plan
+// document for a harp-named session. Plans sit directly in the session
+// directory next to tasks.md; name is the descriptive base (no extension),
+// and a session may have several distinctly named plans.
+func HarpPlanPath(harp, name string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name+PlanFileExt), nil
 }
 
 // GetCacheDir returns the cache subdirectory path for the given app path.

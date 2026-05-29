@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler.
@@ -59,6 +61,14 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 				parts = "session,tasks"
 			}
 			sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
+		}
+		// Point the LLM at this session's directory for plans. Implementation
+		// and strategy plans belong here (not in an ad-hoc .plan/ dir) so they
+		// travel with the session and can be recovered on resume. A session
+		// may produce several plans, so each is a separately named file with a
+		// .plan.md suffix sitting directly in the session directory.
+		if sessDir, perr := paths.HarpDir(harp); perr == nil {
+			sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). A session may have multiple plans — use distinct names and reference plans by their path.", sessDir, paths.PlanFileExt, filepath.Join(sessDir, "v1-removal"+paths.PlanFileExt))
 		}
 		instructions += sessionLine
 	}

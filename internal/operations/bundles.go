@@ -510,11 +510,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("remote %q not found: %w", remoteName, err)
 	}
-	version := rem.Version
-	if version == "" {
-		version = "v1"
-	}
-	targetPath := fmt.Sprintf("ctxloom/%s/bundles/%s.yaml", version, bundleName)
+	targetPath := fmt.Sprintf("ctxloom/bundles/%s.yaml", bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).
@@ -564,7 +560,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		Title:    title,
 		Message:  message,
 		ItemType: remote.ItemTypeBundle,
-		Version:  version,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("publish: %w", err)

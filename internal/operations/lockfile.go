@@ -118,10 +118,9 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 				ref := fmt.Sprintf("%s/%s", remoteName, name)
 
 				lockEntry := remote.LockEntry{
-					SHA:        meta.Source.SHA,
-					URL:        meta.Source.URL,
-					CtxloomVersion: meta.Source.Version,
-					FetchedAt:  meta.Source.FetchedAt,
+					SHA:       meta.Source.SHA,
+					URL:       meta.Source.URL,
+					FetchedAt: meta.Source.FetchedAt,
 				}
 
 				lockfile.AddEntry(itemType, ref, lockEntry)

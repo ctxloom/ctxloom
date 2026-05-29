@@ -143,7 +143,7 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 		}
 
 		// Build file path
-		filePath := ref.BuildFilePath(e.Type, rem.Version)
+		filePath := ref.BuildFilePath(e.Type)
 
 		// Fetch content at locked SHA
 		content, err := fetcher.FetchFile(ctx, owner, repo, filePath, e.Entry.SHA)

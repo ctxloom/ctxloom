@@ -40,9 +40,8 @@ func GetRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 
 // RemoteEntry represents a remote in operation results.
 type RemoteEntry struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Version string `json:"version"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // ListRemotesRequest is empty but exists for consistency.
@@ -81,9 +80,8 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 
 	for _, r := range remotes {
 		result.Remotes = append(result.Remotes, RemoteEntry{
-			Name:    r.Name,
-			URL:     r.URL,
-			Version: r.Version,
+			Name: r.Name,
+			URL:  r.URL,
 		})
 	}
 
@@ -506,7 +504,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	var warnings []string
 
 	for _, itemType := range itemTypes {
-		basePath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
+		basePath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
 		if req.Path != "" {
 			basePath = filepath.Join(basePath, req.Path)
 		}
@@ -733,7 +731,7 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 	}
 
 	// Try to fetch manifest first (faster)
-	manifestPath := fmt.Sprintf("ctxloom/%s/manifest.yaml", rem.Version)
+	manifestPath := "ctxloom/manifest.yaml"
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
 		return searchManifestContent(rem, manifestContent, itemType, query)
@@ -775,7 +773,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
+	dirPath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {

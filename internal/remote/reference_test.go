@@ -130,48 +130,44 @@ func TestParseReference_HTTPS(t *testing.T) {
 		name     string
 		input    string
 		wantURL  string
-		wantVer  string
 		wantType ItemType
 		wantPath string
 		wantErr  bool
 	}{
 		{
 			name:     "github bundle",
-			input:    "https://github.com/owner/repo@v1/bundles/core-practices",
+			input:    "https://github.com/owner/repo@bundles/core-practices",
 			wantURL:  "https://github.com/owner/repo",
-			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
 		},
 		{
 			name:     "nested path",
-			input:    "https://github.com/ctxloom/ctxloom-github@v1/bundles/golang/testing",
+			input:    "https://github.com/ctxloom/ctxloom-github@bundles/golang/testing",
 			wantURL:  "https://github.com/ctxloom/ctxloom-github",
-			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "golang/testing",
 		},
 		{
 			name:     "profile type",
-			input:    "https://github.com/owner/repo@v1/profiles/go-developer",
+			input:    "https://github.com/owner/repo@profiles/go-developer",
 			wantURL:  "https://github.com/owner/repo",
-			wantVer:  "v1",
 			wantType: ItemTypeProfile,
 			wantPath: "go-developer",
 		},
 		{
 			name:    "fragments no longer supported",
-			input:   "https://gitlab.com/group/project@v2/fragments/security",
+			input:   "https://gitlab.com/group/project@fragments/security",
 			wantErr: true,
 		},
 		{
 			name:    "prompts no longer supported",
-			input:   "https://github.com/owner/repo@v1/prompts/code-review",
+			input:   "https://github.com/owner/repo@prompts/code-review",
 			wantErr: true,
 		},
 		{
 			name:    "mcp-servers no longer supported",
-			input:   "https://github.com/owner/repo@v1/mcp-servers/sequential-thinking",
+			input:   "https://github.com/owner/repo@mcp-servers/sequential-thinking",
 			wantErr: true,
 		},
 		{
@@ -181,12 +177,12 @@ func TestParseReference_HTTPS(t *testing.T) {
 		},
 		{
 			name:    "missing type",
-			input:   "https://github.com/owner/repo@v1/core",
+			input:   "https://github.com/owner/repo@core",
 			wantErr: true,
 		},
 		{
 			name:    "invalid type",
-			input:   "https://github.com/owner/repo@v1/invalid/core",
+			input:   "https://github.com/owner/repo@invalid/core",
 			wantErr: true,
 		},
 	}
@@ -206,9 +202,6 @@ func TestParseReference_HTTPS(t *testing.T) {
 			}
 			if got.URL != tt.wantURL {
 				t.Errorf("URL = %q, want %q", got.URL, tt.wantURL)
-			}
-			if got.Version != tt.wantVer {
-				t.Errorf("Version = %q, want %q", got.Version, tt.wantVer)
 			}
 			if got.ItemType != tt.wantType {
 				t.Errorf("ItemType = %q, want %q", got.ItemType, tt.wantType)
@@ -228,30 +221,27 @@ func TestParseReference_SSH(t *testing.T) {
 		name     string
 		input    string
 		wantURL  string
-		wantVer  string
 		wantType ItemType
 		wantPath string
 		wantErr  bool
 	}{
 		{
 			name:     "github ssh bundle",
-			input:    "git@github.com:owner/repo@v1/bundles/core-practices",
+			input:    "git@github.com:owner/repo@bundles/core-practices",
 			wantURL:  "git@github.com:owner/repo",
-			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
 		},
 		{
 			name:     "gitlab ssh profile",
-			input:    "git@gitlab.com:group/subgroup/repo@v2/profiles/security",
+			input:    "git@gitlab.com:group/subgroup/repo@profiles/security",
 			wantURL:  "git@gitlab.com:group/subgroup/repo",
-			wantVer:  "v2",
 			wantType: ItemTypeProfile,
 			wantPath: "security",
 		},
 		{
 			name:    "fragments no longer supported",
-			input:   "git@gitlab.com:group/subgroup/repo@v2/fragments/security",
+			input:   "git@gitlab.com:group/subgroup/repo@fragments/security",
 			wantErr: true,
 		},
 		{
@@ -261,7 +251,7 @@ func TestParseReference_SSH(t *testing.T) {
 		},
 		{
 			name:    "missing colon",
-			input:   "git@github.com/owner/repo@v1/bundles/core",
+			input:   "git@github.com/owner/repo@bundles/core",
 			wantErr: true,
 		},
 	}
@@ -282,9 +272,6 @@ func TestParseReference_SSH(t *testing.T) {
 			if got.URL != tt.wantURL {
 				t.Errorf("URL = %q, want %q", got.URL, tt.wantURL)
 			}
-			if got.Version != tt.wantVer {
-				t.Errorf("Version = %q, want %q", got.Version, tt.wantVer)
-			}
 			if got.ItemType != tt.wantType {
 				t.Errorf("ItemType = %q, want %q", got.ItemType, tt.wantType)
 			}
@@ -303,30 +290,27 @@ func TestParseReference_File(t *testing.T) {
 		name     string
 		input    string
 		wantURL  string
-		wantVer  string
 		wantType ItemType
 		wantPath string
 		wantErr  bool
 	}{
 		{
 			name:     "absolute path bundle",
-			input:    "file:///home/user/ctxloom-content@v1/bundles/core-practices",
+			input:    "file:///home/user/ctxloom-content@bundles/core-practices",
 			wantURL:  "file:///home/user/ctxloom-content",
-			wantVer:  "v1",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
 		},
 		{
 			name:     "deep path profile",
-			input:    "file:///var/lib/ctxloom/repos/main@v2/profiles/security-aws",
+			input:    "file:///var/lib/ctxloom/repos/main@profiles/security-aws",
 			wantURL:  "file:///var/lib/ctxloom/repos/main",
-			wantVer:  "v2",
 			wantType: ItemTypeProfile,
 			wantPath: "security-aws",
 		},
 		{
 			name:    "fragments no longer supported",
-			input:   "file:///var/lib/ctxloom/repos/main@v2/fragments/security/aws",
+			input:   "file:///var/lib/ctxloom/repos/main@fragments/security/aws",
 			wantErr: true,
 		},
 		{
@@ -351,9 +335,6 @@ func TestParseReference_File(t *testing.T) {
 			}
 			if got.URL != tt.wantURL {
 				t.Errorf("URL = %q, want %q", got.URL, tt.wantURL)
-			}
-			if got.Version != tt.wantVer {
-				t.Errorf("Version = %q, want %q", got.Version, tt.wantVer)
 			}
 			if got.ItemType != tt.wantType {
 				t.Errorf("ItemType = %q, want %q", got.ItemType, tt.wantType)
@@ -393,23 +374,21 @@ func TestReference_String(t *testing.T) {
 			name: "canonical HTTPS bundle",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
-			want: "https://github.com/owner/repo@v1/bundles/core-practices",
+			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
 			name: "canonical SSH profile",
 			ref: Reference{
 				URL:         "git@github.com:owner/repo",
-				Version:     "v2",
 				ItemType:    ItemTypeProfile,
 				Path:        "security",
 				IsCanonical: true,
 			},
-			want: "git@github.com:owner/repo@v2/profiles/security",
+			want: "git@github.com:owner/repo@profiles/security",
 		},
 	}
 
@@ -427,48 +406,42 @@ func TestReference_BuildFilePath(t *testing.T) {
 		name     string
 		ref      Reference
 		itemType ItemType
-		version  string
 		want     string
 	}{
 		{
 			name:     "simple bundle",
 			ref:      Reference{Remote: "alice", Path: "go-tools"},
 			itemType: ItemTypeBundle,
-			version:  "v1",
-			want:     "ctxloom/v1/bundles/go-tools.yaml",
+			want:     "ctxloom/bundles/go-tools.yaml",
 		},
 		{
 			name:     "simple profile",
 			ref:      Reference{Remote: "alice", Path: "security-focused"},
 			itemType: ItemTypeProfile,
-			version:  "v1",
-			want:     "ctxloom/v1/profiles/security-focused.yaml",
+			want:     "ctxloom/profiles/security-focused.yaml",
 		},
 		{
 			name:     "nested bundle",
 			ref:      Reference{Remote: "alice", Path: "golang/best-practices"},
 			itemType: ItemTypeBundle,
-			version:  "v2",
-			want:     "ctxloom/v2/bundles/golang/best-practices.yaml",
+			want:     "ctxloom/bundles/golang/best-practices.yaml",
 		},
 		{
 			name: "canonical uses embedded values",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v3",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
 			itemType: ItemTypeProfile, // Should be ignored for canonical
-			version:  "v1",            // Should be ignored for canonical
-			want:     "ctxloom/v3/bundles/core-practices.yaml",
+			want:     "ctxloom/bundles/core-practices.yaml",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.BuildFilePath(tt.itemType, tt.version); got != tt.want {
+			if got := tt.ref.BuildFilePath(tt.itemType); got != tt.want {
 				t.Errorf("BuildFilePath() = %q, want %q", got, tt.want)
 			}
 		})
@@ -508,7 +481,6 @@ func TestReference_LocalPath(t *testing.T) {
 			name: "canonical HTTPS bundle",
 			ref: Reference{
 				URL:         "https://github.com/ctxloom/ctxloom-github",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
@@ -521,7 +493,6 @@ func TestReference_LocalPath(t *testing.T) {
 			name: "canonical SSH profile",
 			ref: Reference{
 				URL:         "git@github.com:owner/repo",
-				Version:     "v1",
 				ItemType:    ItemTypeProfile,
 				Path:        "security",
 				IsCanonical: true,
@@ -656,7 +627,6 @@ func TestReference_ToLocalName(t *testing.T) {
 			name: "canonical HTTPS reference",
 			ref: Reference{
 				URL:         "https://github.com/owner/ctxloom-github",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
@@ -667,7 +637,6 @@ func TestReference_ToLocalName(t *testing.T) {
 			name: "canonical SSH reference",
 			ref: Reference{
 				URL:         "git@github.com:owner/my-repo",
-				Version:     "v1",
 				ItemType:    ItemTypeProfile,
 				Path:        "dev",
 				IsCanonical: true,
@@ -678,7 +647,6 @@ func TestReference_ToLocalName(t *testing.T) {
 			name: "canonical file reference",
 			ref: Reference{
 				URL:         "file:///home/user/my-ctxloom",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "tools",
 				IsCanonical: true,
@@ -768,47 +736,43 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 			name: "canonical without content version",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
-			want: "https://github.com/owner/repo@v1/bundles/core-practices",
+			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
 			name: "canonical with content version",
 			ref: Reference{
 				URL:            "https://github.com/owner/repo",
-				Version:        "v1",
 				ItemType:       ItemTypeBundle,
 				Path:           "core-practices",
 				ContentVersion: "v1.2.3",
 				IsCanonical:    true,
 			},
-			want: "https://github.com/owner/repo@v1/bundles/core-practices@v1.2.3",
+			want: "https://github.com/owner/repo@bundles/core-practices@v1.2.3",
 		},
 		{
 			name: "canonical profile with SHA content version",
 			ref: Reference{
 				URL:            "git@github.com:owner/repo",
-				Version:        "v2",
 				ItemType:       ItemTypeProfile,
 				Path:           "security",
 				ContentVersion: "abc1234",
 				IsCanonical:    true,
 			},
-			want: "git@github.com:owner/repo@v2/profiles/security@abc1234",
+			want: "git@github.com:owner/repo@profiles/security@abc1234",
 		},
 		{
 			name: "canonical with empty item type",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    "",
 				Path:        "core",
 				IsCanonical: true,
 			},
-			want: "https://github.com/owner/repo@v1/s/core",
+			want: "https://github.com/owner/repo@s/core",
 		},
 	}
 
@@ -867,34 +831,31 @@ func TestReference_CanonicalString(t *testing.T) {
 			name: "canonical bundle",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "core-practices",
 				IsCanonical: true,
 			},
-			want: "https://github.com/owner/repo@v1/bundles/core-practices",
+			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
 			name: "canonical profile",
 			ref: Reference{
 				URL:         "git@github.com:owner/repo",
-				Version:     "v2",
 				ItemType:    ItemTypeProfile,
 				Path:        "security",
 				IsCanonical: true,
 			},
-			want: "git@github.com:owner/repo@v2/profiles/security",
+			want: "git@github.com:owner/repo@profiles/security",
 		},
 		{
 			name: "empty item type",
 			ref: Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    "",
 				Path:        "core",
 				IsCanonical: true,
 			},
-			want: "https://github.com/owner/repo@v1/s/core",
+			want: "https://github.com/owner/repo@s/core",
 		},
 	}
 
@@ -916,31 +877,31 @@ func TestParseReference_ContentVersion(t *testing.T) {
 	}{
 		{
 			name:               "HTTPS with content version tag",
-			input:              "https://github.com/owner/repo@v1/bundles/core@v1.2.3",
+			input:              "https://github.com/owner/repo@bundles/core@v1.2.3",
 			wantContentVersion: "v1.2.3",
 			wantPath:           "core",
 		},
 		{
 			name:               "HTTPS with content version SHA",
-			input:              "https://github.com/owner/repo@v1/bundles/core@abc1234",
+			input:              "https://github.com/owner/repo@bundles/core@abc1234",
 			wantContentVersion: "abc1234",
 			wantPath:           "core",
 		},
 		{
 			name:               "SSH with content version",
-			input:              "git@github.com:owner/repo@v1/profiles/dev@v2.0.0",
+			input:              "git@github.com:owner/repo@profiles/dev@v2.0.0",
 			wantContentVersion: "v2.0.0",
 			wantPath:           "dev",
 		},
 		{
 			name:               "file URL with content version",
-			input:              "file:///path/to/repo@v1/bundles/tools@main",
+			input:              "file:///path/to/repo@bundles/tools@main",
 			wantContentVersion: "main",
 			wantPath:           "tools",
 		},
 		{
 			name:               "without content version",
-			input:              "https://github.com/owner/repo@v1/bundles/core",
+			input:              "https://github.com/owner/repo@bundles/core",
 			wantContentVersion: "",
 			wantPath:           "core",
 		},
@@ -986,7 +947,6 @@ func TestReference_ToCanonical(t *testing.T) {
 			name: "already canonical returns same",
 			ref: &Reference{
 				URL:         "https://github.com/owner/repo",
-				Version:     "v1",
 				ItemType:    ItemTypeBundle,
 				Path:        "security",
 				IsCanonical: true,

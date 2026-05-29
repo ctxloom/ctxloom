@@ -150,7 +150,7 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 	}
 
 	// Fetch content
-	filePath := ref.BuildFilePath(itemType, rem.Version)
+	filePath := ref.BuildFilePath(itemType)
 	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)

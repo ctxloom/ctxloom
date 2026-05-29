@@ -445,21 +445,19 @@ func (s *ctxServer) handleApproveRemotePending(ctx context.Context, _ *mcp.CallT
 		return nil, nil, fmt.Errorf("remote is required")
 	}
 
-	// Pull every pending entry whose source remote matches, in lock-step
-	// with the in-memory review state.
-	removed := s.review.removeRemote(in.Remote)
-	names := make([]string, 0, len(removed))
-	for _, c := range removed {
-		names = append(names, c.Name)
+	// Promote every pending entry from this remote straight off the on-disk
+	// pending lockfile (the source of truth), then drop the matching entries
+	// from the in-memory review state so the remaining count stays accurate.
+	names, err := operations.PromoteRemotePendingBundles(s.cfg, in.Remote)
+	if err != nil {
+		return nil, nil, fmt.Errorf("promote pending bundles for %s: %w", in.Remote, err)
 	}
+	s.review.removeRemote(in.Remote)
 	if len(names) == 0 {
 		return nil, &approveRemotePendingResult{
 			Remote:  in.Remote,
 			Message: fmt.Sprintf("No pending bundle changes from %q to approve.", in.Remote),
 		}, nil
-	}
-	if err := operations.PromotePendingBundles(s.cfg, names); err != nil {
-		return nil, nil, fmt.Errorf("promote pending bundles for %s: %w", in.Remote, err)
 	}
 	s.applyHooksIfNotPending(ctx)
 
@@ -496,24 +494,21 @@ func (s *ctxServer) handleTrustRemote(ctx context.Context, _ *mcp.CallToolReques
 		}, nil
 	}
 
-	// Trusting: auto-approve every pending entry from this remote.
-	removed := s.review.removeRemote(in.Name)
-	names := make([]string, 0, len(removed))
-	for _, c := range removed {
-		names = append(names, c.Name)
+	// Trusting: auto-approve every pending entry from this remote, reading
+	// straight from the on-disk pending lockfile so we promote everything
+	// actually stranded there — not just what this process happened to diff
+	// into the in-memory review snapshot. Then reconcile that snapshot.
+	names, err := operations.PromoteRemotePendingBundles(s.cfg, in.Name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("promote pending bundles for %s: %w", in.Name, err)
 	}
-	if len(names) > 0 {
-		if err := operations.PromotePendingBundles(s.cfg, names); err != nil {
-			return nil, nil, fmt.Errorf("promote pending bundles for %s: %w", in.Name, err)
-		}
-	}
+	s.review.removeRemote(in.Name)
 	s.applyHooksIfNotPending(ctx)
 
 	remaining := 0
 	if cs := s.review.snapshot(); cs != nil {
 		remaining = len(cs.All())
 	}
-	sort.Strings(names)
 	return nil, &trustRemoteResult{
 		Name:      in.Name,
 		Trust:     true,

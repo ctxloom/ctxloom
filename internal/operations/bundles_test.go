@@ -515,7 +515,7 @@ func TestPushBundle_DryRun_FromCachedPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "preview", result.Status)
 	assert.Equal(t, "personal", result.Remote, "<remote> segment of cache path is the source")
-	assert.Equal(t, "ctxloom/v1/bundles/rust-tdd.yaml", result.TargetPath)
+	assert.Equal(t, "ctxloom/bundles/rust-tdd.yaml", result.TargetPath)
 }
 
 func TestPushBundle_DryRun_FromLocalPath_UsesDefaultRemote(t *testing.T) {
@@ -777,7 +777,7 @@ func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
 	require.Len(t, mock.createOrUpdateCalls, 1, "publisher should be invoked exactly once")
 	assert.Equal(t, 0, len(mock.createPRCalls))
 	assert.Equal(t, "Add for-push", mock.createOrUpdateCalls[0].Message)
-	assert.Equal(t, "ctxloom/v1/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
+	assert.Equal(t, "ctxloom/bundles/for-push.yaml", mock.createOrUpdateCalls[0].Path)
 }
 
 func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {

@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -56,50 +57,6 @@ func MergePendingLockfileCount(cfg *config.Config) (int, error) {
 	return merged, nil
 }
 
-// PromotePendingBundles moves the named bundles from pending into active and
-// drops them from pending. Names not present in pending are silently
-// skipped. Used by trust_remote when an entire remote's pending entries
-// get auto-approved.
-func PromotePendingBundles(cfg *config.Config, names []string) error {
-	if len(names) == 0 {
-		return nil
-	}
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir)
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
-
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		return fmt.Errorf("load pending lockfile: %w", err)
-	}
-	active, err := activeMgr.Load()
-	if err != nil {
-		return fmt.Errorf("load active lockfile: %w", err)
-	}
-
-	moved := 0
-	for _, name := range names {
-		entry, ok := pending.GetEntry(remote.ItemTypeBundle, name)
-		if !ok {
-			continue
-		}
-		active.AddEntry(remote.ItemTypeBundle, name, entry)
-		pending.RemoveEntry(remote.ItemTypeBundle, name)
-		moved++
-	}
-
-	if moved == 0 {
-		return nil
-	}
-	if err := activeMgr.Save(active); err != nil {
-		return fmt.Errorf("save active lockfile: %w", err)
-	}
-	if pending.IsEmpty() {
-		return pendingMgr.Delete()
-	}
-	return pendingMgr.Save(pending)
-}
-
 // PromoteTrustedPendingBundles lifts every pending bundle whose source
 // remote is marked TrustBundles=true straight into the active lockfile,
 // dropping it from pending. Trust means "apply without review", so these
@@ -151,6 +108,63 @@ func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry,
 	if err := activeMgr.Save(active); err != nil {
 		return nil, fmt.Errorf("save active lockfile: %w", err)
 	}
+	if pending.IsEmpty() {
+		return promoted, pendingMgr.Delete()
+	}
+	return promoted, pendingMgr.Save(pending)
+}
+
+// PromoteRemotePendingBundles lifts every pending bundle whose lockfile key
+// is prefixed "<remoteName>/" straight into the active lockfile, dropping it
+// from pending. It reads the on-disk pending lockfile directly rather than
+// trusting an in-memory review snapshot, so it promotes everything actually
+// stranded in pending for that remote — even entries carried over from a
+// previous session that the current process never diffed into review state.
+//
+// Pin overrides approval: a pending entry whose active counterpart is Pinned
+// is left in place, matching PromoteTrustedPendingBundles. Returns the names
+// promoted, sorted. Backs both trust_remote and approve_remote_pending.
+func PromoteRemotePendingBundles(cfg *config.Config, remoteName string) ([]string, error) {
+	if remoteName == "" {
+		return nil, nil
+	}
+	baseDir := getBaseDir(cfg)
+	activeMgr := remote.NewLockfileManager(baseDir)
+	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
+
+	pending, err := pendingMgr.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load pending lockfile: %w", err)
+	}
+	if pending.IsEmpty() {
+		return nil, nil
+	}
+	active, err := activeMgr.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load active lockfile: %w", err)
+	}
+
+	var promoted []string
+	for name, entry := range pending.Bundles {
+		rem, _, _ := strings.Cut(name, "/")
+		if rem != remoteName {
+			continue
+		}
+		if old, ok := active.GetEntry(remote.ItemTypeBundle, name); ok && old.Pinned {
+			continue
+		}
+		active.AddEntry(remote.ItemTypeBundle, name, entry)
+		pending.RemoveEntry(remote.ItemTypeBundle, name)
+		promoted = append(promoted, name)
+	}
+
+	if len(promoted) == 0 {
+		return nil, nil
+	}
+	if err := activeMgr.Save(active); err != nil {
+		return nil, fmt.Errorf("save active lockfile: %w", err)
+	}
+	sort.Strings(promoted)
 	if pending.IsEmpty() {
 		return promoted, pendingMgr.Delete()
 	}

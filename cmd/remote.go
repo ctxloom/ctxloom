@@ -123,7 +123,7 @@ var remoteListCmd = &cobra.Command{
 			if r.Name == result.Default {
 				defaultMark = " (default)"
 			}
-			fmt.Printf("  %-15s %s (version: %s)%s\n", r.Name, r.URL, r.Version, defaultMark)
+			fmt.Printf("  %-15s %s%s\n", r.Name, r.URL, defaultMark)
 		}
 
 		return nil

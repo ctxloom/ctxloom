@@ -31,34 +31,34 @@ func TestToLocalRef(t *testing.T) {
 		// Canonical HTTPS URLs
 		{
 			name:  "https canonical URL",
-			input: "https://github.com/owner/ctxloom-github@v1/bundles/core-practices",
+			input: "https://github.com/owner/ctxloom-github@bundles/core-practices",
 			want:  "ctxloom-github/core-practices",
 		},
 		{
 			name:  "https canonical URL with content version",
-			input: "https://github.com/owner/ctxloom-github@v1/bundles/core-practices@v1.2.3",
+			input: "https://github.com/owner/ctxloom-github@bundles/core-practices@v1.2.3",
 			want:  "ctxloom-github/core-practices",
 		},
 		{
 			name:  "https canonical URL for profile",
-			input: "https://github.com/owner/ctxloom-github@v1/profiles/rust-developer",
+			input: "https://github.com/owner/ctxloom-github@profiles/rust-developer",
 			want:  "ctxloom-github/rust-developer",
 		},
 		{
 			name:  "https canonical URL nested path",
-			input: "https://github.com/owner/repo@v1/bundles/golang/testing",
+			input: "https://github.com/owner/repo@bundles/golang/testing",
 			want:  "repo/golang/testing",
 		},
 
 		// Canonical SSH URLs
 		{
 			name:  "ssh canonical URL",
-			input: "git@github.com:owner/my-repo@v1/bundles/core",
+			input: "git@github.com:owner/my-repo@bundles/core",
 			want:  "my-repo/core",
 		},
 		{
 			name:  "ssh canonical URL with content version",
-			input: "git@github.com:owner/my-repo@v1/bundles/core@abc123",
+			input: "git@github.com:owner/my-repo@bundles/core@abc123",
 			want:  "my-repo/core",
 		},
 
@@ -70,12 +70,12 @@ func TestToLocalRef(t *testing.T) {
 		},
 		{
 			name:  "canonical URL with fragment path",
-			input: "https://github.com/owner/ctxloom-github@v1/bundles/core#fragments/coding",
+			input: "https://github.com/owner/ctxloom-github@bundles/core#fragments/coding",
 			want:  "ctxloom-github/core#fragments/coding",
 		},
 		{
 			name:  "canonical URL with prompt path",
-			input: "https://github.com/owner/ctxloom-github@v1/bundles/core#prompts/review",
+			input: "https://github.com/owner/ctxloom-github@bundles/core#prompts/review",
 			want:  "ctxloom-github/core#prompts/review",
 		},
 
@@ -106,10 +106,10 @@ func TestIsCanonicalRef(t *testing.T) {
 		input string
 		want  bool
 	}{
-		{"https://github.com/owner/repo@v1/bundles/core", true},
-		{"http://github.com/owner/repo@v1/bundles/core", true},
-		{"git@github.com:owner/repo@v1/bundles/core", true},
-		{"file:///path/to/repo@v1/bundles/core", true},
+		{"https://github.com/owner/repo@bundles/core", true},
+		{"http://github.com/owner/repo@bundles/core", true},
+		{"git@github.com:owner/repo@bundles/core", true},
+		{"file:///path/to/repo@bundles/core", true},
 		{"alice/security", false},
 		{"ctxloom-github/core-practices", false},
 		{"", false},

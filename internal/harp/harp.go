@@ -9,22 +9,88 @@ package harp
 
 import (
 	"crypto/rand"
-	_ "embed"
+	"embed"
 	"encoding/binary"
 	"fmt"
+	"io/fs"
 	"strings"
 )
 
-//go:embed adjectives.txt
-var adjectivesData string
+// DefaultGroup is the word-list group used when Options.Group is empty or
+// names a group that does not exist.
+const DefaultGroup = "default"
 
-//go:embed nouns.txt
-var nounsData string
+// Word-list files are embedded as "<group>.<type>.txt", where type is
+// "adjectives" or "nouns". A group is usable only if it provides both.
+//
+//go:embed *.txt
+var wordFS embed.FS
 
-var (
-	adjectives = parseList(adjectivesData)
-	nouns      = parseList(nounsData)
+// wordGroup holds the two lists that make up a name for one group.
+type wordGroup struct {
+	adjectives []string
+	nouns      []string
+}
+
+const (
+	typeAdjectives = "adjectives"
+	typeNouns      = "nouns"
 )
+
+// groups maps group name -> its word lists, loaded once from the embedded
+// files. Groups missing either list are dropped.
+var groups = loadGroups()
+
+// loadGroups parses every embedded "<group>.<type>.txt" file into the
+// registry. A group survives only if it has both adjectives and nouns.
+func loadGroups() map[string]wordGroup {
+	entries, err := fs.ReadDir(wordFS, ".")
+	if err != nil {
+		panic(fmt.Sprintf("harp: read embedded word lists: %v", err))
+	}
+	out := make(map[string]wordGroup)
+	for _, e := range entries {
+		name := e.Name()
+		rest, ok := strings.CutSuffix(name, ".txt")
+		if !ok {
+			continue
+		}
+		group, typ, ok := strings.Cut(rest, ".")
+		if !ok {
+			continue
+		}
+		data, err := wordFS.ReadFile(name)
+		if err != nil {
+			panic(fmt.Sprintf("harp: read %s: %v", name, err))
+		}
+		words := parseList(string(data))
+		g := out[group]
+		switch typ {
+		case typeAdjectives:
+			g.adjectives = words
+		case typeNouns:
+			g.nouns = words
+		default:
+			continue
+		}
+		out[group] = g
+	}
+	for name, g := range out {
+		if len(g.adjectives) == 0 || len(g.nouns) == 0 {
+			delete(out, name)
+		}
+	}
+	return out
+}
+
+// Groups returns the names of all usable word-list groups.
+func Groups() []string {
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	return names
+}
 
 func parseList(data string) []string {
 	lines := strings.Split(strings.TrimRight(data, "\n"), "\n")
@@ -50,6 +116,10 @@ type Options struct {
 
 	// Separator is the delimiter between words. Defaults to "-".
 	Separator string
+
+	// Group selects which word-list group to draw from. Empty or unknown
+	// names fall back to DefaultGroup.
+	Group string
 }
 
 func (o Options) normalize() Options {
@@ -61,6 +131,9 @@ func (o Options) normalize() Options {
 	}
 	if o.Separator == "" {
 		o.Separator = "-"
+	}
+	if _, ok := groups[o.Group]; !ok {
+		o.Group = DefaultGroup
 	}
 	return o
 }
@@ -78,11 +151,12 @@ func GenerateName() string {
 // Invalid options are silently clamped (see Options.normalize).
 func GenerateNameWithOptions(opts Options) string {
 	opts = opts.normalize()
+	g := groups[opts.Group]
 	parts := make([]string, opts.Components)
 	for i := 0; i < opts.Components-1; i++ {
-		parts[i] = pickWord(adjectives, opts.MaxElementLength)
+		parts[i] = pickWord(g.adjectives, opts.MaxElementLength)
 	}
-	parts[opts.Components-1] = pickWord(nouns, opts.MaxElementLength)
+	parts[opts.Components-1] = pickWord(g.nouns, opts.MaxElementLength)
 	return strings.Join(parts, opts.Separator)
 }
 

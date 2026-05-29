@@ -253,19 +253,18 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		}
 	}
 
-	// Get remote URL and version - either from registry or from canonical URL
-	var repoURL, version string
+	// Get remote URL - either from registry or from canonical URL
+	var repoURL string
 	var rem *Remote
 	var localName string // The local name to use for lockfile key
 
 	if ref.IsCanonical {
 		// Use URL from canonical reference
 		repoURL = ref.URL
-		version = ref.Version
 
 		// Auto-register the remote (or get existing one)
 		var err error
-		rem, err = p.registry.GetOrCreateByURL(repoURL, version)
+		rem, err = p.registry.GetOrCreateByURL(repoURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to register remote: %w", err)
 		}
@@ -280,7 +279,6 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 			return nil, err
 		}
 		repoURL = rem.URL
-		version = rem.Version
 
 		// Local name is the original reference
 		localName = fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
@@ -299,7 +297,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	// Check for retracted version
-	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, version, ref, opts.ItemType)
+	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
 	if retracted {
 		_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
 		_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
@@ -331,7 +329,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	// Build file path and fetch content
-	filePath := ref.BuildFilePath(opts.ItemType, version)
+	filePath := ref.BuildFilePath(opts.ItemType)
 	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
@@ -647,7 +645,6 @@ func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Rem
 	entry := LockEntry{
 		SHA:              sha,
 		URL:              remote.URL,
-		CtxloomVersion:   remote.Version,
 		RequestedVersion: requestedVersion,
 		FetchedAt:        time.Now().UTC(),
 	}
@@ -750,7 +747,7 @@ func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, e
 
 		// Get or create a local remote for this URL
 		// This is essential: it ensures the remote is registered so cascade pull can find it
-		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL, parsed.Version)
+		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL)
 		if err != nil {
 			_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
 			transformedBundles = append(transformedBundles, bundleStr)

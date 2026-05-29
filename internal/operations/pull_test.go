@@ -169,7 +169,7 @@ func TestFetchRemoteContentResult_Warning(t *testing.T) {
 		SHA:        "abc123d",
 		FullSHA:    "abc123def456789",
 		SourceURL:  "https://github.com/test/repo",
-		FilePath:   "ctxloom/v1/bundles/my-bundle.yaml",
+		FilePath:   "ctxloom/bundles/my-bundle.yaml",
 		Content:    "test: content",
 		PullToken:  "bundle:test/my-bundle@abc123def456789",
 		Warning:    "REVIEW THIS CONTENT CAREFULLY. Malicious prompts can override AI safety guidelines, exfiltrate data, or execute unintended actions. Use confirm_pull with the pull_token to install.",
@@ -523,7 +523,7 @@ fragments:
       Security guidelines
 `
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/bundles/my-bundle.yaml", []byte(bundleContent)).
+		WithFile("ctxloom/bundles/my-bundle.yaml", []byte(bundleContent)).
 		WithRef("main", "abc123def456789fedcba")
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -539,7 +539,7 @@ fragments:
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.Equal(t, "abc123def456789fedcba", result.FullSHA)
 	assert.Equal(t, "https://github.com/test/ctxloom", result.SourceURL)
-	assert.Equal(t, "ctxloom/v1/bundles/my-bundle.yaml", result.FilePath)
+	assert.Equal(t, "ctxloom/bundles/my-bundle.yaml", result.FilePath)
 	assert.Contains(t, result.Content, "Security guidelines")
 	assert.Equal(t, "bundle:test-remote/my-bundle@abc123def456789fedcba", result.PullToken)
 	assert.Contains(t, result.Warning, "REVIEW THIS CONTENT CAREFULLY")
@@ -549,7 +549,7 @@ fragments:
 	require.Len(t, fetcher.ResolveRefCalls, 1)
 	assert.Equal(t, "main", fetcher.ResolveRefCalls[0].Ref)
 	require.Len(t, fetcher.FetchFileCalls, 1)
-	assert.Equal(t, "ctxloom/v1/bundles/my-bundle.yaml", fetcher.FetchFileCalls[0].Path)
+	assert.Equal(t, "ctxloom/bundles/my-bundle.yaml", fetcher.FetchFileCalls[0].Path)
 }
 
 func TestFetchRemoteContent_FetchesProfile(t *testing.T) {
@@ -563,7 +563,7 @@ func TestFetchRemoteContent_FetchesProfile(t *testing.T) {
   - another-bundle
 `
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/profiles/dev.yaml", []byte(profileContent)).
+		WithFile("ctxloom/profiles/dev.yaml", []byte(profileContent)).
 		WithRef("main", "def456abc789")
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -586,7 +586,7 @@ func TestFetchRemoteContent_WithContentVersion(t *testing.T) {
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/bundles/my-bundle.yaml", []byte("version: 1.0")).
+		WithFile("ctxloom/bundles/my-bundle.yaml", []byte("version: 1.0")).
 		WithRef("v1.0.0", "tag123sha456")
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -704,7 +704,7 @@ func TestFetchRemoteContent_ShortSHA(t *testing.T) {
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/bundles/my-bundle.yaml", []byte("content")).
+		WithFile("ctxloom/bundles/my-bundle.yaml", []byte("content")).
 		WithRef("main", "abc") // Already short
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -726,7 +726,7 @@ func TestFetchRemoteContent_NestedPath(t *testing.T) {
 	require.NoError(t, registry.Add("test-remote", "https://github.com/test/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/bundles/golang/best-practices.yaml", []byte("version: 1.0")).
+		WithFile("ctxloom/bundles/golang/best-practices.yaml", []byte("version: 1.0")).
 		WithRef("main", "abc123")
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{
@@ -737,7 +737,7 @@ func TestFetchRemoteContent_NestedPath(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "ctxloom/v1/bundles/golang/best-practices.yaml", result.FilePath)
+	assert.Equal(t, "ctxloom/bundles/golang/best-practices.yaml", result.FilePath)
 }
 
 func TestFetchRemoteContent_GetDefaultBranchError(t *testing.T) {
@@ -748,7 +748,7 @@ func TestFetchRemoteContent_GetDefaultBranchError(t *testing.T) {
 
 	// Create fetcher that errors on GetDefaultBranch
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/v1/bundles/my-bundle.yaml", []byte("content"))
+		WithFile("ctxloom/bundles/my-bundle.yaml", []byte("content"))
 	fetcher.DefaultBrErr = fmt.Errorf("failed to get default branch")
 
 	result, err := FetchRemoteContent(context.Background(), cfg, FetchRemoteContentRequest{

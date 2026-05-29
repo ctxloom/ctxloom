@@ -9,9 +9,8 @@ import (
 
 // Remote represents a configured remote source (GitHub/GitLab repo).
 type Remote struct {
-	Name    string `yaml:"name" json:"name"`
-	URL     string `yaml:"url" json:"url"`
-	Version string `yaml:"version" json:"version"` // e.g., "v1" (version directory)
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url"`
 
 	// TrustBundles, when true, suppresses the bundle-review prompt for
 	// changes coming from this remote (docs/bundle-review-plan.md Phase 2).
@@ -28,7 +27,6 @@ type SourceMeta struct {
 	SHA       string    `yaml:"sha" json:"sha"`               // Full git commit SHA
 	URL       string    `yaml:"url" json:"url"`               // Source repository URL
 	Type      ItemType  `yaml:"type" json:"type"`             // "fragment", "prompt", or "profile"
-	Version   string    `yaml:"version" json:"version"`       // Version directory (e.g., "v1")
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"` // When the item was pulled
 }
 
@@ -264,9 +262,6 @@ type Reference struct {
 	// URL is the full repository URL (for URL-based refs); empty for simple format
 	URL string
 
-	// Version is the ctxloom schema version directory (e.g., "v1"); extracted from URL or remote config
-	Version string
-
 	// ContentVersion is the git tag or SHA for content versioning
 	// For simple refs: from @version suffix (e.g., remote/path@v1.0.0)
 	// For canonical URLs: from second @ (e.g., repo@v1/bundles/name@v1.0.0)
@@ -287,9 +282,6 @@ type LockEntry struct {
 
 	// URL is the canonical repository URL
 	URL string `yaml:"url" json:"url"`
-
-	// CtxloomVersion is the ctxloom schema version (v1, v2) - determines directory path
-	CtxloomVersion string `yaml:"ctxloom_version" json:"ctxloom_version"`
 
 	// RequestedVersion is the original tag/SHA requested by user (for export reconstruction)
 	// Empty if user didn't specify a version (used HEAD)

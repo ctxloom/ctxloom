@@ -39,10 +39,9 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	rem := &Remote{
 		Name:    "alice",
 		URL:     "https://github.com/alice/ctxloom",
-		Version: "v1",
 	}
 	sha := "abc1234"
-	filePath := "ctxloom/v1/bundles/security.yaml"
+	filePath := "ctxloom/bundles/security.yaml"
 	content := []byte("description: Test bundle\nfragments:\n  tdd:\n    content: Test content here\n")
 
 	secure, _ := ParseSecureContent(ItemTypeBundle, content)
@@ -95,10 +94,9 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	rem := &Remote{
 		Name:    "alice",
 		URL:     "https://github.com/alice/ctxloom",
-		Version: "v1",
 	}
 	sha := "abc1234"
-	filePath := "ctxloom/v1/profiles/secure.yaml"
+	filePath := "ctxloom/profiles/secure.yaml"
 	content := []byte("name: secure\nbundles:\n  - alice/security\n")
 
 	secure, _ := ParseSecureContent(ItemTypeProfile, content)
@@ -274,7 +272,7 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	// Create mock fetcher with content
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	// Create lockfile manager
@@ -348,7 +346,7 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 
 	// Create mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
 
 	// Terminal checker returns false (not a terminal)
 	tc := &mockTerminalChecker{isReader: false}
@@ -377,7 +375,7 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
 
 	tc := &mockTerminalChecker{isReader: true}
 
@@ -471,7 +469,7 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{},
@@ -501,7 +499,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	tc := &mockTerminalChecker{isReader: true, isWriter: true}
@@ -641,7 +639,7 @@ func TestCascadePullProfile(t *testing.T) {
 
 		// Mock fetcher
 		mf := newMockFetcher()
-		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+		mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\n")
 		mf.refs["main"] = "abc123"
 
 		puller := NewPuller(registry, AuthConfig{},
@@ -738,7 +736,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -803,7 +801,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security#fragments/tdd\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security#fragments/tdd\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -911,7 +909,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
 
@@ -941,7 +939,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
 		require.NoError(t, err)

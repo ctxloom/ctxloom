@@ -598,22 +598,22 @@ func TestToLocalProfileName(t *testing.T) {
 		},
 		{
 			name:     "https URL converted to local path",
-			input:    "https://github.com/owner/repo@v1/profiles/go-developer",
+			input:    "https://github.com/owner/repo@profiles/go-developer",
 			expected: "github.com/owner/repo/go-developer",
 		},
 		{
 			name:     "git@ SSH URL converted to local path",
-			input:    "git@github.com:owner/repo@v1/profiles/go-developer",
+			input:    "git@github.com:owner/repo@profiles/go-developer",
 			expected: "github.com/owner/repo/go-developer",
 		},
 		{
 			name:     "file:// URL converted to local path",
-			input:    "file:///home/user/ctxloom-content@v1/profiles/test",
+			input:    "file:///home/user/ctxloom-content@profiles/test",
 			expected: "user/ctxloom-content/test",
 		},
 		{
 			name:     "nested path in URL",
-			input:    "https://github.com/org/subgroup/repo@v1/profiles/base",
+			input:    "https://github.com/org/subgroup/repo@profiles/base",
 			expected: "github.com/org/subgroup/repo/base",
 		},
 	}
@@ -634,7 +634,7 @@ func TestToLocalProfileName(t *testing.T) {
 // resolved to their local storage paths.
 //
 // When a profile has a parent like:
-//   - https://github.com/owner/repo@v1/profiles/base
+//   - https://github.com/owner/repo@profiles/base
 //
 // The resolver should look for the profile at:
 //   - .ctxloom/persistent/profiles/github.com/owner/repo/base.yaml
@@ -661,7 +661,7 @@ variables:
 	// Create child profile that references the parent via URL
 	childProfile := `description: Project profile
 parents:
-  - https://github.com/owner/repo@v1/profiles/go-base
+  - https://github.com/owner/repo@profiles/go-base
 bundles:
   - project-tools
 variables:
@@ -700,7 +700,7 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 
 	// Create child profile that references an unsynced parent
 	childProfile := `parents:
-  - https://github.com/nonexistent/repo@v1/profiles/missing
+  - https://github.com/nonexistent/repo@profiles/missing
 tags:
   - own-tag
 `
@@ -743,7 +743,7 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 	// Child with both parents
 	childProfile := `parents:
   - local-base
-  - https://github.com/ctxloom/ctxloom-default@v1/profiles/go-base
+  - https://github.com/ctxloom/ctxloom-default@profiles/go-base
 bundles:
   - child-tools
 `

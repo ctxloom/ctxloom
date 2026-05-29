@@ -135,8 +135,8 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, err)
 	}
 
-	ref := &Reference{Path: itemPath, Version: entry.CtxloomVersion}
-	filePath := ref.BuildFilePath(ItemTypeBundle, entry.CtxloomVersion)
+	ref := &Reference{Path: itemPath}
+	filePath := ref.BuildFilePath(ItemTypeBundle)
 
 	data, err := fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)
 	if err != nil {

@@ -17,7 +17,7 @@ func TestCheckRetracted(t *testing.T) {
 		// No manifest file set
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, retracted)
@@ -27,10 +27,10 @@ func TestCheckRetracted(t *testing.T) {
 	t.Run("returns false when manifest has no retracted entries", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte("version: 1\n")
+		mf.files["ctxloom/manifest.yaml"] = []byte("version: 1\n")
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, retracted)
@@ -40,7 +40,7 @@ func TestCheckRetracted(t *testing.T) {
 	t.Run("returns true when item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -50,7 +50,7 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.True(t, retracted)
@@ -60,7 +60,7 @@ retracted:
 	t.Run("returns true when item retracted without version", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -69,7 +69,7 @@ retracted:
 `)
 
 		ref := &Reference{Path: "deprecated-bundle", ContentVersion: ""}
-		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, reason, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.True(t, retracted)
@@ -79,7 +79,7 @@ retracted:
 	t.Run("returns false when different item is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: bundle
@@ -89,7 +89,7 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, retracted)
@@ -98,7 +98,7 @@ retracted:
 	t.Run("returns false when different type is retracted", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte(`
+		mf.files["ctxloom/manifest.yaml"] = []byte(`
 version: 1
 retracted:
   - type: profile
@@ -108,7 +108,7 @@ retracted:
 `)
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, retracted)
@@ -117,10 +117,10 @@ retracted:
 	t.Run("handles invalid YAML gracefully", func(t *testing.T) {
 		mf := newMockFetcher()
 		mf.defaultBranch = "main"
-		mf.files["ctxloom/v1/manifest.yaml"] = []byte("invalid: yaml: [[")
+		mf.files["ctxloom/manifest.yaml"] = []byte("invalid: yaml: [[")
 
 		ref := &Reference{Path: "security", ContentVersion: "v1.0.0"}
-		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", "v1", ref, ItemTypeBundle)
+		retracted, _, err := CheckRetracted(ctx, mf, "owner", "repo", ref, ItemTypeBundle)
 
 		require.NoError(t, err)
 		assert.False(t, retracted)

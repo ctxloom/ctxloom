@@ -124,9 +124,6 @@ type PublishOptions struct {
 	// ItemType specifies what type of item to publish.
 	ItemType ItemType
 
-	// Version is the ctxloom version directory (e.g., "v1").
-	Version string
-
 	// FS is the filesystem to use (defaults to OS filesystem if nil).
 	FS afero.Fs
 }
@@ -190,15 +187,7 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 	itemName := strings.TrimSuffix(filepath.Base(localPath), ".yaml")
 
 	// Build remote path
-	version := opts.Version
-	if version == "" {
-		version = rem.Version
-	}
-	if version == "" {
-		version = "v1"
-	}
-
-	remotePath := buildPublishPath(opts.ItemType, version, itemName)
+	remotePath := buildPublishPath(opts.ItemType, itemName)
 
 	// Get default branch if not specified
 	branch := opts.Branch
@@ -362,7 +351,7 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 	return strings.Join(sections, "\n\n---\n\n")
 }
 
-func buildPublishPath(itemType ItemType, version, name string) string {
+func buildPublishPath(itemType ItemType, name string) string {
 	var dir string
 	switch itemType {
 	case ItemTypeBundle:
@@ -372,7 +361,7 @@ func buildPublishPath(itemType ItemType, version, name string) string {
 	default:
 		dir = "bundles"
 	}
-	return fmt.Sprintf("ctxloom/%s/%s/%s.yaml", version, dir, name)
+	return fmt.Sprintf("ctxloom/%s/%s.yaml", dir, name)
 }
 
 // addPublishMetadata adds _source metadata to content for tracking.

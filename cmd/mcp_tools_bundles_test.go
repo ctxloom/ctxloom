@@ -136,7 +136,7 @@ func TestHandlePushBundle_DryRun(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "preview", result.Status)
 	assert.Equal(t, "personal", result.Remote)
-	assert.Equal(t, "ctxloom/v1/bundles/to-push.yaml", result.TargetPath)
+	assert.Equal(t, "ctxloom/bundles/to-push.yaml", result.TargetPath)
 	assert.NotEmpty(t, result.Preview)
 }
 

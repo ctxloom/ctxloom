@@ -69,21 +69,60 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 		assert.Zero(t, merged)
 	})
 
-	t.Run("PromotePendingBundles moves only named bundles", func(t *testing.T) {
+	t.Run("PromoteRemotePendingBundles promotes only the named remote", func(t *testing.T) {
 		cfg := mkCfg(t)
 		writePending(t, cfg, map[string]string{
-			"r/a": "sha1",
-			"r/b": "sha2",
-			"r/c": "sha3",
+			"r/a":     "sha1",
+			"r/b":     "sha2",
+			"other/c": "sha3",
 		})
 
-		require.NoError(t, PromotePendingBundles(cfg, []string{"r/a", "r/c"}))
+		promoted, err := PromoteRemotePendingBundles(cfg, "r")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"r/a", "r/b"}, promoted, "sorted, scoped to remote r")
 
 		active := readActive(t, cfg)
 		assert.Contains(t, active.Bundles, "r/a")
-		assert.Contains(t, active.Bundles, "r/c")
-		assert.NotContains(t, active.Bundles, "r/b")
-		assert.True(t, pendingExists(t, cfg), "r/b is still pending")
+		assert.Contains(t, active.Bundles, "r/b")
+		assert.NotContains(t, active.Bundles, "other/c")
+		assert.True(t, pendingExists(t, cfg), "other/c is still pending")
+	})
+
+	t.Run("PromoteRemotePendingBundles drains pending when the remote is the last one", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writePending(t, cfg, map[string]string{"r/a": "sha1", "r/b": "sha2"})
+
+		promoted, err := PromoteRemotePendingBundles(cfg, "r")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"r/a", "r/b"}, promoted)
+		assert.False(t, pendingExists(t, cfg), "pending file deleted once empty")
+	})
+
+	t.Run("PromoteRemotePendingBundles with no matching remote is a no-op", func(t *testing.T) {
+		cfg := mkCfg(t)
+		writePending(t, cfg, map[string]string{"r/a": "sha1"})
+
+		promoted, err := PromoteRemotePendingBundles(cfg, "nope")
+		require.NoError(t, err)
+		assert.Empty(t, promoted)
+		assert.Empty(t, readActive(t, cfg).Bundles)
+		assert.True(t, pendingExists(t, cfg))
+	})
+
+	t.Run("PromoteRemotePendingBundles respects an active pin", func(t *testing.T) {
+		cfg := mkCfg(t)
+		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
+		require.NoError(t, mgr.Save(&remote.Lockfile{
+			Bundles:  map[string]remote.LockEntry{"r/a": {SHA: "old", Pinned: true}},
+			Profiles: map[string]remote.LockEntry{},
+		}))
+		writePending(t, cfg, map[string]string{"r/a": "new", "r/b": "sha2"})
+
+		promoted, err := PromoteRemotePendingBundles(cfg, "r")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"r/b"}, promoted, "pinned r/a held back")
+		assert.Equal(t, "old", readActive(t, cfg).Bundles["r/a"].SHA, "pinned SHA unchanged")
+		assert.True(t, pendingExists(t, cfg), "pinned r/a still pending behind the pin")
 	})
 
 	t.Run("DropPendingBundle removes one entry", func(t *testing.T) {

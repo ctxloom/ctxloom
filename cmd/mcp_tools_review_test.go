@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -224,4 +225,73 @@ func TestHandleAcknowledgeBundleReview_TrulyEmptyReportsNoPending(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, "no_pending", res.Status)
+}
+
+func TestHandleTrustRemote_PromotesPendingFromDisk(t *testing.T) {
+	// Regression: trust_remote used to promote only what the in-memory
+	// review tracker held. Bundles stranded in lock.pending.yaml on disk
+	// (e.g. carried over from a previous session, or written by a CLI
+	// `remote sync` while the server runs) were reported "auto-approved 0"
+	// and left in pending — invisible to search_content, which only seeds
+	// remote bundles from the active lockfile. Trust must promote them all.
+	dir := withProjectDir(t)
+	baseDir := filepath.Join(dir, ".ctxloom")
+	cfg := &config.Config{AppPaths: []string{baseDir}}
+
+	reg, err := operations.GetRegistry(cfg)
+	require.NoError(t, err)
+	require.NoError(t, reg.Add("r", "https://github.com/example/r"))
+
+	writePendingBundle(t, baseDir, map[string]remote.LockEntry{
+		"r/a":     {SHA: "111"},
+		"r/b":     {SHA: "222"},
+		"other/c": {SHA: "333"},
+	})
+
+	s := &ctxServer{cfg: cfg, review: &bundleReviewState{}}
+	require.False(t, s.review.hasPending(), "precondition: in-memory tracker empty")
+
+	_, res, err := s.handleTrustRemote(context.Background(), nil, trustRemoteInput{Name: "r", Trust: true})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.True(t, res.Trust)
+	assert.Equal(t, []string{"r/a", "r/b"}, res.Approved, "every pending entry from r promoted despite empty tracker")
+
+	active, err := remote.NewLockfileManager(baseDir).Load()
+	require.NoError(t, err)
+	assert.Contains(t, active.Bundles, "r/a")
+	assert.Contains(t, active.Bundles, "r/b")
+	assert.NotContains(t, active.Bundles, "other/c", "untrusted remote stays pending")
+
+	pending, err := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile()).Load()
+	require.NoError(t, err)
+	assert.NotContains(t, pending.Bundles, "r/a")
+	assert.Contains(t, pending.Bundles, "other/c")
+}
+
+func TestHandleApproveRemotePending_PromotesPendingFromDisk(t *testing.T) {
+	// Same root cause as trust_remote: approve_remote_pending must promote
+	// straight off the on-disk pending lockfile rather than the in-memory
+	// tracker, but without persisting trust.
+	dir := withProjectDir(t)
+	baseDir := filepath.Join(dir, ".ctxloom")
+	cfg := &config.Config{AppPaths: []string{baseDir}}
+
+	writePendingBundle(t, baseDir, map[string]remote.LockEntry{
+		"r/a":     {SHA: "111"},
+		"other/c": {SHA: "333"},
+	})
+
+	s := &ctxServer{cfg: cfg, review: &bundleReviewState{}}
+	require.False(t, s.review.hasPending(), "precondition: in-memory tracker empty")
+
+	_, res, err := s.handleApproveRemotePending(context.Background(), nil, approveRemotePendingInput{Remote: "r"})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, []string{"r/a"}, res.Approved)
+
+	active, err := remote.NewLockfileManager(baseDir).Load()
+	require.NoError(t, err)
+	assert.Contains(t, active.Bundles, "r/a")
+	assert.NotContains(t, active.Bundles, "other/c")
 }

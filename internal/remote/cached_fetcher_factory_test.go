@@ -24,11 +24,11 @@ func TestCachedFetcherFactory_UsesCache(t *testing.T) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(sourceDir, "ctxloom", "v1", "bundles")
+	bundleDir := filepath.Join(sourceDir, "ctxloom", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "test.yaml"), []byte("version: v1\n"), 0644))
 
-	_, err = wt.Add("ctxloom/v1/bundles/test.yaml")
+	_, err = wt.Add("ctxloom/bundles/test.yaml")
 	require.NoError(t, err)
 
 	_, err = wt.Commit("init", &git.CommitOptions{
@@ -47,7 +47,7 @@ func TestCachedFetcherFactory_UsesCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be able to fetch files
-	content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/v1/bundles/test.yaml", "")
+	content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/bundles/test.yaml", "")
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "version: v1")
 }
@@ -100,10 +100,10 @@ func TestCachedFetcher_EnsureRefUnshallowsForTags(t *testing.T) {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	bundleDir := filepath.Join(sourceDir, "ctxloom", "v1", "bundles")
+	bundleDir := filepath.Join(sourceDir, "ctxloom", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "test.yaml"), []byte("v1\n"), 0644))
-	_, err = wt.Add("ctxloom/v1/bundles/test.yaml")
+	_, err = wt.Add("ctxloom/bundles/test.yaml")
 	require.NoError(t, err)
 	taggedHash, err := wt.Commit("first", &git.CommitOptions{
 		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
@@ -116,7 +116,7 @@ func TestCachedFetcher_EnsureRefUnshallowsForTags(t *testing.T) {
 
 	// Second commit so HEAD moves past the tag.
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "test.yaml"), []byte("v2\n"), 0644))
-	_, err = wt.Add("ctxloom/v1/bundles/test.yaml")
+	_, err = wt.Add("ctxloom/bundles/test.yaml")
 	require.NoError(t, err)
 	_, err = wt.Commit("second", &git.CommitOptions{
 		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
@@ -132,7 +132,7 @@ func TestCachedFetcher_EnsureRefUnshallowsForTags(t *testing.T) {
 
 	// Pulling the tag triggers unshallow; the older commit becomes locally
 	// resolvable and we get back the v1 content.
-	content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/v1/bundles/test.yaml", "v0.1.0")
+	content, err := fetcher.FetchFile(context.Background(), "owner", "repo", "ctxloom/bundles/test.yaml", "v0.1.0")
 	require.NoError(t, err)
 	assert.Equal(t, "v1\n", string(content))
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -147,15 +148,245 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}, nil
 }
 
+// RelockRequest contains parameters for regenerating the lockfile from the
+// project's configured profiles.
+type RelockRequest struct {
+	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
+
+	// Registry lets tests inject a pre-built registry. When nil one is opened
+	// from the project's remotes dir.
+	Registry *remote.Registry `json:"-"`
+
+	// FetcherFactory lets tests inject a fetcher factory. When nil the cached
+	// clone-backed factory is used.
+	FetcherFactory FetcherFactory `json:"-"`
+
+	// RepoCache lets tests inject a counting/fake repo updater for the per-URL
+	// refresh pre-pass. When nil the production clone cache is used.
+	RepoCache RepoUpdater `json:"-"`
+}
+
+// RelockResult contains the result of regenerating the lockfile.
+type RelockResult struct {
+	Status    string   `json:"status"` // "regenerated" or "empty"
+	Path      string   `json:"path,omitempty"`
+	ItemCount int      `json:"item_count,omitempty"`
+	Failed    int      `json:"failed,omitempty"`
+	Errors    []string `json:"errors,omitempty"`
+	Message   string   `json:"message,omitempty"`
+}
+
+// Relock regenerates lock.yaml from the project's configured/installed profiles,
+// re-pinning every bundle and parent-profile dependency at the current
+// default-branch (origin/main) SHA.
+//
+// Unlike LockDependencies — which scans already-installed files for the
+// install-time _source SHA they carry — Relock walks the live dependency graph
+// from the configured profiles (following local parents) and resolves each
+// remote's current HEAD. That means it works even when lock.yaml does NOT exist
+// yet, which is the whole point: it regenerates a deleted/missing lockfile.
+//
+// Fault tolerance (CLAUDE.md): a per-URL fetch failure or an unresolvable entry
+// is warned and skipped; whatever resolves cleanly is still written. Only a
+// hard registry/collection failure aborts.
+func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*RelockResult, error) {
+	fs := getFS(req.FS)
+	baseDir := getBaseDir(cfg)
+
+	registry := req.Registry
+	if registry == nil {
+		var err error
+		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize registry: %w", err)
+		}
+	}
+
+	auth := remote.LoadAuth(baseDir)
+
+	// Walk the configured profiles (and their local parents) to discover every
+	// remote bundle + profile reference that should be pinned.
+	bundleRefs, profileRefs, err := collectRemoteReferences(cfg, nil, fs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect references: %w", err)
+	}
+
+	type refItem struct {
+		Type remote.ItemType
+		Ref  string
+	}
+	var items []refItem
+	for _, r := range profileRefs {
+		items = append(items, refItem{remote.ItemTypeProfile, r})
+	}
+	for _, r := range bundleRefs {
+		items = append(items, refItem{remote.ItemTypeBundle, r})
+	}
+
+	// repoURLForRef resolves a reference to its repository URL. Canonical URL
+	// refs (e.g. a profile parent "https://…@profiles/name") carry the URL
+	// directly and have no registry name; simple "remote/path" refs resolve
+	// their URL via the registry.
+	repoURLForRef := func(ref *remote.Reference) (string, bool) {
+		if ref.IsCanonical {
+			return ref.URL, ref.URL != ""
+		}
+		rem, gerr := registry.Get(ref.Remote)
+		if gerr != nil {
+			return "", false
+		}
+		return rem.URL, true
+	}
+
+	urlForRef := func(refStr string) (string, bool) {
+		ref, perr := remote.ParseReference(refStr)
+		if perr != nil {
+			return "", false
+		}
+		return repoURLForRef(ref)
+	}
+
+	// Refresh every unique remote clone first so origin/main is advanced to the
+	// live HEAD before we resolve SHAs. Without this, a stale shallow clone
+	// would re-pin at the old SHA. Dedup so each repo is fetched once.
+	cache := req.RepoCache
+	if cache == nil {
+		cache = newRepoCache(cfg)
+	}
+	fetchedURLs := map[string]struct{}{}
+	for _, it := range items {
+		url, ok := urlForRef(it.Ref)
+		if !ok {
+			continue
+		}
+		if _, seen := fetchedURLs[url]; seen {
+			continue
+		}
+		fetchedURLs[url] = struct{}{}
+		forgeType, _, ferr := remote.DetectForge(url)
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, ferr)
+			continue
+		}
+		if _, uerr := cache.UpdateRepo(ctx, url, forgeType); uerr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, uerr)
+			// Continue: a stale clone is still better than aborting the relock.
+		}
+	}
+
+	// Fetcher factory backed by the (now-refreshed) local clones.
+	fetcherFactory := req.FetcherFactory
+	if fetcherFactory == nil {
+		cached := newCachedFetcherFactory(cfg)
+		fetcherFactory = FetcherFactory(cached)
+	}
+
+	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	lockfile := &remote.Lockfile{
+		Version:  1,
+		Bundles:  make(map[string]remote.LockEntry),
+		Profiles: make(map[string]remote.LockEntry),
+	}
+
+	fetchedAt := time.Now().UTC()
+	fetcherByURL := map[string]remote.Fetcher{}
+	itemCount := 0
+	failed := 0
+	var relockErrs []string
+
+	for _, it := range items {
+		if it.Ref == "" {
+			continue
+		}
+		ref, perr := remote.ParseReference(it.Ref)
+		if perr != nil {
+			failed++
+			relockErrs = append(relockErrs, fmt.Sprintf("%s: invalid reference (skipped)", it.Ref))
+			continue
+		}
+		repoURL, ok := repoURLForRef(ref)
+		if !ok {
+			failed++
+			relockErrs = append(relockErrs, fmt.Sprintf("%s: remote not found (skipped)", it.Ref))
+			continue
+		}
+
+		fetcher, ok := fetcherByURL[repoURL]
+		if !ok {
+			fetcher, perr = fetcherFactory(repoURL, auth)
+			if perr != nil {
+				failed++
+				relockErrs = append(relockErrs, fmt.Sprintf("%s: %v (skipped)", it.Ref, perr))
+				continue
+			}
+			fetcherByURL[repoURL] = fetcher
+		}
+
+		owner, repoName, perr := remote.ParseRepoURL(repoURL)
+		if perr != nil {
+			failed++
+			relockErrs = append(relockErrs, fmt.Sprintf("%s: %v (skipped)", it.Ref, perr))
+			continue
+		}
+
+		branch, perr := fetcher.GetDefaultBranch(ctx, owner, repoName)
+		if perr != nil {
+			failed++
+			relockErrs = append(relockErrs, fmt.Sprintf("%s: default branch: %v (skipped)", it.Ref, perr))
+			continue
+		}
+
+		sha, perr := fetcher.ResolveRef(ctx, owner, repoName, branch)
+		if perr != nil || sha == "" {
+			failed++
+			relockErrs = append(relockErrs, fmt.Sprintf("%s: no SHA resolved (skipped)", it.Ref))
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: relock %s: no SHA resolved, skipping\n", it.Ref)
+			continue
+		}
+
+		// Key entries by the short "remote/name" form so relock matches the
+		// convention LockDependencies uses. ToLocalName passes simple refs
+		// through unchanged and reduces a canonical URL ref (e.g. a profile
+		// parent) to "<repo>/<path>".
+		lockfile.AddEntry(it.Type, ref.ToLocalName(), remote.LockEntry{
+			SHA:       sha,
+			URL:       repoURL,
+			FetchedAt: fetchedAt,
+		})
+		itemCount++
+	}
+
+	if itemCount == 0 {
+		return &RelockResult{
+			Status:  "empty",
+			Failed:  failed,
+			Errors:  relockErrs,
+			Message: "No resolvable dependencies found in configured profiles",
+		}, nil
+	}
+
+	if err := lockManager.Save(lockfile); err != nil {
+		return nil, fmt.Errorf("failed to write lockfile: %w", err)
+	}
+
+	return &RelockResult{
+		Status:    "regenerated",
+		Path:      lockManager.Path(),
+		ItemCount: itemCount,
+		Failed:    failed,
+		Errors:    relockErrs,
+	}, nil
+}
+
 // InstallDependenciesRequest contains parameters for installing from lockfile.
 type InstallDependenciesRequest struct {
 	Force bool `json:"force"`
 
 	// Testing injection points
-	FS          afero.Fs                 `json:"-"` // Optional filesystem for testing
-	LockManager *remote.LockfileManager  `json:"-"` // Optional lock manager for testing
-	Registry    *remote.Registry         `json:"-"` // Optional registry for testing
-	Puller      Puller                   `json:"-"` // Optional puller for testing
+	FS          afero.Fs                `json:"-"` // Optional filesystem for testing
+	LockManager *remote.LockfileManager `json:"-"` // Optional lock manager for testing
+	Registry    *remote.Registry        `json:"-"` // Optional registry for testing
+	Puller      Puller                  `json:"-"` // Optional puller for testing
 }
 
 // InstallDependenciesResult contains the result of installing from lockfile.

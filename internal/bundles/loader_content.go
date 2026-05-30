@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -374,6 +375,10 @@ func (l *Loader) expandBundleRef(ref string) []string {
 	// Whole-bundle ref: enumerate every fragment in the bundle.
 	b, err := l.Load(ref)
 	if err != nil {
+		// A profile referenced this bundle but it didn't resolve. Warn so the
+		// gap is diagnosable — silently dropping it produces context that is
+		// missing content with no error (fault-tolerance: log, don't crash).
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping unresolved bundle %q: %v\n", ref, err)
 		return nil
 	}
 	names := make([]string, 0, len(b.Fragments))

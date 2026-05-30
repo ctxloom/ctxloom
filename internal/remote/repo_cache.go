@@ -87,17 +87,22 @@ func (c *RepoCache) EnsureRef(ctx context.Context, repoURL string, forgeType For
 	return repoDir, nil
 }
 
-// UpdateRepo fetches the latest changes for a cached repo.
+// UpdateRepo fetches the latest changes for a cached repo, advancing the
+// remote-tracking refs (refs/remotes/origin/*) to the live remote HEAD.
 // If the repo is not yet cloned, it clones it.
 func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
 	repoDir := c.repoDirForURL(repoURL)
-	auth := c.authMethod(forgeType)
 
 	// Try to open existing clone
 	repo, err := git.PlainOpen(repoDir)
 	if err == nil {
-		// Existing clone — fetch updates
-		if fetchErr := c.fetchRepo(ctx, repo, auth); fetchErr != nil {
+		// Existing clone — fetch updates. A shallow clone's Depth:1 refetch does
+		// NOT advance origin/* past the original shallow boundary, so updates on
+		// a shallow clone would silently no-op (the bug). Always do the full,
+		// unshallowing fetch (Depth:0) so refs/remotes/origin/main tracks the
+		// live remote HEAD — which is what `remote update`, `remote relock`, and
+		// the lockfile outdated check all rely on.
+		if fetchErr := c.unshallowRepo(ctx, repo, forgeType); fetchErr != nil {
 			return repoDir, fmt.Errorf("git fetch failed: %w", fetchErr)
 		}
 		return repoDir, nil
@@ -153,25 +158,9 @@ func (c *RepoCache) safeRepoPath(parts ...string) string {
 	return joined
 }
 
-// fetchRepo fetches updates for an existing clone.
-func (c *RepoCache) fetchRepo(ctx context.Context, repo *git.Repository, auth transport.AuthMethod) error {
-	err := repo.FetchContext(ctx, &git.FetchOptions{
-		Auth:  auth,
-		Depth: 1,
-		Tags:  git.AllTags,
-		Force: true,
-		RefSpecs: []config.RefSpec{
-			"+refs/heads/*:refs/remotes/origin/*",
-		},
-	})
-	if err == git.NoErrAlreadyUpToDate {
-		return nil
-	}
-	return err
-}
-
 // unshallowRepo deepens a shallow clone so all branches and tags are locally
-// resolvable. Used on the first miss for a non-HEAD ref.
+// resolvable, and advances refs/remotes/origin/* to the live remote HEAD.
+// Used on the first miss for a non-HEAD ref and by UpdateRepo.
 func (c *RepoCache) unshallowRepo(ctx context.Context, repo *git.Repository, forgeType ForgeType) error {
 	auth := c.authMethod(forgeType)
 	err := repo.FetchContext(ctx, &git.FetchOptions{
@@ -248,4 +237,3 @@ func normalizeCloneURL(repoURL string) string {
 
 	return repoURL
 }
-

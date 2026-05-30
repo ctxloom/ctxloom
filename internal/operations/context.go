@@ -61,12 +61,13 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	profileName := req.Profile
 	var profileNames []string
 	if profileName == "" && len(req.Fragments) == 0 && len(req.Tags) == 0 {
-		// If no profile/fragment/tag is selected, make sure there's *something*
-		// to assemble: when the user has installed bundles but never created a
-		// profile, synthesize an "auto" profile listing every installed bundle
-		// and add it to defaults.profiles. Idempotent and a no-op when the
-		// user already has their own profile.
-		EnsureAutoProfile(cfg)
+		// No profile/fragment/tag selected → fall back to the configured
+		// defaults. When the project config has none, inherit the home
+		// config's defaults.profiles (project-XOR-home resolution would
+		// otherwise shadow them); if neither defines any, the user is told to
+		// set them and assembly degrades to empty context. No synthetic
+		// profile is ever created.
+		EnsureDefaultProfiles(cfg)
 		profileNames = cfg.GetDefaultProfiles()
 	} else if profileName != "" {
 		profileNames = []string{profileName}

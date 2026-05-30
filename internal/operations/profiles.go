@@ -57,85 +57,60 @@ func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, boo
 	return rel, true
 }
 
-// autoProfileName is the name used for the synthetic profile generated when
-// the user has installed bundles but no profile.
-const autoProfileName = "auto"
-
-// EnsureAutoProfile keeps a synthetic "auto" profile in sync with the set of
-// installed bundles when (and only when) the user has installed at least one
-// bundle but no real profile of their own. The profile is written to
-// .ctxloom/profiles/auto.yaml and added to defaults.profiles in config.yaml,
-// so `ctxloom run` produces non-empty context out of the box.
+// EnsureDefaultProfiles makes sure cfg has a usable set of default profiles
+// before context assembly, WITHOUT ever silently inventing one.
 //
-// Idempotent on each call:
-//   - If any non-"auto" profile exists locally, do nothing — the user has
-//     committed to a profile of their own and the auto profile must not
-//     interfere.
-//   - If no bundles are installed, do nothing — there's nothing to assemble.
-//   - Otherwise, regenerate auto.yaml so its bundle list matches what's
-//     currently installed, and ensure "auto" is listed in defaults.profiles.
+// Config resolution is project-XOR-home: when a project .ctxloom exists it is
+// used wholesale and the home (~/.ctxloom) config is NOT merged. That means a
+// project with no defaults.profiles would otherwise shadow the user's home
+// defaults entirely. To honor the user's intent ("inherit home, else prompt")
+// without mutating the project config on disk:
 //
-// Save/write errors are warned but non-fatal (fault-tolerance philosophy).
-func EnsureAutoProfile(cfg *config.Config) {
-	if cfg == nil || len(cfg.AppPaths) == 0 {
+//   - If the project config already lists explicit defaults.profiles, do
+//     nothing — the user has made their choice.
+//   - Otherwise load the HOME config and, if it has defaults.profiles, copy
+//     them into the in-memory cfg.Defaults.Profiles for this run only. Nothing
+//     is written to disk and no synthetic profile is created.
+//   - If home has none either, surface the choice: print a clear stderr
+//     instruction telling the user to set defaults.profiles (or run discovery).
+//     Per fault-tolerance we still return cleanly so the LLM starts; context
+//     assembly simply has no profile to expand (degraded, not crashed).
+func EnsureDefaultProfiles(cfg *config.Config) {
+	if cfg == nil {
 		return
 	}
 
-	profileLdr := profileLoader(cfg)
-	existingProfiles, err := profileLdr.List()
+	// Project already has an explicit choice — respect it untouched.
+	if len(cfg.ExplicitDefaultProfiles()) > 0 {
+		return
+	}
+
+	// Inherit from the home config if it defines defaults.profiles.
+	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
+		cfg.Defaults.Profiles = append([]string(nil), homeProfiles...)
+		return
+	}
+
+	// Neither project nor home defines defaults.profiles — surface the choice.
+	fmt.Fprintln(os.Stderr, "ctxloom: warning: no default profiles configured (project or home).")
+	fmt.Fprintln(os.Stderr, "ctxloom: set defaults.profiles in .ctxloom/config.yaml (or ~/.ctxloom/config.yaml),")
+	fmt.Fprintln(os.Stderr, "ctxloom: or run discovery to install one. Continuing without a profile.")
+}
+
+// homeDefaultProfiles loads the user's home config (~/.ctxloom/config.yaml)
+// and returns its explicit defaults.profiles, or nil if the home config is
+// absent, unreadable, or defines none. Errors are swallowed (fault-tolerance):
+// a missing/broken home config simply means "nothing to inherit".
+func homeDefaultProfiles() []string {
+	homeDir, err := config.HomeConfigDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to list profiles for auto-profile generation: %v\n", err)
-		return
+		return nil
 	}
-	for _, p := range existingProfiles {
-		if p.Name != autoProfileName {
-			return
-		}
-	}
-
-	bundleLdr := bundleLoader(cfg)
-	bundleInfos, err := bundleLdr.List()
+	homeCfg, err := config.Load(config.WithAppDir(homeDir))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to list bundles for auto-profile generation: %v\n", err)
-		return
+		return nil
 	}
-	if len(bundleInfos) == 0 {
-		return
-	}
-
-	bundleNames := make([]string, 0, len(bundleInfos))
-	for _, b := range bundleInfos {
-		bundleNames = append(bundleNames, b.Name)
-	}
-	sort.Strings(bundleNames)
-
-	// Skip rewriting if the existing auto.yaml already lists the same bundles.
-	upToDate := false
-	if len(existingProfiles) == 1 && existingProfiles[0].Name == autoProfileName {
-		existingBundles := append([]string(nil), existingProfiles[0].Bundles...)
-		sort.Strings(existingBundles)
-		upToDate = slices.Equal(existingBundles, bundleNames)
-	}
-
-	if !upToDate {
-		autoProfile := &profiles.Profile{
-			Name:        autoProfileName,
-			Description: "Auto-generated profile listing every installed bundle. Regenerated on each `ctxloom run`; create your own profile to take over.",
-			Bundles:     bundleNames,
-		}
-		if err := profileLdr.Save(autoProfile); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to write auto profile: %v\n", err)
-			return
-		}
-	}
-
-	// Ensure "auto" is listed in defaults.profiles. AddDefaultProfile is a
-	// no-op when already present; we only Save() if something changed.
-	if cfg.Defaults.AddDefaultProfile(autoProfileName) {
-		if err := cfg.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: wrote auto profile but failed to mark it default in config: %v\n", err)
-		}
-	}
+	return homeCfg.ExplicitDefaultProfiles()
 }
 
 // ProfileEntry represents a profile in operation results.

@@ -24,7 +24,7 @@ func TestProfileEntry_Fields(t *testing.T) {
 		Tags:        []string{"test"},
 		Bundles:     []string{"bundle1", "bundle2"},
 		Default:     true,
-		Path:        paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:        paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "my-profile", entry.Name)
@@ -129,7 +129,7 @@ func TestCreateProfileResult_Fields(t *testing.T) {
 	result := CreateProfileResult{
 		Status:  "created",
 		Profile: "my-profile",
-		Path:    paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "created", result.Status)
@@ -165,7 +165,7 @@ func TestUpdateProfileResult_Fields(t *testing.T) {
 		Status:  "updated",
 		Profile: "my-profile",
 		Changes: []string{"added parent: base", "added tag: test"},
-		Path:    paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "updated", result.Status)
@@ -999,10 +999,10 @@ func TestLocalProfileNameFromPath(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{"/tmp/.ctxloom"}}
 
 	tests := []struct {
-		name     string
-		path     string
-		want     string
-		wantOk   bool
+		name   string
+		path   string
+		want   string
+		wantOk bool
 	}{
 		{
 			name:   "top-level profile",
@@ -1061,82 +1061,4 @@ func TestPromoteToDefaultIfFirst_ExistingDefault(t *testing.T) {
 	promoted := PromoteToDefaultIfFirst(cfg, "new-profile")
 	assert.False(t, promoted)
 	assert.Equal(t, []string{"already-default"}, cfg.Defaults.Profiles)
-}
-
-// ensureAutoProfileFixture writes a minimal .ctxloom layout for auto-profile
-// tests: app dir + bundle dir, with `bundleNames` written as bundle YAML files.
-func ensureAutoProfileFixture(t *testing.T, bundleNames ...string) (string, *config.Config) {
-	t.Helper()
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "cache", "bundles")
-	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
-	for _, name := range bundleNames {
-		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, name+".yaml"),
-			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: hi\n"), 0644))
-	}
-	cfg := &config.Config{AppPaths: []string{appDir}}
-	return appDir, cfg
-}
-
-func TestEnsureAutoProfile_CreatesProfileWhenOnlyBundlesInstalled(t *testing.T) {
-	appDir, cfg := ensureAutoProfileFixture(t, "alpha", "beta")
-
-	EnsureAutoProfile(cfg)
-
-	// auto.yaml should now exist with both bundles in alphabetical order.
-	autoPath := filepath.Join(appDir, "profiles", "auto.yaml")
-	data, err := os.ReadFile(autoPath)
-	require.NoError(t, err, "auto profile should be written to %s", autoPath)
-	assert.Contains(t, string(data), "- alpha")
-	assert.Contains(t, string(data), "- beta")
-
-	// "auto" should be added to defaults.profiles.
-	assert.Equal(t, []string{"auto"}, cfg.Defaults.Profiles)
-}
-
-func TestEnsureAutoProfile_NoBundlesNoProfile(t *testing.T) {
-	appDir, cfg := ensureAutoProfileFixture(t /* no bundles */)
-
-	EnsureAutoProfile(cfg)
-
-	// Nothing to assemble → no auto profile created.
-	_, err := os.Stat(filepath.Join(appDir, "profiles", "auto.yaml"))
-	assert.True(t, os.IsNotExist(err), "auto profile should NOT be created when there are no bundles")
-	assert.Empty(t, cfg.Defaults.Profiles)
-}
-
-func TestEnsureAutoProfile_SkipsWhenUserProfileExists(t *testing.T) {
-	appDir, cfg := ensureAutoProfileFixture(t, "alpha")
-
-	// Pre-create a user profile.
-	profilesDir := filepath.Join(appDir, "profiles")
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "mine.yaml"),
-		[]byte("description: my profile\n"), 0644))
-
-	EnsureAutoProfile(cfg)
-
-	// auto.yaml must not be created — user already has their own profile.
-	_, err := os.Stat(filepath.Join(profilesDir, "auto.yaml"))
-	assert.True(t, os.IsNotExist(err), "auto profile must not interfere with a user-created profile")
-	assert.Empty(t, cfg.Defaults.Profiles)
-}
-
-func TestEnsureAutoProfile_RegeneratesWhenBundleSetChanges(t *testing.T) {
-	appDir, cfg := ensureAutoProfileFixture(t, "alpha")
-
-	EnsureAutoProfile(cfg)
-
-	// Add a new bundle and re-run.
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache", "bundles", "beta.yaml"),
-		[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: hi\n"), 0644))
-
-	EnsureAutoProfile(cfg)
-
-	autoPath := filepath.Join(appDir, "profiles", "auto.yaml")
-	data, err := os.ReadFile(autoPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "- alpha")
-	assert.Contains(t, string(data), "- beta", "auto profile should be regenerated to include newly installed bundle")
 }

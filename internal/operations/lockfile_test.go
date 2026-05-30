@@ -1259,6 +1259,30 @@ func initLocalRepoWithFile(t *testing.T, dir, filePath, content string) string {
 	return sha.String()
 }
 
+// addFileToLocalRepo writes and commits an additional file into an existing
+// local repo (created by initLocalRepoWithFile), returning the new commit SHA.
+func addFileToLocalRepo(t *testing.T, dir, filePath, content string) string {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	full := filepath.Join(dir, filePath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0755))
+	require.NoError(t, os.WriteFile(full, []byte(content), 0644))
+
+	_, err = wt.Add(filePath)
+	require.NoError(t, err)
+
+	sha, err := wt.Commit("add "+filePath, &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return sha.String()
+}
+
 // TestCheckOutdated_RealCacheWithLocalRepos drives the production path
 // end-to-end against two real git repos served over file:// URLs. With
 // FetcherFactory==nil and a real RepoCache rooted at a temp dir, the test

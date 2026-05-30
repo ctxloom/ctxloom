@@ -291,7 +291,7 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {
 	Query    string `json:"query"`
-	Source   string `json:"source"`   // "github", "gitlab", or "all"
+	Source   string `json:"source"` // "github", "gitlab", or "all"
 	MinStars int    `json:"min_stars"`
 	Limit    int    `json:"limit"`
 

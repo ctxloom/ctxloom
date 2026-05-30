@@ -29,13 +29,13 @@ import (
 // Entry is one row in index.yaml.
 type Entry struct {
 	HarpName       string     `yaml:"harp_name"`
-	SessionID      string     `yaml:"session_id,omitempty"`      // empty until backend binds on initialize
+	SessionID      string     `yaml:"session_id,omitempty"` // empty until backend binds on initialize
 	Backend        string     `yaml:"backend,omitempty"`
 	ProjectDir     string     `yaml:"project_dir"`
 	StartedAt      time.Time  `yaml:"started_at"`
 	EndedAt        *time.Time `yaml:"ended_at,omitempty"`
 	TranscriptPath string     `yaml:"transcript_path,omitempty"`
-	Summary        string     `yaml:"summary,omitempty"`         // mirror of essence.md frontmatter, for fast picker render
+	Summary        string     `yaml:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
 }
 
 // Index is the on-disk form of the session index.

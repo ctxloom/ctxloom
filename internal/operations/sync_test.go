@@ -86,9 +86,9 @@ func TestCollectRemoteReferences(t *testing.T) {
 		Profiles: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
-					"github/go-tools",     // Remote
-					"local-bundle",        // Local (no slash)
-					"gitlab/security",     // Remote
+					"github/go-tools", // Remote
+					"local-bundle",    // Local (no slash)
+					"gitlab/security", // Remote
 				},
 				Parents: []string{
 					"remote/parent-profile", // Remote
@@ -462,8 +462,8 @@ func TestCheckMissingDependencies(t *testing.T) {
 		Profiles: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
-					"github/go-tools",  // Missing
-					"github/security",  // Installed
+					"github/go-tools", // Missing
+					"github/security", // Installed
 				},
 			},
 		},

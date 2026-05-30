@@ -173,7 +173,7 @@ Example:
 var profileDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a profile",
-	Args:    cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if name == "help" {
@@ -427,17 +427,17 @@ func applyProfileMutations(p *profiles.Profile, m profileMutations, w *iox.ErrWr
 }
 
 var (
-	profileUpdateAddParents            []string
-	profileUpdateRemoveParents         []string
-	profileUpdateAddBundles            []string
-	profileUpdateRemoveBundles         []string
-	profileUpdateDescription           string
-	profileUpdateAddExcludeFragments   []string
+	profileUpdateAddParents             []string
+	profileUpdateRemoveParents          []string
+	profileUpdateAddBundles             []string
+	profileUpdateRemoveBundles          []string
+	profileUpdateDescription            string
+	profileUpdateAddExcludeFragments    []string
 	profileUpdateRemoveExcludeFragments []string
-	profileUpdateAddExcludePrompts     []string
-	profileUpdateRemoveExcludePrompts  []string
-	profileUpdateAddExcludeMCP         []string
-	profileUpdateRemoveExcludeMCP      []string
+	profileUpdateAddExcludePrompts      []string
+	profileUpdateRemoveExcludePrompts   []string
+	profileUpdateAddExcludeMCP          []string
+	profileUpdateRemoveExcludeMCP       []string
 )
 
 var (
@@ -763,4 +763,3 @@ func init() {
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-parent", completeProfileNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-parent", completeProfileNames)
 }
-

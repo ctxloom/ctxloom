@@ -256,8 +256,8 @@ func TestVendorManager_VendorAll(t *testing.T) {
 			Version: 1,
 			Bundles: map[string]LockEntry{
 				"alice/security": {
-					SHA:        "abc123",
-					URL:        "https://github.com/alice/ctxloom",
+					SHA: "abc123",
+					URL: "https://github.com/alice/ctxloom",
 				},
 			},
 			Profiles: make(map[string]LockEntry),

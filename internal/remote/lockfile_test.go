@@ -43,9 +43,9 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", LockEntry{
-		SHA:        "abc1234def5678",
-		URL:        "https://github.com/alice/ctxloom",
-		FetchedAt:  now,
+		SHA:       "abc1234def5678",
+		URL:       "https://github.com/alice/ctxloom",
+		FetchedAt: now,
 	})
 
 	// Save
@@ -296,8 +296,8 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			name:      "bundle without requested version uses SHA",
 			localName: "ctxloom-github/tools",
 			entry: LockEntry{
-				SHA:        "def456",
-				URL:        "https://github.com/bob/ctxloom",
+				SHA: "def456",
+				URL: "https://github.com/bob/ctxloom",
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "https://github.com/bob/ctxloom@bundles/tools@def456",
@@ -307,8 +307,8 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			name:      "profile entry",
 			localName: "ctxloom-github/secure",
 			entry: LockEntry{
-				SHA:        "ghi789",
-				URL:        "https://github.com/alice/ctxloom",
+				SHA: "ghi789",
+				URL: "https://github.com/alice/ctxloom",
 			},
 			itemType: ItemTypeProfile,
 			wantURL:  "https://github.com/alice/ctxloom@profiles/secure@ghi789",
@@ -326,8 +326,8 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			name:      "invalid local name (no slash)",
 			localName: "invalid",
 			entry: LockEntry{
-				SHA:        "abc123",
-				URL:        "https://github.com/alice/ctxloom",
+				SHA: "abc123",
+				URL: "https://github.com/alice/ctxloom",
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "",

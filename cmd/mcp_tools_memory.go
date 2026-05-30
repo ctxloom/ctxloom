@@ -68,18 +68,18 @@ type compactSessionResult struct {
 // success use omitempty so the wire format stays compatible with the
 // legacy map-based response.
 type loadSessionResult struct {
-	Loaded     bool   `json:"loaded"`
-	Message    string `json:"message,omitempty"`
-	SessionID  string `json:"session_id,omitempty"`
-	Content    string `json:"content,omitempty"`
-	WasCached  bool   `json:"was_cached,omitempty"`
-	Tokens     int    `json:"tokens,omitempty"`
-	TokensIn   int    `json:"tokens_in,omitempty"`
-	TokensOut  int    `json:"tokens_out,omitempty"`
-	Reduction  string `json:"reduction,omitempty"`
-	Duration   string `json:"duration,omitempty"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	PID        int    `json:"pid,omitempty"`
+	Loaded    bool   `json:"loaded"`
+	Message   string `json:"message,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Content   string `json:"content,omitempty"`
+	WasCached bool   `json:"was_cached,omitempty"`
+	Tokens    int    `json:"tokens,omitempty"`
+	TokensIn  int    `json:"tokens_in,omitempty"`
+	TokensOut int    `json:"tokens_out,omitempty"`
+	Reduction string `json:"reduction,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	PID       int    `json:"pid,omitempty"`
 }
 
 // getSessionsDir returns the directory holding distilled session .md files.
@@ -304,7 +304,6 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.
 // Use ctxloom://sessions/recent for the AI-friendly summary view.
-
 
 // loadOrDistillSession is the shared body for load_session, recover_session,
 // and get_previous_session. It returns the cached distilled content if

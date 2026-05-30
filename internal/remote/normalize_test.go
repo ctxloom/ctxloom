@@ -123,4 +123,3 @@ func TestIsCanonicalRef(t *testing.T) {
 		})
 	}
 }
-

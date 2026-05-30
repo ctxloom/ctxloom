@@ -305,10 +305,10 @@ func diffBundleYAMLs(oldData, newData []byte) string {
 // type: the diff cares only about which keys exist and whether their
 // content text matches, not the rich fields.
 type bundlesYAML struct {
-	Fragments map[string]yamlBlob       `yaml:"fragments"`
-	Prompts   map[string]yamlBlob       `yaml:"prompts"`
-	MCP       map[string]yamlBlob       `yaml:"mcp"`
-	Hooks     map[string][]yamlBlob     `yaml:"hooks"`
+	Fragments map[string]yamlBlob   `yaml:"fragments"`
+	Prompts   map[string]yamlBlob   `yaml:"prompts"`
+	MCP       map[string]yamlBlob   `yaml:"mcp"`
+	Hooks     map[string][]yamlBlob `yaml:"hooks"`
 }
 
 type yamlBlob struct {

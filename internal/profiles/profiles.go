@@ -33,11 +33,11 @@ import (
 //
 //	fragment-name                    # Standalone fragment file
 type Profile struct {
-	Name        string            `yaml:"-"`                      // Derived from filename
-	Path        string            `yaml:"-"`                      // Full path to the file
-	Description string            `yaml:"description,omitempty"`
-	Parents     []string          `yaml:"parents,omitempty"`      // Parent profiles to inherit from
-	Tags        []string          `yaml:"tags,omitempty"`         // Fragment tags to include
+	Name        string   `yaml:"-"` // Derived from filename
+	Path        string   `yaml:"-"` // Full path to the file
+	Description string   `yaml:"description,omitempty"`
+	Parents     []string `yaml:"parents,omitempty"` // Parent profiles to inherit from
+	Tags        []string `yaml:"tags,omitempty"`    // Fragment tags to include
 
 	// Bundles are content references using standardized path syntax
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"

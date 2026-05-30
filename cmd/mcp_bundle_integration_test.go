@@ -271,4 +271,3 @@ func TestMCP_WireProtocol_InvalidArgs_ReturnsError(t *testing.T) {
 	assert.Equal(t, wantErr, text,
 		"SDK schema-validation error wording is part of the contract — update this test if the SDK changes the message")
 }
-

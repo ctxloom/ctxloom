@@ -249,4 +249,3 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	assert.Contains(t, stdout.String(), "line2")
 	assert.Contains(t, stdout.String(), "line3")
 }
-

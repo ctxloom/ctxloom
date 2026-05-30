@@ -16,10 +16,10 @@ import (
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
 type GitHubFetcher struct {
-	client    GitHubClient
-	token     string       // stored token for retry logic
-	hasToken  bool         // whether we're using authenticated access
-	fallback  GitHubClient // unauthenticated client for 401 retry
+	client   GitHubClient
+	token    string       // stored token for retry logic
+	hasToken bool         // whether we're using authenticated access
+	fallback GitHubClient // unauthenticated client for 401 retry
 }
 
 // GitHubFetcherOption configures a GitHubFetcher.

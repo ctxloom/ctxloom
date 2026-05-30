@@ -150,9 +150,9 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name        string
-		value       string
-		shouldKeep  bool
+		name       string
+		value      string
+		shouldKeep bool
 	}{
 		{"UUID", "550e8400-e29b-41d4-a716-446655440000", true},
 		{"hash", "a1b2c3d4e5f6789012345678901234567890abcd", true},
@@ -235,11 +235,11 @@ func TestJSONCompressor_Entropy(t *testing.T) {
 		input    string
 		highEntr bool
 	}{
-		{"aaaaaaaaaaaaa", false},                                  // Low entropy - single repeated char
-		{"aaaaabbbbb", false},                                     // Low entropy - two repeated chars
-		{"abcdefghijklmnop", true},                                // High entropy - varied chars
-		{"550e8400-e29b-41d4-a716-446655440000", true},           // UUID
-		{"x7Kj2mNpQrStUvWx", true},                               // Random-looking
+		{"aaaaaaaaaaaaa", false},                       // Low entropy - single repeated char
+		{"aaaaabbbbb", false},                          // Low entropy - two repeated chars
+		{"abcdefghijklmnop", true},                     // High entropy - varied chars
+		{"550e8400-e29b-41d4-a716-446655440000", true}, // UUID
+		{"x7Kj2mNpQrStUvWx", true},                     // Random-looking
 	}
 
 	for _, tt := range tests {

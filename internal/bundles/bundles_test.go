@@ -1415,9 +1415,9 @@ func TestLoader_ExpandBundleRefs_DeduplicatesAcrossRefs(t *testing.T) {
 	loader := expandRefsFixture(t)
 
 	got := loader.ExpandBundleRefs([]string{
-		"test/alpha",                 // expands to a1, a2
-		"test/alpha#fragments/a1",    // duplicate of a1
-		"test/alpha:fragments/a2",    // duplicate of a2 via colon syntax
+		"test/alpha",              // expands to a1, a2
+		"test/alpha#fragments/a1", // duplicate of a1
+		"test/alpha:fragments/a2", // duplicate of a2 via colon syntax
 	})
 
 	assert.Equal(t, []string{

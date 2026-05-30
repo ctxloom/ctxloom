@@ -725,7 +725,7 @@ func (m *mockPublisher) CreatePullRequest(_ context.Context, owner, repo, title,
 	return m.returnPRURL, nil
 }
 
-func (m *mockPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error  { return nil }
+func (m *mockPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error { return nil }
 func (m *mockPublisher) GetFileSHA(_ context.Context, _, _, _, _ string) (string, error) {
 	return "", nil
 }

@@ -57,9 +57,9 @@ func lockFileEx(handle syscall.Handle, flags uint32) error {
 	r1, _, err := procLockFileEx.Call(
 		uintptr(handle),
 		uintptr(flags),
-		0,                            // reserved, must be 0
-		0xFFFFFFFF,                   // nNumberOfBytesToLockLow
-		0xFFFFFFFF,                   // nNumberOfBytesToLockHigh
+		0,          // reserved, must be 0
+		0xFFFFFFFF, // nNumberOfBytesToLockLow
+		0xFFFFFFFF, // nNumberOfBytesToLockHigh
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
 
@@ -75,9 +75,9 @@ func unlockFileEx(handle syscall.Handle) error {
 
 	r1, _, err := procUnlockFileEx.Call(
 		uintptr(handle),
-		0,                            // reserved, must be 0
-		0xFFFFFFFF,                   // nNumberOfBytesToUnlockLow
-		0xFFFFFFFF,                   // nNumberOfBytesToUnlockHigh
+		0,          // reserved, must be 0
+		0xFFFFFFFF, // nNumberOfBytesToUnlockLow
+		0xFFFFFFFF, // nNumberOfBytesToUnlockHigh
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
 

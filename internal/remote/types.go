@@ -122,13 +122,13 @@ func (c RemoteContext) Installation() string { return c.InstallationField }
 // RemoteBundle represents a bundle from a remote source.
 // Bundles combine MCP servers with fragments and prompts.
 type RemoteBundle struct {
-	Version           string                       `yaml:"version"`
-	Description       string                       `yaml:"description,omitempty"`
-	NotesField        string                       `yaml:"notes,omitempty"`        // Human-readable notes
-	InstallationField string                       `yaml:"installation,omitempty"` // Setup/installation instructions
-	MCP               *RemoteMCPServer             `yaml:"mcp,omitempty"`
-	Fragments         map[string]RemoteBundleItem  `yaml:"fragments,omitempty"`
-	Prompts           map[string]RemoteBundleItem  `yaml:"prompts,omitempty"`
+	Version           string                      `yaml:"version"`
+	Description       string                      `yaml:"description,omitempty"`
+	NotesField        string                      `yaml:"notes,omitempty"`        // Human-readable notes
+	InstallationField string                      `yaml:"installation,omitempty"` // Setup/installation instructions
+	MCP               *RemoteMCPServer            `yaml:"mcp,omitempty"`
+	Fragments         map[string]RemoteBundleItem `yaml:"fragments,omitempty"`
+	Prompts           map[string]RemoteBundleItem `yaml:"prompts,omitempty"`
 }
 
 // RemoteBundleItem represents a fragment or prompt within a bundle.

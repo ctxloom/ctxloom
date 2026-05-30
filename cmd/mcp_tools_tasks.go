@@ -21,9 +21,9 @@ type taskListInput struct {
 }
 
 type taskListResult struct {
-	Path    string         `json:"path"`
-	Tasks   []taskOut      `json:"tasks"`
-	Summary *summaryOut    `json:"summary,omitempty"`
+	Path    string      `json:"path"`
+	Tasks   []taskOut   `json:"tasks"`
+	Summary *summaryOut `json:"summary,omitempty"`
 }
 
 type taskOut struct {

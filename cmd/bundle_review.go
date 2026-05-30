@@ -197,4 +197,3 @@ func renderReviewTemplate(cs *operations.BundleChangeSet) string {
 // so the client sees it on initialize. Tells the model how to behave when
 // a pending review is in effect.
 const reviewInstructionsBlock = `If a bundle review is pending, the FIRST content of your FIRST response MUST be the review template, verbatim, in a fenced block. Do not paraphrase or summarize. Do not call any other tool. Wait for the user's choice, then call acknowledge_bundle_review, decline_bundle, show_bundle_verbatim, trust_remote, pin_bundle, unpin_bundle, or approve_remote_pending. Continue until pending clears.`
-

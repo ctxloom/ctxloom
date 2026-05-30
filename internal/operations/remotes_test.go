@@ -102,9 +102,9 @@ func TestDiscoverRemotesRequest_Defaults(t *testing.T) {
 	req := DiscoverRemotesRequest{}
 
 	// Check that empty values are handled correctly in the operation
-	assert.Empty(t, req.Source)   // Will default to "all"
-	assert.Zero(t, req.Limit)     // Will default to 30
-	assert.Zero(t, req.MinStars)  // Will use 0 minimum
+	assert.Empty(t, req.Source)  // Will default to "all"
+	assert.Zero(t, req.Limit)    // Will default to 30
+	assert.Zero(t, req.MinStars) // Will use 0 minimum
 }
 
 func TestBrowseRemoteRequest_Validation(t *testing.T) {
@@ -148,8 +148,8 @@ func TestBrowseRemoteRequest_Validation(t *testing.T) {
 
 func TestRemoteEntry_Fields(t *testing.T) {
 	entry := RemoteEntry{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	assert.Equal(t, "test-remote", entry.Name)
@@ -829,8 +829,8 @@ profiles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
@@ -843,8 +843,8 @@ profiles:
 
 func TestSearchManifestContent_InvalidYAML(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	_, err := searchManifestContent(rem, []byte("invalid: [yaml: content"), remote.ItemTypeBundle, remote.SearchQuery{})
@@ -859,8 +859,8 @@ bundles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
@@ -879,8 +879,8 @@ profiles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeProfile, remote.SearchQuery{Text: "code"})
@@ -900,8 +900,8 @@ func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
@@ -917,8 +917,8 @@ func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
@@ -934,8 +934,8 @@ func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeProfile, remote.SearchQuery{Text: "dev"})
@@ -947,8 +947,8 @@ func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 
 func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "invalid://invalid-url",
+		Name: "test-remote",
+		URL:  "invalid://invalid-url",
 	}
 
 	cfg := &config.Config{}
@@ -958,8 +958,8 @@ func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
 
 func TestSearchSingleRemote_ParseRepoURLError(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "not-a-valid-url",
+		Name: "test-remote",
+		URL:  "not-a-valid-url",
 	}
 
 	// NewFetcher will succeed but ParseRepoURL will fail with invalid URL
@@ -979,8 +979,8 @@ func TestSearchSingleRemote_WithManifest(t *testing.T) {
 	// Since searchSingleRemote creates its own fetcher, we test the helper function
 	// that parses manifest content rather than the full integration
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	// Test the manifest search helper function
@@ -1000,8 +1000,8 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 		WithFile("ctxloom/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	// Test the directory search helper function

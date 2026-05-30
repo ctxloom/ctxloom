@@ -222,12 +222,12 @@ func init() {
 
 // runSessionDistill is the cobra RunE for `ctxloom session distill <harp>`.
 // It composes:
-//   1. Look up the harp in the session index.
-//   2. Read its bound session_id (recorded forward by the SessionStart
-//      bind hook, or by the compactor at compact time).
-//   3. Run memory.Compactor against that session_id.
-//   4. The compactor's existing write path stamps the harp dir
-//      essence.md + the index summary.
+//  1. Look up the harp in the session index.
+//  2. Read its bound session_id (recorded forward by the SessionStart
+//     bind hook, or by the compactor at compact time).
+//  3. Run memory.Compactor against that session_id.
+//  4. The compactor's existing write path stamps the harp dir
+//     essence.md + the index summary.
 //
 // Sessions whose bind step never landed error here with a clear message.
 // Pre-release sessions are unaffected by design; we don't backfill harp

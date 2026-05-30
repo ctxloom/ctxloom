@@ -14,11 +14,11 @@ import (
 // ReadBundleBytes call so cache-hit assertions don't have to reach into
 // the MockFetcher (the cache lives one layer above the fetcher).
 type countingSource struct {
-	bytes  map[string][]byte
-	shas   map[string]string
-	calls  int
-	err    error
-	mu     sync.Mutex
+	bytes map[string][]byte
+	shas  map[string]string
+	calls int
+	err   error
+	mu    sync.Mutex
 }
 
 func newCountingSource(entries map[string]string, contents map[string][]byte) *countingSource {

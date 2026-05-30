@@ -11,13 +11,13 @@ import (
 
 // mockPublisher is a test double for Publisher.
 type mockPublisher struct {
-	files         map[string]string // path -> sha
-	createdFiles  map[string][]byte
-	branches      []string
-	pullRequests  []mockPR
-	createFileErr error
+	files           map[string]string // path -> sha
+	createdFiles    map[string][]byte
+	branches        []string
+	pullRequests    []mockPR
+	createFileErr   error
 	createBranchErr error
-	createPRErr   error
+	createPRErr     error
 }
 
 type mockPR struct {
@@ -317,8 +317,8 @@ func TestTransformProfileForExport(t *testing.T) {
 			Version: 1,
 			Bundles: map[string]LockEntry{
 				"alice/security": {
-					SHA:        "abc123",
-					URL:        "https://github.com/alice/ctxloom",
+					SHA: "abc123",
+					URL: "https://github.com/alice/ctxloom",
 				},
 			},
 			Profiles: make(map[string]LockEntry),
@@ -386,4 +386,3 @@ func TestDefaultPublisherFactory(t *testing.T) {
 		assert.NotNil(t, publisher)
 	})
 }
-

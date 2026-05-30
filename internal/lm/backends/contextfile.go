@@ -156,5 +156,3 @@ func ReadContextFile(workDir, hash string, opts ...ContextFileOption) (string, e
 	}
 	return string(content), nil
 }
-
-

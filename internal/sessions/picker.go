@@ -56,7 +56,7 @@ type Picker struct {
 	checkSession  []bool           // [s] state per visible row
 	checkTasks    []bool           // [t] state per visible row
 	scanner       *bufio.Scanner
-	horizonReveal int              // how many `m` keystrokes have been pressed (additive horizon)
+	horizonReveal int // how many `m` keystrokes have been pressed (additive horizon)
 }
 
 // Run loops render → read → handle until a Decision is produced.

@@ -326,7 +326,6 @@ func (r *Registry) Has(name string) bool {
 	return ok
 }
 
-
 // GetDefault returns the default remote name, or empty string if not set.
 func (r *Registry) GetDefault() string {
 	r.mu.RLock()

@@ -254,4 +254,3 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 	}
 	return w.Err()
 }
-

@@ -557,4 +557,3 @@ func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesRe
 		ApplyHooks: true,  // Apply hooks
 	})
 }
-

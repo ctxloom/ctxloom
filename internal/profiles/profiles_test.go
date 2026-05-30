@@ -366,11 +366,11 @@ bundles:
 //
 // Diamond inheritance occurs when:
 //
-//	   A
-//	  / \
-//	 B   C
-//	  \ /
-//	   D
+//	  A
+//	 / \
+//	B   C
+//	 \ /
+//	  D
 //
 // Both B and C inherit from D. Without proper visited tracking, the resolver
 // would incorrectly detect a circular reference when resolving D through C
@@ -531,10 +531,10 @@ func TestResolvedProfile_Merge(t *testing.T) {
 
 func TestAppendUnique(t *testing.T) {
 	tests := []struct {
-		name   string
-		slice  []string
-		items  []string
-		want   []string
+		name  string
+		slice []string
+		items []string
+		want  []string
 	}{
 		{"empty slice", []string{}, []string{"a", "b"}, []string{"a", "b"}},
 		{"no duplicates", []string{"a"}, []string{"b", "c"}, []string{"a", "b", "c"}},
@@ -760,4 +760,3 @@ bundles:
 	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
 }
-

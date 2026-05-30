@@ -87,11 +87,11 @@ func TestDetectContentType_Empty(t *testing.T) {
 // TestResult_Calculation verifies ratio calculation
 func TestResult_Calculation(t *testing.T) {
 	result := Result{
-		Content:         "compressed",
-		OriginalSize:    100,
-		CompressedSize:  50,
-		Ratio:           0.5,
-		ModelID:         "test-model",
+		Content:        "compressed",
+		OriginalSize:   100,
+		CompressedSize: 50,
+		Ratio:          0.5,
+		ModelID:        "test-model",
 	}
 
 	assert.Equal(t, 100, result.OriginalSize)
@@ -103,8 +103,8 @@ func TestResult_Calculation(t *testing.T) {
 // TestResult_PreservedAndCompressed verifies metadata tracking
 func TestResult_PreservedAndCompressed(t *testing.T) {
 	result := Result{
-		Content:        "content",
-		PreservedElements: []string{"function1", "function2"},
+		Content:            "content",
+		PreservedElements:  []string{"function1", "function2"},
 		CompressedElements: []string{"docstring", "test"},
 	}
 
@@ -147,10 +147,10 @@ func TestContentTypeConstants(t *testing.T) {
 // TestHasExtension verifies extension checking helper
 func TestHasExtension(t *testing.T) {
 	tests := []struct {
-		name        string
-		filename    string
-		extensions  []string
-		expected    bool
+		name       string
+		filename   string
+		extensions []string
+		expected   bool
 	}{
 		{"matching extension", "file.txt", []string{".txt"}, true},
 		{"multiple extensions one match", "file.txt", []string{".go", ".txt"}, true},

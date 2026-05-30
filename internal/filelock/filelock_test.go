@@ -128,4 +128,3 @@ func TestLock_RootDirectoryFile(t *testing.T) {
 	require.NoError(t, err)
 	defer unlock()
 }
-

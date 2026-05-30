@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	searchTags         []string
-	searchItemFilter   string
-	searchLocalOnly    bool
-	searchRemoteOnly   bool
+	searchTags       []string
+	searchItemFilter string
+	searchLocalOnly  bool
+	searchRemoteOnly bool
 )
 
 var searchCmd = &cobra.Command{
@@ -239,4 +239,3 @@ func printRemoteResults(results []operations.SearchRemoteEntry) {
 	fmt.Println()
 	fmt.Println("Install with: ctxloom pull <remote>/<name>")
 }
-

@@ -32,13 +32,13 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "security",
+		Remote:         "alice",
+		Path:           "security",
 		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
-		Name:    "alice",
-		URL:     "https://github.com/alice/ctxloom",
+		Name: "alice",
+		URL:  "https://github.com/alice/ctxloom",
 	}
 	sha := "abc1234"
 	filePath := "ctxloom/bundles/security.yaml"
@@ -87,13 +87,13 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "secure",
+		Remote:         "alice",
+		Path:           "secure",
 		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
-		Name:    "alice",
-		URL:     "https://github.com/alice/ctxloom",
+		Name: "alice",
+		URL:  "https://github.com/alice/ctxloom",
 	}
 	sha := "abc1234"
 	filePath := "ctxloom/profiles/secure.yaml"
@@ -822,8 +822,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "security",
+			Remote:         "alice",
+			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
 
@@ -851,8 +851,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "security",
+			Remote:         "alice",
+			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
 
@@ -876,8 +876,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "deep/nested/security",
+			Remote:         "alice",
+			Path:           "deep/nested/security",
 			ContentVersion: "v1.0.0",
 		}
 

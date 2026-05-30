@@ -126,7 +126,7 @@ type AddMCPServerRequest struct {
 	Name         string   `json:"name"`
 	Command      string   `json:"command"`
 	Args         []string `json:"args"`
-	Backend      string   `json:"backend"` // unified, claude-code, gemini
+	Backend      string   `json:"backend"`      // unified, claude-code, gemini
 	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
 	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
 

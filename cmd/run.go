@@ -515,4 +515,3 @@ func plural(n int, singular, plural string) string {
 	}
 	return plural
 }
-

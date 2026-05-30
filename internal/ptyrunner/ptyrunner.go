@@ -146,4 +146,3 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 
 	return result, nil
 }
-

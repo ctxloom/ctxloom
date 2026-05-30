@@ -26,7 +26,6 @@ type Stamp struct {
 	Time string `json:"time"`
 }
 
-
 // findCtxloomWrapperPID walks up the process tree to find the ctxloom wrapper process.
 // Returns the PID of the first ancestor that is a ctxloom command (run, plugin, init).
 // Falls back to grandparent PID if no ctxloom wrapper is found.

@@ -96,7 +96,7 @@ func TestWriteRemoteItemResult_Fields(t *testing.T) {
 		Status:      "installed",
 		Reference:   "test/my-bundle@abc123",
 		ItemType:    "bundle",
-		LocalPath:   paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml",
+		LocalPath:   paths.BundlesPath(testBaseDir) + "/test/my-bundle.yaml",
 		SHA:         "abc123d",
 		Overwritten: false,
 	}
@@ -147,7 +147,7 @@ func TestPullItemRequest_Validation(t *testing.T) {
 
 func TestPullItemResult_Fields(t *testing.T) {
 	result := PullItemResult{
-		LocalPath:     paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml",
+		LocalPath:     paths.ProfilesPath(testBaseDir) + "/test/my-profile.yaml",
 		SHA:           "abc123d",
 		Overwritten:   true,
 		CascadePulled: []string{"test/bundle1", "test/bundle2"},
@@ -820,7 +820,7 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 			assert.Equal(t, testBaseDir, opts.LocalDir)
 			assert.False(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml",
+				LocalPath:   paths.BundlesPath(testBaseDir) + "/test/my-bundle.yaml",
 				SHA:         "abc123d",
 				Overwritten: false,
 			}, nil
@@ -847,7 +847,7 @@ func TestPullItem_ProfileSuccess(t *testing.T) {
 			assert.Equal(t, "test/my-profile", refStr)
 			assert.Equal(t, remote.ItemTypeProfile, opts.ItemType)
 			return &remote.PullResult{
-				LocalPath:   paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml",
+				LocalPath:   paths.ProfilesPath(testBaseDir) + "/test/my-profile.yaml",
 				SHA:         "def456a",
 				Overwritten: false,
 			}, nil
@@ -872,7 +872,7 @@ func TestPullItem_WithForce(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.True(t, opts.Force)
 			return &remote.PullResult{
-				LocalPath:   paths.BundlesPath(testBaseDir)+"/test/bundle.yaml",
+				LocalPath:   paths.BundlesPath(testBaseDir) + "/test/bundle.yaml",
 				SHA:         "abc123",
 				Overwritten: true,
 			}, nil
@@ -899,7 +899,7 @@ func TestPullItem_WithCascade(t *testing.T) {
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			assert.True(t, opts.Cascade)
 			return &remote.PullResult{
-				LocalPath:     paths.ProfilesPath(testBaseDir)+"/test/profile.yaml",
+				LocalPath:     paths.ProfilesPath(testBaseDir) + "/test/profile.yaml",
 				SHA:           "abc123",
 				Overwritten:   false,
 				CascadePulled: []string{"test/bundle1", "test/bundle2"},
@@ -979,7 +979,7 @@ func TestPullItem_WithFS(t *testing.T) {
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			return &remote.PullResult{
-				LocalPath: paths.BundlesPath(testBaseDir)+"/test/bundle.yaml",
+				LocalPath: paths.BundlesPath(testBaseDir) + "/test/bundle.yaml",
 				SHA:       "abc123",
 			}, nil
 		},

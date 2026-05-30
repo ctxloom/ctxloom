@@ -343,8 +343,8 @@ func TestParseBundleViewRef(t *testing.T) {
 func viewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
 		Fragments: map[string]bundles.BundleFragment{
-			"intro":   {Content: "hello world"},
-			"distill": {Content: "raw body", Distilled: "compressed body"},
+			"intro":    {Content: "hello world"},
+			"distill":  {Content: "raw body", Distilled: "compressed body"},
 			"trailing": {Content: "already ends\n"},
 		},
 		Prompts: map[string]bundles.BundlePrompt{

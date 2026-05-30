@@ -1,10 +1,5 @@
 {
   "hooks": {
-    "AfterTool": [
-      {
-        "command": "ctxloom tasks capture --stdin"
-      }
-    ],
     "SessionStart": [
       {
         "command": "ctxloom session bind"
@@ -16,6 +11,13 @@
       "command": "ctxloom",
       "args": [
         "mcp"
+      ]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropics/mcp-server-sequential-thinking"
       ]
     }
   }

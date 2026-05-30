@@ -91,9 +91,9 @@ func TestConvertModelInfoToProto(t *testing.T) {
 	})
 	t.Run("happy_path", func(t *testing.T) {
 		out := convertModelInfoToProto(&backends.ModelInfo{
-			ModelName: "claude-sonnet-4-6",
+			ModelName:    "claude-sonnet-4-6",
 			ModelVersion: "4.6",
-			Provider: "anthropic",
+			Provider:     "anthropic",
 		})
 		require.NotNil(t, out)
 		assert.Equal(t, "claude-sonnet-4-6", out.ModelName)
@@ -106,16 +106,16 @@ func TestConvertModelInfoToProto(t *testing.T) {
 // GRPCServer.Run / GRPCServer.Info in tests. No real LLM, no real
 // session storage.
 type fakeBackend struct {
-	name           string
-	version        string
-	modes          []backends.ExecutionMode
-	setupCalled    bool
-	executeResult  *backends.ExecuteResult
-	executeErr     error
-	cleanupCalled  bool
-	cleanupErr     error
-	captureStdout  string
-	captureStderr  string
+	name          string
+	version       string
+	modes         []backends.ExecutionMode
+	setupCalled   bool
+	executeResult *backends.ExecuteResult
+	executeErr    error
+	cleanupCalled bool
+	cleanupErr    error
+	captureStdout string
+	captureStderr string
 }
 
 func (f *fakeBackend) Name() string                             { return f.name }

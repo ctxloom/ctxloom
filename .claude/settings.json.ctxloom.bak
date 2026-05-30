@@ -2,15 +2,6 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "TodoWrite",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "ctxloom tasks capture --stdin"
-          }
-        ]
-      },
-      {
         "matcher": "Edit|Write",
         "hooks": [
           {

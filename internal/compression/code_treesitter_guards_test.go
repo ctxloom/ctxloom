@@ -28,9 +28,9 @@ import (
 // correctly (note: JS keywords are checked before TS, so the TS fixture avoids
 // "function"/"const").
 type langCase struct {
-	name          string
-	source        string
-	mustContain   []string // signatures / structure that must be preserved
+	name           string
+	source         string
+	mustContain    []string // signatures / structure that must be preserved
 	mustNotContain []string // body-only tokens that must be elided
 }
 

@@ -33,12 +33,12 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 	lock := &Lockfile{
 		Bundles: map[string]LockEntry{
 			"alice/security": {
-				SHA:            "abc123def",
-				URL:            "https://github.com/alice/ctxloom",
+				SHA: "abc123def",
+				URL: "https://github.com/alice/ctxloom",
 			},
 			"alice/nested/sub": {
-				SHA:            "ffff111",
-				URL:            "https://github.com/alice/ctxloom",
+				SHA: "ffff111",
+				URL: "https://github.com/alice/ctxloom",
 			},
 		},
 		Profiles: map[string]LockEntry{},

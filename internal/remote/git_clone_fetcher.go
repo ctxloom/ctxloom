@@ -255,4 +255,3 @@ func (f *GitCloneFetcher) resolveToCommitHash(ref string) (plumbing.Hash, error)
 
 	return plumbing.ZeroHash, fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
-

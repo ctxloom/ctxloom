@@ -42,8 +42,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // ==========================================================================
@@ -271,7 +271,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := paths.GetCacheDir(testBaseDir)+"/context/" + hash + ".md"
+	contextPath := paths.GetCacheDir(testBaseDir) + "/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")
@@ -807,10 +807,10 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 func TestParseMarkdownFrontmatter(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		wantDesc    string
-		wantBody    string
+		name     string
+		input    string
+		wantDesc string
+		wantBody string
 	}{
 		{
 			name:     "with frontmatter",

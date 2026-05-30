@@ -15,8 +15,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "simple reference",
 			input: "alice/security",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "security",
+				Remote:         "alice",
+				Path:           "security",
 				ContentVersion: "",
 			},
 		},
@@ -24,8 +24,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "reference with tag",
 			input: "alice/security@v1.0.0",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "security",
+				Remote:         "alice",
+				Path:           "security",
 				ContentVersion: "v1.0.0",
 			},
 		},
@@ -33,8 +33,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "reference with SHA",
 			input: "alice/security@abc1234",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "security",
+				Remote:         "alice",
+				Path:           "security",
 				ContentVersion: "abc1234",
 			},
 		},
@@ -42,8 +42,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "nested path",
 			input: "alice/golang/best-practices",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "golang/best-practices",
+				Remote:         "alice",
+				Path:           "golang/best-practices",
 				ContentVersion: "",
 			},
 		},
@@ -51,8 +51,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "nested path with tag",
 			input: "alice/golang/best-practices@v2.0.0",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "golang/best-practices",
+				Remote:         "alice",
+				Path:           "golang/best-practices",
 				ContentVersion: "v2.0.0",
 			},
 		},
@@ -60,8 +60,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "deeply nested path",
 			input: "corp/lang/go/testing/mocks@main",
 			want: &Reference{
-				Remote: "corp",
-				Path:   "lang/go/testing/mocks",
+				Remote:         "corp",
+				Path:           "lang/go/testing/mocks",
 				ContentVersion: "main",
 			},
 		},
@@ -89,8 +89,8 @@ func TestParseReference_Simple(t *testing.T) {
 			name:  "at sign in path (edge case)",
 			input: "alice/email@domain@v1.0.0",
 			want: &Reference{
-				Remote: "alice",
-				Path:   "email@domain",
+				Remote:         "alice",
+				Path:           "email@domain",
 				ContentVersion: "v1.0.0",
 			},
 		},
@@ -934,10 +934,10 @@ func TestReference_ToCanonical(t *testing.T) {
 		{
 			name: "converts simple ref to canonical",
 			ref: &Reference{
-				Remote:      "alice",
-				Path:        "security",
-				ContentVersion:      "v1.0.0",
-				IsCanonical: false,
+				Remote:         "alice",
+				Path:           "security",
+				ContentVersion: "v1.0.0",
+				IsCanonical:    false,
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "https://github.com/alice/ctxloom",
@@ -1029,4 +1029,3 @@ func TestReference_MustCanonical(t *testing.T) {
 		ref.MustCanonical(registry, ItemTypeBundle)
 	})
 }
-

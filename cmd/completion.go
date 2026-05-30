@@ -71,7 +71,6 @@ PowerShell:
 	},
 }
 
-
 // completeFragmentNames returns a completion function for fragment names.
 func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	cfg, err := config.Load()

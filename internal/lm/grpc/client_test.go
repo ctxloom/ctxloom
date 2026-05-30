@@ -186,7 +186,7 @@ type fakeClientProtocol struct {
 	dispenseErr    error
 }
 
-func (f *fakeClientProtocol) Close() error                                { return nil }
+func (f *fakeClientProtocol) Close() error { return nil }
 func (f *fakeClientProtocol) Dispense(name string) (any, error) {
 	return f.dispenseResult, f.dispenseErr
 }

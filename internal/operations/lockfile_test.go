@@ -430,7 +430,7 @@ func (m *mockPuller) Pull(ctx context.Context, refStr string, opts remote.PullOp
 	if m.pullFunc != nil {
 		return m.pullFunc(ctx, refStr, opts)
 	}
-	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
+	return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 }
 
 func TestInstallDependencies_EmptyLockfile(t *testing.T) {
@@ -539,7 +539,7 @@ profiles: {}
 			if callCount == 1 {
 				return nil, fmt.Errorf("network error")
 			}
-			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 		},
 	}
 
@@ -588,7 +588,7 @@ profiles: {}
 	puller := &mockPuller{
 		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
 			capturedForce = opts.Force
-			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir)+"/test/item.yaml"}, nil
+			return &remote.PullResult{LocalPath: paths.BundlesPath(testBaseDir) + "/test/item.yaml"}, nil
 		},
 	}
 

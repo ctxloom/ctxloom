@@ -8,10 +8,8 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var (
@@ -96,7 +94,7 @@ func runUnifiedSearch(ctx context.Context, query string, tags []string, itemType
 	}
 
 	var localResults []operations.SearchResult
-	var remoteResults []remote.SearchResult
+	var remoteResults []operations.SearchRemoteEntry
 	var localErr, remoteErr error
 
 	var wg sync.WaitGroup
@@ -122,17 +120,27 @@ func runUnifiedSearch(ctx context.Context, query string, tags []string, itemType
 		}()
 	}
 
-	// Search remote content
+	// Search remote content. Route through operations.SearchRemotes (the same
+	// tag-aware path the search_remotes MCP tool uses). The op takes a single
+	// item_type: pass it only when the caller narrowed to exactly one, else
+	// empty to search both bundles and profiles.
 	if searchRemoteScope && len(remoteTypes) > 0 {
+		remoteItemType := ""
+		if len(remoteTypes) == 1 {
+			remoteItemType = remoteTypes[0]
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results, err := searchRemotesForContent(ctx, query, remoteTypes)
+			result, err := operations.SearchRemotes(ctx, cfg, operations.SearchRemotesRequest{
+				Query:    query,
+				ItemType: remoteItemType,
+			})
 			if err != nil {
 				remoteErr = err
 				return
 			}
-			remoteResults = results
+			remoteResults = result.Results
 		}()
 	}
 
@@ -168,161 +176,6 @@ func runUnifiedSearch(ctx context.Context, query string, tags []string, itemType
 	}
 
 	return nil
-}
-
-// searchRemotesForContent searches all configured remote repositories.
-func searchRemotesForContent(ctx context.Context, query string, types []string) ([]remote.SearchResult, error) {
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil, err
-	}
-
-	remotes := registry.List()
-	if len(remotes) == 0 {
-		return nil, nil // No remotes configured
-	}
-
-	auth := remote.LoadAuth("")
-	parsedQuery := remote.ParseSearchQuery(query)
-
-	cfg := loadConfigOrFallback(GetConfig, os.Stderr)
-	cachedFactory := operations.NewCachedFetcherFactory(cfg)
-
-	// Determine item types to search
-	var itemTypes []remote.ItemType
-	for _, t := range types {
-		switch t {
-		case "bundle":
-			itemTypes = append(itemTypes, remote.ItemTypeBundle)
-		case "profile":
-			itemTypes = append(itemTypes, remote.ItemTypeProfile)
-		}
-	}
-
-	// Search all remotes in parallel
-	var wg sync.WaitGroup
-	resultsCh := make(chan []remote.SearchResult, len(remotes)*len(itemTypes))
-	errorsCh := make(chan error, len(remotes)*len(itemTypes))
-
-	for _, rem := range remotes {
-		for _, itemType := range itemTypes {
-			wg.Add(1)
-			go func(r *remote.Remote, t remote.ItemType) {
-				defer wg.Done()
-
-				fetcher, err := cachedFactory(r.URL, auth)
-				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", r.Name, err)
-					return
-				}
-
-				owner, repo, err := remote.ParseRepoURL(r.URL)
-				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", r.Name, err)
-					return
-				}
-
-				branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", r.Name, err)
-					return
-				}
-
-				results, err := searchRemoteManifest(ctx, fetcher, r, owner, repo, branch, t, parsedQuery)
-				if err != nil {
-					errorsCh <- fmt.Errorf("%s (%s): %w", r.Name, t, err)
-					return
-				}
-				resultsCh <- results
-			}(rem, itemType)
-		}
-	}
-
-	wg.Wait()
-	close(resultsCh)
-	close(errorsCh)
-
-	// Collect results
-	var allResults []remote.SearchResult
-	for results := range resultsCh {
-		allResults = append(allResults, results...)
-	}
-
-	// Print errors as warnings
-	for err := range errorsCh {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-	}
-
-	return allResults, nil
-}
-
-// searchRemoteManifest searches a remote's manifest for matching items.
-func searchRemoteManifest(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	// Try manifest first
-	manifestPath := "ctxloom/manifest.yaml"
-	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
-	if err != nil {
-		// Fall back to directory listing
-		return searchRemoteDirectory(ctx, fetcher, rem, owner, repo, branch, itemType, query)
-	}
-
-	var manifest remote.Manifest
-	if err := yaml.Unmarshal(manifestContent, &manifest); err != nil {
-		return nil, err
-	}
-
-	var entries []remote.ManifestEntry
-	switch itemType {
-	case remote.ItemTypeBundle:
-		entries = manifest.Bundles
-	case remote.ItemTypeProfile:
-		entries = manifest.Profiles
-	}
-
-	var results []remote.SearchResult
-	for _, entry := range entries {
-		if remote.MatchesQuery(entry, query) {
-			results = append(results, remote.SearchResult{
-				Remote:    rem.Name,
-				Entry:     entry,
-				RemoteURL: rem.URL,
-				ItemType:  itemType,
-			})
-		}
-	}
-
-	return results, nil
-}
-
-// searchRemoteDirectory searches by listing directory contents.
-func searchRemoteDirectory(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
-
-	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
-	if err != nil {
-		return nil, err
-	}
-
-	var results []remote.SearchResult
-	for _, entry := range entries {
-		if entry.IsDir || !strings.HasSuffix(entry.Name, ".yaml") {
-			continue
-		}
-
-		name := strings.TrimSuffix(entry.Name, ".yaml")
-		manifestEntry := remote.ManifestEntry{Name: name}
-
-		if remote.MatchesQuery(manifestEntry, query) {
-			results = append(results, remote.SearchResult{
-				Remote:    rem.Name,
-				Entry:     manifestEntry,
-				RemoteURL: rem.URL,
-				ItemType:  itemType,
-			})
-		}
-	}
-
-	return results, nil
 }
 
 // printLocalResults prints local search results grouped by type.
@@ -362,26 +215,23 @@ func printLocalResults(results []operations.SearchResult) {
 }
 
 // printRemoteResults prints remote search results in table format.
-func printRemoteResults(results []remote.SearchResult) {
+func printRemoteResults(results []operations.SearchRemoteEntry) {
 	fmt.Println("Remote:")
 	fmt.Printf("  %-8s │ %-12s │ %-20s │ %s\n", "Type", "Remote", "Name", "Tags")
 	fmt.Printf("  ─────────┼──────────────┼──────────────────────┼────────────\n")
 
 	for _, r := range results {
-		tags := strings.Join(r.Entry.Tags, ", ")
+		tags := strings.Join(r.Tags, ", ")
 		if len(tags) > 20 {
 			tags = tags[:17] + "..."
 		}
 
-		name := r.Entry.Name
+		name := r.Name
 		if len(name) > 18 {
 			name = name[:15] + "..."
 		}
 
-		itemType := "bundle"
-		if r.ItemType == remote.ItemTypeProfile {
-			itemType = "profile"
-		}
+		itemType := r.Type
 
 		fmt.Printf("  %-8s │ %-12s │ %-20s │ %s\n", itemType, r.Remote, name, tags)
 	}

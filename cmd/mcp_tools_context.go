@@ -26,6 +26,11 @@ type searchContentInput struct {
 	Limit     int      `json:"limit,omitempty" jsonschema:"Maximum results to return (default: 50)"`
 }
 
+type searchRemotesInput struct {
+	Query    string `json:"query" jsonschema:"Search text. Plain words match name/description/tags; use tag:NAME to match a tag (e.g. tag:golang, tag:docker)"`
+	ItemType string `json:"item_type,omitempty" jsonschema:"Restrict to one type (one of: bundle, profile; default: both)"`
+}
+
 func (s *ctxServer) registerContextTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -54,6 +59,19 @@ func (s *ctxServer) registerContextTools(server *mcp.Server) {
 				SortBy:    in.SortBy,
 				SortOrder: in.SortOrder,
 				Limit:     in.Limit,
+			})
+			return nil, result, err
+		})
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "search_remotes",
+			Description: "Search configured remotes for installable bundles and profiles by reading their local git clones (no network). Use this for discovery — search_content only sees content already installed in this project. Returns each match's pull_ref (e.g. \"ctxloom-default/go-developer\") for installing via the CLI.",
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in searchRemotesInput) (*mcp.CallToolResult, *operations.SearchRemotesResult, error) {
+			result, err := operations.SearchRemotes(ctx, s.cfg, operations.SearchRemotesRequest{
+				Query:    in.Query,
+				ItemType: in.ItemType,
 			})
 			return nil, result, err
 		})

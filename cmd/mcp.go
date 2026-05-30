@@ -9,7 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Run as MCP server or manage MCP server configurations",
@@ -23,7 +22,7 @@ RUNNING AS MCP SERVER:
   ctxloom mcp serve        Alias for running as MCP server
 
   Available tools when running as server:
-    Context:  assemble_context, search_content
+    Context:  assemble_context, search_content, search_remotes
     Hooks:    apply_hooks
     Sync:     sync_dependencies
     Bundles:  create_bundle, update_bundle, delete_bundle

@@ -583,6 +583,52 @@ func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, path, r
 	return results, nil
 }
 
+// EnsureRemoteClonesResult reports the outcome of cloning every configured
+// remote.
+type EnsureRemoteClonesResult struct {
+	Cloned   []string `json:"cloned"`             // remote names whose clone is now present
+	Failed   []string `json:"failed,omitempty"`   // remote names that could not be cloned
+	Warnings []string `json:"warnings,omitempty"` // human-readable per-remote failures
+}
+
+// EnsureRemoteClones clones every configured remote into the local repo cache
+// so discovery (search_remotes / browse) can read them offline. It is the
+// eager-clone step run at init time.
+//
+// Fault tolerance (CLAUDE.md): a per-remote clone failure is warned and
+// recorded, never fatal — whatever clones cleanly is still usable. Returns a
+// non-nil result even when some (or all) remotes fail.
+func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteClonesResult, error) {
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load registry: %w", err)
+	}
+
+	cache := newRepoCache(cfg)
+	result := &EnsureRemoteClonesResult{}
+
+	for _, rem := range registry.List() {
+		forgeType, _, derr := remote.DetectForge(rem.URL)
+		if derr != nil {
+			msg := fmt.Sprintf("%s: detect forge: %v", rem.Name, derr)
+			result.Failed = append(result.Failed, rem.Name)
+			result.Warnings = append(result.Warnings, msg)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			continue
+		}
+		if _, cerr := cache.EnsureRepo(ctx, rem.URL, forgeType); cerr != nil {
+			msg := fmt.Sprintf("%s: clone failed: %v", rem.Name, cerr)
+			result.Failed = append(result.Failed, rem.Name)
+			result.Warnings = append(result.Warnings, msg)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			continue
+		}
+		result.Cloned = append(result.Cloned, rem.Name)
+	}
+
+	return result, nil
+}
+
 // SearchRemotesRequest contains parameters for searching across all remotes.
 type SearchRemotesRequest struct {
 	Query    string `json:"query"`
@@ -648,6 +694,18 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 	}
 
 	query := remote.ParseSearchQuery(req.Query)
+
+	// Ensure each remote's clone exists BEFORE fanning out. The per-(remote ×
+	// type) goroutines below all read the same clone; on a cold cache two of
+	// them would race to clone the same dir ("directory not empty"). Cloning
+	// once up front (serially) makes the parallel reads pure. Fault-tolerant:
+	// a clone failure is left to surface as a per-search warning below.
+	cache := newRepoCache(cfg)
+	for _, rem := range remotes {
+		if forgeType, _, derr := remote.DetectForge(rem.URL); derr == nil {
+			_, _ = cache.EnsureRepo(ctx, rem.URL, forgeType)
+		}
+	}
 
 	// Search all remotes and types in parallel
 	var wg sync.WaitGroup
@@ -788,12 +846,27 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 
 		name := strings.TrimSuffix(entry.Name, ".yaml")
 
-		// Create a minimal manifest entry for matching
-		manifestEntry := remote.ManifestEntry{
-			Name: name,
+		// Build the manifest entry from the file's own metadata so tag: and
+		// description searches work without a manifest.yaml. Reads come from
+		// the local clone, so this is cheap. If the file can't be read or
+		// parsed, fall back to a name-only entry (still text-matchable).
+		manifestEntry := remote.ManifestEntry{Name: name}
+		filePath := fmt.Sprintf("%s/%s", dirPath, entry.Name)
+		if content, ferr := fetcher.FetchFile(ctx, owner, repo, filePath, branch); ferr == nil {
+			var meta struct {
+				Tags        []string `yaml:"tags"`
+				Author      string   `yaml:"author"`
+				Description string   `yaml:"description"`
+				Version     string   `yaml:"version"`
+			}
+			if yaml.Unmarshal(content, &meta) == nil {
+				manifestEntry.Tags = meta.Tags
+				manifestEntry.Author = meta.Author
+				manifestEntry.Description = meta.Description
+				manifestEntry.Version = meta.Version
+			}
 		}
 
-		// Only do text matching without fetching full content
 		if remote.MatchesQuery(manifestEntry, query) {
 			results = append(results, remote.SearchResult{
 				Remote:    rem.Name,

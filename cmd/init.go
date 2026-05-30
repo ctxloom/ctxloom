@@ -310,26 +310,35 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 	}
 }
 
-// promptPersonalRepo optionally asks for a personal ctxloom GitHub repo.
-func (p *initPrompts) promptPersonalRepo() (string, error) {
-	fmt.Print("\nDo you have a personal ctxloom repository? (y/N): ")
+// promptPersonalRepos optionally asks for one or more personal ctxloom repos.
+// Returns the repos in entry order; an empty slice if the user has none.
+func (p *initPrompts) promptPersonalRepos() ([]string, error) {
+	fmt.Print("\nDo you have any personal ctxloom repositories? (y/N): ")
 	input, err := p.readCleanLine()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	input = strings.ToLower(input)
 	if input != "y" && input != "yes" {
-		return "", nil
+		return nil, nil
 	}
 
-	fmt.Print("Enter GitHub repo (e.g., 'myuser/ctxloom-profiles'): ")
-	repo, err := p.readCleanLine()
-	if err != nil {
-		return "", err
+	fmt.Println("Enter GitHub repos (e.g., 'myuser/ctxloom-profiles'), one per line. Blank line when done.")
+	var repos []string
+	for {
+		fmt.Printf("  repo %d (blank to finish): ", len(repos)+1)
+		repo, err := p.readCleanLine()
+		if err != nil {
+			return repos, err
+		}
+		if repo == "" {
+			break
+		}
+		repos = append(repos, repo)
 	}
 
-	return repo, nil
+	return repos, nil
 }
 
 // generateConfig creates a config.yaml with the selected engine and options.
@@ -354,6 +363,10 @@ mcp:
 }
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
+// It uses only the real ctxloom surface: the search_remotes MCP tool (which
+// reads the local clones init just made), the ctxloom://remotes resource, and
+// CLI install commands. Do not reference list_remotes / browse_remote /
+// list_profiles / create_profile / update_profile — those are not MCP tools.
 const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
 
 **First, scan the current directory** for project indicators like:
@@ -362,37 +375,44 @@ const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and s
 - .github/, .gitlab-ci.yml, and other CI/CD configs
 - Framework-specific files (next.config.js, vite.config.ts, etc.)
 
-Based on what you find, suggest matching content from **all configured remotes**.
-
-**Tools to use:**
-- Use Bash/Glob to scan the directory structure
-- Use list_remotes to see all configured remotes
-- Use search_remotes to find matching profiles, bundles (fragments/prompts) across ALL remotes
-  - Search by tags: "tag:golang", "tag:react", "tag:docker"
-  - Search by text: "security", "testing", "ci-cd"
-- Use browse_remote to explore specific remotes in detail
+**Surface (read this first):**
+- The configured remotes have already been cloned locally during init. Read the
+  ` + "`ctxloom://remotes`" + ` MCP resource to see them.
+- Use the **search_remotes** MCP tool to find matching bundles/profiles across
+  ALL remotes. It reads the local clones (no network).
+  - Search by tag: ` + "`tag:golang`" + `, ` + "`tag:react`" + `, ` + "`tag:docker`" + `
+  - Search by text: ` + "`security`" + `, ` + "`testing`" + `, ` + "`ci-cd`" + `
+  - Optionally pass item_type ("bundle" or "profile") to narrow.
+  - Each result carries a ` + "`pull_ref`" + ` (e.g. ` + "`ctxloom-default/go-developer`" + `) — that is what you install.
+- ` + "`search_content`" + ` is for content ALREADY installed in this project; it does
+  NOT reach remotes. Use search_remotes for discovery.
 
 **After scanning**, present your findings:
 1. What project type/stack you detected
-2. Matching content from each remote:
+2. Matching content (grouped by remote):
    - **Profiles**: Development workflow configurations
    - **Bundles**: Collections of fragments (context) and prompts (reusable commands)
 3. Ask the user which items to install
 
 **Example workflow:**
-1. Detect go.mod → search for "tag:golang" across all remotes
-2. Detect Dockerfile → search for "tag:docker" and "tag:container"
-3. Present all matches grouped by remote, let user choose
+1. Detect go.mod → search_remotes with query "tag:golang"
+2. Detect Dockerfile → search_remotes with "tag:docker" and "tag:container"
+3. Present matches grouped by remote, let the user choose
 
-**After installing**, audit the result:
-1. Use list_profiles to see installed profiles, list_fragments and list_prompts to see what's loadable
-2. Resolve each installed profile's bundle set (via get_profile, walking parents) and compute the union
-3. Identify any installed bundles or remote bundles the user pulled that aren't covered by an installed profile — those are "orphan bundles"
-4. If there are orphan bundles, offer to construct a new local profile that includes them:
-   - Suggest a name that reflects the project (e.g. "<project-stack>-defaults")
-   - Use create_profile with bundles=[...orphans]; the first profile you install is auto-promoted to defaults.profiles, so ctxloom run will load it automatically
-   - To switch defaults later, call update_profile with default: true on the new profile
-5. Confirm the final defaults.profiles list with the user before exiting
+**Install selected items** with the CLI, then sync:
+- Profile:  ` + "`ctxloom profile install <pull_ref>`" + ` (e.g. ` + "`ctxloom profile install ctxloom-default/go-developer`" + `)
+- Bundle/fragment/prompt:  ` + "`ctxloom install <pull_ref>`" + `
+- Then call the **sync_dependencies** MCP tool so every bundle a profile depends
+  on is fetched into the cache.
+- To pin a content version, append ` + "`@<git-tag-or-sha>`" + ` to the ref
+  (e.g. ` + "`ctxloom-default/go-developer@v1.2.0`" + `). Unpinned installs track the
+  remote's default branch.
+
+**Defaults:** the first profile you install is promoted into ` + "`defaults.profiles`" + `
+in ` + "`.ctxloom/config.yaml`" + ` so ` + "`ctxloom run`" + ` loads it automatically. To make a
+different profile the default later, edit ` + "`defaults.profiles`" + ` in that file (or use
+the ` + "`ctxloom profile`" + ` subcommands). Confirm the final ` + "`defaults.profiles`" + ` list
+with the user before exiting.
 
 If you'd prefer to skip this setup, just say "skip" and configure manually later.`
 
@@ -483,7 +503,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Determine selected engine
 	selectedEngine := initEngine
-	var personalRepo string
+	var personalRepos []string
 
 	// If directory already exists, get engine from existing config
 	if alreadyExists {
@@ -527,12 +547,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 				selectedEngine = engine
 			}
 
-			// 2. Personal repo (optional)
-			repo, err := prompts.promptPersonalRepo()
+			// 2. Personal repos (optional, may be several)
+			repos, err := prompts.promptPersonalRepos()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read repo selection: %v\n", err)
 			} else {
-				personalRepo = repo
+				personalRepos = repos
 			}
 		}
 
@@ -579,22 +599,41 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 		fmt.Printf("Default AI engine: %s\n", selectedEngine)
 
-		// Add personal remote if provided
-		if personalRepo != "" {
+		// Add personal remotes if provided. The first is named "personal";
+		// subsequent ones get "personal-2", "personal-3", … so each is a
+		// distinct, addressable remote.
+		if len(personalRepos) > 0 {
 			cfg, loadErr := config.Load()
 			if loadErr != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
 			} else {
-				_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-					Name: "personal",
-					URL:  personalRepo,
-				})
-				if addErr != nil {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add personal remote: %v\n", addErr)
-				} else {
-					fmt.Printf("Added personal remote: %s\n", personalRepo)
+				for i, repo := range personalRepos {
+					name := "personal"
+					if i > 0 {
+						name = fmt.Sprintf("personal-%d", i+1)
+					}
+					_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+						Name: name,
+						URL:  repo,
+					})
+					if addErr != nil {
+						fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", name, repo, addErr)
+					} else {
+						fmt.Printf("Added remote %q: %s\n", name, repo)
+					}
 				}
 			}
+		}
+
+		// Eagerly clone every configured remote so discovery (search_remotes,
+		// browse) can read them offline. Fault-tolerant: per-remote failures
+		// warn and continue.
+		if cfg, loadErr := config.Load(); loadErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for cloning remotes: %v\n", loadErr)
+		} else if cloneRes, cloneErr := operations.EnsureRemoteClones(cmd.Context(), cfg); cloneErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clone remotes: %v\n", cloneErr)
+		} else if len(cloneRes.Cloned) > 0 {
+			fmt.Printf("Cloned remotes for discovery: %s\n", strings.Join(cloneRes.Cloned, ", "))
 		}
 
 		// Apply hooks to register MCP server

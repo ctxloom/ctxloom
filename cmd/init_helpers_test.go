@@ -1,0 +1,89 @@
+package cmd
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+)
+
+// pickDefaultEngine is the shared fallback used wherever runInit needs a
+// concrete engine: an explicit selection wins; otherwise the first available
+// primary engine; otherwise the hardcoded "claude-code" so init never dead-ends.
+func TestPickDefaultEngine(t *testing.T) {
+	tests := []struct {
+		name     string
+		selected string
+		primary  []string
+		want     string
+	}{
+		{"explicit selection wins", "gemini", []string{"claude-code"}, "gemini"},
+		{"explicit wins even with empty primary", "gemini", nil, "gemini"},
+		{"first primary when none selected", "", []string{"claude-code", "gemini"}, "claude-code"},
+		{"hardcoded fallback when nothing available", "", nil, "claude-code"},
+		{"hardcoded fallback with empty slice", "", []string{}, "claude-code"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pickDefaultEngine(tt.selected, tt.primary); got != tt.want {
+				t.Fatalf("pickDefaultEngine(%q, %v) = %q, want %q", tt.selected, tt.primary, got, tt.want)
+			}
+		})
+	}
+}
+
+// writeInitialConfig creates the .ctxloom skeleton: the dir tree plus config.yaml
+// (carrying the chosen engine) and remotes.yaml (default remotes).
+func TestWriteInitialConfig(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+
+	if err := writeInitialConfig(appDir, "gemini"); err != nil {
+		t.Fatalf("writeInitialConfig: %v", err)
+	}
+
+	// Directory tree exists.
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.BundlesPath(appDir)} {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			t.Errorf("expected directory %s to exist (err=%v)", dir, err)
+		}
+	}
+
+	// config.yaml exists and reflects the chosen engine.
+	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if !strings.Contains(string(cfg), "gemini") {
+		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
+	}
+
+	// remotes.yaml exists and is non-empty.
+	rem, err := os.ReadFile(paths.RemotesPath(appDir))
+	if err != nil {
+		t.Fatalf("read remotes.yaml: %v", err)
+	}
+	if len(rem) == 0 {
+		t.Error("remotes.yaml should not be empty")
+	}
+}
+
+func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
+	// Re-running over an existing dir must not error (MkdirAll + overwrite).
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	if err := writeInitialConfig(appDir, "claude-code"); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if err := writeInitialConfig(appDir, "gemini"); err != nil {
+		t.Fatalf("second write should succeed: %v", err)
+	}
+	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if !strings.Contains(string(cfg), "gemini") {
+		t.Errorf("second write should have overwritten engine to gemini; got:\n%s", cfg)
+	}
+}

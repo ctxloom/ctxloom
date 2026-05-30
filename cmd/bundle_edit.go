@@ -206,8 +206,18 @@ type bundleEdits struct {
 // wasn't present — preserved to match the original behavior; callers
 // relying on the truth value should not infer "tag was actually removed."
 func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bool {
-	modified := false
+	// OR (not short-circuit) so every category runs and emits its status lines.
+	modified := applyBundleScalarEdits(b, edits)
+	modified = applyBundleTagEdits(b, edits) || modified
+	modified = applyBundleFragmentEdits(b, edits, w) || modified
+	modified = applyBundlePromptEdits(b, edits, w) || modified
+	modified = applyBundleMCPEdits(b, edits, w) || modified
+	return modified
+}
 
+// applyBundleScalarEdits sets description/version when provided.
+func applyBundleScalarEdits(b *bundles.Bundle, edits bundleEdits) bool {
+	modified := false
 	if edits.Description != "" {
 		b.Description = edits.Description
 		modified = true
@@ -216,7 +226,14 @@ func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bo
 		b.Version = edits.Version
 		modified = true
 	}
+	return modified
+}
 
+// applyBundleTagEdits adds (deduped) and removes tags. Note: a remove reports
+// modified=true even when the tag was absent — preserved from the original
+// behavior; callers must not infer "tag was actually removed" from the result.
+func applyBundleTagEdits(b *bundles.Bundle, edits bundleEdits) bool {
+	modified := false
 	for _, tag := range edits.AddTags {
 		if !sliceContains(b.Tags, tag) {
 			b.Tags = append(b.Tags, tag)
@@ -227,7 +244,14 @@ func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bo
 		b.Tags = sliceRemove(b.Tags, tag)
 		modified = true
 	}
+	return modified
+}
 
+// applyBundleFragmentEdits adds placeholder fragments and removes named ones,
+// echoing one status line per attempted change. Duplicate-adds and
+// absent-removes are informational and do not count as modifications.
+func applyBundleFragmentEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bool {
+	modified := false
 	if b.Fragments == nil && len(edits.AddFragments) > 0 {
 		b.Fragments = make(map[string]bundles.BundleFragment)
 	}
@@ -254,7 +278,12 @@ func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bo
 		modified = true
 		w.Printf("Removed fragment: %s\n", fragName)
 	}
+	return modified
+}
 
+// applyBundlePromptEdits is the prompt counterpart of applyBundleFragmentEdits.
+func applyBundlePromptEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bool {
+	modified := false
 	if b.Prompts == nil && len(edits.AddPrompts) > 0 {
 		b.Prompts = make(map[string]bundles.BundlePrompt)
 	}
@@ -282,7 +311,12 @@ func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bo
 		modified = true
 		w.Printf("Removed prompt: %s\n", promptName)
 	}
+	return modified
+}
 
+// applyBundleMCPEdits is the MCP-server counterpart of applyBundleFragmentEdits.
+func applyBundleMCPEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bool {
+	modified := false
 	if b.MCP == nil && len(edits.AddMCP) > 0 {
 		b.MCP = make(map[string]bundles.BundleMCP)
 	}
@@ -307,7 +341,6 @@ func applyBundleEdits(b *bundles.Bundle, edits bundleEdits, w *iox.ErrWriter) bo
 		modified = true
 		w.Printf("Removed MCP server: %s\n", mcpName)
 	}
-
 	return modified
 }
 

@@ -382,122 +382,27 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	changes := []string{}
 
-	// Update description
+	// Update description.
 	if req.Description != nil {
 		profile.Description = *req.Description
 		changes = append(changes, "updated description")
 	}
 
-	// Update default flag
-	if req.Default != nil {
-		if *req.Default {
-			if cfg.Defaults.AddDefaultProfile(req.Name) {
-				changes = append(changes, "set as default")
-			}
-		} else if cfg.Defaults.IsDefaultProfile(req.Name) {
-			cfg.Defaults.RemoveDefaultProfile(req.Name)
-			changes = append(changes, "unset default")
-		}
+	// Reflect the default flag into cfg (persisted below via cfg.Save).
+	changes = append(changes, applyDefaultFlag(cfg, req.Name, req.Default)...)
+
+	// Validate new parents up front so a bad parent halts before any mutation.
+	if err := requireProfilesExist(loader, req.AddParents); err != nil {
+		return nil, err
 	}
 
-	// Add parents
-	for _, parent := range req.AddParents {
-		if !loader.Exists(parent) {
-			return nil, fmt.Errorf("parent profile %q not found", parent)
-		}
-		if !slices.Contains(profile.Parents, parent) {
-			profile.Parents = append(profile.Parents, parent)
-			changes = append(changes, fmt.Sprintf("added parent: %s", parent))
-		}
-	}
-
-	// Remove parents
-	for _, parent := range req.RemoveParents {
-		if idx := slices.Index(profile.Parents, parent); idx >= 0 {
-			profile.Parents = append(profile.Parents[:idx], profile.Parents[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed parent: %s", parent))
-		}
-	}
-
-	// Add bundles
-	for _, b := range req.AddBundles {
-		if !slices.Contains(profile.Bundles, b) {
-			profile.Bundles = append(profile.Bundles, b)
-			changes = append(changes, fmt.Sprintf("added bundle: %s", b))
-		}
-	}
-
-	// Remove bundles
-	for _, b := range req.RemoveBundles {
-		if idx := slices.Index(profile.Bundles, b); idx >= 0 {
-			profile.Bundles = append(profile.Bundles[:idx], profile.Bundles[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed bundle: %s", b))
-		}
-	}
-
-	// Add tags
-	for _, t := range req.AddTags {
-		if !slices.Contains(profile.Tags, t) {
-			profile.Tags = append(profile.Tags, t)
-			changes = append(changes, fmt.Sprintf("added tag: %s", t))
-		}
-	}
-
-	// Remove tags
-	for _, t := range req.RemoveTags {
-		if idx := slices.Index(profile.Tags, t); idx >= 0 {
-			profile.Tags = append(profile.Tags[:idx], profile.Tags[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed tag: %s", t))
-		}
-	}
-
-	// Add exclude fragments
-	for _, f := range req.AddExcludeFragments {
-		if !slices.Contains(profile.ExcludeFragments, f) {
-			profile.ExcludeFragments = append(profile.ExcludeFragments, f)
-			changes = append(changes, fmt.Sprintf("added exclude fragment: %s", f))
-		}
-	}
-
-	// Remove exclude fragments
-	for _, f := range req.RemoveExcludeFragments {
-		if idx := slices.Index(profile.ExcludeFragments, f); idx >= 0 {
-			profile.ExcludeFragments = append(profile.ExcludeFragments[:idx], profile.ExcludeFragments[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude fragment: %s", f))
-		}
-	}
-
-	// Add exclude prompts
-	for _, p := range req.AddExcludePrompts {
-		if !slices.Contains(profile.ExcludePrompts, p) {
-			profile.ExcludePrompts = append(profile.ExcludePrompts, p)
-			changes = append(changes, fmt.Sprintf("added exclude prompt: %s", p))
-		}
-	}
-
-	// Remove exclude prompts
-	for _, p := range req.RemoveExcludePrompts {
-		if idx := slices.Index(profile.ExcludePrompts, p); idx >= 0 {
-			profile.ExcludePrompts = append(profile.ExcludePrompts[:idx], profile.ExcludePrompts[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude prompt: %s", p))
-		}
-	}
-
-	// Add exclude MCP
-	for _, m := range req.AddExcludeMCP {
-		if !slices.Contains(profile.ExcludeMCP, m) {
-			profile.ExcludeMCP = append(profile.ExcludeMCP, m)
-			changes = append(changes, fmt.Sprintf("added exclude mcp: %s", m))
-		}
-	}
-
-	// Remove exclude MCP
-	for _, m := range req.RemoveExcludeMCP {
-		if idx := slices.Index(profile.ExcludeMCP, m); idx >= 0 {
-			profile.ExcludeMCP = append(profile.ExcludeMCP[:idx], profile.ExcludeMCP[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude mcp: %s", m))
-		}
-	}
+	// Every list field shares one add/remove primitive (see applyListEdits).
+	profile.Parents, changes = applyListEdits(profile.Parents, req.AddParents, req.RemoveParents, "parent", changes)
+	profile.Bundles, changes = applyListEdits(profile.Bundles, req.AddBundles, req.RemoveBundles, "bundle", changes)
+	profile.Tags, changes = applyListEdits(profile.Tags, req.AddTags, req.RemoveTags, "tag", changes)
+	profile.ExcludeFragments, changes = applyListEdits(profile.ExcludeFragments, req.AddExcludeFragments, req.RemoveExcludeFragments, "exclude fragment", changes)
+	profile.ExcludePrompts, changes = applyListEdits(profile.ExcludePrompts, req.AddExcludePrompts, req.RemoveExcludePrompts, "exclude prompt", changes)
+	profile.ExcludeMCP, changes = applyListEdits(profile.ExcludeMCP, req.AddExcludeMCP, req.RemoveExcludeMCP, "exclude mcp", changes)
 
 	if len(changes) == 0 {
 		return &UpdateProfileResult{
@@ -525,6 +430,60 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		Changes: changes,
 		Path:    profile.Path,
 	}, nil
+}
+
+// applyListEdits applies add then remove edits to a profile's string-slice
+// field. Adds are deduplicated (an item already present is skipped); removes
+// drop the first matching item. Each real mutation appends a human-readable
+// line ("added <label>: <item>" / "removed <label>: <item>") to changes.
+// Callers must reassign both returned slices.
+func applyListEdits(list, add, remove []string, label string, changes []string) (newList, newChanges []string) {
+	for _, item := range add {
+		if !slices.Contains(list, item) {
+			list = append(list, item)
+			changes = append(changes, fmt.Sprintf("added %s: %s", label, item))
+		}
+	}
+	for _, item := range remove {
+		if idx := slices.Index(list, item); idx >= 0 {
+			list = slices.Delete(list, idx, idx+1)
+			changes = append(changes, fmt.Sprintf("removed %s: %s", label, item))
+		}
+	}
+	return list, changes
+}
+
+// applyDefaultFlag reflects a requested default-flag state into cfg's
+// default-profile set and returns the change lines to record — nil when want is
+// nil or the state already matches the request. It mutates cfg.Defaults in
+// memory only; the caller persists with cfg.Save once all edits are applied.
+func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
+	if want == nil {
+		return nil
+	}
+	if *want {
+		if cfg.Defaults.AddDefaultProfile(name) {
+			return []string{"set as default"}
+		}
+		return nil
+	}
+	if cfg.Defaults.IsDefaultProfile(name) {
+		cfg.Defaults.RemoveDefaultProfile(name)
+		return []string{"unset default"}
+	}
+	return nil
+}
+
+// requireProfilesExist returns an error for the first name the loader cannot
+// resolve, so parent additions are validated before UpdateProfile mutates or
+// saves anything.
+func requireProfilesExist(loader *profiles.Loader, names []string) error {
+	for _, name := range names {
+		if !loader.Exists(name) {
+			return fmt.Errorf("parent profile %q not found", name)
+		}
+	}
+	return nil
 }
 
 // DeleteProfileRequest contains parameters for deleting a profile.

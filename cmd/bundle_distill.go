@@ -44,27 +44,9 @@ Examples:
 }
 
 func runBundleDistill(cmd *cobra.Command, args []string) error {
-	// Expand glob patterns to get list of files
-	var files []string
-	for _, pattern := range args {
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return fmt.Errorf("invalid pattern %q: %w", pattern, err)
-		}
-		if len(matches) == 0 {
-			// Try as literal path
-			if _, err := os.Stat(pattern); err == nil {
-				files = append(files, pattern)
-			} else {
-				fmt.Fprintf(os.Stderr, "Warning: no files match %q\n", pattern)
-			}
-		} else {
-			files = append(files, matches...)
-		}
-	}
-
-	if len(files) == 0 {
-		return fmt.Errorf("no files found matching patterns")
+	files, err := expandDistillFiles(args)
+	if err != nil {
+		return err
 	}
 
 	// Load config for plugin settings
@@ -88,140 +70,180 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Process each file
-	totalFiles := 0
-	totalItems := 0
-	totalSkipped := 0
+	opts := distillRunOptions{plugin: pluginName, env: pluginCfg.Env, distillPrompt: distillPrompt}
 
+	var totalFiles, totalItems, totalSkipped int
 	for _, filePath := range files {
-		// Read and parse bundle
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
-			continue
-		}
-
-		bundle, err := bundles.ParseBundle(data)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", filePath, err)
-			continue
-		}
-		bundle.Path = filePath
-
-		fmt.Printf("Processing: %s\n", filePath)
-		modified := false
-
-		// Distill each fragment
-		for name, frag := range bundle.Fragments {
-			if frag.NoDistill {
-				fmt.Printf("  Skipping fragment %s (no_distill)\n", name)
-				totalSkipped++
-				continue
-			}
-
-			if !bundleDistillForce && !frag.NeedsDistill() {
-				fmt.Printf("  Skipping fragment %s (unchanged)\n", name)
-				totalSkipped++
-				continue
-			}
-
-			if bundleDistillDryRun {
-				fmt.Printf("  Would distill fragment: %s\n", name)
-				totalItems++
-				continue
-			}
-
-			fmt.Printf("  Distilling fragment: %s...", name)
-
-			// Build sibling context
-			siblingCtx := buildSiblingContext(bundle, "fragments/"+name)
-
-			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, name, frag.Content, distillPrompt, siblingCtx)
-			if err != nil {
-				fmt.Printf(" FAILED: %v\n", err)
-				continue
-			}
-
-			frag.Distilled = distilled
-			frag.ContentHash = frag.ComputeContentHash()
-			frag.DistilledBy = modelID
-			bundle.Fragments[name] = frag
-			modified = true
-			totalItems++
-
-			fmt.Printf(" OK (%s)\n", modelID)
-		}
-
-		// Distill each prompt
-		for name, prompt := range bundle.Prompts {
-			if prompt.NoDistill {
-				fmt.Printf("  Skipping prompt %s (no_distill)\n", name)
-				totalSkipped++
-				continue
-			}
-
-			if !bundleDistillForce && !prompt.NeedsDistill() {
-				fmt.Printf("  Skipping prompt %s (unchanged)\n", name)
-				totalSkipped++
-				continue
-			}
-
-			if bundleDistillDryRun {
-				fmt.Printf("  Would distill prompt: %s\n", name)
-				totalItems++
-				continue
-			}
-
-			fmt.Printf("  Distilling prompt: %s...", name)
-
-			// Build sibling context
-			siblingCtx := buildSiblingContext(bundle, "prompts/"+name)
-
-			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, name, prompt.Content, distillPrompt, siblingCtx)
-			if err != nil {
-				fmt.Printf(" FAILED: %v\n", err)
-				continue
-			}
-
-			prompt.Distilled = distilled
-			prompt.ContentHash = prompt.ComputeContentHash()
-			prompt.DistilledBy = modelID
-			bundle.Prompts[name] = prompt
-			modified = true
-			totalItems++
-
-			fmt.Printf(" OK (%s)\n", modelID)
-		}
-
-		// Save bundle if modified
-		if modified && !bundleDistillDryRun {
-			if err := bundle.Save(); err != nil {
-				fmt.Fprintf(os.Stderr, "  Error saving %s: %v\n", filePath, err)
-				continue
-			}
+		items, skipped, saved := distillBundleFile(filePath, opts)
+		totalItems += items
+		totalSkipped += skipped
+		if saved {
 			totalFiles++
 		}
 	}
 
-	// Summary
-	if bundleDistillDryRun {
-		fmt.Printf("\nDry run: would distill %d items\n", totalItems)
-	} else {
-		var parts []string
-		if totalItems > 0 {
-			parts = append(parts, fmt.Sprintf("distilled %d items in %d files", totalItems, totalFiles))
+	printDistillSummary(totalItems, totalFiles, totalSkipped)
+	return nil
+}
+
+// distillRunOptions carries the per-run distillation parameters shared across
+// files and items.
+type distillRunOptions struct {
+	plugin        string
+	env           map[string]string
+	distillPrompt string
+}
+
+// expandDistillFiles resolves the CLI patterns to a list of bundle files. Glob
+// matches expand; a non-matching pattern is tried as a literal path and warned
+// about if absent. Returns an error only when no files resolve at all.
+func expandDistillFiles(patterns []string) ([]string, error) {
+	var files []string
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pattern %q: %w", pattern, err)
 		}
-		if totalSkipped > 0 {
-			parts = append(parts, fmt.Sprintf("skipped %d", totalSkipped))
-		}
-		if len(parts) > 0 {
-			fmt.Printf("\n%s\n", strings.Join(parts, ", "))
+		if len(matches) == 0 {
+			if _, err := os.Stat(pattern); err == nil {
+				files = append(files, pattern)
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: no files match %q\n", pattern)
+			}
 		} else {
-			fmt.Println("\nNo items to distill.")
+			files = append(files, matches...)
 		}
 	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files found matching patterns")
+	}
+	return files, nil
+}
 
-	return nil
+// distillBundleFile reads, distills, and (if modified) saves one bundle file.
+// Read/parse/save failures warn and are treated as no-ops. Returns the number
+// of items distilled, items skipped, and whether the file was saved.
+func distillBundleFile(filePath string, opts distillRunOptions) (items, skipped int, saved bool) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", filePath, err)
+		return 0, 0, false
+	}
+	bundle, err := bundles.ParseBundle(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing %s: %v\n", filePath, err)
+		return 0, 0, false
+	}
+	bundle.Path = filePath
+
+	fmt.Printf("Processing: %s\n", filePath)
+
+	fi, fs := distillBundleFragments(bundle, opts)
+	pi, ps := distillBundlePrompts(bundle, opts)
+	items, skipped = fi+pi, fs+ps
+	modified := items > 0 && !bundleDistillDryRun
+
+	if modified {
+		if err := bundle.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error saving %s: %v\n", filePath, err)
+			return items, skipped, false
+		}
+		return items, skipped, true
+	}
+	return items, skipped, false
+}
+
+// distillBundleFragments distills the bundle's fragments, writing results back.
+// Returns counts of items processed (distilled, or counted in dry-run) and
+// skipped (no_distill / unchanged).
+func distillBundleFragments(bundle *bundles.Bundle, opts distillRunOptions) (items, skipped int) {
+	for name, frag := range bundle.Fragments {
+		if shouldSkipDistill("fragment", name, frag.NoDistill, frag.NeedsDistill()) {
+			skipped++
+			continue
+		}
+		if bundleDistillDryRun {
+			fmt.Printf("  Would distill fragment: %s\n", name)
+			items++
+			continue
+		}
+		fmt.Printf("  Distilling fragment: %s...", name)
+		distilled, modelID, err := distillWithModel(opts.plugin, opts.env, name, frag.Content, opts.distillPrompt, buildSiblingContext(bundle, "fragments/"+name))
+		if err != nil {
+			fmt.Printf(" FAILED: %v\n", err)
+			continue
+		}
+		frag.Distilled = distilled
+		frag.ContentHash = frag.ComputeContentHash()
+		frag.DistilledBy = modelID
+		bundle.Fragments[name] = frag
+		items++
+		fmt.Printf(" OK (%s)\n", modelID)
+	}
+	return items, skipped
+}
+
+// distillBundlePrompts is the prompt counterpart of distillBundleFragments.
+func distillBundlePrompts(bundle *bundles.Bundle, opts distillRunOptions) (items, skipped int) {
+	for name, prompt := range bundle.Prompts {
+		if shouldSkipDistill("prompt", name, prompt.NoDistill, prompt.NeedsDistill()) {
+			skipped++
+			continue
+		}
+		if bundleDistillDryRun {
+			fmt.Printf("  Would distill prompt: %s\n", name)
+			items++
+			continue
+		}
+		fmt.Printf("  Distilling prompt: %s...", name)
+		distilled, modelID, err := distillWithModel(opts.plugin, opts.env, name, prompt.Content, opts.distillPrompt, buildSiblingContext(bundle, "prompts/"+name))
+		if err != nil {
+			fmt.Printf(" FAILED: %v\n", err)
+			continue
+		}
+		prompt.Distilled = distilled
+		prompt.ContentHash = prompt.ComputeContentHash()
+		prompt.DistilledBy = modelID
+		bundle.Prompts[name] = prompt
+		items++
+		fmt.Printf(" OK (%s)\n", modelID)
+	}
+	return items, skipped
+}
+
+// shouldSkipDistill reports whether an item is skipped (printing the reason): a
+// no_distill item always; an unchanged item unless --force. kind is "fragment"
+// or "prompt"; needsDistill is the item's own NeedsDistill() result.
+func shouldSkipDistill(kind, name string, noDistill, needsDistill bool) bool {
+	if noDistill {
+		fmt.Printf("  Skipping %s %s (no_distill)\n", kind, name)
+		return true
+	}
+	if !bundleDistillForce && !needsDistill {
+		fmt.Printf("  Skipping %s %s (unchanged)\n", kind, name)
+		return true
+	}
+	return false
+}
+
+// printDistillSummary prints the run summary, branching on dry-run.
+func printDistillSummary(totalItems, totalFiles, totalSkipped int) {
+	if bundleDistillDryRun {
+		fmt.Printf("\nDry run: would distill %d items\n", totalItems)
+		return
+	}
+	var parts []string
+	if totalItems > 0 {
+		parts = append(parts, fmt.Sprintf("distilled %d items in %d files", totalItems, totalFiles))
+	}
+	if totalSkipped > 0 {
+		parts = append(parts, fmt.Sprintf("skipped %d", totalSkipped))
+	}
+	if len(parts) > 0 {
+		fmt.Printf("\n%s\n", strings.Join(parts, ", "))
+	} else {
+		fmt.Println("\nNo items to distill.")
+	}
 }
 
 // defaultDistillPrompt is used when no distill prompt is found in bundles.

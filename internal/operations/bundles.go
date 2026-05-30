@@ -218,10 +218,50 @@ type UpdateBundleResult struct {
 // Path safety: req.Name is validated via bundles.ValidateBundleName — see
 // CreateBundle for the contract.
 func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleRequest) (*UpdateBundleResult, error) {
-	if req.Name == "" {
+	bundle, err := loadBundleForUpdate(cfg, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	var changes []string
+	changes = applyScalarEdits(bundle, req, changes)
+
+	// Tags reuse the shared list-edit primitive (applyListEdits, profiles.go);
+	// fragments/prompts/MCP each have a dedicated helper because they merge into
+	// maps and (for fragments/prompts) report which names need (re)distillation.
+	bundle.Tags, changes = applyListEdits(bundle.Tags, req.AddTags, req.RemoveTags, "tag", changes)
+
+	var fragmentDistillTargets, promptDistillTargets []string
+	changes, fragmentDistillTargets = applyFragmentEdits(bundle, req.SetFragments, req.RemoveFragments, changes)
+	changes, promptDistillTargets = applyPromptEdits(bundle, req.SetPrompts, req.RemovePrompts, changes)
+	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
+
+	if len(changes) == 0 {
+		return &UpdateBundleResult{Status: "no_changes", Name: req.Name, Path: bundle.Path}, nil
+	}
+
+	runUpdateDistill(ctx, bundle, req, fragmentDistillTargets, promptDistillTargets)
+
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+
+	return &UpdateBundleResult{
+		Status:  "updated",
+		Name:    req.Name,
+		Changes: changes,
+		Path:    bundle.Path,
+	}, nil
+}
+
+// loadBundleForUpdate validates the request, loads the named bundle, and
+// rejects symlinked paths (the loader resolves a name to whatever it finds on
+// disk; a symlinked component or file would let Save escape the bundles tree).
+func loadBundleForUpdate(cfg *config.Config, name string) (*bundles.Bundle, error) {
+	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if err := bundles.ValidateBundleName(req.Name); err != nil {
+	if err := bundles.ValidateBundleName(name); err != nil {
 		return nil, err
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
@@ -229,19 +269,19 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	}
 
 	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(req.Name)
+	bundle, err := loader.Load(name)
 	if err != nil {
-		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
+		return nil, fmt.Errorf("bundle %q not found: %w", name, err)
 	}
-	// Loader resolves the bundle name to whatever path it finds on disk; if
-	// any component (or the file itself) is a symlink, Save would follow it
-	// out of the bundles tree. Reject before mutating.
 	if err := requireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
 		return nil, err
 	}
+	return bundle, nil
+}
 
-	var changes []string
-
+// applyScalarEdits applies the single-value description/version edits, appending
+// a change line for each that was set.
+func applyScalarEdits(bundle *bundles.Bundle, req UpdateBundleRequest, changes []string) []string {
 	if req.SetDescription != nil {
 		bundle.Description = *req.SetDescription
 		changes = append(changes, "updated description")
@@ -250,26 +290,31 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 		bundle.Version = *req.SetVersion
 		changes = append(changes, "updated version")
 	}
+	return changes
+}
 
-	for _, tag := range req.AddTags {
-		if !containsString(bundle.Tags, tag) {
-			bundle.Tags = append(bundle.Tags, tag)
-			changes = append(changes, "added tag: "+tag)
-		}
+// runUpdateDistill (re)distills the queued fragment/prompt targets unless the
+// request opts out wholesale (Distill: false). Targets are sorted for
+// deterministic distill ordering.
+func runUpdateDistill(ctx context.Context, bundle *bundles.Bundle, req UpdateBundleRequest, fragmentTargets, promptTargets []string) {
+	if req.Distill != nil && !*req.Distill {
+		return
 	}
-	for _, tag := range req.RemoveTags {
-		if containsString(bundle.Tags, tag) {
-			bundle.Tags = removeString(bundle.Tags, tag)
-			changes = append(changes, "removed tag: "+tag)
-		}
-	}
+	sort.Strings(fragmentTargets)
+	sort.Strings(promptTargets)
+	distillFragments(ctx, bundle, fragmentTargets, req.Distiller)
+	distillPrompts(ctx, bundle, promptTargets, req.Distiller)
+}
 
-	// Track which fragments/prompts need (re)distillation: new items, or
-	// existing items whose content actually changed. Tag/notes-only edits
-	// must not wipe existing Distilled/DistilledBy/ContentHash and must not
-	// trigger a redistill (which would burn tokens for no semantic change).
-	var fragmentDistillTargets, promptDistillTargets []string
-	for name, in := range req.SetFragments {
+// applyFragmentEdits merges set inputs into the bundle's fragments and applies
+// removals, appending a change line per mutation. It returns the names that need
+// (re)distillation: a fragment is queued when it is new or its content actually
+// changed (unless NoDistill). A metadata-only edit (same content) updates
+// tags/notes/installation but preserves the cached Distilled/DistilledBy/
+// ContentHash and does NOT queue — re-distilling would burn tokens for no
+// semantic change.
+func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInput, remove []string, changes []string) (newChanges, distillTargets []string) {
+	for name, in := range set {
 		if bundle.Fragments == nil {
 			bundle.Fragments = make(map[string]bundles.BundleFragment)
 		}
@@ -285,20 +330,25 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 			merged.DistilledBy = ""
 			merged.ContentHash = ""
 			if !in.NoDistill {
-				fragmentDistillTargets = append(fragmentDistillTargets, name)
+				distillTargets = append(distillTargets, name)
 			}
 		}
 		bundle.Fragments[name] = merged
 		changes = append(changes, "set fragment: "+name)
 	}
-	for _, name := range req.RemoveFragments {
+	for _, name := range remove {
 		if _, ok := bundle.Fragments[name]; ok {
 			delete(bundle.Fragments, name)
 			changes = append(changes, "removed fragment: "+name)
 		}
 	}
+	return changes, distillTargets
+}
 
-	for name, in := range req.SetPrompts {
+// applyPromptEdits is the prompt counterpart of applyFragmentEdits, with the
+// same content-aware (re)distillation rule plus a Description field.
+func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundlePromptInput, remove []string, changes []string) (newChanges, distillTargets []string) {
+	for name, in := range set {
 		if bundle.Prompts == nil {
 			bundle.Prompts = make(map[string]bundles.BundlePrompt)
 		}
@@ -315,20 +365,26 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 			merged.DistilledBy = ""
 			merged.ContentHash = ""
 			if !in.NoDistill {
-				promptDistillTargets = append(promptDistillTargets, name)
+				distillTargets = append(distillTargets, name)
 			}
 		}
 		bundle.Prompts[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
-	for _, name := range req.RemovePrompts {
+	for _, name := range remove {
 		if _, ok := bundle.Prompts[name]; ok {
 			delete(bundle.Prompts, name)
 			changes = append(changes, "removed prompt: "+name)
 		}
 	}
+	return changes, distillTargets
+}
 
-	for name, in := range req.SetMCPServers {
+// applyMCPEdits merges set inputs into the bundle's MCP servers and applies
+// removals, appending a change line per mutation. MCP servers carry no distilled
+// content, so there are no distill targets to return.
+func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove []string, changes []string) []string {
+	for name, in := range set {
 		if bundle.MCP == nil {
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
@@ -341,35 +397,13 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 		bundle.MCP[name] = existing
 		changes = append(changes, "set mcp: "+name)
 	}
-	for _, name := range req.RemoveMCPServers {
+	for _, name := range remove {
 		if _, ok := bundle.MCP[name]; ok {
 			delete(bundle.MCP, name)
 			changes = append(changes, "removed mcp: "+name)
 		}
 	}
-
-	if len(changes) == 0 {
-		return &UpdateBundleResult{Status: "no_changes", Name: req.Name, Path: bundle.Path}, nil
-	}
-
-	wholesaleSkip := req.Distill != nil && !*req.Distill
-	if !wholesaleSkip {
-		sort.Strings(fragmentDistillTargets)
-		sort.Strings(promptDistillTargets)
-		distillFragments(ctx, bundle, fragmentDistillTargets, req.Distiller)
-		distillPrompts(ctx, bundle, promptDistillTargets, req.Distiller)
-	}
-
-	if err := bundle.Save(); err != nil {
-		return nil, fmt.Errorf("failed to save bundle: %w", err)
-	}
-
-	return &UpdateBundleResult{
-		Status:  "updated",
-		Name:    req.Name,
-		Changes: changes,
-		Path:    bundle.Path,
-	}, nil
+	return changes
 }
 
 // DeleteBundleRequest is the input for DeleteBundle.
@@ -710,25 +744,6 @@ func matchRemoteByURL(registry *remote.Registry, url string) string {
 		}
 	}
 	return ""
-}
-
-func containsString(s []string, target string) bool {
-	for _, v := range s {
-		if v == target {
-			return true
-		}
-	}
-	return false
-}
-
-func removeString(s []string, target string) []string {
-	out := make([]string, 0, len(s))
-	for _, v := range s {
-		if v != target {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // applyFragmentInputs writes fragment inputs into the bundle's Fragments map.

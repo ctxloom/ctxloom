@@ -203,7 +203,21 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 	return p
 }
 
-// Pull downloads an item from a remote with security review.
+// fetchedItem carries everything resolved during the fetch phase of a Pull
+// (remote, SHA, on-the-wire content) into the install phase.
+type fetchedItem struct {
+	rem              *Remote
+	localName        string // lockfile key, "remote/path"
+	sha              string
+	requestedVersion string // user-specified version, "" if they took the default
+	content          []byte
+}
+
+// Pull downloads an item from a remote with security review. It is the
+// orchestrator: local-source short-circuits (replace/vendor), then fetch
+// (resolve → retraction → SHA → download → security gate), then install
+// (transform → write → lock → cascade). Each phase is a helper below so this
+// stays readable and each piece is independently testable.
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -212,13 +226,29 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		opts.Stdin = os.Stdin
 	}
 
-	// Parse reference
 	ref, err := ParseReference(refStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
-	// Check for replace directive first
+	// A replace directive or vendored copy satisfies the pull without going to
+	// the network. A non-nil result (or error) means "handled".
+	if result, err := p.tryLocalSource(ref, refStr, opts); result != nil || err != nil {
+		return result, err
+	}
+
+	item, err := p.fetchForPull(ctx, ref, refStr, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.installPulledItem(ctx, ref, opts, item)
+}
+
+// tryLocalSource resolves a pull from a local replace directive or a vendored
+// copy, returning a non-nil result when one applies. (nil, nil) means neither
+// applied and the caller should fetch from the remote.
+func (p *Puller) tryLocalSource(ref *Reference, refStr string, opts PullOptions) (*PullResult, error) {
 	if p.replaceManager != nil {
 		if localPath, ok := p.replaceManager.Get(refStr); ok {
 			_, _ = fmt.Fprintf(opts.Stdout, "Using local replace: %s → %s\n", refStr, localPath)
@@ -229,227 +259,212 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 			if err := p.writeContent(ref, opts, replacedContent, "local"); err != nil {
 				return nil, err
 			}
-			return &PullResult{
-				LocalPath:   localPath,
-				SHA:         "local",
-				Overwritten: false,
-			}, nil
+			return &PullResult{LocalPath: localPath, SHA: "local", Overwritten: false}, nil
 		}
 	}
 
-	// Check vendor mode
-	if p.vendorManager != nil && p.vendorManager.IsVendored() {
-		if p.vendorManager.HasVendored(opts.ItemType, ref) {
-			vendoredContent, err := p.vendorManager.GetVendored(opts.ItemType, ref)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load vendored file: %w", err)
-			}
-			_, _ = fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
-			return &PullResult{
-				LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.Remote, ref.Path+".yaml"),
-				SHA:         "vendored",
-				Overwritten: false,
-			}, nil
-		}
-	}
-
-	// Get remote URL - either from registry or from canonical URL
-	var repoURL string
-	var rem *Remote
-	var localName string // The local name to use for lockfile key
-
-	if ref.IsCanonical {
-		// Use URL from canonical reference
-		repoURL = ref.URL
-
-		// Auto-register the remote (or get existing one)
-		var err error
-		rem, err = p.registry.GetOrCreateByURL(repoURL)
+	if p.vendorManager != nil && p.vendorManager.IsVendored() && p.vendorManager.HasVendored(opts.ItemType, ref) {
+		vendoredContent, err := p.vendorManager.GetVendored(opts.ItemType, ref)
 		if err != nil {
-			return nil, fmt.Errorf("failed to register remote: %w", err)
+			return nil, fmt.Errorf("failed to load vendored file: %w", err)
 		}
-
-		// Build local name: remoteName/path
-		localName = fmt.Sprintf("%s/%s", rem.Name, ref.Path)
-	} else {
-		// Look up remote in registry
-		var err error
-		rem, err = p.registry.Get(ref.Remote)
-		if err != nil {
-			return nil, err
-		}
-		repoURL = rem.URL
-
-		// Local name is the original reference
-		localName = fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
+		_, _ = fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
+		return &PullResult{
+			LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.Remote, ref.Path+".yaml"),
+			SHA:         "vendored",
+			Overwritten: false,
+		}, nil
 	}
 
-	// Create fetcher
+	return nil, nil
+}
+
+// fetchForPull resolves the remote, checks retraction, resolves the SHA, fetches
+// the content, and runs the security gate — everything needed before writing.
+func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string, opts PullOptions) (*fetchedItem, error) {
+	repoURL, rem, localName, err := p.resolveRemoteTarget(ref)
+	if err != nil {
+		return nil, err
+	}
+
 	fetcher, err := p.fetcherFactory(repoURL, p.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fetcher: %w", err)
 	}
 
-	// Parse repo URL
 	owner, repo, err := ParseRepoURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	// Check for retracted version
-	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
-	if retracted {
-		_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
-		_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
-		if !opts.Force {
-			confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
-			if err != nil {
-				return nil, err
-			}
-			if !confirmed {
-				return nil, fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
-			}
-		}
+	if err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, opts); err != nil {
+		return nil, err
 	}
 
-	// Resolve ref to SHA - use ContentVersion if specified, otherwise use default branch
-	contentVersion := ref.EffectiveContentVersion()
-	requestedVersion := contentVersion // Store what user requested for export reconstruction
-	if contentVersion == "" {
-		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default branch: %w", err)
-		}
-		requestedVersion = "" // User didn't specify a version
-	}
-
-	sha, err := fetcher.ResolveRef(ctx, owner, repo, contentVersion)
+	sha, requestedVersion, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
+		return nil, err
 	}
 
-	// Build file path and fetch content
 	filePath := ref.BuildFilePath(opts.ItemType)
 	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	// Blind mode implies Force (skip prompts and content display)
+	if err := p.securityReview(ref, rem, refStr, opts, sha, filePath, content); err != nil {
+		return nil, err
+	}
+
+	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, content: content}, nil
+}
+
+// resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
+// local-name. Canonical refs auto-register the remote by URL; plain refs look
+// it up in the registry.
+func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName string, err error) {
+	if ref.IsCanonical {
+		repoURL = ref.URL
+		rem, err = p.registry.GetOrCreateByURL(repoURL)
+		if err != nil {
+			return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
+		}
+		return repoURL, rem, fmt.Sprintf("%s/%s", rem.Name, ref.Path), nil
+	}
+
+	rem, err = p.registry.Get(ref.Remote)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return rem.URL, rem, fmt.Sprintf("%s/%s", ref.Remote, ref.Path), nil
+}
+
+// confirmRetraction warns and (unless forced) prompts when a version has been
+// retracted. A declined prompt cancels the pull.
+func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) error {
+	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
+	if !retracted {
+		return nil
+	}
+	_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
+	_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
+	if opts.Force {
+		return nil
+	}
+	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return fmt.Errorf("installation cancelled: version retracted: %w", errs.ErrCancelled)
+	}
+	return nil
+}
+
+// resolveContentSHA resolves the commit SHA to fetch. It uses the ref's
+// content version when specified, else the remote's default branch.
+// requestedVersion echoes what the user asked for ("" if they took the
+// default), recorded in the lockfile for export reconstruction.
+func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion string, err error) {
+	contentVersion := ref.EffectiveContentVersion()
+	requestedVersion = contentVersion
+	if contentVersion == "" {
+		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to get default branch: %w", err)
+		}
+		requestedVersion = ""
+	}
+	sha, err = fetcher.ResolveRef(ctx, owner, repo, contentVersion)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
+	}
+	return sha, requestedVersion, nil
+}
+
+// securityReview enforces the pull's safety gate: blind mode implies force,
+// non-forced pulls require an interactive terminal and show the security
+// warning plus a confirmation prompt. Returns an error when the gate is not
+// satisfied (no terminal, parse failure, or declined prompt).
+func (p *Puller) securityReview(ref *Reference, rem *Remote, refStr string, opts PullOptions, sha, filePath string, content []byte) error {
 	effectiveForce := opts.Force || opts.Blind
 
-	// Warn when using blind mode
 	if opts.Blind {
 		_, _ = fmt.Fprintf(opts.Stdout, "⚠️  Blind mode: skipping security review for %s\n", refStr)
 	}
 
-	// Require interactive terminal unless force/blind
 	if !effectiveForce && !p.terminalChecker.IsTerminalReader(opts.Stdin) {
-		return nil, fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
+		return fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
 	}
 
-	// Display security warning and content (unless blind)
 	if !opts.Blind {
-		shortSHA := sha
-		if len(sha) > 7 {
-			shortSHA = sha[:7]
-		}
-
-		// Parse content to get type-specific security warning
-		secure, err := ParseSecureContent(opts.ItemType, content)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse content: %w", err)
-		}
-
-		displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
-	}
-
-	// Prompt for confirmation unless force/blind
-	if !effectiveForce {
-		confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Install this item?")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read confirmation: %w", err)
-		}
-		if !confirmed {
-			return nil, fmt.Errorf("installation cancelled: %w", errs.ErrCancelled)
+		if err := p.displaySecurityReview(ref, rem, opts, sha, filePath, content); err != nil {
+			return err
 		}
 	}
 
-	// Determine local path
-	baseDir := opts.LocalDir
-	if baseDir == "" {
-		baseDir = ".ctxloom"
+	if effectiveForce {
+		return nil
 	}
+	return confirmInstall(opts)
+}
 
-	// Transform profile content if needed (convert canonical URLs to local names)
+// displaySecurityReview parses the content for its type-specific security
+// warning and prints it. Returns an error only when the content cannot be
+// parsed.
+func (p *Puller) displaySecurityReview(ref *Reference, rem *Remote, opts PullOptions, sha, filePath string, content []byte) error {
+	shortSHA := sha
+	if len(sha) > 7 {
+		shortSHA = sha[:7]
+	}
+	secure, err := ParseSecureContent(opts.ItemType, content)
+	if err != nil {
+		return fmt.Errorf("failed to parse content: %w", err)
+	}
+	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
+	return nil
+}
+
+// confirmInstall prompts for install confirmation, returning ErrCancelled when
+// the user declines.
+func confirmInstall(opts PullOptions) error {
+	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Install this item?")
+	if err != nil {
+		return fmt.Errorf("failed to read confirmation: %w", err)
+	}
+	if !confirmed {
+		return fmt.Errorf("installation cancelled: %w", errs.ErrCancelled)
+	}
+	return nil
+}
+
+// installPulledItem transforms (for profiles), writes the item to disk (or
+// records a synthetic path for bundles), updates the lockfile, and cascades
+// profile dependencies.
+func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
+	content := item.content
 	if opts.ItemType == ItemTypeProfile {
-		content, err = p.transformProfileContent(content, opts.Stdout)
+		transformed, err := p.transformProfileContent(content, opts.Stdout)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transform profile: %w", err)
 		}
+		content = transformed
 	}
 
-	var (
-		localPath   string
-		overwritten bool
-	)
-
-	switch opts.ItemType {
-	case ItemTypeBundle:
-		// Bundles are no longer extracted to disk (docs/bundle-review-plan.md
-		// PR 1). The git clone cache is the storage; reads at the locked SHA
-		// go through remote.BundleReader. LocalPath stays informative for
-		// CLI display but does not correspond to a file.
-		localPath = fmt.Sprintf("<remote>:%s@%s", localName, sha)
-	default:
-		localPath = ref.LocalPath(baseDir, opts.ItemType)
-
-		// Check for existing file
-		if _, err := p.fs.Stat(localPath); err == nil {
-			overwritten = true
-			// Show diff
-			existingContent, _ := afero.ReadFile(p.fs, localPath)
-			if string(existingContent) != string(content) {
-				_, _ = fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
-				_, _ = fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
-				if !opts.Force {
-					confirmed, perr := promptConfirmation(opts.Stdout, opts.Stdin, "Overwrite existing file?")
-					if perr != nil {
-						return nil, fmt.Errorf("failed to read confirmation: %w", perr)
-					}
-					if !confirmed {
-						return nil, fmt.Errorf("overwrite cancelled: %w", errs.ErrCancelled)
-					}
-				}
-			}
-		}
-
-		// Write file
-		if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory: %w", err)
-		}
-
-		if err := afero.WriteFile(p.fs, localPath, content, 0644); err != nil {
-			return nil, fmt.Errorf("failed to write file: %w", err)
-		}
+	localPath, overwritten, err := p.writePulledContent(ref, opts, item.localName, item.sha, content)
+	if err != nil {
+		return nil, err
 	}
 
-	// Update lockfile with provenance (use local name as key). For bundles,
-	// the lockfile is now the *only* on-disk record of the install — read
-	// sites resolve content via the SHA recorded here.
-	if err := p.updateLockfile(localName, opts.ItemType, rem, sha, requestedVersion); err != nil {
-		// Log warning but don't fail the pull
+	// Update lockfile with provenance (local name as key). For bundles, the
+	// lockfile is the *only* on-disk record — read sites resolve content via
+	// the SHA recorded here. A lockfile failure warns but does not fail the pull.
+	if err := p.updateLockfile(item.localName, opts.ItemType, item.rem, item.sha, item.requestedVersion); err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
-	result := &PullResult{
-		LocalPath:   localPath,
-		SHA:         sha,
-		Overwritten: overwritten,
-		Content:     content,
-	}
+	result := &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}
 
-	// Cascade pull dependencies for profiles
 	if opts.Cascade && opts.ItemType == ItemTypeProfile {
 		cascaded, err := p.cascadePullProfile(ctx, content, opts)
 		if err != nil {
@@ -459,6 +474,48 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	}
 
 	return result, nil
+}
+
+// writePulledContent persists fetched content. Bundles are not written to disk
+// (docs/bundle-review-plan.md PR 1): the git clone cache is the storage and
+// reads at the locked SHA go through remote.BundleReader, so this returns a
+// synthetic informational LocalPath. Other item types write to disk, prompting
+// before overwriting a differing existing file (unless forced).
+func (p *Puller) writePulledContent(ref *Reference, opts PullOptions, localName, sha string, content []byte) (localPath string, overwritten bool, err error) {
+	if opts.ItemType == ItemTypeBundle {
+		return fmt.Sprintf("<remote>:%s@%s", localName, sha), false, nil
+	}
+
+	baseDir := opts.LocalDir
+	if baseDir == "" {
+		baseDir = ".ctxloom"
+	}
+	localPath = ref.LocalPath(baseDir, opts.ItemType)
+
+	if _, statErr := p.fs.Stat(localPath); statErr == nil {
+		overwritten = true
+		existingContent, _ := afero.ReadFile(p.fs, localPath)
+		if string(existingContent) != string(content) && !opts.Force {
+			_, _ = fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
+			_, _ = fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
+			confirmed, perr := promptConfirmation(opts.Stdout, opts.Stdin, "Overwrite existing file?")
+			if perr != nil {
+				return "", false, fmt.Errorf("failed to read confirmation: %w", perr)
+			}
+			if !confirmed {
+				return "", false, fmt.Errorf("overwrite cancelled: %w", errs.ErrCancelled)
+			}
+		}
+	}
+
+	if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+		return "", false, fmt.Errorf("failed to create directory: %w", err)
+	}
+	if err := afero.WriteFile(p.fs, localPath, content, 0644); err != nil {
+		return "", false, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return localPath, overwritten, nil
 }
 
 // cascadePullProfile parses a profile and pulls all referenced bundles.
@@ -613,7 +670,6 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return response == "y" || response == "yes", nil
 }
-
 
 // writeContent writes content to the local path (used for replace directive).
 func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, sha string) error {

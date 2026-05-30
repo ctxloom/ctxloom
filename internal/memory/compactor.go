@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/textutil"
@@ -95,35 +95,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	start := time.Now()
 	result := &CompactionResult{}
 
-	history := c.backend.History()
-	if history == nil {
-		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
-	}
-
-	// Get session to compact
-	var session *backends.Session
-	var err error
-
-	if c.config.SessionID != "" {
-		session, err = history.GetSession(c.config.WorkDir, c.config.SessionID)
-		if err != nil {
-			return nil, fmt.Errorf("get session %s: %w", c.config.SessionID, err)
-		}
-	} else {
-		session, err = history.GetCurrentSession(c.config.WorkDir)
-		if err != nil {
-			return nil, fmt.Errorf("get current session: %w", err)
-		}
-	}
-
-	if session == nil {
-		return nil, fmt.Errorf("no session found")
+	session, err := c.loadSessionToCompact()
+	if err != nil {
+		return nil, err
 	}
 	result.SessionID = session.ID
-
-	if len(session.Entries) == 0 {
-		return nil, fmt.Errorf("session %s has no entries", session.ID)
-	}
 
 	// Extract plan blocks up front so they bypass the LLM compression pass
 	// and are re-attached verbatim to the final output.
@@ -134,39 +110,16 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	logText := c.sessionToText(session, indexBlocksByEntry(plans))
 	result.TotalTokensIn = estimateTokens(logText)
 
-	// Chunk the log
+	// Chunk the log, distill each chunk, then optionally re-compress.
 	chunks := c.chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
-	// Distill each chunk
-	var distilledChunks []string
-	for i, chunk := range chunks {
-		fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, len(chunks))
-
-		distilled, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
-		if err != nil {
-			// Log error but continue with other chunks
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
-			distilledChunks = append(distilledChunks, fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err))
-			continue
-		}
-		distilledChunks = append(distilledChunks, distilled)
-	}
-
-	// Combine distilled chunks
-	combined := strings.Join(distilledChunks, "\n\n---\n\n")
+	combined := strings.Join(c.distillChunks(ctx, chunks), "\n\n---\n\n")
 	result.TotalTokensOut = estimateTokens(combined)
 
-	// If combined is still large, do a final compression pass
 	if result.TotalTokensOut > c.config.ChunkSize && len(chunks) > 1 {
-		fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
-		final, err := c.distillChunk(ctx, combined, 0, 0) // 0,0 = final pass
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)
-		} else {
-			combined = final
-			result.TotalTokensOut = estimateTokens(combined)
-		}
+		combined = c.finalCompressionPass(ctx, combined)
+		result.TotalTokensOut = estimateTokens(combined)
 	}
 
 	// Pull the LLM-emitted YAML frontmatter (Phase 3.5.2). If it's
@@ -178,24 +131,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
-	// Re-attach plan blocks verbatim after the LLM summary so they survive
-	// distillation unmodified.
-	body := cleanedBody
-	if section := RenderPlans(plans); section != "" {
-		if body != "" {
-			body += "\n\n"
-		}
-		body += section
-	}
-
-	// Harp name (when running inside a ctxloom-managed session) lets the
-	// picker key everything by name rather than session UUID. The config
-	// field wins over the env var so `ctxloom session distill <harp>`
-	// can override without process-env mutation.
-	harpName := c.config.HarpName
-	if harpName == "" {
-		harpName = os.Getenv("CTXLOOM_SESSION_HARP")
-	}
+	body := assembleBody(cleanedBody, plans)
+	harpName := c.resolveHarpName()
 
 	// Save distilled output
 	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
@@ -211,42 +148,137 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 	result.DistilledPath = distilledPath
 
-	// Best-effort: update the session index so the picker shows this
-	// summary on next render AND records the backend's session.ID
-	// against this harp so `ctxloom session distill <harp>` can find
-	// the transcript again later. The bind here is forward-looking —
-	// the compactor already has session.ID in hand because it just
-	// distilled this session; we're just persisting it. No backend-
-	// history scan involved.
-	if harpName != "" {
-		if mgr, err := sessions.Open(""); err == nil {
-			if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
-				if err := mgr.BindSession(harpName, session.ID, ""); err != nil {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: index bind failed: %v\n", err)
-				}
-			}
-			if summary != "" {
-				if err := mgr.SetSummary(harpName, summary); err != nil {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
-				}
-			}
-		}
-	}
-
-	// Phase 3.6 plans split: write plans.md as an auxiliary file under
-	// the harp dir so plans are queryable without parsing essence.md.
-	// essence.md still contains the plans appended at body-write time;
-	// plans.md is a redundant copy, just easier to grep. Best-effort.
-	if harpName != "" && len(plans) > 0 {
-		if dir, err := harpSessionDir(harpName); err == nil {
-			if err := os.MkdirAll(dir, 0o755); err == nil {
-				_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte(RenderPlans(plans)), 0o644)
-			}
-		}
-	}
+	updateSessionIndex(harpName, session.ID, summary)
+	writePlansAux(harpName, plans)
 
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+// loadSessionToCompact resolves the session to compact — the configured
+// SessionID if set, else the current session — and rejects the
+// nothing-to-do cases (no backend history support, no session, empty session).
+func (c *Compactor) loadSessionToCompact() (*backends.Session, error) {
+	history := c.backend.History()
+	if history == nil {
+		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
+	}
+
+	var session *backends.Session
+	var err error
+	if c.config.SessionID != "" {
+		session, err = history.GetSession(c.config.WorkDir, c.config.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("get session %s: %w", c.config.SessionID, err)
+		}
+	} else {
+		session, err = history.GetCurrentSession(c.config.WorkDir)
+		if err != nil {
+			return nil, fmt.Errorf("get current session: %w", err)
+		}
+	}
+
+	if session == nil {
+		return nil, fmt.Errorf("no session found")
+	}
+	if len(session.Entries) == 0 {
+		return nil, fmt.Errorf("session %s has no entries", session.ID)
+	}
+	return session, nil
+}
+
+// distillChunks distills each chunk in order. Per CLAUDE.md fault tolerance, a
+// failed chunk is warned and replaced with an HTML-comment marker rather than
+// aborting the whole compaction.
+func (c *Compactor) distillChunks(ctx context.Context, chunks []string) []string {
+	distilled := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, len(chunks))
+		out, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
+			distilled = append(distilled, fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err))
+			continue
+		}
+		distilled = append(distilled, out)
+	}
+	return distilled
+}
+
+// finalCompressionPass re-distills the combined output once more (chunkNum/total
+// = 0,0 signals "final pass"). On failure it warns and returns the input
+// unchanged — a too-large summary beats no summary.
+func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) string {
+	fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
+	final, err := c.distillChunk(ctx, combined, 0, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)
+		return combined
+	}
+	return final
+}
+
+// assembleBody re-attaches the verbatim plan blocks after the LLM summary so
+// they survive distillation unmodified, with a blank line between when both are
+// present.
+func assembleBody(cleanedBody string, plans []PlanBlock) string {
+	body := cleanedBody
+	if section := RenderPlans(plans); section != "" {
+		if body != "" {
+			body += "\n\n"
+		}
+		body += section
+	}
+	return body
+}
+
+// resolveHarpName returns the harp name keying picker/index entries: the config
+// field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session distill
+// <harp>` can override without mutating process env.
+func (c *Compactor) resolveHarpName() string {
+	if c.config.HarpName != "" {
+		return c.config.HarpName
+	}
+	return os.Getenv("CTXLOOM_SESSION_HARP")
+}
+
+// updateSessionIndex best-effort records the session ID against the harp (so a
+// later `ctxloom session distill <harp>` finds the transcript) and updates the
+// picker summary. No-op without a harp name; all failures warn, never fatal.
+func updateSessionIndex(harpName, sessionID, summary string) {
+	if harpName == "" {
+		return
+	}
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return
+	}
+	if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
+		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: index bind failed: %v\n", err)
+		}
+	}
+	if summary != "" {
+		if err := mgr.SetSummary(harpName, summary); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
+		}
+	}
+}
+
+// writePlansAux writes plans.md under the harp dir (Phase 3.6) as a grep-able
+// redundant copy of the plans already embedded in essence.md. No-op without a
+// harp name or plans; best-effort (errors ignored).
+func writePlansAux(harpName string, plans []PlanBlock) {
+	if harpName == "" || len(plans) == 0 {
+		return
+	}
+	dir, err := harpSessionDir(harpName)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte(RenderPlans(plans)), 0o644)
+	}
 }
 
 // sessionToText converts a session to readable text for distillation.

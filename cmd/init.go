@@ -16,9 +16,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -475,214 +475,276 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	var appDir string
-
-	if initHome {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
-		}
-		appDir = filepath.Join(home, config.AppDirName)
-	} else {
-		pwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		appDir = filepath.Join(pwd, config.AppDirName)
+	appDir, err := resolveAppDir(initHome)
+	if err != nil {
+		return err
 	}
 
-	// Check if already exists
-	alreadyExists := false
-	if info, err := os.Stat(appDir); err == nil && info.IsDir() {
-		alreadyExists = true
+	alreadyExists := ctxloomDirExists(appDir)
+	if alreadyExists {
 		fmt.Printf("ctxloom directory already exists: %s\n", appDir)
 	}
 
-	// Determine if interactive mode
 	interactive := isInteractiveTerminal() && !initNonInteractive
-
-	// Determine selected engine
 	selectedEngine := initEngine
-	var personalRepos []string
-
-	// If directory already exists, get engine from existing config
 	if alreadyExists {
-		cfg, err := config.Load()
-		if err == nil && cfg.Defaults.LLMPlugin != "" {
-			selectedEngine = cfg.Defaults.LLMPlugin
-		}
-	}
-
-	// Only do setup if directory doesn't exist
-	if !alreadyExists {
-		// Check engine availability (warn but don't fail - fault tolerant)
-		noEnginesAvailable := false
-		if selectedEngine == "" {
-			primary, secondary := getAvailableEngines()
-			if len(primary) == 0 && len(secondary) == 0 {
-				noEnginesAvailable = true
-				fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
-				fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
-				fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-				fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
-				fmt.Fprintln(os.Stderr, "")
-				// Continue with placeholder - don't fail init
-				selectedEngine = "claude-code"
-			}
-		}
-		_ = noEnginesAvailable // used for skipping interactive prompts
-
-		if interactive && selectedEngine == "" {
-			prompts := newInitPrompts()
-
-			// 1. Engine selection
-			engine, err := prompts.promptEngineSelection()
-			if err != nil {
-				if err == errNoEngines {
-					return err // Already printed message above
-				}
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read engine selection: %v\n", err)
-				selectedEngine = "claude-code" // fallback
-			} else {
-				selectedEngine = engine
-			}
-
-			// 2. Personal repos (optional, may be several)
-			repos, err := prompts.promptPersonalRepos()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read repo selection: %v\n", err)
-			} else {
-				personalRepos = repos
-			}
-		}
-
-		// Default to first available engine if not selected
-		if selectedEngine == "" {
-			primary, _ := getAvailableEngines()
-			if len(primary) > 0 {
-				selectedEngine = primary[0]
-			} else {
-				selectedEngine = "claude-code" // shouldn't reach here due to check above
-			}
-		}
-
-		// Create the directory structure
-		dirs := []string{
-			appDir,
-			filepath.Join(appDir, paths.ProfilesDir),
-			paths.BundlesPath(appDir),
-		}
-
-		for _, dir := range dirs {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", dir, err)
-			}
-		}
-
-		// Create config.yaml with selected engine and options
-		configPath := paths.ConfigPath(appDir)
-		configContent := generateConfig(selectedEngine)
-		if err := os.WriteFile(configPath, configContent, 0644); err != nil {
-			return fmt.Errorf("failed to create config.yaml: %w", err)
-		}
-
-		// Create remotes.yaml with default remote (ctxloom-default)
-		remotesPath := paths.RemotesPath(appDir)
-		remotesContent, err := resources.GetDefaultRemotes()
+		selectedEngine = engineFromExistingConfig(selectedEngine)
+	} else {
+		selectedEngine, err = setupNewCtxloomDir(cmd, appDir, selectedEngine, interactive)
 		if err != nil {
-			return fmt.Errorf("failed to read default remotes: %w", err)
-		}
-		if err := os.WriteFile(remotesPath, remotesContent, 0644); err != nil {
-			return fmt.Errorf("failed to create remotes.yaml: %w", err)
-		}
-
-		fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
-		fmt.Printf("Default AI engine: %s\n", selectedEngine)
-
-		// Add personal remotes if provided. The first is named "personal";
-		// subsequent ones get "personal-2", "personal-3", … so each is a
-		// distinct, addressable remote.
-		if len(personalRepos) > 0 {
-			cfg, loadErr := config.Load()
-			if loadErr != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
-			} else {
-				for i, repo := range personalRepos {
-					name := "personal"
-					if i > 0 {
-						name = fmt.Sprintf("personal-%d", i+1)
-					}
-					_, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-						Name: name,
-						URL:  repo,
-					})
-					if addErr != nil {
-						fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", name, repo, addErr)
-					} else {
-						fmt.Printf("Added remote %q: %s\n", name, repo)
-					}
-				}
-			}
-		}
-
-		// Eagerly clone every configured remote so discovery (search_remotes,
-		// browse) can read them offline. Fault-tolerant: per-remote failures
-		// warn and continue.
-		if cfg, loadErr := config.Load(); loadErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for cloning remotes: %v\n", loadErr)
-		} else if cloneRes, cloneErr := operations.EnsureRemoteClones(cmd.Context(), cfg); cloneErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clone remotes: %v\n", cloneErr)
-		} else if len(cloneRes.Cloned) > 0 {
-			fmt.Printf("Cloned remotes for discovery: %s\n", strings.Join(cloneRes.Cloned, ", "))
-		}
-
-		// Apply hooks to register MCP server
-		cfg, err := config.Load()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
-		} else {
-			result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
-				Backend:           "all",
-				RegenerateContext: false,
-			})
-			if applyErr != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", applyErr)
-			} else {
-				fmt.Printf("Applied hooks for: %v\n", result.Backends)
-			}
-		}
-
-		// Update .gitignore to exclude .ctxloom/ephemeral/ (synced bundles, session data)
-		if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
+			return err
 		}
 	}
 
-	// Default to first available engine if still not set (for existing dirs without config)
-	if selectedEngine == "" {
-		primary, _ := getAvailableEngines()
-		if len(primary) > 0 {
-			selectedEngine = primary[0]
-		} else {
-			selectedEngine = "claude-code"
-		}
-	}
+	// Ensure a concrete engine for the launch step (covers existing dirs whose
+	// config did not name one).
+	primary, _ := getAvailableEngines()
+	selectedEngine = pickDefaultEngine(selectedEngine, primary)
 
-	// Auto-launch AI with profile discovery prompt (interactive only)
-	if interactive && !initSkipLaunch {
-		if alreadyExists {
-			fmt.Printf("\nLaunching %s to help you discover profiles...\n", selectedEngine)
-		} else {
-			fmt.Printf("\nLaunching %s to help you discover profiles...\n", selectedEngine)
-		}
-		fmt.Println("(Use Ctrl+C to exit the AI session when done)")
-		fmt.Println()
-
-		workDir := filepath.Dir(appDir)
-		if launchErr := launchEngineWithPrompt(cmd.Context(), selectedEngine, workDir); launchErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", launchErr)
-		}
-	}
-
+	launchDiscovery(cmd, selectedEngine, appDir, interactive)
 	return nil
+}
+
+// resolveAppDir returns the .ctxloom directory to operate on: under the user's
+// home when home is true, else under the current working directory.
+func resolveAppDir(home bool) (string, error) {
+	if home {
+		dir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		return filepath.Join(dir, config.AppDirName), nil
+	}
+	pwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	return filepath.Join(pwd, config.AppDirName), nil
+}
+
+// ctxloomDirExists reports whether appDir already exists as a directory.
+func ctxloomDirExists(appDir string) bool {
+	info, err := os.Stat(appDir)
+	return err == nil && info.IsDir()
+}
+
+// engineFromExistingConfig returns the engine recorded in an existing config,
+// falling back to current when the config is unreadable or names none.
+func engineFromExistingConfig(current string) string {
+	if cfg, err := config.Load(); err == nil && cfg.Defaults.LLMPlugin != "" {
+		return cfg.Defaults.LLMPlugin
+	}
+	return current
+}
+
+// pickDefaultEngine resolves the engine to use: an explicit selection wins;
+// otherwise the first available primary engine; otherwise "claude-code" so init
+// never dead-ends without an engine.
+func pickDefaultEngine(selected string, primary []string) string {
+	if selected != "" {
+		return selected
+	}
+	if len(primary) > 0 {
+		return primary[0]
+	}
+	return "claude-code"
+}
+
+// setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
+// resolve the engine (with interactive prompts), write the skeleton, register
+// personal/discovery remotes, apply hooks, and update .gitignore. Returns the
+// resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn and
+// continue; only directory/config creation failures are fatal.
+func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
+	engine, personalRepos, err := resolveSetupEngine(selectedEngine, interactive)
+	if err != nil {
+		return "", err
+	}
+
+	if err := writeInitialConfig(appDir, engine); err != nil {
+		return "", err
+	}
+	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
+	fmt.Printf("Default AI engine: %s\n", engine)
+
+	addPersonalRemotes(cmd, personalRepos)
+	cloneConfiguredRemotes(cmd)
+	applyInitHooks(cmd)
+
+	// Update .gitignore to exclude .ctxloom/ephemeral/ (synced bundles, session data).
+	if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
+	}
+
+	return engine, nil
+}
+
+// resolveSetupEngine decides which engine to install with. It warns (but does
+// not fail) when no engines are detected, runs the interactive engine/repo
+// prompts when applicable, and finally falls back to the first available
+// primary engine. Returns errNoEngines only when the interactive selection
+// reports none installed.
+func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, err error) {
+	if selected == "" && noEnginesInstalled() {
+		warnNoEnginesDetected()
+		selected = "claude-code"
+	}
+
+	if interactive && selected == "" {
+		selected, repos, err = promptForEngineAndRepos()
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
+	primary, _ := getAvailableEngines()
+	return pickDefaultEngine(selected, primary), repos, nil
+}
+
+// noEnginesInstalled reports whether neither a primary nor a secondary engine
+// is available.
+func noEnginesInstalled() bool {
+	primary, secondary := getAvailableEngines()
+	return len(primary) == 0 && len(secondary) == 0
+}
+
+// warnNoEnginesDetected prints install guidance to stderr. Init continues with a
+// placeholder engine (fault tolerant).
+func warnNoEnginesDetected() {
+	fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
+	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
+	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
+	fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
+	fmt.Fprintln(os.Stderr, "")
+}
+
+// promptForEngineAndRepos runs the interactive engine selection and optional
+// personal-repo prompts. errNoEngines propagates (the prompt already explained
+// it); other prompt failures warn and fall back rather than aborting init.
+func promptForEngineAndRepos() (engine string, repos []string, err error) {
+	prompts := newInitPrompts()
+
+	engine, err = prompts.promptEngineSelection()
+	if err != nil {
+		if err == errNoEngines {
+			return "", nil, err
+		}
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read engine selection: %v\n", err)
+		engine = "claude-code"
+	}
+
+	repos, repoErr := prompts.promptPersonalRepos()
+	if repoErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read repo selection: %v\n", repoErr)
+		repos = nil
+	}
+	return engine, repos, nil
+}
+
+// writeInitialConfig creates the .ctxloom directory skeleton and writes
+// config.yaml (carrying the chosen engine) and remotes.yaml (default remotes).
+// Safe to re-run: directories use MkdirAll and files are overwritten.
+func writeInitialConfig(appDir, engine string) error {
+	dirs := []string{
+		appDir,
+		filepath.Join(appDir, paths.ProfilesDir),
+		paths.BundlesPath(appDir),
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+
+	if err := os.WriteFile(paths.ConfigPath(appDir), generateConfig(engine), 0644); err != nil {
+		return fmt.Errorf("failed to create config.yaml: %w", err)
+	}
+
+	remotesContent, err := resources.GetDefaultRemotes()
+	if err != nil {
+		return fmt.Errorf("failed to read default remotes: %w", err)
+	}
+	if err := os.WriteFile(paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
+		return fmt.Errorf("failed to create remotes.yaml: %w", err)
+	}
+	return nil
+}
+
+// addPersonalRemotes registers the user's personal repos. The first is named
+// "personal"; subsequent ones get "personal-2", "personal-3", … so each is a
+// distinct, addressable remote. Failures warn and continue.
+func addPersonalRemotes(cmd *cobra.Command, repos []string) {
+	if len(repos) == 0 {
+		return
+	}
+	cfg, loadErr := config.Load()
+	if loadErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
+		return
+	}
+	for i, repo := range repos {
+		name := "personal"
+		if i > 0 {
+			name = fmt.Sprintf("personal-%d", i+1)
+		}
+		if _, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{Name: name, URL: repo}); addErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", name, repo, addErr)
+		} else {
+			fmt.Printf("Added remote %q: %s\n", name, repo)
+		}
+	}
+}
+
+// cloneConfiguredRemotes eagerly clones every configured remote so discovery
+// (search_remotes, browse) can read them offline. Fault-tolerant: per-remote
+// failures warn and continue.
+func cloneConfiguredRemotes(cmd *cobra.Command) {
+	cfg, loadErr := config.Load()
+	if loadErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for cloning remotes: %v\n", loadErr)
+		return
+	}
+	cloneRes, cloneErr := operations.EnsureRemoteClones(cmd.Context(), cfg)
+	if cloneErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clone remotes: %v\n", cloneErr)
+		return
+	}
+	if len(cloneRes.Cloned) > 0 {
+		fmt.Printf("Cloned remotes for discovery: %s\n", strings.Join(cloneRes.Cloned, ", "))
+	}
+}
+
+// applyInitHooks registers the ctxloom MCP server with every backend. Failures
+// warn and continue (fault tolerant).
+func applyInitHooks(cmd *cobra.Command) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
+		return
+	}
+	result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+		Backend:           "all",
+		RegenerateContext: false,
+	})
+	if applyErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", applyErr)
+		return
+	}
+	fmt.Printf("Applied hooks for: %v\n", result.Backends)
+}
+
+// launchDiscovery auto-launches the engine with a profile-discovery prompt in
+// interactive mode (unless --skip-launch). A launch failure warns, never fatal.
+func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) {
+	if !interactive || initSkipLaunch {
+		return
+	}
+	fmt.Printf("\nLaunching %s to help you discover profiles...\n", engine)
+	fmt.Println("(Use Ctrl+C to exit the AI session when done)")
+	fmt.Println()
+
+	workDir := filepath.Dir(appDir)
+	if launchErr := launchEngineWithPrompt(cmd.Context(), engine, workDir); launchErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", launchErr)
+	}
 }

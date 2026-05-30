@@ -194,6 +194,23 @@ fmt:
 lint: dev-image
     just _run lint
 
+# ===== Code complexity (lizard, in devcontainer) =====
+# lizard is a cross-platform, multi-language per-function complexity analyzer,
+# installed in the devcontainer image. These targets delegate into it, so no
+# host install is needed (implementations live in justfile.container).
+
+# Per-function cyclomatic complexity as a human-readable table + warnings.
+# Defaults to the repo root; pass paths/flags to scope, e.g.
+#   just complexity internal/remote
+#   just complexity -C 15 .           (warn on functions over CCN 15)
+complexity *ARGS: dev-image
+    just _run complexity {{ARGS}}
+
+# Same per-function analysis as CSV (header prepended) for LLM/tooling ingest.
+# Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
+complexity-csv *ARGS: dev-image
+    just _run complexity-csv {{ARGS}}
+
 # Run the CLI
 run *ARGS:
     go run . {{ARGS}}

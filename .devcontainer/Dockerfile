@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y \
     lld \
     libc6-dev \
     xz-utils \
+    python3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # TARGETARCH is auto-populated by Docker BuildKit (amd64, arm64, etc.) so the
@@ -69,6 +71,11 @@ RUN mkdir -p /opt/onnxruntime-embed && \
 
 # Install just (command runner)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+
+# Install lizard (cross-language per-function complexity analyzer). Ubuntu 24.04
+# marks its Python env externally-managed (PEP 668), so --break-system-packages
+# is required; the console script lands in /usr/local/bin (already on PATH).
+RUN pip3 install --break-system-packages --no-cache-dir lizard==1.22.2
 
 # Install golangci-lint via `go install` so the build does not depend on
 # golangci/golangci-lint's install.sh, whose embedded sha256 has been seen to

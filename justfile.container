@@ -146,6 +146,20 @@ proto:
 lint:
     golangci-lint run
 
+# Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
+# Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's
+# non-zero exit when functions exceed the threshold, so this stays a report.
+complexity *ARGS:
+    -lizard -x "*.pb.go" {{ if ARGS == "" { "." } else { ARGS } }}
+
+# Per-function complexity as CSV (header prepended) for LLM/tooling ingest.
+# Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
+complexity-csv *ARGS:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "nloc,ccn,tokens,params,length,location,file,function,long_name,start,end"
+    lizard -x "*.pb.go" --csv {{ if ARGS == "" { "." } else { ARGS } }} || true
+
 # Format code
 fmt:
     go fmt ./...

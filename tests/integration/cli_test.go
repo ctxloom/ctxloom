@@ -288,11 +288,13 @@ func TestMCP_ToolsList(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
-	assert.Contains(t, output, "list_fragments")
-	assert.Contains(t, output, "get_fragment")
-	assert.Contains(t, output, "list_profiles")
-	assert.Contains(t, output, "get_profile")
+	// The MCP surface was reduced: read-only listings (fragments, profiles,
+	// prompts, ...) moved to resources (ctxloom://...). Assert on tools that
+	// remain on the surface.
 	assert.Contains(t, output, "assemble_context")
+	assert.Contains(t, output, "search_content")
+	assert.Contains(t, output, "sync_dependencies")
+	assert.Contains(t, output, "create_bundle")
 }
 
 func TestMCP_ListFragments(t *testing.T) {
@@ -300,10 +302,10 @@ func TestMCP_ListFragments(t *testing.T) {
 
 	writeFragment(t, env, "test-frag", []string{"testing"}, "Test content.")
 
+	// list_fragments is now the ctxloom://fragments resource, not a tool.
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	callParams := `{"name":"list_fragments","arguments":{}}`
-	callReq := buildMCPRequest("tools/call", callParams)
-	input := initReq + "\n" + callReq + "\n"
+	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments"}`)
+	input := initReq + "\n" + readReq + "\n"
 	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
@@ -317,25 +319,23 @@ func TestMCP_GetFragment(t *testing.T) {
 
 	writeFragment(t, env, "get-test", []string{"demo"}, "This is the fragment content.")
 
+	// get_fragment is now the ctxloom://fragments/{name} resource (bare name),
+	// which returns the fragment's content (markdown), not its tags.
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	callParams := `{"name":"get_fragment","arguments":{"name":"local#fragments/get-test"}}`
-	callReq := buildMCPRequest("tools/call", callParams)
-	input := initReq + "\n" + callReq + "\n"
+	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments/get-test"}`)
+	input := initReq + "\n" + readReq + "\n"
 	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
-	output := env.LastOutput()
-	assert.Contains(t, output, "This is the fragment content")
-	assert.Contains(t, output, "demo")
+	assert.Contains(t, env.LastOutput(), "This is the fragment content")
 }
 
 func TestMCP_GetFragment_Nonexistent(t *testing.T) {
 	env := setupTestEnv(t)
 
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	callParams := `{"name":"get_fragment","arguments":{"name":"nonexistent"}}`
-	callReq := buildMCPRequest("tools/call", callParams)
-	input := initReq + "\n" + callReq + "\n"
+	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments/nonexistent"}`)
+	input := initReq + "\n" + readReq + "\n"
 	_ = env.RunWithStdin(input, "mcp")
 
 	assert.Equal(t, 0, env.LastExitCode())
@@ -348,7 +348,8 @@ func TestMCP_AssembleContext_WithFragment(t *testing.T) {
 	writeFragment(t, env, "assemble-frag", []string{"assemble"}, "Assembled fragment content.")
 
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	callParams := `{"name":"assemble_context","arguments":{"fragments":["local#fragments/assemble-frag"]}}`
+	// assemble_context's fragment list is keyed "bundles" over the wire.
+	callParams := `{"name":"assemble_context","arguments":{"bundles":["local#fragments/assemble-frag"]}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
 	_ = env.RunWithStdin(input, "mcp")

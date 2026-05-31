@@ -8,7 +8,17 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
+
+// mcpStdinGrace is how long RunWithStdin keeps stdin open after writing the
+// request(s). The MCP server (SDK stdio transport) dispatches requests
+// asynchronously; if stdin closes immediately after the write, its read loop
+// hits EOF and tears the server down before the handler writes its response.
+// A real MCP client keeps stdin open until it has its responses — this grace
+// models that. Responses arrive in milliseconds; the window is generous so the
+// suite stays reliable on slow CI.
+const mcpStdinGrace = 2 * time.Second
 
 // TestEnvironment manages isolated test environments with fake home and project directories.
 type TestEnvironment struct {
@@ -413,18 +423,34 @@ func (e *TestEnvironment) GitBranch(name string) error {
 	return nil
 }
 
-// RunWithStdin executes ctxloom with stdin input and returns the output.
+// RunWithStdin executes ctxloom with stdin input and returns the output. Stdin
+// is held open for a short grace period after the write before being closed,
+// so a long-lived stdio server (e.g. `ctxloom mcp`) can dispatch and respond
+// before it sees EOF. See mcpStdinGrace.
 func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = e.isolatedEnv()
-	cmd.Stdin = strings.NewReader(stdin)
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	_, _ = stdinPipe.Write([]byte(stdin))
+	// Give the server time to respond, then close stdin for a clean shutdown.
+	time.Sleep(mcpStdinGrace)
+	_ = stdinPipe.Close()
+
+	err = cmd.Wait()
 	e.lastOutput = stdout.String() + stderr.String()
 	e.lastError = err
 

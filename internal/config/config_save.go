@@ -27,65 +27,12 @@ func (c *Config) Save() error {
 
 	fs := c.getFS()
 
-	// Read existing config to preserve unknown fields
-	existingData, err := afero.ReadFile(fs, configPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read existing config: %w", err)
-	}
-	existing := make(map[string]interface{})
-	if len(existingData) > 0 {
-		if err := yaml.Unmarshal(existingData, &existing); err != nil {
-			// Warn but continue - fault tolerance principle: don't block operations
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
-		}
+	existing, err := readExistingConfig(fs, configPath)
+	if err != nil {
+		return err
 	}
 
-	// Update with current values (delete keys when empty to clean up config)
-	existing["llm"] = c.LM
-	delete(existing, "lm") // Remove old key if present
-
-	if c.Defaults.hasAny() {
-		existing["defaults"] = c.Defaults
-	} else {
-		delete(existing, "defaults")
-	}
-
-	// Editor settings round-trip through Save like every other block; without
-	// this they'd be silently dropped (the ConfigFile struct declares an
-	// `editor` field but Save never wrote it).
-	if c.Editor.Command != "" || len(c.Editor.Args) > 0 {
-		existing["editor"] = c.Editor
-	} else {
-		delete(existing, "editor")
-	}
-
-	if len(c.Profiles) > 0 {
-		existing["profiles"] = c.Profiles
-	} else {
-		delete(existing, "profiles")
-	}
-
-	// Save sync config if any values are set
-	if c.Sync.AutoSync != nil || c.Sync.Lock != nil || c.Sync.ApplyHooks != nil {
-		existing["sync"] = c.Sync
-	} else {
-		delete(existing, "sync")
-	}
-
-	// Remove generators key if present (no longer supported)
-	delete(existing, "generators")
-
-	if len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil {
-		existing["mcp"] = c.MCP
-	} else {
-		delete(existing, "mcp")
-	}
-
-	if c.Hooks.hasAny() {
-		existing["hooks"] = c.Hooks
-	} else {
-		delete(existing, "hooks")
-	}
+	c.applyConfigSections(existing)
 
 	data, err := yaml.Marshal(existing)
 	if err != nil {
@@ -97,4 +44,47 @@ func (c *Config) Save() error {
 	}
 
 	return nil
+}
+
+// readExistingConfig loads the current config file into a generic map so that
+// unknown fields are preserved across a Save. A missing file yields an empty
+// map; a corrupt one warns and continues (fault tolerance — don't block).
+func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{}, error) {
+	existingData, err := afero.ReadFile(fs, configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to read existing config: %w", err)
+	}
+	existing := make(map[string]interface{})
+	if len(existingData) > 0 {
+		if err := yaml.Unmarshal(existingData, &existing); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
+		}
+	}
+	return existing, nil
+}
+
+// setOrDelete writes value under key when present, otherwise removes key — so
+// emptied sections are pruned from the on-disk config rather than left behind.
+func setOrDelete(m map[string]interface{}, key string, present bool, value interface{}) {
+	if present {
+		m[key] = value
+	} else {
+		delete(m, key)
+	}
+}
+
+// applyConfigSections updates existing with the current config values, pruning
+// keys for empty sections. Editor round-trips like every other block; without
+// it editor settings would be silently dropped.
+func (c *Config) applyConfigSections(existing map[string]interface{}) {
+	existing["llm"] = c.LM
+	delete(existing, "lm")         // remove old key if present
+	delete(existing, "generators") // no longer supported
+
+	setOrDelete(existing, "defaults", c.Defaults.hasAny(), c.Defaults)
+	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
+	setOrDelete(existing, "profiles", len(c.Profiles) > 0, c.Profiles)
+	setOrDelete(existing, "sync", c.Sync.AutoSync != nil || c.Sync.Lock != nil || c.Sync.ApplyHooks != nil, c.Sync)
+	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
+	setOrDelete(existing, "hooks", c.Hooks.hasAny(), c.Hooks)
 }

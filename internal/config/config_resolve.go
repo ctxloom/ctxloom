@@ -204,41 +204,64 @@ func ResolveProfile(profiles map[string]Profile, name string) (*Profile, error) 
 }
 
 func resolveProfileRecursive(profiles map[string]Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
-	// Check depth limit
-	if depth > maxProfileDepth {
-		return fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
+	profile, err := guardProfileResolution(profiles, name, visited, depth)
+	if err != nil {
+		return err
 	}
 
-	// Check for circular dependency
+	if err := resolveProfileParents(profiles, profile, name, visited, builder, depth); err != nil {
+		return err
+	}
+
+	mergeProfileValues(builder, profile)
+	return nil
+}
+
+// guardProfileResolution enforces the depth limit and circular-dependency
+// guard, marks name visited, and returns the profile (or ErrProfileNotFound).
+func guardProfileResolution(profiles map[string]Profile, name string, visited collections.Set[string], depth int) (Profile, error) {
+	if depth > maxProfileDepth {
+		return Profile{}, fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
+	}
 	if visited.Has(name) {
-		return fmt.Errorf("profile %q: %w", name, errs.ErrCircularInheritance)
+		return Profile{}, fmt.Errorf("profile %q: %w", name, errs.ErrCircularInheritance)
 	}
 	visited.Add(name)
 
 	profile, ok := profiles[name]
 	if !ok {
-		return fmt.Errorf("profile %q: %w", name, errs.ErrProfileNotFound)
+		return Profile{}, fmt.Errorf("profile %q: %w", name, errs.ErrProfileNotFound)
 	}
+	return profile, nil
+}
 
-	// Resolve parents first (depth-first). Per ctxloom's fault-tolerance
-	// philosophy (CLAUDE.md) — and matching profiles.Loader.ResolveProfile —
-	// an unresolvable parent is a stderr warning and that branch is skipped,
-	// so the rest of the profile still resolves and the user reaches their
-	// LLM. Circular references and depth overruns stay fatal: continuing
-	// would mask a real misconfiguration or risk runaway recursion.
+// resolveProfileParents resolves each parent depth-first. Per ctxloom's
+// fault-tolerance philosophy (CLAUDE.md) — and matching
+// profiles.Loader.ResolveProfile — an unresolvable parent is a stderr warning
+// and that branch is skipped, so the rest of the profile still resolves and the
+// user reaches their LLM. Circular references and depth overruns stay fatal:
+// continuing would mask a real misconfiguration or risk runaway recursion.
+func resolveProfileParents(profiles map[string]Profile, profile Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
 	for _, parentName := range profile.Parents {
-		if err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1); err != nil {
-			if errors.Is(err, errs.ErrProfileNotFound) {
-				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q: parent %q not found; skipping\n",
-					name, parentName)
-				continue
-			}
-			return fmt.Errorf("failed to resolve parent %s: %w", parentName, err)
+		err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)
+		if err == nil {
+			continue
 		}
+		if errors.Is(err, errs.ErrProfileNotFound) {
+			fmt.Fprintf(os.Stderr,
+				"ctxloom: warning: profile %q: parent %q not found; skipping\n",
+				name, parentName)
+			continue
+		}
+		return fmt.Errorf("failed to resolve parent %s: %w", parentName, err)
 	}
+	return nil
+}
 
-	// Merge this profile's values (child overrides parents for variables)
+// mergeProfileValues folds one profile's values into the builder. Children
+// override parents for variables; exclusions always accumulate (cannot
+// un-exclude); description comes from the leaf (overwritten by each child).
+func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	for _, tag := range profile.Tags {
 		builder.addTag(tag)
 	}
@@ -255,13 +278,10 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 		builder.Variables[k] = v
 	}
 
-	// Merge hooks (deduplicated by command+matcher)
+	// Merge hooks (deduplicated by command+matcher) and MCP (later wins).
 	builder.mergeHooks(profile.Hooks)
-
-	// Merge MCP config (later wins for same server names)
 	builder.mergeMCP(profile.MCP)
 
-	// Accumulate exclusions (exclusions always win - cannot un-exclude)
 	for _, frag := range profile.ExcludeFragments {
 		builder.ExcludeFragments.Add(frag)
 	}
@@ -272,8 +292,5 @@ func resolveProfileRecursive(profiles map[string]Profile, name string, visited c
 		builder.ExcludeMCP.Add(mcp)
 	}
 
-	// Set description from the leaf profile (will be overwritten by each child)
 	builder.Description = profile.Description
-
-	return nil
 }

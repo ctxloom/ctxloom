@@ -10,6 +10,9 @@ import (
 )
 
 // extractRust handles Rust AST extraction.
+//
+// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
+// A handler map would scatter this tightly-coupled visitor for no gain.
 func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -62,6 +65,8 @@ func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *stri
 	}
 }
 
+// extractRustFunc emits a Rust function signature, walking its child nodes.
+// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
 func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
 	var sig strings.Builder
 	var funcName string

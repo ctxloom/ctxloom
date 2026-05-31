@@ -85,6 +85,10 @@ func (c *CodeCompressor) Compress(ctx context.Context, content string, ratio flo
 	}, nil
 }
 
+// detectLanguage guesses a language from content heuristics.
+//
+// One branch per language signature: CCN intentionally exceeds 10 (see ADR
+// 0016). The cascade of independent predicates is the spec.
 func (c *CodeCompressor) detectLanguage(content string) ContentType {
 	// Simple heuristics
 	if strings.HasPrefix(content, "package ") {

@@ -231,6 +231,10 @@ func (c *JSONCompressor) calculateEntropy(s string) float64 {
 }
 
 // isIdentifier checks if a string looks like a code identifier.
+//
+// One branch per recognized shape (UUID / URL / path / char-diversity /
+// alphanumeric ratio): CCN intentionally exceeds 10 (see ADR 0016). The
+// cascade of independent pattern checks is the spec.
 func (c *JSONCompressor) isIdentifier(s string) bool {
 	if len(s) == 0 {
 		return false

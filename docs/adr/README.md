@@ -63,3 +63,5 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0012](0012-skip-harp-go-extraction.md) | Skip `harp-go` extraction | Deferred |
 | [0013](0013-keep-tasks-bundle-embedded.md) | Keep `ctxloom-default-tasks` embedded | Deferred |
 | [0014](0014-remove-transcript-scan-binding.md) | Remove transcript-scan / marker session binding | Accepted |
+| [0015](0015-local-git-test-remote.md) | Local bare-git `file://` remote for integration tests | Accepted |
+| [0016](0016-accept-compression-parser-ccn.md) | Accept >10 cyclomatic complexity in compression parsers/classifiers | Accepted |

@@ -70,6 +70,9 @@ func verbatimResult(content, modelID string) Result {
 }
 
 // DetectContentType determines the content type from file extension or content analysis.
+//
+// One branch per file type / sniffed prefix: CCN intentionally exceeds 10 (see
+// ADR 0016). The cascade of cases is the spec; a lookup table buys nothing.
 func DetectContentType(filename string, content string) ContentType {
 	// Check by extension first
 	switch {

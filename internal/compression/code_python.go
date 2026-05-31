@@ -10,6 +10,9 @@ import (
 )
 
 // extractPython handles Python-specific AST extraction.
+//
+// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
+// A handler map would scatter this tightly-coupled visitor for no gain.
 func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)

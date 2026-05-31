@@ -10,6 +10,9 @@ import (
 )
 
 // extractJS handles JavaScript/TypeScript AST extraction.
+//
+// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
+// A handler map would scatter this tightly-coupled visitor for no gain.
 func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -145,6 +148,8 @@ func (c *CodeCompressor) extractJSClassBody(node *sitter.Node, source []byte, ou
 	}
 }
 
+// extractJSMethodSig walks a class body, emitting one signature per member.
+// One branch per member node kind: CCN intentionally exceeds 10 (see ADR 0016).
 func (c *CodeCompressor) extractJSMethodSig(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)

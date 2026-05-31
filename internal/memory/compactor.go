@@ -293,49 +293,52 @@ func (c *Compactor) sessionToText(session *backends.Session, plansByEntry map[in
 			_, _ = fmt.Fprintf(&builder, "## Tool Call: %s\n%s\n\n", entry.ToolName, PlaceholderForBlock(block))
 			continue
 		}
-
-		switch entry.Type {
-		case backends.EntryTypeUser:
-			builder.WriteString("## User\n")
-			builder.WriteString(entry.Content)
-			builder.WriteString("\n\n")
-
-		case backends.EntryTypeAssistant:
-			builder.WriteString("## Assistant\n")
-			builder.WriteString(entry.Content)
-			builder.WriteString("\n\n")
-
-		case backends.EntryTypeToolUse:
-			_, _ = fmt.Fprintf(&builder, "## Tool Call: %s\n", entry.ToolName)
-			if len(entry.ToolInput) > 0 {
-				// Truncate large arguments
-				args := string(entry.ToolInput)
-				if len(args) > 500 {
-					args = textutil.TruncateBytes(args, 500) + "..."
-				}
-				_, _ = fmt.Fprintf(&builder, "Arguments: %s\n", args)
-			}
-			builder.WriteString("\n")
-
-		case backends.EntryTypeToolResult:
-			_, _ = fmt.Fprintf(&builder, "## Tool Result: %s\n", entry.ToolName)
-			// Truncate large output
-			output := entry.ToolOutput
-			if len(output) > 500 {
-				output = textutil.TruncateBytes(output, 500) + "..."
-			}
-			builder.WriteString(output)
-			if entry.IsError {
-				builder.WriteString(" [ERROR]")
-			}
-			builder.WriteString("\n\n")
-
-		case backends.EntryTypeSystem:
-			_, _ = fmt.Fprintf(&builder, "## System: %s\n\n", entry.Content)
-		}
+		appendEntryText(&builder, entry)
 	}
 
 	return builder.String()
+}
+
+// truncateForSummary caps an argument/output string at 500 bytes with an
+// ellipsis, keeping summary text compact.
+func truncateForSummary(s string) string {
+	if len(s) > 500 {
+		return textutil.TruncateBytes(s, 500) + "..."
+	}
+	return s
+}
+
+// appendEntryText renders one session entry as a markdown section.
+func appendEntryText(builder *strings.Builder, entry backends.SessionEntry) {
+	switch entry.Type {
+	case backends.EntryTypeUser:
+		builder.WriteString("## User\n")
+		builder.WriteString(entry.Content)
+		builder.WriteString("\n\n")
+
+	case backends.EntryTypeAssistant:
+		builder.WriteString("## Assistant\n")
+		builder.WriteString(entry.Content)
+		builder.WriteString("\n\n")
+
+	case backends.EntryTypeToolUse:
+		_, _ = fmt.Fprintf(builder, "## Tool Call: %s\n", entry.ToolName)
+		if len(entry.ToolInput) > 0 {
+			_, _ = fmt.Fprintf(builder, "Arguments: %s\n", truncateForSummary(string(entry.ToolInput)))
+		}
+		builder.WriteString("\n")
+
+	case backends.EntryTypeToolResult:
+		_, _ = fmt.Fprintf(builder, "## Tool Result: %s\n", entry.ToolName)
+		builder.WriteString(truncateForSummary(entry.ToolOutput))
+		if entry.IsError {
+			builder.WriteString(" [ERROR]")
+		}
+		builder.WriteString("\n\n")
+
+	case backends.EntryTypeSystem:
+		_, _ = fmt.Fprintf(builder, "## System: %s\n\n", entry.Content)
+	}
 }
 
 // chunkText splits text into chunks of approximately targetTokens size.
@@ -777,18 +780,7 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 		return cached, nil
 	}
 
-	// Convert session to text (first ~4000 chars for essence)
-	var textBuilder strings.Builder
-	for _, entry := range session.Entries {
-		if entry.Type == backends.EntryTypeUser || entry.Type == backends.EntryTypeAssistant {
-			_, _ = fmt.Fprintf(&textBuilder, "[%s]: %s\n\n", entry.Type, entry.Content)
-		}
-		if textBuilder.Len() > 4000 {
-			break
-		}
-	}
-	sessionText := textBuilder.String()
-
+	sessionText := sessionExcerptText(session)
 	if len(sessionText) == 0 {
 		return &SessionEssence{
 			SessionID:   session.ID,
@@ -798,14 +790,51 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 		}, nil
 	}
 
-	// Generate essence using LLM
+	essenceText, err := runEssenceLLM(ctx, sessionText, config)
+	if err != nil {
+		return nil, err
+	}
+
+	essence := &SessionEssence{
+		SessionID:   session.ID,
+		CreatedAt:   session.StartTime,
+		Essence:     essenceText,
+		GeneratedAt: time.Now(),
+	}
+
+	// Cache the essence; log but don't fail — it was generated successfully.
+	if err := SaveSessionEssence(config.MemoryDir, essence); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to cache essence: %v\n", err)
+	}
+
+	return essence, nil
+}
+
+// sessionExcerptText builds the user/assistant excerpt (capped at ~4000 chars)
+// fed to the essence LLM.
+func sessionExcerptText(session *backends.Session) string {
+	var b strings.Builder
+	for _, entry := range session.Entries {
+		if entry.Type == backends.EntryTypeUser || entry.Type == backends.EntryTypeAssistant {
+			_, _ = fmt.Fprintf(&b, "[%s]: %s\n\n", entry.Type, entry.Content)
+		}
+		if b.Len() > 4000 {
+			break
+		}
+	}
+	return b.String()
+}
+
+// runEssenceLLM runs the essence prompt over the session excerpt and returns the
+// trimmed model output.
+func runEssenceLLM(ctx context.Context, sessionText string, config EssenceConfig) (string, error) {
 	clientFactory := config.ClientFactory
 	if clientFactory == nil {
 		clientFactory = pb.DefaultClientFactory()
 	}
 	client, err := clientFactory(config.Plugin, 0)
 	if err != nil {
-		return nil, fmt.Errorf("start plugin: %w", err)
+		return "", fmt.Errorf("start plugin: %w", err)
 	}
 	defer client.Kill()
 
@@ -827,27 +856,12 @@ func GenerateSessionEssence(ctx context.Context, session *backends.Session, conf
 	var stdout, stderr bytes.Buffer
 	exitCode, err := client.Run(ctx, req, &stdout, &stderr)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
 	if exitCode != 0 {
-		return nil, fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
+		return "", fmt.Errorf("LLM exited with code %d: %s", exitCode, stderr.String())
 	}
-
-	essence := &SessionEssence{
-		SessionID:   session.ID,
-		CreatedAt:   session.StartTime,
-		Essence:     strings.TrimSpace(stdout.String()),
-		GeneratedAt: time.Now(),
-	}
-
-	// Cache the essence
-	if err := SaveSessionEssence(config.MemoryDir, essence); err != nil {
-		// Log but don't fail - essence was generated successfully
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to cache essence: %v\n", err)
-	}
-
-	return essence, nil
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // essencePrompt is the system prompt for generating session essences.

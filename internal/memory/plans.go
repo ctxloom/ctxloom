@@ -102,65 +102,83 @@ func planFromEntry(entry backends.SessionEntry, index int) (PlanBlock, bool) {
 
 	switch entry.ToolName {
 	case "ExitPlanMode":
-		var parsed struct {
-			Plan string `json:"plan"`
-		}
-		if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Plan == "" {
-			return block, false
-		}
-		block.Kind = PlanKindExitPlanMode
-		block.Label = "ExitPlanMode"
-		block.Content = parsed.Plan
-		return block, true
-
+		return planFromExitPlanMode(entry, block)
 	case "TodoWrite", "TaskCreate", "TaskUpdate":
-		pretty, err := prettyJSON(entry.ToolInput)
-		if err != nil || pretty == "" {
-			return block, false
-		}
-		block.Kind = PlanKindTodoWrite
-		block.Label = entry.ToolName
-		block.Content = pretty
-		return block, true
-
+		return planFromTaskWrite(entry, block)
 	case "Write":
-		var parsed struct {
-			FilePath string `json:"file_path"`
-			Content  string `json:"content"`
-		}
-		if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Content == "" {
-			return block, false
-		}
-		block.Kind = PlanKindPlanFile
-		block.Label = filepath.Base(parsed.FilePath)
-		block.Content = parsed.Content
-		return block, true
-
+		return planFromWriteTool(entry, block)
 	case "Edit":
-		var parsed struct {
-			FilePath  string `json:"file_path"`
-			NewString string `json:"new_string"`
-			OldString string `json:"old_string"`
-		}
-		if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.NewString == "" {
-			return block, false
-		}
-		block.Kind = PlanKindPlanFile
-		block.Label = filepath.Base(parsed.FilePath) + " (edit)"
-		// We don't have the full post-edit file from a JSONL entry, so record
-		// the patch verbatim. Better than letting the summary paraphrase it.
-		var b strings.Builder
-		fmt.Fprintf(&b, "**Edit applied to %s**\n\n", parsed.FilePath)
-		b.WriteString("Replaced:\n```\n")
-		b.WriteString(parsed.OldString)
-		b.WriteString("\n```\n\nWith:\n```\n")
-		b.WriteString(parsed.NewString)
-		b.WriteString("\n```")
-		block.Content = b.String()
-		return block, true
+		return planFromEditTool(entry, block)
 	}
 
 	return block, false
+}
+
+// planFromExitPlanMode captures the plan text from an ExitPlanMode call.
+func planFromExitPlanMode(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
+	var parsed struct {
+		Plan string `json:"plan"`
+	}
+	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Plan == "" {
+		return block, false
+	}
+	block.Kind = PlanKindExitPlanMode
+	block.Label = "ExitPlanMode"
+	block.Content = parsed.Plan
+	return block, true
+}
+
+// planFromTaskWrite captures the pretty-printed input of a TodoWrite/Task* call.
+func planFromTaskWrite(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
+	pretty, err := prettyJSON(entry.ToolInput)
+	if err != nil || pretty == "" {
+		return block, false
+	}
+	block.Kind = PlanKindTodoWrite
+	block.Label = entry.ToolName
+	block.Content = pretty
+	return block, true
+}
+
+// planFromWriteTool captures a written plan file's content.
+func planFromWriteTool(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
+	var parsed struct {
+		FilePath string `json:"file_path"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Content == "" {
+		return block, false
+	}
+	block.Kind = PlanKindPlanFile
+	block.Label = filepath.Base(parsed.FilePath)
+	block.Content = parsed.Content
+	return block, true
+}
+
+// planFromEditTool records an Edit's patch verbatim. We don't have the full
+// post-edit file from a JSONL entry, so the patch beats letting the summary
+// paraphrase it.
+func planFromEditTool(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
+	var parsed struct {
+		FilePath  string `json:"file_path"`
+		NewString string `json:"new_string"`
+		OldString string `json:"old_string"`
+	}
+	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.NewString == "" {
+		return block, false
+	}
+	block.Kind = PlanKindPlanFile
+	block.Label = filepath.Base(parsed.FilePath) + " (edit)"
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Edit applied to %s**\n\n", parsed.FilePath)
+	b.WriteString("Replaced:\n```\n")
+	b.WriteString(parsed.OldString)
+	b.WriteString("\n```\n\nWith:\n```\n")
+	b.WriteString(parsed.NewString)
+	b.WriteString("\n```")
+	block.Content = b.String()
+	return block, true
 }
 
 func prettyJSON(raw json.RawMessage) (string, error) {

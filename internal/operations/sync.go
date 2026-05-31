@@ -81,19 +81,51 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		}, nil
 	}
 
-	// Initialize registry
+	registry, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &SyncDependenciesResult{
+		Status: "completed",
+	}
+
+	// Sync profiles first (they may reference bundles), then bundles.
+	if err := syncRefs(ctx, cfg, puller, registry, profileRefs, remote.ItemTypeProfile, baseDir, req.Force, fs, result); err != nil {
+		return result, err
+	}
+	if err := syncRefs(ctx, cfg, puller, registry, bundleRefs, remote.ItemTypeBundle, baseDir, req.Force, fs, result); err != nil {
+		return result, err
+	}
+
+	runSyncPostSteps(ctx, cfg, req, result, fs)
+
+	if result.Errors > 0 {
+		result.Status = "completed_with_errors"
+	}
+
+	applyTrustedPromotions(cfg, registry, fs, result)
+
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
+		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
+
+	return result, nil
+}
+
+// resolveSyncDeps returns the registry and puller for a sync, preferring
+// injected (test) instances. The puller redirects bundle writes to the
+// *pending* lockfile so the active lock.yaml stays at the old SHA until the
+// user approves the review (docs/bundle-review-plan.md Phase 2.3).
+func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
 	registry := req.Registry
 	if registry == nil {
 		var err error
 		registry, err = getRegistry(cfg, remote.WithRegistryFS(fs))
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize registry: %w", err)
+			return nil, nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}
 	}
 
-	// Initialize puller. Bundle writes are redirected to the *pending*
-	// lockfile so the active lock.yaml stays at the old SHA until the
-	// user approves the review (docs/bundle-review-plan.md Phase 2.3).
 	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
@@ -104,76 +136,58 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 			remote.WithBundleLockfileTarget(pendingMgr),
 		)
 	}
+	return registry, puller, nil
+}
 
-	result := &SyncDependenciesResult{
-		Status: "completed",
-	}
-
-	// Sync profiles first (they may reference bundles)
-	for _, ref := range profileRefs {
-		// Check for cancellation between items
+// syncRefs syncs each ref of one item type into result, checking for context
+// cancellation between items (returns ctx.Err() to abort the whole sync).
+func syncRefs(ctx context.Context, cfg *config.Config, puller Puller, registry *remote.Registry, refs []string, itemType remote.ItemType, baseDir string, force bool, fs afero.Fs, result *SyncDependenciesResult) error {
+	for _, ref := range refs {
 		if ctx.Err() != nil {
-			return result, ctx.Err()
+			return ctx.Err()
 		}
-		item := syncItem(ctx, cfg, puller, registry, ref, remote.ItemTypeProfile, baseDir, req.Force, fs)
+		item := syncItem(ctx, cfg, puller, registry, ref, itemType, baseDir, force, fs)
 		result.Total++
 		addSyncItem(result, item)
 	}
+	return nil
+}
 
-	// Sync bundles
-	for _, ref := range bundleRefs {
-		// Check for cancellation between items
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		item := syncItem(ctx, cfg, puller, registry, ref, remote.ItemTypeBundle, baseDir, req.Force, fs)
-		result.Total++
-		addSyncItem(result, item)
-	}
-
-	// Generate lockfile if requested
+// runSyncPostSteps runs the optional lockfile + hooks regeneration after a sync.
+// Each step warns and continues on failure — partial success is success and a
+// post-step failure must not fail the sync the user just completed (CLAUDE.md).
+func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
 	if req.Lock && result.Installed+result.Updated > 0 {
-		_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FS: fs})
-		if err != nil {
+		if _, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
 
-	// Always apply hooks if requested and there were any remote references
-	// This ensures MCP servers from bundles are registered even if deps were already installed
+	// Apply hooks whenever there were remote references, so MCP servers from
+	// bundles get registered even if every dependency was already installed.
 	if req.ApplyHooks && result.Total > 0 {
-		_, err := ApplyHooks(ctx, cfg, ApplyHooksRequest{
+		if _, err := ApplyHooks(ctx, cfg, ApplyHooksRequest{
 			Backend:           "all",
 			RegenerateContext: true,
-		})
-		if err != nil {
+		}); err != nil {
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}
+}
 
-	if result.Errors > 0 {
-		result.Status = "completed_with_errors"
-	}
-
-	// Trusted remotes bypass the review gate: lift their freshly-pulled
-	// entries out of pending and into active before diffing, so they apply
-	// without ever surfacing for review (and are never stranded in
-	// pending). Fault-tolerant — a failure here just leaves them pending.
+// applyTrustedPromotions lifts trusted remotes' freshly-pulled entries out of
+// pending and into active (bypassing the review gate), then records the
+// active↔pending bundle delta on result. Fault-tolerant — a promotion failure
+// just leaves those entries pending. result.Changes is empty when nothing
+// landed in pending (only profiles synced, or all bundles were promoted).
+func applyTrustedPromotions(cfg *config.Config, registry *remote.Registry, fs afero.Fs, result *SyncDependenciesResult) {
 	if promoted, err := PromoteTrustedPendingBundles(cfg, registry, fs); err != nil {
 		zap.L().Warn("failed to promote trusted pending bundles", zap.Error(err))
 	} else if len(promoted) > 0 {
 		zap.L().Info("auto-applied trusted bundles", zap.Strings("bundles", promoted))
 	}
 
-	// Compute the bundle-level delta between active and pending. Empty if
-	// nothing landed in pending (e.g. only profiles synced, or every
-	// bundle came from a trusted remote and was promoted above).
 	result.Changes = computeBundleChanges(cfg, registry, fs)
-
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
-
-	return result, nil
 }
 
 // computeBundleChanges loads the active + pending lockfiles and diffs them.
@@ -440,57 +454,13 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
-	// Get profiles to check
-	profilesToCheck := req.Profiles
-	if len(profilesToCheck) == 0 {
-		// Check all profiles
-		for name := range cfg.Profiles {
-			profilesToCheck = append(profilesToCheck, name)
-		}
-		loader := cfg.GetProfileLoader()
-		dirProfiles, _ := loader.List()
-		for _, p := range dirProfiles {
-			profilesToCheck = append(profilesToCheck, p.Name)
-		}
-	}
-
 	var missing []MissingDependency
 	seen := collections.NewSet[string]()
 
-	for _, profileName := range profilesToCheck {
+	for _, profileName := range resolveProfilesToCheck(cfg, req.Profiles) {
 		bundles, parentProfiles := collectProfileReferences(cfg, profileName)
-
-		// Check bundles
-		for _, ref := range bundles {
-			if !isRemoteReference(ref) || seen.Has(ref) {
-				continue
-			}
-			seen.Add(ref)
-
-			if !isInstalled(ref, remote.ItemTypeBundle, baseDir, fs) {
-				missing = append(missing, MissingDependency{
-					Reference: ref,
-					Type:      "bundle",
-					Profile:   profileName,
-				})
-			}
-		}
-
-		// Check parent profiles
-		for _, ref := range parentProfiles {
-			if !isRemoteReference(ref) || seen.Has(ref) {
-				continue
-			}
-			seen.Add(ref)
-
-			if !isInstalled(ref, remote.ItemTypeProfile, baseDir, fs) {
-				missing = append(missing, MissingDependency{
-					Reference: ref,
-					Type:      "profile",
-					Profile:   profileName,
-				})
-			}
-		}
+		missing = append(missing, collectMissingRefs(bundles, remote.ItemTypeBundle, "bundle", profileName, baseDir, fs, seen)...)
+		missing = append(missing, collectMissingRefs(parentProfiles, remote.ItemTypeProfile, "profile", profileName, baseDir, fs, seen)...)
 	}
 
 	if len(missing) == 0 {
@@ -507,6 +477,44 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 		Count:   len(missing),
 		Message: fmt.Sprintf("%d dependencies need to be installed", len(missing)),
 	}, nil
+}
+
+// resolveProfilesToCheck returns the requested profiles, or every configured
+// and directory profile when none were requested.
+func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
+	if len(requested) > 0 {
+		return requested
+	}
+	var names []string
+	for name := range cfg.Profiles {
+		names = append(names, name)
+	}
+	loader := cfg.GetProfileLoader()
+	dirProfiles, _ := loader.List()
+	for _, p := range dirProfiles {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+// collectMissingRefs returns the not-yet-installed remote refs among refs,
+// skipping local refs and any ref already in seen (marking the rest seen).
+func collectMissingRefs(refs []string, itemType remote.ItemType, typeName, profileName, baseDir string, fs afero.Fs, seen collections.Set[string]) []MissingDependency {
+	var missing []MissingDependency
+	for _, ref := range refs {
+		if !isRemoteReference(ref) || seen.Has(ref) {
+			continue
+		}
+		seen.Add(ref)
+		if !isInstalled(ref, itemType, baseDir, fs) {
+			missing = append(missing, MissingDependency{
+				Reference: ref,
+				Type:      typeName,
+				Profile:   profileName,
+			})
+		}
+	}
+	return missing
 }
 
 // isInstalled checks if a reference is installed locally.

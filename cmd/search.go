@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -64,118 +65,141 @@ func runUnifiedSearch(ctx context.Context, query string, tags []string, itemType
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Determine scope - if neither flag set, search both
-	searchLocalScope := !remoteOnly || localOnly
-	searchRemoteScope := !localOnly || remoteOnly
-	if !localOnly && !remoteOnly {
-		searchLocalScope = true
-		searchRemoteScope = true
+	localScope, remoteScope := searchScopes(localOnly, remoteOnly)
+	localTypes, remoteTypes, err := resolveSearchTypes(itemType)
+	if err != nil {
+		return err
 	}
 
-	// Determine types to search
-	var localTypes, remoteTypes []string
-	if itemType != "" {
-		switch itemType {
-		case "fragment", "prompt", "mcp_server":
-			localTypes = []string{itemType}
-		case "profile":
-			// Profile exists in both local and remote
-			localTypes = []string{itemType}
-			remoteTypes = []string{itemType}
-		case "bundle":
-			// Bundle is remote-only
-			remoteTypes = []string{itemType}
-		default:
-			return fmt.Errorf("unknown type: %s (valid: fragment, prompt, profile, bundle, mcp_server)", itemType)
-		}
-	} else {
-		localTypes = []string{"fragment", "prompt", "profile", "mcp_server"}
-		remoteTypes = []string{"bundle", "profile"}
-	}
+	localResults, remoteResults := runSearches(ctx, cfg, searchParams{
+		query:       query,
+		tags:        tags,
+		localTypes:  localTypes,
+		remoteTypes: remoteTypes,
+		localScope:  localScope,
+		remoteScope: remoteScope,
+	})
 
+	if len(localResults)+len(remoteResults) == 0 {
+		fmt.Println("No results found.")
+		return nil
+	}
+	printUnifiedResults(localResults, remoteResults)
+	return nil
+}
+
+// searchScopes resolves which sources to search from the --local/--remote flags.
+// Setting neither (or both) searches both sources.
+func searchScopes(localOnly, remoteOnly bool) (local, remote bool) {
+	return !remoteOnly || localOnly, !localOnly || remoteOnly
+}
+
+// resolveSearchTypes maps a --type filter to the local and remote item types to
+// search. An empty filter searches every type; profile lives in both scopes.
+func resolveSearchTypes(itemType string) (localTypes, remoteTypes []string, err error) {
+	if itemType == "" {
+		return []string{"fragment", "prompt", "profile", "mcp_server"}, []string{"bundle", "profile"}, nil
+	}
+	switch itemType {
+	case "fragment", "prompt", "mcp_server":
+		return []string{itemType}, nil, nil
+	case "profile":
+		return []string{itemType}, []string{itemType}, nil
+	case "bundle":
+		return nil, []string{itemType}, nil
+	default:
+		return nil, nil, fmt.Errorf("unknown type: %s (valid: fragment, prompt, profile, bundle, mcp_server)", itemType)
+	}
+}
+
+// searchParams bundles the inputs for a unified search fan-out.
+type searchParams struct {
+	query                   string
+	tags                    []string
+	localTypes, remoteTypes []string
+	localScope, remoteScope bool
+}
+
+// runSearches fans out the local and remote searches concurrently and returns
+// their results. Errors are reported as warnings (search degrades gracefully).
+func runSearches(ctx context.Context, cfg *config.Config, p searchParams) ([]operations.SearchResult, []operations.SearchRemoteEntry) {
 	var localResults []operations.SearchResult
 	var remoteResults []operations.SearchRemoteEntry
 	var localErr, remoteErr error
 
 	var wg sync.WaitGroup
-
-	// Search local content
-	if searchLocalScope && len(localTypes) > 0 {
+	if p.localScope && len(p.localTypes) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := operations.SearchContent(ctx, cfg, operations.SearchContentRequest{
-				Query:        query,
-				Types:        localTypes,
-				Tags:         tags,
-				SearchLocal:  true,
-				SearchRemote: false,
-				Limit:        100,
-			})
-			if err != nil {
-				localErr = err
-				return
-			}
-			localResults = result.Results
+			localResults, localErr = searchLocalContent(ctx, cfg, p.query, p.tags, p.localTypes)
 		}()
 	}
-
-	// Search remote content. Route through operations.SearchRemotes (the same
-	// tag-aware path the search_remotes MCP tool uses). The op takes a single
-	// item_type: pass it only when the caller narrowed to exactly one, else
-	// empty to search both bundles and profiles.
-	if searchRemoteScope && len(remoteTypes) > 0 {
-		remoteItemType := ""
-		if len(remoteTypes) == 1 {
-			remoteItemType = remoteTypes[0]
-		}
+	if p.remoteScope && len(p.remoteTypes) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := operations.SearchRemotes(ctx, cfg, operations.SearchRemotesRequest{
-				Query:    query,
-				ItemType: remoteItemType,
-			})
-			if err != nil {
-				remoteErr = err
-				return
-			}
-			remoteResults = result.Results
+			remoteResults, remoteErr = searchRemoteContent(ctx, cfg, p.query, p.remoteTypes)
 		}()
 	}
-
 	wg.Wait()
 
-	// Report errors as warnings
 	if localErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: local search error: %v\n", localErr)
 	}
 	if remoteErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: remote search error: %v\n", remoteErr)
 	}
+	return localResults, remoteResults
+}
 
-	totalCount := len(localResults) + len(remoteResults)
-	if totalCount == 0 {
-		fmt.Println("No results found.")
-		return nil
+// searchLocalContent searches local fragments, prompts, profiles, and MCP servers.
+func searchLocalContent(ctx context.Context, cfg *config.Config, query string, tags, types []string) ([]operations.SearchResult, error) {
+	result, err := operations.SearchContent(ctx, cfg, operations.SearchContentRequest{
+		Query:        query,
+		Types:        types,
+		Tags:         tags,
+		SearchLocal:  true,
+		SearchRemote: false,
+		Limit:        100,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return result.Results, nil
+}
 
-	fmt.Printf("Results (%d):\n\n", totalCount)
+// searchRemoteContent searches remote repositories via the same tag-aware path
+// the search_remotes MCP tool uses. SearchRemotes takes a single item_type:
+// pass it only when narrowed to exactly one, else empty to search bundles and
+// profiles both.
+func searchRemoteContent(ctx context.Context, cfg *config.Config, query string, types []string) ([]operations.SearchRemoteEntry, error) {
+	itemType := ""
+	if len(types) == 1 {
+		itemType = types[0]
+	}
+	result, err := operations.SearchRemotes(ctx, cfg, operations.SearchRemotesRequest{
+		Query:    query,
+		ItemType: itemType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Results, nil
+}
 
-	// Print local results
+// printUnifiedResults prints the combined local and remote search results.
+func printUnifiedResults(localResults []operations.SearchResult, remoteResults []operations.SearchRemoteEntry) {
+	fmt.Printf("Results (%d):\n\n", len(localResults)+len(remoteResults))
 	if len(localResults) > 0 {
 		printLocalResults(localResults)
 	}
-
-	// Print remote results
 	if len(remoteResults) > 0 {
 		if len(localResults) > 0 {
 			fmt.Println()
 		}
 		printRemoteResults(remoteResults)
 	}
-
-	return nil
 }
 
 // printLocalResults prints local search results grouped by type.

@@ -724,107 +724,91 @@ func (p *Puller) lockfileTargetFor(itemType ItemType) *LockfileManager {
 	return p.lockfileManager
 }
 
+// profileHasCanonicalRefs reports whether any bundle entry is a canonical URL
+// (i.e. needs localization on import).
+func profileHasCanonicalRefs(bundles []interface{}) bool {
+	for _, b := range bundles {
+		if s, ok := b.(string); ok && IsCanonicalRef(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// localizeBundleRef converts one profile bundle entry to its local form. A
+// local name is normalized via ToLocalRef; a canonical URL is parsed, its
+// remote registered (essential so cascade pull can find it), and rewritten to
+// remoteName/path. On any failure the original ref is returned unchanged
+// (warn-and-continue), with canonical-URL failures logged to w.
+func (p *Puller) localizeBundleRef(ref string, w io.Writer) string {
+	if !IsCanonicalRef(ref) {
+		// Already local - normalize to a consistent format (strips version
+		// suffixes, normalizes paths); keep the original if it won't parse.
+		local, err := ToLocalRef(ref)
+		if err != nil {
+			return ref
+		}
+		return local
+	}
+
+	urlPart, itemPath := splitItemPath(ref)
+	parsed, err := ParseReference(urlPart)
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", ref, err)
+		return ref
+	}
+	localRemote, err := p.registry.GetOrCreateByURL(parsed.URL)
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", ref, err)
+		return ref
+	}
+
+	localRef := fmt.Sprintf("%s/%s%s", localRemote.Name, parsed.Path, itemPath)
+	_, _ = fmt.Fprintf(w, "  %s -> %s\n", ref, localRef)
+	return localRef
+}
+
+// localizeBundleRefs localizes every string bundle entry, preserving order and
+// skipping non-string entries.
+func (p *Puller) localizeBundleRefs(bundles []interface{}, w io.Writer) []string {
+	out := make([]string, 0, len(bundles))
+	for _, b := range bundles {
+		s, ok := b.(string)
+		if !ok {
+			continue
+		}
+		out = append(out, p.localizeBundleRef(s, w))
+	}
+	return out
+}
+
 // transformProfileContent converts canonical URLs in a profile to local names.
 // The actual lockfile entries are created when bundles are pulled (via cascade or manually).
 func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, error) {
-	// Parse the profile
 	var rawProfile map[string]interface{}
 	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
 		return content, nil // Not valid YAML, return as-is
 	}
 
-	// Check if there are bundles to transform
 	bundlesRaw, ok := rawProfile["bundles"]
 	if !ok {
 		return content, nil // No bundles, return as-is
 	}
-
 	bundles, ok := bundlesRaw.([]interface{})
 	if !ok {
 		return content, nil // Not a list, return as-is
 	}
 
-	// Check if any bundles need transformation (canonical URLs)
-	needsTransform := false
-	for _, b := range bundles {
-		bundleStr, ok := b.(string)
-		if !ok {
-			continue
-		}
-		if IsCanonicalRef(bundleStr) {
-			needsTransform = true
-			break
-		}
-	}
-
-	if !needsTransform {
+	if !profileHasCanonicalRefs(bundles) {
 		return content, nil
 	}
 
-	// Transform the bundles
 	_, _ = fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
+	rawProfile["bundles"] = p.localizeBundleRefs(bundles, w)
 
-	transformedBundles := make([]string, 0, len(bundles))
-
-	for _, b := range bundles {
-		bundleStr, ok := b.(string)
-		if !ok {
-			continue
-		}
-
-		// Check if this is a canonical URL
-		if !IsCanonicalRef(bundleStr) {
-			// Already local - normalize to ensure consistent format
-			// (strips version suffixes, normalizes paths)
-			local, err := ToLocalRef(bundleStr)
-			if err != nil {
-				transformedBundles = append(transformedBundles, bundleStr)
-			} else {
-				transformedBundles = append(transformedBundles, local)
-			}
-			continue
-		}
-
-		// For canonical URLs, we need to register the remote first
-		// Handle item path suffix (e.g., #fragments/name)
-		var itemPath string
-		urlPart := bundleStr
-		if hashIdx := strings.Index(bundleStr, "#"); hashIdx != -1 {
-			urlPart = bundleStr[:hashIdx]
-			itemPath = bundleStr[hashIdx:]
-		}
-
-		parsed, err := ParseReference(urlPart)
-		if err != nil {
-			_, _ = fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", bundleStr, err)
-			transformedBundles = append(transformedBundles, bundleStr)
-			continue
-		}
-
-		// Get or create a local remote for this URL
-		// This is essential: it ensures the remote is registered so cascade pull can find it
-		localRemote, err := p.registry.GetOrCreateByURL(parsed.URL)
-		if err != nil {
-			_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", bundleStr, err)
-			transformedBundles = append(transformedBundles, bundleStr)
-			continue
-		}
-
-		// Build local reference: remoteName/path with item path if present
-		localRef := fmt.Sprintf("%s/%s%s", localRemote.Name, parsed.Path, itemPath)
-
-		_, _ = fmt.Fprintf(w, "  %s -> %s\n", bundleStr, localRef)
-		transformedBundles = append(transformedBundles, localRef)
-	}
-
-	// Update the profile with transformed bundles
-	rawProfile["bundles"] = transformedBundles
-
-	// Re-marshal the profile
 	transformed, err := yaml.Marshal(rawProfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal transformed profile: %w", err)
 	}
-
 	return transformed, nil
 }

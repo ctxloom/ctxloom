@@ -29,11 +29,7 @@ func ToLocalRef(ref string) (string, error) {
 	}
 
 	// Strip any item path suffix (e.g., #fragments/name) - preserve for later
-	itemPath := ""
-	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
-		itemPath = ref[hashIdx:]
-		ref = ref[:hashIdx]
-	}
+	ref, itemPath := splitItemPath(ref)
 
 	// Parse the reference
 	parsed, err := ParseReference(ref)
@@ -46,6 +42,16 @@ func ToLocalRef(ref string) (string, error) {
 
 	// Re-append item path if present
 	return localName + itemPath, nil
+}
+
+// splitItemPath separates a bundle reference's URL/name part from an optional
+// "#item-path" suffix (e.g. "...#fragments/name"). When no suffix is present,
+// itemPath is empty and base is the input unchanged.
+func splitItemPath(ref string) (base, itemPath string) {
+	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
+		return ref[:hashIdx], ref[hashIdx:]
+	}
+	return ref, ""
 }
 
 // IsCanonicalRef checks if a reference is in canonical URL format.

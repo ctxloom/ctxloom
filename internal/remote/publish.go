@@ -449,12 +449,7 @@ func profileHasLocalBundleRefs(bundles []interface{}) bool {
 // URL via the lockfile, preserving any #item-path suffix. Canonical refs are
 // returned unchanged by the caller, so this is only invoked for local names.
 func canonicalizeBundleRef(ref string, lockfile *Lockfile) (string, error) {
-	localName := ref
-	var itemPath string
-	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
-		localName = ref[:hashIdx]
-		itemPath = ref[hashIdx:]
-	}
+	localName, itemPath := splitItemPath(ref)
 
 	canonicalURL, found := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
 	if !found {

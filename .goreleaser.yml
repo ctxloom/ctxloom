@@ -30,7 +30,9 @@ builds:
       - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
 
   # Full build - includes memory, vectors, and tree-sitter (31MB)
-  # Requires CGO and cross-compilers
+  # Requires CGO and cross-compilers. Statically linked on linux/windows (see
+  # ldflags below); netgo/osusergo force the pure-Go resolver and user lookups
+  # so static glibc linking doesn't break DNS or os/user.
   - id: ctxloom-full
     main: ./main.go
     binary: ctxloom
@@ -38,6 +40,8 @@ builds:
       - memory
       - vectors
       - treesitter
+      - netgo
+      - osusergo
     env:
       - CGO_ENABLED=1
       # Cross-compiler environment variables (provided by goreleaser-cross image)
@@ -63,6 +67,9 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
+      # Static linking for linux/windows; macOS cannot fully static-link system
+      # libraries, so leave darwin dynamic.
+      - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
 # UPX compression for smaller binaries
 # NOTE: UPX is disabled for darwin - it breaks code signing and causes

@@ -73,13 +73,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return err
 	}
 
-	// Refresh the local clone so we can detect updates.
-	cache := operations.NewRepoCache(cfg)
-	if forgeType, _, ferr := remote.DetectForge(rem.URL); ferr == nil {
-		if _, uerr := cache.UpdateRepo(cmd.Context(), rem.URL, forgeType); uerr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", rem.URL, uerr)
-		}
-	}
+	refreshRemoteClone(cmd.Context(), cfg, rem.URL)
 
 	fetcher, err := operations.GetCachedFetcher(cfg, rem.URL)
 	if err != nil {
@@ -91,47 +85,20 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	// Get latest SHA
-	branch, err := fetcher.GetDefaultBranch(cmd.Context(), owner, repo)
+	latestSHA, err := resolveLatestRemoteSHA(cmd.Context(), fetcher, owner, repo)
 	if err != nil {
-		return fmt.Errorf("failed to get default branch: %w", err)
+		return err
 	}
 
-	latestSHA, err := fetcher.ResolveRef(cmd.Context(), owner, repo, branch)
-	if err != nil {
-		return fmt.Errorf("failed to resolve ref: %w", err)
-	}
-
-	// Check lockfile for current SHA
 	lockfile, err := lockManager.Load()
 	if err != nil {
 		return err
 	}
 
-	// Try all item types (bundles and profiles only)
-	var currentSHA string
-	var itemType remote.ItemType
-	for _, it := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
-		entry, ok := lockfile.GetEntry(it, refStr)
-		if ok {
-			currentSHA = entry.SHA
-			itemType = it
-			break
-		}
-	}
-
-	switch currentSHA {
-	case "":
-		fmt.Printf("%s not found in lockfile, checking latest version...\n", refStr)
-		// Default to bundle if not in lockfile
-		itemType = remote.ItemTypeBundle
-	case latestSHA:
-		fmt.Printf("%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
+	currentSHA, itemType := lookupLockedSHA(lockfile, refStr)
+	itemType, upToDate := reportUpdateStatus(refStr, currentSHA, latestSHA, itemType)
+	if upToDate {
 		return nil
-	default:
-		fmt.Printf("%s has update available:\n", refStr)
-		fmt.Printf("  Current: %s\n", shortSHA(currentSHA))
-		fmt.Printf("  Latest:  %s\n", shortSHA(latestSHA))
 	}
 
 	if !updateApply {
@@ -139,7 +106,65 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return nil
 	}
 
-	// Apply update
+	return applyUpdate(cmd.Context(), cfg, registry, auth, refStr, itemType)
+}
+
+// refreshRemoteClone fetches the latest into the local clone so updates can be
+// detected. Fault-tolerant: a fetch failure warns and the stale clone is used.
+func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) {
+	cache := operations.NewRepoCache(cfg)
+	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
+		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", repoURL, uerr)
+		}
+	}
+}
+
+// resolveLatestRemoteSHA resolves the default branch to its latest commit SHA.
+func resolveLatestRemoteSHA(ctx context.Context, fetcher remote.Fetcher, owner, repo string) (string, error) {
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("failed to get default branch: %w", err)
+	}
+	sha, err := fetcher.ResolveRef(ctx, owner, repo, branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve ref: %w", err)
+	}
+	return sha, nil
+}
+
+// lookupLockedSHA finds refStr's current SHA and item type in the lockfile,
+// trying bundles then profiles. Returns ("", "") when not present.
+func lookupLockedSHA(lockfile *remote.Lockfile, refStr string) (string, remote.ItemType) {
+	for _, it := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
+		if entry, ok := lockfile.GetEntry(it, refStr); ok {
+			return entry.SHA, it
+		}
+	}
+	return "", ""
+}
+
+// reportUpdateStatus prints the update status and returns the item type to pull
+// plus whether the ref is already up to date. A ref absent from the lockfile
+// defaults to bundle.
+func reportUpdateStatus(refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
+	switch currentSHA {
+	case "":
+		fmt.Printf("%s not found in lockfile, checking latest version...\n", refStr)
+		return remote.ItemTypeBundle, false
+	case latestSHA:
+		fmt.Printf("%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
+		return itemType, true
+	default:
+		fmt.Printf("%s has update available:\n", refStr)
+		fmt.Printf("  Current: %s\n", shortSHA(currentSHA))
+		fmt.Printf("  Latest:  %s\n", shortSHA(latestSHA))
+		return itemType, false
+	}
+}
+
+// applyUpdate pulls the ref at the latest SHA and reports the result.
+func applyUpdate(ctx context.Context, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, refStr string, itemType remote.ItemType) error {
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
 	opts := remote.PullOptions{
 		ItemType: itemType,
@@ -147,7 +172,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		Blind:    updateBlind,
 	}
 
-	result, err := puller.Pull(cmd.Context(), refStr, opts)
+	result, err := puller.Pull(ctx, refStr, opts)
 	if err != nil {
 		return err
 	}
@@ -503,6 +528,42 @@ func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
 	return analyzeBundleReferencesWithFS(lockfile, afero.NewOsFs(), ".ctxloom")
 }
 
+// collectProfileBundleRefs parses a profile file's bundle list, recording each
+// valid (normalized to local-name) reference in referenced and noting
+// malformed or unparseable entries on result.
+func collectProfileBundleRefs(path string, content []byte, result *bundleAnalysis, referenced map[string]bool) {
+	var profile struct {
+		Bundles []string `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(content, &profile); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("invalid YAML in %s: %v", path, err))
+		return
+	}
+
+	for _, bundle := range profile.Bundles {
+		if bundle == "" {
+			continue
+		}
+
+		// Strip any item path suffix (e.g., #fragments/name).
+		bundleRef, _, _ := strings.Cut(bundle, "#")
+
+		// Validate the reference format (should contain "/").
+		if !strings.Contains(bundleRef, "/") {
+			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
+			continue
+		}
+
+		// Normalize canonical URLs to local names for comparison, e.g.
+		// https://github.com/owner/ctxloom-github@v1/bundles/name → ctxloom-github/name
+		if ref, err := remote.ParseReference(bundleRef); err == nil && ref.IsCanonical {
+			bundleRef = ref.ToLocalName()
+		}
+
+		referenced[bundleRef] = true
+	}
+}
+
 // analyzeBundleReferencesWithFS is the seam'd implementation. fs is the
 // filesystem to walk; appDir is the base under which "profiles/" and
 // "bundles/" subdirs live. Always returns a non-nil result; partial
@@ -525,43 +586,13 @@ func analyzeBundleReferencesWithFS(lockfile *remote.Lockfile, fs afero.Fs, appDi
 			return nil
 		}
 
-		content, err := afero.ReadFile(fs, path)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("error reading %s: %v", path, err))
+		content, rerr := afero.ReadFile(fs, path)
+		if rerr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("error reading %s: %v", path, rerr))
 			return nil
 		}
 
-		var profile struct {
-			Bundles []string `yaml:"bundles"`
-		}
-		if err := yaml.Unmarshal(content, &profile); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("invalid YAML in %s: %v", path, err))
-			return nil
-		}
-
-		for _, bundle := range profile.Bundles {
-			if bundle == "" {
-				continue
-			}
-
-			// Strip any item path suffix (e.g., #fragments/name)
-			bundleRef, _, _ := strings.Cut(bundle, "#")
-
-			// Validate the reference format (should contain "/")
-			if !strings.Contains(bundleRef, "/") {
-				result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
-				continue
-			}
-
-			// Normalize canonical URLs to local names for comparison
-			// e.g., https://github.com/owner/ctxloom-github@v1/bundles/name -> ctxloom-github/name
-			ref, err := remote.ParseReference(bundleRef)
-			if err == nil && ref.IsCanonical {
-				bundleRef = ref.ToLocalName()
-			}
-
-			referencedBundles[bundleRef] = true
-		}
+		collectProfileBundleRefs(path, content, result, referencedBundles)
 		return nil
 	})
 	if err != nil {

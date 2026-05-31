@@ -146,32 +146,44 @@ func (p *initPrompts) readCleanLine() (string, error) {
 		return "", err
 	}
 
-	// Strip escape sequences (CSI sequences: ESC [ ... letter)
-	// Pattern: \x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]
+	// Strip CSI escape sequences, keep only printable ASCII.
 	var clean strings.Builder
-	i := 0
-	for i < len(input) {
-		if input[i] == '\x1b' && i+1 < len(input) && input[i+1] == '[' {
-			// Skip CSI sequence
-			i += 2
-			for i < len(input) {
-				c := input[i]
-				i++
-				// CSI sequence ends with a letter (0x40-0x7e)
-				if c >= 0x40 && c <= 0x7e {
-					break
-				}
-			}
+	for i := 0; i < len(input); {
+		if isCSIStart(input, i) {
+			i = skipCSISequence(input, i)
 			continue
 		}
-		// Keep only printable ASCII and basic whitespace
-		if input[i] >= 0x20 && input[i] <= 0x7e {
+		if isPrintableASCII(input[i]) {
 			clean.WriteByte(input[i])
 		}
 		i++
 	}
 
 	return strings.TrimSpace(clean.String()), nil
+}
+
+// isCSIStart reports whether a CSI escape (ESC '[') begins at input[i].
+func isCSIStart(input string, i int) bool {
+	return input[i] == '\x1b' && i+1 < len(input) && input[i+1] == '['
+}
+
+// skipCSISequence returns the index just past the CSI sequence starting at i
+// (which points at the ESC). CSI sequences end with a final byte 0x40–0x7e.
+func skipCSISequence(input string, i int) int {
+	i += 2 // past ESC '['
+	for i < len(input) {
+		c := input[i]
+		i++
+		if c >= 0x40 && c <= 0x7e {
+			break
+		}
+	}
+	return i
+}
+
+// isPrintableASCII reports whether b is a printable ASCII byte.
+func isPrintableASCII(b byte) bool {
+	return b >= 0x20 && b <= 0x7e
 }
 
 // primaryEngines are shown first in the selection menu (curated list).
@@ -214,24 +226,31 @@ var errNoEngines = fmt.Errorf("no AI engines installed")
 // Returns the selected engine name, or the default if only one is available.
 func (p *initPrompts) promptEngineSelection() (string, error) {
 	primary, secondary := getAvailableEngines()
-	totalEngines := len(primary) + len(secondary)
 
-	// If no engines available, abort with instructions
-	if totalEngines == 0 {
+	switch len(primary) + len(secondary) {
+	case 0:
 		return "", errNoEngines
+	case 1:
+		return selectSoleEngine(primary, secondary), nil
 	}
 
-	// If only one engine is available, use it without prompting
-	if totalEngines == 1 {
-		if len(primary) > 0 {
-			fmt.Printf("\nUsing %s (only available engine)\n", primary[0])
-			return primary[0], nil
-		}
-		fmt.Printf("\nUsing %s (only available engine)\n", secondary[0])
-		return secondary[0], nil
-	}
+	maxOption := printEngineMenu(primary, secondary)
+	return p.readEngineChoice(primary, secondary, maxOption)
+}
 
-	// Show selection menu
+// selectSoleEngine returns (and announces) the only available engine.
+func selectSoleEngine(primary, secondary []string) string {
+	engine := secondary[0]
+	if len(primary) > 0 {
+		engine = primary[0]
+	}
+	fmt.Printf("\nUsing %s (only available engine)\n", engine)
+	return engine
+}
+
+// printEngineMenu prints the numbered engine menu (with a "more options" entry
+// when secondary engines exist) and returns the highest valid option number.
+func printEngineMenu(primary, secondary []string) int {
 	fmt.Println("\nSelect your AI engine (press Enter for recommended):")
 	for i, engine := range primary {
 		label := engine
@@ -241,17 +260,18 @@ func (p *initPrompts) promptEngineSelection() (string, error) {
 		fmt.Printf("  %d) %s\n", i+1, label)
 	}
 
-	// Show "more options" only if there are secondary engines
-	hasMoreOptions := len(secondary) > 0
-	if hasMoreOptions {
-		fmt.Printf("  %d) more options...\n", len(primary)+1)
-	}
-
 	maxOption := len(primary)
-	if hasMoreOptions {
+	if len(secondary) > 0 {
+		fmt.Printf("  %d) more options...\n", len(primary)+1)
 		maxOption++
 	}
+	return maxOption
+}
 
+// readEngineChoice loops on input until a valid selection is made: empty picks
+// the recommended (first primary), a primary number picks that engine, and the
+// "more options" entry shows the full list.
+func (p *initPrompts) readEngineChoice(primary, secondary []string, maxOption int) (string, error) {
 	for {
 		fmt.Print("\n> ")
 		input, err := p.readCleanLine()
@@ -259,7 +279,6 @@ func (p *initPrompts) promptEngineSelection() (string, error) {
 			return "", err
 		}
 
-		// Empty input = use recommended (first primary)
 		if input == "" {
 			return primary[0], nil
 		}
@@ -270,12 +289,9 @@ func (p *initPrompts) promptEngineSelection() (string, error) {
 			continue
 		}
 
-		// Primary engine selected
 		if num <= len(primary) {
 			return primary[num-1], nil
 		}
-
-		// "more options" selected - show all engines
 		return p.promptAllEngines(primary, secondary)
 	}
 }

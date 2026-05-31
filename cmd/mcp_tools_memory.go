@@ -312,16 +312,9 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // the response can carry it back; for the other callers it's zero and the
 // PID field stays omitted.
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int) (*mcp.CallToolResult, *loadSessionResult, error) {
-	if backendName == "" {
-		backendName = s.cfg.LM.GetDefaultPlugin()
-	}
-	backend := backends.Get(backendName)
-	if backend == nil {
-		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
-	}
-	history := backend.History()
-	if history == nil {
-		return nil, nil, fmt.Errorf("backend %q does not support session history", backendName)
+	history, backendName, err := resolveHistoryBackend(s.cfg, backendName)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	workDir, err := os.Getwd()
@@ -348,18 +341,34 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	sessionsDir := s.getSessionsDir()
 
 	// Cached path: the session was already distilled, return immediately.
-	if distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID); err == nil {
-		return nil, &loadSessionResult{
-			Loaded:    true,
-			SessionID: distilled.SessionID,
-			Content:   distilled.Body,
-			WasCached: true,
-			Tokens:    distilled.TokensOut,
-			CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
-			PID:       pid,
-		}, nil
+	if cached := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
+		return nil, cached, nil
 	}
 
+	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, pid)
+	return nil, result, err
+}
+
+// loadCachedDistilledSession returns a result from an already-distilled session
+// on disk, or nil when none is cached.
+func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) *loadSessionResult {
+	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
+	if err != nil {
+		return nil
+	}
+	return &loadSessionResult{
+		Loaded:    true,
+		SessionID: distilled.SessionID,
+		Content:   distilled.Body,
+		WasCached: true,
+		Tokens:    distilled.TokensOut,
+		CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
+		PID:       pid,
+	}
+}
+
+// distillSession compacts a session and returns the freshly-distilled result.
+func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir string, pid int) (*loadSessionResult, error) {
 	fmt.Fprintf(os.Stderr, "ctxloom: distilling session %s (this may take a moment)...\n", sessionID)
 
 	if model == "" {
@@ -376,20 +385,20 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		OutputDir: sessionsDir,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create compactor: %w", err)
+		return nil, fmt.Errorf("create compactor: %w", err)
 	}
 
 	compactResult, err := compactor.Compact(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("distillation failed: %w", err)
+		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
 
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load distilled result: %w", err)
+		return nil, fmt.Errorf("load distilled result: %w", err)
 	}
 
-	return nil, &loadSessionResult{
+	return &loadSessionResult{
 		Loaded:    true,
 		SessionID: compactResult.SessionID,
 		Content:   distilled.Body,

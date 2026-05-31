@@ -1,0 +1,12 @@
+# golangci-lint v2 configuration.
+#
+# v2 removed the default exclusion presets that v1 enabled out of the box. This
+# codebase was written against those defaults — in particular it intentionally
+# does not check errors from fmt.Fprint*/Print* to CLI output and from Close().
+# Restore the standard exclusions so errcheck stops flagging those as failures.
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      - std-error-handling

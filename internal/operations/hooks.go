@@ -38,15 +38,12 @@ type ApplyHooksResult struct {
 
 // ApplyHooks applies ctxloom hooks to backend configuration files.
 func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) (*ApplyHooksResult, error) {
-	// Set defaults
 	backend := req.Backend
 	if backend == "" {
 		backend = "all"
 	}
 
 	fs := getFS(req.FS)
-
-	// Build options for FS injection
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
 	contextOpts := []backends.ContextFileOption{backends.WithContextFS(fs)}
 
@@ -55,101 +52,31 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		backends.SetExecutablePathForTesting(req.ExecPath)
 	}
 
-	// Reload config to ensure freshness (use injected loader if provided)
-	configLoader := req.ConfigLoader
-	if configLoader == nil {
-		configLoader = func() (*config.Config, error) {
-			return config.Load()
-		}
-	}
-	freshCfg, err := configLoader()
+	freshCfg, err := resolveHookConfig(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, err
 	}
 
-	// Determine work directory (use injected workDir if provided)
-	workDir := req.WorkDir
-	if workDir == "" {
-		workDir = "."
-		if root, err := gitutil.FindRoot("."); err == nil {
-			workDir = root
-		}
-	}
+	workDir := resolveHookWorkDir(req)
+	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
-	var contextHash string
-	if req.RegenerateContext {
-		var bundleOpts []bundles.LoaderOption
-		if req.BundleLoaderFS != nil {
-			bundleOpts = append(bundleOpts, bundles.WithFS(req.BundleLoaderFS))
-		}
-		contextHash, err = regenerateContext(freshCfg, workDir, bundleOpts, contextOpts...)
-		if err != nil {
-			// Fault tolerance: a context-regen failure must not block hook
-			// application. Warn and continue with an empty context hash so the
-			// SessionStart injection hook is simply omitted this round.
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: regenerate context failed: %v\n", err)
-			contextHash = ""
-		}
-	}
-
-	applied := []string{}
-	var applyErrors []string
-
-	// Load MCP servers from profile bundles
+	// MCP servers from profile bundles + prompts for command files, shared
+	// across backends.
 	bundleMCP := freshCfg.ResolveBundleMCPServers()
+	prompts := loadPromptsForCommands(freshCfg, bundleLoaderOpts(req))
 
-	// Load prompts for command files (shared across backends)
-	var bundleOpts []bundles.LoaderOption
-	if req.BundleLoaderFS != nil {
-		bundleOpts = append(bundleOpts, bundles.WithFS(req.BundleLoaderFS))
-	}
-	prompts := loadPromptsForCommands(freshCfg, bundleOpts)
-
-	// Determine which backends to apply
-	var backendNames []string
-	if backend == "all" {
-		backendNames = backends.BackendsWithSettings()
-	} else {
-		backendNames = []string{backend}
-	}
-
-	// Apply to each backend
-	for _, backendName := range backendNames {
-		// Check for cancellation
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		// Assemble the complete managed hook set (config-level + default-profile
-		// + bundle-shipped + context-injection) via the shared assembler, so
-		// this write and the `ctxloom run` Setup path produce an identical set —
-		// see AssembleManagedHooks. A fresh HooksConfig per backend also avoids
-		// the duplicate-hook accumulation that aliasing freshCfg.Hooks across
-		// the loop would cause.
-		hooksCfg := backends.AssembleManagedHooks(freshCfg, workDir, contextHash)
-
-		// Fault tolerance: a single backend's failure must not abort the
-		// others. Record the error, warn, and move on — a partially applied
-		// set beats none, and the failure is surfaced in the result.
-		if err := backends.WriteSettings(backendName, hooksCfg, &freshCfg.MCP, bundleMCP, workDir, settingsOpts...); err != nil {
-			msg := fmt.Sprintf("failed to apply %s settings: %v", backendName, err)
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
-			applyErrors = append(applyErrors, msg)
-			continue
-		}
-
-		// Write command files (each backend handles its own format)
-		if len(prompts) > 0 {
-			cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(fs)}
-			if err := backends.WriteCommandFilesFor(backendName, workDir, prompts, cmdOpts...); err != nil {
-				msg := fmt.Sprintf("failed to write %s commands: %v", backendName, err)
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
-				applyErrors = append(applyErrors, msg)
-				continue
-			}
-		}
-
-		applied = append(applied, backendName)
+	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
+		backendNames: hookBackendNames(backend),
+		freshCfg:     freshCfg,
+		workDir:      workDir,
+		contextHash:  contextHash,
+		bundleMCP:    bundleMCP,
+		prompts:      prompts,
+		fs:           fs,
+		settingsOpts: settingsOpts,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	// Partial success is success: report which backends took and which
@@ -165,6 +92,116 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		ContextHash: contextHash,
 		Errors:      applyErrors,
 	}, nil
+}
+
+// bundleLoaderOpts builds the bundle loader options from the request's optional
+// test filesystem.
+func bundleLoaderOpts(req ApplyHooksRequest) []bundles.LoaderOption {
+	if req.BundleLoaderFS == nil {
+		return nil
+	}
+	return []bundles.LoaderOption{bundles.WithFS(req.BundleLoaderFS)}
+}
+
+// resolveHookConfig reloads config for freshness, using the injected loader when
+// provided.
+func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
+	loader := req.ConfigLoader
+	if loader == nil {
+		loader = func() (*config.Config, error) { return config.Load() }
+	}
+	freshCfg, err := loader()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	return freshCfg, nil
+}
+
+// resolveHookWorkDir returns the injected work dir, else the git root, else ".".
+func resolveHookWorkDir(req ApplyHooksRequest) string {
+	if req.WorkDir != "" {
+		return req.WorkDir
+	}
+	if root, err := gitutil.FindRoot("."); err == nil {
+		return root
+	}
+	return "."
+}
+
+// maybeRegenerateContext regenerates the injected context when requested,
+// returning its hash. Fault tolerance: a regen failure must not block hook
+// application — warn and return an empty hash so the SessionStart injection
+// hook is simply omitted this round.
+func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []backends.ContextFileOption) string {
+	if !req.RegenerateContext {
+		return ""
+	}
+	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: regenerate context failed: %v\n", err)
+		return ""
+	}
+	return contextHash
+}
+
+// hookBackendNames resolves the backend filter to the list of backends to apply.
+func hookBackendNames(backend string) []string {
+	if backend == "all" {
+		return backends.BackendsWithSettings()
+	}
+	return []string{backend}
+}
+
+// hookApplyParams bundles the per-backend apply inputs (shared across the loop).
+type hookApplyParams struct {
+	backendNames []string
+	freshCfg     *config.Config
+	workDir      string
+	contextHash  string
+	bundleMCP    map[string]config.MCPServer
+	prompts      []*bundles.LoadedContent
+	fs           afero.Fs
+	settingsOpts []backends.SettingsOption
+}
+
+// applyHooksToBackends applies hooks to each backend, returning the backends
+// that took and the per-backend failures. Fault tolerance: a single backend's
+// failure is recorded and warned, then the rest still run — a partially applied
+// set beats none. Context cancellation aborts the whole loop.
+func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, applyErrors []string, err error) {
+	applied = []string{}
+	for _, backendName := range p.backendNames {
+		if ctx.Err() != nil {
+			return applied, applyErrors, ctx.Err()
+		}
+		if e := applyHooksToBackend(backendName, p); e != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+			applyErrors = append(applyErrors, e.Error())
+			continue
+		}
+		applied = append(applied, backendName)
+	}
+	return applied, applyErrors, nil
+}
+
+// applyHooksToBackend writes one backend's settings and command files. The hook
+// set is assembled fresh per backend (config + default-profile + bundle-shipped
+// + context-injection, via AssembleManagedHooks) so this write matches the
+// `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
+// freshCfg.Hooks across the loop.
+func applyHooksToBackend(backendName string, p hookApplyParams) error {
+	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash)
+	if err := backends.WriteSettings(backendName, hooksCfg, &p.freshCfg.MCP, p.bundleMCP, p.workDir, p.settingsOpts...); err != nil {
+		return fmt.Errorf("failed to apply %s settings: %w", backendName, err)
+	}
+
+	if len(p.prompts) > 0 {
+		cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(p.fs)}
+		if err := backends.WriteCommandFilesFor(backendName, p.workDir, p.prompts, cmdOpts...); err != nil {
+			return fmt.Errorf("failed to write %s commands: %w", backendName, err)
+		}
+	}
+	return nil
 }
 
 // loadPromptsForCommands loads all prompts from bundles for slash command export.

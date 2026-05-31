@@ -232,24 +232,13 @@ func (s *ctxServer) handleShowBundleVerbatim(ctx context.Context, _ *mcp.CallToo
 	if in.Name == "" {
 		return nil, nil, fmt.Errorf("name is required")
 	}
-	pendingLock, err := operations.LoadPendingLockfile(s.cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load pending lockfile: %w", err)
-	}
-	if pendingLock == nil {
-		return nil, nil, fmt.Errorf("no pending lockfile — nothing to show")
-	}
-	reader := operations.NewBundleReaderForLockfile(s.cfg, pendingLock)
-	if reader == nil {
-		return nil, nil, fmt.Errorf("could not construct bundle reader")
-	}
-	newData, err := reader.ReadBundleBytes(ctx, in.Name)
+
+	newData, entry, err := s.readPendingBundle(ctx, in.Name)
 	if err != nil {
 		return nil, nil, err
 	}
-	entry, _ := reader.LockEntryFor(in.Name)
-	remoteName, _, _ := strings.Cut(in.Name, "/")
 
+	remoteName, _, _ := strings.Cut(in.Name, "/")
 	result := &showBundleVerbatimResult{
 		Name:    in.Name,
 		SHA:     entry.SHA,
@@ -257,23 +246,54 @@ func (s *ctxServer) handleShowBundleVerbatim(ctx context.Context, _ *mcp.CallToo
 		Content: string(newData),
 	}
 
-	// If the bundle is also in the active lockfile, compute a structural
-	// diff between the two parsed bundle YAMLs. Failure to load the old
-	// side is non-fatal — we just skip the diff and return raw Content.
-	active, err := operations.LoadActiveLockfile(s.cfg)
-	if err == nil && active != nil {
-		if oldEntry, ok := active.GetEntry(remote.ItemTypeBundle, in.Name); ok && oldEntry.SHA != "" {
-			oldReader := operations.NewBundleReaderForLockfile(s.cfg, active)
-			if oldReader != nil {
-				if oldData, err := oldReader.ReadBundleBytes(ctx, in.Name); err == nil {
-					result.OldSHA = oldEntry.SHA
-					result.Diff = diffBundleYAMLs(oldData, newData)
-				}
-			}
-		}
-	}
-
+	s.attachActiveBundleDiff(ctx, in.Name, newData, result)
 	return nil, result, nil
+}
+
+// readPendingBundle loads the bundle's bytes and lock entry from the pending
+// lockfile (erroring when there's no pending lockfile or reader).
+func (s *ctxServer) readPendingBundle(ctx context.Context, name string) ([]byte, remote.LockEntry, error) {
+	pendingLock, err := operations.LoadPendingLockfile(s.cfg)
+	if err != nil {
+		return nil, remote.LockEntry{}, fmt.Errorf("load pending lockfile: %w", err)
+	}
+	if pendingLock == nil {
+		return nil, remote.LockEntry{}, fmt.Errorf("no pending lockfile — nothing to show")
+	}
+	reader := operations.NewBundleReaderForLockfile(s.cfg, pendingLock)
+	if reader == nil {
+		return nil, remote.LockEntry{}, fmt.Errorf("could not construct bundle reader")
+	}
+	newData, err := reader.ReadBundleBytes(ctx, name)
+	if err != nil {
+		return nil, remote.LockEntry{}, err
+	}
+	entry, _ := reader.LockEntryFor(name)
+	return newData, entry, nil
+}
+
+// attachActiveBundleDiff sets result.OldSHA/Diff from a structural diff against
+// the active lockfile's copy of the bundle. Any failure to load the old side is
+// non-fatal — the diff is simply skipped (raw Content still returned).
+func (s *ctxServer) attachActiveBundleDiff(ctx context.Context, name string, newData []byte, result *showBundleVerbatimResult) {
+	active, err := operations.LoadActiveLockfile(s.cfg)
+	if err != nil || active == nil {
+		return
+	}
+	oldEntry, ok := active.GetEntry(remote.ItemTypeBundle, name)
+	if !ok || oldEntry.SHA == "" {
+		return
+	}
+	oldReader := operations.NewBundleReaderForLockfile(s.cfg, active)
+	if oldReader == nil {
+		return
+	}
+	oldData, err := oldReader.ReadBundleBytes(ctx, name)
+	if err != nil {
+		return
+	}
+	result.OldSHA = oldEntry.SHA
+	result.Diff = diffBundleYAMLs(oldData, newData)
 }
 
 // diffBundleYAMLs parses two bundle YAML blobs and returns a short

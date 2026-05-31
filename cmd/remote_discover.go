@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -114,52 +115,69 @@ func interactiveAdd(cmd *cobra.Command, repos []operations.RepoEntry) error {
 	}
 
 	reader := bufio.NewReader(os.Stdin)
-
 	for {
-		fmt.Print("Add remote? Enter number (or 'q' to quit): ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return nil // EOF is ok
-		}
-
-		input = strings.TrimSpace(input)
-		if input == "q" || input == "" {
+		num, quit := readRepoChoice(reader, len(repos))
+		if quit {
 			return nil
 		}
-
-		num, err := strconv.Atoi(input)
-		if err != nil || num < 1 || num > len(repos) {
-			fmt.Printf("Invalid selection. Enter 1-%d or 'q'.\n", len(repos))
-			continue
+		if num == 0 {
+			continue // invalid selection — re-prompt
 		}
 
 		repo := repos[num-1]
-
-		// Suggest name
-		defaultName := repo.Owner
-		fmt.Printf("Name for remote [%s]: ", defaultName)
-		nameInput, _ := reader.ReadString('\n')
-		name := strings.TrimSpace(nameInput)
-		if name == "" {
-			name = defaultName
-		}
-
-		// Add remote using operations
-		result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-			Name: name,
-			URL:  repo.URL,
-		})
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-
-		if result.Warning != "" {
-			fmt.Printf("Warning: %s\n", result.Warning)
-		}
-
-		fmt.Printf("Added remote '%s' → %s\n\n", result.Name, result.URL)
+		name := promptRemoteName(reader, repo.Owner)
+		addDiscoveredRemote(cmd, cfg, name, repo.URL)
 	}
+}
+
+// readRepoChoice prompts for a repo selection. quit is true on q/empty/EOF; a
+// returned num of 0 (with quit false) means an invalid entry the caller should
+// re-prompt, otherwise num is a 1-based index into the repo list.
+func readRepoChoice(reader *bufio.Reader, count int) (num int, quit bool) {
+	fmt.Print("Add remote? Enter number (or 'q' to quit): ")
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return 0, true // EOF is ok
+	}
+	input = strings.TrimSpace(input)
+	if input == "q" || input == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(input)
+	if err != nil || n < 1 || n > count {
+		fmt.Printf("Invalid selection. Enter 1-%d or 'q'.\n", count)
+		return 0, false
+	}
+	return n, false
+}
+
+// promptRemoteName asks for a remote name, defaulting to defaultName on empty
+// input.
+func promptRemoteName(reader *bufio.Reader, defaultName string) string {
+	fmt.Printf("Name for remote [%s]: ", defaultName)
+	nameInput, _ := reader.ReadString('\n')
+	name := strings.TrimSpace(nameInput)
+	if name == "" {
+		return defaultName
+	}
+	return name
+}
+
+// addDiscoveredRemote adds a remote and reports the outcome (errors and
+// warnings are printed, not returned — the interactive loop continues).
+func addDiscoveredRemote(cmd *cobra.Command, cfg *config.Config, name, url string) {
+	result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+		Name: name,
+		URL:  url,
+	})
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	if result.Warning != "" {
+		fmt.Printf("Warning: %s\n", result.Warning)
+	}
+	fmt.Printf("Added remote '%s' → %s\n\n", result.Name, result.URL)
 }
 
 func init() {

@@ -112,62 +112,78 @@ Bundle references use full URLs:
 Example:
   ctxloom profile create developer -b https://github.com/user/ctxloom@v1/bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
+	RunE: runProfileCreate,
+}
 
-		if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
-			return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
-		}
+func runProfileCreate(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if name == "help" {
+		return cmd.Help()
+	}
 
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+	if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
+		return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
+	}
 
-		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-		if len(profileDirs) == 0 {
-			// Create the directory
-			profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
-		}
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 
-		loader := profiles.NewLoader(profileDirs)
+	loader := profiles.NewLoader(profileCreateDirs(cfg))
+	if err := checkProfileCreatable(loader, name); err != nil {
+		return err
+	}
 
-		if loader.Exists(name) {
-			return fmt.Errorf("profile %q already exists (use 'profile delete' first)", name)
-		}
+	profile := &profiles.Profile{
+		Name:        name,
+		Description: profileCreateDescription,
+		Parents:     profileCreateParents,
+		Bundles:     profileCreateBundles,
+	}
+	if err := loader.Save(profile); err != nil {
+		return fmt.Errorf("failed to save profile: %w", err)
+	}
 
-		// Validate parent profiles exist
-		for _, parent := range profileCreateParents {
-			if !loader.Exists(parent) {
-				return fmt.Errorf("parent profile %q not found", parent)
-			}
-		}
+	printProfileCreated(name, profile.Path)
+	return nil
+}
 
-		profile := &profiles.Profile{
-			Name:        name,
-			Description: profileCreateDescription,
-			Parents:     profileCreateParents,
-			Bundles:     profileCreateBundles,
-		}
+// profileCreateDirs returns the profile directories, defaulting to
+// <appPath>/profiles when none are configured yet.
+func profileCreateDirs(cfg *config.Config) []string {
+	dirs := profiles.GetProfileDirs(cfg.AppPaths)
+	if len(dirs) == 0 {
+		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
+	}
+	return dirs
+}
 
-		if err := loader.Save(profile); err != nil {
-			return fmt.Errorf("failed to save profile: %w", err)
+// checkProfileCreatable verifies the name is free and every declared parent
+// exists.
+func checkProfileCreatable(loader *profiles.Loader, name string) error {
+	if loader.Exists(name) {
+		return fmt.Errorf("profile %q already exists (use 'profile delete' first)", name)
+	}
+	for _, parent := range profileCreateParents {
+		if !loader.Exists(parent) {
+			return fmt.Errorf("parent profile %q not found", parent)
 		}
+	}
+	return nil
+}
 
-		var parts []string
-		if len(profileCreateParents) > 0 {
-			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))
-		}
-		if len(profileCreateBundles) > 0 {
-			parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
-		}
-		fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
-		fmt.Printf("Saved to: %s\n", profile.Path)
-		return nil
-	},
+// printProfileCreated reports a newly-created profile's parents/bundles and path.
+func printProfileCreated(name, path string) {
+	var parts []string
+	if len(profileCreateParents) > 0 {
+		parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))
+	}
+	if len(profileCreateBundles) > 0 {
+		parts = append(parts, fmt.Sprintf("bundles: %s", strings.Join(profileCreateBundles, ", ")))
+	}
+	fmt.Printf("Created profile %q with %s\n", name, strings.Join(parts, "; "))
+	fmt.Printf("Saved to: %s\n", path)
 }
 
 var profileDeleteCmd = &cobra.Command{
@@ -477,62 +493,79 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Load the profile
-	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-	if len(profileDirs) == 0 {
-		return fmt.Errorf("no profiles directory found")
-	}
-
-	loader := profiles.NewLoader(profileDirs)
-	profile, err := loader.Load(profileName)
+	profile, err := loadProfileForPush(cfg, profileName)
 	if err != nil {
-		return fmt.Errorf("profile not found: %s", profileName)
+		return err
 	}
 
-	// Initialize registry
 	registry, err := remote.NewRegistry("")
 	if err != nil {
 		return fmt.Errorf("failed to initialize registry: %w", err)
 	}
 
-	// Use default remote if not specified
-	if remoteName == "" {
-		remoteName = registry.GetDefault()
-		if remoteName == "" {
-			return fmt.Errorf("no remote specified and no default set. Use: ctxloom profile push <name> <remote>")
-		}
+	remoteName, err = resolveDefaultRemote(registry, remoteName, "ctxloom profile push <name> <remote>")
+	if err != nil {
+		return err
 	}
 
-	auth := remote.LoadAuth("")
-
-	// Build publish options
 	opts := remote.PublishOptions{
 		CreatePR: profilePushPR,
 		Branch:   profilePushBranch,
 		Message:  profilePushMessage,
 		ItemType: remote.ItemTypeProfile,
 	}
-
 	fmt.Printf("Publishing profile %q to %s...\n", profileName, remoteName)
 
-	pm := remote.NewPublishManager(registry, auth)
+	pm := remote.NewPublishManager(registry, remote.LoadAuth(""))
 	result, err := pm.Publish(cmd.Context(), profile.Path, remoteName, opts)
 	if err != nil {
 		return err
 	}
 
+	printPublishResult(result)
+	return nil
+}
+
+// loadProfileForPush loads the named profile from the configured profile dirs.
+func loadProfileForPush(cfg *config.Config, profileName string) (*profiles.Profile, error) {
+	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
+	if len(profileDirs) == 0 {
+		return nil, fmt.Errorf("no profiles directory found")
+	}
+	profile, err := profiles.NewLoader(profileDirs).Load(profileName)
+	if err != nil {
+		return nil, fmt.Errorf("profile not found: %s", profileName)
+	}
+	return profile, nil
+}
+
+// resolveDefaultRemote returns remoteName when set, else the registry default,
+// erroring (with the given usage hint) when neither is available. Shared by the
+// profile and bundle push commands.
+func resolveDefaultRemote(registry *remote.Registry, remoteName, usage string) (string, error) {
+	if remoteName != "" {
+		return remoteName, nil
+	}
+	def := registry.GetDefault()
+	if def == "" {
+		return "", fmt.Errorf("no remote specified and no default set. Use: %s", usage)
+	}
+	return def, nil
+}
+
+// printPublishResult reports a publish outcome: the PR URL, or the created/
+// updated path and commit. Shared by the profile and bundle push commands.
+func printPublishResult(result *remote.PublishResult) {
 	if result.PRURL != "" {
 		fmt.Printf("Created pull request: %s\n", result.PRURL)
-	} else {
-		action := "Created"
-		if !result.Created {
-			action = "Updated"
-		}
-		fmt.Printf("%s %s\n", action, result.Path)
-		fmt.Printf("Commit: %s\n", result.SHA[:7])
+		return
 	}
-
-	return nil
+	action := "Created"
+	if !result.Created {
+		action = "Updated"
+	}
+	fmt.Printf("%s %s\n", action, result.Path)
+	fmt.Printf("Commit: %s\n", result.SHA[:7])
 }
 
 var profileEditCmd = &cobra.Command{

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -50,62 +51,50 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Load the bundle
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return fmt.Errorf("no bundles directory found")
-	}
-
-	loader := bundles.NewLoader(bundleDirs, false)
-	bundle, err := loader.Load(bundleName)
+	bundle, err := loadBundleForPush(cfg, bundleName)
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		return err
 	}
 
-	// Initialize registry
 	registry, err := remote.NewRegistry("")
 	if err != nil {
 		return fmt.Errorf("failed to initialize registry: %w", err)
 	}
 
-	// Use default remote if not specified
-	if remoteName == "" {
-		remoteName = registry.GetDefault()
-		if remoteName == "" {
-			return fmt.Errorf("no remote specified and no default set. Use: ctxloom bundle push <name> <remote>")
-		}
+	remoteName, err = resolveDefaultRemote(registry, remoteName, "ctxloom bundle push <name> <remote>")
+	if err != nil {
+		return err
 	}
 
-	auth := remote.LoadAuth("")
-
-	// Build publish options
 	opts := remote.PublishOptions{
 		CreatePR: bundlePushPR,
 		Branch:   bundlePushBranch,
 		Message:  bundlePushMessage,
 		ItemType: remote.ItemTypeBundle,
 	}
-
 	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
 
-	pm := remote.NewPublishManager(registry, auth)
+	pm := remote.NewPublishManager(registry, remote.LoadAuth(""))
 	result, err := pm.Publish(cmd.Context(), bundle.Path, remoteName, opts)
 	if err != nil {
 		return err
 	}
 
-	if result.PRURL != "" {
-		fmt.Printf("Created pull request: %s\n", result.PRURL)
-	} else {
-		action := "Created"
-		if !result.Created {
-			action = "Updated"
-		}
-		fmt.Printf("%s %s\n", action, result.Path)
-		fmt.Printf("Commit: %s\n", result.SHA[:7])
-	}
-
+	printPublishResult(result)
 	return nil
+}
+
+// loadBundleForPush loads the named bundle from the configured bundle dirs.
+func loadBundleForPush(cfg *config.Config, bundleName string) (*bundles.Bundle, error) {
+	bundleDirs := cfg.GetBundleDirs()
+	if len(bundleDirs) == 0 {
+		return nil, fmt.Errorf("no bundles directory found")
+	}
+	bundle, err := bundles.NewLoader(bundleDirs, false).Load(bundleName)
+	if err != nil {
+		return nil, fmt.Errorf("bundle not found: %s", bundleName)
+	}
+	return bundle, nil
 }
 
 var bundleExportOutput string

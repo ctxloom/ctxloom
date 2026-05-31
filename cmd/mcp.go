@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -181,52 +182,46 @@ var mcpShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show details of an MCP server configuration",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
+	RunE:  runMCPShow,
+}
 
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+func runMCPShow(cmd *cobra.Command, args []string) error {
+	name := args[0]
 
-		// Check unified servers
-		if srv, ok := cfg.MCP.Servers[name]; ok {
-			fmt.Printf("MCP Server: %s\n", name)
-			fmt.Printf("Scope: unified (all backends)\n")
-			fmt.Printf("Command: %s\n", srv.Command)
-			if len(srv.Args) > 0 {
-				fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
-			}
-			if len(srv.Env) > 0 {
-				fmt.Println("Environment:")
-				for k, v := range srv.Env {
-					fmt.Printf("  %s=%s\n", k, v)
-				}
-			}
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if srv, ok := cfg.MCP.Servers[name]; ok {
+		printMCPServerDetails(name, "unified (all backends)", srv)
+		return nil
+	}
+
+	for backend, servers := range cfg.MCP.Plugins {
+		if srv, ok := servers[name]; ok {
+			printMCPServerDetails(name, backend+" only", srv)
 			return nil
 		}
+	}
 
-		// Check backend-specific servers
-		for backend, servers := range cfg.MCP.Plugins {
-			if srv, ok := servers[name]; ok {
-				fmt.Printf("MCP Server: %s\n", name)
-				fmt.Printf("Scope: %s only\n", backend)
-				fmt.Printf("Command: %s\n", srv.Command)
-				if len(srv.Args) > 0 {
-					fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
-				}
-				if len(srv.Env) > 0 {
-					fmt.Println("Environment:")
-					for k, v := range srv.Env {
-						fmt.Printf("  %s=%s\n", k, v)
-					}
-				}
-				return nil
-			}
+	return fmt.Errorf("MCP server %q not found", name)
+}
+
+// printMCPServerDetails prints an MCP server's scope, command, args, and env.
+func printMCPServerDetails(name, scope string, srv config.MCPServer) {
+	fmt.Printf("MCP Server: %s\n", name)
+	fmt.Printf("Scope: %s\n", scope)
+	fmt.Printf("Command: %s\n", srv.Command)
+	if len(srv.Args) > 0 {
+		fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
+	}
+	if len(srv.Env) > 0 {
+		fmt.Println("Environment:")
+		for k, v := range srv.Env {
+			fmt.Printf("  %s=%s\n", k, v)
 		}
-
-		return fmt.Errorf("MCP server %q not found", name)
-	},
+	}
 }
 
 var mcpAutoRegisterDisable bool

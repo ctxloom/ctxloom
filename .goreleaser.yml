@@ -30,7 +30,9 @@ builds:
       - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
 
   # Full build - includes memory, vectors, and tree-sitter (31MB)
-  # Requires CGO and cross-compilers
+  # Requires CGO and cross-compilers. Statically linked on linux/windows (see
+  # ldflags below); netgo/osusergo force the pure-Go resolver and user lookups
+  # so static glibc linking doesn't break DNS or os/user.
   - id: ctxloom-full
     main: ./main.go
     binary: ctxloom
@@ -38,6 +40,8 @@ builds:
       - memory
       - vectors
       - treesitter
+      - netgo
+      - osusergo
     env:
       - CGO_ENABLED=1
       # Cross-compiler environment variables (provided by goreleaser-cross image)
@@ -63,6 +67,9 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/ctxloom/ctxloom/cmd.Version={{.Version}}
+      # Static linking for linux/windows; macOS cannot fully static-link system
+      # libraries, so leave darwin dynamic.
+      - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
 
 # UPX compression for smaller binaries
 # NOTE: UPX is disabled for darwin - it breaks code signing and causes
@@ -84,11 +91,11 @@ upx:
 archives:
   # Light build archives (default, recommended)
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
-        format: zip
-    builds:
+        formats: [zip]
+    ids:
       - ctxloom
     name_template: >-
       {{ .ProjectName }}_
@@ -102,11 +109,11 @@ archives:
 
   # Full build archives (with tree-sitter)
   - id: full
-    format: tar.gz
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
-        format: zip
-    builds:
+        formats: [zip]
+    ids:
       - ctxloom-full
     name_template: >-
       {{ .ProjectName }}_
@@ -117,6 +124,62 @@ archives:
       - LICENSE*
       - README.md
       - man/man1/*.1
+
+# Homebrew casks published to ctxloom/homebrew-tap. Two casks mirror the two
+# builds; they install the same `ctxloom` binary, so each declares a conflict
+# with the other. Casks are macOS-only — Linux users install via scripts/install.sh.
+#
+# Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a PAT with push access to the
+# tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.
+#
+# The post-install hook strips the macOS quarantine attribute so the unsigned
+# binary launches without a Gatekeeper prompt.
+homebrew_casks:
+  # Standard build (recommended): memory + simple vector search, no CGO deps.
+  #   brew install ctxloom/tap/ctxloom
+  - name: ctxloom
+    ids:
+      - default
+    binary: ctxloom
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Context Loom - Weave context for AI coding agents"
+    license: "BSD-3-Clause"
+    conflicts:
+      - cask: ctxloom-full
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ctxloom"]
+          end
+
+  # Full build: adds tree-sitter AST code compression (CGO).
+  #   brew install ctxloom/tap/ctxloom-full
+  - name: ctxloom-full
+    ids:
+      - full
+    binary: ctxloom
+    repository:
+      owner: ctxloom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Context Loom (full build with tree-sitter AST code compression)"
+    license: "BSD-3-Clause"
+    conflicts:
+      - cask: ctxloom
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ctxloom"]
+          end
 
 checksum:
   name_template: 'checksums.txt'

@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestJSONCompressor_InvalidJSONDegradesToVerbatim(t *testing.T) {
+	c := NewJSONCompressor()
+	input := `{not valid json,,,`
+
+	result, err := c.Compress(context.Background(), input, 0.5)
+	require.NoError(t, err, "invalid JSON must degrade, not error")
+	assert.Equal(t, input, result.Content, "content should pass through verbatim")
+	assert.Equal(t, 1.0, result.Ratio)
+}
+
 func TestJSONCompressor_Basic(t *testing.T) {
 	c := NewJSONCompressor()
 	ctx := context.Background()
@@ -140,9 +150,9 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name        string
-		value       string
-		shouldKeep  bool
+		name       string
+		value      string
+		shouldKeep bool
 	}{
 		{"UUID", "550e8400-e29b-41d4-a716-446655440000", true},
 		{"hash", "a1b2c3d4e5f6789012345678901234567890abcd", true},
@@ -225,11 +235,11 @@ func TestJSONCompressor_Entropy(t *testing.T) {
 		input    string
 		highEntr bool
 	}{
-		{"aaaaaaaaaaaaa", false},                                  // Low entropy - single repeated char
-		{"aaaaabbbbb", false},                                     // Low entropy - two repeated chars
-		{"abcdefghijklmnop", true},                                // High entropy - varied chars
-		{"550e8400-e29b-41d4-a716-446655440000", true},           // UUID
-		{"x7Kj2mNpQrStUvWx", true},                               // Random-looking
+		{"aaaaaaaaaaaaa", false},                       // Low entropy - single repeated char
+		{"aaaaabbbbb", false},                          // Low entropy - two repeated chars
+		{"abcdefghijklmnop", true},                     // High entropy - varied chars
+		{"550e8400-e29b-41d4-a716-446655440000", true}, // UUID
+		{"x7Kj2mNpQrStUvWx", true},                     // Random-looking
 	}
 
 	for _, tt := range tests {

@@ -244,7 +244,7 @@ func TestVendorManager_VendorAll(t *testing.T) {
 
 		// Create mock fetcher
 		mf := newMockFetcher()
-		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+		mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\n")
 
 		manager := NewVendorManager("/test",
 			WithVendorFS(fs),
@@ -256,9 +256,8 @@ func TestVendorManager_VendorAll(t *testing.T) {
 			Version: 1,
 			Bundles: map[string]LockEntry{
 				"alice/security": {
-					SHA:        "abc123",
-					URL:        "https://github.com/alice/ctxloom",
-					CtxloomVersion: "v1",
+					SHA: "abc123",
+					URL: "https://github.com/alice/ctxloom",
 				},
 			},
 			Profiles: make(map[string]LockEntry),

@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/spf13/afero"
 )
 
 // Codex implements the Backend interface for OpenAI Codex CLI.
@@ -27,7 +29,7 @@ func NewCodex() *Codex {
 		context:     &CLIContextProvider{},
 	}
 	b.BinaryPath = "codex"
-	b.history = &CodexSessionHistory{backend: b}
+	b.history = NewCodexSessionHistory(b)
 	return b
 }
 
@@ -114,9 +116,45 @@ func (b *Codex) buildArgs(req *ExecuteRequest, quiet bool) []string {
 }
 
 // CodexSessionHistory implements SessionHistory for Codex CLI.
-// Reads from ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+// Reads from ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl. The fs
+// and homeDir fields are afero injection points used by tests; in
+// production they default to OS filesystem + os.UserHomeDir.
 type CodexSessionHistory struct {
 	backend *Codex
+	fs      afero.Fs
+	homeDir string // empty => fall back to os.UserHomeDir + $CODEX_HOME
+}
+
+// CodexSessionHistoryOption configures CodexSessionHistory.
+type CodexSessionHistoryOption func(*CodexSessionHistory)
+
+// WithCodexSessionFS sets a custom filesystem for testing.
+func WithCodexSessionFS(fs afero.Fs) CodexSessionHistoryOption {
+	return func(h *CodexSessionHistory) {
+		h.fs = fs
+	}
+}
+
+// WithCodexSessionHomeDir sets a custom home directory for testing.
+// Overrides both os.UserHomeDir and the CODEX_HOME env var.
+func WithCodexSessionHomeDir(dir string) CodexSessionHistoryOption {
+	return func(h *CodexSessionHistory) {
+		h.homeDir = dir
+	}
+}
+
+// NewCodexSessionHistory creates a new Codex session history handler.
+// Mirrors NewGeminiSessionHistory's shape so tests can swap in an
+// afero.MemMapFs and a synthetic home dir for hermetic runs.
+func NewCodexSessionHistory(backend *Codex, opts ...CodexSessionHistoryOption) *CodexSessionHistory {
+	h := &CodexSessionHistory{
+		backend: backend,
+		fs:      afero.NewOsFs(),
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
@@ -144,7 +182,7 @@ func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error
 	var sessions []SessionMeta
 
 	// Walk through YYYY/MM/DD structure
-	err = filepath.Walk(sessionsDir, func(path string, info os.FileInfo, err error) error {
+	err = afero.Walk(h.fs, sessionsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
 		}
@@ -160,6 +198,7 @@ func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error
 		sessions = append(sessions, SessionMeta{
 			ID:        relPath,
 			StartTime: info.ModTime(),
+			Path:      path,
 		})
 		return nil
 	})
@@ -188,20 +227,28 @@ func (h *CodexSessionHistory) GetSession(workDir string, sessionID string) (*Ses
 }
 
 // getSessionsDir returns the Codex sessions directory.
+//
+// Resolution order: explicit homeDir override (test-only) → $CODEX_HOME →
+// os.UserHomeDir() + "/.codex". The chosen dir is suffixed with /sessions
+// and stat-checked through the injected fs so tests with an empty
+// MemMapFs see the "not found" error without touching the real OS.
 func (h *CodexSessionHistory) getSessionsDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	// Check CODEX_HOME env var first
-	codexHome := os.Getenv("CODEX_HOME")
-	if codexHome == "" {
+	var codexHome string
+	switch {
+	case h.homeDir != "":
+		codexHome = filepath.Join(h.homeDir, ".codex")
+	case os.Getenv("CODEX_HOME") != "":
+		codexHome = os.Getenv("CODEX_HOME")
+	default:
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
 		codexHome = filepath.Join(homeDir, ".codex")
 	}
 
 	sessionsDir := filepath.Join(codexHome, "sessions")
-	if _, err := os.Stat(sessionsDir); err != nil {
+	if _, err := h.fs.Stat(sessionsDir); err != nil {
 		return "", fmt.Errorf("sessions directory not found: %s", sessionsDir)
 	}
 
@@ -210,7 +257,7 @@ func (h *CodexSessionHistory) getSessionsDir() (string, error) {
 
 // parseSessionFile reads and parses a Codex session JSONL file.
 func (h *CodexSessionHistory) parseSessionFile(path string) (*Session, error) {
-	file, err := os.Open(path)
+	file, err := h.fs.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session file: %w", err)
 	}

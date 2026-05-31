@@ -80,6 +80,35 @@ type FetchRemoteContentResult struct {
 	RemoteName string `json:"-"` // Internal use
 }
 
+// parseRemoteItemType maps the request item_type string to a remote.ItemType,
+// accepting only "bundle" and "profile".
+func parseRemoteItemType(s string) (remote.ItemType, error) {
+	switch s {
+	case "bundle":
+		return remote.ItemTypeBundle, nil
+	case "profile":
+		return remote.ItemTypeProfile, nil
+	}
+	return "", fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", s)
+}
+
+// resolveContentSHA resolves a content version to a commit SHA, defaulting to
+// the repo's default branch when no version is pinned.
+func resolveContentSHA(ctx context.Context, fetcher remote.Fetcher, owner, repo, contentVersion string) (string, error) {
+	if contentVersion == "" {
+		var err error
+		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
+		if err != nil {
+			return "", fmt.Errorf("failed to get default branch: %w", err)
+		}
+	}
+	sha, err := fetcher.ResolveRef(ctx, owner, repo, contentVersion)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
+	}
+	return sha, nil
+}
+
 // FetchRemoteContent fetches content from a remote for preview.
 // This is used by the MCP preview_remote tool.
 func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemoteContentRequest) (*FetchRemoteContentResult, error) {
@@ -90,14 +119,9 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 		return nil, fmt.Errorf("item_type is required")
 	}
 
-	var itemType remote.ItemType
-	switch req.ItemType {
-	case "bundle":
-		itemType = remote.ItemTypeBundle
-	case "profile":
-		itemType = remote.ItemTypeProfile
-	default:
-		return nil, fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", req.ItemType)
+	itemType, err := parseRemoteItemType(req.ItemType)
+	if err != nil {
+		return nil, err
 	}
 
 	ref, err := remote.ParseReference(req.Reference)
@@ -105,14 +129,9 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
-	// Use injected registry or load from config
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = getRegistry(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load registry: %w", err)
-		}
+	registry, err := resolveRegistry(cfg, req.Registry)
+	if err != nil {
+		return nil, err
 	}
 
 	rem, err := registry.Get(ref.Remote)
@@ -120,39 +139,18 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 		return nil, err
 	}
 
-	// Use injected fetcher or create one
-	fetcher := req.Fetcher
-	if fetcher == nil {
-		baseDir := getBaseDir(cfg)
-		auth := remote.LoadAuth(baseDir)
-		var err error
-		fetcher, err = remote.NewFetcher(rem.URL, auth)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create fetcher: %w", err)
-		}
-	}
-
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	fetcher, owner, repo, err := resolveBrowseFetcher(cfg, rem, req.Fetcher)
 	if err != nil {
-		return nil, fmt.Errorf("invalid remote URL: %w", err)
+		return nil, err
 	}
 
-	// Resolve ref to SHA
-	contentVersion := ref.ContentVersion
-	if contentVersion == "" {
-		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default branch: %w", err)
-		}
-	}
-
-	sha, err := fetcher.ResolveRef(ctx, owner, repo, contentVersion)
+	sha, err := resolveContentSHA(ctx, fetcher, owner, repo, ref.ContentVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
+		return nil, err
 	}
 
 	// Fetch content
-	filePath := ref.BuildFilePath(itemType, rem.Version)
+	filePath := ref.BuildFilePath(itemType)
 	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
@@ -161,15 +159,10 @@ func FetchRemoteContent(ctx context.Context, cfg *config.Config, req FetchRemote
 	// Generate pull token (item_type:reference@SHA for re-fetch capability)
 	pullToken := fmt.Sprintf("%s:%s/%s@%s", req.ItemType, ref.Remote, ref.Path, sha)
 
-	shortSHA := sha
-	if len(sha) > 7 {
-		shortSHA = sha[:7]
-	}
-
 	return &FetchRemoteContentResult{
 		Reference:  req.Reference,
 		ItemType:   req.ItemType,
-		SHA:        shortSHA,
+		SHA:        shortSHA(sha),
 		FullSHA:    sha,
 		SourceURL:  rem.URL,
 		FilePath:   filePath,
@@ -199,31 +192,34 @@ type WriteRemoteItemResult struct {
 	Overwritten bool   `json:"overwritten"`
 }
 
+// cleanPullTokenRef unwraps a "bundle:remote/path@sha" / "profile:…" pull token
+// (returned by FetchRemoteContent) to its clean reference. Tokens must be
+// parsed specially to avoid creating directories with colons like
+// "bundle:personal". Non-token references are returned unchanged.
+func cleanPullTokenRef(refStr string) (string, error) {
+	if !strings.HasPrefix(refStr, "bundle:") && !strings.HasPrefix(refStr, "profile:") {
+		return refStr, nil
+	}
+	_, cleanRef, _, err := parsePullToken(refStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid pull token: %w", err)
+	}
+	return cleanRef, nil
+}
+
 // WriteRemoteItem writes fetched content to the local filesystem.
 // This is used by the MCP confirm_pull tool.
 func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteItemRequest) (*WriteRemoteItemResult, error) {
 	fs := getFS(req.FS)
 
-	var itemType remote.ItemType
-	switch req.ItemType {
-	case "bundle":
-		itemType = remote.ItemTypeBundle
-	case "profile":
-		itemType = remote.ItemTypeProfile
-	default:
-		return nil, fmt.Errorf("invalid item_type: %s", req.ItemType)
+	itemType, err := parseRemoteItemType(req.ItemType)
+	if err != nil {
+		return nil, err
 	}
 
-	// Handle pull token format (e.g., "bundle:remote/path@sha")
-	// Pull tokens are returned by FetchRemoteContent and must be parsed specially
-	// to avoid creating directories with colons like "bundle:personal".
-	refStr := req.Reference
-	if strings.HasPrefix(refStr, "bundle:") || strings.HasPrefix(refStr, "profile:") {
-		_, cleanRef, _, err := parsePullToken(refStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid pull token: %w", err)
-		}
-		refStr = cleanRef
+	refStr, err := cleanPullTokenRef(req.Reference)
+	if err != nil {
+		return nil, err
 	}
 
 	ref, err := remote.ParseReference(refStr)
@@ -250,11 +246,6 @@ func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteIte
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	shortSHA := req.SHA
-	if len(shortSHA) > 7 {
-		shortSHA = shortSHA[:7]
-	}
-
 	status := "installed"
 	if overwritten {
 		status = "updated"
@@ -265,7 +256,7 @@ func WriteRemoteItem(ctx context.Context, cfg *config.Config, req WriteRemoteIte
 		Reference:   req.Reference,
 		ItemType:    req.ItemType,
 		LocalPath:   localPath,
-		SHA:         shortSHA,
+		SHA:         shortSHA(req.SHA),
 		Overwritten: overwritten,
 	}, nil
 }
@@ -298,32 +289,15 @@ type PullItemResult struct {
 // PullItem performs a direct pull operation using the existing Puller.
 // This wraps the remote.Puller with correct config-based LocalDir.
 func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*PullItemResult, error) {
-	var itemType remote.ItemType
-	switch req.ItemType {
-	case "bundle":
-		itemType = remote.ItemTypeBundle
-	case "profile":
-		itemType = remote.ItemTypeProfile
-	default:
-		return nil, fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", req.ItemType)
+	itemType, err := parseRemoteItemType(req.ItemType)
+	if err != nil {
+		return nil, err
 	}
 
-	// Use injected puller or create one
-	puller := req.Puller
 	baseDir := getBaseDir(cfg)
-	if puller == nil {
-		// Use injected registry or load from config
-		registry := req.Registry
-		if registry == nil {
-			var err error
-			registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
-			if err != nil {
-				return nil, fmt.Errorf("failed to initialize registry: %w", err)
-			}
-		}
-
-		auth := remote.LoadAuth(baseDir)
-		puller = remote.NewPuller(registry, auth)
+	puller, err := resolvePullItemPuller(cfg, req, baseDir)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := remote.PullOptions{
@@ -339,23 +313,44 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		return nil, err
 	}
 
-	pullResult := &PullItemResult{
+	return &PullItemResult{
 		LocalPath:     result.LocalPath,
 		SHA:           result.SHA,
 		Overwritten:   result.Overwritten,
 		CascadePulled: result.CascadePulled,
-	}
+		Installation:  bundleInstallation(itemType, result.Content),
+	}, nil
+}
 
-	// Extract installation instructions from pulled bundle
-	if itemType == remote.ItemTypeBundle && result.LocalPath != "" {
-		data, readErr := afero.ReadFile(getFS(req.FS), result.LocalPath)
-		if readErr == nil {
-			bundle, parseErr := bundles.ParseBundle(data)
-			if parseErr == nil && bundle.Installation != "" {
-				pullResult.Installation = bundle.Installation
-			}
+// resolvePullItemPuller returns the injected puller, or builds one from an
+// injected/loaded registry.
+func resolvePullItemPuller(cfg *config.Config, req PullItemRequest, baseDir string) (Puller, error) {
+	if req.Puller != nil {
+		return req.Puller, nil
+	}
+	registry := req.Registry
+	if registry == nil {
+		var err error
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize registry: %w", err)
 		}
 	}
+	auth := remote.LoadAuth(baseDir)
+	return remote.NewPuller(registry, auth, remote.WithFetcherFactory(newCachedFetcherFactory(cfg))), nil
+}
 
-	return pullResult, nil
+// bundleInstallation extracts a pulled bundle's installation instructions from
+// its content. After PR 1 the bundle bytes come back on result.Content
+// (LocalPath is synthetic), so parse those directly instead of reading disk.
+// Returns "" for non-bundles, empty content, or parse failures.
+func bundleInstallation(itemType remote.ItemType, content []byte) string {
+	if itemType != remote.ItemTypeBundle || len(content) == 0 {
+		return ""
+	}
+	bundle, err := bundles.ParseBundle(content)
+	if err != nil {
+		return ""
+	}
+	return bundle.Installation
 }

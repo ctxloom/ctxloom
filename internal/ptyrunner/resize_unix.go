@@ -18,8 +18,10 @@ func startResizeHandler(ptty pty.Pty) func() {
 	signal.Notify(resizeCh, syscall.SIGWINCH)
 
 	done := make(chan struct{})
+	finished := make(chan struct{})
 
 	go func() {
+		defer close(finished)
 		for {
 			select {
 			case <-done:
@@ -35,8 +37,14 @@ func startResizeHandler(ptty pty.Pty) func() {
 
 	return func() {
 		signal.Stop(resizeCh)
-		close(resizeCh)
 		close(done)
+		// Join the goroutine: callers (RunInteractive) rely on the handler
+		// being fully stopped — and no longer reading os.Stdin — once this
+		// returns. Without the join the goroutine could briefly outlive the
+		// run. We do not close(resizeCh): signal.Stop already halts delivery,
+		// and closing it would let the goroutine busy-spin on the select's
+		// receive-from-closed case before it observes done.
+		<-finished
 	}
 }
 

@@ -42,8 +42,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // ==========================================================================
@@ -271,7 +271,7 @@ func TestWriteContextFile(t *testing.T) {
 	assert.NotEmpty(t, hash)
 
 	// Verify context file was created
-	contextPath := paths.GetCacheDir(testBaseDir)+"/context/" + hash + ".md"
+	contextPath := paths.GetCacheDir(testBaseDir) + "/context/" + hash + ".md"
 	exists, err := afero.Exists(fs, contextPath)
 	require.NoError(t, err)
 	assert.True(t, exists, "context file should be created")
@@ -574,10 +574,10 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
-					Tags:    []string{"security"},
+					Tags: []string{"security"},
 				},
 			},
 		}, nil
@@ -617,9 +617,9 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default:   true,
 					Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
 				},
 			},
@@ -665,14 +665,13 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default", "broken-profile"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default:   true,
 					Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
 				},
-				// This profile will be in the default list but references a parent that doesn't exist
+				// This profile is in the default list but references a parent that doesn't exist
 				"broken-profile": {
-					Default: true,
 					Parents: []string{"nonexistent-parent"},
 				},
 			},
@@ -722,9 +721,9 @@ fragments:
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{appDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
 					// Reference both existing and non-existing fragments
 					Fragments: []config.FragmentRef{
 						{Name: "test#fragments/existing"},
@@ -777,10 +776,10 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
 			AppPaths: []string{testBaseDir},
+			Defaults: config.Defaults{Profiles: []string{"default"}},
 			Profiles: map[string]config.Profile{
 				"default": {
-					Default: true,
-					Tags:    []string{"nonexistent-tag"}, // No fragments match this tag
+					Tags: []string{"nonexistent-tag"}, // No fragments match this tag
 				},
 			},
 		}, nil
@@ -808,10 +807,10 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 func TestParseMarkdownFrontmatter(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		wantDesc    string
-		wantBody    string
+		name     string
+		input    string
+		wantDesc string
+		wantBody string
 	}{
 		{
 			name:     "with frontmatter",

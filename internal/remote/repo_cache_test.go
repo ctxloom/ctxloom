@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,14 +25,14 @@ func createTestRepo(t *testing.T, dir string) string {
 	wt, err := repo.Worktree()
 	require.NoError(t, err)
 
-	// Create ctxloom/v1/bundles/test.yaml
-	bundleDir := filepath.Join(repoDir, "ctxloom", "v1", "bundles")
+	// Create ctxloom/bundles/test.yaml
+	bundleDir := filepath.Join(repoDir, "ctxloom", "bundles")
 	require.NoError(t, os.MkdirAll(bundleDir, 0755))
 
 	content := []byte("version: v1\ndescription: test bundle\n")
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "test.yaml"), content, 0644))
 
-	_, err = wt.Add("ctxloom/v1/bundles/test.yaml")
+	_, err = wt.Add("ctxloom/bundles/test.yaml")
 	require.NoError(t, err)
 
 	_, err = wt.Commit("initial commit", &git.CommitOptions{
@@ -44,6 +45,26 @@ func createTestRepo(t *testing.T, dir string) string {
 	require.NoError(t, err)
 
 	return repoDir
+}
+
+func TestRepoCache_repoDirForURL_RejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+	cache := NewRepoCache(base, AuthConfig{})
+
+	// A crafted URL with ".." segments must not escape the cache dir, since
+	// the result is later RemoveAll'd and cloned into.
+	traversal := []string{
+		"https://evil.com/../../../../etc/passwd",
+		"https://host/a/../../../../../tmp/pwned",
+		"ssh://git@host/../../outside",
+	}
+	for _, u := range traversal {
+		dir := cache.repoDirForURL(u)
+		rel, err := filepath.Rel(base, dir)
+		require.NoError(t, err, "repoDirForURL(%q) = %q", u, dir)
+		assert.False(t, rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)),
+			"repoDirForURL(%q) = %q escaped base %q (rel=%q)", u, dir, base, rel)
+	}
 }
 
 func TestRepoCache_EnsureRepo_Clone(t *testing.T) {
@@ -122,6 +143,54 @@ func TestRepoCache_UpdateRepo_NotYetCloned(t *testing.T) {
 	repoDir, err := cache.UpdateRepo(context.Background(), "file://"+sourceRepo, ForgeGitHub)
 	require.NoError(t, err)
 	assert.DirExists(t, repoDir)
+}
+
+// TestRepoCache_EnsureRef_UnshallowsForOlderRef verifies that requesting a ref
+// not present in the initial shallow (depth=1) clone triggers an unshallow so
+// the ref becomes locally resolvable.
+func TestRepoCache_EnsureRef_UnshallowsForOlderRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceDir := filepath.Join(tmpDir, "source")
+
+	repo, err := git.PlainInit(sourceDir, false)
+	require.NoError(t, err)
+
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "a.txt"), []byte("a\n"), 0644))
+	_, err = wt.Add("a.txt")
+	require.NoError(t, err)
+	first, err := wt.Commit("first", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	_, err = repo.CreateTag("v0.1.0", first, nil)
+	require.NoError(t, err)
+
+	// Second commit so HEAD moves past the tag.
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "b.txt"), []byte("b\n"), 0644))
+	_, err = wt.Add("b.txt")
+	require.NoError(t, err)
+	_, err = wt.Commit("second", &git.CommitOptions{
+		Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+
+	// EnsureRef with empty ref should be enough for HEAD.
+	repoDir, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "")
+	require.NoError(t, err)
+	assert.DirExists(t, repoDir)
+
+	// Asking for the tag (which points at the older commit) should trigger
+	// the unshallow path and succeed.
+	repoDir2, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "v0.1.0")
+	require.NoError(t, err)
+	assert.Equal(t, repoDir, repoDir2)
 }
 
 func TestRepoCache_repoDirForURL(t *testing.T) {

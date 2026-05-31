@@ -60,7 +60,6 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		searchTypes = collections.NewSetFrom(req.Types...)
 	}
 
-	var results []SearchResult
 	query := strings.ToLower(req.Query)
 
 	// Use injected loader or create default
@@ -69,118 +68,147 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		loader = bundleLoader(cfg)
 	}
 
-	// Search fragments
-	if searchTypes.Has("fragment") {
-		var infos []struct {
-			Name   string
-			Tags   []string
-			Source string
-		}
-
-		if len(req.Tags) > 0 {
-			contentInfos, err := loader.ListByTags(req.Tags)
-			if err == nil {
-				for _, info := range contentInfos {
-					infos = append(infos, struct {
-						Name   string
-						Tags   []string
-						Source string
-					}{info.Name, info.Tags, info.Source})
-				}
-			}
-		} else {
-			contentInfos, err := loader.ListAllFragments()
-			if err == nil {
-				for _, info := range contentInfos {
-					infos = append(infos, struct {
-						Name   string
-						Tags   []string
-						Source string
-					}{info.Name, info.Tags, info.Source})
-				}
-			}
-		}
-
-		for _, info := range infos {
-			matchType := ""
-			if strings.Contains(strings.ToLower(info.Name), query) {
-				matchType = "name"
-			} else if containsTag(info.Tags, query) {
-				matchType = "tag"
-			}
-			if matchType != "" {
-				results = append(results, SearchResult{
-					Type:   "fragment",
-					Name:   info.Name,
-					Tags:   info.Tags,
-					Source: info.Source,
-					Match:  matchType,
-				})
-			}
+	// One searcher per content type; the requested-types set gates which run.
+	searchers := []struct {
+		typ string
+		run func() []SearchResult
+	}{
+		{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
+		{"prompt", func() []SearchResult { return searchPrompts(loader, query) }},
+		{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
+		{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
+	}
+	var results []SearchResult
+	for _, s := range searchers {
+		if searchTypes.Has(s.typ) {
+			results = append(results, s.run()...)
 		}
 	}
 
-	// Search prompts
-	if searchTypes.Has("prompt") {
-		prompts, err := loader.ListAllPrompts()
-		if err == nil {
-			for _, p := range prompts {
-				if strings.Contains(strings.ToLower(p.Name), query) {
-					results = append(results, SearchResult{
-						Type:   "prompt",
-						Name:   p.Name,
-						Source: p.Source,
-						Match:  "name",
-					})
-				}
-			}
-		}
-	}
-
-	// Search profiles
-	if searchTypes.Has("profile") {
-		for name, profile := range cfg.Profiles {
-			matchType := ""
-			if strings.Contains(strings.ToLower(name), query) {
-				matchType = "name"
-			} else if strings.Contains(strings.ToLower(profile.Description), query) {
-				matchType = "description"
-			} else if containsTag(profile.Tags, query) {
-				matchType = "tag"
-			}
-			if matchType != "" {
-				results = append(results, SearchResult{
-					Type:  "profile",
-					Name:  name,
-					Tags:  profile.Tags,
-					Match: matchType,
-				})
-			}
-		}
-	}
-
-	// Search MCP servers
-	if searchTypes.Has("mcp_server") {
-		for name, srv := range cfg.MCP.Servers {
-			if strings.Contains(strings.ToLower(name), query) ||
-				strings.Contains(strings.ToLower(srv.Command), query) {
-				results = append(results, SearchResult{
-					Type:   "mcp_server",
-					Name:   name,
-					Source: srv.Command,
-					Match:  "name",
-				})
-			}
-		}
-	}
-
-	// Sort results
 	sortBy := req.SortBy
 	if sortBy == "" {
 		sortBy = "relevance" // name matches first, then others
 	}
-	reverse := req.SortOrder == "desc"
+	sortResults(results, sortBy, req.SortOrder == "desc")
 
+	// Apply limit
+	if len(results) > req.Limit {
+		results = results[:req.Limit]
+	}
+
+	return &SearchContentResult{
+		Results: results,
+		Count:   len(results),
+		Query:   req.Query,
+	}, nil
+}
+
+// searchFragments returns fragments whose name (or, failing that, a tag) matches
+// query. When tags are given, the candidate set is the tag-filtered fragments;
+// otherwise it is all fragments. Loader errors yield no results (search degrades
+// rather than failing).
+func searchFragments(loader *bundles.Loader, query string, tags []string) []SearchResult {
+	var infos []bundles.ContentInfo
+	var err error
+	if len(tags) > 0 {
+		infos, err = loader.ListByTags(tags)
+	} else {
+		infos, err = loader.ListAllFragments()
+	}
+	if err != nil {
+		return nil
+	}
+
+	var results []SearchResult
+	for _, info := range infos {
+		matchType := ""
+		if strings.Contains(strings.ToLower(info.Name), query) {
+			matchType = "name"
+		} else if containsTag(info.Tags, query) {
+			matchType = "tag"
+		}
+		if matchType != "" {
+			results = append(results, SearchResult{
+				Type:   "fragment",
+				Name:   info.Name,
+				Tags:   info.Tags,
+				Source: info.Source,
+				Match:  matchType,
+			})
+		}
+	}
+	return results
+}
+
+// searchPrompts returns prompts whose name matches query. Loader errors yield no
+// results.
+func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
+	prompts, err := loader.ListAllPrompts()
+	if err != nil {
+		return nil
+	}
+	var results []SearchResult
+	for _, p := range prompts {
+		if strings.Contains(strings.ToLower(p.Name), query) {
+			results = append(results, SearchResult{
+				Type:   "prompt",
+				Name:   p.Name,
+				Source: p.Source,
+				Match:  "name",
+			})
+		}
+	}
+	return results
+}
+
+// searchProfiles returns configured profiles matching query by name, then
+// description, then tag (first match wins, recorded in Match).
+func searchProfiles(cfg *config.Config, query string) []SearchResult {
+	var results []SearchResult
+	for name, profile := range cfg.Profiles {
+		matchType := ""
+		switch {
+		case strings.Contains(strings.ToLower(name), query):
+			matchType = "name"
+		case strings.Contains(strings.ToLower(profile.Description), query):
+			matchType = "description"
+		case containsTag(profile.Tags, query):
+			matchType = "tag"
+		}
+		if matchType != "" {
+			results = append(results, SearchResult{
+				Type:  "profile",
+				Name:  name,
+				Tags:  profile.Tags,
+				Match: matchType,
+			})
+		}
+	}
+	return results
+}
+
+// searchMCPServers returns configured MCP servers whose name or command matches
+// query.
+func searchMCPServers(cfg *config.Config, query string) []SearchResult {
+	var results []SearchResult
+	for name, srv := range cfg.MCP.Servers {
+		if strings.Contains(strings.ToLower(name), query) ||
+			strings.Contains(strings.ToLower(srv.Command), query) {
+			results = append(results, SearchResult{
+				Type:   "mcp_server",
+				Name:   name,
+				Source: srv.Command,
+				Match:  "name",
+			})
+		}
+	}
+	return results
+}
+
+// sortResults orders results in place by sortBy ("name", "type", or
+// "relevance"); reverse flips the order. Relevance ranks name matches above
+// tag/description matches.
+func sortResults(results []SearchResult, sortBy string, reverse bool) {
 	switch sortBy {
 	case "name":
 		sort.Slice(results, func(i, j int) bool {
@@ -199,37 +227,26 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 			return cmp < 0
 		})
 	case "relevance":
-		// Name matches first, then tag/description matches
 		sort.Slice(results, func(i, j int) bool {
-			scoreI := 0
-			scoreJ := 0
-			switch results[i].Match {
-			case "name":
-				scoreI = 2
-			case "tag":
-				scoreI = 1
-			}
-			switch results[j].Match {
-			case "name":
-				scoreJ = 2
-			case "tag":
-				scoreJ = 1
-			}
+			scoreI := relevanceScore(results[i].Match)
+			scoreJ := relevanceScore(results[j].Match)
 			if reverse {
 				return scoreI < scoreJ
 			}
 			return scoreI > scoreJ
 		})
 	}
+}
 
-	// Apply limit
-	if len(results) > req.Limit {
-		results = results[:req.Limit]
+// relevanceScore ranks match kinds: name (2) above tag (1) above everything
+// else (0, e.g. description).
+func relevanceScore(match string) int {
+	switch match {
+	case "name":
+		return 2
+	case "tag":
+		return 1
+	default:
+		return 0
 	}
-
-	return &SearchContentResult{
-		Results: results,
-		Count:   len(results),
-		Query:   req.Query,
-	}, nil
 }

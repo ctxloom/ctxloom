@@ -3,20 +3,23 @@ package remote
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/google/go-github/v60/github"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
 type GitHubFetcher struct {
-	client    GitHubClient
-	token     string       // stored token for retry logic
-	hasToken  bool         // whether we're using authenticated access
-	fallback  GitHubClient // unauthenticated client for 401 retry
+	client   GitHubClient
+	token    string       // stored token for retry logic
+	hasToken bool         // whether we're using authenticated access
+	fallback GitHubClient // unauthenticated client for 401 retry
 }
 
 // GitHubFetcherOption configures a GitHubFetcher.
@@ -84,21 +87,29 @@ func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
 }
 
 // loggingTransport logs every HTTP request to stderr for diagnostics.
+// Quiet by default; set CTXLOOM_DEBUG_HTTP=1 to enable. The cached-clone path
+// has eliminated most API traffic, so unconditional logging became noise on
+// every legitimate operation (discover, publish).
 type loggingTransport struct {
 	base http.RoundTripper
 }
 
 func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "ctxloom: GitHub API call: %s %s\n", req.Method, req.URL.String())
+	debug := os.Getenv("CTXLOOM_DEBUG_HTTP") == "1"
+	if debug {
+		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API call: %s %s\n", req.Method, req.URL.String())
+	}
 	base := t.base
 	if base == nil {
 		base = http.DefaultTransport
 	}
 	resp, err := base.RoundTrip(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API error: %v\n", err)
-	} else if resp.StatusCode >= 400 {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub API status: %d for %s\n", resp.StatusCode, req.URL.Path)
+	if debug {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: GitHub API error: %v\n", err)
+		} else if resp.StatusCode >= 400 {
+			fmt.Fprintf(os.Stderr, "ctxloom: GitHub API status: %d for %s\n", resp.StatusCode, req.URL.Path)
+		}
 	}
 	return resp, err
 }
@@ -128,8 +139,10 @@ func is401Error(resp *github.Response, err error) bool {
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		return true
 	}
-	// Also check error message for 401
-	if err != nil && strings.Contains(err.Error(), "401") {
+	// Fall back to the typed go-github error rather than matching "401" in
+	// the message text.
+	var gerr *github.ErrorResponse
+	if errors.As(err, &gerr) && gerr.Response != nil && gerr.Response.StatusCode == http.StatusUnauthorized {
 		return true
 	}
 	return false
@@ -159,7 +172,7 @@ func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {
-				return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, path)
+				return nil, fmt.Errorf("file not found: %s/%s/%s: %w", owner, repo, path, errs.ErrRemoteContentNotFound)
 			}
 			return nil, fmt.Errorf("failed to fetch file: %w", err)
 		}
@@ -192,7 +205,7 @@ func (f *GitHubFetcher) ListDir(ctx context.Context, owner, repo, path, ref stri
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {
-				return nil, fmt.Errorf("directory not found: %s/%s/%s", owner, repo, path)
+				return nil, fmt.Errorf("directory not found: %s/%s/%s: %w", owner, repo, path, errs.ErrRemoteContentNotFound)
 			}
 			return nil, fmt.Errorf("failed to list directory: %w", err)
 		}
@@ -217,48 +230,85 @@ func (f *GitHubFetcher) ResolveRef(ctx context.Context, owner, repo, ref string)
 	return f.resolveRefWithClient(ctx, f.client, owner, repo, ref, true)
 }
 
+// resolveRefWithClient resolves a ref to a commit SHA by trying it as a commit,
+// then a branch, then a tag. Each strategy reports found=true when it resolved
+// the ref (or hit a definitive error / a 401 that triggered a fallback-client
+// retry); only a non-retryable miss falls through to the next strategy.
 func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (string, error) {
-	// Try as a commit SHA first (if it looks like one)
-	if len(ref) >= 7 && len(ref) <= 40 {
-		commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
-		if err == nil {
-			return commit.GetSHA(), nil
-		}
-		if allowRetry && f.shouldRetry401(resp, err) {
-			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
-		}
+	if sha, found, err := f.resolveAsCommit(ctx, client, owner, repo, ref, allowRetry); found {
+		return sha, err
 	}
 
-	// Try as a branch
+	sha, found, branchResp, err := f.resolveAsBranch(ctx, client, owner, repo, ref, allowRetry)
+	if found {
+		return sha, err
+	}
+
+	if sha, found, err := f.resolveAsTag(ctx, client, owner, repo, ref, allowRetry, branchResp); found {
+		return sha, err
+	}
+
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
+}
+
+// retryRefWithFallback retries the resolution against the fallback client when
+// the response is a retryable 401. Returns retried=true (with the fallback's
+// result) when it fired, retried=false to let the caller continue.
+func (f *GitHubFetcher) retryRefWithFallback(ctx context.Context, owner, repo, ref string, allowRetry bool, resp *github.Response, err error) (string, bool, error) {
+	if !allowRetry || !f.shouldRetry401(resp, err) {
+		return "", false, nil
+	}
+	sha, rerr := f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
+	return sha, true, rerr
+}
+
+// resolveAsCommit tries ref as a commit SHA (only when it looks like one).
+func (f *GitHubFetcher) resolveAsCommit(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, err error) {
+	if len(ref) < 7 || len(ref) > 40 {
+		return "", false, nil
+	}
+	commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
+	if err == nil {
+		return commit.GetSHA(), true, nil
+	}
+	return f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err)
+}
+
+// resolveAsBranch tries ref as a branch name, returning the branch response so
+// the tag strategy can gate on a 404.
+func (f *GitHubFetcher) resolveAsBranch(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, resp *github.Response, err error) {
 	branch, resp, err := client.Repositories().GetBranch(ctx, owner, repo, ref, 0)
 	if err == nil {
-		return branch.GetCommit().GetSHA(), nil
+		return branch.GetCommit().GetSHA(), true, resp, nil
 	}
-	if allowRetry && f.shouldRetry401(resp, err) {
-		return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
-	}
+	sha, found, rerr := f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err)
+	return sha, found, resp, rerr
+}
 
-	// Try as a tag
-	if resp != nil && resp.StatusCode == http.StatusNotFound {
-		tagRef, tagResp, err := client.Git().GetRef(ctx, owner, repo, "tags/"+ref)
-		if err == nil {
-			// Tag might be annotated (points to tag object) or lightweight (points to commit)
-			if tagRef.GetObject().GetType() == "tag" {
-				// Annotated tag - get the commit it points to
-				tag, _, err := client.Git().GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
-				if err != nil {
-					return "", fmt.Errorf("failed to resolve annotated tag: %w", err)
-				}
-				return tag.GetObject().GetSHA(), nil
-			}
-			return tagRef.GetObject().GetSHA(), nil
-		}
-		if allowRetry && f.shouldRetry401(tagResp, err) {
-			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
-		}
+// resolveAsTag tries ref as a tag, but only when the branch lookup 404'd.
+func (f *GitHubFetcher) resolveAsTag(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool, branchResp *github.Response) (sha string, found bool, err error) {
+	if branchResp == nil || branchResp.StatusCode != http.StatusNotFound {
+		return "", false, nil
 	}
+	tagRef, tagResp, err := client.Git().GetRef(ctx, owner, repo, "tags/"+ref)
+	if err == nil {
+		sha, terr := f.resolveTagObjectSHA(ctx, client, owner, repo, tagRef)
+		return sha, true, terr
+	}
+	return f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, tagResp, err)
+}
 
-	return "", fmt.Errorf("ref not found: %s", ref)
+// resolveTagObjectSHA returns the commit SHA a tag points to, dereferencing an
+// annotated tag object (lightweight tags point straight at the commit).
+func (f *GitHubFetcher) resolveTagObjectSHA(ctx context.Context, client GitHubClient, owner, repo string, tagRef *github.Reference) (string, error) {
+	if tagRef.GetObject().GetType() != "tag" {
+		return tagRef.GetObject().GetSHA(), nil
+	}
+	tag, _, err := client.Git().GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve annotated tag: %w", err)
+	}
+	return tag.GetObject().GetSHA(), nil
 }
 
 // SearchRepos finds ctxloom repositories.
@@ -317,11 +367,11 @@ func (f *GitHubFetcher) SearchRepos(ctx context.Context, query string, limit int
 
 // ValidateRepo checks if a repository has valid ctxloom structure.
 func (f *GitHubFetcher) ValidateRepo(ctx context.Context, owner, repo string) (bool, error) {
-	// Check for ctxloom/v1/ directory
-	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
+	// Check for the ctxloom/ directory
+	_, _, resp, err := f.client.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
 	if err != nil {
 		if f.shouldRetry401(resp, err) {
-			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom/v1", nil)
+			_, _, resp, err = f.fallback.Repositories().GetContents(ctx, owner, repo, "ctxloom", nil)
 		}
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusNotFound {

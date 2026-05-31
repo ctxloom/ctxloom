@@ -1,9 +1,23 @@
 {
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "ctxloom session bind"
+      }
+    ]
+  },
   "mcpServers": {
     "ctxloom": {
-      "command": "/usr/bin/ctxloom",
+      "command": "ctxloom",
       "args": [
         "mcp"
+      ]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropics/mcp-server-sequential-thinking"
       ]
     }
   }

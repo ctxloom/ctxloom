@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -30,21 +32,16 @@ func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
-// getCachedFetcher creates a fetcher that uses the local git clone cache.
-// Falls back to API-based fetchers if the cache is unavailable.
-func getCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
-	baseDir := getBaseDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-	factory := remote.NewCachedFetcherFactory(cache, remote.DefaultFetcherFactory)
-	return factory(repoURL, auth)
+// GetRegistry is the exported alias for getRegistry, used by cmd-layer tool
+// handlers that need direct registry access (e.g. the trust_remote tool).
+func GetRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
+	return getRegistry(cfg, opts...)
 }
 
 // RemoteEntry represents a remote in operation results.
 type RemoteEntry struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Version string `json:"version"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // ListRemotesRequest is empty but exists for consistency.
@@ -83,9 +80,8 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 
 	for _, r := range remotes {
 		result.Remotes = append(result.Remotes, RemoteEntry{
-			Name:    r.Name,
-			URL:     r.URL,
-			Version: r.Version,
+			Name: r.Name,
+			URL:  r.URL,
 		})
 	}
 
@@ -162,7 +158,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		URL:    rem.URL,
 	}
 	if !valid {
-		result.Warning = "repository does not have ctxloom/v1/ directory structure"
+		result.Warning = "repository does not have a ctxloom/ directory structure"
 	}
 
 	return result, nil
@@ -243,9 +239,7 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 		}
 	}
 
-	baseDir := getBaseDir(cfg)
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+	cache := newRepoCache(cfg)
 
 	var remotes []*remote.Remote
 	if req.Name != "" {
@@ -297,7 +291,7 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {
 	Query    string `json:"query"`
-	Source   string `json:"source"`   // "github", "gitlab", or "all"
+	Source   string `json:"source"` // "github", "gitlab", or "all"
 	MinStars int    `json:"min_stars"`
 	Limit    int    `json:"limit"`
 
@@ -385,7 +379,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 				return
 			}
 
-			filtered := repos[:0]
+			filtered := make([]remote.RepoInfo, 0, len(repos))
 			for _, r := range repos {
 				if r.Stars >= req.MinStars {
 					filtered = append(filtered, r)
@@ -468,13 +462,9 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 		return nil, fmt.Errorf("remote is required")
 	}
 
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = getRegistry(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load registry: %w", err)
-		}
+	registry, err := resolveRegistry(cfg, req.Registry)
+	if err != nil {
+		return nil, err
 	}
 
 	rem, err := registry.Get(req.Remote)
@@ -482,69 +472,18 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 		return nil, err
 	}
 
-	fetcher := req.Fetcher
-	if fetcher == nil {
-		fetcher, err = getCachedFetcher(cfg, rem.URL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create fetcher: %w", err)
-		}
-	}
-
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	fetcher, owner, repo, err := resolveBrowseFetcher(cfg, rem, req.Fetcher)
 	if err != nil {
-		return nil, fmt.Errorf("invalid remote URL: %w", err)
-	}
-
-	// Determine which types to list
-	var itemTypes []remote.ItemType
-	switch req.ItemType {
-	case "bundle":
-		itemTypes = []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		itemTypes = []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		itemTypes = []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
+		return nil, err
 	}
 
 	var items []BrowseItemEntry
 	var warnings []string
-
-	for _, itemType := range itemTypes {
-		basePath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
-		if req.Path != "" {
-			basePath = filepath.Join(basePath, req.Path)
-		}
-
-		entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
-		if err != nil {
-			// Only warn if it's not a "not found" error (directory genuinely doesn't exist)
-			errStr := err.Error()
-			if !strings.Contains(errStr, "not found") && !strings.Contains(errStr, "404") {
-				warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
-				warnings = append(warnings, warning)
-				fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
-			}
-			continue
-		}
-
-		for _, e := range entries {
-			name := e.Name
-			if !e.IsDir && strings.HasSuffix(name, ".yaml") {
-				name = strings.TrimSuffix(name, ".yaml")
-			}
-
-			pullPath := name
-			if req.Path != "" {
-				pullPath = req.Path + "/" + name
-			}
-
-			items = append(items, BrowseItemEntry{
-				Name:    name,
-				Type:    string(itemType),
-				Path:    pullPath,
-				IsDir:   e.IsDir,
-				PullRef: fmt.Sprintf("%s/%s", req.Remote, pullPath),
-			})
+	for _, itemType := range browseTypeList(req.ItemType) {
+		typeItems, warning := browseTypeItems(ctx, fetcher, owner, repo, itemType, req)
+		items = append(items, typeItems...)
+		if warning != "" {
+			warnings = append(warnings, warning)
 		}
 	}
 
@@ -555,6 +494,85 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 		Count:    len(items),
 		Warnings: warnings,
 	}, nil
+}
+
+// resolveBrowseFetcher returns the fetcher (preferring an injected one) and the
+// parsed owner/repo for a remote.
+func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remote.Fetcher) (remote.Fetcher, string, string, error) {
+	fetcher := injected
+	if fetcher == nil {
+		var err error
+		fetcher, err = getCachedFetcher(cfg, rem.URL)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("failed to create fetcher: %w", err)
+		}
+	}
+	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("invalid remote URL: %w", err)
+	}
+	return fetcher, owner, repo, nil
+}
+
+// browseTypeList maps the request item_type filter to the item types to browse.
+func browseTypeList(itemType string) []remote.ItemType {
+	switch itemType {
+	case "bundle":
+		return []remote.ItemType{remote.ItemTypeBundle}
+	case "profile":
+		return []remote.ItemType{remote.ItemTypeProfile}
+	default:
+		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
+	}
+}
+
+// browseTypeItems lists one item type's entries. A genuine "not found" (the
+// type's directory doesn't exist) yields no items and no warning; any other
+// error yields a warning string (also echoed to stderr).
+func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
+	basePath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
+	if req.Path != "" {
+		basePath = filepath.Join(basePath, req.Path)
+	}
+
+	entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
+	if err != nil {
+		// Sentinel, not error text: a missing directory is not a warning.
+		if errors.Is(err, errs.ErrRemoteContentNotFound) {
+			return nil, ""
+		}
+		warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		return nil, warning
+	}
+
+	items := make([]BrowseItemEntry, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, browseEntry(e, itemType, req))
+	}
+	return items, ""
+}
+
+// browseEntry builds a BrowseItemEntry from a directory entry, stripping the
+// ".yaml" suffix from files and prefixing req.Path onto the pull path.
+func browseEntry(e remote.DirEntry, itemType remote.ItemType, req BrowseRemoteRequest) BrowseItemEntry {
+	name := e.Name
+	if !e.IsDir && strings.HasSuffix(name, ".yaml") {
+		name = strings.TrimSuffix(name, ".yaml")
+	}
+
+	pullPath := name
+	if req.Path != "" {
+		pullPath = req.Path + "/" + name
+	}
+
+	return BrowseItemEntry{
+		Name:    name,
+		Type:    string(itemType),
+		Path:    pullPath,
+		IsDir:   e.IsDir,
+		PullRef: fmt.Sprintf("%s/%s", req.Remote, pullPath),
+	}
 }
 
 // browseDir lists directory contents, optionally recursively.
@@ -589,6 +607,52 @@ func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, path, r
 	return results, nil
 }
 
+// EnsureRemoteClonesResult reports the outcome of cloning every configured
+// remote.
+type EnsureRemoteClonesResult struct {
+	Cloned   []string `json:"cloned"`             // remote names whose clone is now present
+	Failed   []string `json:"failed,omitempty"`   // remote names that could not be cloned
+	Warnings []string `json:"warnings,omitempty"` // human-readable per-remote failures
+}
+
+// EnsureRemoteClones clones every configured remote into the local repo cache
+// so discovery (search_remotes / browse) can read them offline. It is the
+// eager-clone step run at init time.
+//
+// Fault tolerance (CLAUDE.md): a per-remote clone failure is warned and
+// recorded, never fatal — whatever clones cleanly is still usable. Returns a
+// non-nil result even when some (or all) remotes fail.
+func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteClonesResult, error) {
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load registry: %w", err)
+	}
+
+	cache := newRepoCache(cfg)
+	result := &EnsureRemoteClonesResult{}
+
+	for _, rem := range registry.List() {
+		forgeType, _, derr := remote.DetectForge(rem.URL)
+		if derr != nil {
+			msg := fmt.Sprintf("%s: detect forge: %v", rem.Name, derr)
+			result.Failed = append(result.Failed, rem.Name)
+			result.Warnings = append(result.Warnings, msg)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			continue
+		}
+		if _, cerr := cache.EnsureRepo(ctx, rem.URL, forgeType); cerr != nil {
+			msg := fmt.Sprintf("%s: clone failed: %v", rem.Name, cerr)
+			result.Failed = append(result.Failed, rem.Name)
+			result.Warnings = append(result.Warnings, msg)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			continue
+		}
+		result.Cloned = append(result.Cloned, rem.Name)
+	}
+
+	return result, nil
+}
+
 // SearchRemotesRequest contains parameters for searching across all remotes.
 type SearchRemotesRequest struct {
 	Query    string `json:"query"`
@@ -617,19 +681,28 @@ type SearchRemotesResult struct {
 	Warnings []string            `json:"warnings,omitempty"`
 }
 
+// resolveRegistry returns the injected registry, or loads one from cfg. Shared
+// by the remote-listing operations (browse/search) that take no FS override.
+func resolveRegistry(cfg *config.Config, injected *remote.Registry) (*remote.Registry, error) {
+	if injected != nil {
+		return injected, nil
+	}
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load registry: %w", err)
+	}
+	return registry, nil
+}
+
 // SearchRemotes searches for bundles and profiles across all configured remotes.
 func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesRequest) (*SearchRemotesResult, error) {
 	if req.Query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
 
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = getRegistry(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load registry: %w", err)
-		}
+	registry, err := resolveRegistry(cfg, req.Registry)
+	if err != nil {
+		return nil, err
 	}
 
 	remotes := registry.List()
@@ -642,20 +715,51 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 		}, nil
 	}
 
-	// Determine which types to search
-	var types []remote.ItemType
-	switch req.ItemType {
-	case "bundle", "fragment":
-		types = []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		types = []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		types = []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
-
+	types := searchTypeList(req.ItemType)
 	query := remote.ParseSearchQuery(req.Query)
 
-	// Search all remotes and types in parallel
+	prewarmRemoteClones(ctx, cfg, remotes)
+	results, warnings := fanOutRemoteSearch(ctx, cfg, remotes, types, query)
+	entries := toSearchEntries(results)
+
+	return &SearchRemotesResult{
+		Results:  entries,
+		Count:    len(entries),
+		Query:    req.Query,
+		Warnings: warnings,
+	}, nil
+}
+
+// searchTypeList maps the request item_type filter to the item types to search.
+// "fragment" searches bundles (fragments live inside bundles).
+func searchTypeList(itemType string) []remote.ItemType {
+	switch itemType {
+	case "bundle", "fragment":
+		return []remote.ItemType{remote.ItemTypeBundle}
+	case "profile":
+		return []remote.ItemType{remote.ItemTypeProfile}
+	default:
+		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
+	}
+}
+
+// prewarmRemoteClones ensures each remote's clone exists BEFORE the parallel
+// search fans out. The per-(remote × type) goroutines all read the same clone;
+// on a cold cache two would race to clone the same dir ("directory not empty").
+// Cloning once up front (serially) makes the parallel reads pure. Fault-
+// tolerant: a clone failure is left to surface as a per-search warning.
+func prewarmRemoteClones(ctx context.Context, cfg *config.Config, remotes []*remote.Remote) {
+	cache := newRepoCache(cfg)
+	for _, rem := range remotes {
+		if forgeType, _, derr := remote.DetectForge(rem.URL); derr == nil {
+			_, _ = cache.EnsureRepo(ctx, rem.URL, forgeType)
+		}
+	}
+}
+
+// fanOutRemoteSearch searches every (remote × type) pair concurrently,
+// returning the merged results and per-search warnings.
+func fanOutRemoteSearch(ctx context.Context, cfg *config.Config, remotes []*remote.Remote, types []remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, []string) {
 	var wg sync.WaitGroup
 	resultsCh := make(chan []remote.SearchResult, len(remotes)*len(types))
 	warningsCh := make(chan string, len(remotes)*len(types))
@@ -680,20 +784,21 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 	close(resultsCh)
 	close(warningsCh)
 
-	// Collect results
 	var allResults []remote.SearchResult
 	for results := range resultsCh {
 		allResults = append(allResults, results...)
 	}
-
 	var warnings []string
 	for w := range warningsCh {
 		warnings = append(warnings, w)
 	}
+	return allResults, warnings
+}
 
-	// Convert to response format
-	entries := make([]SearchRemoteEntry, 0, len(allResults))
-	for _, r := range allResults {
+// toSearchEntries converts internal search results to the response format.
+func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
+	entries := make([]SearchRemoteEntry, 0, len(results))
+	for _, r := range results {
 		itemType := "bundle"
 		if r.ItemType == remote.ItemTypeProfile {
 			itemType = "profile"
@@ -709,13 +814,7 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 			PullRef:     fmt.Sprintf("%s/%s", r.Remote, r.Entry.Name),
 		})
 	}
-
-	return &SearchRemotesResult{
-		Results:  entries,
-		Count:    len(entries),
-		Query:    req.Query,
-		Warnings: warnings,
-	}, nil
+	return entries
 }
 
 // searchSingleRemote searches a single remote for matching items.
@@ -737,7 +836,7 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 	}
 
 	// Try to fetch manifest first (faster)
-	manifestPath := fmt.Sprintf("ctxloom/%s/manifest.yaml", rem.Version)
+	manifestPath := "ctxloom/manifest.yaml"
 	manifestContent, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
 	if err == nil {
 		return searchManifestContent(rem, manifestContent, itemType, query)
@@ -779,7 +878,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("ctxloom/%s/%s", rem.Version, itemType.DirName())
+	dirPath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {
@@ -794,12 +893,27 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 
 		name := strings.TrimSuffix(entry.Name, ".yaml")
 
-		// Create a minimal manifest entry for matching
-		manifestEntry := remote.ManifestEntry{
-			Name: name,
+		// Build the manifest entry from the file's own metadata so tag: and
+		// description searches work without a manifest.yaml. Reads come from
+		// the local clone, so this is cheap. If the file can't be read or
+		// parsed, fall back to a name-only entry (still text-matchable).
+		manifestEntry := remote.ManifestEntry{Name: name}
+		filePath := fmt.Sprintf("%s/%s", dirPath, entry.Name)
+		if content, ferr := fetcher.FetchFile(ctx, owner, repo, filePath, branch); ferr == nil {
+			var meta struct {
+				Tags        []string `yaml:"tags"`
+				Author      string   `yaml:"author"`
+				Description string   `yaml:"description"`
+				Version     string   `yaml:"version"`
+			}
+			if yaml.Unmarshal(content, &meta) == nil {
+				manifestEntry.Tags = meta.Tags
+				manifestEntry.Author = meta.Author
+				manifestEntry.Description = meta.Description
+				manifestEntry.Version = meta.Version
+			}
 		}
 
-		// Only do text matching without fetching full content
 		if remote.MatchesQuery(manifestEntry, query) {
 			results = append(results, remote.SearchResult{
 				Remote:    rem.Name,

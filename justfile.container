@@ -6,7 +6,8 @@
 # - CGO builds: treesitter (CGO but static-linkable)
 
 # Get version from versionator (with fallback)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
 
 # Static linking flags for builds that support it
 static_ldflags := "-linkmode external -extldflags '-static -pthread'"
@@ -119,6 +120,14 @@ release: build-all compress-all
 test:
     go test -race -coverprofile=coverage.out ./...
 
+# Run tests with the treesitter (CGO) build tag — exercises the code compressor
+test-treesitter:
+    CGO_ENABLED=1 go test -race -tags treesitter ./internal/compression/...
+
+# Run a single package's tests under -race (fast iteration inside the container)
+test-pkg PKG *ARGS:
+    go test -race {{ARGS}} {{PKG}}
+
 # Run integration tests (requires ctxloom binary)
 test-integration: build
     go test -v -tags integration ./tests/integration/...
@@ -136,6 +145,26 @@ proto:
 # Lint code
 lint:
     golangci-lint run
+
+# Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
+# Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's
+# non-zero exit when functions exceed the threshold, so this stays a report.
+complexity *ARGS:
+    -lizard -x "*.pb.go" -x "*/website/*" {{ if ARGS == "" { "." } else { ARGS } }}
+
+# Per-function complexity as CSV (header prepended) for LLM/tooling ingest.
+# Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
+complexity-csv *ARGS:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "nloc,ccn,tokens,params,length,location,file,function,long_name,start,end"
+    lizard -x "*.pb.go" -x "*/website/*" --csv {{ if ARGS == "" { "." } else { ARGS } }} || true
+
+# Enforcing gate: fail if any function exceeds CCN 10. No leading `-`, so a
+# violation propagates lizard's non-zero exit and breaks CI. Run in the lint
+# job alongside golangci-lint.
+complexity-check *ARGS:
+    lizard -x "*.pb.go" -x "*/website/*" -C 10 {{ if ARGS == "" { "." } else { ARGS } }}
 
 # Format code
 fmt:

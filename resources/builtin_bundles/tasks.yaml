@@ -1,0 +1,96 @@
+# Built-in ctxloom tasks bundle. Embedded into the ctxloom binary via
+# resources/embed.go and surfaced through Config.ResolveBundleHooks
+# unconditionally — no profile reference required, no remote pull, no
+# manual install. The same YAML is mirrored at examples/bundles/tasks.yaml
+# for users who want to inspect or fork it.
+
+version: 1.0.0
+tags:
+  - tasks
+  - workflow
+  - productivity
+  - ctxloom-native
+author: ctxloom
+
+description: |
+  Persistent task tracking via ctxloom's native task store. Tasks live in
+  .ctxloom/tasks.md keyed by harp IDs and are managed through built-in MCP
+  tools. Stamps the active session's harp name into plan files as they're
+  edited. Replaces the flesler/mcp-tasks dependency with built-in MCP
+  tools and a tiny declarative hook surface.
+
+notes: |
+  This bundle ships two hooks:
+
+    1. SessionStart → ctxloom session bind
+       Records the backend session_id ↔ harp mapping in
+       ~/.ctxloom/sessions/index.yaml so resume and `session distill`
+       can find the session.
+
+    2. PostFileEdit matcher=plan files → ctxloom tasks stamp-plan
+       Records the active session's harp name in the file's YAML
+       frontmatter `sessions:` list. Plans and sessions cross-reference
+       automatically.
+
+  Tasks themselves are created and updated through the MCP tools
+  (task_add / task_set_status) or the `ctxloom tasks` CLI — there is no
+  TodoWrite auto-capture.
+
+installation: |
+  After install, run `ctxloom apply-hooks` (or restart your backend) so
+  the hooks are written into the backend's settings.json. The hooks are
+  safe to install before session harp-naming is active (stamp-plan no-ops
+  when CTXLOOM_SESSION_HARP is unset).
+
+hooks:
+  session_start:
+    # Fires once per backend session with the session_id and
+    # transcript_path in the JSON payload. ctxloom session bind reads
+    # those, looks up CTXLOOM_SESSION_HARP from env, and records the
+    # mapping in ~/.ctxloom/sessions/index.yaml. This is the primary
+    # bind path — `ctxloom session distill` and the resume picker rely
+    # on the resulting index entry. The MCP-side bind middleware and
+    # the time-window fallback in `session distill` remain as defense
+    # in depth.
+    - command: ctxloom session bind
+      type: command
+  post_file_edit:
+    # Matcher intentionally omitted — defaults to Edit|Write per
+    # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file
+    # filtering happens inside stamp-plan via memory.IsPlanFile so the
+    # hook is cheap to install on every Edit/Write call.
+    - command: ctxloom tasks stamp-plan
+      type: command
+
+fragments:
+  ctxloom-tasks:
+    tags:
+      - tasks
+      - ctxloom
+    content: |
+      # ctxloom-tasks
+
+      Persistent task tracking. Tasks live in `.ctxloom/tasks.md` and are
+      keyed by harp IDs (e.g. `swift-amber-falcon`). Sections by status:
+      `In Progress`, `To Do`, `Done`, `Archived`.
+
+      ## MCP tools
+
+      - `task_list({statuses?, term?, include_summary?})` — list/filter
+        tasks. Set `include_summary: true` to also get per-status counts
+        plus the in-progress harp IDs.
+      - `task_add({text, status?})` — add a task with a fresh harp ID.
+        Default status is `"To Do"`.
+      - `task_set_status({harp_id, status})` — move a task between
+        sections.
+
+      Tasks are created and updated only through these tools (or the
+      `ctxloom tasks` CLI). The harp ID appears in `task_list` output so
+      you can reference a specific task in later calls.
+
+      ## Plan stamping
+
+      When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,
+      `docs/*-plan.md`), the active session's harp name is auto-stamped
+      into the file's YAML frontmatter `sessions:` list. Plans and
+      sessions cross-reference without a separate database.

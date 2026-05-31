@@ -54,7 +54,6 @@ bundles:
   - bundle1
 `
 	profile2 := `description: Profile 2
-default: true
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile1.yaml"), []byte(profile1), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644))
@@ -222,21 +221,6 @@ func TestLoader_Delete_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestLoader_GetDefaults(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "default-profile.yaml"), []byte("default: true"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "regular-profile.yaml"), []byte("default: false"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "another-default.yaml"), []byte("default: true"), 0644))
-
-	loader := NewLoader([]string{tmpDir})
-	defaults := loader.GetDefaults()
-
-	assert.Len(t, defaults, 2)
-	assert.Contains(t, defaults, "another-default")
-	assert.Contains(t, defaults, "default-profile")
-}
-
 // =============================================================================
 // GetProfileDirs Tests
 // =============================================================================
@@ -355,30 +339,38 @@ func TestLoader_ResolveProfile_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestLoader_ResolveProfile_ParentNotFound verifies that an unresolvable parent
+// is treated as a warn-and-continue: resolution succeeds, that parent branch is
+// skipped, and the child's own settings still apply. This matches ctxloom's
+// fault-tolerance philosophy (CLAUDE.md) — a missing parent should not block
+// the user from reaching their LLM.
 func TestLoader_ResolveProfile_ParentNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	profile := `parents:
   - nonexistent-parent
+bundles:
+  - own-bundle
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(profile), 0644))
 
 	loader := NewLoader([]string{tmpDir})
-	_, err := loader.ResolveProfile("child", nil)
+	resolved, err := loader.ResolveProfile("child", nil)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to resolve parent")
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
 }
 
 // TestLoader_ResolveProfile_DiamondInheritance verifies diamond inheritance works correctly.
 //
 // Diamond inheritance occurs when:
 //
-//	   A
-//	  / \
-//	 B   C
-//	  \ /
-//	   D
+//	  A
+//	 / \
+//	B   C
+//	 \ /
+//	  D
 //
 // Both B and C inherit from D. Without proper visited tracking, the resolver
 // would incorrectly detect a circular reference when resolving D through C
@@ -539,10 +531,10 @@ func TestResolvedProfile_Merge(t *testing.T) {
 
 func TestAppendUnique(t *testing.T) {
 	tests := []struct {
-		name   string
-		slice  []string
-		items  []string
-		want   []string
+		name  string
+		slice []string
+		items []string
+		want  []string
 	}{
 		{"empty slice", []string{}, []string{"a", "b"}, []string{"a", "b"}},
 		{"no duplicates", []string{"a"}, []string{"b", "c"}, []string{"a", "b", "c"}},
@@ -606,22 +598,22 @@ func TestToLocalProfileName(t *testing.T) {
 		},
 		{
 			name:     "https URL converted to local path",
-			input:    "https://github.com/owner/repo@v1/profiles/go-developer",
+			input:    "https://github.com/owner/repo@profiles/go-developer",
 			expected: "github.com/owner/repo/go-developer",
 		},
 		{
 			name:     "git@ SSH URL converted to local path",
-			input:    "git@github.com:owner/repo@v1/profiles/go-developer",
+			input:    "git@github.com:owner/repo@profiles/go-developer",
 			expected: "github.com/owner/repo/go-developer",
 		},
 		{
 			name:     "file:// URL converted to local path",
-			input:    "file:///home/user/ctxloom-content@v1/profiles/test",
+			input:    "file:///home/user/ctxloom-content@profiles/test",
 			expected: "user/ctxloom-content/test",
 		},
 		{
 			name:     "nested path in URL",
-			input:    "https://github.com/org/subgroup/repo@v1/profiles/base",
+			input:    "https://github.com/org/subgroup/repo@profiles/base",
 			expected: "github.com/org/subgroup/repo/base",
 		},
 	}
@@ -642,7 +634,7 @@ func TestToLocalProfileName(t *testing.T) {
 // resolved to their local storage paths.
 //
 // When a profile has a parent like:
-//   - https://github.com/owner/repo@v1/profiles/base
+//   - https://github.com/owner/repo@profiles/base
 //
 // The resolver should look for the profile at:
 //   - .ctxloom/persistent/profiles/github.com/owner/repo/base.yaml
@@ -669,7 +661,7 @@ variables:
 	// Create child profile that references the parent via URL
 	childProfile := `description: Project profile
 parents:
-  - https://github.com/owner/repo@v1/profiles/go-base
+  - https://github.com/owner/repo@profiles/go-base
 bundles:
   - project-tools
 variables:
@@ -697,8 +689,10 @@ variables:
 	assert.Equal(t, "my-project", resolved.Variables["project_name"])
 }
 
-// TestLoader_ResolveProfile_URLParentNotSynced verifies error when URL parent
-// hasn't been synced locally.
+// TestLoader_ResolveProfile_URLParentNotSynced verifies that an unsynced URL
+// parent is skipped with a warning rather than aborting resolution. The child's
+// own settings still apply so the user can reach their LLM even when remote
+// dependencies haven't been pulled yet.
 func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -706,7 +700,9 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 
 	// Create child profile that references an unsynced parent
 	childProfile := `parents:
-  - https://github.com/nonexistent/repo@v1/profiles/missing
+  - https://github.com/nonexistent/repo@profiles/missing
+tags:
+  - own-tag
 `
 	require.NoError(t, afero.WriteFile(fs,
 		"/project/.ctxloom/persistent/profiles/child.yaml",
@@ -714,9 +710,10 @@ func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
 
 	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
 
-	_, err := loader.ResolveProfile("child", nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to resolve parent")
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-tag"}, resolved.Tags)
 }
 
 // TestLoader_ResolveProfile_MixedParents verifies resolution with both local
@@ -746,7 +743,7 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 	// Child with both parents
 	childProfile := `parents:
   - local-base
-  - https://github.com/ctxloom/ctxloom-default@v1/profiles/go-base
+  - https://github.com/ctxloom/ctxloom-default@profiles/go-base
 bundles:
   - child-tools
 `
@@ -763,4 +760,3 @@ bundles:
 	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
 }
-

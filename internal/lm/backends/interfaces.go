@@ -182,6 +182,12 @@ type SessionMeta struct {
 	StartTime  time.Time
 	EndTime    time.Time
 	EntryCount int
+	// Path is the absolute path to the backend's raw transcript file, when
+	// the backend stores one. Empty for backends without file-backed
+	// transcripts. Lets callers scan the raw bytes (which include entries
+	// the normalized parser drops, e.g. Claude Code `attachment` blocks)
+	// without re-deriving the backend's private path convention.
+	Path string
 }
 
 // SessionEntry represents a single turn in the conversation.

@@ -55,77 +55,30 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		loader = bundleLoader(cfg)
 	}
 
-	var allFragments []config.FragmentRef
-	profileVars := make(map[string]string)
+	profileNames := resolveContextProfileNames(cfg, req)
 
-	profileName := req.Profile
-	var profileNames []string
-	if profileName == "" && len(req.Fragments) == 0 && len(req.Tags) == 0 {
-		profileNames = cfg.GetDefaultProfiles()
-	} else if profileName != "" {
-		profileNames = []string{profileName}
+	allFragments, profileVars, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc)
+	if err != nil {
+		return nil, err
 	}
 
-	// Process all profiles
-	for _, pName := range profileNames {
-		// Resolve profile with inheritance
-		profile, err := resolveProfile(cfg, pName, loader, req.ProfileLoaderFunc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
-		}
-
-		// Collect variables from profile
-		for k, v := range profile.Variables {
-			profileVars[k] = v
-		}
-
-		// Add fragments from tags (priority 0)
-		if len(profile.Tags) > 0 {
-			taggedInfos, err := loader.ListByTags(profile.Tags)
-			if err != nil {
-				return nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
-			}
-			for _, info := range taggedInfos {
-				allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
-			}
-		}
-
-		// Add explicit fragments with their priorities
-		allFragments = append(allFragments, profile.Fragments...)
-	}
-
-	// Add request fragments (priority 0)
+	// Add request fragments (priority 0) and request-tag fragments.
 	for _, f := range req.Fragments {
 		allFragments = append(allFragments, config.FragmentRef{Name: f, Priority: 0})
 	}
-
-	// Add fragments from request tags (priority 0)
-	if len(req.Tags) > 0 {
-		taggedInfos, err := loader.ListByTags(req.Tags)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list fragments by tags: %w", err)
-		}
-		for _, info := range taggedInfos {
-			allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
-		}
+	reqTagFragments, err := fragmentsFromTags(loader, req.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list fragments by tags: %w", err)
 	}
+	allFragments = append(allFragments, reqTagFragments...)
 
-	// Deduplicate, keeping highest priority for each fragment
-	uniqueFragments := dedupeFragmentRefs(allFragments)
+	// Deduplicate (highest priority wins), then bookend-sort for the
+	// "lost in the middle" optimization.
+	orderedNames := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	// Sort using bookend strategy for "lost in the middle" optimization
-	orderedNames := sortFragmentsByPriority(uniqueFragments)
-
-	var contextContent string
-	var loadedNames []string
-	if len(orderedNames) > 0 {
-		var err error
-		contextContent, loadedNames, err = loader.LoadMultiple(orderedNames)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load fragments: %w", err)
-		}
-		// Apply variable substitution (suppress warnings in operations context)
-		contextContent = substituteVariables(contextContent, profileVars, func(string) {})
+	contextContent, loadedNames, err := loadAssembledContext(loader, orderedNames, profileVars)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AssembleContextResult{
@@ -133,6 +86,81 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		FragmentsLoaded: loadedNames,
 		Context:         contextContent,
 	}, nil
+}
+
+// resolveContextProfileNames picks the profiles to assemble from: the explicit
+// request profile, else (when nothing at all is selected) the configured
+// defaults. When the project config has none, defaults inherit the home
+// config's defaults.profiles; if neither defines any, assembly degrades to
+// empty context. No synthetic profile is ever created.
+func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) []string {
+	if req.Profile != "" {
+		return []string{req.Profile}
+	}
+	if len(req.Fragments) == 0 && len(req.Tags) == 0 {
+		EnsureDefaultProfiles(cfg)
+		return cfg.GetDefaultProfiles()
+	}
+	return nil
+}
+
+// fragmentsFromTags resolves tag-matched fragments to priority-0 refs. An empty
+// tag list yields no refs.
+func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.FragmentRef, error) {
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	taggedInfos, err := loader.ListByTags(tags)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]config.FragmentRef, 0, len(taggedInfos))
+	for _, info := range taggedInfos {
+		refs = append(refs, config.FragmentRef{Name: info.Name, Priority: 0})
+	}
+	return refs, nil
+}
+
+// collectProfileFragments resolves each profile (with inheritance) and gathers
+// its tag-matched + explicit fragments and variables.
+func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader) ([]config.FragmentRef, map[string]string, error) {
+	var allFragments []config.FragmentRef
+	profileVars := make(map[string]string)
+
+	for _, pName := range profileNames {
+		profile, err := resolveProfile(cfg, pName, loader, profileLoaderFunc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
+		}
+
+		for k, v := range profile.Variables {
+			profileVars[k] = v
+		}
+
+		tagFragments, err := fragmentsFromTags(loader, profile.Tags)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
+		}
+		allFragments = append(allFragments, tagFragments...)
+		allFragments = append(allFragments, profile.Fragments...)
+	}
+
+	return allFragments, profileVars, nil
+}
+
+// loadAssembledContext loads the ordered fragments and applies variable
+// substitution. Returns empty content when there are no fragments.
+func loadAssembledContext(loader *bundles.Loader, orderedNames []string, profileVars map[string]string) (string, []string, error) {
+	if len(orderedNames) == 0 {
+		return "", nil, nil
+	}
+	content, loadedNames, err := loader.LoadMultiple(orderedNames)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load fragments: %w", err)
+	}
+	// Suppress substitution warnings in the operations context.
+	content = substituteVariables(content, profileVars, func(string) {})
+	return content, loadedNames, nil
 }
 
 // dedupeFragmentRefs removes duplicates, keeping the highest priority for each fragment.
@@ -282,24 +310,32 @@ func substituteVariables(content string, vars map[string]string, warnFunc func(s
 	return rendered
 }
 
+// referencesVariable reports whether a tag type references a variable name
+// (plain/raw variables and section tags, which key off a variable).
+func referencesVariable(t mustache.TagType) bool {
+	return t == tagVariable || t == tagRawVariable || t == tagSection || t == tagInvertedSection
+}
+
+// hasChildTags reports whether a tag type can contain nested tags (sections).
+func hasChildTags(t mustache.TagType) bool {
+	return t == tagSection || t == tagInvertedSection
+}
+
 // checkTags recursively walks mustache tags to find undefined variables.
 func checkTags(tags []mustache.Tag, vars map[string]string, seen collections.Set[string], warnFunc func(string)) {
 	for _, tag := range tags {
 		name := tag.Name()
 		tagType := tag.Type()
 
-		// Check variable tags and section tags that reference variables
-		if tagType == tagVariable || tagType == tagRawVariable || tagType == tagSection || tagType == tagInvertedSection {
-			if !seen.Has(name) {
-				seen.Add(name)
-				if _, exists := vars[name]; !exists {
-					warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))
-				}
+		if referencesVariable(tagType) && !seen.Has(name) {
+			seen.Add(name)
+			if _, exists := vars[name]; !exists {
+				warnFunc(fmt.Sprintf("undefined variable: {{%s}}", name))
 			}
 		}
 
-		// Recursively check nested tags (only sections have children)
-		if tagType == tagSection || tagType == tagInvertedSection {
+		// Recursively check nested tags (only sections have children).
+		if hasChildTags(tagType) {
 			if children := tag.Tags(); len(children) > 0 {
 				checkTags(children, vars, seen, warnFunc)
 			}

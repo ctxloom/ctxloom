@@ -9,9 +9,14 @@ import (
 
 // Remote represents a configured remote source (GitHub/GitLab repo).
 type Remote struct {
-	Name    string `yaml:"name" json:"name"`
-	URL     string `yaml:"url" json:"url"`
-	Version string `yaml:"version" json:"version"` // e.g., "v1" (version directory)
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url"`
+
+	// TrustBundles, when true, suppresses the bundle-review prompt for
+	// changes coming from this remote (docs/bundle-review-plan.md Phase 2).
+	// Pending changes from a trusted remote are auto-applied into the
+	// active lockfile. Off by default — opt-in per remote.
+	TrustBundles bool `yaml:"trust_bundles,omitempty" json:"trust_bundles,omitempty"`
 }
 
 // SourceMeta contains provenance metadata embedded in installed fragments/prompts.
@@ -22,7 +27,6 @@ type SourceMeta struct {
 	SHA       string    `yaml:"sha" json:"sha"`               // Full git commit SHA
 	URL       string    `yaml:"url" json:"url"`               // Source repository URL
 	Type      ItemType  `yaml:"type" json:"type"`             // "fragment", "prompt", or "profile"
-	Version   string    `yaml:"version" json:"version"`       // Version directory (e.g., "v1")
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"` // When the item was pulled
 }
 
@@ -118,13 +122,13 @@ func (c RemoteContext) Installation() string { return c.InstallationField }
 // RemoteBundle represents a bundle from a remote source.
 // Bundles combine MCP servers with fragments and prompts.
 type RemoteBundle struct {
-	Version           string                       `yaml:"version"`
-	Description       string                       `yaml:"description,omitempty"`
-	NotesField        string                       `yaml:"notes,omitempty"`        // Human-readable notes
-	InstallationField string                       `yaml:"installation,omitempty"` // Setup/installation instructions
-	MCP               *RemoteMCPServer             `yaml:"mcp,omitempty"`
-	Fragments         map[string]RemoteBundleItem  `yaml:"fragments,omitempty"`
-	Prompts           map[string]RemoteBundleItem  `yaml:"prompts,omitempty"`
+	Version           string                      `yaml:"version"`
+	Description       string                      `yaml:"description,omitempty"`
+	NotesField        string                      `yaml:"notes,omitempty"`        // Human-readable notes
+	InstallationField string                      `yaml:"installation,omitempty"` // Setup/installation instructions
+	MCP               *RemoteMCPServer            `yaml:"mcp,omitempty"`
+	Fragments         map[string]RemoteBundleItem `yaml:"fragments,omitempty"`
+	Prompts           map[string]RemoteBundleItem `yaml:"prompts,omitempty"`
 }
 
 // RemoteBundleItem represents a fragment or prompt within a bundle.
@@ -246,7 +250,7 @@ const (
 //   - file:///path/to/repo@v1/bundles/name@v1.2.3
 //
 // Format: <repo>@<ctxloom_version>/<type>/<path>@<content_version>
-// - First @ = ctxloom schema version (directory: ctxloom/v1/bundles/...)
+// - First @ = ctxloom schema version (directory: ctxloom/bundles/...)
 // - Second @ = content version (git tag or SHA, optional)
 type Reference struct {
 	// Remote is the remote name (for simple format) or empty for URL-based refs
@@ -257,9 +261,6 @@ type Reference struct {
 
 	// URL is the full repository URL (for URL-based refs); empty for simple format
 	URL string
-
-	// Version is the ctxloom schema version directory (e.g., "v1"); extracted from URL or remote config
-	Version string
 
 	// ContentVersion is the git tag or SHA for content versioning
 	// For simple refs: from @version suffix (e.g., remote/path@v1.0.0)
@@ -282,15 +283,20 @@ type LockEntry struct {
 	// URL is the canonical repository URL
 	URL string `yaml:"url" json:"url"`
 
-	// CtxloomVersion is the ctxloom schema version (v1, v2) - determines directory path
-	CtxloomVersion string `yaml:"ctxloom_version" json:"ctxloom_version"`
-
 	// RequestedVersion is the original tag/SHA requested by user (for export reconstruction)
 	// Empty if user didn't specify a version (used HEAD)
 	RequestedVersion string `yaml:"requested_version,omitempty" json:"requested_version,omitempty"`
 
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
+
+	// Pinned freezes this entry at the recorded SHA. While true,
+	// DiffLockfiles suppresses any pending-vs-active SHA change for the
+	// bundle — review template no longer surfaces it. Toggled via the
+	// pin_bundle / unpin_bundle MCP tools. The flag lives on the active
+	// lockfile entry; the puller still fetches new SHAs into pending so
+	// the user can unpin and inspect later if needed.
+	Pinned bool `yaml:"pinned,omitempty" json:"pinned,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
@@ -310,7 +316,7 @@ type ManifestEntry struct {
 	Version     string   `yaml:"version,omitempty" json:"version,omitempty"`
 }
 
-// Manifest represents the optional ctxloom/v1/manifest.yaml index file.
+// Manifest represents the optional ctxloom/manifest.yaml index file.
 type Manifest struct {
 	Version     int             `yaml:"version" json:"version"`
 	GeneratedAt time.Time       `yaml:"generated_at" json:"generated_at"`

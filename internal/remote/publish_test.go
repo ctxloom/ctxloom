@@ -11,13 +11,13 @@ import (
 
 // mockPublisher is a test double for Publisher.
 type mockPublisher struct {
-	files         map[string]string // path -> sha
-	createdFiles  map[string][]byte
-	branches      []string
-	pullRequests  []mockPR
-	createFileErr error
+	files           map[string]string // path -> sha
+	createdFiles    map[string][]byte
+	branches        []string
+	pullRequests    []mockPR
+	createFileErr   error
 	createBranchErr error
-	createPRErr   error
+	createPRErr     error
 }
 
 type mockPR struct {
@@ -138,38 +138,12 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, "ctxloom/v1/bundles/mybundle.yaml", result.Path)
+		assert.Equal(t, "ctxloom/bundles/mybundle.yaml", result.Path)
 		assert.Equal(t, "newsha123", result.SHA)
 		assert.True(t, result.Created)
 
 		// Verify file was created
-		assert.Contains(t, mp.createdFiles, "ctxloom/v1/bundles/mybundle.yaml")
-	})
-
-	t.Run("uses remote version when specified", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.AddWithVersion("alice", "https://github.com/alice/ctxloom", "v2"))
-
-		mp := newMockPublisher()
-		mf := newMockFetcher()
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
-		})
-
-		require.NoError(t, err)
-		assert.Equal(t, "ctxloom/v2/bundles/mybundle.yaml", result.Path)
+		assert.Contains(t, mp.createdFiles, "ctxloom/bundles/mybundle.yaml")
 	})
 
 	t.Run("creates PR when requested", func(t *testing.T) {
@@ -242,7 +216,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 		mp := newMockPublisher()
-		mp.files["ctxloom/v1/bundles/mybundle.yaml"] = "existingsha" // File already exists
+		mp.files["ctxloom/bundles/mybundle.yaml"] = "existingsha" // File already exists
 		mf := newMockFetcher()
 
 		pm := NewPublishManager(registry, AuthConfig{},
@@ -264,19 +238,18 @@ func TestPublishManager_Publish(t *testing.T) {
 func TestBuildPublishPath(t *testing.T) {
 	tests := []struct {
 		itemType ItemType
-		version  string
 		name     string
 		expected string
 	}{
-		{ItemTypeBundle, "v1", "security", "ctxloom/v1/bundles/security.yaml"},
-		{ItemTypeBundle, "v2", "testing", "ctxloom/v2/bundles/testing.yaml"},
-		{ItemTypeProfile, "v1", "development", "ctxloom/v1/profiles/development.yaml"},
-		{ItemType(""), "v1", "unknown", "ctxloom/v1/bundles/unknown.yaml"}, // defaults to bundles
+		{ItemTypeBundle, "security", "ctxloom/bundles/security.yaml"},
+		{ItemTypeBundle, "testing", "ctxloom/bundles/testing.yaml"},
+		{ItemTypeProfile, "development", "ctxloom/profiles/development.yaml"},
+		{ItemType(""), "unknown", "ctxloom/bundles/unknown.yaml"}, // defaults to bundles
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			result := buildPublishPath(tt.itemType, tt.version, tt.name)
+			result := buildPublishPath(tt.itemType, tt.name)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -306,7 +279,7 @@ func TestTransformProfileForExport(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 
-		content := []byte("bundles:\n  - https://github.com/owner/repo@v1/bundles/name\n")
+		content := []byte("bundles:\n  - https://github.com/owner/repo@bundles/name\n")
 		result, err := transformProfileForExport(content, lm)
 
 		require.NoError(t, err)
@@ -344,9 +317,8 @@ func TestTransformProfileForExport(t *testing.T) {
 			Version: 1,
 			Bundles: map[string]LockEntry{
 				"alice/security": {
-					SHA:        "abc123",
-					URL:        "https://github.com/alice/ctxloom",
-					CtxloomVersion: "v1",
+					SHA: "abc123",
+					URL: "https://github.com/alice/ctxloom",
 				},
 			},
 			Profiles: make(map[string]LockEntry),
@@ -357,7 +329,7 @@ func TestTransformProfileForExport(t *testing.T) {
 		result, err := transformProfileForExport(content, lm)
 
 		require.NoError(t, err)
-		assert.Contains(t, string(result), "https://github.com/alice/ctxloom@v1/bundles/security")
+		assert.Contains(t, string(result), "https://github.com/alice/ctxloom@bundles/security")
 	})
 
 	t.Run("returns error for unknown local ref", func(t *testing.T) {
@@ -415,3 +387,27 @@ func TestDefaultPublisherFactory(t *testing.T) {
 	})
 }
 
+func TestSplitTitleBody(t *testing.T) {
+	tests := []struct {
+		name      string
+		title     string
+		body      string
+		wantTitle string
+		wantBody  string
+	}{
+		{"explicit title kept, body trimmed", "My Title", "  some body  ", "My Title", "some body"},
+		{"empty both", "", "", "", ""},
+		{"lift first line into title", "", "Subject line\nbody para", "Subject line", "body para"},
+		{"single-line body becomes title, body emptied", "", "Just a subject", "Just a subject", ""},
+		{"title set, body has newlines untouched", "T", "a\nb", "T", "a\nb"},
+		{"whitespace-only inputs", "   ", "   ", "", ""},
+		{"lift trims around the split", "", "  Subject  \n  rest  ", "Subject", "rest"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTitle, gotBody := SplitTitleBody(tt.title, tt.body)
+			assert.Equal(t, tt.wantTitle, gotTitle, "title")
+			assert.Equal(t, tt.wantBody, gotBody, "body")
+		})
+	}
+}

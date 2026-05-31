@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -17,6 +18,29 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
+// TestMain isolates this package's tests from the user's real ~/.ctxloom.
+// Compact() reads the harp name from CTXLOOM_SESSION_HARP and writes the
+// global session index via sessions.Open(""), which resolves against
+// $HOME. Running the suite from inside a ctxloom session (where `ctxloom
+// run` exports CTXLOOM_SESSION_HARP) therefore let TestCompact_WithMockClient
+// bind its mock session ID ("test-compact-session") into the user's real
+// index.yaml — corrupting `session distill`. We neutralize both globals:
+// point HOME at a throwaway dir so any index write lands there, and clear
+// the inherited harp so the bind block is skipped outright.
+func TestMain(m *testing.M) {
+	tmpHome, err := os.MkdirTemp("", "ctxloom-memory-test-home")
+	if err != nil {
+		panic("memory test setup: " + err.Error())
+	}
+	if err := os.Setenv("HOME", tmpHome); err != nil {
+		panic("memory test setup: " + err.Error())
+	}
+	_ = os.Unsetenv("CTXLOOM_SESSION_HARP")
+	code := m.Run()
+	_ = os.RemoveAll(tmpHome)
+	os.Exit(code)
+}
+
 func TestEstimateTokens(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -24,7 +48,7 @@ func TestEstimateTokens(t *testing.T) {
 		expected int
 	}{
 		{"empty string", "", 0},
-		{"short string", "test", 1}, // 4 chars / 4 = 1
+		{"short string", "test", 1},                 // 4 chars / 4 = 1
 		{"longer string", "hello world testing", 4}, // 19 chars / 4 = 4
 	}
 
@@ -50,7 +74,7 @@ func TestCompactor_SessionToText(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	assert.Contains(t, text, "## User\nHello")
 	assert.Contains(t, text, "## Assistant\nHi there!")
@@ -75,7 +99,7 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	// Should be truncated with "..."
 	assert.Contains(t, text, "...")
@@ -90,7 +114,7 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session)
+	text := c.sessionToText(session, nil)
 
 	assert.Contains(t, text, "[ERROR]")
 }
@@ -136,24 +160,29 @@ func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
 	assert.Greater(t, len(chunks), 1)
 }
 
-func TestDistilledSession_Serialization(t *testing.T) {
-	original := DistilledSession{
-		SessionID:  "test-session",
-		CreatedAt:  time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Content:    "This is the distilled content",
-		TokenCount: 100,
-	}
+func TestDistilledSession_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
 
-	data, err := yaml.Marshal(original)
+	c := &Compactor{config: CompactionConfig{OutputDir: tmpDir}}
+	path, err := c.saveDistilled("round-trip", "## Summary\nDistilled body.", distilledMeta{
+		EntryCount: 12,
+		TokensIn:   2000,
+		TokensOut:  300,
+		PlanBlocks: 2,
+	})
 	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tmpDir, "round-trip.md"), path)
 
-	var loaded DistilledSession
-	err = yaml.Unmarshal(data, &loaded)
+	loaded, err := LoadDistilledSession(tmpDir, "round-trip")
 	require.NoError(t, err)
-
-	assert.Equal(t, original.SessionID, loaded.SessionID)
-	assert.Equal(t, original.Content, loaded.Content)
-	assert.Equal(t, original.TokenCount, loaded.TokenCount)
+	assert.Equal(t, "round-trip", loaded.SessionID)
+	assert.Equal(t, 12, loaded.EntryCount)
+	assert.Equal(t, 2000, loaded.TokensIn)
+	assert.Equal(t, 300, loaded.TokensOut)
+	assert.Equal(t, 2, loaded.PlanBlocks)
+	assert.False(t, loaded.DistilledAt.IsZero())
+	assert.Contains(t, loaded.Body, "## Summary")
+	assert.Contains(t, loaded.Body, "Distilled body.")
 }
 
 func TestSessionEssence_Serialization(t *testing.T) {
@@ -177,26 +206,22 @@ func TestSessionEssence_Serialization(t *testing.T) {
 
 func TestLoadDistilledSession(t *testing.T) {
 	tmpDir := t.TempDir()
-	distilledDir := filepath.Join(tmpDir, DistilledDir)
-	require.NoError(t, os.MkdirAll(distilledDir, 0755))
 
-	// Create a test distilled session file
-	session := DistilledSession{
-		SessionID:  "abc123",
-		CreatedAt:  time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Content:    "Distilled content here",
-		TokenCount: 50,
-	}
-	data, err := yaml.Marshal(session)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-abc123.yaml"), data, 0644))
+	frontmatter := "---\n" +
+		"session_id: abc123\n" +
+		"distilled_at: 2024-01-15T10:00:00Z\n" +
+		"entry_count: 8\n" +
+		"plan_blocks: 0\n" +
+		"---\n\n" +
+		"# Session summary\n\nDistilled content here\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte(frontmatter), 0644))
 
-	// Load it
 	loaded, err := LoadDistilledSession(tmpDir, "abc123")
 	require.NoError(t, err)
 
 	assert.Equal(t, "abc123", loaded.SessionID)
-	assert.Equal(t, "Distilled content here", loaded.Content)
+	assert.Equal(t, 8, loaded.EntryCount)
+	assert.Contains(t, loaded.Body, "Distilled content here")
 }
 
 func TestLoadDistilledSession_NotFound(t *testing.T) {
@@ -208,13 +233,10 @@ func TestLoadDistilledSession_NotFound(t *testing.T) {
 
 func TestListDistilledSessions(t *testing.T) {
 	tmpDir := t.TempDir()
-	distilledDir := filepath.Join(tmpDir, DistilledDir)
-	require.NoError(t, os.MkdirAll(distilledDir, 0755))
 
-	// Create test files
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-abc123.yaml"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "session-def456.yaml"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(distilledDir, "other.txt"), []byte("{}"), 0644)) // Should be ignored
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "abc123.md"), []byte("---\nsession_id: abc123\n---\n\n# x\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "def456.md"), []byte("---\nsession_id: def456\n---\n\n# x\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("ignored"), 0644))
 
 	sessions, err := ListDistilledSessions(tmpDir)
 	require.NoError(t, err)
@@ -470,16 +492,18 @@ type mockBackend struct {
 	history backends.SessionHistory
 }
 
-func (m *mockBackend) Name() string                                       { return "mock-test" }
-func (m *mockBackend) Version() string                                    { return "1.0.0" }
-func (m *mockBackend) SupportedModes() []backends.ExecutionMode           { return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot} }
-func (m *mockBackend) Lifecycle() backends.LifecycleHandler               { return nil }
-func (m *mockBackend) Skills() backends.SkillRegistry                     { return nil }
-func (m *mockBackend) Context() backends.ContextProvider                  { return nil }
-func (m *mockBackend) MCP() backends.MCPManager                           { return nil }
-func (m *mockBackend) History() backends.SessionHistory                   { return m.history }
-func (m *mockBackend) WorkDir() string                                    { return "" }
-func (m *mockBackend) SetWorkDir(string)                                  {}
+func (m *mockBackend) Name() string    { return "mock-test" }
+func (m *mockBackend) Version() string { return "1.0.0" }
+func (m *mockBackend) SupportedModes() []backends.ExecutionMode {
+	return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot}
+}
+func (m *mockBackend) Lifecycle() backends.LifecycleHandler                { return nil }
+func (m *mockBackend) Skills() backends.SkillRegistry                      { return nil }
+func (m *mockBackend) Context() backends.ContextProvider                   { return nil }
+func (m *mockBackend) MCP() backends.MCPManager                            { return nil }
+func (m *mockBackend) History() backends.SessionHistory                    { return m.history }
+func (m *mockBackend) WorkDir() string                                     { return "" }
+func (m *mockBackend) SetWorkDir(string)                                   {}
 func (m *mockBackend) Setup(context.Context, *backends.SetupRequest) error { return nil }
 func (m *mockBackend) Execute(context.Context, *backends.ExecuteRequest, io.Writer, io.Writer) (*backends.ExecuteResult, error) {
 	return &backends.ExecuteResult{ExitCode: 0}, nil
@@ -641,6 +665,61 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCompact_PreservesPlansVerbatim(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	planBody := "1. design the schema\n2. migrate data with backfill\n3. verify with smoke tests"
+	toolInput, err := json.Marshal(map[string]string{"plan": planBody})
+	require.NoError(t, err)
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &backends.Session{
+			ID: "plan-survival",
+			Entries: []backends.SessionEntry{
+				{Type: backends.EntryTypeUser, Content: "make a plan"},
+				{
+					Type:      backends.EntryTypeToolUse,
+					ToolName:  "ExitPlanMode",
+					ToolInput: toolInput,
+				},
+				{Type: backends.EntryTypeAssistant, Content: "plan ready"},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	// Capture the prompt the LLM sees so we can assert plan content was
+	// excised in favor of a placeholder.
+	var sawLLMInput string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+			sawLLMInput = req.Prompt.Content
+			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan; see plan-block #1."))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	// The LLM should have seen the placeholder, never the plan body.
+	assert.Contains(t, sawLLMInput, "[plan-block #1 — ExitPlanMode, preserved below]")
+	assert.NotContains(t, sawLLMInput, planBody)
+
+	loaded, err := LoadDistilledSession(tmpDir, "plan-survival")
+	require.NoError(t, err)
+	assert.Equal(t, 1, loaded.PlanBlocks)
+	assert.Contains(t, loaded.Body, "## Preserved plans")
+	assert.Contains(t, loaded.Body, planBody)
+}
+
 func TestCompact_BySessionID(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -678,23 +757,76 @@ func TestCompact_BySessionID(t *testing.T) {
 	assert.Equal(t, "specific-session", result.SessionID)
 }
 
-func TestSaveDistilled(t *testing.T) {
-	tmpDir := t.TempDir()
+// =============================================================================
+// parseLLMFrontmatter — Phase 3.5.2
+// =============================================================================
 
-	c := &Compactor{
-		config: CompactionConfig{
-			OutputDir: tmpDir,
-		},
-	}
+func TestParseLLMFrontmatter_HappyPath(t *testing.T) {
+	in := `---
+summary: Designed bundle review on startup; landed PR f1262a4
+---
 
-	path, err := c.saveDistilled("test-session-123", "Distilled content here")
-	require.NoError(t, err)
+### Open Items
+- thing one
+- thing two
+`
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Equal(t, "Designed bundle review on startup; landed PR f1262a4", summary)
+	assert.Contains(t, body, "### Open Items")
+	assert.NotContains(t, body, "summary:")
+}
 
-	assert.Contains(t, path, "test-session-123")
+func TestParseLLMFrontmatter_NoLeadingDashes(t *testing.T) {
+	in := "### Open Items\n- thing\n"
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+	assert.Empty(t, summary)
+	assert.Equal(t, in, body, "body should pass through unchanged on parse failure")
+}
 
-	// Verify file contents
-	loaded, err := LoadDistilledSession(tmpDir, "test-session-123")
-	require.NoError(t, err)
-	assert.Equal(t, "Distilled content here", loaded.Content)
-	assert.Equal(t, "test-session-123", loaded.SessionID)
+func TestParseLLMFrontmatter_NoClosingDashes(t *testing.T) {
+	in := "---\nsummary: x\n# missing close\n"
+	_, _, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+}
+
+func TestParseLLMFrontmatter_MalformedYAML(t *testing.T) {
+	in := "---\nsummary: [unterminated\n---\nbody\n"
+	_, _, ok := parseLLMFrontmatter(in)
+	assert.False(t, ok)
+}
+
+func TestParseLLMFrontmatter_TruncatesLongSummary(t *testing.T) {
+	long := "this summary is exactly eighty characters long without trailing punctuation."
+	require.Less(t, len(long), 80, "fixture sanity")
+	overlong := long + " plus extra content that should be chopped off here"
+	in := "---\nsummary: " + overlong + "\n---\n\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.LessOrEqual(t, len(summary), 80)
+}
+
+func TestParseLLMFrontmatter_FirstLineOnlyIfMultiline(t *testing.T) {
+	in := "---\nsummary: |\n  line one\n  line two\n---\n\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.NotContains(t, summary, "\n")
+	assert.Equal(t, "line one", summary)
+}
+
+func TestParseLLMFrontmatter_StripsLeadingWhitespace(t *testing.T) {
+	// Some LLMs put a stray blank line or whitespace before the ---. Tolerate it.
+	in := "\n\n  \n---\nsummary: ok\n---\nbody\n"
+	summary, _, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Equal(t, "ok", summary)
+}
+
+func TestParseLLMFrontmatter_EmptySummaryStillSucceeds(t *testing.T) {
+	in := "---\nsummary: \n---\nbody\n"
+	summary, body, ok := parseLLMFrontmatter(in)
+	assert.True(t, ok)
+	assert.Empty(t, summary)
+	assert.Equal(t, "body\n", body)
 }

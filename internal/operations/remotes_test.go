@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -101,9 +102,9 @@ func TestDiscoverRemotesRequest_Defaults(t *testing.T) {
 	req := DiscoverRemotesRequest{}
 
 	// Check that empty values are handled correctly in the operation
-	assert.Empty(t, req.Source)   // Will default to "all"
-	assert.Zero(t, req.Limit)     // Will default to 30
-	assert.Zero(t, req.MinStars)  // Will use 0 minimum
+	assert.Empty(t, req.Source)  // Will default to "all"
+	assert.Zero(t, req.Limit)    // Will default to 30
+	assert.Zero(t, req.MinStars) // Will use 0 minimum
 }
 
 func TestBrowseRemoteRequest_Validation(t *testing.T) {
@@ -147,14 +148,12 @@ func TestBrowseRemoteRequest_Validation(t *testing.T) {
 
 func TestRemoteEntry_Fields(t *testing.T) {
 	entry := RemoteEntry{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	assert.Equal(t, "test-remote", entry.Name)
 	assert.Equal(t, "https://github.com/test/repo", entry.URL)
-	assert.Equal(t, "v1", entry.Version)
 }
 
 func TestRepoEntry_Fields(t *testing.T) {
@@ -344,7 +343,7 @@ func TestAddRemote_InvalidRepo(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "ctxloom/v1/")
+	assert.Contains(t, result.Warning, "ctxloom/")
 }
 
 func TestAddRemote_Duplicate(t *testing.T) {
@@ -434,7 +433,7 @@ func TestAddRemote_ValidationFailed(t *testing.T) {
 	// Should succeed but include warning
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Contains(t, result.Warning, "ctxloom/v1")
+	assert.Contains(t, result.Warning, "ctxloom/")
 }
 
 func TestRemoveRemote_EmptyName(t *testing.T) {
@@ -567,7 +566,7 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/bundles", []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 		{Name: "testing.yaml", IsDir: false},
 	})
@@ -593,7 +592,7 @@ func TestBrowseRemote_Profiles(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/profiles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/profiles", []remote.DirEntry{
 		{Name: "dev.yaml", IsDir: false},
 	})
 
@@ -615,8 +614,8 @@ func TestBrowseRemote_Both(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
-		WithDir("ctxloom/v1/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
+		WithDir("ctxloom/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
+		WithDir("ctxloom/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:   "alice",
@@ -645,7 +644,7 @@ func TestBrowseRemote_PullRef(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+	fetcher := remote.NewMockFetcher().WithDir("ctxloom/bundles", []remote.DirEntry{
 		{Name: "security.yaml", IsDir: false},
 	})
 
@@ -667,11 +666,11 @@ func TestBrowseRemote_Recursive(t *testing.T) {
 
 	// Setup directory structure with subdirectory
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/bundles", []remote.DirEntry{
 			{Name: "top-level.yaml", IsDir: false},
 			{Name: "golang", IsDir: true}, // Subdirectory
 		}).
-		WithDir("ctxloom/v1/bundles/golang", []remote.DirEntry{
+		WithDir("ctxloom/bundles/golang", []remote.DirEntry{
 			{Name: "testing.yaml", IsDir: false},
 			{Name: "best-practices.yaml", IsDir: false},
 		})
@@ -695,7 +694,7 @@ func TestBrowseRemote_WithPath(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles/subdir", []remote.DirEntry{
+		WithDir("ctxloom/bundles/subdir", []remote.DirEntry{
 			{Name: "nested.yaml", IsDir: false},
 		})
 
@@ -748,9 +747,10 @@ func TestBrowseRemote_BrowseDirNotFound(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	// Create a fetcher that returns 404 (not found)
+	// Create a fetcher that returns 404 (not found). Real fetchers wrap the
+	// typed sentinel; BrowseRemote detects it via errors.Is.
 	fetcher := remote.NewMockFetcher()
-	fetcher.ListDirErr = fmt.Errorf("404 not found")
+	fetcher.ListDirErr = fmt.Errorf("404 not found: %w", errs.ErrRemoteContentNotFound)
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:   "alice",
@@ -829,9 +829,8 @@ profiles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
@@ -844,9 +843,8 @@ profiles:
 
 func TestSearchManifestContent_InvalidYAML(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	_, err := searchManifestContent(rem, []byte("invalid: [yaml: content"), remote.ItemTypeBundle, remote.SearchQuery{})
@@ -861,9 +859,8 @@ bundles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
@@ -882,9 +879,8 @@ profiles:
 `
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeProfile, remote.SearchQuery{Text: "code"})
@@ -896,7 +892,7 @@ profiles:
 
 func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/bundles", []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 			{Name: "rust-tooling.yaml", IsDir: false},
 			{Name: "README.md", IsDir: false}, // Should skip non-yaml
@@ -904,9 +900,8 @@ func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "golang"})
@@ -917,14 +912,13 @@ func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 
 func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/bundles", []remote.DirEntry{
 			{Name: "golang-tools.yaml", IsDir: false},
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
@@ -934,15 +928,14 @@ func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 
 func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/profiles", []remote.DirEntry{
+		WithDir("ctxloom/profiles", []remote.DirEntry{
 			{Name: "dev-profile.yaml", IsDir: false},
 			{Name: "test-profile.yaml", IsDir: false},
 		})
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeProfile, remote.SearchQuery{Text: "dev"})
@@ -954,9 +947,8 @@ func TestSearchDirectoryContent_ProfileType(t *testing.T) {
 
 func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "invalid://invalid-url",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "invalid://invalid-url",
 	}
 
 	cfg := &config.Config{}
@@ -966,9 +958,8 @@ func TestSearchSingleRemote_NewFetcherError(t *testing.T) {
 
 func TestSearchSingleRemote_ParseRepoURLError(t *testing.T) {
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "not-a-valid-url",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "not-a-valid-url",
 	}
 
 	// NewFetcher will succeed but ParseRepoURL will fail with invalid URL
@@ -988,9 +979,8 @@ func TestSearchSingleRemote_WithManifest(t *testing.T) {
 	// Since searchSingleRemote creates its own fetcher, we test the helper function
 	// that parses manifest content rather than the full integration
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	// Test the manifest search helper function
@@ -1004,15 +994,14 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 	// Since searchSingleRemote creates its own fetcher, we test the helper functions
 	// that it calls rather than the full integration
 	mockFetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/v1/bundles", []remote.DirEntry{
+		WithDir("ctxloom/bundles", []remote.DirEntry{
 			{Name: "test-bundle.yaml", IsDir: false},
 		}).
-		WithFile("ctxloom/v1/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
+		WithFile("ctxloom/bundles/test-bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
 
 	rem := &remote.Remote{
-		Name:    "test-remote",
-		URL:     "https://github.com/test/repo",
-		Version: "v1",
+		Name: "test-remote",
+		URL:  "https://github.com/test/repo",
 	}
 
 	// Test the directory search helper function

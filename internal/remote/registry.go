@@ -108,8 +108,8 @@ func (r *Registry) save() error {
 	remotesMap := make(map[string]Remote)
 	for name, remote := range r.remotes {
 		remotesMap[name] = Remote{
-			URL:     remote.URL,
-			Version: remote.Version,
+			URL:          remote.URL,
+			TrustBundles: remote.TrustBundles,
 		}
 	}
 	if len(remotesMap) > 0 {
@@ -164,42 +164,8 @@ func (r *Registry) Add(name, repoURL string) error {
 	}
 
 	remote := &Remote{
-		Name:    name,
-		URL:     normalizedURL,
-		Version: "v1", // Default version directory
-	}
-
-	r.remotes[name] = remote
-
-	if err := r.save(); err != nil {
-		delete(r.remotes, name) // Rollback
-		return err
-	}
-
-	return nil
-}
-
-// AddWithVersion registers a new remote with a specific ctxloom version.
-// Returns error if a remote with the same name or URL already exists.
-func (r *Registry) AddWithVersion(name, repoURL, scmVersion string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.remotes[name]; exists {
-		return fmt.Errorf("remote already exists: %s", name)
-	}
-
-	normalizedURL := NormalizeURL(repoURL)
-
-	// Check if any existing remote points to this URL
-	if existingName, found := r.findByURLLocked(normalizedURL); found {
-		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom remote pull %s/<path>' instead", existingName, existingName)
-	}
-
-	remote := &Remote{
-		Name:    name,
-		URL:     normalizedURL,
-		Version: scmVersion,
+		Name: name,
+		URL:  normalizedURL,
 	}
 
 	r.remotes[name] = remote
@@ -216,7 +182,7 @@ func (r *Registry) AddWithVersion(name, repoURL, scmVersion string) error {
 // Used for auto-registration during pull - returns existing remote if URL already registered.
 // New remotes are named using the repository name extracted from the URL.
 // If a name conflict exists (same repo name, different URL), appends a numeric suffix.
-func (r *Registry) GetOrCreateByURL(repoURL, scmVersion string) (*Remote, error) {
+func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -246,9 +212,8 @@ func (r *Registry) GetOrCreateByURL(repoURL, scmVersion string) (*Remote, error)
 	}
 
 	remote := &Remote{
-		Name:    name,
-		URL:     normalizedURL,
-		Version: scmVersion,
+		Name: name,
+		URL:  normalizedURL,
 	}
 
 	r.remotes[name] = remote
@@ -260,6 +225,28 @@ func (r *Registry) GetOrCreateByURL(repoURL, scmVersion string) (*Remote, error)
 
 	remoteCopy := *remote
 	return &remoteCopy, nil
+}
+
+// SetTrustBundles toggles the TrustBundles flag on the named remote and
+// persists the registry. Used by the trust_remote MCP tool to opt a remote
+// in or out of the bundle-review prompt (docs/bundle-review-plan.md).
+func (r *Registry) SetTrustBundles(name string, trust bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rem, ok := r.remotes[name]
+	if !ok {
+		return fmt.Errorf("remote not found: %s", name)
+	}
+	if rem.TrustBundles == trust {
+		return nil
+	}
+	rem.TrustBundles = trust
+	if err := r.save(); err != nil {
+		rem.TrustBundles = !trust // rollback
+		return err
+	}
+	return nil
 }
 
 // FindByURL searches for a remote by repository URL.
@@ -337,21 +324,6 @@ func (r *Registry) Has(name string) bool {
 	defer r.mu.RUnlock()
 	_, ok := r.remotes[name]
 	return ok
-}
-
-// SetVersion updates the version directory for a remote.
-func (r *Registry) SetVersion(name, version string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	remote, ok := r.remotes[name]
-	if !ok {
-		return fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
-	}
-
-	remote.Version = version
-
-	return r.save()
 }
 
 // GetDefault returns the default remote name, or empty string if not set.

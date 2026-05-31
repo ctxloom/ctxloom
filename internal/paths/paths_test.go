@@ -1,6 +1,8 @@
 package paths
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,6 +72,25 @@ func TestProfilesPath_AtRoot(t *testing.T) {
 	// NOT: .ctxloom/persistent/profiles/
 	assert.Equal(t, ".ctxloom/profiles", ProfilesPath(".ctxloom"))
 	assert.Equal(t, "/project/.ctxloom/profiles", ProfilesPath("/project/.ctxloom"))
+}
+
+// =============================================================================
+// Harp Session Directory Tests
+// =============================================================================
+
+func TestHarpPlanPath_InSessionDir(t *testing.T) {
+	assert.Equal(t, ".plan.md", PlanFileExt)
+
+	harpDir, err := HarpDir("swift-amber-falcon")
+	if err != nil {
+		t.Skipf("home dir unavailable: %v", err)
+	}
+	planPath, err := HarpPlanPath("swift-amber-falcon", "v1-removal")
+	assert.NoError(t, err)
+	// Plans are .plan.md files directly in the harp dir (next to tasks.md),
+	// so a session can hold multiple distinctly named plans.
+	assert.Equal(t, filepath.Join(harpDir, "v1-removal.plan.md"), planPath)
+	assert.True(t, strings.HasSuffix(planPath, filepath.Join("sessions", "swift-amber-falcon", "v1-removal.plan.md")))
 }
 
 // =============================================================================

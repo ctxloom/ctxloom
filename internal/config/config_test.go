@@ -3,9 +3,11 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -476,12 +478,12 @@ func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
 
 func TestConfig_GetEditorCommand(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      Config
-		visual      string
-		editor      string
-		wantCmd     string
-		wantArgs    []string
+		name     string
+		config   Config
+		visual   string
+		editor   string
+		wantCmd  string
+		wantArgs []string
 	}{
 		{
 			name:     "config takes precedence",
@@ -685,7 +687,6 @@ func TestConfig_GetConfigFilePath(t *testing.T) {
 	})
 }
 
-
 // =============================================================================
 // ResolveProfile Additional Tests
 // =============================================================================
@@ -698,7 +699,7 @@ func TestResolveProfile_CircularDependency(t *testing.T) {
 
 	_, err := ResolveProfile(profiles, "a")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "circular")
+	assert.ErrorIs(t, err, errs.ErrCircularInheritance)
 }
 
 func TestResolveProfile_UnknownProfile(t *testing.T) {
@@ -706,7 +707,24 @@ func TestResolveProfile_UnknownProfile(t *testing.T) {
 
 	_, err := ResolveProfile(profiles, "nonexistent")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown profile")
+	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
+}
+
+// A missing parent must not abort resolution: per the fault-tolerance
+// philosophy the branch is skipped and the rest of the profile still resolves,
+// matching profiles.Loader.ResolveProfile.
+func TestResolveProfile_MissingParentWarnsAndContinues(t *testing.T) {
+	profiles := map[string]Profile{
+		"child": {
+			Parents: []string{"ghost"}, // not defined
+			Tags:    []string{"own-tag"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err, "missing parent should warn-and-skip, not error")
+	require.NotNil(t, resolved)
+	assert.Contains(t, resolved.Tags, "own-tag", "child's own settings should still resolve")
 }
 
 func TestResolveProfile_DeepInheritance(t *testing.T) {
@@ -768,7 +786,6 @@ func TestResolveProfile_DiamondInheritance(t *testing.T) {
 	assert.Equal(t, 1, bundleCount)
 }
 
-
 // =============================================================================
 // Config Save Tests
 // =============================================================================
@@ -810,6 +827,36 @@ func TestConfig_Save_NoAppPaths(t *testing.T) {
 	cfg := &Config{}
 	err := cfg.Save()
 	assert.Error(t, err)
+}
+
+// Regression: Save dropped the whole `defaults` block unless one of three
+// fields was set, so a config with only compaction defaults lost them on Save.
+// Also covers the editor round-trip, which Save never wrote.
+func TestConfig_Save_PreservesCompactionDefaultsAndEditor(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(tmpDir, 0755))
+
+	cfg := &Config{
+		AppPaths: []string{tmpDir},
+		LM:       LMConfig{Plugins: map[string]PluginConfig{"claude-code": {}}},
+		Defaults: Defaults{
+			// Deliberately none of Profiles/LLMPlugin/UseDistilled set.
+			CompactionPlugin: "gemini",
+			CompactionModel:  "haiku",
+			CompactionChunks: 4096,
+		},
+		Editor: EditorConfig{Command: "vim", Args: []string{"-p"}},
+	}
+	require.NoError(t, cfg.Save())
+
+	// Round-trip through Load to confirm the values survived.
+	loaded, err := Load(WithAppDir(tmpDir))
+	require.NoError(t, err)
+	assert.Equal(t, "gemini", loaded.Defaults.CompactionPlugin)
+	assert.Equal(t, "haiku", loaded.Defaults.CompactionModel)
+	assert.Equal(t, 4096, loaded.Defaults.CompactionChunks)
+	assert.Equal(t, "vim", loaded.Editor.Command)
+	assert.Equal(t, []string{"-p"}, loaded.Editor.Args)
 }
 
 // =============================================================================
@@ -943,35 +990,14 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		assert.Contains(t, defaults, "dev")
 	})
 
-	t.Run("includes profiles with default true", func(t *testing.T) {
+	t.Run("no duplicates in defaults.profiles", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		appDir := "/project/.ctxloom"
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Profiles: map[string]Profile{
-				"prod": {Default: true},
-				"dev":  {Default: false},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Contains(t, defaults, "prod")
-		assert.NotContains(t, defaults, "dev")
-	})
-
-	t.Run("no duplicates", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"prod"}},
-			Profiles: map[string]Profile{
-				"prod": {Default: true}, // Same profile also marked default
-			},
+			Defaults: Defaults{Profiles: []string{"prod", "prod"}},
+			Profiles: map[string]Profile{},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1180,7 +1206,6 @@ func TestExtractMCPFromBundle(t *testing.T) {
 	assert.Equal(t, "bundle:my-bundle", result["test-server"].SCM)
 }
 
-
 // =============================================================================
 // resolveProfileRecursive Depth Limit
 // =============================================================================
@@ -1249,6 +1274,36 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+// Regression: a bundle reachable only through profile inheritance must still
+// have its MCP server resolved. Before the fix, ResolveBundleMCPServers read a
+// flat profileLoader.Load(profile).Bundles — which omits inherited bundles —
+// so a parent's bundle MCP server was silently dropped (while its fragment and
+// prompt were still exported through other paths).
+func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	// Parent profile ships the bundle; child only inherits and is the default.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "parent.yaml"),
+		[]byte("name: parent\nbundles:\n  - seq-bundle\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
+		[]byte("name: child\nparents:\n  - parent\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "seq-bundle.yaml"),
+		[]byte("name: seq-bundle\nversion: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
+
+	cfg := &Config{
+		Defaults: Defaults{Profiles: []string{"child"}},
+		AppPaths: []string{appDir},
+	}
+
+	result := cfg.ResolveBundleMCPServers()
+	assert.Contains(t, result, "sequential-thinking",
+		"MCP server from a parent-inherited bundle should resolve")
+}
+
 // =============================================================================
 // loadMCPFromBundleRef Tests
 // =============================================================================
@@ -1270,7 +1325,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader([]string{bundlesDir}, false)
-	result := loadMCPFromBundleRef("test-bundle", tmpDir, loader)
+	result := loadMCPFromBundleRef("test-bundle", loader)
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1281,8 +1336,168 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader([]string{tmpDir}, false)
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef("nonexistent-bundle", tmpDir, loader)
+	result := loadMCPFromBundleRef("nonexistent-bundle", loader)
 	assert.Empty(t, result)
+}
+
+// Regression: a remote bundle lives only in the loader's seed (never extracted
+// to disk), reachable by ref name via loader.Load. Resolving it by a computed
+// fs path returned nothing, silently dropping its MCP server even though the
+// same bundle's fragment/prompt resolved fine.
+func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
+	const ref = "ctxloom-default/sequential-thinking"
+	seeded := map[string]*bundles.Bundle{
+		ref: {
+			Name: ref,
+			MCP: map[string]bundles.BundleMCP{
+				"sequential-thinking": {Command: "npx", Args: []string{"-y", "server"}},
+			},
+		},
+	}
+	loader := bundles.NewLoader(nil, false, bundles.WithSeededBundles(seeded))
+
+	result := loadMCPFromBundleRef(ref, loader)
+	assert.Contains(t, result, "sequential-thinking",
+		"a remote bundle resolved only via the seed must still yield its MCP server")
+	assert.Equal(t, "npx", result["sequential-thinking"].Command)
+}
+
+// =============================================================================
+// ResolveBundleHooks / loadHooksFromBundleRef Tests
+// =============================================================================
+
+func TestLoadHooksFromBundleRef_LocalBundle(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlesDir := filepath.Join(tmpDir, "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `
+name: with-hooks
+version: "1.0"
+hooks:
+  post_tool:
+    - matcher: TodoWrite
+      command: echo recorded
+      type: command
+  post_file_edit:
+    - matcher: ".*-plan\\.md$"
+      command: ctxloom tasks stamp-plan
+      type: command
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	result := loadHooksFromBundleRef("with-hooks", loader)
+
+	require.Len(t, result.PostTool, 1)
+	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
+	assert.Equal(t, "echo recorded", result.PostTool[0].Command)
+	assert.Equal(t, "bundle:with-hooks", result.PostTool[0].SCM, "bundle-shipped hooks must be tagged with their origin")
+
+	require.Len(t, result.PostFileEdit, 1)
+	assert.Contains(t, result.PostFileEdit[0].Matcher, "plan")
+}
+
+func TestLoadHooksFromBundleRef_NoHooksField(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundlesDir := filepath.Join(tmpDir, "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	// A bundle without any hooks should produce a zero-valued UnifiedHooks.
+	bundleContent := `
+name: no-hooks
+version: "1.0"
+mcp:
+  some-server:
+    command: foo
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	result := loadHooksFromBundleRef("no-hooks", loader)
+
+	assert.Empty(t, result.PostTool)
+	assert.Empty(t, result.PreTool)
+	assert.Empty(t, result.PostFileEdit)
+}
+
+func TestUnifiedHooks_Append(t *testing.T) {
+	dst := UnifiedHooks{
+		PostTool: []Hook{{Matcher: "X", Command: "x"}},
+	}
+	src := UnifiedHooks{
+		PostTool:     []Hook{{Matcher: "Y", Command: "y"}},
+		PostFileEdit: []Hook{{Matcher: "Z", Command: "z"}},
+	}
+	dst.Append(src)
+	assert.Len(t, dst.PostTool, 2)
+	assert.Equal(t, "Y", dst.PostTool[1].Matcher)
+	assert.Len(t, dst.PostFileEdit, 1)
+}
+
+// TestResolveBuiltinBundleHooks asserts the embedded tasks bundle is
+// parseable and its hooks ride through to UnifiedHooks tagged with the
+// builtin SCM marker. This is the regression guard for the "ctxloom
+// core functionality prompts/tasks ship with the binary" directive: if
+// the YAML in resources/builtin_bundles/ breaks or the embed directive
+// stops picking it up, apply-hooks would silently lose the plan-stamping
+// hook. This test fires before that ships.
+func TestResolveBuiltinBundleHooks(t *testing.T) {
+	hooks := resolveBuiltinBundleHooks()
+
+	// The tasks bundle ships no PostTool hook: TodoWrite auto-capture was
+	// removed. Tasks are created/updated only via the MCP tools or CLI.
+	assert.Empty(t, hooks.PostTool, "tasks bundle must not ship a PostTool (TodoWrite capture) hook")
+
+	require.NotEmpty(t, hooks.PostFileEdit, "tasks bundle must contribute a PostFileEdit hook (stamp-plan)")
+	foundStamp := false
+	for _, h := range hooks.PostFileEdit {
+		if strings.Contains(h.Command, "tasks stamp-plan") {
+			foundStamp = true
+			assert.Equal(t, "bundle:builtin:tasks", h.SCM)
+		}
+	}
+	assert.True(t, foundStamp, "stamp-plan hook missing from builtin tasks bundle")
+}
+
+// TestResolveBuiltinBundleMCPServers asserts the built-in MCP-server
+// path doesn't error against the embedded YAMLs and that any servers
+// that DO ship from a built-in are tagged with the builtin SCM marker.
+// The current sole built-in (tasks.yaml) ships no MCP servers, so the
+// real call must produce an empty (non-nil) map. The SCM-tag invariant
+// is exercised via extractMCPFromBundle with "builtin:<name>" as the
+// source — the same code path resolveBuiltinBundleMCPServers takes.
+func TestResolveBuiltinBundleMCPServers(t *testing.T) {
+	got := resolveBuiltinBundleMCPServers()
+	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
+
+	// Sanity: any future built-in MCP server must carry the builtin SCM
+	// marker so apply-mcp can identify it as ctxloom-managed.
+	for name, server := range got {
+		assert.True(t, strings.HasPrefix(server.SCM, "builtin:"),
+			"server %q from built-in bundle must have SCM prefix builtin:, got %q", name, server.SCM)
+	}
+
+	// Pin the contract directly: a synthetic builtin source through
+	// extractMCPFromBundle produces the expected SCM tag.
+	synthetic := extractMCPFromBundle(&bundles.Bundle{
+		MCP: map[string]bundles.BundleMCP{
+			"synthetic": {Command: "fake"},
+		},
+	}, "builtin:future-bundle")
+	require.Contains(t, synthetic, "synthetic")
+	assert.Equal(t, "bundle:builtin:future-bundle", synthetic["synthetic"].SCM,
+		"extractMCPFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
+}
+
+func TestHooksConfig_HasAny(t *testing.T) {
+	assert.False(t, HooksConfig{}.hasAny())
+	withUnified := HooksConfig{Unified: UnifiedHooks{PostTool: []Hook{{Command: "x"}}}}
+	assert.True(t, withUnified.hasAny())
+	withPlugin := HooksConfig{Plugins: map[string]BackendHooks{
+		"claude-code": {"PostToolUse": []Hook{{Command: "x"}}},
+	}}
+	assert.True(t, withPlugin.hasAny())
 }
 
 // =============================================================================
@@ -1357,27 +1572,54 @@ llm:
 // GetDefaultProfiles Additional Coverage
 // =============================================================================
 
-func TestConfig_GetDefaultProfiles_FromDirectoryProfile(t *testing.T) {
-	// Test when directory-based profiles have defaults
+func TestConfig_GetDefaultProfiles_SingleProfileFallback(t *testing.T) {
+	// When no default is explicitly configured but exactly one profile is
+	// installed locally, GetDefaultProfiles should return it as a fallback so
+	// `ctxloom run` doesn't launch with empty context.
 	tmpDir := t.TempDir()
-	// Profiles are stored in persistent/profiles/
 	profilesDir := paths.ProfilesPath(tmpDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 
-	// Create a profile file with default: true
-	profileContent := `
-default: true
-description: A default profile
-`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dir-profile.yaml"), []byte(profileContent), 0644))
+	// Single profile, NOT marked default.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
 
-	cfg := &Config{
-		Profiles: map[string]Profile{},
-		AppPaths: []string{tmpDir},
-	}
+	cfg := &Config{AppPaths: []string{tmpDir}}
 
-	defaults := cfg.GetDefaultProfiles()
-	assert.Contains(t, defaults, "dir-profile")
+	assert.Empty(t, cfg.ExplicitDefaultProfiles(),
+		"no default is explicitly configured")
+	assert.Equal(t, []string{"only"}, cfg.GetDefaultProfiles(),
+		"single installed profile should be returned by fallback")
+}
+
+func TestConfig_GetDefaultProfiles_MultipleProfilesNoDefault(t *testing.T) {
+	// When two profiles exist locally and none is marked default, the fallback
+	// must NOT pick one — ambiguity should bubble up so the user sees empty
+	// context (rather than silently loading a random profile).
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "a.yaml"),
+		[]byte("description: a\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "b.yaml"),
+		[]byte("description: b\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Nil(t, cfg.GetDefaultProfiles())
+}
+
+func TestConfig_ExplicitDefaultProfiles_IgnoresFallback(t *testing.T) {
+	// ExplicitDefaultProfiles must not trigger the single-profile fallback —
+	// auto-promote depends on this distinction.
+	tmpDir := t.TempDir()
+	profilesDir := paths.ProfilesPath(tmpDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
+		[]byte("description: only profile\n"), 0644))
+
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	assert.Empty(t, cfg.ExplicitDefaultProfiles())
 }
 
 // =============================================================================

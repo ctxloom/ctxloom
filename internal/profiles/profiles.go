@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,12 +33,11 @@ import (
 //
 //	fragment-name                    # Standalone fragment file
 type Profile struct {
-	Name        string            `yaml:"-"`                      // Derived from filename
-	Path        string            `yaml:"-"`                      // Full path to the file
-	Description string            `yaml:"description,omitempty"`
-	Default     bool              `yaml:"default,omitempty"`      // Whether this is a default profile
-	Parents     []string          `yaml:"parents,omitempty"`      // Parent profiles to inherit from
-	Tags        []string          `yaml:"tags,omitempty"`         // Fragment tags to include
+	Name        string   `yaml:"-"` // Derived from filename
+	Path        string   `yaml:"-"` // Full path to the file
+	Description string   `yaml:"description,omitempty"`
+	Parents     []string `yaml:"parents,omitempty"` // Parent profiles to inherit from
+	Tags        []string `yaml:"tags,omitempty"`    // Fragment tags to include
 
 	// Bundles are content references using standardized path syntax
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"
@@ -133,22 +133,6 @@ func (l *Loader) List() ([]*Profile, error) {
 	})
 
 	return profiles, nil
-}
-
-// GetDefaults returns the names of profiles that have default: true.
-func (l *Loader) GetDefaults() []string {
-	profiles, err := l.List()
-	if err != nil {
-		return nil
-	}
-
-	var defaults []string
-	for _, p := range profiles {
-		if p.Default {
-			defaults = append(defaults, p.Name)
-		}
-	}
-	return defaults
 }
 
 // Load loads a profile by name (supports subdirectory paths like "github/profile-name").
@@ -313,6 +297,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Resolve parents first (depth-first)
 	// Clone visited map for each parent to handle diamond inheritance correctly.
 	// This allows shared ancestors to be resolved through different paths.
+	//
+	// Per ctxloom's fault-tolerance philosophy (CLAUDE.md), an unresolvable
+	// parent is a stderr warning and that branch is skipped — the rest of
+	// the profile still resolves so the user can reach their LLM. Circular
+	// references and depth-limit overruns remain fatal because continuing
+	// would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
 		// Convert URL references to local profile names
 		localParentName := toLocalProfileName(parent)
@@ -321,6 +311,12 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		parentVisited := cloneVisited(visited)
 		parentResolved, err := l.resolveProfileRecursive(localParentName, parentVisited, depth+1)
 		if err != nil {
+			if errors.Is(err, errs.ErrProfileNotFound) {
+				fmt.Fprintf(os.Stderr,
+					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote sync` to install)\n",
+					name, parent)
+				continue
+			}
 			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 		}
 		resolved.Merge(parentResolved)

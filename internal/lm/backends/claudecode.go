@@ -177,10 +177,10 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 	// Minimal mode for distillation - skip all unnecessary startup
 	if req.SkipSetup {
 		args = append(args,
-			"--tools", "",                // Disable all tools
-			"--disable-slash-commands",   // No slash commands
-			"--no-session-persistence",   // Don't save session
-			"--setting-sources", "",      // Skip settings files
+			"--tools", "", // Disable all tools
+			"--disable-slash-commands", // No slash commands
+			"--no-session-persistence", // Don't save session
+			"--setting-sources", "",    // Skip settings files
 		)
 	}
 
@@ -190,4 +190,3 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 
 	return args
 }
-

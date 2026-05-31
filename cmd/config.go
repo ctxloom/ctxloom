@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 var configCmd = &cobra.Command{
@@ -25,14 +28,7 @@ var configShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-
-		data, err := yaml.Marshal(cfg)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
-		}
-
-		fmt.Print(string(data))
-		return nil
+		return renderConfigYAML(cfg, cmd.OutOrStdout())
 	},
 }
 
@@ -52,31 +48,54 @@ Available sections:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-
-		section := args[0]
-		var data interface{}
-
-		switch section {
-		case "defaults":
-			data = cfg.Defaults
-		case "llm":
-			data = cfg.LM
-		case "mcp":
-			data = cfg.MCP
-		case "profiles":
-			data = cfg.Profiles
-		default:
-			return fmt.Errorf("unknown section: %s\n\nAvailable: defaults, llm, mcp, profiles", section)
-		}
-
-		output, err := yaml.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("failed to marshal section: %w", err)
-		}
-
-		fmt.Print(string(output))
-		return nil
+		return renderConfigSection(cfg, args[0], cmd.OutOrStdout())
 	},
+}
+
+// renderConfigYAML marshals cfg to YAML and writes it to out. Extracted
+// from configShowCmd's RunE so the marshal + write composition is
+// testable without invoking cobra.
+func renderConfigYAML(cfg *config.Config, out io.Writer) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	_, err = out.Write(data)
+	return err
+}
+
+// resolveConfigSection returns the named top-level section of cfg, or an
+// error whose message lists the valid section names. The switch is the
+// load-bearing surface — adding a new section here is the only place
+// the `config get <section>` CLI surface changes.
+func resolveConfigSection(cfg *config.Config, name string) (any, error) {
+	switch name {
+	case "defaults":
+		return cfg.Defaults, nil
+	case "llm":
+		return cfg.LM, nil
+	case "mcp":
+		return cfg.MCP, nil
+	case "profiles":
+		return cfg.Profiles, nil
+	default:
+		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: defaults, llm, mcp, profiles", name)
+	}
+}
+
+// renderConfigSection resolves the named section and writes it to out as
+// YAML. Extracted from configGetCmd's RunE.
+func renderConfigSection(cfg *config.Config, name string, out io.Writer) error {
+	data, err := resolveConfigSection(cfg, name)
+	if err != nil {
+		return err
+	}
+	output, err := yaml.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal section: %w", err)
+	}
+	_, err = out.Write(output)
+	return err
 }
 
 func init() {

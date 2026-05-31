@@ -7,6 +7,7 @@ package backends
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,6 +345,219 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeHookWriter_DedupsBundleShippedHooks is the regression
+// guard for the apply-hooks deduplication bug fixed in 3b6a7bf:
+// isCtxloomManagedHook previously matched only inject-context, so
+// bundle-shipped hooks (`ctxloom session bind`, `ctxloom tasks
+// stamp-plan`) accumulated duplicates on every WriteHooks call.
+//
+// The fix broadened the recognition to "any command whose executable
+// token is `ctxloom`". This test exercises that path: write hooks
+// three times, assert the count stays at the expected total.
+func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	writer := &ClaudeCodeHookWriter{}
+
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			PostFileEdit: []config.Hook{
+				{Command: "ctxloom tasks stamp-plan", Type: "command"},
+			},
+		},
+	}
+
+	// Write hooks three times. Without the fix, each apply would append
+	// a duplicate of the previous run's hooks.
+	for range 3 {
+		if err := writer.WriteHooks(cfg, tmpDir); err != nil {
+			t.Fatalf("WriteHooks: %v", err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// The stamp-plan hook (PostFileEdit → PostToolUse Edit|Write) must
+	// appear exactly once across the whole PostToolUse tree, not once
+	// per apply.
+	hooks := settings["hooks"].(map[string]any)
+	postToolUse := hooks["PostToolUse"].([]any)
+	stampCount := 0
+	for _, matcher := range postToolUse {
+		m := matcher.(map[string]any)
+		hooksList := m["hooks"].([]any)
+		for _, h := range hooksList {
+			cmd := h.(map[string]any)["command"].(string)
+			if strings.Contains(cmd, "tasks stamp-plan") {
+				stampCount++
+			}
+		}
+	}
+	if stampCount != 1 {
+		t.Errorf("expected exactly 1 `tasks stamp-plan` hook after 3 applies, got %d", stampCount)
+	}
+}
+
+// TestClaudeCodeHookWriter_WritesBareCtxloomCommands asserts that every
+// ctxloom-rooted command the writer emits — the inject-context
+// SessionStart hook, the statusLine HUD command, and the
+// auto-registered MCP server entry — is written as the bare name
+// `ctxloom`, never an absolute path. Baking the path in is what caused
+// the `/usr/bin/ctxloom` regression: the file kept pointing at a binary
+// that had since moved to `~/go/bin/ctxloom`. Bare commands re-resolve
+// via PATH at fire time and so can't go stale. The pinned exe path here
+// proves the resolved path does NOT leak into the file.
+func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+	SetExecutablePathForTesting("/install/now/ctxloom")
+	t.Cleanup(func() { SetExecutablePathForTesting("") })
+
+	writer := &ClaudeCodeHookWriter{}
+	// Inject-context hook is constructed exactly the way the lifecycle
+	// constructs it — through the public constructor.
+	cfg := &config.HooksConfig{Unified: config.UnifiedHooks{
+		SessionStart: []config.Hook{NewContextInjectionHook("abc123", tmpDir)},
+		PostFileEdit: []config.Hook{
+			{Command: "ctxloom tasks stamp-plan", Type: "command"},
+		},
+	}}
+	require.NoError(t, writer.WriteHooks(cfg, tmpDir))
+
+	settingsData, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
+	require.NoError(t, err)
+	var settings map[string]any
+	require.NoError(t, json.Unmarshal(settingsData, &settings))
+
+	statusLine := settings["statusLine"].(map[string]any)
+	assert.Equal(t, "ctxloom meta hud", statusLine["command"],
+		"statusLine must be bare; got %q", statusLine["command"])
+
+	hooks := settings["hooks"].(map[string]any)
+
+	sessionStart := hooks["SessionStart"].([]any)
+	require.NotEmpty(t, sessionStart)
+	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	assert.True(t, strings.HasPrefix(injectCmd, "ctxloom hook inject-context "),
+		"inject-context hook must be bare; got %q", injectCmd)
+
+	post := hooks["PostToolUse"].([]any)
+	require.NotEmpty(t, post)
+	bundleCmd := post[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	assert.Equal(t, "ctxloom tasks stamp-plan", bundleCmd,
+		"bundle-shipped hook must stay bare; got %q", bundleCmd)
+
+	// .mcp.json: auto-registered ctxloom MCP server command is bare too.
+	mcpData, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
+	require.NoError(t, err)
+	var mcpConfig map[string]any
+	require.NoError(t, json.Unmarshal(mcpData, &mcpConfig))
+	ctxloomServer := mcpConfig["mcpServers"].(map[string]any)["ctxloom"].(map[string]any)
+	assert.Equal(t, "ctxloom", ctxloomServer["command"],
+		"auto-registered MCP server command must be bare; got %q", ctxloomServer["command"])
+}
+
+// TestNewContextInjectionHook_ShellQuotesProjectPath pins the shell-safe
+// quoting of the --project path: spaces, single quotes, and shell
+// metacharacters must not break the command split or inject behavior when
+// /bin/sh runs the hook.
+func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
+	h := NewContextInjectionHook("hash1", "/tmp/My Project")
+	assert.Contains(t, h.Command, `--project '/tmp/My Project' hash1`,
+		"path with spaces must be single-quoted; got %q", h.Command)
+
+	h = NewContextInjectionHook("hash2", "/tmp/it's mine")
+	assert.Contains(t, h.Command, `--project '/tmp/it'\''s mine' hash2`,
+		"embedded single quote must use the '\\'' idiom; got %q", h.Command)
+
+	assert.True(t, strings.HasPrefix(h.Command, "ctxloom hook inject-context "),
+		"bare-ctxloom prefix invariant must hold; got %q", h.Command)
+}
+
+// TestNewContextInjectionHooks_ChunksLargeContext verifies that a large
+// content-addressed context file is split into N ordered chunk hooks
+// (--part k --of N), while small or missing content yields a single
+// whole-content hook (the legacy, backward-compatible form).
+func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
+	writeCtxFile := func(t *testing.T, workDir, hash, content string) {
+		t.Helper()
+		dir := filepath.Join(workDir, SCMContextSubdir)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, hash+".md"), []byte(content), 0o644))
+	}
+
+	t.Run("small_content_single_hook", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeCtxFile(t, tmpDir, "smallhash", "# tiny\nbody")
+		hooks := NewContextInjectionHooks("smallhash", tmpDir)
+		require.Len(t, hooks, 1)
+		assert.NotContains(t, hooks[0].Command, "--part",
+			"single chunk must use the legacy whole-content form")
+	})
+
+	t.Run("missing_file_single_hook", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		hooks := NewContextInjectionHooks("nofile", tmpDir)
+		require.Len(t, hooks, 1)
+		assert.NotContains(t, hooks[0].Command, "--part",
+			"missing file degrades to a single whole-content hook")
+	})
+
+	t.Run("large_content_ordered_chunks", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		var sections []string
+		for i := range 6 {
+			sections = append(sections, "# Section "+string(rune('A'+i))+"\n"+strings.Repeat("x", 3000))
+		}
+		writeCtxFile(t, tmpDir, "bighash", strings.Join(sections, "\n\n---\n\n"))
+
+		hooks := NewContextInjectionHooks("bighash", tmpDir)
+		n := len(hooks)
+		require.Greater(t, n, 1, "large content must split into multiple chunk hooks")
+		for k, h := range hooks {
+			assert.Containsf(t, h.Command, fmt.Sprintf("--part %d --of %d", k+1, n),
+				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
+			assert.Truef(t, isCtxloomManagedHook(h.Command),
+				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
+			assert.Equal(t, ContextInjectionTimeout, h.Timeout)
+		}
+	})
+}
+
+// TestIsCtxloomManagedHook covers the predicate that drives the dedup
+// pass. Pre-3b6a7bf this only matched inject-context.
+func TestIsCtxloomManagedHook(t *testing.T) {
+	cases := map[string]bool{
+		// All ctxloom invocations are managed.
+		"ctxloom hook inject-context --project /p hash": true,
+		"ctxloom session bind":                          true,
+		"ctxloom tasks stamp-plan":                      true,
+		`"/usr/bin/ctxloom" meta hud`:                   true,
+		"/home/me/go/bin/ctxloom session bind":          true,
+		`"C:\Tools\ctxloom.exe" tasks stamp-plan`:       true,
+		// Quoted executable path containing spaces — strings.Fields used to
+		// split this mid-path and miss it, leaving dup hooks to accumulate.
+		`"/Apps/My Tools/ctxloom" mcp`:              true,
+		`'/Apps/My Tools/ctxloom' tasks stamp-plan`: true,
+		// Not ctxloom.
+		"echo 'user hook'":                   false,
+		"node /opt/somewhere/script.js":      false,
+		"/usr/local/bin/ctxloomctl whatever": false,
+		"":                                   false,
+	}
+	for cmd, want := range cases {
+		if got := isCtxloomManagedHook(cmd); got != want {
+			t.Errorf("isCtxloomManagedHook(%q) = %v; want %v", cmd, got, want)
+		}
+	}
+}
+
 func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
@@ -456,9 +670,9 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 	}{
 		{"claude-code", "claude-code", true},
 		{"gemini", "gemini", true},
-		{"codex", "codex", false},       // No settings support
-		{"unknown", "unknown", false},   // Unknown backend
-		{"empty", "", false},            // Empty string
+		{"codex", "codex", false},     // No settings support
+		{"unknown", "unknown", false}, // Unknown backend
+		{"empty", "", false},          // Empty string
 	}
 
 	for _, tt := range tests {
@@ -591,8 +805,8 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	existingMCP := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
 			"ctxloom": map[string]interface{}{
-				"command": "/old/path/to/ctxloom mcp",
-				"_ctxloom":    "old-marker",
+				"command":  "/old/path/to/ctxloom mcp",
+				"_ctxloom": "old-marker",
 			},
 			"user-server": map[string]interface{}{
 				"command": "/usr/bin/user-mcp",
@@ -1197,4 +1411,3 @@ func TestGetFS(t *testing.T) {
 		// Can't directly compare to OsFs, but it shouldn't be nil
 	})
 }
-

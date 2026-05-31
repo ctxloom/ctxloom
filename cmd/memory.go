@@ -84,8 +84,8 @@ func init() {
 	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: claude-code)")
 }
 
-func getMemoryDir(cfg *config.Config) string {
-	return filepath.Join(cfg.AppDir, "ephemeral", "memory")
+func getSessionsDir(cfg *config.Config) string {
+	return filepath.Join(cfg.AppDir, "sessions")
 }
 
 func runMemoryList(cmd *cobra.Command, args []string) error {
@@ -94,23 +94,11 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// Determine backend
-	backendName := listBackend
-	if backendName == "" {
-		backendName = cfg.LM.GetDefaultPlugin()
+	history, backendName, err := resolveHistoryBackend(cfg, listBackend)
+	if err != nil {
+		return err
 	}
 
-	backend := backends.Get(backendName)
-	if backend == nil {
-		return fmt.Errorf("unknown backend: %s", backendName)
-	}
-
-	history := backend.History()
-	if history == nil {
-		return fmt.Errorf("backend %q does not support session history", backendName)
-	}
-
-	// Get working directory
 	workDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
@@ -121,25 +109,50 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list sessions: %w", err)
 	}
 
-	// Check which sessions have been compacted
-	memoryDir := getMemoryDir(cfg)
-	distilled, err := memory.ListDistilledSessions(memoryDir)
-	if err != nil {
-		distilled = nil // Non-fatal
-	}
-	distilledSet := make(map[string]bool)
-	for _, s := range distilled {
-		distilledSet[s] = true
-	}
-
 	if len(sessions) == 0 {
 		fmt.Printf("No sessions found in %s.\n", backendName)
 		return nil
 	}
 
 	fmt.Printf("Sessions from %s:\n\n", backendName)
+	printSessionTable(sessions, loadDistilledSet(cfg))
+	return nil
+}
 
-	// Print table
+// resolveHistoryBackend resolves the backend (defaulting when empty) and its
+// session history, returning the resolved backend name for display. Shared by
+// the memory list and load tools.
+func resolveHistoryBackend(cfg *config.Config, backendName string) (backends.SessionHistory, string, error) {
+	if backendName == "" {
+		backendName = cfg.LM.GetDefaultPlugin()
+	}
+	backend := backends.Get(backendName)
+	if backend == nil {
+		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
+	}
+	history := backend.History()
+	if history == nil {
+		return nil, backendName, fmt.Errorf("backend %q does not support session history", backendName)
+	}
+	return history, backendName, nil
+}
+
+// loadDistilledSet returns the set of session IDs already distilled (best
+// effort; a listing error is non-fatal and yields an empty set).
+func loadDistilledSet(cfg *config.Config) map[string]bool {
+	distilled, err := memory.ListDistilledSessions(getSessionsDir(cfg))
+	if err != nil {
+		distilled = nil // Non-fatal
+	}
+	set := make(map[string]bool, len(distilled))
+	for _, s := range distilled {
+		set[s] = true
+	}
+	return set
+}
+
+// printSessionTable renders the session list as an aligned table.
+func printSessionTable(sessions []backends.SessionMeta, distilledSet map[string]bool) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SESSION ID\tSTARTED\tENTRIES\tSTATUS")
 	_, _ = fmt.Fprintln(w, "----------\t-------\t-------\t------")
@@ -158,8 +171,6 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", meta.ID, started, meta.EntryCount, status)
 	}
 	_ = w.Flush()
-
-	return nil
 }
 
 func runMemoryShow(cmd *cobra.Command, args []string) error {
@@ -208,16 +219,16 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Entries: %d\n", len(session.Entries))
 
 	// Check for distilled version
-	memoryDir := getMemoryDir(cfg)
-	distilled, err := memory.LoadDistilledSession(memoryDir, sessionID)
+	sessionsDir := getSessionsDir(cfg)
+	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err == nil {
 		fmt.Println("\n--- Distilled Summary ---")
-		fmt.Printf("Created: %s\n", distilled.CreatedAt.Format(time.RFC3339))
-		fmt.Printf("Tokens: %d\n", distilled.TokenCount)
+		fmt.Printf("Created: %s\n", distilled.DistilledAt.Format(time.RFC3339))
+		fmt.Printf("Tokens: %d\n", distilled.TokensOut)
 		fmt.Println()
 
 		// Truncate if very long
-		content := distilled.Content
+		content := distilled.Body
 		if len(content) > 2000 {
 			content = content[:2000] + "\n\n... [truncated, use --full to see all]"
 		}
@@ -260,7 +271,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: compactSession,
 		WorkDir:   workDir,
-		OutputDir: getMemoryDir(cfg),
+		OutputDir: getSessionsDir(cfg),
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)
@@ -287,5 +298,3 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-
-

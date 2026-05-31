@@ -2,8 +2,9 @@
 default: build
 
 # Get version from versionator (with fallback for CI without versionator)
-# Format: v0.0.1-abc1234.dirty (uncommitted) or v0.0.1-abc1234 (clean)
-version := `versionator version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prerelease="{{ShortHash}}{{DirtyWithDot}}" 2>/dev/null || echo "dev"`
+# Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
+# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
+version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
 
 # ===== Version management (versionator) =====
 
@@ -58,9 +59,15 @@ plugin-list:
 build-verbose:
     go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
 
-# Run all tests (builds ctxloom first for acceptance tests)
+# Run all tests (builds ctxloom first for acceptance tests).
+# Coverage is filtered through .coverignore so generated files
+# (protobuf, gRPC) don't drag the reported number down.
 test: build
-    go test -race -coverprofile=coverage.out ./...
+    #!/usr/bin/env bash
+    set -e
+    go test -race -coverprofile=coverage.raw.out ./...
+    just _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
 
 # Run tests with verbose output
 test-verbose:
@@ -119,9 +126,23 @@ test-coverage: cover
 test-integration: build
     go test -v -tags integration ./tests/integration/...
 
+# Run integration tests matching a -run PATTERN (requires ctxloom binary)
+test-integration-run PATTERN: build
+    go test -v -tags integration -run '{{PATTERN}}' ./tests/integration/...
+
+# Run a single package's tests under -race (fast local iteration)
+test-pkg PKG *ARGS:
+    go test -race {{ARGS}} {{PKG}}
+
 # Run all tests in container (matches CI environment)
 test-container:
-    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
+    #!/usr/bin/env bash
+    # See _run for why --user is skipped under rootless docker.
+    user_flag=(--user "$(id -u):$(id -g)")
+    if docker info 2>/dev/null | grep -q "rootless"; then
+        user_flag=()
+    fi
+    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
         go mod download && \
         go test -race ./... && \
         CGO_ENABLED=0 go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom . && \
@@ -130,20 +151,26 @@ test-container:
 # ===== Mutation testing =====
 
 # Run mutation tests with gremlins (requires gremlins installed)
-mutate *ARGS:
+test-mutation *ARGS:
     gremlins unleash {{ARGS}}
 
 # Run mutation tests on specific package
-mutate-pkg PKG *ARGS:
+test-mutation-pkg PKG *ARGS:
     gremlins unleash ./{{PKG}}/... {{ARGS}}
 
 # Install gremlins
-mutate-install:
+test-mutation-install:
     go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 # Run mutation tests in container
-mutate-container:
-    docker run --rm --user "$(id -u):$(id -g)" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
+test-mutation-container:
+    #!/usr/bin/env bash
+    # See _run for why --user is skipped under rootless docker.
+    user_flag=(--user "$(id -u):$(id -g)")
+    if docker info 2>/dev/null | grep -q "rootless"; then
+        user_flag=()
+    fi
+    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app gogremlins/gremlins gremlins unleash
 
 # Clean build artifacts
 clean:
@@ -163,19 +190,43 @@ tidy:
 fmt:
     go fmt ./...
 
-# Lint code (requires golangci-lint)
-lint:
-    golangci-lint run
+# Lint code (delegates to devcontainer for the pinned golangci-lint)
+lint: dev-image
+    just _run lint
+
+# ===== Code complexity (lizard, in devcontainer) =====
+# lizard is a cross-platform, multi-language per-function complexity analyzer,
+# installed in the devcontainer image. These targets delegate into it, so no
+# host install is needed (implementations live in justfile.container).
+
+# Per-function cyclomatic complexity as a human-readable table + warnings.
+# Defaults to the repo root; pass paths/flags to scope, e.g.
+#   just complexity internal/remote
+#   just complexity -C 15 .           (warn on functions over CCN 15)
+complexity *ARGS: dev-image
+    just _run complexity {{ARGS}}
+
+# Same per-function analysis as CSV (header prepended) for LLM/tooling ingest.
+# Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
+complexity-csv *ARGS: dev-image
+    just _run complexity-csv {{ARGS}}
+
+# Enforcing gate: fail if any function exceeds CCN 10 (used by the CI lint job).
+complexity-check *ARGS: dev-image
+    just _run complexity-check {{ARGS}}
 
 # Run the CLI
 run *ARGS:
     go run . {{ARGS}}
 
 # Build, compress, and install to ~/go/bin (standard Go location)
+# Atomic rename instead of pkill+cp: replacing the directory entry leaves the
+# busy inode mapped for any running ctxloom (avoids ETXTBSY and never dumps a
+# live ctxloom-managed session); new launches pick up the new binary.
 install: build-compressed
     mkdir -p ~/go/bin
-    -pkill -x ctxloom && sleep 0.5
-    cp ctxloom ~/go/bin/
+    cp ctxloom ~/go/bin/ctxloom.new
+    mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom
 
 # Uninstall from ~/go/bin
 uninstall:
@@ -430,9 +481,19 @@ _run +ARGS:
         # Already inside container (devcontainer or CI), use container justfile directly
         just -f justfile.container {{ARGS}}
     else
-        # Run in container with justfile overlay and uid/gid mapping
+        # Run in container with justfile overlay and uid/gid mapping.
+        #
+        # Skip --user under rootless docker: the daemon already maps container
+        # root (uid 0) to the invoking host user, so an explicit --user 1000:1000
+        # lands on an unrelated subordinate uid that can neither write workspace
+        # files nor read mode-0700 dirs. Rootful daemons need --user to avoid
+        # leaving root-owned files in the host workspace.
+        user_flag=(--user "$(id -u):$(id -g)")
+        if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
+            user_flag=()
+        fi
         {{container_cmd}} run --rm \
-            --user "$(id -u):$(id -g)" \
+            "${user_flag[@]}" \
             -v "$(pwd):/workspace" \
             -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
@@ -456,9 +517,9 @@ dev-build-treesitter: dev-image
 dev-build-full: dev-image
     just _run build-full
 
-# Run tests with ONNX (inside devcontainer)
-dev-test-onnx: dev-image
-    just _run test-onnx
+# Run treesitter (CGO) tests inside devcontainer
+dev-test-treesitter: dev-image
+    just _run test-treesitter
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image

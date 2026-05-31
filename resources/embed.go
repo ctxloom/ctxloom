@@ -5,7 +5,7 @@ import (
 	"embed"
 )
 
-//go:embed all:schema all:commands example-config.yaml default-remotes.yaml
+//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetConfigSchema returns the embedded JSON schema for config validation.
@@ -38,6 +38,34 @@ func ListBuiltinCommands() ([]string, error) {
 	for _, e := range entries {
 		if !e.IsDir() && len(e.Name()) > 3 && e.Name()[len(e.Name())-3:] == ".md" {
 			names = append(names, e.Name()[:len(e.Name())-3])
+		}
+	}
+	return names, nil
+}
+
+// GetBuiltinBundle returns the raw YAML bytes for a built-in bundle embedded
+// in the binary. Built-in bundles ship core ctxloom functionality (e.g.
+// session-bind + plan-stamping hooks, skill prompts) so users get it
+// without needing to pull anything from a remote.
+func GetBuiltinBundle(name string) ([]byte, error) {
+	return resourcesFS.ReadFile("builtin_bundles/" + name + ".yaml")
+}
+
+// ListBuiltinBundles returns the names of all built-in bundles embedded in
+// the binary.
+func ListBuiltinBundles() ([]string, error) {
+	entries, err := resourcesFS.ReadDir("builtin_bundles")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if len(n) > 5 && n[len(n)-5:] == ".yaml" {
+			names = append(names, n[:len(n)-5])
 		}
 	}
 	return names, nil

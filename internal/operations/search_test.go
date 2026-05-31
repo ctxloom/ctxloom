@@ -258,6 +258,53 @@ func TestSearchContent_SearchFragmentsByName(t *testing.T) {
 	assert.True(t, found, "should find security-practices fragment")
 }
 
+func TestSearchContent_FindsSeededRemoteBundleFragments(t *testing.T) {
+	// Regression: remote-resolved bundles are seeded into the loader from the
+	// active lockfile by SeededBundleLoader — they don't live on disk as
+	// extracted YAML. search_content must index those seeded bundles, not just
+	// locally-authored ones. This closes the loop on the trust_remote fix:
+	// once a remote bundle is promoted into the active lockfile and seeded,
+	// its fragments must surface in search (previously they were invisible
+	// because the bundle was stranded in pending and never seeded).
+	const remoteName = "acme/security"
+	b, err := bundles.ParseBundle([]byte(`version: "1.0"
+description: Remote security bundle
+fragments:
+  threat-modeling:
+    tags: ["security", "remote"]
+    content: |
+      Threat modeling guidance
+`))
+	require.NoError(t, err)
+	b.Name = remoteName
+
+	// A loader with NO local bundle dirs, seeded only with the remote bundle —
+	// mirrors SeededBundleLoader resolving a remote bundle from the lockfile
+	// when nothing is authored locally.
+	loader := bundles.NewLoader(nil, false,
+		bundles.WithFS(afero.NewMemMapFs()),
+		bundles.WithSeededBundles(map[string]*bundles.Bundle{remoteName: b}),
+	)
+
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
+		Query:  "threat-modeling",
+		Types:  []string{"fragment"},
+		Loader: loader,
+	})
+	require.NoError(t, err)
+
+	found := false
+	for _, r := range result.Results {
+		if r.Type == "fragment" && r.Name == "threat-modeling" {
+			found = true
+			assert.Equal(t, remoteName, r.Source, "fragment must be attributed to the remote bundle")
+			break
+		}
+	}
+	assert.True(t, found, "fragment from a seeded remote bundle must be searchable")
+}
+
 func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

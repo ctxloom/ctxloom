@@ -3,14 +3,115 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
+
+// PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
+// if no explicit default is currently configured. Uses
+// ExplicitDefaultProfiles rather than GetDefaultProfiles so the single-profile
+// fallback does not suppress the promotion — auto-promote's job is to make
+// the implicit choice explicit on disk.
+// Save errors are warned but non-fatal — the caller's primary operation has
+// already succeeded by the time this is called.
+// Returns true if the profile was added and the config saved.
+func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
+	if cfg == nil || profileName == "" {
+		return false
+	}
+	if len(cfg.ExplicitDefaultProfiles()) > 0 {
+		return false
+	}
+	if !cfg.Defaults.AddDefaultProfile(profileName) {
+		return false
+	}
+	if err := cfg.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: set %q as default profile in memory but failed to persist: %v\n", profileName, err)
+		return false
+	}
+	return true
+}
+
+// LocalProfileNameFromPath returns the profile name (as used by the profile
+// loader) for a profile file path under cfg's base ctxloom directory.
+// Returns ("", false) if the path is not within the profiles directory.
+func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, bool) {
+	profilesDir := paths.ProfilesPath(getBaseDir(cfg))
+	rel, err := filepath.Rel(profilesDir, localPath)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	rel = strings.TrimSuffix(rel, ".yaml")
+	rel = strings.TrimSuffix(rel, ".yml")
+	if rel == "" {
+		return "", false
+	}
+	return rel, true
+}
+
+// EnsureDefaultProfiles makes sure cfg has a usable set of default profiles
+// before context assembly, WITHOUT ever silently inventing one.
+//
+// Config resolution is project-XOR-home: when a project .ctxloom exists it is
+// used wholesale and the home (~/.ctxloom) config is NOT merged. That means a
+// project with no defaults.profiles would otherwise shadow the user's home
+// defaults entirely. To honor the user's intent ("inherit home, else prompt")
+// without mutating the project config on disk:
+//
+//   - If the project config already lists explicit defaults.profiles, do
+//     nothing — the user has made their choice.
+//   - Otherwise load the HOME config and, if it has defaults.profiles, copy
+//     them into the in-memory cfg.Defaults.Profiles for this run only. Nothing
+//     is written to disk and no synthetic profile is created.
+//   - If home has none either, surface the choice: print a clear stderr
+//     instruction telling the user to set defaults.profiles (or run discovery).
+//     Per fault-tolerance we still return cleanly so the LLM starts; context
+//     assembly simply has no profile to expand (degraded, not crashed).
+func EnsureDefaultProfiles(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+
+	// Project already has an explicit choice — respect it untouched.
+	if len(cfg.ExplicitDefaultProfiles()) > 0 {
+		return
+	}
+
+	// Inherit from the home config if it defines defaults.profiles.
+	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
+		cfg.Defaults.Profiles = append([]string(nil), homeProfiles...)
+		return
+	}
+
+	// Neither project nor home defines defaults.profiles — surface the choice.
+	fmt.Fprintln(os.Stderr, "ctxloom: warning: no default profiles configured (project or home).")
+	fmt.Fprintln(os.Stderr, "ctxloom: set defaults.profiles in .ctxloom/config.yaml (or ~/.ctxloom/config.yaml),")
+	fmt.Fprintln(os.Stderr, "ctxloom: or run discovery to install one. Continuing without a profile.")
+}
+
+// homeDefaultProfiles loads the user's home config (~/.ctxloom/config.yaml)
+// and returns its explicit defaults.profiles, or nil if the home config is
+// absent, unreadable, or defines none. Errors are swallowed (fault-tolerance):
+// a missing/broken home config simply means "nothing to inherit".
+func homeDefaultProfiles() []string {
+	homeDir, err := config.HomeConfigDir()
+	if err != nil {
+		return nil
+	}
+	homeCfg, err := config.Load(config.WithAppDir(homeDir))
+	if err != nil {
+		return nil
+	}
+	return homeCfg.ExplicitDefaultProfiles()
+}
 
 // ProfileEntry represents a profile in operation results.
 type ProfileEntry struct {
@@ -219,6 +320,10 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save default setting: %w", err)
 		}
+	} else {
+		// Auto-promote: if there is no default profile yet, this becomes it so
+		// that `ctxloom run` doesn't launch with empty context.
+		PromoteToDefaultIfFirst(cfg, req.Name)
 	}
 
 	return &CreateProfileResult{
@@ -277,122 +382,27 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	changes := []string{}
 
-	// Update description
+	// Update description.
 	if req.Description != nil {
 		profile.Description = *req.Description
 		changes = append(changes, "updated description")
 	}
 
-	// Update default flag
-	if req.Default != nil {
-		if *req.Default {
-			if cfg.Defaults.AddDefaultProfile(req.Name) {
-				changes = append(changes, "set as default")
-			}
-		} else if cfg.Defaults.IsDefaultProfile(req.Name) {
-			cfg.Defaults.RemoveDefaultProfile(req.Name)
-			changes = append(changes, "unset default")
-		}
+	// Reflect the default flag into cfg (persisted below via cfg.Save).
+	changes = append(changes, applyDefaultFlag(cfg, req.Name, req.Default)...)
+
+	// Validate new parents up front so a bad parent halts before any mutation.
+	if err := requireProfilesExist(loader, req.AddParents); err != nil {
+		return nil, err
 	}
 
-	// Add parents
-	for _, parent := range req.AddParents {
-		if !loader.Exists(parent) {
-			return nil, fmt.Errorf("parent profile %q not found", parent)
-		}
-		if !slices.Contains(profile.Parents, parent) {
-			profile.Parents = append(profile.Parents, parent)
-			changes = append(changes, fmt.Sprintf("added parent: %s", parent))
-		}
-	}
-
-	// Remove parents
-	for _, parent := range req.RemoveParents {
-		if idx := slices.Index(profile.Parents, parent); idx >= 0 {
-			profile.Parents = append(profile.Parents[:idx], profile.Parents[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed parent: %s", parent))
-		}
-	}
-
-	// Add bundles
-	for _, b := range req.AddBundles {
-		if !slices.Contains(profile.Bundles, b) {
-			profile.Bundles = append(profile.Bundles, b)
-			changes = append(changes, fmt.Sprintf("added bundle: %s", b))
-		}
-	}
-
-	// Remove bundles
-	for _, b := range req.RemoveBundles {
-		if idx := slices.Index(profile.Bundles, b); idx >= 0 {
-			profile.Bundles = append(profile.Bundles[:idx], profile.Bundles[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed bundle: %s", b))
-		}
-	}
-
-	// Add tags
-	for _, t := range req.AddTags {
-		if !slices.Contains(profile.Tags, t) {
-			profile.Tags = append(profile.Tags, t)
-			changes = append(changes, fmt.Sprintf("added tag: %s", t))
-		}
-	}
-
-	// Remove tags
-	for _, t := range req.RemoveTags {
-		if idx := slices.Index(profile.Tags, t); idx >= 0 {
-			profile.Tags = append(profile.Tags[:idx], profile.Tags[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed tag: %s", t))
-		}
-	}
-
-	// Add exclude fragments
-	for _, f := range req.AddExcludeFragments {
-		if !slices.Contains(profile.ExcludeFragments, f) {
-			profile.ExcludeFragments = append(profile.ExcludeFragments, f)
-			changes = append(changes, fmt.Sprintf("added exclude fragment: %s", f))
-		}
-	}
-
-	// Remove exclude fragments
-	for _, f := range req.RemoveExcludeFragments {
-		if idx := slices.Index(profile.ExcludeFragments, f); idx >= 0 {
-			profile.ExcludeFragments = append(profile.ExcludeFragments[:idx], profile.ExcludeFragments[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude fragment: %s", f))
-		}
-	}
-
-	// Add exclude prompts
-	for _, p := range req.AddExcludePrompts {
-		if !slices.Contains(profile.ExcludePrompts, p) {
-			profile.ExcludePrompts = append(profile.ExcludePrompts, p)
-			changes = append(changes, fmt.Sprintf("added exclude prompt: %s", p))
-		}
-	}
-
-	// Remove exclude prompts
-	for _, p := range req.RemoveExcludePrompts {
-		if idx := slices.Index(profile.ExcludePrompts, p); idx >= 0 {
-			profile.ExcludePrompts = append(profile.ExcludePrompts[:idx], profile.ExcludePrompts[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude prompt: %s", p))
-		}
-	}
-
-	// Add exclude MCP
-	for _, m := range req.AddExcludeMCP {
-		if !slices.Contains(profile.ExcludeMCP, m) {
-			profile.ExcludeMCP = append(profile.ExcludeMCP, m)
-			changes = append(changes, fmt.Sprintf("added exclude mcp: %s", m))
-		}
-	}
-
-	// Remove exclude MCP
-	for _, m := range req.RemoveExcludeMCP {
-		if idx := slices.Index(profile.ExcludeMCP, m); idx >= 0 {
-			profile.ExcludeMCP = append(profile.ExcludeMCP[:idx], profile.ExcludeMCP[idx+1:]...)
-			changes = append(changes, fmt.Sprintf("removed exclude mcp: %s", m))
-		}
-	}
+	// Every list field shares one add/remove primitive (see applyListEdits).
+	profile.Parents, changes = applyListEdits(profile.Parents, req.AddParents, req.RemoveParents, "parent", changes)
+	profile.Bundles, changes = applyListEdits(profile.Bundles, req.AddBundles, req.RemoveBundles, "bundle", changes)
+	profile.Tags, changes = applyListEdits(profile.Tags, req.AddTags, req.RemoveTags, "tag", changes)
+	profile.ExcludeFragments, changes = applyListEdits(profile.ExcludeFragments, req.AddExcludeFragments, req.RemoveExcludeFragments, "exclude fragment", changes)
+	profile.ExcludePrompts, changes = applyListEdits(profile.ExcludePrompts, req.AddExcludePrompts, req.RemoveExcludePrompts, "exclude prompt", changes)
+	profile.ExcludeMCP, changes = applyListEdits(profile.ExcludeMCP, req.AddExcludeMCP, req.RemoveExcludeMCP, "exclude mcp", changes)
 
 	if len(changes) == 0 {
 		return &UpdateProfileResult{
@@ -420,6 +430,60 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		Changes: changes,
 		Path:    profile.Path,
 	}, nil
+}
+
+// applyListEdits applies add then remove edits to a profile's string-slice
+// field. Adds are deduplicated (an item already present is skipped); removes
+// drop the first matching item. Each real mutation appends a human-readable
+// line ("added <label>: <item>" / "removed <label>: <item>") to changes.
+// Callers must reassign both returned slices.
+func applyListEdits(list, add, remove []string, label string, changes []string) (newList, newChanges []string) {
+	for _, item := range add {
+		if !slices.Contains(list, item) {
+			list = append(list, item)
+			changes = append(changes, fmt.Sprintf("added %s: %s", label, item))
+		}
+	}
+	for _, item := range remove {
+		if idx := slices.Index(list, item); idx >= 0 {
+			list = slices.Delete(list, idx, idx+1)
+			changes = append(changes, fmt.Sprintf("removed %s: %s", label, item))
+		}
+	}
+	return list, changes
+}
+
+// applyDefaultFlag reflects a requested default-flag state into cfg's
+// default-profile set and returns the change lines to record — nil when want is
+// nil or the state already matches the request. It mutates cfg.Defaults in
+// memory only; the caller persists with cfg.Save once all edits are applied.
+func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
+	if want == nil {
+		return nil
+	}
+	if *want {
+		if cfg.Defaults.AddDefaultProfile(name) {
+			return []string{"set as default"}
+		}
+		return nil
+	}
+	if cfg.Defaults.IsDefaultProfile(name) {
+		cfg.Defaults.RemoveDefaultProfile(name)
+		return []string{"unset default"}
+	}
+	return nil
+}
+
+// requireProfilesExist returns an error for the first name the loader cannot
+// resolve, so parent additions are validated before UpdateProfile mutates or
+// saves anything.
+func requireProfilesExist(loader *profiles.Loader, names []string) error {
+	for _, name := range names {
+		if !loader.Exists(name) {
+			return fmt.Errorf("parent profile %q not found", name)
+		}
+	}
+	return nil
 }
 
 // DeleteProfileRequest contains parameters for deleting a profile.

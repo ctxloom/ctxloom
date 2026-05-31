@@ -45,7 +45,6 @@ func (b *Mock) MCP() MCPManager { return nil }
 // History returns nil - Mock doesn't support session history.
 func (b *Mock) History() SessionHistory { return &NilSessionHistory{} }
 
-
 // Setup prepares the backend for execution.
 func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
@@ -62,74 +61,77 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 		Provider:  "mock",
 	}
 
-	// Check for record file in environment
-	recordFile := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE")
-
 	// Assemble context from fragments
 	contextStr := AssembleContext(b.fragments)
 	promptContent := GetPromptContent(req.Prompt)
 
-	// Record input if requested
-	if recordFile != "" {
-		var input strings.Builder
-		input.WriteString("=== Arguments ===\n")
-		_, _ = fmt.Fprintf(&input, "mode=%d\n", req.Mode)
-		_, _ = fmt.Fprintf(&input, "fragments=%d\n", len(b.fragments))
-		input.WriteString("=== Context ===\n")
-		input.WriteString(contextStr)
-		input.WriteString("\n=== Prompt ===\n")
-		input.WriteString(promptContent)
-		input.WriteString("\n")
+	recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, contextStr, promptContent, len(b.fragments), stderr)
 
-		if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {
-			_, _ = fmt.Fprintf(stderr, "warning: failed to write record file: %v\n", err)
-		}
-	}
-
-	// Check for custom response
 	customResponse := getEnvFromMap(req.Env, "CTXLOOM_MOCK_RESPONSE")
+	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments))
 
-	// Check for custom exit code
-	exitCode := int32(0)
-	exitCodeStr := getEnvFromMap(req.Env, "CTXLOOM_MOCK_EXIT_CODE")
-	if exitCodeStr != "" {
-		if code, err := strconv.Atoi(exitCodeStr); err == nil {
-			exitCode = int32(code)
-		}
-	}
-
-	// Generate response
-	var response strings.Builder
-
-	if customResponse != "" {
-		// Use custom response if provided
-		response.WriteString(customResponse)
-	} else {
-		// Default echo behavior
-		_, _ = fmt.Fprintf(&response, "[mock] mode=%d\n", req.Mode)
-		_, _ = fmt.Fprintf(&response, "[mock] fragments=%d\n", len(b.fragments))
-
-		if contextStr != "" {
-			_, _ = fmt.Fprintf(&response, "[mock] context_length=%d\n", len(contextStr))
-		}
-
-		if promptContent != "" {
-			_, _ = fmt.Fprintf(&response, "[mock] prompt=%s\n", promptContent)
-		}
-
-		// For distillation testing, return a compressed version
-		if strings.Contains(contextStr, "distill") || strings.Contains(contextStr, "compress") {
-			response.WriteString("[mock] distilled=Compressed content for testing\n")
-		}
-	}
-
-	// Write response to stdout
-	_, err := stdout.Write([]byte(response.String()))
-	if err != nil {
+	if _, err := stdout.Write([]byte(response)); err != nil {
 		return &ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
 	}
 
-	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, nil
+	return &ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+}
+
+// recordMockInput writes the assembled request to recordFile when one is set
+// (via CTXLOOM_MOCK_RECORD_FILE), warning to stderr on failure.
+func recordMockInput(recordFile string, req *ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
+	if recordFile == "" {
+		return
+	}
+	var input strings.Builder
+	input.WriteString("=== Arguments ===\n")
+	_, _ = fmt.Fprintf(&input, "mode=%d\n", req.Mode)
+	_, _ = fmt.Fprintf(&input, "fragments=%d\n", fragmentCount)
+	input.WriteString("=== Context ===\n")
+	input.WriteString(contextStr)
+	input.WriteString("\n=== Prompt ===\n")
+	input.WriteString(promptContent)
+	input.WriteString("\n")
+
+	if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: failed to write record file: %v\n", err)
+	}
+}
+
+// mockExitCode returns the exit code from CTXLOOM_MOCK_EXIT_CODE, or 0.
+func mockExitCode(req *ExecuteRequest) int32 {
+	exitCodeStr := getEnvFromMap(req.Env, "CTXLOOM_MOCK_EXIT_CODE")
+	if exitCodeStr == "" {
+		return 0
+	}
+	if code, err := strconv.Atoi(exitCodeStr); err == nil {
+		return int32(code)
+	}
+	return 0
+}
+
+// buildMockResponse returns the custom response when provided, else the default
+// echo of mode/fragments/context/prompt (plus a distilled marker for distill or
+// compress contexts).
+func buildMockResponse(customResponse, contextStr, promptContent string, mode ExecutionMode, fragmentCount int) string {
+	if customResponse != "" {
+		return customResponse
+	}
+
+	var response strings.Builder
+	_, _ = fmt.Fprintf(&response, "[mock] mode=%d\n", mode)
+	_, _ = fmt.Fprintf(&response, "[mock] fragments=%d\n", fragmentCount)
+
+	if contextStr != "" {
+		_, _ = fmt.Fprintf(&response, "[mock] context_length=%d\n", len(contextStr))
+	}
+	if promptContent != "" {
+		_, _ = fmt.Fprintf(&response, "[mock] prompt=%s\n", promptContent)
+	}
+	if strings.Contains(contextStr, "distill") || strings.Contains(contextStr, "compress") {
+		response.WriteString("[mock] distilled=Compressed content for testing\n")
+	}
+	return response.String()
 }
 
 // Cleanup releases resources after execution.

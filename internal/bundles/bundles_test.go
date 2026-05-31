@@ -474,7 +474,7 @@ version: "1.0"
 }
 
 // =============================================================================
-// validateBundleName Tests
+// ValidateBundleName Tests
 // =============================================================================
 
 func TestValidateBundleName(t *testing.T) {
@@ -493,7 +493,7 @@ func TestValidateBundleName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateBundleName(tt.input)
+			err := ValidateBundleName(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1415,9 +1415,9 @@ func TestLoader_ExpandBundleRefs_DeduplicatesAcrossRefs(t *testing.T) {
 	loader := expandRefsFixture(t)
 
 	got := loader.ExpandBundleRefs([]string{
-		"test/alpha",                 // expands to a1, a2
-		"test/alpha#fragments/a1",    // duplicate of a1
-		"test/alpha:fragments/a2",    // duplicate of a2 via colon syntax
+		"test/alpha",              // expands to a1, a2
+		"test/alpha#fragments/a1", // duplicate of a1
+		"test/alpha:fragments/a2", // duplicate of a2 via colon syntax
 	})
 
 	assert.Equal(t, []string{

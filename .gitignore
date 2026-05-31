@@ -1,6 +1,10 @@
 # Binaries
 ctxloom
 bin/
+scm-linux-amd64
+scm-darwin-amd64
+scm-darwin-arm64
+scm-windows-amd64.exe
 
 # Generated man pages
 man/
@@ -52,3 +56,6 @@ coverage.raw.out
 .cache/
 .cache/
 .claude/settings.local.json
+
+# ctxloom ephemeral data (synced bundles, session data, context files)
+.ctxloom/ephemeral/

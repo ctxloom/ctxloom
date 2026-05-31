@@ -10,6 +10,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // GitCloneFetcher implements Fetcher by reading from a local git clone.
@@ -52,7 +54,7 @@ func (f *GitCloneFetcher) FetchFile(ctx context.Context, owner, repo, filePath, 
 	file, err := tree.File(filePath)
 	if err != nil {
 		if err == object.ErrFileNotFound {
-			return nil, fmt.Errorf("file not found: %s/%s/%s", owner, repo, filePath)
+			return nil, fmt.Errorf("file not found: %s/%s/%s: %w", owner, repo, filePath, errs.ErrRemoteContentNotFound)
 		}
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -82,7 +84,7 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 	if dirPath != "" && dirPath != "." {
 		tree, err = tree.Tree(dirPath)
 		if err != nil {
-			return nil, fmt.Errorf("directory not found: %s/%s/%s", owner, repo, dirPath)
+			return nil, fmt.Errorf("directory not found: %s/%s/%s: %w", owner, repo, dirPath, errs.ErrRemoteContentNotFound)
 		}
 	}
 
@@ -126,7 +128,7 @@ func (f *GitCloneFetcher) ResolveRef(ctx context.Context, owner, repo, ref strin
 		return hash.String(), nil
 	}
 
-	return "", fmt.Errorf("ref not found: %s", ref)
+	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
 // SearchRepos is not supported by the local clone fetcher.
@@ -152,7 +154,7 @@ func (f *GitCloneFetcher) ValidateRepo(ctx context.Context, owner, repo string) 
 		return false, nil
 	}
 
-	_, err = tree.Tree("ctxloom/v1")
+	_, err = tree.Tree("ctxloom")
 	return err == nil, nil
 }
 
@@ -251,6 +253,5 @@ func (f *GitCloneFetcher) resolveToCommitHash(ref string) (plumbing.Hash, error)
 		return tagRef.Hash(), nil
 	}
 
-	return plumbing.ZeroHash, fmt.Errorf("ref not found: %s", ref)
+	return plumbing.ZeroHash, fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
-

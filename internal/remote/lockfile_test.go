@@ -43,10 +43,9 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", LockEntry{
-		SHA:        "abc1234def5678",
-		URL:        "https://github.com/alice/ctxloom",
-		CtxloomVersion: "v1",
-		FetchedAt:  now,
+		SHA:       "abc1234def5678",
+		URL:       "https://github.com/alice/ctxloom",
+		FetchedAt: now,
 	})
 
 	// Save
@@ -287,35 +286,32 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			entry: LockEntry{
 				SHA:              "abc123",
 				URL:              "https://github.com/alice/ctxloom",
-				CtxloomVersion:       "v1",
 				RequestedVersion: "v2.0.0",
 			},
 			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/alice/ctxloom@v1/bundles/core-practices@v2.0.0",
+			wantURL:  "https://github.com/alice/ctxloom@bundles/core-practices@v2.0.0",
 			wantOk:   true,
 		},
 		{
 			name:      "bundle without requested version uses SHA",
 			localName: "ctxloom-github/tools",
 			entry: LockEntry{
-				SHA:        "def456",
-				URL:        "https://github.com/bob/ctxloom",
-				CtxloomVersion: "v1",
+				SHA: "def456",
+				URL: "https://github.com/bob/ctxloom",
 			},
 			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/bob/ctxloom@v1/bundles/tools@def456",
+			wantURL:  "https://github.com/bob/ctxloom@bundles/tools@def456",
 			wantOk:   true,
 		},
 		{
 			name:      "profile entry",
 			localName: "ctxloom-github/secure",
 			entry: LockEntry{
-				SHA:        "ghi789",
-				URL:        "https://github.com/alice/ctxloom",
-				CtxloomVersion: "v1",
+				SHA: "ghi789",
+				URL: "https://github.com/alice/ctxloom",
 			},
 			itemType: ItemTypeProfile,
-			wantURL:  "https://github.com/alice/ctxloom@v1/profiles/secure@ghi789",
+			wantURL:  "https://github.com/alice/ctxloom@profiles/secure@ghi789",
 			wantOk:   true,
 		},
 		{
@@ -330,9 +326,8 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			name:      "invalid local name (no slash)",
 			localName: "invalid",
 			entry: LockEntry{
-				SHA:        "abc123",
-				URL:        "https://github.com/alice/ctxloom",
-				CtxloomVersion: "v1",
+				SHA: "abc123",
+				URL: "https://github.com/alice/ctxloom",
 			},
 			itemType: ItemTypeBundle,
 			wantURL:  "",

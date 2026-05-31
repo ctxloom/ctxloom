@@ -19,7 +19,7 @@ ctxloom remote discover --stars 10
 
 ## How Discovery Works
 
-ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub and GitLab. It validates that discovered repositories have the proper `ctxloom/v1/` structure before showing them.
+ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub and GitLab. It validates that discovered repositories have the proper `ctxloom/` structure before showing them.
 
 ### Search Sources
 

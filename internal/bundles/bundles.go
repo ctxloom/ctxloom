@@ -12,13 +12,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
-	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/collections"
-	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // gitHostPattern matches paths that start with a git hosting domain.
@@ -72,9 +69,46 @@ type Bundle struct {
 	Prompts   map[string]BundlePrompt   `yaml:"prompts,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
 
+	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
+	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
+	// Bundle-shipped hooks are subject to the same review gate as bundle
+	// fragments/prompts/MCP: a remote-sourced bundle whose SHA changed must
+	// be acknowledged before its hooks fire (see docs/bundle-review-plan.md).
+	Hooks BundleHooks `yaml:"hooks,omitempty"`
+
 	// Internal fields (not serialized)
 	Name string `yaml:"-"` // Bundle name (from path)
 	Path string `yaml:"-"` // File path for saving
+}
+
+// BundleHook mirrors the shape of config.Hook without importing internal/config
+// (would create a cycle: config already imports bundles). The conversion to
+// config.Hook lives at the operations boundary in config.ResolveBundleHooks.
+type BundleHook struct {
+	Matcher string `yaml:"matcher,omitempty"`
+	Command string `yaml:"command,omitempty"`
+	Type    string `yaml:"type,omitempty"`
+	Prompt  string `yaml:"prompt,omitempty"`
+	Timeout int    `yaml:"timeout,omitempty"`
+	Async   bool   `yaml:"async,omitempty"`
+}
+
+// BundleHooks mirrors config.UnifiedHooks. Same lifecycle events; backend-
+// specific hooks are deliberately not supported in bundles (would couple
+// authoring to a particular backend's tool naming).
+type BundleHooks struct {
+	PreTool      []BundleHook `yaml:"pre_tool,omitempty"`
+	PostTool     []BundleHook `yaml:"post_tool,omitempty"`
+	SessionStart []BundleHook `yaml:"session_start,omitempty"`
+	SessionEnd   []BundleHook `yaml:"session_end,omitempty"`
+	PreShell     []BundleHook `yaml:"pre_shell,omitempty"`
+	PostFileEdit []BundleHook `yaml:"post_file_edit,omitempty"`
+}
+
+// HasAny reports whether the bundle ships any hooks. Used by the loader to
+// skip the merge cost for hookless bundles.
+func (h BundleHooks) HasAny() bool {
+	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
 }
 
 // BundleMCP defines an MCP server within a bundle.
@@ -88,8 +122,8 @@ type BundleMCP struct {
 
 // BundleFragment defines a fragment within a bundle.
 type BundleFragment struct {
-	Tags         []string `yaml:"tags,omitempty"` // Additional tags (merged with bundle tags)
-	Notes        string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
+	Tags         []string `yaml:"tags,omitempty"`         // Additional tags (merged with bundle tags)
+	Notes        string   `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
 	Installation string   `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string   `yaml:"content"`
 	ContentHash  string   `yaml:"content_hash,omitempty"`
@@ -100,9 +134,9 @@ type BundleFragment struct {
 
 // BundlePrompt defines a prompt within a bundle.
 type BundlePrompt struct {
-	Description string   `yaml:"description,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Notes       string   `yaml:"notes,omitempty"` // Human-readable notes, not sent to AI
+	Description  string        `yaml:"description,omitempty"`
+	Tags         []string      `yaml:"tags,omitempty"`
+	Notes        string        `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
 	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
 	Content      string        `yaml:"content"`
 	ContentHash  string        `yaml:"content_hash,omitempty"`
@@ -263,210 +297,6 @@ func (b *Bundle) AssembledContent(preferDistilled bool) string {
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
-// Loader finds and loads bundles from search directories.
-// Loader is safe for concurrent use.
-type Loader struct {
-	searchDirs      []string
-	preferDistilled bool
-	fs              afero.Fs
-	mu              sync.RWMutex       // Protects cache
-	cache           map[string]*Bundle // Cache of loaded bundles by path
-}
-
-// LoaderOption is a functional option for configuring a Loader.
-type LoaderOption func(*Loader)
-
-// WithFS sets a custom filesystem implementation (for testing).
-func WithFS(fs afero.Fs) LoaderOption {
-	return func(l *Loader) {
-		l.fs = fs
-	}
-}
-
-// NewLoader creates a bundle loader.
-// The loader caches loaded bundles in memory to avoid redundant disk reads.
-func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
-	l := &Loader{
-		searchDirs:      searchDirs,
-		preferDistilled: preferDistilled,
-		fs:              afero.NewOsFs(),
-		cache:           make(map[string]*Bundle),
-	}
-	for _, opt := range opts {
-		opt(l)
-	}
-	return l
-}
-
-// Load reads a bundle by name.
-// Name can be:
-// - Simple name: "go-tools" -> searches for go-tools.yaml or go-tools/bundle.yaml
-// - Remote-qualified: "alice/go-tools" -> searches in alice/ subdirectory
-func (l *Loader) Load(name string) (*Bundle, error) {
-	path, err := l.Find(name)
-	if err != nil {
-		return nil, err
-	}
-	return l.LoadFile(path)
-}
-
-// Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").
-func (l *Loader) Find(name string) (string, error) {
-	// Security: validate name
-	if err := validateBundleName(name); err != nil {
-		return "", err
-	}
-
-	// Convert forward slashes to OS-specific separator
-	osName := filepath.FromSlash(name)
-
-	for _, dir := range l.searchDirs {
-		// Try direct path: name.yaml
-		path := filepath.Join(dir, osName+".yaml")
-		if _, err := l.fs.Stat(path); err == nil {
-			return path, nil
-		}
-
-		// Try directory path: name/bundle.yaml
-		path = filepath.Join(dir, osName, "bundle.yaml")
-		if _, err := l.fs.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
-}
-
-// LoadFile reads a bundle from a specific path.
-// Results are cached to avoid redundant disk reads when the same bundle
-// is referenced multiple times (e.g., by multiple profiles).
-// This method is safe for concurrent use.
-func (l *Loader) LoadFile(path string) (*Bundle, error) {
-	// Check cache first (read lock)
-	l.mu.RLock()
-	if cached, ok := l.cache[path]; ok {
-		l.mu.RUnlock()
-		return cached, nil
-	}
-	l.mu.RUnlock()
-
-	// Load from disk (no lock held during I/O)
-	data, err := afero.ReadFile(l.fs, path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read bundle: %w", err)
-	}
-
-	bundle, err := ParseBundle(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse bundle %s: %w", path, err)
-	}
-
-	bundle.Path = path
-	bundle.Name = extractBundleName(path)
-
-	// Cache for future loads (write lock)
-	l.mu.Lock()
-	// Double-check in case another goroutine cached it while we were loading
-	if cached, ok := l.cache[path]; ok {
-		l.mu.Unlock()
-		return cached, nil
-	}
-	l.cache[path] = bundle
-	l.mu.Unlock()
-
-	return bundle, nil
-}
-
-// List returns all available bundles.
-func (l *Loader) List() ([]*BundleInfo, error) {
-	var bundles []*BundleInfo
-	seen := collections.NewSet[string]()
-
-	// Search bundle directories recursively
-	for _, dir := range l.searchDirs {
-		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
-			continue
-		}
-
-		_ = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil // Skip directories we can't read
-			}
-			if info.IsDir() {
-				// Check for bundle.yaml in directories
-				bundlePath := filepath.Join(path, "bundle.yaml")
-				if _, err := l.fs.Stat(bundlePath); err == nil {
-					relPath, _ := filepath.Rel(dir, path)
-					bundleName := NormalizeBundleName(filepath.ToSlash(relPath))
-					if seen.Has(bundleName) {
-						return nil
-					}
-					bundleInfo, err := l.loadBundleInfo(bundlePath, bundleName)
-					if err == nil {
-						bundles = append(bundles, bundleInfo)
-						seen.Add(bundleName)
-					}
-				}
-				return nil
-			}
-
-			name := info.Name()
-			// Check for .yaml files (bundle files)
-			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
-				relPath, _ := filepath.Rel(dir, path)
-				bundleName := NormalizeBundleName(strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml"))
-				if seen.Has(bundleName) {
-					return nil
-				}
-				bundleInfo, err := l.loadBundleInfo(path, bundleName)
-				if err == nil {
-					bundles = append(bundles, bundleInfo)
-					seen.Add(bundleName)
-				}
-			}
-			return nil
-		})
-	}
-
-	// Sort by name
-	sort.Slice(bundles, func(i, j int) bool {
-		return bundles[i].Name < bundles[j].Name
-	})
-
-	return bundles, nil
-}
-
-// BundleInfo holds metadata about a bundle without loading full content.
-type BundleInfo struct {
-	Name          string
-	Path          string
-	Version       string
-	Description   string
-	Tags          []string
-	FragmentCount int
-	PromptCount   int
-	MCPCount      int
-}
-
-func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
-	bundle, err := l.LoadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return &BundleInfo{
-		Name:          name,
-		Path:          path,
-		Version:       bundle.Version,
-		Description:   bundle.Description,
-		Tags:          bundle.Tags,
-		FragmentCount: bundle.FragmentCount(),
-		PromptCount:   bundle.PromptCount(),
-		MCPCount:      bundle.MCPCount(),
-	}, nil
-}
-
 // ParseBundle parses raw YAML into a Bundle.
 func ParseBundle(data []byte) (*Bundle, error) {
 	var bundle Bundle
@@ -488,8 +318,38 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	return &bundle, nil
 }
 
-// validateBundleName checks for path traversal and invalid characters.
-func validateBundleName(name string) error {
+// ValidateBundleName rejects bundle names that would escape the bundles
+// directory when joined to a base path. This is the single chokepoint for
+// path-traversal defense — every caller that builds a filesystem path from a
+// user/AI-supplied bundle name MUST run names through this first.
+//
+// Rejected:
+//   - Empty names.
+//   - Names containing null bytes (would truncate the path on some C APIs).
+//   - Names that resolve to a path starting with ".." after filepath.Clean
+//     (e.g. "../etc/passwd", "foo/../../escape", "../"+anything).
+//   - Absolute paths ("/etc/passwd", "C:\\Windows\\…").
+//
+// Accepted:
+//   - Simple names: "my-bundle".
+//   - Slash-separated names: "personal/foo", "alice/go-tools". These are
+//     used to place bundles under a remote subdirectory; filepath.Join keeps
+//     them under the bundles root.
+//   - Names that contain ".." in the middle without escaping after Clean
+//     (e.g. "foo/../bar" cleans to "bar" — safe but probably an AI bug).
+//
+// Threat model: MCP tools accept names from AI clients, so an untrusted name
+// could request ".." segments. Without this check, filepath.Join silently
+// resolves "../../../tmp/evil" into a path outside the bundles root and
+// Bundle.Save would write to it. Empirically verified during the bundle-MCP
+// review on feat/bundle-mcp-tools.
+//
+// Not covered by this function: symlinks already on disk inside the bundles
+// tree. ValidateBundleName only inspects the string; it doesn't lstat path
+// components. The operations layer pairs this with a requireSafeBundlePath
+// walk that rejects symlinked directory components and symlinked bundle
+// files — both defenses are needed.
+func ValidateBundleName(name string) error {
 	if name == "" {
 		return fmt.Errorf("empty bundle name")
 	}
@@ -521,378 +381,4 @@ func extractBundleName(path string) string {
 
 	// Otherwise use filename without extension
 	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-// LoadedContent represents content loaded at runtime, ready to send to LLM.
-// This is the runtime representation of fragments/prompts from bundles.
-type LoadedContent struct {
-	Name         string            // Full name (bundle/item)
-	Version      string            // Bundle version
-	Tags         []string          // Combined tags
-	Content      string            // The actual content
-	Installation string            // Setup/installation instructions for tooling
-	IsDistilled  bool              // Whether distilled version was used
-	DistilledBy  string            // Model that created distillation
-	Exports      map[string]string // Exported variables (from generators)
-	Plugins      PluginsConfig     // Plugin-specific settings
-}
-
-// ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
-type ClaudeCodeConfig struct {
-	Enabled      *bool    `yaml:"enabled"`       // nil = true (opt-out model)
-	Description  string   `yaml:"description"`   // For /help display
-	ArgumentHint string   `yaml:"argument_hint"` // Autocomplete hint
-	AllowedTools []string `yaml:"allowed_tools"` // Tool restrictions
-	Model        string   `yaml:"model"`         // Override model
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c ClaudeCodeConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
-// GeminiConfig holds configuration for exporting prompts as Gemini CLI slash commands.
-type GeminiConfig struct {
-	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
-	Description string `yaml:"description"` // For /help display
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c GeminiConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
-// LMPluginConfig holds LM plugin-specific settings.
-type LMPluginConfig struct {
-	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
-	Gemini     GeminiConfig     `yaml:"gemini"`
-}
-
-// PluginsConfig holds plugin-specific settings.
-type PluginsConfig struct {
-	LM LMPluginConfig `yaml:"llm"`
-}
-
-// ContentInfo provides metadata about a fragment or prompt for listing.
-type ContentInfo struct {
-	Name      string
-	FileName  string
-	Path      string
-	Source    string // "bundle:name" or legacy path
-	Tags      []string
-	Bundle    string // Bundle name this came from
-	ItemType  string // "fragment" or "prompt"
-}
-
-// ListAllFragments returns info about all fragments across all bundles.
-func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
-	var infos []ContentInfo
-	seen := collections.NewSet[string]()
-
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
-
-		for name, frag := range bundle.Fragments {
-			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Name + "/" + name
-			if seen.Has(key) {
-				continue
-			}
-			seen.Add(key)
-			infos = append(infos, ContentInfo{
-				Name:     name,
-				FileName: name + ".yaml",
-				Path:     bundleInfo.Path,
-				Source:   bundleInfo.Name,
-				Tags:     append(bundle.Tags, frag.Tags...),
-				Bundle:   bundleInfo.Name,
-				ItemType: "fragment",
-			})
-		}
-	}
-
-	return infos, nil
-}
-
-// ListAllPrompts returns info about all prompts across all bundles.
-func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
-	seen := collections.NewSet[string]()
-	var infos []ContentInfo
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
-
-		for name, prompt := range bundle.Prompts {
-			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Name + "/" + name
-			if seen.Has(key) {
-				continue
-			}
-			seen.Add(key)
-			infos = append(infos, ContentInfo{
-				Name:     name,
-				FileName: name + ".yaml",
-				Path:     bundleInfo.Path,
-				Source:   bundleInfo.Name,
-				Tags:     append(bundle.Tags, prompt.Tags...),
-				Bundle:   bundleInfo.Name,
-				ItemType: "prompt",
-			})
-		}
-	}
-
-	return infos, nil
-}
-
-// GetFragment finds and loads a fragment by name.
-// Name can be "fragment-name" (searches all bundles) or "bundle#fragments/name".
-func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
-	// Check for # syntax: bundle#fragments/name
-	if idx := strings.Index(name, "#"); idx != -1 {
-		bundleName := name[:idx]
-		itemPath := name[idx+1:]
-
-		// Parse itemPath: "fragments/name"
-		parts := strings.SplitN(itemPath, "/", 2)
-		if len(parts) != 2 || parts[0] != "fragments" {
-			return nil, fmt.Errorf("invalid fragment reference: %s", name)
-		}
-		fragName := parts[1]
-
-		bundle, err := l.Load(bundleName)
-		if err != nil {
-			return nil, err
-		}
-
-		frag, ok := bundle.Fragments[fragName]
-		if !ok {
-			return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
-		}
-
-		return &LoadedContent{
-			Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
-			Version:      bundle.Version,
-			Tags:         append(bundle.Tags, frag.Tags...),
-			Content:      frag.EffectiveContent(l.preferDistilled),
-			Installation: frag.Installation,
-			IsDistilled:  l.preferDistilled && frag.Distilled != "",
-			DistilledBy:  frag.DistilledBy,
-		}, nil
-	}
-
-	// Search all bundles for the fragment
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
-
-		if frag, ok := bundle.Fragments[name]; ok {
-			return &LoadedContent{
-				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:      bundle.Version,
-				Tags:         append(bundle.Tags, frag.Tags...),
-				Content:      frag.EffectiveContent(l.preferDistilled),
-				Installation: frag.Installation,
-				IsDistilled:  l.preferDistilled && frag.Distilled != "",
-				DistilledBy:  frag.DistilledBy,
-			}, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
-}
-
-// GetPrompt finds and loads a prompt by name.
-// Name can be "prompt-name" (searches all bundles) or "bundle#prompts/name".
-func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
-	// Check for # syntax: bundle#prompts/name
-	if idx := strings.Index(name, "#"); idx != -1 {
-		bundleName := name[:idx]
-		itemPath := name[idx+1:]
-
-		// Parse itemPath: "prompts/name"
-		parts := strings.SplitN(itemPath, "/", 2)
-		if len(parts) != 2 || parts[0] != "prompts" {
-			return nil, fmt.Errorf("invalid prompt reference: %s", name)
-		}
-		promptName := parts[1]
-
-		bundle, err := l.Load(bundleName)
-		if err != nil {
-			return nil, err
-		}
-
-		prompt, ok := bundle.Prompts[promptName]
-		if !ok {
-			return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
-		}
-
-		return &LoadedContent{
-			Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
-			Version:      bundle.Version,
-			Tags:         append(bundle.Tags, prompt.Tags...),
-			Content:      prompt.EffectiveContent(l.preferDistilled),
-			Installation: prompt.Installation,
-			IsDistilled:  l.preferDistilled && prompt.Distilled != "",
-			DistilledBy:  prompt.DistilledBy,
-			Plugins:      prompt.Plugins,
-		}, nil
-	}
-
-	// Search all bundles for the prompt
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
-
-		if prompt, ok := bundle.Prompts[name]; ok {
-			return &LoadedContent{
-				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:      bundle.Version,
-				Tags:         append(bundle.Tags, prompt.Tags...),
-				Content:      prompt.EffectiveContent(l.preferDistilled),
-				Installation: prompt.Installation,
-				IsDistilled:  l.preferDistilled && prompt.Distilled != "",
-				DistilledBy:  prompt.DistilledBy,
-				Plugins:      prompt.Plugins,
-			}, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
-}
-
-// ListByTags returns fragments matching any of the given tags.
-func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
-	all, err := l.ListAllFragments()
-	if err != nil {
-		return nil, err
-	}
-
-	tagSet := collections.NewSetFrom(tags...)
-
-	var matched []ContentInfo
-	for _, info := range all {
-		for _, t := range info.Tags {
-			if tagSet.Has(t) {
-				matched = append(matched, info)
-				break
-			}
-		}
-	}
-
-	return matched, nil
-}
-
-// LoadMultiple loads multiple fragments by name and returns combined content.
-// Returns the content, the names of fragments that were successfully loaded, and any error.
-func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
-	var parts []string
-	var loaded []string
-
-	for _, name := range names {
-		content, err := l.GetFragment(name)
-		if err != nil {
-			// Skip not found, continue with others
-			continue
-		}
-		parts = append(parts, strings.TrimSpace(content.Content))
-		loaded = append(loaded, name)
-	}
-
-	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
-}
-
-// ExpandBundleRefs expands profile bundle references into canonical fragment
-// names usable with GetFragment. See the Profile.Bundles documentation in
-// internal/profiles for the supported reference syntax.
-//
-// Supported reference forms:
-//
-//	"bundle"                        // every fragment in the bundle
-//	"bundle#fragments/name"         // a single fragment (canonical syntax)
-//	"bundle:fragments/name"         // a single fragment (profile syntax alias)
-//
-// Refs that target prompts or MCP servers (e.g. "bundle:prompts/x",
-// "bundle:mcp") are skipped, because they do not resolve to fragments.
-// Bundles that cannot be loaded are also skipped, mirroring the tolerant
-// behavior of LoadMultiple/GetFragment so a missing bundle does not abort
-// the whole assembly.
-//
-// The returned names are deduplicated and stable: whole-bundle expansions
-// are sorted alphabetically by fragment name so the resulting context hash
-// is reproducible.
-func (l *Loader) ExpandBundleRefs(refs []string) []string {
-	seen := collections.NewSet[string]()
-	var out []string
-	for _, ref := range refs {
-		for _, name := range l.expandBundleRef(ref) {
-			if seen.Has(name) {
-				continue
-			}
-			seen.Add(name)
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-// expandBundleRef returns the canonical fragment names for a single ref.
-// See ExpandBundleRefs for the supported syntax.
-func (l *Loader) expandBundleRef(ref string) []string {
-	if ref == "" {
-		return nil
-	}
-
-	// Targeted ref: bundle{:|#}{fragments|prompts|mcp}/...
-	// Use IndexAny so we accept either separator. The bundle name itself may
-	// contain "/" (e.g. "remote/bundle") but never ":" or "#".
-	if idx := strings.IndexAny(ref, ":#"); idx != -1 {
-		bundleName := ref[:idx]
-		rest := ref[idx+1:]
-		if !strings.HasPrefix(rest, "fragments/") {
-			// Targeted at prompts, mcp, or unknown — not a fragment ref.
-			return nil
-		}
-		return []string{bundleName + "#" + rest}
-	}
-
-	// Whole-bundle ref: enumerate every fragment in the bundle.
-	b, err := l.Load(ref)
-	if err != nil {
-		return nil
-	}
-	names := make([]string, 0, len(b.Fragments))
-	for fragName := range b.Fragments {
-		names = append(names, ref+"#fragments/"+fragName)
-	}
-	sort.Strings(names)
-	return names
 }

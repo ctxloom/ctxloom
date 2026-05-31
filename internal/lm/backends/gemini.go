@@ -154,4 +154,3 @@ func (b *Gemini) buildArgs(req *ExecuteRequest) []string {
 
 	return args
 }
-

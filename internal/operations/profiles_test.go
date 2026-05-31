@@ -24,7 +24,7 @@ func TestProfileEntry_Fields(t *testing.T) {
 		Tags:        []string{"test"},
 		Bundles:     []string{"bundle1", "bundle2"},
 		Default:     true,
-		Path:        paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:        paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "my-profile", entry.Name)
@@ -129,7 +129,7 @@ func TestCreateProfileResult_Fields(t *testing.T) {
 	result := CreateProfileResult{
 		Status:  "created",
 		Profile: "my-profile",
-		Path:    paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "created", result.Status)
@@ -165,7 +165,7 @@ func TestUpdateProfileResult_Fields(t *testing.T) {
 		Status:  "updated",
 		Profile: "my-profile",
 		Changes: []string{"added parent: base", "added tag: test"},
-		Path:    paths.ProfilesPath(testBaseDir)+"/my-profile.yaml",
+		Path:    paths.ProfilesPath(testBaseDir) + "/my-profile.yaml",
 	}
 
 	assert.Equal(t, "updated", result.Status)
@@ -940,4 +940,125 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 	}
 	// Default profile should be cleared in memory regardless
 	assert.NotContains(t, cfg.Defaults.Profiles, "frontend")
+}
+
+func TestCreateProfile_AutoPromotesWhenNoDefault(t *testing.T) {
+	// When no default profile is configured anywhere, creating a profile
+	// should auto-promote it as the default so `ctxloom run` doesn't launch
+	// with empty context.
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := paths.ProfilesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+	}
+
+	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
+		Name:   "first-profile",
+		Loader: loader,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "created", result.Status)
+
+	assert.Contains(t, cfg.Defaults.Profiles, "first-profile",
+		"first-ever profile should be auto-promoted to default")
+}
+
+func TestCreateProfile_DoesNotPromoteWhenDefaultAlreadySet(t *testing.T) {
+	// If a default profile is already configured, creating a new profile
+	// should NOT change the default.
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	profilesDir := paths.ProfilesPath(appDir)
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+
+	// Pre-create an existing default profile on disk so the loader can find it.
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "existing.yaml"),
+		[]byte("description: existing\n"), 0644))
+
+	loader := profiles.NewLoader([]string{profilesDir})
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+		Defaults: config.Defaults{Profiles: []string{"existing"}},
+	}
+
+	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
+		Name:   "second-profile",
+		Loader: loader,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"existing"}, cfg.Defaults.Profiles,
+		"existing default should be preserved when creating a non-default profile")
+}
+
+func TestLocalProfileNameFromPath(t *testing.T) {
+	cfg := &config.Config{AppPaths: []string{"/tmp/.ctxloom"}}
+
+	tests := []struct {
+		name   string
+		path   string
+		want   string
+		wantOk bool
+	}{
+		{
+			name:   "top-level profile",
+			path:   "/tmp/.ctxloom/profiles/rust-developer.yaml",
+			want:   "rust-developer",
+			wantOk: true,
+		},
+		{
+			name:   "nested under remote",
+			path:   "/tmp/.ctxloom/profiles/github.com/ctxloom/ctxloom-default/rust-developer.yaml",
+			want:   "github.com/ctxloom/ctxloom-default/rust-developer",
+			wantOk: true,
+		},
+		{
+			name:   "yml extension",
+			path:   "/tmp/.ctxloom/profiles/personal/rust.yml",
+			want:   "personal/rust",
+			wantOk: true,
+		},
+		{
+			name:   "outside profiles dir",
+			path:   "/tmp/.ctxloom/cache/bundles/something.yaml",
+			want:   "",
+			wantOk: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := LocalProfileNameFromPath(cfg, tt.path)
+			assert.Equal(t, tt.wantOk, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPromoteToDefaultIfFirst_NoExistingDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+
+	cfg := &config.Config{
+		AppPaths: []string{appDir},
+	}
+
+	promoted := PromoteToDefaultIfFirst(cfg, "my-profile")
+	assert.True(t, promoted)
+	assert.Contains(t, cfg.Defaults.Profiles, "my-profile")
+}
+
+func TestPromoteToDefaultIfFirst_ExistingDefault(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{Profiles: []string{"already-default"}},
+	}
+
+	promoted := PromoteToDefaultIfFirst(cfg, "new-profile")
+	assert.False(t, promoted)
+	assert.Equal(t, []string{"already-default"}, cfg.Defaults.Profiles)
 }

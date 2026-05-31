@@ -3,6 +3,8 @@
 package ptyrunner
 
 import (
+	"errors"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,14 @@ import (
 	"github.com/aymanbagabas/go-pty"
 	"golang.org/x/sys/windows"
 )
+
+// isBenignPTYError reports whether err from c.Wait is the expected fallout of
+// closing the ConPTY after the command already exited. Windows has no EIO
+// equivalent for this path; a closed handle surfaces as fs.ErrClosed. Matched
+// by sentinel via errors.Is — never by substring of the error text.
+func isBenignPTYError(err error) bool {
+	return errors.Is(err, fs.ErrClosed)
+}
 
 // adjustPtyCommand handles Windows-specific .cmd/.bat file execution via ConPTY.
 //

@@ -41,78 +41,14 @@ type ListMCPServersResult struct {
 
 // ListMCPServers returns all configured MCP servers.
 func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersRequest) (*ListMCPServersResult, error) {
-	// Use injected config for testing, otherwise reload for freshness
-	freshCfg := req.TestConfig
-	if freshCfg == nil {
-		var err error
-		freshCfg, err = config.Load()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config: %w", err)
-		}
+	// Use injected config for testing, otherwise reload for freshness.
+	freshCfg, err := resolveListConfig(req.TestConfig)
+	if err != nil {
+		return nil, err
 	}
 
-	var servers []MCPServerEntry
-	query := strings.ToLower(req.Query)
-
-	// Unified servers
-	for name, srv := range freshCfg.MCP.Servers {
-		if query != "" && !strings.Contains(strings.ToLower(name), query) &&
-			!strings.Contains(strings.ToLower(srv.Command), query) {
-			continue
-		}
-		servers = append(servers, MCPServerEntry{
-			Name:         name,
-			Command:      srv.Command,
-			Args:         srv.Args,
-			Backend:      "unified",
-			Notes:        srv.Notes,
-			Installation: srv.Installation,
-		})
-	}
-
-	// Backend-specific servers
-	for backend, backendServers := range freshCfg.MCP.Plugins {
-		for name, srv := range backendServers {
-			if query != "" && !strings.Contains(strings.ToLower(name), query) &&
-				!strings.Contains(strings.ToLower(srv.Command), query) {
-				continue
-			}
-			servers = append(servers, MCPServerEntry{
-				Name:         name,
-				Command:      srv.Command,
-				Args:         srv.Args,
-				Backend:      backend,
-				Notes:        srv.Notes,
-				Installation: srv.Installation,
-			})
-		}
-	}
-
-	// Sort results
-	sortBy := req.SortBy
-	if sortBy == "" {
-		sortBy = "name"
-	}
-	reverse := req.SortOrder == "desc"
-
-	switch sortBy {
-	case "name":
-		sort.Slice(servers, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(servers[i].Name), strings.ToLower(servers[j].Name))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	case "command":
-		sort.Slice(servers, func(i, j int) bool {
-			cmp := strings.Compare(strings.ToLower(servers[i].Command), strings.ToLower(servers[j].Command))
-			if reverse {
-				return cmp > 0
-			}
-			return cmp < 0
-		})
-	}
+	servers := collectMCPServers(freshCfg, strings.ToLower(req.Query))
+	sortMCPServers(servers, req.SortBy, req.SortOrder)
 
 	return &ListMCPServersResult{
 		Servers:      servers,
@@ -121,12 +57,86 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 	}, nil
 }
 
+// resolveListConfig returns the injected test config, or loads a fresh one.
+func resolveListConfig(testConfig *config.Config) (*config.Config, error) {
+	if testConfig != nil {
+		return testConfig, nil
+	}
+	freshCfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	return freshCfg, nil
+}
+
+// mcpServerMatches reports whether a server matches the (already lower-cased)
+// query against its name or command. An empty query matches everything.
+func mcpServerMatches(query, name, command string) bool {
+	if query == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(name), query) ||
+		strings.Contains(strings.ToLower(command), query)
+}
+
+// mcpEntry builds an MCPServerEntry for the given backend label.
+func mcpEntry(name string, srv config.MCPServer, backend string) MCPServerEntry {
+	return MCPServerEntry{
+		Name:         name,
+		Command:      srv.Command,
+		Args:         srv.Args,
+		Backend:      backend,
+		Notes:        srv.Notes,
+		Installation: srv.Installation,
+	}
+}
+
+// collectMCPServers gathers unified and backend-specific servers matching query.
+func collectMCPServers(cfg *config.Config, query string) []MCPServerEntry {
+	var servers []MCPServerEntry
+	for name, srv := range cfg.MCP.Servers {
+		if mcpServerMatches(query, name, srv.Command) {
+			servers = append(servers, mcpEntry(name, srv, "unified"))
+		}
+	}
+	for backend, backendServers := range cfg.MCP.Plugins {
+		for name, srv := range backendServers {
+			if mcpServerMatches(query, name, srv.Command) {
+				servers = append(servers, mcpEntry(name, srv, backend))
+			}
+		}
+	}
+	return servers
+}
+
+// sortMCPServers sorts servers in place by name or command. An empty sortBy
+// defaults to name; any other value leaves the order untouched.
+func sortMCPServers(servers []MCPServerEntry, sortBy, sortOrder string) {
+	if sortBy == "" {
+		sortBy = "name"
+	}
+	reverse := sortOrder == "desc"
+	less := func(a, b string) bool {
+		cmp := strings.Compare(strings.ToLower(a), strings.ToLower(b))
+		if reverse {
+			return cmp > 0
+		}
+		return cmp < 0
+	}
+	switch sortBy {
+	case "name":
+		sort.Slice(servers, func(i, j int) bool { return less(servers[i].Name, servers[j].Name) })
+	case "command":
+		sort.Slice(servers, func(i, j int) bool { return less(servers[i].Command, servers[j].Command) })
+	}
+}
+
 // AddMCPServerRequest contains parameters for adding an MCP server.
 type AddMCPServerRequest struct {
 	Name         string   `json:"name"`
 	Command      string   `json:"command"`
 	Args         []string `json:"args"`
-	Backend      string   `json:"backend"` // unified, claude-code, gemini
+	Backend      string   `json:"backend"`      // unified, claude-code, gemini
 	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
 	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
 
@@ -171,36 +181,21 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		Installation: req.Installation,
 	}
 
-	if req.Backend == "" || req.Backend == "unified" {
-		if freshCfg.MCP.Servers == nil {
-			freshCfg.MCP.Servers = make(map[string]config.MCPServer)
-		}
-		if _, exists := freshCfg.MCP.Servers[req.Name]; exists {
-			return nil, fmt.Errorf("MCP server %q already exists", req.Name)
-		}
-		freshCfg.MCP.Servers[req.Name] = server
+	if isUnifiedBackend(req.Backend) {
+		err = addUnifiedServer(freshCfg, req.Name, server)
 	} else {
-		if freshCfg.MCP.Plugins == nil {
-			freshCfg.MCP.Plugins = make(map[string]map[string]config.MCPServer)
-		}
-		if freshCfg.MCP.Plugins[req.Backend] == nil {
-			freshCfg.MCP.Plugins[req.Backend] = make(map[string]config.MCPServer)
-		}
-		if _, exists := freshCfg.MCP.Plugins[req.Backend][req.Name]; exists {
-			return nil, fmt.Errorf("MCP server %q already exists for backend %s", req.Name, req.Backend)
-		}
-		freshCfg.MCP.Plugins[req.Backend][req.Name] = server
+		err = addBackendServer(freshCfg, req.Backend, req.Name, server)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// Skip save when using test config
-	if req.TestConfig == nil {
-		if err := freshCfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
+	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
+		return nil, err
 	}
 
 	scope := "unified"
-	if req.Backend != "" && req.Backend != "unified" {
+	if !isUnifiedBackend(req.Backend) {
 		scope = req.Backend
 	}
 
@@ -212,6 +207,53 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		Message: "Run apply_hooks to inject into backend settings",
 		Config:  freshCfg,
 	}, nil
+}
+
+// isUnifiedBackend reports whether a backend value targets the unified server
+// map (empty or the explicit "unified" label).
+func isUnifiedBackend(backend string) bool {
+	return backend == "" || backend == "unified"
+}
+
+// addUnifiedServer inserts server into the unified map, erroring if name exists.
+func addUnifiedServer(cfg *config.Config, name string, server config.MCPServer) error {
+	if cfg.MCP.Servers == nil {
+		cfg.MCP.Servers = make(map[string]config.MCPServer)
+	}
+	if _, exists := cfg.MCP.Servers[name]; exists {
+		return fmt.Errorf("MCP server %q already exists", name)
+	}
+	cfg.MCP.Servers[name] = server
+	return nil
+}
+
+// addBackendServer inserts server into a backend's plugin map, erroring if name
+// already exists for that backend.
+func addBackendServer(cfg *config.Config, backend, name string, server config.MCPServer) error {
+	if cfg.MCP.Plugins == nil {
+		cfg.MCP.Plugins = make(map[string]map[string]config.MCPServer)
+	}
+	if cfg.MCP.Plugins[backend] == nil {
+		cfg.MCP.Plugins[backend] = make(map[string]config.MCPServer)
+	}
+	if _, exists := cfg.MCP.Plugins[backend][name]; exists {
+		return fmt.Errorf("MCP server %q already exists for backend %s", name, backend)
+	}
+	cfg.MCP.Plugins[backend][name] = server
+	return nil
+}
+
+// saveMCPConfig persists cfg unless a test config was injected (in which case
+// the caller inspects the returned config instead). With an afero FS but no
+// test config, Save writes to that FS.
+func saveMCPConfig(cfg *config.Config, testConfig *config.Config) error {
+	if testConfig != nil {
+		return nil
+	}
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	return nil
 }
 
 // RemoveMCPServerRequest contains parameters for removing an MCP server.
@@ -249,47 +291,13 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 		return nil, err
 	}
 
-	removed := false
-	removedFrom := []string{}
-
-	// Remove from unified if no specific backend or if unified specified
-	if req.Backend == "" || req.Backend == "unified" {
-		if _, exists := freshCfg.MCP.Servers[req.Name]; exists {
-			delete(freshCfg.MCP.Servers, req.Name)
-			removed = true
-			removedFrom = append(removedFrom, "unified")
-		}
-	}
-
-	// Remove from backend-specific
-	if req.Backend != "" && req.Backend != "unified" {
-		if backendServers, ok := freshCfg.MCP.Plugins[req.Backend]; ok {
-			if _, exists := backendServers[req.Name]; exists {
-				delete(backendServers, req.Name)
-				removed = true
-				removedFrom = append(removedFrom, req.Backend)
-			}
-		}
-	} else if req.Backend == "" {
-		// If no backend specified, try to remove from all backends
-		for backend, servers := range freshCfg.MCP.Plugins {
-			if _, exists := servers[req.Name]; exists {
-				delete(servers, req.Name)
-				removed = true
-				removedFrom = append(removedFrom, backend)
-			}
-		}
-	}
-
-	if !removed {
+	removedFrom := removeMCPServerEntries(freshCfg, req.Backend, req.Name)
+	if len(removedFrom) == 0 {
 		return nil, fmt.Errorf("MCP server %q not found", req.Name)
 	}
 
-	// Skip save when using test config
-	if req.TestConfig == nil {
-		if err := freshCfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
+	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
+		return nil, err
 	}
 
 	return &RemoveMCPServerResult{
@@ -299,6 +307,65 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 		Message:     "Run apply_hooks to update backend settings",
 		Config:      freshCfg,
 	}, nil
+}
+
+// removeMCPServerEntries deletes the named server from the locations implied by
+// backend, returning the list of locations it was removed from. An empty
+// backend removes from the unified map and every plugin backend; "unified"
+// removes only from the unified map; any other value removes from the unified
+// map (always checked) and that specific backend.
+func removeMCPServerEntries(cfg *config.Config, backend, name string) []string {
+	var removedFrom []string
+	if isUnifiedBackend(backend) && removeUnifiedServer(cfg, name) {
+		removedFrom = append(removedFrom, "unified")
+	}
+
+	switch {
+	case backend == "":
+		removedFrom = append(removedFrom, removeFromAllBackends(cfg, name)...)
+	case backend != "unified":
+		if removeBackendServer(cfg, backend, name) {
+			removedFrom = append(removedFrom, backend)
+		}
+	}
+	return removedFrom
+}
+
+// removeUnifiedServer deletes name from the unified map, reporting whether it
+// was present.
+func removeUnifiedServer(cfg *config.Config, name string) bool {
+	if _, exists := cfg.MCP.Servers[name]; !exists {
+		return false
+	}
+	delete(cfg.MCP.Servers, name)
+	return true
+}
+
+// removeBackendServer deletes name from a specific backend, reporting whether
+// it was present.
+func removeBackendServer(cfg *config.Config, backend, name string) bool {
+	servers, ok := cfg.MCP.Plugins[backend]
+	if !ok {
+		return false
+	}
+	if _, exists := servers[name]; !exists {
+		return false
+	}
+	delete(servers, name)
+	return true
+}
+
+// removeFromAllBackends deletes name from every plugin backend, returning the
+// backends it was removed from.
+func removeFromAllBackends(cfg *config.Config, name string) []string {
+	var removed []string
+	for backend, servers := range cfg.MCP.Plugins {
+		if _, exists := servers[name]; exists {
+			delete(servers, name)
+			removed = append(removed, backend)
+		}
+	}
+	return removed
 }
 
 // SetMCPAutoRegisterRequest contains parameters for setting auto-register.
@@ -332,11 +399,8 @@ func SetMCPAutoRegister(ctx context.Context, cfg *config.Config, req SetMCPAutoR
 
 	freshCfg.MCP.AutoRegisterCtxloom = &req.Enabled
 
-	// Skip save when using test config (but not when using FS)
-	if req.TestConfig == nil {
-		if err := freshCfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
+	if err := saveMCPConfig(freshCfg, req.TestConfig); err != nil {
+		return nil, err
 	}
 
 	return &SetMCPAutoRegisterResult{

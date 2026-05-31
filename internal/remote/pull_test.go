@@ -32,17 +32,16 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "security",
+		Remote:         "alice",
+		Path:           "security",
 		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
-		Name:    "alice",
-		URL:     "https://github.com/alice/ctxloom",
-		Version: "v1",
+		Name: "alice",
+		URL:  "https://github.com/alice/ctxloom",
 	}
 	sha := "abc1234"
-	filePath := "ctxloom/v1/bundles/security.yaml"
+	filePath := "ctxloom/bundles/security.yaml"
 	content := []byte("description: Test bundle\nfragments:\n  tdd:\n    content: Test content here\n")
 
 	secure, _ := ParseSecureContent(ItemTypeBundle, content)
@@ -88,17 +87,16 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "secure",
+		Remote:         "alice",
+		Path:           "secure",
 		ContentVersion: "v1.0.0",
 	}
 	rem := &Remote{
-		Name:    "alice",
-		URL:     "https://github.com/alice/ctxloom",
-		Version: "v1",
+		Name: "alice",
+		URL:  "https://github.com/alice/ctxloom",
 	}
 	sha := "abc1234"
-	filePath := "ctxloom/v1/profiles/secure.yaml"
+	filePath := "ctxloom/profiles/secure.yaml"
 	content := []byte("name: secure\nbundles:\n  - alice/security\n")
 
 	secure, _ := ParseSecureContent(ItemTypeProfile, content)
@@ -274,7 +272,7 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	// Create mock fetcher with content
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
 	// Create lockfile manager
@@ -302,13 +300,19 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", result.LocalPath)
+	// Bundles no longer materialize on fs after PR 1 of the bundle-review
+	// plan. LocalPath is a synthetic "<remote>:name@sha" string and the
+	// fetched bytes come back on Content for callers that need them.
+	assert.Equal(t, "<remote>:alice/security@abc123def456", result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
+	assert.NotEmpty(t, result.Content)
 
-	// Verify file was written
-	exists, err := afero.Exists(fs, result.LocalPath)
-	require.NoError(t, err)
-	assert.True(t, exists)
+	// The lockfile is now the only on-disk record of the install.
+	lock, lerr := lm.Load()
+	require.NoError(t, lerr)
+	entry, ok := lock.GetEntry(ItemTypeBundle, "alice/security")
+	require.True(t, ok, "lockfile entry should exist")
+	assert.Equal(t, "abc123def456", entry.SHA)
 
 	// Verify security warning was displayed
 	assert.Contains(t, stdout.String(), "WARNING")
@@ -342,7 +346,7 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 
 	// Create mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
 
 	// Terminal checker returns false (not a terminal)
 	tc := &mockTerminalChecker{isReader: false}
@@ -371,7 +375,7 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
 
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: test\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
 
 	tc := &mockTerminalChecker{isReader: true}
 
@@ -465,7 +469,7 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{},
@@ -495,7 +499,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 
 	// Mock fetcher
 	mf := newMockFetcher()
-	mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
 	tc := &mockTerminalChecker{isReader: true, isWriter: true}
@@ -576,16 +580,20 @@ func TestCascadePullProfile(t *testing.T) {
 	})
 
 	t.Run("skips already cached bundles", func(t *testing.T) {
+		// After docs/bundle-review-plan.md PR 1, bundles no longer live as
+		// fs files — "cached" means "present in the lockfile." Seed a lock
+		// entry to prove cascadePullProfile honors that.
 		fs := afero.NewMemMapFs()
-
-		// Create the cached bundle file
-		require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice", 0755))
-		require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml", []byte("cached"), 0644))
-
 		registry, _ := NewRegistry("", WithRegistryFS(fs))
+
+		lockMgr := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+		lock := &Lockfile{Bundles: map[string]LockEntry{}, Profiles: map[string]LockEntry{}}
+		lock.AddEntry(ItemTypeBundle, "alice/security", LockEntry{SHA: "abc123", URL: "https://github.com/alice/ctxloom"})
+		require.NoError(t, lockMgr.Save(lock))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
+			WithLockfileManager(lockMgr),
 		)
 
 		profileContent := []byte("bundles:\n  - alice/security\n")
@@ -631,7 +639,7 @@ func TestCascadePullProfile(t *testing.T) {
 
 		// Mock fetcher
 		mf := newMockFetcher()
-		mf.files["ctxloom/v1/bundles/security.yaml"] = []byte("description: Security bundle\n")
+		mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\n")
 		mf.refs["main"] = "abc123"
 
 		puller := NewPuller(registry, AuthConfig{},
@@ -728,7 +736,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -793,7 +801,7 @@ func TestTransformProfileContent(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@v1/bundles/security#fragments/tdd\n")
+		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security#fragments/tdd\n")
 		var stdout bytes.Buffer
 
 		result, err := puller.transformProfileContent(content, &stdout)
@@ -814,8 +822,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "security",
+			Remote:         "alice",
+			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
 
@@ -843,8 +851,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "security",
+			Remote:         "alice",
+			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
 
@@ -868,8 +876,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote: "alice",
-			Path:   "deep/nested/security",
+			Remote:         "alice",
+			Path:           "deep/nested/security",
 			ContentVersion: "v1.0.0",
 		}
 
@@ -901,7 +909,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
 
@@ -931,7 +939,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 			WithLockfileManager(lm),
 		)
 
-		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom", Version: "v1"}
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
 		require.NoError(t, err)

@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 var (
@@ -28,7 +33,143 @@ var (
 	runSuppressWarnings bool
 	runPrint            bool
 	runVerbosity        int
+	runAssumeYes        bool
+	runResumeSession    string
+	runResumeTasksFrom  string
+	runResumeNewSession bool
+	runResumeNoTasks    bool
 )
+
+// resumeFlags bundles the four CLI flags that govern resume behavior
+// so resolveResumeIntent can be tested without setting package globals.
+type resumeFlags struct {
+	Session    string // --session <harp>
+	TasksFrom  string // --tasks-from <harp>
+	NewSession bool   // --new-session
+	NoTasks    bool   // --no-tasks (modifier on --session)
+}
+
+// resolveResumeIntent decides whether this run resumes a prior session
+// and which parts to restore. Flag bypasses win over the picker;
+// non-interactive contexts (no TTY, no flags) silently fall through to
+// a fresh session.
+func resolveResumeIntent(mgr *sessions.Manager, workDir string) (sessions.Decision, error) {
+	flags := resumeFlags{
+		Session:    runResumeSession,
+		TasksFrom:  runResumeTasksFrom,
+		NewSession: runResumeNewSession,
+		NoTasks:    runResumeNoTasks,
+	}
+	return resolveResumeIntentWith(flags, mgr, workDir, isInteractiveTerminal())
+}
+
+// resolveResumeIntentWith is the IoC seam: takes the resume flags, the
+// session manager, the work directory, and a "stdin is a TTY" boolean.
+// All side-effect surfaces are arguments, so the decision tree is
+// trivially unit-testable across the flag matrix.
+func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir string, isTTY bool) (sessions.Decision, error) {
+	switch {
+	case flags.Session != "":
+		return sessions.Decision{
+			Action:         sessions.ResumeAction,
+			FromHarp:       flags.Session,
+			RestoreSession: true,
+			RestoreTasks:   !flags.NoTasks,
+		}, nil
+	case flags.TasksFrom != "":
+		return sessions.Decision{
+			Action:         sessions.ResumeAction,
+			FromHarp:       flags.TasksFrom,
+			RestoreSession: false,
+			RestoreTasks:   true,
+		}, nil
+	case flags.NewSession:
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	if mgr == nil || !isTTY {
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	entries, err := mgr.ListForProject(workDir)
+	if err != nil || len(entries) == 0 {
+		return sessions.Decision{Action: sessions.NewAction}, nil
+	}
+	p := &sessions.Picker{
+		Entries: entries,
+		In:      os.Stdin,
+		Out:     os.Stderr,
+		Distill: shellOutDistill,
+	}
+	return p.Run()
+}
+
+// execCommand is the seam tests override to avoid actually shelling
+// out. Production points it at exec.Command; tests substitute a fake
+// that records the arguments and returns a harmless exec.Cmd (e.g.,
+// /bin/true) so .Run() succeeds without side effects.
+var execCommand = exec.Command
+
+// shellOutDistill is the picker's `d<N>` callback. It runs
+// `ctxloom session distill <harp>` as a child process so the picker
+// doesn't need to depend on cobra, the compactor, or any LLM
+// machinery itself. Stdout/stderr are piped through to the user.
+func shellOutDistill(harpName string) error {
+	exe := resolveSelfExecutable()
+	c := execCommand(exe, "session", "distill", harpName)
+	c.Stdout = os.Stderr
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
+// osExecutable and osStat are seams the tests override to drive the
+// resolveSelfExecutable decision tree without depending on the real
+// filesystem or the real binary path.
+var (
+	osExecutable = os.Executable
+	osStat       = os.Stat
+)
+
+// resolveSelfExecutable returns the path to use when re-invoking ctxloom
+// from inside a running ctxloom process. Prefers the OS-reported absolute
+// path (one syscall: `readlink /proc/self/exe` on Linux, `_NSGetExecutablePath`
+// on macOS, `GetModuleFileNameW` on Windows), and falls back to bare
+// `"ctxloom"` (a PATH lookup) in two cases:
+//
+//  1. The OS call itself errored (rare; AIX, some sandboxed environments).
+//  2. The returned path no longer points at a live binary. On Linux,
+//     `os.Executable()` returns a literal `"<path> (deleted)"` string after
+//     the binary is replaced via unlink+recreate (the typical `go install`
+//     upgrade pattern). exec'ing that path fails at .Run() time, which is
+//     recoverable but ugly. We strip the suffix, stat the result, and only
+//     use it if the file still exists.
+func resolveSelfExecutable() string {
+	const fallback = "ctxloom"
+	exe, err := osExecutable()
+	if err != nil {
+		return fallback
+	}
+	// Linux: "/path/ctxloom (deleted)" after the running inode is unlinked.
+	if trimmed, ok := strings.CutSuffix(exe, " (deleted)"); ok {
+		exe = trimmed
+	}
+	if _, err := osStat(exe); err != nil {
+		return fallback
+	}
+	return exe
+}
+
+func resumePartsCSV(d sessions.Decision) string {
+	parts := make([]string, 0, 2)
+	if d.RestoreSession {
+		parts = append(parts, "session")
+	}
+	if d.RestoreTasks {
+		parts = append(parts, "tasks")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
 
 var runCmd = &cobra.Command{
 	Use:   "run [flags] [prompt...]",
@@ -95,6 +236,24 @@ Examples:
 
 		// Assemble context using operations
 		ctx := context.Background()
+
+		// Auto-sync remote dependencies on startup if enabled (graceful failure).
+		// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
+		// on missing parent profiles or bundles that sync would have fetched.
+		// In a TTY, confirm with the user before installing anything new.
+		if cfg.Sync.ShouldAutoSync() && confirmSyncInstall(ctx, cfg) {
+			syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
+			result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
+			syncCancel()
+			if syncErr != nil {
+				if !errors.Is(syncErr, context.Canceled) {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
+				}
+			} else {
+				writeSyncSummary(os.Stderr, result)
+			}
+		}
+
 		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
 			Profile:   runProfile,
 			Fragments: runFragments,
@@ -147,6 +306,63 @@ Examples:
 			workDir = cwd
 		}
 
+		// Phase 3 session resolution: optional pre-launch resume picker,
+		// followed by a fresh harp assignment for the new session.
+		runEnv := map[string]string{}
+		for k, v := range pluginCfg.Env {
+			runEnv[k] = v
+		}
+		sessMgr, sessMgrErr := sessions.Open("")
+		if sessMgrErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", sessMgrErr)
+		}
+		resume, err := resolveResumeIntent(sessMgr, workDir)
+		if err != nil {
+			return fmt.Errorf("resume intent: %w", err)
+		}
+		if resume.Action == sessions.QuitAction {
+			fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
+			return nil
+		}
+		var activeHarp string
+		if sessMgr != nil {
+			if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
+			} else {
+				activeHarp = entry.HarpName
+				runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+				if resume.Action == sessions.ResumeAction {
+					parts := resumePartsCSV(resume)
+					runEnv["CTXLOOM_RESUMED_FROM"] = resume.FromHarp
+					runEnv["CTXLOOM_RESUMED_PARTS"] = parts
+					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
+						entry.HarpName, resume.FromHarp, parts)
+				} else {
+					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
+				}
+				// Set the terminal window title to the harp name via the
+				// OSC2 escape sequence. Most terminals (xterm, iTerm2,
+				// alacritty, WezTerm, kitty, Windows Terminal) render it;
+				// the rest silently ignore the sequence. Skipped for
+				// non-TTY (CI, piped) so we don't pollute pipelines.
+				if isInteractiveTerminal() {
+					fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
+				}
+			}
+		}
+		// Mark the harp ended on whatever exit path we take — clean
+		// return, ctrl+c, or panic. The end timestamp lets the time-
+		// window fallback in `ctxloom session distill` find this
+		// session's transcript even when the bind middleware never
+		// fired (session ended before any MCP method was processed).
+		if activeHarp != "" && sessMgr != nil {
+			defer func() {
+				if err := sessMgr.MarkEnded(activeHarp, time.Now()); err != nil {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: session end-mark failed: %v\n", err)
+				}
+			}()
+		}
+
 		// Build request
 		req := &pb.RunRequest{
 			Fragments: protoFragments,
@@ -155,7 +371,7 @@ Examples:
 				WorkDir:     workDir,
 				AutoApprove: true,
 				Mode:        mode,
-				Env:         pluginCfg.Env,
+				Env:         runEnv,
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},
@@ -240,6 +456,15 @@ func init() {
 	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
+	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
+
+	// Phase 3 resume flags. When none are passed, the interactive picker
+	// runs (TTY only); piped/non-interactive invocations fall through to
+	// a fresh session.
+	runCmd.Flags().StringVar(&runResumeSession, "session", "", "Resume the named harp session (essence + tasks). Skips the picker.")
+	runCmd.Flags().StringVar(&runResumeTasksFrom, "tasks-from", "", "Start a fresh session but hydrate tasks from the named harp session. Skips the picker.")
+	runCmd.Flags().BoolVar(&runResumeNewSession, "new-session", false, "Start a fresh session without resume. Skips the picker.")
+	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
 
 	// Register completions
 	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)
@@ -249,3 +474,44 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
 }
 
+// confirmSyncInstall returns true if startup sync should proceed.
+// In an interactive terminal with pending installs, it lists them and asks
+// for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
+// auto-confirm so they don't hang. On any check error, it falls through to
+// the existing graceful-failure path in SyncOnStartup.
+func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
+	if runAssumeYes || !isInteractiveTerminal() {
+		return true
+	}
+
+	check, err := operations.CheckMissingDependencies(ctx, cfg, operations.CheckMissingDependenciesRequest{})
+	if err != nil || check == nil || check.Count == 0 {
+		return true
+	}
+
+	fmt.Fprintf(os.Stderr, "ctxloom will install %d missing dependenc%s:\n", check.Count, plural(check.Count, "y", "ies"))
+	for _, dep := range check.Missing {
+		fmt.Fprintf(os.Stderr, "  - %s (%s, from profile %q)\n", dep.Reference, dep.Type, dep.Profile)
+	}
+	fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	if answer == "y" || answer == "yes" {
+		return true
+	}
+	fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
+	return false
+}
+
+func plural(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}

@@ -1,7 +1,10 @@
 // Package paths provides shared path constants for ctxloom.
 package paths
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+)
 
 const (
 	// AppDirName is the name of the ctxloom directory.
@@ -40,7 +43,62 @@ const (
 
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
+
+	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
+	SessionsDir = "sessions"
+
+	// TasksFileName is the name of the task store file.
+	TasksFileName = "tasks.md"
+
+	// PlanFileExt is the suffix for a session's plan documents. Plans live
+	// directly in the harp session directory (alongside tasks.md) as
+	// <descriptive-name>.plan.md files; a session may hold several.
+	PlanFileExt = ".plan.md"
 )
+
+// HomeSessionsDir returns ~/.ctxloom/sessions — the home-rooted directory
+// that holds the session index and per-harp session dirs. This is the
+// single source of truth for the sessions root; both the task store and the
+// memory compactor resolve harp paths through it so they cannot diverge.
+func HomeSessionsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, AppDirName, SessionsDir), nil
+}
+
+// HarpDir returns ~/.ctxloom/sessions/<harp>/. Errors when the home dir
+// can't be resolved; callers fall back to the legacy layout in that case.
+func HarpDir(harp string) (string, error) {
+	root, err := HomeSessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, harp), nil
+}
+
+// HarpTasksPath returns ~/.ctxloom/sessions/<harp>/tasks.md — the active
+// task store for a harp-named session.
+func HarpTasksPath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, TasksFileName), nil
+}
+
+// HarpPlanPath returns ~/.ctxloom/sessions/<harp>/<name>.plan.md — a plan
+// document for a harp-named session. Plans sit directly in the session
+// directory next to tasks.md; name is the descriptive base (no extension),
+// and a session may have several distinctly named plans.
+func HarpPlanPath(harp, name string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name+PlanFileExt), nil
+}
 
 // GetCacheDir returns the cache subdirectory path for the given app path.
 // Cache contains regeneratable content: bundles, vendor, context, memory.

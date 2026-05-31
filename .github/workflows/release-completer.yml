@@ -38,9 +38,10 @@ jobs:
         run: |
           # Install just
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          # Install versionator
-          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.0.7/versionator-linux-amd64 -o /usr/local/bin/versionator
-          chmod +x /usr/local/bin/versionator
+          # Install versionator (releases >= v0.1.1 ship as tarballs).
+          curl -sSL https://github.com/benjaminabbitt/versionator/releases/download/v0.2.1/versionator-linux-amd64.tar.gz -o /tmp/versionator.tar.gz
+          tar -xzf /tmp/versionator.tar.gz -C /tmp
+          install /tmp/versionator-linux-amd64 /usr/local/bin/versionator
           # Install buf
           curl -sSL https://github.com/bufbuild/buf/releases/latest/download/buf-Linux-x86_64 -o /usr/local/bin/buf
           chmod +x /usr/local/bin/buf
@@ -68,6 +69,8 @@ jobs:
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with push access to benjaminabbitt/homebrew-tap (formula publish).
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           HASH_INSTALL_SH: ${{ env.HASH_INSTALL_SH }}
           HASH_INSTALL_PS1: ${{ env.HASH_INSTALL_PS1 }}
 

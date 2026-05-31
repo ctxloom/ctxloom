@@ -85,22 +85,22 @@ func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, con
 	l.ensureHooks()
 	l.ensureMCP()
 
-	// Auto-register context injection hook with the context hash
-	if contextHash != "" {
-		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart, NewContextInjectionHook(contextHash, workDir))
-	}
+	// Hooks: the complete managed set (config-level + default-profile +
+	// bundle-shipped + context-injection) is assembled by the shared
+	// AssembleManagedHooks so this Setup-time write and the later
+	// operations.ApplyHooks write produce an identical set. Assembling a
+	// partial set here is what left every `ctxloom run` session without
+	// forward-bind; diverging from apply-hooks would resurface the same
+	// drop-on-clobber class for any profile-shipped hook.
+	mergeHooksConfig(l.hooks, AssembleManagedHooks(cfg, workDir, contextHash))
 
-	// Merge top-level hooks and MCP
-	mergeHooksConfig(l.hooks, &cfg.Hooks)
+	// MCP: config-level + default-profile servers.
 	config.MergeMCPConfig(l.mcp, &cfg.MCP)
-
-	// Merge from default profiles
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
 		if err != nil {
 			continue
 		}
-		mergeHooksConfig(l.hooks, &resolved.Hooks)
 		config.MergeMCPConfig(l.mcp, &resolved.MCP)
 	}
 }

@@ -173,15 +173,19 @@ func WithClaudeSessionHomeDir(dir string) ClaudeSessionHistoryOption {
 }
 
 // NewClaudeSessionHistory creates a new Claude session history handler.
+// The registry shares h.fs so a single WithClaudeSessionFS option
+// hermetically swaps both surfaces — otherwise the underlying registry
+// would still hit the real filesystem during RegisterSession /
+// GetPreviousSession.
 func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOption) *ClaudeSessionHistory {
 	h := &ClaudeSessionHistory{
-		backend:  backend,
-		registry: NewBaseSessionRegistry("claude-session-registry.json"),
-		fs:       afero.NewOsFs(),
+		backend: backend,
+		fs:      afero.NewOsFs(),
 	}
 	for _, opt := range opts {
 		opt(h)
 	}
+	h.registry = NewBaseSessionRegistry("claude-session-registry.json", WithRegistryFS(h.fs))
 	return h
 }
 
@@ -222,6 +226,7 @@ func (h *ClaudeSessionHistory) ListSessions(workDir string) ([]SessionMeta, erro
 		sessions = append(sessions, SessionMeta{
 			ID:        strings.TrimSuffix(entry.Name(), ".jsonl"),
 			StartTime: entry.ModTime(), // Approximate - would need to read file for exact
+			Path:      filepath.Join(projectDir, entry.Name()),
 		})
 	}
 
@@ -361,74 +366,94 @@ func (h *ClaudeSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 		return nil, err
 	}
 
-	entry := &SessionEntry{}
-
-	// Parse timestamp
-	if raw.Timestamp != "" {
-		if t, err := time.Parse(time.RFC3339, raw.Timestamp); err == nil {
-			entry.Timestamp = t
-		}
+	entry := &SessionEntry{Timestamp: parseClaudeTimestamp(raw.Timestamp)}
+	if !populateClaudeEntry(entry, raw) {
+		return nil, nil // Unknown type - skip
 	}
+	return entry, nil
+}
 
-	// Map Claude entry types to normalized types
+// parseClaudeTimestamp parses an RFC3339 timestamp, returning the zero time for
+// an empty or unparseable value.
+func parseClaudeTimestamp(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// claudeMessageContent extracts message content, trying the {"content": "..."}
+// object shape first, then a plain JSON string.
+func claudeMessageContent(message json.RawMessage) string {
+	content := claudeStructContent(message)
+	if content != "" {
+		return content
+	}
+	var plain string
+	if json.Unmarshal(message, &plain) == nil {
+		return plain
+	}
+	return ""
+}
+
+// claudeStructContent extracts content from the {"content": "..."} object shape.
+func claudeStructContent(message json.RawMessage) string {
+	if len(message) == 0 {
+		return ""
+	}
+	var msg struct {
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(message, &msg) == nil {
+		return msg.Content
+	}
+	return ""
+}
+
+// populateClaudeEntry maps a raw Claude entry's type onto entry, returning false
+// for unknown types (which the caller skips).
+func populateClaudeEntry(entry *SessionEntry, raw claudeEntry) bool {
 	switch raw.Type {
 	case "user", "human":
 		entry.Type = EntryTypeUser
-		// Extract content from message if present
-		if len(raw.Message) > 0 {
-			var msg struct {
-				Content string `json:"content"`
-			}
-			if json.Unmarshal(raw.Message, &msg) == nil {
-				entry.Content = msg.Content
-			} else {
-				// Try as plain string
-				var content string
-				if json.Unmarshal(raw.Message, &content) == nil {
-					entry.Content = content
-				}
-			}
-		}
-
+		entry.Content = claudeMessageContent(raw.Message)
 	case "assistant":
 		entry.Type = EntryTypeAssistant
-		if len(raw.Message) > 0 {
-			var msg struct {
-				Content string `json:"content"`
-			}
-			if json.Unmarshal(raw.Message, &msg) == nil {
-				entry.Content = msg.Content
-			}
-		}
-
+		entry.Content = claudeStructContent(raw.Message)
 	case "tool_use":
 		entry.Type = EntryTypeToolUse
 		entry.ToolName = raw.Name
 		entry.ToolInput = raw.Input
-
 	case "tool_result":
 		entry.Type = EntryTypeToolResult
 		entry.ToolName = raw.Name
 		entry.ToolOutput = raw.Output
 		entry.IsError = raw.IsError
-
 	default:
-		// Unknown type - skip
-		return nil, nil
+		return false
 	}
-
-	return entry, nil
+	return true
 }
 
 // TranscriptPathFromHook computes the transcript path from hook input.
-// For Claude, we compute the path from sessionID + workDir.
+// For Claude, we compute the path from sessionID + workDir. Honors the
+// h.homeDir override when set so tests can pin the expected path
+// without depending on $HOME.
 func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
 	if sessionID == "" {
 		return ""
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	homeDir := h.homeDir
+	if homeDir == "" {
+		hd, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		homeDir = hd
 	}
 	absPath, err := filepath.Abs(workDir)
 	if err != nil {

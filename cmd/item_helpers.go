@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -58,43 +59,34 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 	return bundleName, itemName, nil
 }
 
-// listItems lists all items of the given type, optionally filtered by bundle.
-func listItems(itemType ItemType, bundleFilter string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-
-	var infos []bundles.ContentInfo
+// listItemInfos lists every item of the given type via the loader.
+func listItemInfos(loader *bundles.Loader, itemType ItemType) ([]bundles.ContentInfo, error) {
 	switch itemType {
 	case ItemTypeFragment:
-		infos, err = loader.ListAllFragments()
+		return loader.ListAllFragments()
 	case ItemTypePrompt:
-		infos, err = loader.ListAllPrompts()
+		return loader.ListAllPrompts()
 	}
-	if err != nil {
-		return fmt.Errorf("failed to list %ss: %w", itemType, err)
-	}
+	return nil, nil
+}
 
-	if len(infos) == 0 {
-		fmt.Printf("No %ss found.\n", itemType)
-		fmt.Printf("Install bundles with: ctxloom %s install <remote>/bundle-name\n", itemType)
-		return nil
+// filterByBundle keeps only the items belonging to bundleFilter (or all when
+// the filter is empty).
+func filterByBundle(infos []bundles.ContentInfo, bundleFilter string) []bundles.ContentInfo {
+	if bundleFilter == "" {
+		return infos
 	}
-
-	// Filter by bundle if specified
-	if bundleFilter != "" {
-		var filtered []bundles.ContentInfo
-		for _, info := range infos {
-			if info.Bundle == bundleFilter {
-				filtered = append(filtered, info)
-			}
+	var filtered []bundles.ContentInfo
+	for _, info := range infos {
+		if info.Bundle == bundleFilter {
+			filtered = append(filtered, info)
 		}
-		infos = filtered
 	}
+	return filtered
+}
 
+// printItemInfos prints items grouped by bundle, with tags.
+func printItemInfos(infos []bundles.ContentInfo, itemType ItemType) {
 	fmt.Printf("%ss (%d):\n\n", titleCase(string(itemType)), len(infos))
 	currentBundle := ""
 	for _, info := range infos {
@@ -111,52 +103,85 @@ func listItems(itemType ItemType, bundleFilter string) error {
 		}
 		fmt.Println()
 	}
-
-	return nil
 }
 
-// showItem displays the content of a specific item.
-func showItem(ref string, itemType ItemType, showDistilled bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
-	if err != nil {
-		return err
-	}
-
+// listItems lists all items of the given type, optionally filtered by bundle.
+func listItems(itemType ItemType, bundleFilter string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	infos, err := listItemInfos(loader, itemType)
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		return fmt.Errorf("failed to list %ss: %w", itemType, err)
 	}
 
-	var content, distilled string
-	var available []string
+	if len(infos) == 0 {
+		fmt.Printf("No %ss found.\n", itemType)
+		fmt.Printf("Install bundles with: ctxloom %s install <remote>/bundle-name\n", itemType)
+		return nil
+	}
 
+	printItemInfos(filterByBundle(infos, bundleFilter), itemType)
+	return nil
+}
+
+// loadBundleForItem resolves an item reference and loads its bundle, returning
+// the bundle, the item name, and the loaded config (needed by distill).
+func loadBundleForItem(ref string, itemType ItemType) (*bundles.Bundle, string, *config.Config, error) {
+	bundleName, itemName, err := parseItemRef(ref, itemType)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	cfg, err := GetConfig()
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
+	bundle, err := loader.Load(bundleName)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("bundle not found: %s", bundleName)
+	}
+	return bundle, itemName, cfg, nil
+}
+
+// itemDisplayContent returns the content and distilled text for an item,
+// erroring (with the available-names list) when it doesn't exist.
+func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemType) (content, distilled string, err error) {
 	switch itemType {
 	case ItemTypeFragment:
 		frag, exists := bundle.Fragments[itemName]
 		if !exists {
-			return fmt.Errorf("fragment not found: %s\n\nAvailable fragments: %s",
+			return "", "", fmt.Errorf("fragment not found: %s\n\nAvailable fragments: %s",
 				itemName, strings.Join(bundle.FragmentNames(), ", "))
 		}
-		content = frag.Content
-		distilled = frag.Distilled
-		available = bundle.FragmentNames()
+		return frag.Content, frag.Distilled, nil
 	case ItemTypePrompt:
 		prompt, exists := bundle.Prompts[itemName]
 		if !exists {
-			return fmt.Errorf("prompt not found: %s\n\nAvailable prompts: %s",
+			return "", "", fmt.Errorf("prompt not found: %s\n\nAvailable prompts: %s",
 				itemName, strings.Join(bundle.PromptNames(), ", "))
 		}
-		content = prompt.Content
-		distilled = prompt.Distilled
-		available = bundle.PromptNames()
+		return prompt.Content, prompt.Distilled, nil
 	}
-	_ = available // Used in error messages above
+	return "", "", nil
+}
+
+// showItem displays the content of a specific item.
+func showItem(ref string, itemType ItemType, showDistilled bool) error {
+	bundle, itemName, _, err := loadBundleForItem(ref, itemType)
+	if err != nil {
+		return err
+	}
+
+	content, distilled, err := itemDisplayContent(bundle, itemName, itemType)
+	if err != nil {
+		return err
+	}
 
 	if showDistilled && distilled != "" {
 		content = distilled
@@ -284,44 +309,55 @@ func editItem(ref string, itemType ItemType) error {
 	return nil
 }
 
-// distillItem distills an item to create a token-efficient version.
-func distillItem(ref string, itemType ItemType, force bool) error {
-	bundleName, itemName, err := parseItemRef(ref, itemType)
-	if err != nil {
-		return err
-	}
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	var content string
-	var noDistill, needsDistill bool
-
+// distillSource returns the content and distill flags for an item, erroring
+// when it doesn't exist.
+func distillSource(bundle *bundles.Bundle, itemName string, itemType ItemType) (content string, noDistill, needsDistill bool, err error) {
 	switch itemType {
 	case ItemTypeFragment:
 		frag, exists := bundle.Fragments[itemName]
 		if !exists {
-			return fmt.Errorf("fragment not found: %s", itemName)
+			return "", false, false, fmt.Errorf("fragment not found: %s", itemName)
 		}
-		noDistill = frag.NoDistill
-		needsDistill = frag.NeedsDistill()
-		content = frag.Content
+		return frag.Content, frag.NoDistill, frag.NeedsDistill(), nil
 	case ItemTypePrompt:
 		prompt, exists := bundle.Prompts[itemName]
 		if !exists {
-			return fmt.Errorf("prompt not found: %s", itemName)
+			return "", false, false, fmt.Errorf("prompt not found: %s", itemName)
 		}
-		noDistill = prompt.NoDistill
-		needsDistill = prompt.NeedsDistill()
-		content = prompt.Content
+		return prompt.Content, prompt.NoDistill, prompt.NeedsDistill(), nil
+	}
+	return "", false, false, nil
+}
+
+// applyDistilled writes a distilled result (and its model + content hash) back
+// onto the named item in the bundle.
+func applyDistilled(bundle *bundles.Bundle, itemName string, itemType ItemType, distilled, modelID string) {
+	switch itemType {
+	case ItemTypeFragment:
+		frag := bundle.Fragments[itemName]
+		frag.Distilled = distilled
+		frag.DistilledBy = modelID
+		frag.ContentHash = frag.ComputeContentHash()
+		bundle.Fragments[itemName] = frag
+	case ItemTypePrompt:
+		prompt := bundle.Prompts[itemName]
+		prompt.Distilled = distilled
+		prompt.DistilledBy = modelID
+		prompt.ContentHash = prompt.ComputeContentHash()
+		bundle.Prompts[itemName] = prompt
+	}
+}
+
+// distillItem distills an item to create a token-efficient version.
+func distillItem(ref string, itemType ItemType, force bool) error {
+	bundle, itemName, cfg, err := loadBundleForItem(ref, itemType)
+	if err != nil {
+		return err
+	}
+
+	content, noDistill, needsDistill, err := distillSource(bundle, itemName, itemType)
+	if err != nil {
+		return err
 	}
 
 	if noDistill {
@@ -351,20 +387,7 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 		return err
 	}
 
-	switch itemType {
-	case ItemTypeFragment:
-		frag := bundle.Fragments[itemName]
-		frag.Distilled = distilled
-		frag.DistilledBy = modelID
-		frag.ContentHash = frag.ComputeContentHash()
-		bundle.Fragments[itemName] = frag
-	case ItemTypePrompt:
-		prompt := bundle.Prompts[itemName]
-		prompt.Distilled = distilled
-		prompt.DistilledBy = modelID
-		prompt.ContentHash = prompt.ComputeContentHash()
-		bundle.Prompts[itemName] = prompt
-	}
+	applyDistilled(bundle, itemName, itemType, distilled, modelID)
 
 	if err := bundle.Save(); err != nil {
 		return fmt.Errorf("failed to save bundle: %w", err)

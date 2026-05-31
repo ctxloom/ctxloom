@@ -4,11 +4,11 @@ package ptyrunner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/aymanbagabas/go-pty"
 	"golang.org/x/term"
@@ -52,14 +52,20 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	stopResize := startResizeHandler(ptty)
 	defer stopResize()
 
+	// Snapshot os.Stdin once. The stdin-copy goroutine below outlives this
+	// function (it parks in Read until the next input event), so it must not
+	// re-read the os.Stdin global — a caller that reassigns os.Stdin afterward
+	// would otherwise race the parked goroutine.
+	stdin := os.Stdin
+
 	// Set stdin to raw mode if it's a terminal
 	var oldState *term.State
-	stdinIsTerm := term.IsTerminal(int(os.Stdin.Fd()))
+	stdinIsTerm := term.IsTerminal(int(stdin.Fd()))
 	if stdinIsTerm {
-		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+		oldState, err = term.MakeRaw(int(stdin.Fd()))
 		if err == nil {
 			defer func() {
-				_ = term.Restore(int(os.Stdin.Fd()), oldState)
+				_ = term.Restore(int(stdin.Fd()), oldState)
 				// Platform-specific terminal reset (stty sane on Unix, no-op on Windows)
 				if stdinIsTerm {
 					resetTerminal()
@@ -68,25 +74,32 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 		}
 	}
 
-	// Copy stdin to PTY with cancellation support
+	// Copy stdin to the PTY.
+	//
+	// NOTE: os.Stdin.Read blocks and cannot be interrupted — we must not
+	// close os.Stdin, since it is the process's shared real stdin. So when
+	// the command exits and we close the PTY below, this goroutine stays
+	// parked in Read until the next keystroke or EOF. On that next read it
+	// either sees `done` closed or the PTY write fails (PTY now closed) and
+	// returns. That is a bounded park (one goroutine until the next input
+	// event), not an unbounded leak: it cannot outlive the next stdin event.
 	go func() {
 		buf := make([]byte, 1024)
 		for {
+			n, err := stdin.Read(buf)
+			if err != nil {
+				return
+			}
 			select {
 			case <-done:
 				return
 			default:
-				n, err := os.Stdin.Read(buf)
-				if err != nil {
+			}
+			if n > 0 {
+				// A failed write means the PTY was closed (command exited);
+				// stop rather than spin so the goroutine unparks promptly.
+				if _, werr := ptty.Write(buf[:n]); werr != nil {
 					return
-				}
-				if n > 0 {
-					select {
-					case <-done:
-						return
-					default:
-						_, _ = ptty.Write(buf[:n])
-					}
 				}
 			}
 		}
@@ -120,17 +133,16 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
-		} else {
-			// PTY close errors after command exit are normal
-			if !strings.Contains(err.Error(), "input/output error") &&
-				!strings.Contains(err.Error(), "file already closed") {
-				return nil, fmt.Errorf("command failed: %w", err)
-			}
+		} else if !isBenignPTYError(err) {
+			// Anything that isn't the expected PTY-close fallout is a real
+			// failure. Benign close errors are matched by sentinel, not by
+			// substring of the error text.
+			return nil, fmt.Errorf("command failed: %w", err)
 		}
 	}
 
 	return result, nil
 }
-

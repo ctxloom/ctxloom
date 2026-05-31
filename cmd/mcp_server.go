@@ -98,54 +98,21 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 // Any step failing produces a stderr warning but doesn't abort startup —
 // the agent must still come up. The only abort path is ctx.Done().
 func (s *ctxServer) startup(ctx context.Context) error {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
-		cfg = &config.Config{
-			LM:       config.LMConfig{Plugins: make(map[string]config.PluginConfig)},
-			Profiles: make(map[string]config.Profile),
-			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
-		}
-	}
+	cfg := loadStartupConfig()
 	s.cfg = cfg
-
-	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
-	}
 
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
 	// resolve via PATH at fire time. Flag the one case that can't catch:
 	// a different ctxloom shadowing the running binary on PATH.
 	backends.WarnOnCtxloomPathSkew()
 
-	// Purge any leftover extracted bundle YAML copies from the pre-PR-1
-	// era (docs/bundle-review-plan.md Phase 1.4). With the read path now
-	// served from the git clone cache via remote.BundleReader, those files
-	// would otherwise shadow the SHA-pinned content. Local bundles (no
-	// `_source` metadata) are preserved.
-	if removed, err := operations.PurgeExtractedBundles(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: legacy bundle cleanup failed: %v\n", err)
-	} else if removed > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: removed %d legacy extracted bundle YAML(s)\n", removed)
-	}
+	purgeLegacyBundles(cfg)
 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	if cfg.Sync.ShouldAutoSync() {
-		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
-		syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
-		result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
-		syncCancel()
-		if syncErr != nil {
-			if !errors.Is(syncErr, context.Canceled) {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
-			}
-		} else {
-			writeSyncSummary(os.Stderr, result)
-		}
-	}
+	runStartupSync(ctx, cfg)
 
 	// Always check for leftover pending state from a previous session,
 	// regardless of whether we just synced. Otherwise a user who closes
@@ -167,6 +134,58 @@ func (s *ctxServer) startup(ctx context.Context) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+// loadStartupConfig loads config, falling back to a minimal empty config on
+// failure (startup must never abort on config errors — CLAUDE.md), and echoes
+// any accumulated config warnings to stderr.
+func loadStartupConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
+		cfg = &config.Config{
+			LM:       config.LMConfig{Plugins: make(map[string]config.PluginConfig)},
+			Profiles: make(map[string]config.Profile),
+			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
+		}
+	}
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
+	}
+	return cfg
+}
+
+// purgeLegacyBundles removes leftover extracted bundle YAML copies from the
+// pre-PR-1 era (docs/bundle-review-plan.md Phase 1.4). With the read path now
+// served from the git clone cache via remote.BundleReader, those files would
+// otherwise shadow the SHA-pinned content. Local bundles (no `_source`
+// metadata) are preserved. Warn-and-continue: cleanup failure must not abort.
+func purgeLegacyBundles(cfg *config.Config) {
+	if removed, err := operations.PurgeExtractedBundles(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: legacy bundle cleanup failed: %v\n", err)
+	} else if removed > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: removed %d legacy extracted bundle YAML(s)\n", removed)
+	}
+}
+
+// runStartupSync auto-syncs remote bundles/profiles when enabled. The sync is
+// bounded to 60s and fully fault-tolerant: a failure (other than cancellation)
+// warns and continues so the agent still comes up (CLAUDE.md).
+func runStartupSync(ctx context.Context, cfg *config.Config) {
+	if !cfg.Sync.ShouldAutoSync() {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
+	syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
+	result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
+	syncCancel()
+	if syncErr != nil {
+		if !errors.Is(syncErr, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
+		}
+		return
+	}
+	writeSyncSummary(os.Stderr, result)
 }
 
 // handleSyncChanges decides what to do with the BundleChangeSet produced

@@ -9,10 +9,17 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-// extractGo handles Go-specific AST extraction.
-//
-// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
-// A handler map would scatter this tightly-coupled visitor for no gain.
+// goVerbatim lists Go top-level node kinds kept verbatim (text + suffix).
+var goVerbatim = map[string]verbatimEmit{
+	"package_clause":    {"\n\n", "package clause"},
+	"import_declaration": {"\n", "imports"},
+	"type_declaration":  {"\n\n", "type declaration"},
+	"const_declaration": {"\n", "const/var declaration"},
+	"var_declaration":   {"\n", "const/var declaration"},
+}
+
+// extractGo handles Go-specific AST extraction: one verbatim/handler branch
+// per top-level node kind.
 func (c *CodeCompressor) extractGo(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -20,36 +27,25 @@ func (c *CodeCompressor) extractGo(node *sitter.Node, source []byte, out *string
 			continue
 		}
 
+		if v, ok := goVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, preserved, v)
+			continue
+		}
+
 		switch child.Type() {
-		case "package_clause":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "package clause")
-
-		case "import_declaration":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "imports")
-
-		case "type_declaration":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "type declaration")
-
-		case "const_declaration", "var_declaration":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "const/var declaration")
-
 		case "function_declaration", "method_declaration":
 			c.extractGoFunc(child, source, out, preserved)
-
 		case "comment":
-			if c.PreserveComments && c.isDocComment(child, source) {
-				out.WriteString(c.nodeText(child, source))
-				out.WriteString("\n")
-			}
+			c.emitGoComment(child, source, out)
 		}
+	}
+}
+
+// emitGoComment writes a doc comment when comment preservation is enabled.
+func (c *CodeCompressor) emitGoComment(child *sitter.Node, source []byte, out *strings.Builder) {
+	if c.PreserveComments && c.isDocComment(child, source) {
+		out.WriteString(c.nodeText(child, source))
+		out.WriteString("\n")
 	}
 }
 

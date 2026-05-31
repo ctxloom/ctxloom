@@ -107,6 +107,9 @@ jobs:
       - name: Run golangci-lint
         run: just -f justfile.container lint
 
+      - name: Enforce cyclomatic complexity (CCN ≤ 10)
+        run: just -f justfile.container complexity-check
+
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest

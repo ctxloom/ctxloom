@@ -9,10 +9,15 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-// extractJS handles JavaScript/TypeScript AST extraction.
-//
-// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
-// A handler map would scatter this tightly-coupled visitor for no gain.
+// jsVerbatim lists JS/TS top-level node kinds kept verbatim (text + suffix).
+var jsVerbatim = map[string]verbatimEmit{
+	"import_statement":       {"\n", "import"},
+	"interface_declaration":  {"\n\n", "interface"},
+	"type_alias_declaration": {"\n", "type alias"},
+}
+
+// extractJS handles JavaScript/TypeScript AST extraction: one verbatim/handler
+// branch per top-level node kind.
 func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -20,48 +25,39 @@ func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *string
 			continue
 		}
 
+		if v, ok := jsVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, preserved, v)
+			continue
+		}
+
 		switch child.Type() {
-		case "import_statement":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "import")
-
 		case "export_statement":
-			// Handle exported functions/classes
-			out.WriteString("export ")
-			for j := 0; j < int(child.ChildCount()); j++ {
-				exp := child.Child(j)
-				if exp == nil {
-					continue
-				}
-				if exp.Type() == "function_declaration" {
-					c.extractJSFunc(exp, source, out, preserved)
-				} else if exp.Type() == "class_declaration" {
-					c.extractJSClass(exp, source, out, preserved)
-				} else if exp.Type() == "lexical_declaration" {
-					c.extractJSLexical(exp, source, out, preserved)
-				}
-			}
-
+			c.extractJSExport(child, source, out, preserved)
 		case "function_declaration":
 			c.extractJSFunc(child, source, out, preserved)
-
 		case "class_declaration":
 			c.extractJSClass(child, source, out, preserved)
-
 		case "lexical_declaration":
 			c.extractJSLexical(child, source, out, preserved)
+		}
+	}
+}
 
-		case "interface_declaration":
-			// TypeScript interface - keep fully
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "interface")
-
-		case "type_alias_declaration":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "type alias")
+// extractJSExport emits an exported function/class/const declaration.
+func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+	out.WriteString("export ")
+	for j := 0; j < int(node.ChildCount()); j++ {
+		exp := node.Child(j)
+		if exp == nil {
+			continue
+		}
+		switch exp.Type() {
+		case "function_declaration":
+			c.extractJSFunc(exp, source, out, preserved)
+		case "class_declaration":
+			c.extractJSClass(exp, source, out, preserved)
+		case "lexical_declaration":
+			c.extractJSLexical(exp, source, out, preserved)
 		}
 	}
 }
@@ -148,8 +144,16 @@ func (c *CodeCompressor) extractJSClassBody(node *sitter.Node, source []byte, ou
 	}
 }
 
+// jsMethodModifiers are the method-prefix keywords emitted with a trailing
+// space (e.g. "async foo()", "static get bar()").
+var jsMethodModifiers = map[string]bool{
+	"async":  true,
+	"static": true,
+	"get":    true,
+	"set":    true,
+}
+
 // extractJSMethodSig walks a class body, emitting one signature per member.
-// One branch per member node kind: CCN intentionally exceeds 10 (see ADR 0016).
 func (c *CodeCompressor) extractJSMethodSig(node *sitter.Node, source []byte, out *strings.Builder) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -158,17 +162,13 @@ func (c *CodeCompressor) extractJSMethodSig(node *sitter.Node, source []byte, ou
 		}
 
 		switch child.Type() {
-		case "property_identifier":
-			out.WriteString(c.nodeText(child, source))
-		case "formal_parameters":
-			out.WriteString(c.nodeText(child, source))
-		case "type_annotation":
+		case "property_identifier", "formal_parameters", "type_annotation":
 			out.WriteString(c.nodeText(child, source))
 		case "statement_block":
 			out.WriteString(" { ... }")
 			return
 		default:
-			if child.Type() == "async" || child.Type() == "static" || child.Type() == "get" || child.Type() == "set" {
+			if jsMethodModifiers[child.Type()] {
 				out.WriteString(c.nodeText(child, source))
 				out.WriteString(" ")
 			}

@@ -150,7 +150,7 @@ lint:
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's
 # non-zero exit when functions exceed the threshold, so this stays a report.
 complexity *ARGS:
-    -lizard -x "*.pb.go" {{ if ARGS == "" { "." } else { ARGS } }}
+    -lizard -x "*.pb.go" -x "*/website/*" {{ if ARGS == "" { "." } else { ARGS } }}
 
 # Per-function complexity as CSV (header prepended) for LLM/tooling ingest.
 # Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
@@ -158,7 +158,13 @@ complexity-csv *ARGS:
     #!/usr/bin/env bash
     set -uo pipefail
     echo "nloc,ccn,tokens,params,length,location,file,function,long_name,start,end"
-    lizard -x "*.pb.go" --csv {{ if ARGS == "" { "." } else { ARGS } }} || true
+    lizard -x "*.pb.go" -x "*/website/*" --csv {{ if ARGS == "" { "." } else { ARGS } }} || true
+
+# Enforcing gate: fail if any function exceeds CCN 10. No leading `-`, so a
+# violation propagates lizard's non-zero exit and breaks CI. Run in the lint
+# job alongside golangci-lint.
+complexity-check *ARGS:
+    lizard -x "*.pb.go" -x "*/website/*" -C 10 {{ if ARGS == "" { "." } else { ARGS } }}
 
 # Format code
 fmt:

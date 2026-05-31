@@ -211,6 +211,10 @@ complexity *ARGS: dev-image
 complexity-csv *ARGS: dev-image
     just _run complexity-csv {{ARGS}}
 
+# Enforcing gate: fail if any function exceeds CCN 10 (used by the CI lint job).
+complexity-check *ARGS: dev-image
+    just _run complexity-check {{ARGS}}
+
 # Run the CLI
 run *ARGS:
     go run . {{ARGS}}

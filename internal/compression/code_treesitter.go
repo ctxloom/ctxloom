@@ -85,29 +85,47 @@ func (c *CodeCompressor) Compress(ctx context.Context, content string, ratio flo
 	}, nil
 }
 
-// detectLanguage guesses a language from content heuristics.
-//
-// One branch per language signature: CCN intentionally exceeds 10 (see ADR
-// 0016). The cascade of independent predicates is the spec.
+// languageSignature matches content for a language: a match requires every
+// substring in `all` to be present and, when `any` is non-empty, at least one
+// of `any`.
+type languageSignature struct {
+	ct  ContentType
+	all []string
+	any []string
+}
+
+// languageSignatures is checked in order; the first match wins.
+var languageSignatures = []languageSignature{
+	{ct: ContentTypePython, all: []string{"def ", ":"}},
+	{ct: ContentTypeRust, all: []string{"fn ", "->"}},
+	{ct: ContentTypeJava, any: []string{"public class ", "private class "}},
+	{ct: ContentTypeJavaScript, any: []string{"function ", "const "}},
+	{ct: ContentTypeTypeScript, any: []string{"interface ", ": string"}},
+}
+
+func (s languageSignature) matches(content string) bool {
+	for _, sub := range s.all {
+		if !strings.Contains(content, sub) {
+			return false
+		}
+	}
+	for _, sub := range s.any {
+		if strings.Contains(content, sub) {
+			return true
+		}
+	}
+	return len(s.any) == 0
+}
+
+// detectLanguage guesses a language from content heuristics, defaulting to Go.
 func (c *CodeCompressor) detectLanguage(content string) ContentType {
-	// Simple heuristics
 	if strings.HasPrefix(content, "package ") {
 		return ContentTypeGo
 	}
-	if strings.Contains(content, "def ") && strings.Contains(content, ":") {
-		return ContentTypePython
-	}
-	if strings.Contains(content, "fn ") && strings.Contains(content, "->") {
-		return ContentTypeRust
-	}
-	if strings.Contains(content, "public class ") || strings.Contains(content, "private class ") {
-		return ContentTypeJava
-	}
-	if strings.Contains(content, "function ") || strings.Contains(content, "const ") {
-		return ContentTypeJavaScript
-	}
-	if strings.Contains(content, "interface ") || strings.Contains(content, ": string") {
-		return ContentTypeTypeScript
+	for _, sig := range languageSignatures {
+		if sig.matches(content) {
+			return sig.ct
+		}
 	}
 	return ContentTypeGo // Default
 }
@@ -186,6 +204,18 @@ func (c *CodeCompressor) extractStructure(
 
 func (c *CodeCompressor) nodeText(node *sitter.Node, source []byte) string {
 	return string(source[node.StartByte():node.EndByte()])
+}
+
+// verbatimEmit describes a node kind kept as-is: its text is written followed
+// by suffix, and label is recorded in the preserved list.
+type verbatimEmit struct{ suffix, label string }
+
+// emitVerbatim writes child's source text plus suffix and records label.
+// Shared by the per-language visitors for node kinds kept verbatim.
+func (c *CodeCompressor) emitVerbatim(child *sitter.Node, source []byte, out *strings.Builder, preserved *[]string, v verbatimEmit) {
+	out.WriteString(c.nodeText(child, source))
+	out.WriteString(v.suffix)
+	*preserved = append(*preserved, v.label)
 }
 
 func (c *CodeCompressor) isDocComment(node *sitter.Node, source []byte) bool {

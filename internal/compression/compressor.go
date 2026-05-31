@@ -73,42 +73,54 @@ func verbatimResult(content, modelID string) Result {
 //
 // One branch per file type / sniffed prefix: CCN intentionally exceeds 10 (see
 // ADR 0016). The cascade of cases is the spec; a lookup table buys nothing.
+// extensionContentTypes maps file extensions to their content type, checked
+// in order. One entry per recognized extension group.
+var extensionContentTypes = []struct {
+	exts []string
+	ct   ContentType
+}{
+	{[]string{".go"}, ContentTypeGo},
+	{[]string{".py"}, ContentTypePython},
+	{[]string{".js", ".mjs", ".cjs"}, ContentTypeJavaScript},
+	{[]string{".ts", ".tsx"}, ContentTypeTypeScript},
+	{[]string{".rs"}, ContentTypeRust},
+	{[]string{".java"}, ContentTypeJava},
+	{[]string{".json"}, ContentTypeJSON},
+	{[]string{".yaml", ".yml"}, ContentTypeYAML},
+	{[]string{".md", ".markdown"}, ContentTypeMarkdown},
+}
+
 func DetectContentType(filename string, content string) ContentType {
 	// Check by extension first
-	switch {
-	case hasExtension(filename, ".go"):
-		return ContentTypeGo
-	case hasExtension(filename, ".py"):
-		return ContentTypePython
-	case hasExtension(filename, ".js", ".mjs", ".cjs"):
-		return ContentTypeJavaScript
-	case hasExtension(filename, ".ts", ".tsx"):
-		return ContentTypeTypeScript
-	case hasExtension(filename, ".rs"):
-		return ContentTypeRust
-	case hasExtension(filename, ".java"):
-		return ContentTypeJava
-	case hasExtension(filename, ".json"):
+	for _, e := range extensionContentTypes {
+		if hasExtension(filename, e.exts...) {
+			return e.ct
+		}
+	}
+
+	// Fall back to content sniffing
+	if ct := sniffContentType(content); ct != ContentTypeUnknown {
+		return ct
+	}
+
+	return ContentTypeUnknown
+}
+
+// sniffContentType guesses a content type from leading bytes when the
+// filename extension is unrecognized.
+func sniffContentType(content string) ContentType {
+	if len(content) == 0 {
+		return ContentTypeUnknown
+	}
+	if content[0] == '{' || content[0] == '[' {
 		return ContentTypeJSON
-	case hasExtension(filename, ".yaml", ".yml"):
+	}
+	if len(content) > 3 && content[:3] == "---" {
 		return ContentTypeYAML
-	case hasExtension(filename, ".md", ".markdown"):
-		return ContentTypeMarkdown
 	}
-
-	// Heuristic detection from content
-	if len(content) > 0 {
-		if content[0] == '{' || content[0] == '[' {
-			return ContentTypeJSON
-		}
-		if len(content) > 3 && content[:3] == "---" {
-			return ContentTypeYAML
-		}
-		if len(content) > 7 && content[:7] == "package" {
-			return ContentTypeGo
-		}
+	if len(content) > 7 && content[:7] == "package" {
+		return ContentTypeGo
 	}
-
 	return ContentTypeUnknown
 }
 

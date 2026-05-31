@@ -9,10 +9,8 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-// extractPython handles Python-specific AST extraction.
-//
-// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
-// A handler map would scatter this tightly-coupled visitor for no gain.
+// extractPython handles Python-specific AST extraction: one handler branch per
+// top-level node kind.
 func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -33,32 +31,44 @@ func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *st
 			c.extractPythonFunc(child, source, out, preserved)
 
 		case "decorated_definition":
-			// Handle decorators
-			for j := 0; j < int(child.ChildCount()); j++ {
-				dec := child.Child(j)
-				if dec == nil {
-					continue
-				}
-				if dec.Type() == "decorator" {
-					out.WriteString(c.nodeText(dec, source))
-					out.WriteString("\n")
-				} else if dec.Type() == "function_definition" {
-					c.extractPythonFunc(dec, source, out, preserved)
-				} else if dec.Type() == "class_definition" {
-					c.extractPythonClass(dec, source, out, preserved)
-				}
-			}
+			c.extractPythonDecorated(child, source, out, preserved)
 
 		case "expression_statement":
-			// Could be docstring at module level
-			if c.PreserveComments {
-				text := c.nodeText(child, source)
-				if strings.HasPrefix(text, `"""`) || strings.HasPrefix(text, `'''`) {
-					out.WriteString(text)
-					out.WriteString("\n")
-				}
-			}
+			c.extractPythonModuleDocstring(child, source, out)
 		}
+	}
+}
+
+// extractPythonDecorated emits a decorated function/class, keeping its
+// decorator lines and the underlying definition signature.
+func (c *CodeCompressor) extractPythonDecorated(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+	for j := 0; j < int(node.ChildCount()); j++ {
+		dec := node.Child(j)
+		if dec == nil {
+			continue
+		}
+		switch dec.Type() {
+		case "decorator":
+			out.WriteString(c.nodeText(dec, source))
+			out.WriteString("\n")
+		case "function_definition":
+			c.extractPythonFunc(dec, source, out, preserved)
+		case "class_definition":
+			c.extractPythonClass(dec, source, out, preserved)
+		}
+	}
+}
+
+// extractPythonModuleDocstring emits a module-level docstring when comment
+// preservation is enabled.
+func (c *CodeCompressor) extractPythonModuleDocstring(node *sitter.Node, source []byte, out *strings.Builder) {
+	if !c.PreserveComments {
+		return
+	}
+	text := c.nodeText(node, source)
+	if strings.HasPrefix(text, `"""`) || strings.HasPrefix(text, `'''`) {
+		out.WriteString(text)
+		out.WriteString("\n")
 	}
 }
 

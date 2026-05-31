@@ -9,10 +9,20 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-// extractRust handles Rust AST extraction.
-//
-// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
-// A handler map would scatter this tightly-coupled visitor for no gain.
+// rustVerbatim lists Rust top-level node kinds kept verbatim (text + suffix).
+var rustVerbatim = map[string]verbatimEmit{
+	"use_declaration": {"\n", "use"},
+	"mod_item":        {"\n", "mod"},
+	"struct_item":     {"\n\n", "struct"},
+	"enum_item":       {"\n\n", "enum"},
+	"trait_item":      {"\n\n", "trait"},
+	"type_item":       {"\n", "type alias"},
+	"const_item":      {"\n", "const/static"},
+	"static_item":     {"\n", "const/static"},
+}
+
+// extractRust handles Rust AST extraction: one verbatim/handler branch per
+// top-level node kind.
 func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *strings.Builder, preserved, compressed *[]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -20,53 +30,32 @@ func (c *CodeCompressor) extractRust(node *sitter.Node, source []byte, out *stri
 			continue
 		}
 
+		if v, ok := rustVerbatim[child.Type()]; ok {
+			c.emitVerbatim(child, source, out, preserved, v)
+			continue
+		}
+
 		switch child.Type() {
-		case "use_declaration":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "use")
-
-		case "mod_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "mod")
-
-		case "struct_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "struct")
-
-		case "enum_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "enum")
-
-		case "trait_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n\n")
-			*preserved = append(*preserved, "trait")
-
 		case "impl_item":
 			c.extractRustImpl(child, source, out, preserved)
-
 		case "function_item":
 			c.extractRustFunc(child, source, out, preserved)
-
-		case "type_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "type alias")
-
-		case "const_item", "static_item":
-			out.WriteString(c.nodeText(child, source))
-			out.WriteString("\n")
-			*preserved = append(*preserved, "const/static")
 		}
 	}
 }
 
+// rustSigParts lists Rust function-signature node kinds emitted as text with a
+// fixed prefix and suffix.
+var rustSigParts = map[string]struct{ prefix, suffix string }{
+	"visibility_modifier": {"", " "},
+	"function_modifiers":  {"", " "},
+	"type_parameters":     {"", ""},
+	"parameters":          {"", ""},
+	"return_type":         {" ", ""},
+	"where_clause":        {"\n    ", ""},
+}
+
 // extractRustFunc emits a Rust function signature, walking its child nodes.
-// One branch per AST node kind: CCN intentionally exceeds 10 (see ADR 0016).
 func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
 	var sig strings.Builder
 	var funcName string
@@ -77,25 +66,19 @@ func (c *CodeCompressor) extractRustFunc(node *sitter.Node, source []byte, out *
 			continue
 		}
 
-		switch child.Type() {
-		case "visibility_modifier", "function_modifiers":
+		if p, ok := rustSigParts[child.Type()]; ok {
+			sig.WriteString(p.prefix)
 			sig.WriteString(c.nodeText(child, source))
-			sig.WriteString(" ")
+			sig.WriteString(p.suffix)
+			continue
+		}
+
+		switch child.Type() {
 		case "fn":
 			sig.WriteString("fn ")
 		case "identifier":
 			funcName = c.nodeText(child, source)
 			sig.WriteString(funcName)
-		case "type_parameters":
-			sig.WriteString(c.nodeText(child, source))
-		case "parameters":
-			sig.WriteString(c.nodeText(child, source))
-		case "return_type":
-			sig.WriteString(" ")
-			sig.WriteString(c.nodeText(child, source))
-		case "where_clause":
-			sig.WriteString("\n    ")
-			sig.WriteString(c.nodeText(child, source))
 		case "block":
 			sig.WriteString(" { ... }")
 		}

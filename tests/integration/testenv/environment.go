@@ -87,26 +87,24 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 		}
 	}
 
-	// Find the project root by walking up from the current directory
-	// looking for go.mod
-	cwd, _ := os.Getwd()
-	projectRoot := cwd
-	for {
-		if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(projectRoot)
-		if parent == projectRoot {
-			projectRoot = cwd // Fallback to current dir
-			break
-		}
-		projectRoot = parent
+	if abs, ok := firstExistingBinary(candidateBinaryPaths()); ok {
+		return abs, nil
 	}
 
-	// Try to find in common locations
+	// Try PATH lookup
+	if path, err := exec.LookPath("ctxloom"); err == nil {
+		return path, nil
+	}
+
+	return "", fmt.Errorf("ctxloom binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
+}
+
+// candidateBinaryPaths lists the common locations the built ctxloom binary may
+// live in, with a .exe suffix applied on Windows.
+func candidateBinaryPaths() []string {
 	locations := []string{
 		// Built binary in project root (found by walking up)
-		filepath.Join(projectRoot, "ctxloom"),
+		filepath.Join(findProjectRoot(), "ctxloom"),
 		// Built binary in current dir
 		"./ctxloom",
 		// Go install location
@@ -116,7 +114,6 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 		filepath.Join(os.Getenv("HOME"), ".local", "bin", "ctxloom"),
 	}
 
-	// Add .exe suffix on Windows
 	if runtime.GOOS == "windows" {
 		for i, loc := range locations {
 			if !strings.HasSuffix(loc, ".exe") {
@@ -124,23 +121,38 @@ func (e *TestEnvironment) findAppBinary() (string, error) {
 			}
 		}
 	}
+	return locations
+}
 
+// findProjectRoot walks up from the current directory looking for go.mod,
+// falling back to the current directory if none is found.
+func findProjectRoot() string {
+	cwd, _ := os.Getwd()
+	root := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			return root
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return cwd
+		}
+		root = parent
+	}
+}
+
+// firstExistingBinary returns the absolute path of the first location that
+// exists on disk.
+func firstExistingBinary(locations []string) (string, bool) {
 	for _, loc := range locations {
-		if _, err := os.Stat(loc); err == nil {
-			abs, err := filepath.Abs(loc)
-			if err != nil {
-				continue
-			}
-			return abs, nil
+		if _, err := os.Stat(loc); err != nil {
+			continue
+		}
+		if abs, err := filepath.Abs(loc); err == nil {
+			return abs, true
 		}
 	}
-
-	// Try PATH lookup
-	if path, err := exec.LookPath("ctxloom"); err == nil {
-		return path, nil
-	}
-
-	return "", fmt.Errorf("ctxloom binary not found; set CTXLOOM_BINARY or ensure ctxloom is in PATH")
+	return "", false
 }
 
 // Setup configures the environment variables for isolated testing.

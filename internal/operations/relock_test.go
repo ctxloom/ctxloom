@@ -10,6 +10,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// mustNoErr fails the test with context if err is non-nil. Collapses the
+// repetitive setup error guards into a single call site.
+func mustNoErr(t *testing.T, err error, what string) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", what, err)
+	}
+}
+
 // relockCountingUpdater records UpdateRepo calls per URL so the relock dedup
 // pre-pass invariant is observable.
 type relockCountingUpdater struct {
@@ -81,9 +90,7 @@ func TestRelock_WritesResolvedEntriesWithoutExistingLockfile(t *testing.T) {
 		RepoCache:      counting,
 		FetcherFactory: resolving,
 	})
-	if err != nil {
-		t.Fatalf("Relock: %v", err)
-	}
+	mustNoErr(t, err, "Relock")
 
 	if result.Status != "regenerated" {
 		t.Fatalf("status = %q (msg=%q errs=%v), want regenerated", result.Status, result.Message, result.Errors)
@@ -99,9 +106,7 @@ func TestRelock_WritesResolvedEntriesWithoutExistingLockfile(t *testing.T) {
 	}
 
 	lf, err := lm.Load()
-	if err != nil {
-		t.Fatalf("load regenerated lockfile: %v", err)
-	}
+	mustNoErr(t, err, "load regenerated lockfile")
 	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "alice/sec")
 	if !ok {
 		t.Fatal("alice/sec not in regenerated lockfile")
@@ -128,23 +133,15 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 	bundleURL := "https://github.com/alice/ctxloom"
 	parentURL := "https://github.com/upstream/ctxloom-default"
 	reg, err := remote.NewRegistry(filepath.Join(baseDir, "remotes"))
-	if err != nil {
-		t.Fatalf("registry: %v", err)
-	}
-	if err := reg.Add("alice", bundleURL); err != nil {
-		t.Fatalf("add remote: %v", err)
-	}
+	mustNoErr(t, err, "registry")
+	mustNoErr(t, reg.Add("alice", bundleURL), "add remote")
 
 	profilesDir := filepath.Join(baseDir, "profiles", "alice")
-	if err := os.MkdirAll(profilesDir, 0o755); err != nil {
-		t.Fatalf("mkdir profiles: %v", err)
-	}
+	mustNoErr(t, os.MkdirAll(profilesDir, 0o755), "mkdir profiles")
 	profileYAML := "name: dev\n" +
 		"parents:\n  - " + parentURL + "@profiles/go-developer\n" +
 		"bundles:\n  - alice/sec\n"
-	if err := os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(profileYAML), 0o644); err != nil {
-		t.Fatalf("write profile: %v", err)
-	}
+	mustNoErr(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(profileYAML), 0o644), "write profile")
 
 	cfg := &config.Config{
 		AppPaths: []string{baseDir},
@@ -161,9 +158,7 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 		RepoCache:      &relockCountingUpdater{},
 		FetcherFactory: resolving,
 	})
-	if err != nil {
-		t.Fatalf("Relock: %v", err)
-	}
+	mustNoErr(t, err, "Relock")
 	if result.Status != "regenerated" {
 		t.Fatalf("status = %q (errs=%v), want regenerated", result.Status, result.Errors)
 	}
@@ -176,9 +171,7 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 	}
 
 	lf, err := remote.NewLockfileManager(baseDir).Load()
-	if err != nil {
-		t.Fatalf("load lockfile: %v", err)
-	}
+	mustNoErr(t, err, "load lockfile")
 	// Parent is keyed by its short "<repo>/<path>" form, not the raw URL.
 	entry, ok := lf.GetEntry(remote.ItemTypeProfile, "ctxloom-default/go-developer")
 	if !ok {

@@ -230,21 +230,12 @@ func (c *JSONCompressor) calculateEntropy(s string) float64 {
 	return entropy / maxEntropy
 }
 
-// isIdentifier checks if a string looks like a code identifier.
-//
-// One branch per recognized shape (UUID / URL / path / char-diversity /
-// alphanumeric ratio): CCN intentionally exceeds 10 (see ADR 0016). The
-// cascade of independent pattern checks is the spec.
+// isIdentifier checks if a string looks like a code identifier:
+// camelCase/snake_case/kebab-case names, paths, URLs, or UUIDs.
 func (c *JSONCompressor) isIdentifier(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-
-	// Check for common identifier patterns
-	// - camelCase, PascalCase, snake_case, kebab-case
-	// - paths like /api/users/123
-	// - URLs
-	// - UUIDs
 
 	// UUID pattern (loose check)
 	if len(s) == 36 && strings.Count(s, "-") == 4 {
@@ -256,22 +247,31 @@ func (c *JSONCompressor) isIdentifier(s string) bool {
 		return true
 	}
 
-	// Check if it's mostly alphanumeric with underscores/hyphens
-	alphaCount := 0
-	uniqueChars := make(map[rune]bool)
-	for _, r := range s {
-		uniqueChars[r] = true
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.' {
-			alphaCount++
-		}
-	}
+	alphaCount, uniqueCount := identCharStats(s)
 
-	// Reject strings with very low character diversity (like "aaaaaaa")
-	// An identifier should have reasonable variety
-	if len(uniqueChars) < 4 && len(s) > 10 {
+	// Reject strings with very low character diversity (like "aaaaaaa").
+	// An identifier should have reasonable variety.
+	if uniqueCount < 4 && len(s) > 10 {
 		return false
 	}
 
 	// If >90% alphanumeric-ish, treat as identifier
 	return float64(alphaCount)/float64(len(s)) > 0.9
+}
+
+// identCharStats counts identifier-like characters and distinct runes in s.
+func identCharStats(s string) (alphaCount, uniqueCount int) {
+	uniqueChars := make(map[rune]bool)
+	for _, r := range s {
+		uniqueChars[r] = true
+		if isIdentRune(r) {
+			alphaCount++
+		}
+	}
+	return alphaCount, len(uniqueChars)
+}
+
+// isIdentRune reports whether r is allowed in an identifier-shaped string.
+func isIdentRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.'
 }

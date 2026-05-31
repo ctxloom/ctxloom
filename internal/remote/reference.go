@@ -313,45 +313,61 @@ func (r *Reference) LocalRemoteName() string {
 		return r.Remote
 	}
 
-	// Extract meaningful name from URL
-	// https://github.com/owner/repo → github.com/owner/repo
-	// git@github.com:owner/repo → github.com/owner/repo
-	// file:///path/to/repo → path/to/repo
-
-	if strings.HasPrefix(r.URL, "https://") || strings.HasPrefix(r.URL, "http://") {
-		// Remove scheme
-		u, err := url.Parse(r.URL)
-		if err != nil {
-			return sanitizePath(r.URL)
+	// Extract a meaningful name from the URL:
+	//   https://github.com/owner/repo → github.com/owner/repo
+	//   git@github.com:owner/repo     → github.com/owner/repo
+	//   file:///path/to/repo          → path/to/repo
+	switch {
+	case strings.HasPrefix(r.URL, "https://"), strings.HasPrefix(r.URL, "http://"):
+		return httpHostPath(r.URL)
+	case strings.HasPrefix(r.URL, "git@"):
+		if name, ok := sshHostPath(r.URL); ok {
+			return name
 		}
-		return path.Join(u.Host, u.Path)
-	}
-
-	if strings.HasPrefix(r.URL, "git@") {
-		// git@github.com:owner/repo → github.com/owner/repo
-		re := regexp.MustCompile(`^git@([^:]+):(.+)$`)
-		if matches := re.FindStringSubmatch(r.URL); len(matches) == 3 {
-			return path.Join(matches[1], matches[2])
-		}
-	}
-
-	if strings.HasPrefix(r.URL, "file://") {
-		// file:///path/to/repo → extract last two components
-		u, err := url.Parse(r.URL)
-		if err != nil {
-			return sanitizePath(r.URL)
-		}
-		// Use last two path components for uniqueness
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) >= 2 {
-			return path.Join(parts[len(parts)-2], parts[len(parts)-1])
-		}
-		if len(parts) == 1 {
-			return parts[0]
+	case strings.HasPrefix(r.URL, "file://"):
+		if name, ok := fileLastTwoComponents(r.URL); ok {
+			return name
 		}
 	}
 
 	return sanitizePath(r.URL)
+}
+
+// httpHostPath returns host/path for an http(s) URL, falling back to a
+// sanitized form when the URL won't parse.
+func httpHostPath(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return sanitizePath(rawURL)
+	}
+	return path.Join(u.Host, u.Path)
+}
+
+// sshHostPath returns host/path for a git@host:owner/repo URL, reporting ok when
+// it matched the SSH shape.
+func sshHostPath(rawURL string) (string, bool) {
+	re := regexp.MustCompile(`^git@([^:]+):(.+)$`)
+	if matches := re.FindStringSubmatch(rawURL); len(matches) == 3 {
+		return path.Join(matches[1], matches[2]), true
+	}
+	return "", false
+}
+
+// fileLastTwoComponents returns the last two path components of a file:// URL
+// (for uniqueness), reporting ok when the path had usable components.
+func fileLastTwoComponents(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return sanitizePath(rawURL), true
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) >= 2 {
+		return path.Join(parts[len(parts)-2], parts[len(parts)-1]), true
+	}
+	if len(parts) == 1 {
+		return parts[0], true
+	}
+	return "", false
 }
 
 // RepoURL returns the repository URL for fetching.
@@ -434,45 +450,40 @@ func (r *Reference) ToLocalName() string {
 //	git@github.com:owner/repo -> repo
 //	file:///path/to/repo -> repo
 func ExtractRepoName(repoURL string) string {
-	// Handle HTTPS URLs
-	if strings.HasPrefix(repoURL, "https://") || strings.HasPrefix(repoURL, "http://") {
-		u, err := url.Parse(repoURL)
-		if err != nil {
-			return sanitizePath(repoURL)
-		}
-		// Path is /owner/repo or /group/subgroup/repo
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	switch {
+	case strings.HasPrefix(repoURL, "https://"), strings.HasPrefix(repoURL, "http://"):
+		return lastURLPathComponent(repoURL)
+	case strings.HasPrefix(repoURL, "git@"):
+		return sshRepoName(repoURL)
+	case strings.HasPrefix(repoURL, "file://"):
+		return lastURLPathComponent(repoURL)
+	}
+	return sanitizePath(repoURL)
+}
+
+// lastURLPathComponent returns the final path component of an http(s)/file URL
+// (the repo name), falling back to a sanitized form on parse failure.
+func lastURLPathComponent(repoURL string) string {
+	u, err := url.Parse(repoURL)
+	if err != nil {
+		return sanitizePath(repoURL)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return sanitizePath(repoURL)
+}
+
+// sshRepoName returns the repo name from a git@host:owner/repo URL.
+func sshRepoName(repoURL string) string {
+	re := regexp.MustCompile(`^git@[^:]+:(.+)$`)
+	if matches := re.FindStringSubmatch(repoURL); len(matches) == 2 {
+		parts := strings.Split(matches[1], "/")
 		if len(parts) > 0 {
 			return parts[len(parts)-1]
 		}
-		return sanitizePath(repoURL)
 	}
-
-	// Handle SSH URLs: git@github.com:owner/repo
-	if strings.HasPrefix(repoURL, "git@") {
-		re := regexp.MustCompile(`^git@[^:]+:(.+)$`)
-		if matches := re.FindStringSubmatch(repoURL); len(matches) == 2 {
-			parts := strings.Split(matches[1], "/")
-			if len(parts) > 0 {
-				return parts[len(parts)-1]
-			}
-		}
-		return sanitizePath(repoURL)
-	}
-
-	// Handle file URLs: file:///path/to/repo
-	if strings.HasPrefix(repoURL, "file://") {
-		u, err := url.Parse(repoURL)
-		if err != nil {
-			return sanitizePath(repoURL)
-		}
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1]
-		}
-		return sanitizePath(repoURL)
-	}
-
 	return sanitizePath(repoURL)
 }
 

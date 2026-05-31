@@ -122,46 +122,50 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 	}
 
 	for _, e := range entries {
-		ref, err := ParseReference(e.Ref)
-		if err != nil {
-			return fmt.Errorf("invalid reference %s: %w", e.Ref, err)
-		}
-
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			return fmt.Errorf("remote not found %s: %w", ref.Remote, err)
-		}
-
-		fetcher, err := m.fetcherFactory(rem.URL, auth)
-		if err != nil {
-			return fmt.Errorf("failed to create fetcher: %w", err)
-		}
-
-		owner, repo, err := ParseRepoURL(rem.URL)
-		if err != nil {
-			return fmt.Errorf("invalid URL: %w", err)
-		}
-
-		// Build file path
-		filePath := ref.BuildFilePath(e.Type)
-
-		// Fetch content at locked SHA
-		content, err := fetcher.FetchFile(ctx, owner, repo, filePath, e.Entry.SHA)
-		if err != nil {
-			return fmt.Errorf("failed to fetch %s: %w", e.Ref, err)
-		}
-
-		// Write to vendor directory
-		vendorPath := filepath.Join(vendorDir, string(e.Type)+"s", ref.Remote, ref.Path+".yaml")
-		if err := m.fs.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
-		}
-
-		if err := afero.WriteFile(m.fs, vendorPath, content, 0644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", vendorPath, err)
+		if err := m.vendorEntry(ctx, e.Type, e.Ref, e.Entry, registry, auth, vendorDir); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// vendorEntry fetches one locked entry at its pinned SHA and writes it into the
+// vendor directory.
+func (m *VendorManager) vendorEntry(ctx context.Context, itemType ItemType, entryRef string, entry LockEntry, registry *Registry, auth AuthConfig, vendorDir string) error {
+	ref, err := ParseReference(entryRef)
+	if err != nil {
+		return fmt.Errorf("invalid reference %s: %w", entryRef, err)
+	}
+
+	rem, err := registry.Get(ref.Remote)
+	if err != nil {
+		return fmt.Errorf("remote not found %s: %w", ref.Remote, err)
+	}
+
+	fetcher, err := m.fetcherFactory(rem.URL, auth)
+	if err != nil {
+		return fmt.Errorf("failed to create fetcher: %w", err)
+	}
+
+	owner, repo, err := ParseRepoURL(rem.URL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	filePath := ref.BuildFilePath(itemType)
+	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)
+	if err != nil {
+		return fmt.Errorf("failed to fetch %s: %w", entryRef, err)
+	}
+
+	vendorPath := filepath.Join(vendorDir, string(itemType)+"s", ref.Remote, ref.Path+".yaml")
+	if err := m.fs.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	if err := afero.WriteFile(m.fs, vendorPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", vendorPath, err)
+	}
 	return nil
 }
 

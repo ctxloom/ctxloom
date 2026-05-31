@@ -230,48 +230,85 @@ func (f *GitHubFetcher) ResolveRef(ctx context.Context, owner, repo, ref string)
 	return f.resolveRefWithClient(ctx, f.client, owner, repo, ref, true)
 }
 
+// resolveRefWithClient resolves a ref to a commit SHA by trying it as a commit,
+// then a branch, then a tag. Each strategy reports found=true when it resolved
+// the ref (or hit a definitive error / a 401 that triggered a fallback-client
+// retry); only a non-retryable miss falls through to the next strategy.
 func (f *GitHubFetcher) resolveRefWithClient(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (string, error) {
-	// Try as a commit SHA first (if it looks like one)
-	if len(ref) >= 7 && len(ref) <= 40 {
-		commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
-		if err == nil {
-			return commit.GetSHA(), nil
-		}
-		if allowRetry && f.shouldRetry401(resp, err) {
-			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
-		}
+	if sha, found, err := f.resolveAsCommit(ctx, client, owner, repo, ref, allowRetry); found {
+		return sha, err
 	}
 
-	// Try as a branch
-	branch, resp, err := client.Repositories().GetBranch(ctx, owner, repo, ref, 0)
-	if err == nil {
-		return branch.GetCommit().GetSHA(), nil
-	}
-	if allowRetry && f.shouldRetry401(resp, err) {
-		return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
+	sha, found, branchResp, err := f.resolveAsBranch(ctx, client, owner, repo, ref, allowRetry)
+	if found {
+		return sha, err
 	}
 
-	// Try as a tag
-	if resp != nil && resp.StatusCode == http.StatusNotFound {
-		tagRef, tagResp, err := client.Git().GetRef(ctx, owner, repo, "tags/"+ref)
-		if err == nil {
-			// Tag might be annotated (points to tag object) or lightweight (points to commit)
-			if tagRef.GetObject().GetType() == "tag" {
-				// Annotated tag - get the commit it points to
-				tag, _, err := client.Git().GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
-				if err != nil {
-					return "", fmt.Errorf("failed to resolve annotated tag: %w", err)
-				}
-				return tag.GetObject().GetSHA(), nil
-			}
-			return tagRef.GetObject().GetSHA(), nil
-		}
-		if allowRetry && f.shouldRetry401(tagResp, err) {
-			return f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
-		}
+	if sha, found, err := f.resolveAsTag(ctx, client, owner, repo, ref, allowRetry, branchResp); found {
+		return sha, err
 	}
 
 	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
+}
+
+// retryRefWithFallback retries the resolution against the fallback client when
+// the response is a retryable 401. Returns retried=true (with the fallback's
+// result) when it fired, retried=false to let the caller continue.
+func (f *GitHubFetcher) retryRefWithFallback(ctx context.Context, owner, repo, ref string, allowRetry bool, resp *github.Response, err error) (string, bool, error) {
+	if !allowRetry || !f.shouldRetry401(resp, err) {
+		return "", false, nil
+	}
+	sha, rerr := f.resolveRefWithClient(ctx, f.fallback, owner, repo, ref, false)
+	return sha, true, rerr
+}
+
+// resolveAsCommit tries ref as a commit SHA (only when it looks like one).
+func (f *GitHubFetcher) resolveAsCommit(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, err error) {
+	if len(ref) < 7 || len(ref) > 40 {
+		return "", false, nil
+	}
+	commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
+	if err == nil {
+		return commit.GetSHA(), true, nil
+	}
+	return f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err)
+}
+
+// resolveAsBranch tries ref as a branch name, returning the branch response so
+// the tag strategy can gate on a 404.
+func (f *GitHubFetcher) resolveAsBranch(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, resp *github.Response, err error) {
+	branch, resp, err := client.Repositories().GetBranch(ctx, owner, repo, ref, 0)
+	if err == nil {
+		return branch.GetCommit().GetSHA(), true, resp, nil
+	}
+	sha, found, rerr := f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, resp, err)
+	return sha, found, resp, rerr
+}
+
+// resolveAsTag tries ref as a tag, but only when the branch lookup 404'd.
+func (f *GitHubFetcher) resolveAsTag(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool, branchResp *github.Response) (sha string, found bool, err error) {
+	if branchResp == nil || branchResp.StatusCode != http.StatusNotFound {
+		return "", false, nil
+	}
+	tagRef, tagResp, err := client.Git().GetRef(ctx, owner, repo, "tags/"+ref)
+	if err == nil {
+		sha, terr := f.resolveTagObjectSHA(ctx, client, owner, repo, tagRef)
+		return sha, true, terr
+	}
+	return f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, tagResp, err)
+}
+
+// resolveTagObjectSHA returns the commit SHA a tag points to, dereferencing an
+// annotated tag object (lightweight tags point straight at the commit).
+func (f *GitHubFetcher) resolveTagObjectSHA(ctx context.Context, client GitHubClient, owner, repo string, tagRef *github.Reference) (string, error) {
+	if tagRef.GetObject().GetType() != "tag" {
+		return tagRef.GetObject().GetSHA(), nil
+	}
+	tag, _, err := client.Git().GetTag(ctx, owner, repo, tagRef.GetObject().GetSHA())
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve annotated tag: %w", err)
+	}
+	return tag.GetObject().GetSHA(), nil
 }
 
 // SearchRepos finds ctxloom repositories.

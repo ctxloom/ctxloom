@@ -529,59 +529,82 @@ func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, 
 		return nil, nil
 	}
 
-	_, _ = fmt.Fprintf(opts.Stdout, "\nProfile references %d bundles:\n", len(profile.Bundles))
-	for _, bundle := range profile.Bundles {
-		_, _ = fmt.Fprintf(opts.Stdout, "  - %s\n", bundle)
-	}
-	_, _ = fmt.Fprintln(opts.Stdout)
+	printProfileBundleList(opts.Stdout, profile.Bundles)
 
 	var pulled []string
 	for _, bundleRef := range profile.Bundles {
-		// Check if already exists locally
-		ref, err := ParseReference(bundleRef)
+		didPull, err := p.cascadePullBundle(ctx, bundleRef, opts)
 		if err != nil {
-			_, _ = fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
-			continue
+			return pulled, err
 		}
-
-		// Bundles no longer live as fs files; cache check is now a lockfile
-		// presence check via the configured manager (any installed bundle
-		// has a lock entry, regardless of fs state).
-		localName := fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
-		if p.lockfileManager != nil {
-			if lock, lerr := p.lockfileManager.Load(); lerr == nil {
-				if _, ok := lock.GetEntry(ItemTypeBundle, localName); ok && !opts.Force {
-					_, _ = fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
-					continue
-				}
-			}
+		if didPull {
+			pulled = append(pulled, bundleRef)
 		}
-
-		// Pull the bundle
-		_, _ = fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
-		bundleOpts := PullOptions{
-			Force:    opts.Force,
-			LocalDir: opts.LocalDir,
-			ItemType: ItemTypeBundle,
-			Cascade:  false, // Don't cascade further
-			Stdout:   opts.Stdout,
-			Stdin:    opts.Stdin,
-		}
-
-		_, err = p.Pull(ctx, bundleRef, bundleOpts)
-		if err != nil {
-			if errors.Is(err, errs.ErrCancelled) {
-				_, _ = fmt.Fprintf(opts.Stdout, "    Skipped\n")
-				continue
-			}
-			return pulled, fmt.Errorf("failed to pull bundle %s: %w", bundleRef, err)
-		}
-
-		pulled = append(pulled, bundleRef)
-		_, _ = fmt.Fprintf(opts.Stdout, "    Done\n")
 	}
 
 	return pulled, nil
+}
+
+// printProfileBundleList prints the bundles a profile references before pulling.
+func printProfileBundleList(w io.Writer, bundles []string) {
+	_, _ = fmt.Fprintf(w, "\nProfile references %d bundles:\n", len(bundles))
+	for _, bundle := range bundles {
+		_, _ = fmt.Fprintf(w, "  - %s\n", bundle)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+// bundleAlreadyCached reports whether a bundle is already installed. Bundles no
+// longer live as fs files; presence is a lockfile-entry check via the
+// configured manager (any installed bundle has a lock entry). Force defeats it.
+func (p *Puller) bundleAlreadyCached(ref *Reference, force bool) bool {
+	if p.lockfileManager == nil {
+		return false
+	}
+	lock, err := p.lockfileManager.Load()
+	if err != nil {
+		return false
+	}
+	localName := fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
+	_, ok := lock.GetEntry(ItemTypeBundle, localName)
+	return ok && !force
+}
+
+// cascadePullBundle pulls one referenced bundle, reporting didPull=true only
+// when it was actually installed (an invalid ref, a cached bundle, or a
+// cancellation is skipped with didPull=false and no error).
+func (p *Puller) cascadePullBundle(ctx context.Context, bundleRef string, opts PullOptions) (bool, error) {
+	ref, err := ParseReference(bundleRef)
+	if err != nil {
+		_, _ = fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
+		return false, nil
+	}
+
+	if p.bundleAlreadyCached(ref, opts.Force) {
+		_, _ = fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
+		return false, nil
+	}
+
+	_, _ = fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
+	bundleOpts := PullOptions{
+		Force:    opts.Force,
+		LocalDir: opts.LocalDir,
+		ItemType: ItemTypeBundle,
+		Cascade:  false, // Don't cascade further
+		Stdout:   opts.Stdout,
+		Stdin:    opts.Stdin,
+	}
+
+	if _, err := p.Pull(ctx, bundleRef, bundleOpts); err != nil {
+		if errors.Is(err, errs.ErrCancelled) {
+			_, _ = fmt.Fprintf(opts.Stdout, "    Skipped\n")
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to pull bundle %s: %w", bundleRef, err)
+	}
+
+	_, _ = fmt.Fprintf(opts.Stdout, "    Done\n")
+	return true, nil
 }
 
 // displaySecurityWarning shows the security warning and full content.

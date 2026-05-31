@@ -307,41 +307,62 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 	}
 	ctx.WriteString("\n")
 
-	// List sibling fragments
-	if len(bundle.Fragments) > 1 || (len(bundle.Fragments) == 1 && !strings.HasPrefix(excludeName, "fragments/")) {
-		ctx.WriteString("Sibling fragments:\n")
-		for name, frag := range bundle.Fragments {
-			if "fragments/"+name == excludeName {
-				continue
-			}
-			firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
-			if len(firstLine) > 60 {
-				firstLine = firstLine[:57] + "..."
-			}
-			fmt.Fprintf(&ctx, "- %s: %s\n", name, firstLine)
-		}
-		ctx.WriteString("\n")
-	}
-
-	// List sibling prompts
-	if len(bundle.Prompts) > 1 || (len(bundle.Prompts) == 1 && !strings.HasPrefix(excludeName, "prompts/")) {
-		ctx.WriteString("Sibling prompts:\n")
-		for name, prompt := range bundle.Prompts {
-			if "prompts/"+name == excludeName {
-				continue
-			}
-			desc := prompt.Description
-			if desc == "" {
-				desc = strings.Split(strings.TrimSpace(prompt.Content), "\n")[0]
-				if len(desc) > 60 {
-					desc = desc[:57] + "..."
-				}
-			}
-			fmt.Fprintf(&ctx, "- %s: %s\n", name, desc)
-		}
-	}
+	appendSiblingFragments(&ctx, bundle, excludeName)
+	appendSiblingPrompts(&ctx, bundle, excludeName)
 
 	return ctx.String()
+}
+
+// hasSiblingsOfType reports whether a bundle has sibling items of a type worth
+// listing: more than one of that type, or exactly one that isn't the excluded
+// (currently-distilling) item.
+func hasSiblingsOfType(count int, excludeName, prefix string) bool {
+	return count > 1 || (count == 1 && !strings.HasPrefix(excludeName, prefix))
+}
+
+// firstLineTruncated returns the first line of s, trimmed and capped at 60 runes
+// (57 + "…"-style ellipsis) for a compact one-line summary.
+func firstLineTruncated(s string) string {
+	line := strings.Split(strings.TrimSpace(s), "\n")[0]
+	if len(line) > 60 {
+		return line[:57] + "..."
+	}
+	return line
+}
+
+// appendSiblingFragments lists the bundle's fragments (excluding excludeName)
+// with a one-line content preview.
+func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
+	if !hasSiblingsOfType(len(bundle.Fragments), excludeName, "fragments/") {
+		return
+	}
+	ctx.WriteString("Sibling fragments:\n")
+	for name, frag := range bundle.Fragments {
+		if "fragments/"+name == excludeName {
+			continue
+		}
+		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(frag.Content))
+	}
+	ctx.WriteString("\n")
+}
+
+// appendSiblingPrompts lists the bundle's prompts (excluding excludeName),
+// preferring each prompt's Description over a content preview.
+func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
+	if !hasSiblingsOfType(len(bundle.Prompts), excludeName, "prompts/") {
+		return
+	}
+	ctx.WriteString("Sibling prompts:\n")
+	for name, prompt := range bundle.Prompts {
+		if "prompts/"+name == excludeName {
+			continue
+		}
+		desc := prompt.Description
+		if desc == "" {
+			desc = firstLineTruncated(prompt.Content)
+		}
+		fmt.Fprintf(ctx, "- %s: %s\n", name, desc)
+	}
 }
 
 // compressionRouter is a shared router for AST/JSON compression.
@@ -468,40 +489,56 @@ var conversationalStarts = []string{
 // cleanDistilledOutput removes LLM preamble artifacts.
 func cleanDistilledOutput(content string) string {
 	content = strings.TrimSpace(content)
-	foundPreamble := false
 
-	// Check for conversational prefixes
+	content, foundPreamble := stripConversationalPreamble(content)
+	if foundPreamble {
+		content = stripPreambleSeparator(content)
+	}
+	return stripCodeFence(content)
+}
+
+// stripConversationalPreamble drops a leading conversational line (e.g. "Sure,
+// here's...") and reports whether one was found.
+func stripConversationalPreamble(content string) (string, bool) {
 	lower := strings.ToLower(content)
 	for _, prefix := range conversationalStarts {
-		if strings.HasPrefix(lower, prefix) {
-			foundPreamble = true
-			if idx := strings.Index(content, "\n"); idx != -1 {
-				content = strings.TrimSpace(content[idx+1:])
-			}
-			break
+		if !strings.HasPrefix(lower, prefix) {
+			continue
+		}
+		if idx := strings.Index(content, "\n"); idx != -1 {
+			content = strings.TrimSpace(content[idx+1:])
+		}
+		return content, true
+	}
+	return content, false
+}
+
+// stripPreambleSeparator removes a near-the-top "---"-style separator left after
+// a conversational preamble (only when it appears within the first 100 chars).
+func stripPreambleSeparator(content string) string {
+	loc := preambleRe.FindStringIndex(content)
+	if loc == nil || loc[0] >= 100 {
+		return content
+	}
+	after := content[loc[1]:]
+	if len(after) > 0 && after[0] == '\n' {
+		after = after[1:]
+	}
+	return strings.TrimSpace(after)
+}
+
+// stripCodeFence unwraps a leading ```fence (and its matching trailing fence,
+// when that fence is alone on the last line).
+func stripCodeFence(content string) string {
+	loc := codeFenceRe.FindStringIndex(content)
+	if loc == nil || loc[0] != 0 {
+		return content
+	}
+	content = content[loc[1]:]
+	if idx := strings.LastIndex(content, "```"); idx != -1 {
+		if strings.TrimSpace(content[idx+3:]) == "" {
+			content = strings.TrimSpace(content[:idx])
 		}
 	}
-
-	// Strip separator if preamble was found
-	if foundPreamble {
-		if loc := preambleRe.FindStringIndex(content); loc != nil && loc[0] < 100 {
-			after := content[loc[1]:]
-			if len(after) > 0 && after[0] == '\n' {
-				after = after[1:]
-			}
-			content = strings.TrimSpace(after)
-		}
-	}
-
-	// Strip code fence if present
-	if loc := codeFenceRe.FindStringIndex(content); loc != nil && loc[0] == 0 {
-		content = content[loc[1]:]
-		if idx := strings.LastIndex(content, "```"); idx != -1 {
-			if strings.TrimSpace(content[idx+3:]) == "" {
-				content = strings.TrimSpace(content[:idx])
-			}
-		}
-	}
-
 	return content
 }

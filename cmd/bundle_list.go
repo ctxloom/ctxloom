@@ -58,39 +58,49 @@ func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
 
 	w.Printf("Installed bundles (%d):\n\n", len(infos))
 	for _, info := range infos {
-		w.Printf("  %s", info.Name)
-		if info.Version != "" {
-			w.Printf(" (v%s)", info.Version)
-		}
-		w.Println()
-
-		if info.Description != "" {
-			w.Printf("    %s\n", info.Description)
-		}
-
-		var parts []string
-		if info.FragmentCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d fragments", info.FragmentCount))
-		}
-		if info.PromptCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d prompts", info.PromptCount))
-		}
-		if info.MCPCount > 0 {
-			if info.MCPCount == 1 {
-				parts = append(parts, "1 MCP server")
-			} else {
-				parts = append(parts, fmt.Sprintf("%d MCP servers", info.MCPCount))
-			}
-		}
-		if len(parts) > 0 {
-			w.Printf("    Contains: %s\n", strings.Join(parts, ", "))
-		}
-		if len(info.Tags) > 0 {
-			w.Printf("    Tags: %s\n", strings.Join(info.Tags, ", "))
-		}
-		w.Println()
+		renderBundleListEntry(w, info)
 	}
 	return w.Err()
+}
+
+// bundleContentParts builds the "Contains: …" summary parts for a bundle,
+// applying the 1-MCP-server singular/plural rule and omitting zero counts.
+func bundleContentParts(info *bundles.BundleInfo) []string {
+	var parts []string
+	if info.FragmentCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d fragments", info.FragmentCount))
+	}
+	if info.PromptCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d prompts", info.PromptCount))
+	}
+	if info.MCPCount == 1 {
+		parts = append(parts, "1 MCP server")
+	} else if info.MCPCount > 1 {
+		parts = append(parts, fmt.Sprintf("%d MCP servers", info.MCPCount))
+	}
+	return parts
+}
+
+// renderBundleListEntry writes one bundle's summary line plus its optional
+// description, Contains, and Tags lines.
+func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo) {
+	w.Printf("  %s", info.Name)
+	if info.Version != "" {
+		w.Printf(" (v%s)", info.Version)
+	}
+	w.Println()
+
+	if info.Description != "" {
+		w.Printf("    %s\n", info.Description)
+	}
+
+	if parts := bundleContentParts(info); len(parts) > 0 {
+		w.Printf("    Contains: %s\n", strings.Join(parts, ", "))
+	}
+	if len(info.Tags) > 0 {
+		w.Printf("    Tags: %s\n", strings.Join(info.Tags, ", "))
+	}
+	w.Println()
 }
 
 var bundleShowCmd = &cobra.Command{
@@ -133,8 +143,9 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 // prompt entries are decorated with their tag list and a `(distilled)`
 // or `(no_distill)` marker; fragments also get a 70-char first-line
 // preview, prompts get the optional Description.
-func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
-	w := iox.NewErrWriter(out)
+// renderBundleShowHeader writes the bundle metadata header (name, plus optional
+// version/author/description/tags), the path, and a trailing blank line.
+func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
 	w.Printf("Bundle: %s\n", bundle.Name)
 	if bundle.Version != "" {
 		w.Printf("Version: %s\n", bundle.Version)
@@ -150,6 +161,11 @@ func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 	}
 	w.Printf("Path: %s\n", bundle.Path)
 	w.Println()
+}
+
+func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
+	w := iox.NewErrWriter(out)
+	renderBundleShowHeader(w, bundle)
 
 	if bundle.HasMCP() {
 		w.Printf("MCP Servers (%d):\n", bundle.MCPCount())

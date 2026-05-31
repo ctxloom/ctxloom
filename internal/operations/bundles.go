@@ -506,11 +506,8 @@ type PushBundleResult struct {
 //
 // Network is touched only for non-dry-run; this commit covers dry-run.
 func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
-	if req.Path == "" {
-		return nil, fmt.Errorf("path is required")
-	}
-	if cfg == nil || len(cfg.AppPaths) == 0 {
-		return nil, fmt.Errorf("no .ctxloom directory configured")
+	if err := validatePushRequest(cfg, req); err != nil {
+		return nil, err
 	}
 
 	absPath, err := filepath.Abs(req.Path)
@@ -548,20 +545,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).
-	title := strings.TrimSpace(req.Title)
-	message := strings.TrimSpace(req.Message)
-	if title == "" && message != "" {
-		if idx := strings.IndexByte(message, '\n'); idx >= 0 {
-			title = strings.TrimSpace(message[:idx])
-			message = strings.TrimSpace(message[idx+1:])
-		} else {
-			title = message
-			message = ""
-		}
-	}
-	if title == "" {
-		title = fmt.Sprintf("Update bundle: %s", bundleName)
-	}
+	title, message := resolvePushTitle(req, bundleName)
 
 	result := &PushBundleResult{
 		Path:       absPath,
@@ -574,16 +558,49 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 
 	if req.DryRun {
-		action := "direct push"
-		if req.CreatePR {
-			action = "pull request"
-		}
 		result.Status = "preview"
-		result.Preview = fmt.Sprintf("Would publish %s (%d bytes) to %s as %s via %s; title: %q",
-			bundleName, len(data), rem.URL, targetPath, action, title)
+		result.Preview = pushDryRunPreview(bundleName, len(data), rem.URL, targetPath, req.CreatePR, title)
 		return result, nil
 	}
 
+	return runPush(ctx, cfg, registry, remoteName, absPath, req, result)
+}
+
+// validatePushRequest checks the request preconditions for PushBundle.
+func validatePushRequest(cfg *config.Config, req PushBundleRequest) error {
+	if req.Path == "" {
+		return fmt.Errorf("path is required")
+	}
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return fmt.Errorf("no .ctxloom directory configured")
+	}
+	return nil
+}
+
+// resolvePushTitle resolves the commit subject and body for a push, lifting the
+// title from the message when unset (mirroring publish.go) and falling back to
+// a generated default.
+func resolvePushTitle(req PushBundleRequest, bundleName string) (title, message string) {
+	title, message = remote.SplitTitleBody(req.Title, req.Message)
+	if title == "" {
+		title = fmt.Sprintf("Update bundle: %s", bundleName)
+	}
+	return title, message
+}
+
+// pushDryRunPreview renders the human-readable summary of a dry-run push.
+func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, createPR bool, title string) string {
+	action := "direct push"
+	if createPR {
+		action = "pull request"
+	}
+	return fmt.Sprintf("Would publish %s (%d bytes) to %s as %s via %s; title: %q",
+		bundleName, size, remURL, targetPath, action, title)
+}
+
+// runPush performs the actual (non-dry-run) publish and records the outcome on
+// result.
+func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.AppPaths[0]))
@@ -591,8 +608,8 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	pubResult, err := pm.Publish(ctx, absPath, remoteName, remote.PublishOptions{
 		CreatePR: req.CreatePR,
-		Title:    title,
-		Message:  message,
+		Title:    result.Title,
+		Message:  result.Message,
 		ItemType: remote.ItemTypeBundle,
 	})
 	if err != nil {
@@ -601,10 +618,9 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
+	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"
-	} else {
-		result.Status = "pushed"
 	}
 	return result, nil
 }

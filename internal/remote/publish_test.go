@@ -386,3 +386,28 @@ func TestDefaultPublisherFactory(t *testing.T) {
 		assert.NotNil(t, publisher)
 	})
 }
+
+func TestSplitTitleBody(t *testing.T) {
+	tests := []struct {
+		name      string
+		title     string
+		body      string
+		wantTitle string
+		wantBody  string
+	}{
+		{"explicit title kept, body trimmed", "My Title", "  some body  ", "My Title", "some body"},
+		{"empty both", "", "", "", ""},
+		{"lift first line into title", "", "Subject line\nbody para", "Subject line", "body para"},
+		{"single-line body becomes title, body emptied", "", "Just a subject", "Just a subject", ""},
+		{"title set, body has newlines untouched", "T", "a\nb", "T", "a\nb"},
+		{"whitespace-only inputs", "   ", "   ", "", ""},
+		{"lift trims around the split", "", "  Subject  \n  rest  ", "Subject", "rest"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTitle, gotBody := SplitTitleBody(tt.title, tt.body)
+			assert.Equal(t, tt.wantTitle, gotTitle, "title")
+			assert.Equal(t, tt.wantBody, gotBody, "body")
+		})
+	}
+}

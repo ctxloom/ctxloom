@@ -143,143 +143,175 @@ type PublishResult struct {
 	Created bool
 }
 
+// publishPrep holds everything resolved before the push/PR strategy runs.
+type publishPrep struct {
+	publisher     Publisher
+	repoURL       string
+	owner, repo   string
+	itemName      string
+	remotePath    string
+	branch        string
+	content       []byte // content with publish metadata added
+	title, body   string
+	commitMessage string
+	created       bool
+}
+
 // Publish publishes a local item to a remote repository.
 func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteName string, opts PublishOptions) (*PublishResult, error) {
-	// Use provided filesystem or manager's default
+	prep, err := pm.preparePublish(ctx, localPath, remoteName, opts)
+	if err != nil {
+		return nil, err
+	}
+	if opts.CreatePR {
+		return pm.publishViaPR(ctx, prep, opts)
+	}
+	return pm.publishDirect(ctx, prep)
+}
+
+// loadPublishContent reads the local file and, for profiles, rewrites local
+// bundle references to canonical URLs before export.
+func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptions) ([]byte, error) {
 	fs := opts.FS
 	if fs == nil {
 		fs = pm.fs
 	}
-
-	// Read local content
 	content, err := afero.ReadFile(fs, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
-
-	// Transform profile content if needed (convert local names to canonical URLs)
 	if opts.ItemType == ItemTypeProfile {
 		content, err = transformProfileForExport(content, pm.lockfileManager)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transform profile for export: %w", err)
 		}
 	}
+	return content, nil
+}
 
-	// Get remote configuration
+// resolvePublishBranch returns opts.Branch, or the repo's default branch when
+// the caller didn't pin one.
+func (pm *PublishManager) resolvePublishBranch(ctx context.Context, repoURL, owner, repo, optBranch string) (string, error) {
+	if optBranch != "" {
+		return optBranch, nil
+	}
+	fetcher, err := pm.fetcherFactory(repoURL, pm.auth)
+	if err != nil {
+		return "", fmt.Errorf("failed to create fetcher: %w", err)
+	}
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("failed to get default branch: %w", err)
+	}
+	return branch, nil
+}
+
+// preparePublish resolves the publisher, repo coordinates, target branch,
+// content (with metadata), and commit subject/body shared by both push
+// strategies.
+func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (*publishPrep, error) {
+	content, err := pm.loadPublishContent(localPath, opts)
+	if err != nil {
+		return nil, err
+	}
+
 	rem, err := pm.registry.Get(remoteName)
 	if err != nil {
 		return nil, fmt.Errorf("remote not found: %w", err)
 	}
-
-	// Create publisher
 	publisher, err := pm.publisherFactory(rem.URL, pm.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
-
-	// Parse repository URL
 	owner, repo, err := ParseRepoURL(rem.URL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	// Determine item name from local path
 	itemName := strings.TrimSuffix(filepath.Base(localPath), ".yaml")
-
-	// Build remote path
 	remotePath := buildPublishPath(opts.ItemType, itemName)
 
-	// Get default branch if not specified
-	branch := opts.Branch
-	if branch == "" {
-		fetcher, err := pm.fetcherFactory(rem.URL, pm.auth)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create fetcher: %w", err)
-		}
-		branch, err = fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default branch: %w", err)
-		}
+	branch, err := pm.resolvePublishBranch(ctx, rem.URL, owner, repo, opts.Branch)
+	if err != nil {
+		return nil, err
 	}
 
-	// Add source metadata to content
 	contentWithMeta, err := addPublishMetadata(content, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add metadata: %w", err)
 	}
 
-	// Check if file exists
+	// Existing file (if any) decides created vs updated and the default title.
 	existingSHA, _ := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
 	created := existingSHA == ""
 
-	// Resolve title and message body. Title is the PR title and commit subject;
-	// Message is the commit/PR body. Either may be empty — fall back through
-	// (caller title) → (first line of Message) → (generated default).
-	title, msgBody := resolvePublishTitleAndBody(opts, itemName, created)
+	title, body := resolvePublishTitleAndBody(opts, itemName, created)
+	return &publishPrep{
+		publisher:     publisher,
+		repoURL:       rem.URL,
+		owner:         owner,
+		repo:          repo,
+		itemName:      itemName,
+		remotePath:    remotePath,
+		branch:        branch,
+		content:       contentWithMeta,
+		title:         title,
+		body:          body,
+		commitMessage: buildCommitMessage(title, body),
+		created:       created,
+	}, nil
+}
 
-	// Commit message follows git convention: subject, blank line, body.
-	commitMessage := title
-	if msgBody != "" {
-		commitMessage = title + "\n\n" + msgBody
+// buildCommitMessage assembles a git-convention commit message: subject, blank
+// line, body.
+func buildCommitMessage(title, body string) string {
+	if body == "" {
+		return title
+	}
+	return title + "\n\n" + body
+}
+
+// publishDirect pushes the content straight to the target branch.
+func (pm *PublishManager) publishDirect(ctx context.Context, prep *publishPrep) (*PublishResult, error) {
+	sha, err := prep.publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, prep.remotePath, prep.branch, prep.commitMessage, prep.content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish: %w", err)
+	}
+	return &PublishResult{Path: prep.remotePath, SHA: sha, Created: prep.created}, nil
+}
+
+// publishViaPR creates a feature branch, commits the content there, and opens a
+// pull request against the target branch.
+func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, opts PublishOptions) (*PublishResult, error) {
+	branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, prep.itemName, time.Now().Unix())
+
+	fetcher, err := pm.fetcherFactory(prep.repoURL, pm.auth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fetcher: %w", err)
+	}
+	baseSHA, err := fetcher.ResolveRef(ctx, prep.owner, prep.repo, prep.branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base branch: %w", err)
+	}
+	if err := prep.publisher.CreateBranch(ctx, prep.owner, prep.repo, branchName, baseSHA); err != nil {
+		return nil, fmt.Errorf("failed to create branch: %w", err)
 	}
 
-	var result *PublishResult
-
-	if opts.CreatePR {
-		// Create a new branch and PR
-		branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, itemName, time.Now().Unix())
-
-		// Get base SHA for branch creation
-		fetcher, err := pm.fetcherFactory(rem.URL, pm.auth)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create fetcher: %w", err)
-		}
-		baseSHA, err := fetcher.ResolveRef(ctx, owner, repo, branch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve base branch: %w", err)
-		}
-
-		// Create branch
-		if err := publisher.CreateBranch(ctx, owner, repo, branchName, baseSHA); err != nil {
-			return nil, fmt.Errorf("failed to create branch: %w", err)
-		}
-
-		// Create/update file on new branch
-		sha, err := publisher.CreateOrUpdateFile(ctx, owner, repo, remotePath, branchName, commitMessage, contentWithMeta)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create file: %w", err)
-		}
-
-		// Cap the on-PR title for readability; preserve any overflow in the body
-		// so the full title text survives alongside the message body.
-		prTitle, titleOverflow := fitPRTitle(title)
-		prBody := buildPRBody(msgBody, titleOverflow, opts.ItemType, itemName, remotePath)
-		prURL, err := publisher.CreatePullRequest(ctx, owner, repo, prTitle, prBody, branchName, branch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create pull request: %w", err)
-		}
-
-		result = &PublishResult{
-			Path:    remotePath,
-			SHA:     sha,
-			PRURL:   prURL,
-			Created: created,
-		}
-	} else {
-		// Direct push to branch
-		sha, err := publisher.CreateOrUpdateFile(ctx, owner, repo, remotePath, branch, commitMessage, contentWithMeta)
-		if err != nil {
-			return nil, fmt.Errorf("failed to publish: %w", err)
-		}
-
-		result = &PublishResult{
-			Path:    remotePath,
-			SHA:     sha,
-			Created: created,
-		}
+	sha, err := prep.publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, prep.remotePath, branchName, prep.commitMessage, prep.content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
 
-	return result, nil
+	// Cap the on-PR title for readability; preserve any overflow in the body
+	// so the full title text survives alongside the message body.
+	prTitle, titleOverflow := fitPRTitle(prep.title)
+	prBody := buildPRBody(prep.body, titleOverflow, opts.ItemType, prep.itemName, prep.remotePath)
+	prURL, err := prep.publisher.CreatePullRequest(ctx, prep.owner, prep.repo, prTitle, prBody, branchName, prep.branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created}, nil
 }
 
 // buildPublishPath constructs the remote file path for an item.
@@ -305,25 +337,28 @@ func fitPRTitle(title string) (fitted, overflow string) {
 	return window + "…", title
 }
 
+// SplitTitleBody resolves a commit subject (title) and body from a caller's
+// title and message. When no title is given, the first line of the body is
+// lifted into the title (and dropped from the body, so subject and body don't
+// duplicate); otherwise both are returned trimmed. Shared by publish and push
+// so the result accurately reflects the eventual commit/PR shape.
+func SplitTitleBody(title, body string) (string, string) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if title != "" || body == "" {
+		return title, body
+	}
+	if idx := strings.IndexByte(body, '\n'); idx >= 0 {
+		return strings.TrimSpace(body[:idx]), strings.TrimSpace(body[idx+1:])
+	}
+	return body, ""
+}
+
 // resolvePublishTitleAndBody picks the PR title (commit subject) and message
 // body from PublishOptions. Order of precedence for the title: caller-supplied
 // Title, then the first line of Message, then a generated default.
 func resolvePublishTitleAndBody(opts PublishOptions, itemName string, created bool) (title, body string) {
-	body = strings.TrimSpace(opts.Message)
-	title = strings.TrimSpace(opts.Title)
-
-	if title == "" && body != "" {
-		// Pull the first line off the body; if it's the only line, the body is
-		// empty after the lift (no duplication between subject and body).
-		if idx := strings.IndexByte(body, '\n'); idx >= 0 {
-			title = strings.TrimSpace(body[:idx])
-			body = strings.TrimSpace(body[idx+1:])
-		} else {
-			title = body
-			body = ""
-		}
-	}
-
+	title, body = SplitTitleBody(opts.Title, opts.Message)
 	if title == "" {
 		action := "Add"
 		if !created {
@@ -399,92 +434,88 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	}
 }
 
+// profileHasLocalBundleRefs reports whether any bundle entry is a local name
+// (i.e. needs canonicalization before export).
+func profileHasLocalBundleRefs(bundles []interface{}) bool {
+	for _, b := range bundles {
+		if s, ok := b.(string); ok && !IsCanonicalRef(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// canonicalizeBundleRef resolves a single local bundle name to its canonical
+// URL via the lockfile, preserving any #item-path suffix. Canonical refs are
+// returned unchanged by the caller, so this is only invoked for local names.
+func canonicalizeBundleRef(ref string, lockfile *Lockfile) (string, error) {
+	localName := ref
+	var itemPath string
+	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
+		localName = ref[:hashIdx]
+		itemPath = ref[hashIdx:]
+	}
+
+	canonicalURL, found := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
+	if !found {
+		return "", fmt.Errorf("bundle %q not found in lockfile; pull it first before publishing", localName)
+	}
+	return canonicalURL + itemPath, nil
+}
+
+// transformBundleRefs maps each profile bundle entry to its canonical form:
+// already-canonical refs pass through, local names resolve via the lockfile.
+func transformBundleRefs(bundles []interface{}, lockfile *Lockfile) ([]string, error) {
+	out := make([]string, 0, len(bundles))
+	for _, b := range bundles {
+		ref, ok := b.(string)
+		if !ok {
+			continue
+		}
+		if IsCanonicalRef(ref) {
+			out = append(out, ref)
+			continue
+		}
+		canonical, err := canonicalizeBundleRef(ref, lockfile)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, canonical)
+	}
+	return out, nil
+}
+
 // transformProfileForExport converts local bundle references to canonical URLs.
 // This is used when publishing/exporting a profile for sharing.
 func transformProfileForExport(content []byte, lm *LockfileManager) ([]byte, error) {
-	// Parse the profile
 	var rawProfile map[string]interface{}
 	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
-		// Not valid YAML, return as-is
-		return content, nil
+		return content, nil // Not valid YAML, return as-is
 	}
 
-	// Check if there are bundles to transform
 	bundlesRaw, ok := rawProfile["bundles"]
 	if !ok {
 		return content, nil // No bundles, return as-is
 	}
-
 	bundles, ok := bundlesRaw.([]interface{})
 	if !ok {
 		return content, nil // Not a list, return as-is
 	}
 
-	// Check if any bundles need transformation (are local names, not URLs)
-	hasLocalRefs := false
-	for _, b := range bundles {
-		bundleStr, ok := b.(string)
-		if !ok {
-			continue
-		}
-		if !strings.HasPrefix(bundleStr, "https://") &&
-			!strings.HasPrefix(bundleStr, "http://") &&
-			!strings.HasPrefix(bundleStr, "git@") {
-			hasLocalRefs = true
-			break
-		}
-	}
-
-	if !hasLocalRefs {
+	if !profileHasLocalBundleRefs(bundles) {
 		return content, nil // All already canonical
 	}
 
-	// Load lockfile to get canonical URLs
 	lockfile, err := lm.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load lockfile: %w", err)
 	}
 
-	// Transform the bundles
-	transformedBundles := make([]string, 0, len(bundles))
-
-	for _, b := range bundles {
-		bundleStr, ok := b.(string)
-		if !ok {
-			continue
-		}
-
-		// Check if this is already a canonical URL
-		if strings.HasPrefix(bundleStr, "https://") ||
-			strings.HasPrefix(bundleStr, "http://") ||
-			strings.HasPrefix(bundleStr, "git@") {
-			// Already canonical, keep as-is
-			transformedBundles = append(transformedBundles, bundleStr)
-			continue
-		}
-
-		// Parse item path suffix (e.g., #fragments/name)
-		var itemPath string
-		localName := bundleStr
-		if hashIdx := strings.Index(bundleStr, "#"); hashIdx != -1 {
-			localName = bundleStr[:hashIdx]
-			itemPath = bundleStr[hashIdx:]
-		}
-
-		// Look up in lockfile to get canonical URL
-		canonicalURL, found := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
-		if !found {
-			return nil, fmt.Errorf("bundle %q not found in lockfile; pull it first before publishing", localName)
-		}
-
-		// Add item path if present
-		canonicalRef := canonicalURL + itemPath
-		transformedBundles = append(transformedBundles, canonicalRef)
+	transformed, err := transformBundleRefs(bundles, lockfile)
+	if err != nil {
+		return nil, err
 	}
 
-	// Update the profile with transformed bundles
-	rawProfile["bundles"] = transformedBundles
-
-	// Re-marshal the profile
+	rawProfile["bundles"] = transformed
 	return yaml.Marshal(rawProfile)
 }

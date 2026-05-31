@@ -73,7 +73,21 @@ func MergePendingLockfileCount(cfg *config.Config) (int, error) {
 // making this a no-op. Returns the names promoted.
 func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry, fs afero.Fs) ([]string, error) {
 	baseDir := getBaseDir(cfg)
+	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
+
+	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
+		remoteName, _, _ := strings.Cut(name, "/")
+		return isTrustedRemote(registry, remoteName)
+	})
+}
+
+// promotePendingBundles lifts every pending bundle for which keep(name) is true
+// into the active lockfile, dropping it from pending, then persists both
+// (deleting pending if emptied). A pending entry whose active counterpart is
+// Pinned is left in place. Returns the promoted names, sorted. Shared by the
+// trusted-remote and per-remote promotion paths.
+func promotePendingBundles(activeMgr, pendingMgr *remote.LockfileManager, keep func(name string) bool) ([]string, error) {
 	pending, err := pendingMgr.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load pending lockfile: %w", err)
@@ -82,16 +96,29 @@ func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry,
 		return nil, nil
 	}
 
-	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	active, err := activeMgr.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load active lockfile: %w", err)
 	}
 
+	promoted := applyPendingPromotions(active, pending, keep)
+	if len(promoted) == 0 {
+		return nil, nil
+	}
+	sort.Strings(promoted)
+
+	if err := savePromotions(activeMgr, pendingMgr, active, pending); err != nil {
+		return nil, err
+	}
+	return promoted, nil
+}
+
+// applyPendingPromotions moves each kept (and non-pin-blocked) pending bundle
+// into active, mutating both lockfiles in place and returning the promoted names.
+func applyPendingPromotions(active, pending *remote.Lockfile, keep func(name string) bool) []string {
 	var promoted []string
 	for name, entry := range pending.Bundles {
-		remoteName, _, _ := strings.Cut(name, "/")
-		if !isTrustedRemote(registry, remoteName) {
+		if !keep(name) {
 			continue
 		}
 		if old, ok := active.GetEntry(remote.ItemTypeBundle, name); ok && old.Pinned {
@@ -101,17 +128,19 @@ func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry,
 		pending.RemoveEntry(remote.ItemTypeBundle, name)
 		promoted = append(promoted, name)
 	}
+	return promoted
+}
 
-	if len(promoted) == 0 {
-		return nil, nil
-	}
+// savePromotions persists the active and pending lockfiles after promotion,
+// deleting the pending file when it has been emptied.
+func savePromotions(activeMgr, pendingMgr *remote.LockfileManager, active, pending *remote.Lockfile) error {
 	if err := activeMgr.Save(active); err != nil {
-		return nil, fmt.Errorf("save active lockfile: %w", err)
+		return fmt.Errorf("save active lockfile: %w", err)
 	}
 	if pending.IsEmpty() {
-		return promoted, pendingMgr.Delete()
+		return pendingMgr.Delete()
 	}
-	return promoted, pendingMgr.Save(pending)
+	return pendingMgr.Save(pending)
 }
 
 // PromoteRemotePendingBundles lifts every pending bundle whose lockfile key
@@ -132,43 +161,10 @@ func PromoteRemotePendingBundles(cfg *config.Config, remoteName string) ([]strin
 	activeMgr := remote.NewLockfileManager(baseDir)
 	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
 
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load pending lockfile: %w", err)
-	}
-	if pending.IsEmpty() {
-		return nil, nil
-	}
-	active, err := activeMgr.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load active lockfile: %w", err)
-	}
-
-	var promoted []string
-	for name, entry := range pending.Bundles {
+	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
 		rem, _, _ := strings.Cut(name, "/")
-		if rem != remoteName {
-			continue
-		}
-		if old, ok := active.GetEntry(remote.ItemTypeBundle, name); ok && old.Pinned {
-			continue
-		}
-		active.AddEntry(remote.ItemTypeBundle, name, entry)
-		pending.RemoveEntry(remote.ItemTypeBundle, name)
-		promoted = append(promoted, name)
-	}
-
-	if len(promoted) == 0 {
-		return nil, nil
-	}
-	if err := activeMgr.Save(active); err != nil {
-		return nil, fmt.Errorf("save active lockfile: %w", err)
-	}
-	sort.Strings(promoted)
-	if pending.IsEmpty() {
-		return promoted, pendingMgr.Delete()
-	}
-	return promoted, pendingMgr.Save(pending)
+		return rem == remoteName
+	})
 }
 
 // DropPendingBundle removes one bundle from the pending lockfile (used by

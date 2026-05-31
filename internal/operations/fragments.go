@@ -156,12 +156,38 @@ type CreateFragmentResult struct {
 
 // CreateFragment creates or updates a fragment in a "local" bundle.
 // Fragments are stored in bundles; this creates/updates a "local" bundle for user fragments.
-func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentRequest) (*CreateFragmentResult, error) {
+// validateCreateFragmentRequest checks the required fields for CreateFragment.
+func validateCreateFragmentRequest(req CreateFragmentRequest) error {
 	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
+		return fmt.Errorf("name is required")
 	}
 	if req.Content == "" {
-		return nil, fmt.Errorf("content is required")
+		return fmt.Errorf("content is required")
+	}
+	return nil
+}
+
+// loadOrInitLocalBundle loads the local.yaml bundle (or starts a fresh one) and
+// ensures its Fragments map and Version are initialized.
+func loadOrInitLocalBundle(fs afero.Fs, bundlePath string) (bundles.Bundle, error) {
+	var bundle bundles.Bundle
+	if data, err := afero.ReadFile(fs, bundlePath); err == nil {
+		if err := yaml.Unmarshal(data, &bundle); err != nil {
+			return bundle, fmt.Errorf("failed to parse existing local bundle: %w", err)
+		}
+	}
+	if bundle.Fragments == nil {
+		bundle.Fragments = make(map[string]bundles.BundleFragment)
+	}
+	if bundle.Version == "" {
+		bundle.Version = "1.0"
+	}
+	return bundle, nil
+}
+
+func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentRequest) (*CreateFragmentResult, error) {
+	if err := validateCreateFragmentRequest(req); err != nil {
+		return nil, err
 	}
 
 	if req.Version == "" {
@@ -180,19 +206,9 @@ func CreateFragment(ctx context.Context, cfg *config.Config, req CreateFragmentR
 	// Use a "local" bundle for user-created fragments
 	bundlePath := filepath.Join(bundleDir, "local.yaml")
 
-	// Load existing bundle or create new one
-	var bundle bundles.Bundle
-	if data, err := afero.ReadFile(fs, bundlePath); err == nil {
-		if err := yaml.Unmarshal(data, &bundle); err != nil {
-			return nil, fmt.Errorf("failed to parse existing local bundle: %w", err)
-		}
-	}
-
-	if bundle.Fragments == nil {
-		bundle.Fragments = make(map[string]bundles.BundleFragment)
-	}
-	if bundle.Version == "" {
-		bundle.Version = "1.0"
+	bundle, err := loadOrInitLocalBundle(fs, bundlePath)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check if fragment exists

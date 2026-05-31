@@ -629,28 +629,13 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 // PushBundle. Returns the remote name to publish to.
 func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
 	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
-	cacheRoot := paths.BundlesPath(cfg.AppPaths[0])
-	if rel, err := filepath.Rel(cacheRoot, absPath); err == nil && !isOutsideRel(rel) {
-		parts := strings.Split(filepath.ToSlash(rel), "/")
-		if len(parts) >= 2 {
-			candidate := parts[0]
-			if registry.Has(candidate) {
-				return candidate, nil
-			}
-		}
+	if name, ok := remoteFromCachePath(cfg, registry, absPath); ok {
+		return name, nil
 	}
 
-	// (2) Path is OUTSIDE .ctxloom and lives in a git working tree — match
-	// the tree's origin URL against the registry. Only triggers for paths
-	// outside the .ctxloom directory: a bundle inside .ctxloom/cache might
-	// be in the project's git tree, but that doesn't tell us where to push
-	// the bundle (the project repo is rarely a bundles repo).
-	if !isUnderCtxloom(cfg, absPath) {
-		if originURL, err := gitutil.GetOriginURL(absPath); err == nil {
-			if name := matchRemoteByURL(registry, originURL); name != "" {
-				return name, nil
-			}
-		}
+	// (2) Path outside .ctxloom in a git tree — match its origin URL.
+	if name, ok := remoteFromGitOrigin(cfg, registry, absPath); ok {
+		return name, nil
 	}
 
 	// (3) Registry default.
@@ -666,16 +651,56 @@ func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath
 
 	// (5) Ambiguous — surface candidates so the user can pick.
 	if len(all) > 1 {
-		names := make([]string, 0, len(all))
-		for _, r := range all {
-			names = append(names, r.Name)
-		}
-		sort.Strings(names)
-		return "", fmt.Errorf("ambiguous remote: configure a default or move the bundle under cache/bundles/<remote>/. Candidates: %s",
-			strings.Join(names, ", "))
+		return "", ambiguousRemoteError(all)
 	}
 
 	return "", fmt.Errorf("no remote configured: add one with `ctxloom remote add`")
+}
+
+// remoteFromCachePath resolves the remote from a path under
+// cache/bundles/<remote>/<rest>.yaml, requiring the first segment to be a known
+// remote.
+func remoteFromCachePath(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
+	cacheRoot := paths.BundlesPath(cfg.AppPaths[0])
+	rel, err := filepath.Rel(cacheRoot, absPath)
+	if err != nil || isOutsideRel(rel) {
+		return "", false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) >= 2 && registry.Has(parts[0]) {
+		return parts[0], true
+	}
+	return "", false
+}
+
+// remoteFromGitOrigin resolves the remote by matching a path's git origin URL
+// against the registry. Only paths OUTSIDE .ctxloom qualify: a bundle inside
+// .ctxloom/cache might be in the project's git tree, but that doesn't tell us
+// where to push (the project repo is rarely a bundles repo).
+func remoteFromGitOrigin(cfg *config.Config, registry *remote.Registry, absPath string) (string, bool) {
+	if isUnderCtxloom(cfg, absPath) {
+		return "", false
+	}
+	originURL, err := gitutil.GetOriginURL(absPath)
+	if err != nil {
+		return "", false
+	}
+	if name := matchRemoteByURL(registry, originURL); name != "" {
+		return name, true
+	}
+	return "", false
+}
+
+// ambiguousRemoteError reports the candidate remotes (sorted) when no single
+// remote can be inferred.
+func ambiguousRemoteError(all []*remote.Remote) error {
+	names := make([]string, 0, len(all))
+	for _, r := range all {
+		names = append(names, r.Name)
+	}
+	sort.Strings(names)
+	return fmt.Errorf("ambiguous remote: configure a default or move the bundle under cache/bundles/<remote>/. Candidates: %s",
+		strings.Join(names, ", "))
 }
 
 // isUnderCtxloom reports whether absPath lives under cfg's .ctxloom directory.
@@ -720,34 +745,50 @@ func requireSafeBundlePath(dirs []string, target string) error {
 		return fmt.Errorf("resolve target: %w", err)
 	}
 	for _, dir := range dirs {
-		absDir, err := filepath.Abs(dir)
-		if err != nil {
-			continue
+		if matched, err := bundlePathUnderDir(dir, absTarget); matched {
+			return err
 		}
-		rel, err := filepath.Rel(absDir, absTarget)
-		if err != nil || isOutsideRel(rel) {
-			continue
-		}
-		if rel == "." {
-			return nil
-		}
-		cur := absDir
-		for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
-			cur = filepath.Join(cur, seg)
-			info, err := os.Lstat(cur)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				return fmt.Errorf("lstat %s: %w", cur, err)
-			}
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("invalid bundle path: %s is a symlink (traversal not allowed)", cur)
-			}
-		}
-		return nil
 	}
 	return fmt.Errorf("bundle path %s not under any configured bundles directory", target)
+}
+
+// bundlePathUnderDir reports whether absTarget is under dir; when it is
+// (matched=true), err reports whether the path is safe (no symlink traversal).
+// matched=false means the caller should try the next directory.
+func bundlePathUnderDir(dir, absTarget string) (bool, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false, nil
+	}
+	rel, err := filepath.Rel(absDir, absTarget)
+	if err != nil || isOutsideRel(rel) {
+		return false, nil
+	}
+	if rel == "." {
+		return true, nil
+	}
+	return true, checkNoSymlinkTraversal(absDir, rel)
+}
+
+// checkNoSymlinkTraversal walks each component of rel under absDir, rejecting
+// any symlink. Non-existent trailing components are fine (MkdirAll will create
+// them as real directories after this check).
+func checkNoSymlinkTraversal(absDir, rel string) error {
+	cur := absDir
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		cur = filepath.Join(cur, seg)
+		info, err := os.Lstat(cur)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("lstat %s: %w", cur, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("invalid bundle path: %s is a symlink (traversal not allowed)", cur)
+		}
+	}
+	return nil
 }
 
 // matchRemoteByURL finds a registry entry whose URL matches the given URL

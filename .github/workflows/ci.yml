@@ -11,6 +11,30 @@ env:
   IMAGE_NAME: ${{ github.repository }}-devcontainer
 
 jobs:
+  # Release gate: every change to main must carry a fresh, untagged VERSION.
+  # Fails the PR/push if VERSION already has a git tag, forcing a deliberate
+  # `versionator set` bump (no auto-increment). On merge, auto-release.yml tags
+  # this VERSION and triggers the release.
+  version-guard:
+    name: Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if VERSION is already tagged
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$V" ]; then
+            echo "::error::VERSION file is empty"; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            echo "::error file=VERSION::VERSION $V is already tagged. Bump it (versionator set <next>) before merging."
+            exit 1
+          fi
+          echo "VERSION $V is not yet tagged — OK to merge and release."
+
   build-container:
     name: Build Dev Container
     runs-on: ubuntu-latest

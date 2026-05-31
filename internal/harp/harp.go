@@ -50,37 +50,58 @@ func loadGroups() map[string]wordGroup {
 	}
 	out := make(map[string]wordGroup)
 	for _, e := range entries {
-		name := e.Name()
-		rest, ok := strings.CutSuffix(name, ".txt")
+		group, typ, words, ok := parseWordGroupEntry(e.Name())
 		if !ok {
 			continue
 		}
-		group, typ, ok := strings.Cut(rest, ".")
-		if !ok {
-			continue
-		}
-		data, err := wordFS.ReadFile(name)
-		if err != nil {
-			panic(fmt.Sprintf("harp: read %s: %v", name, err))
-		}
-		words := parseList(string(data))
 		g := out[group]
-		switch typ {
-		case typeAdjectives:
-			g.adjectives = words
-		case typeNouns:
-			g.nouns = words
-		default:
-			continue
+		if assignWordGroup(&g, typ, words) {
+			out[group] = g
 		}
-		out[group] = g
 	}
+	pruneIncompleteGroups(out)
+	return out
+}
+
+// parseWordGroupEntry parses a "<group>.<type>.txt" embedded word-list filename,
+// returning the parsed words. ok is false for files that don't match the shape.
+func parseWordGroupEntry(name string) (group, typ string, words []string, ok bool) {
+	rest, ok := strings.CutSuffix(name, ".txt")
+	if !ok {
+		return "", "", nil, false
+	}
+	group, typ, ok = strings.Cut(rest, ".")
+	if !ok {
+		return "", "", nil, false
+	}
+	data, err := wordFS.ReadFile(name)
+	if err != nil {
+		panic(fmt.Sprintf("harp: read %s: %v", name, err))
+	}
+	return group, typ, parseList(string(data)), true
+}
+
+// assignWordGroup stores words in g's adjective or noun slot by type, reporting
+// false for an unrecognized type.
+func assignWordGroup(g *wordGroup, typ string, words []string) bool {
+	switch typ {
+	case typeAdjectives:
+		g.adjectives = words
+	case typeNouns:
+		g.nouns = words
+	default:
+		return false
+	}
+	return true
+}
+
+// pruneIncompleteGroups drops any group missing adjectives or nouns.
+func pruneIncompleteGroups(out map[string]wordGroup) {
 	for name, g := range out {
 		if len(g.adjectives) == 0 || len(g.nouns) == 0 {
 			delete(out, name)
 		}
 	}
-	return out
 }
 
 // Groups returns the names of all usable word-list groups.

@@ -150,130 +150,131 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 // GetFragment finds and loads a fragment by name.
 // Name can be "fragment-name" (searches all bundles) or "bundle#fragments/name".
 func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
-	// Check for # syntax: bundle#fragments/name
-	if idx := strings.Index(name, "#"); idx != -1 {
-		bundleName := name[:idx]
-		itemPath := name[idx+1:]
-
-		// Parse itemPath: "fragments/name"
-		parts := strings.SplitN(itemPath, "/", 2)
-		if len(parts) != 2 || parts[0] != "fragments" {
-			return nil, fmt.Errorf("invalid fragment reference: %s", name)
-		}
-		fragName := parts[1]
-
-		bundle, err := l.Load(bundleName)
-		if err != nil {
-			return nil, err
-		}
-
-		frag, ok := bundle.Fragments[fragName]
-		if !ok {
-			return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
-		}
-
-		return &LoadedContent{
-			Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
-			Version:      bundle.Version,
-			Tags:         append(bundle.Tags, frag.Tags...),
-			Content:      frag.EffectiveContent(l.preferDistilled),
-			Installation: frag.Installation,
-			IsDistilled:  l.preferDistilled && frag.Distilled != "",
-			DistilledBy:  frag.DistilledBy,
-		}, nil
+	bundleName, fragName, isRef, err := splitItemRef(name, "fragments")
+	if err != nil {
+		return nil, err
 	}
+	if isRef {
+		return l.fragmentFromBundle(bundleName, fragName)
+	}
+	return l.searchFragment(name)
+}
 
-	// Search all bundles for the fragment
+// splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
+// "#" was present at all; when it was, kind must equal want or an error is
+// returned. For a plain name (no "#"), isRef is false and the caller searches.
+func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, err error) {
+	idx := strings.Index(name, "#")
+	if idx == -1 {
+		return "", "", false, nil
+	}
+	bundleName = name[:idx]
+	parts := strings.SplitN(name[idx+1:], "/", 2)
+	if len(parts) != 2 || parts[0] != want {
+		return "", "", true, fmt.Errorf("invalid %s reference: %s", strings.TrimSuffix(want, "s"), name)
+	}
+	return bundleName, parts[1], true, nil
+}
+
+// fragmentContent builds a LoadedContent for a fragment.
+func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
+	return &LoadedContent{
+		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
+		Version:      bundle.Version,
+		Tags:         append(bundle.Tags, frag.Tags...),
+		Content:      frag.EffectiveContent(l.preferDistilled),
+		Installation: frag.Installation,
+		IsDistilled:  l.preferDistilled && frag.Distilled != "",
+		DistilledBy:  frag.DistilledBy,
+	}
+}
+
+// fragmentFromBundle loads a specific bundle and returns the named fragment.
+func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent, error) {
+	bundle, err := l.Load(bundleName)
+	if err != nil {
+		return nil, err
+	}
+	frag, ok := bundle.Fragments[fragName]
+	if !ok {
+		return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
+	}
+	return l.fragmentContent(bundle, fragName, frag), nil
+}
+
+// searchFragment scans every bundle for a fragment with the given name.
+func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
-
 		if frag, ok := bundle.Fragments[name]; ok {
-			return &LoadedContent{
-				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:      bundle.Version,
-				Tags:         append(bundle.Tags, frag.Tags...),
-				Content:      frag.EffectiveContent(l.preferDistilled),
-				Installation: frag.Installation,
-				IsDistilled:  l.preferDistilled && frag.Distilled != "",
-				DistilledBy:  frag.DistilledBy,
-			}, nil
+			return l.fragmentContent(bundle, name, frag), nil
 		}
 	}
-
 	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 }
 
 // GetPrompt finds and loads a prompt by name.
 // Name can be "prompt-name" (searches all bundles) or "bundle#prompts/name".
 func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
-	// Check for # syntax: bundle#prompts/name
-	if idx := strings.Index(name, "#"); idx != -1 {
-		bundleName := name[:idx]
-		itemPath := name[idx+1:]
-
-		// Parse itemPath: "prompts/name"
-		parts := strings.SplitN(itemPath, "/", 2)
-		if len(parts) != 2 || parts[0] != "prompts" {
-			return nil, fmt.Errorf("invalid prompt reference: %s", name)
-		}
-		promptName := parts[1]
-
-		bundle, err := l.Load(bundleName)
-		if err != nil {
-			return nil, err
-		}
-
-		prompt, ok := bundle.Prompts[promptName]
-		if !ok {
-			return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
-		}
-
-		return &LoadedContent{
-			Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
-			Version:      bundle.Version,
-			Tags:         append(bundle.Tags, prompt.Tags...),
-			Content:      prompt.EffectiveContent(l.preferDistilled),
-			Installation: prompt.Installation,
-			IsDistilled:  l.preferDistilled && prompt.Distilled != "",
-			DistilledBy:  prompt.DistilledBy,
-			Plugins:      prompt.Plugins,
-		}, nil
+	bundleName, promptName, isRef, err := splitItemRef(name, "prompts")
+	if err != nil {
+		return nil, err
 	}
+	if isRef {
+		return l.promptFromBundle(bundleName, promptName)
+	}
+	return l.searchPrompt(name)
+}
 
-	// Search all bundles for the prompt
+// promptContent builds a LoadedContent for a prompt (prompts also carry Plugins).
+func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundlePrompt) *LoadedContent {
+	return &LoadedContent{
+		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
+		Version:      bundle.Version,
+		Tags:         append(bundle.Tags, prompt.Tags...),
+		Content:      prompt.EffectiveContent(l.preferDistilled),
+		Installation: prompt.Installation,
+		IsDistilled:  l.preferDistilled && prompt.Distilled != "",
+		DistilledBy:  prompt.DistilledBy,
+		Plugins:      prompt.Plugins,
+	}
+}
+
+// promptFromBundle loads a specific bundle and returns the named prompt.
+func (l *Loader) promptFromBundle(bundleName, promptName string) (*LoadedContent, error) {
+	bundle, err := l.Load(bundleName)
+	if err != nil {
+		return nil, err
+	}
+	prompt, ok := bundle.Prompts[promptName]
+	if !ok {
+		return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
+	}
+	return l.promptContent(bundle, promptName, prompt), nil
+}
+
+// searchPrompt scans every bundle for a prompt with the given name.
+func (l *Loader) searchPrompt(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
-
 		if prompt, ok := bundle.Prompts[name]; ok {
-			return &LoadedContent{
-				Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
-				Version:      bundle.Version,
-				Tags:         append(bundle.Tags, prompt.Tags...),
-				Content:      prompt.EffectiveContent(l.preferDistilled),
-				Installation: prompt.Installation,
-				IsDistilled:  l.preferDistilled && prompt.Distilled != "",
-				DistilledBy:  prompt.DistilledBy,
-				Plugins:      prompt.Plugins,
-			}, nil
+			return l.promptContent(bundle, name, prompt), nil
 		}
 	}
-
 	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
 }
 

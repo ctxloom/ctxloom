@@ -61,32 +61,8 @@ type Picker struct {
 
 // Run loops render → read → handle until a Decision is produced.
 func (p *Picker) Run() (Decision, error) {
-	if p.HorizonCount <= 0 {
-		p.HorizonCount = DefaultHorizonCount
-	}
-	if p.HorizonDays <= 0 {
-		p.HorizonDays = DefaultHorizonDays
-	}
-	if p.Now == nil {
-		p.Now = time.Now
-	}
-	if p.scanner == nil {
-		p.scanner = bufio.NewScanner(p.In)
-	}
-	// Pre-size checkbox state to the full entry slice; visible-row logic
-	// indexes into this by entry position, never by row position.
-	p.checkSession = make([]bool, len(p.Entries))
-	p.checkTasks = make([]bool, len(p.Entries))
-	for i, e := range p.Entries {
-		p.checkSession[i] = true
-		// [t] defaults to true only if there's likely a task snapshot.
-		// We don't have direct visibility from here, so be conservative:
-		// default-true and let resume logic ignore if there's nothing to
-		// restore. Tests cover the "no snapshot exists" case at the call
-		// site (run.go).
-		p.checkTasks[i] = true
-		_ = e
-	}
+	p.applyDefaults()
+	p.initCheckboxes()
 
 	// Special case: empty index → fall through to NewAction immediately.
 	if len(p.visible()) == 0 {
@@ -109,6 +85,35 @@ func (p *Picker) Run() (Decision, error) {
 	}
 }
 
+// applyDefaults fills in zero-valued picker configuration.
+func (p *Picker) applyDefaults() {
+	if p.HorizonCount <= 0 {
+		p.HorizonCount = DefaultHorizonCount
+	}
+	if p.HorizonDays <= 0 {
+		p.HorizonDays = DefaultHorizonDays
+	}
+	if p.Now == nil {
+		p.Now = time.Now
+	}
+	if p.scanner == nil {
+		p.scanner = bufio.NewScanner(p.In)
+	}
+}
+
+// initCheckboxes pre-sizes checkbox state to the full entry slice (visible-row
+// logic indexes by entry position, never row position). Both default to true:
+// [t] is conservatively on even without direct snapshot visibility — resume
+// logic ignores it when there's nothing to restore (covered by run.go tests).
+func (p *Picker) initCheckboxes() {
+	p.checkSession = make([]bool, len(p.Entries))
+	p.checkTasks = make([]bool, len(p.Entries))
+	for i := range p.Entries {
+		p.checkSession[i] = true
+		p.checkTasks[i] = true
+	}
+}
+
 type handleKind int
 
 const (
@@ -122,52 +127,74 @@ func (p *Picker) handle(line string) (Decision, handleKind) {
 		return Decision{}, actionLoop
 	}
 	low := strings.ToLower(line)
+
+	if dec, kind, ok := p.handleWordCommand(low); ok {
+		return dec, kind
+	}
+	if dec, kind, ok := p.handlePrefixCommand(low); ok {
+		return dec, kind
+	}
+	if dec, kind, ok := p.handleRowSelection(low); ok {
+		return dec, kind
+	}
+
+	p.diag().Printf("unrecognized input: %q. Try a row number, n, m, s<N>, t<N>, or q.\n", line)
+	return Decision{}, actionLoop
+}
+
+// handleWordCommand handles the word commands (q/quit/exit, n/new, m/more).
+func (p *Picker) handleWordCommand(low string) (Decision, handleKind, bool) {
 	switch low {
 	case "q", "quit", "exit":
-		return Decision{Action: QuitAction}, actionResolved
+		return Decision{Action: QuitAction}, actionResolved, true
 	case "n", "new":
-		return Decision{Action: NewAction}, actionResolved
+		return Decision{Action: NewAction}, actionResolved, true
 	case "m", "more":
 		p.horizonReveal++
-		return Decision{}, actionLoop
+		return Decision{}, actionLoop, true
 	}
+	return Decision{}, 0, false
+}
 
-	// Letter-prefix commands: s<N>, t<N>, d<N>.
-	if len(low) >= 2 {
-		prefix := low[0]
-		rest := strings.TrimSpace(low[1:])
-		switch prefix {
-		case 's', 't':
-			if n, ok := parseRowNumber(rest); ok {
-				p.toggleCheck(n, prefix == 's')
-				return Decision{}, actionLoop
-			}
-		case 'd':
-			if n, ok := parseRowNumber(rest); ok {
-				p.distillRow(n)
-				return Decision{}, actionLoop
-			}
+// handlePrefixCommand handles the letter-prefix commands s<N>, t<N>, d<N>.
+func (p *Picker) handlePrefixCommand(low string) (Decision, handleKind, bool) {
+	if len(low) < 2 {
+		return Decision{}, 0, false
+	}
+	rest := strings.TrimSpace(low[1:])
+	switch low[0] {
+	case 's', 't':
+		if n, ok := parseRowNumber(rest); ok {
+			p.toggleCheck(n, low[0] == 's')
+			return Decision{}, actionLoop, true
+		}
+	case 'd':
+		if n, ok := parseRowNumber(rest); ok {
+			p.distillRow(n)
+			return Decision{}, actionLoop, true
 		}
 	}
+	return Decision{}, 0, false
+}
 
-	w := p.diag()
-	if n, ok := parseRowNumber(low); ok {
-		visible := p.visible()
-		if n < 1 || n > len(visible) {
-			w.Printf("row %d out of range (1..%d)\n", n, len(visible))
-			return Decision{}, actionLoop
-		}
-		entryIdx := visible[n-1]
-		return Decision{
-			Action:         ResumeAction,
-			FromHarp:       p.Entries[entryIdx].HarpName,
-			RestoreSession: p.checkSession[entryIdx],
-			RestoreTasks:   p.checkTasks[entryIdx],
-		}, actionResolved
+// handleRowSelection resolves a bare row number into a ResumeAction.
+func (p *Picker) handleRowSelection(low string) (Decision, handleKind, bool) {
+	n, ok := parseRowNumber(low)
+	if !ok {
+		return Decision{}, 0, false
 	}
-
-	w.Printf("unrecognized input: %q. Try a row number, n, m, s<N>, t<N>, or q.\n", line)
-	return Decision{}, actionLoop
+	visible := p.visible()
+	if n < 1 || n > len(visible) {
+		p.diag().Printf("row %d out of range (1..%d)\n", n, len(visible))
+		return Decision{}, actionLoop, true
+	}
+	entryIdx := visible[n-1]
+	return Decision{
+		Action:         ResumeAction,
+		FromHarp:       p.Entries[entryIdx].HarpName,
+		RestoreSession: p.checkSession[entryIdx],
+		RestoreTasks:   p.checkTasks[entryIdx],
+	}, actionResolved, true
 }
 
 // DistillFunc shells out to force-distill a harp. Injected from the

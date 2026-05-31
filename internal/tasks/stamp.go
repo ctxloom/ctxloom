@@ -33,32 +33,36 @@ func StampPlanFile(path, harpName string) error {
 	content := string(data)
 
 	if !strings.HasPrefix(content, "---\n") {
-		// No frontmatter — prepend one. Preserve a single newline gap
-		// between the closing `---` and the body so the file remains
-		// readable.
-		prefix := fmt.Sprintf("---\nsessions:\n  - %s\n---\n", harpName)
-		if !strings.HasPrefix(content, "\n") && content != "" {
-			prefix += "\n"
-		}
-		return atomicWriteString(path, prefix+content)
+		return prependFrontmatter(path, content, harpName)
 	}
+	return updateFrontmatter(path, content, harpName)
+}
 
-	// Parse leading frontmatter block.
+// prependFrontmatter writes a new frontmatter block ahead of content that has
+// none, preserving a single newline gap before the body for readability.
+func prependFrontmatter(path, content, harpName string) error {
+	prefix := fmt.Sprintf("---\nsessions:\n  - %s\n---\n", harpName)
+	if !strings.HasPrefix(content, "\n") && content != "" {
+		prefix += "\n"
+	}
+	return atomicWriteString(path, prefix+content)
+}
+
+// updateFrontmatter parses content's leading frontmatter, adds harpName to its
+// sessions list, and rewrites the file. It bails (no change) on a malformed or
+// unterminated block, or when the harp is already present. yaml.Node is used so
+// unknown keys, comments, key order, and scalar styles round-trip verbatim.
+func updateFrontmatter(path, content, harpName string) error {
 	rest := content[len("---\n"):]
 	end := strings.Index(rest, "\n---")
 	if end < 0 {
-		// Opening `---` but no closing — bail without modifying.
-		return nil
+		return nil // opening `---` but no closing — bail without modifying
 	}
 	block := rest[:end]
-	// Normalize leading whitespace on the body so re-stamping produces
-	// exactly one blank line between the closing `---` and the first body
-	// line, regardless of how many newlines the original had.
+	// Normalize leading body whitespace so re-stamping yields exactly one
+	// blank line between the closing `---` and the first body line.
 	body := strings.TrimLeft(rest[end+len("\n---"):], "\n")
 
-	// Use yaml.Node so unknown keys round-trip verbatim. yaml.v3's
-	// `interface{}` decode-then-marshal loses comments, key order, and
-	// custom scalar styles. Node preserves all of those.
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(block), &root); err != nil {
 		return nil // malformed; refuse to corrupt

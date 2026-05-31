@@ -66,69 +66,10 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Profiles: make(map[string]remote.LockEntry),
 	}
 
+	// Scan installed bundles and profiles for their install-time _source SHA.
 	itemCount := 0
-
-	// Scan for installed items (bundles and profiles only)
-	for _, itemType := range []remote.ItemType{
-		remote.ItemTypeBundle,
-		remote.ItemTypeProfile,
-	} {
-		var itemDir string
-		switch itemType {
-		case remote.ItemTypeBundle:
-			itemDir = paths.BundlesPath(baseDir)
-		case remote.ItemTypeProfile:
-			itemDir = paths.ProfilesPath(baseDir)
-		}
-		entries, err := afero.ReadDir(fs, itemDir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-
-			remoteName := entry.Name()
-			remoteDir := filepath.Join(itemDir, remoteName)
-
-			files, _ := afero.Glob(fs, filepath.Join(remoteDir, "**", "*.yaml"))
-			rootFiles, _ := afero.Glob(fs, filepath.Join(remoteDir, "*.yaml"))
-			files = append(files, rootFiles...)
-
-			for _, file := range files {
-				content, err := afero.ReadFile(fs, file)
-				if err != nil {
-					continue
-				}
-
-				var meta struct {
-					Source remote.SourceMeta `yaml:"_source"`
-				}
-				if err := yaml.Unmarshal(content, &meta); err != nil {
-					continue
-				}
-
-				if meta.Source.SHA == "" {
-					continue
-				}
-
-				relPath, _ := filepath.Rel(filepath.Join(itemDir, remoteName), file)
-				name := strings.TrimSuffix(relPath, ".yaml")
-				ref := fmt.Sprintf("%s/%s", remoteName, name)
-
-				lockEntry := remote.LockEntry{
-					SHA:       meta.Source.SHA,
-					URL:       meta.Source.URL,
-					FetchedAt: meta.Source.FetchedAt,
-				}
-
-				lockfile.AddEntry(itemType, ref, lockEntry)
-				itemCount++
-			}
-		}
-	}
+	itemCount += scanInstalledEntries(fs, paths.BundlesPath(baseDir), remote.ItemTypeBundle, lockfile)
+	itemCount += scanInstalledEntries(fs, paths.ProfilesPath(baseDir), remote.ItemTypeProfile, lockfile)
 
 	if itemCount == 0 {
 		return &LockDependenciesResult{
@@ -211,16 +152,12 @@ func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*Relock
 		return nil, fmt.Errorf("failed to collect references: %w", err)
 	}
 
-	type refItem struct {
-		Type remote.ItemType
-		Ref  string
-	}
-	var items []refItem
+	var items []relockItem
 	for _, r := range profileRefs {
-		items = append(items, refItem{remote.ItemTypeProfile, r})
+		items = append(items, relockItem{remote.ItemTypeProfile, r})
 	}
 	for _, r := range bundleRefs {
-		items = append(items, refItem{remote.ItemTypeBundle, r})
+		items = append(items, relockItem{remote.ItemTypeBundle, r})
 	}
 
 	// repoURLForRef resolves a reference to its repository URL. Canonical URL
@@ -248,31 +185,12 @@ func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*Relock
 
 	// Refresh every unique remote clone first so origin/main is advanced to the
 	// live HEAD before we resolve SHAs. Without this, a stale shallow clone
-	// would re-pin at the old SHA. Dedup so each repo is fetched once.
+	// would re-pin at the old SHA.
 	cache := req.RepoCache
 	if cache == nil {
 		cache = newRepoCache(cfg)
 	}
-	fetchedURLs := map[string]struct{}{}
-	for _, it := range items {
-		url, ok := urlForRef(it.Ref)
-		if !ok {
-			continue
-		}
-		if _, seen := fetchedURLs[url]; seen {
-			continue
-		}
-		fetchedURLs[url] = struct{}{}
-		forgeType, _, ferr := remote.DetectForge(url)
-		if ferr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, ferr)
-			continue
-		}
-		if _, uerr := cache.UpdateRepo(ctx, url, forgeType); uerr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, uerr)
-			// Continue: a stale clone is still better than aborting the relock.
-		}
-	}
+	refreshRepoCaches(ctx, cache, uniqueRefURLs(items, urlForRef))
 
 	// Fetcher factory backed by the (now-refreshed) local clones.
 	fetcherFactory := req.FetcherFactory
@@ -288,73 +206,7 @@ func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*Relock
 		Profiles: make(map[string]remote.LockEntry),
 	}
 
-	fetchedAt := time.Now().UTC()
-	fetcherByURL := map[string]remote.Fetcher{}
-	itemCount := 0
-	failed := 0
-	var relockErrs []string
-
-	for _, it := range items {
-		if it.Ref == "" {
-			continue
-		}
-		ref, perr := remote.ParseReference(it.Ref)
-		if perr != nil {
-			failed++
-			relockErrs = append(relockErrs, fmt.Sprintf("%s: invalid reference (skipped)", it.Ref))
-			continue
-		}
-		repoURL, ok := repoURLForRef(ref)
-		if !ok {
-			failed++
-			relockErrs = append(relockErrs, fmt.Sprintf("%s: remote not found (skipped)", it.Ref))
-			continue
-		}
-
-		fetcher, ok := fetcherByURL[repoURL]
-		if !ok {
-			fetcher, perr = fetcherFactory(repoURL, auth)
-			if perr != nil {
-				failed++
-				relockErrs = append(relockErrs, fmt.Sprintf("%s: %v (skipped)", it.Ref, perr))
-				continue
-			}
-			fetcherByURL[repoURL] = fetcher
-		}
-
-		owner, repoName, perr := remote.ParseRepoURL(repoURL)
-		if perr != nil {
-			failed++
-			relockErrs = append(relockErrs, fmt.Sprintf("%s: %v (skipped)", it.Ref, perr))
-			continue
-		}
-
-		branch, perr := fetcher.GetDefaultBranch(ctx, owner, repoName)
-		if perr != nil {
-			failed++
-			relockErrs = append(relockErrs, fmt.Sprintf("%s: default branch: %v (skipped)", it.Ref, perr))
-			continue
-		}
-
-		sha, perr := fetcher.ResolveRef(ctx, owner, repoName, branch)
-		if perr != nil || sha == "" {
-			failed++
-			relockErrs = append(relockErrs, fmt.Sprintf("%s: no SHA resolved (skipped)", it.Ref))
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: relock %s: no SHA resolved, skipping\n", it.Ref)
-			continue
-		}
-
-		// Key entries by the short "remote/name" form so relock matches the
-		// convention LockDependencies uses. ToLocalName passes simple refs
-		// through unchanged and reduces a canonical URL ref (e.g. a profile
-		// parent) to "<repo>/<path>".
-		lockfile.AddEntry(it.Type, ref.ToLocalName(), remote.LockEntry{
-			SHA:       sha,
-			URL:       repoURL,
-			FetchedAt: fetchedAt,
-		})
-		itemCount++
-	}
+	itemCount, failed, relockErrs := pinRelockEntries(ctx, lockfile, items, repoURLForRef, auth, fetcherFactory)
 
 	if itemCount == 0 {
 		return &RelockResult{
@@ -376,6 +228,128 @@ func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*Relock
 		Failed:    failed,
 		Errors:    relockErrs,
 	}, nil
+}
+
+// scanInstalledEntries walks itemDir/<remote>/**/*.yaml, reads each file's
+// install-time `_source` metadata, and adds an entry to lockfile for every file
+// carrying a SHA. Returns the number of entries added. Unreadable dirs/files and
+// files lacking _source.SHA are silently skipped. Used by LockDependencies to
+// rebuild the lockfile from what's already installed on disk.
+func scanInstalledEntries(fs afero.Fs, itemDir string, itemType remote.ItemType, lockfile *remote.Lockfile) int {
+	entries, err := afero.ReadDir(fs, itemDir)
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		remoteName := entry.Name()
+		remoteDir := filepath.Join(itemDir, remoteName)
+
+		files, _ := afero.Glob(fs, filepath.Join(remoteDir, "**", "*.yaml"))
+		rootFiles, _ := afero.Glob(fs, filepath.Join(remoteDir, "*.yaml"))
+		files = append(files, rootFiles...)
+
+		for _, file := range files {
+			content, err := afero.ReadFile(fs, file)
+			if err != nil {
+				continue
+			}
+			var meta struct {
+				Source remote.SourceMeta `yaml:"_source"`
+			}
+			if err := yaml.Unmarshal(content, &meta); err != nil {
+				continue
+			}
+			if meta.Source.SHA == "" {
+				continue
+			}
+
+			relPath, _ := filepath.Rel(remoteDir, file)
+			name := strings.TrimSuffix(relPath, ".yaml")
+			ref := fmt.Sprintf("%s/%s", remoteName, name)
+			lockfile.AddEntry(itemType, ref, remote.LockEntry{
+				SHA:       meta.Source.SHA,
+				URL:       meta.Source.URL,
+				FetchedAt: meta.Source.FetchedAt,
+			})
+			count++
+		}
+	}
+	return count
+}
+
+// relockItem is a typed (itemType, ref) pair queued for relock pinning.
+type relockItem struct {
+	Type remote.ItemType
+	Ref  string
+}
+
+// uniqueRefURLs returns the unique repo URLs for items, first-seen order,
+// resolving each ref via urlForRef. Refs that don't resolve are skipped. Used to
+// fetch each repo's clone once before SHA resolution.
+func uniqueRefURLs(items []relockItem, urlForRef func(string) (string, bool)) []string {
+	seen := map[string]struct{}{}
+	var urls []string
+	for _, it := range items {
+		url, ok := urlForRef(it.Ref)
+		if !ok {
+			continue
+		}
+		if _, dup := seen[url]; dup {
+			continue
+		}
+		seen[url] = struct{}{}
+		urls = append(urls, url)
+	}
+	return urls
+}
+
+// pinRelockEntries resolves each item's current default-branch SHA and adds it
+// to lockfile, keyed by the short "remote/name" form (ref.ToLocalName, matching
+// LockDependencies' convention). Per CLAUDE.md fault tolerance, every per-item
+// failure is counted and recorded but skipped — whatever resolves is still
+// pinned. Returns the pinned count, failure count, and per-failure messages.
+func pinRelockEntries(ctx context.Context, lockfile *remote.Lockfile, items []relockItem, repoURLForRef func(*remote.Reference) (string, bool), auth remote.AuthConfig, factory FetcherFactory) (itemCount, failed int, errs []string) {
+	fetchedAt := time.Now().UTC()
+	fetcherByURL := map[string]remote.Fetcher{}
+
+	for _, it := range items {
+		if it.Ref == "" {
+			continue
+		}
+		ref, perr := remote.ParseReference(it.Ref)
+		if perr != nil {
+			failed++
+			errs = append(errs, fmt.Sprintf("%s: invalid reference (skipped)", it.Ref))
+			continue
+		}
+		repoURL, ok := repoURLForRef(ref)
+		if !ok {
+			failed++
+			errs = append(errs, fmt.Sprintf("%s: remote not found (skipped)", it.Ref))
+			continue
+		}
+
+		sha, serr := resolveLatestSHA(ctx, repoURL, auth, factory, fetcherByURL)
+		if serr != nil || sha == "" {
+			failed++
+			errs = append(errs, fmt.Sprintf("%s: no SHA resolved (skipped)", it.Ref))
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: relock %s: no SHA resolved, skipping\n", it.Ref)
+			continue
+		}
+
+		lockfile.AddEntry(it.Type, ref.ToLocalName(), remote.LockEntry{
+			SHA:       sha,
+			URL:       repoURL,
+			FetchedAt: fetchedAt,
+		})
+		itemCount++
+	}
+	return itemCount, failed, errs
 }
 
 // InstallDependenciesRequest contains parameters for installing from lockfile.
@@ -512,39 +486,13 @@ type CheckOutdatedResult struct {
 
 // CheckOutdated checks if any locked items have newer versions available.
 func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedRequest) (*CheckOutdatedResult, error) {
-	baseDir := getBaseDir(cfg)
-	fs := getFS(req.FS)
-
-	// Use injected lock manager or create new one
-	lockManager := req.LockManager
-	if lockManager == nil {
-		lockManager = remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	}
-
-	lockfile, err := lockManager.Load()
+	entries, registry, auth, early, err := loadOutdatedInputs(cfg, req)
 	if err != nil {
 		return nil, err
 	}
-
-	if lockfile.IsEmpty() {
-		return &CheckOutdatedResult{
-			Status:  "empty",
-			Message: "No entries in lockfile",
-		}, nil
+	if early != nil {
+		return early, nil
 	}
-
-	// Use injected registry or create new one
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize registry: %w", err)
-		}
-	}
-
-	auth := remote.LoadAuth(baseDir)
-	entries := lockfile.AllEntries()
 
 	// Use injected fetcher factory or the cached one. The cached factory clones
 	// once per repo URL and serves every subsequent resolve from the local
@@ -565,69 +513,10 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 		if cache == nil {
 			cache = newRepoCache(cfg)
 		}
-		for _, url := range uniqueRemoteURLs(entries, registry) {
-			forgeType, _, err := remote.DetectForge(url)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, err)
-				continue
-			}
-			if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, err)
-				// Continue: stale data is still better than no data.
-			}
-		}
+		refreshRepoCaches(ctx, cache, uniqueRemoteURLs(entries, registry))
 	}
 
-	var outdated []OutdatedItem
-
-	// Reuse one fetcher per repo URL across entries so we don't reopen the
-	// clone repeatedly.
-	fetcherByURL := map[string]remote.Fetcher{}
-
-	for _, e := range entries {
-		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
-			continue
-		}
-
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			continue
-		}
-
-		fetcher, ok := fetcherByURL[rem.URL]
-		if !ok {
-			fetcher, err = fetcherFactory(rem.URL, auth)
-			if err != nil {
-				continue
-			}
-			fetcherByURL[rem.URL] = fetcher
-		}
-
-		owner, repo, err := remote.ParseRepoURL(rem.URL)
-		if err != nil {
-			continue
-		}
-
-		branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			continue
-		}
-
-		latestSHA, err := fetcher.ResolveRef(ctx, owner, repo, branch)
-		if err != nil {
-			continue
-		}
-
-		if latestSHA != e.Entry.SHA {
-			outdated = append(outdated, OutdatedItem{
-				Type:      string(e.Type),
-				Reference: e.Ref,
-				LockedSHA: shortSHA(e.Entry.SHA),
-				LatestSHA: shortSHA(latestSHA),
-			})
-		}
-	}
+	outdated := findOutdatedEntries(ctx, entries, registry, auth, fetcherFactory)
 
 	if len(outdated) == 0 {
 		return &CheckOutdatedResult{
@@ -642,6 +531,77 @@ func CheckOutdated(ctx context.Context, cfg *config.Config, req CheckOutdatedReq
 		Items:  outdated,
 		Total:  len(entries),
 	}, nil
+}
+
+// loadOutdatedInputs prepares CheckOutdated's inputs: it loads the lockfile
+// (via the injected or a new manager), opens the registry (injected or new),
+// and returns the entries, registry, and auth. When the lockfile is empty it
+// returns a non-nil early result the caller should return directly.
+func loadOutdatedInputs(cfg *config.Config, req CheckOutdatedRequest) (entries []struct {
+	Type  remote.ItemType
+	Ref   string
+	Entry remote.LockEntry
+}, registry *remote.Registry, auth remote.AuthConfig, early *CheckOutdatedResult, err error) {
+	baseDir := getBaseDir(cfg)
+	fs := getFS(req.FS)
+
+	lockManager := req.LockManager
+	if lockManager == nil {
+		lockManager = remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	}
+	lockfile, err := lockManager.Load()
+	if err != nil {
+		return nil, nil, auth, nil, err
+	}
+	if lockfile.IsEmpty() {
+		return nil, nil, auth, &CheckOutdatedResult{Status: "empty", Message: "No entries in lockfile"}, nil
+	}
+
+	registry = req.Registry
+	if registry == nil {
+		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
+		if err != nil {
+			return nil, nil, auth, nil, fmt.Errorf("failed to initialize registry: %w", err)
+		}
+	}
+
+	return lockfile.AllEntries(), registry, remote.LoadAuth(baseDir), nil, nil
+}
+
+// findOutdatedEntries resolves each lockfile entry's latest remote SHA and
+// returns those whose locked SHA differs. Entries with unparseable refs,
+// unknown remotes, or resolution failures are skipped (best-effort). One
+// fetcher is reused per repo URL across entries.
+func findOutdatedEntries(ctx context.Context, entries []struct {
+	Type  remote.ItemType
+	Ref   string
+	Entry remote.LockEntry
+}, registry *remote.Registry, auth remote.AuthConfig, factory FetcherFactory) []OutdatedItem {
+	var outdated []OutdatedItem
+	fetcherByURL := map[string]remote.Fetcher{}
+	for _, e := range entries {
+		ref, err := remote.ParseReference(e.Ref)
+		if err != nil {
+			continue
+		}
+		rem, err := registry.Get(ref.Remote)
+		if err != nil {
+			continue
+		}
+		latestSHA, err := resolveLatestSHA(ctx, rem.URL, auth, factory, fetcherByURL)
+		if err != nil {
+			continue
+		}
+		if latestSHA != e.Entry.SHA {
+			outdated = append(outdated, OutdatedItem{
+				Type:      string(e.Type),
+				Reference: e.Ref,
+				LockedSHA: shortSHA(e.Entry.SHA),
+				LatestSHA: shortSHA(latestSHA),
+			})
+		}
+	}
+	return outdated
 }
 
 // uniqueRemoteURLs returns the unique repo URLs referenced by entries, in the
@@ -671,4 +631,50 @@ func uniqueRemoteURLs(entries []struct {
 		urls = append(urls, rem.URL)
 	}
 	return urls
+}
+
+// refreshRepoCaches advances each unique clone to live HEAD before SHA
+// resolution, so a stale shallow clone doesn't pin/report the old SHA. Per-URL
+// failures warn and continue — stale data beats aborting. Shared by Relock and
+// CheckOutdated.
+func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
+	for _, url := range urls {
+		forgeType, _, err := remote.DetectForge(url)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, err)
+			continue
+		}
+		if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, err)
+		}
+	}
+}
+
+// resolveLatestSHA returns the default-branch HEAD SHA for repoURL, reusing a
+// cached fetcher per URL (fetcherByURL is read and populated). It centralizes
+// the fetcher-create → ParseRepoURL → GetDefaultBranch → ResolveRef chain shared
+// by Relock and CheckOutdated. Shared by Relock and CheckOutdated.
+func resolveLatestSHA(ctx context.Context, repoURL string, auth remote.AuthConfig, factory FetcherFactory, fetcherByURL map[string]remote.Fetcher) (string, error) {
+	fetcher, ok := fetcherByURL[repoURL]
+	if !ok {
+		f, err := factory(repoURL, auth)
+		if err != nil {
+			return "", err
+		}
+		fetcher = f
+		fetcherByURL[repoURL] = fetcher
+	}
+	owner, repoName, err := remote.ParseRepoURL(repoURL)
+	if err != nil {
+		return "", err
+	}
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repoName)
+	if err != nil {
+		return "", err
+	}
+	sha, err := fetcher.ResolveRef(ctx, owner, repoName, branch)
+	if err != nil {
+		return "", err
+	}
+	return sha, nil
 }

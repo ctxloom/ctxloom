@@ -69,6 +69,8 @@ jobs:
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with push access to benjaminabbitt/homebrew-tap (formula publish).
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           HASH_INSTALL_SH: ${{ env.HASH_INSTALL_SH }}
           HASH_INSTALL_PS1: ${{ env.HASH_INSTALL_PS1 }}
 

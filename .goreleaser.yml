@@ -118,6 +118,55 @@ archives:
       - README.md
       - man/man1/*.1
 
+# Homebrew formulae published to benjaminabbitt/homebrew-tap. Two formulae
+# mirror the two builds; they install the same `ctxloom` binary, so each
+# declares a conflict with the other.
+#
+# Requires the HOMEBREW_TAP_GITHUB_TOKEN secret (a PAT with push access to the
+# tap repo) — the per-repo GITHUB_TOKEN cannot push to another repository.
+brews:
+  # Standard build (recommended): memory + simple vector search, no CGO deps.
+  #   brew install benjaminabbitt/tap/ctxloom
+  - name: ctxloom
+    ids:
+      - default
+    repository:
+      owner: benjaminabbitt
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Context Loom - Weave context for AI coding agents"
+    license: "BSD-3-Clause"
+    conflicts:
+      - ctxloom-full
+    install: |
+      bin.install "ctxloom"
+      man1.install Dir["man/man1/*.1"]
+    test: |
+      system "#{bin}/ctxloom", "version"
+
+  # Full build: adds tree-sitter AST code compression (CGO).
+  #   brew install benjaminabbitt/tap/ctxloom-full
+  - name: ctxloom-full
+    ids:
+      - full
+    repository:
+      owner: benjaminabbitt
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ctxloom/ctxloom"
+    description: "Context Loom (full build with tree-sitter AST code compression)"
+    license: "BSD-3-Clause"
+    conflicts:
+      - ctxloom
+    install: |
+      bin.install "ctxloom"
+      man1.install Dir["man/man1/*.1"]
+    test: |
+      system "#{bin}/ctxloom", "version"
+
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256

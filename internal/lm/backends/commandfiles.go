@@ -53,29 +53,9 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	commandsDir := filepath.Join(workDir, ".claude", "commands")
 	manifestPath := filepath.Join(commandsDir, ".ctxloom-manifest")
 
-	// Clean up old subdirectory style (migration)
-	oldCtxloomDir := filepath.Join(commandsDir, "ctxloom")
-	_ = fs.RemoveAll(oldCtxloomDir)
+	cleanupTrackedCommands(fs, commandsDir, manifestPath)
 
-	// Read existing manifest and clean up tracked files
-	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
-		for _, name := range strings.Split(string(data), "\n") {
-			if name = strings.TrimSpace(name); name != "" {
-				_ = fs.Remove(filepath.Join(commandsDir, name))
-			}
-		}
-	}
-
-	// Check if we have any prompts to export
-	hasExportable := false
-	for _, p := range prompts {
-		if p.Plugins.LM.ClaudeCode.IsEnabled() {
-			hasExportable = true
-			break
-		}
-	}
-
-	if !hasExportable {
+	if !hasExportableClaudePrompts(prompts) {
 		_ = fs.Remove(manifestPath)
 		return nil
 	}
@@ -84,22 +64,9 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 		return fmt.Errorf("create commands dir: %w", err)
 	}
 
-	var manifest []string
-	for _, p := range prompts {
-		if !p.Plugins.LM.ClaudeCode.IsEnabled() {
-			continue // Explicitly disabled
-		}
-
-		md := TransformToClaudeCommand(p)
-		// Replace path separators with dashes for nested names
-		safeName := strings.ReplaceAll(p.Name, "/", "-")
-		filename := safeName + ".md"
-		path := filepath.Join(commandsDir, filename)
-
-		if err := afero.WriteFile(fs, path, []byte(md), 0644); err != nil {
-			return fmt.Errorf("write command %s: %w", p.Name, err)
-		}
-		manifest = append(manifest, filename)
+	manifest, err := writeClaudeCommands(fs, commandsDir, prompts)
+	if err != nil {
+		return err
 	}
 
 	// Write manifest for cleanup on next run
@@ -108,6 +75,52 @@ func WriteCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ..
 	}
 
 	return nil
+}
+
+// cleanupTrackedCommands removes the old ctxloom/ subdirectory (migration) and
+// every command file recorded in the previous run's manifest.
+func cleanupTrackedCommands(fs afero.Fs, commandsDir, manifestPath string) {
+	_ = fs.RemoveAll(filepath.Join(commandsDir, "ctxloom"))
+
+	data, err := afero.ReadFile(fs, manifestPath)
+	if err != nil {
+		return
+	}
+	for _, name := range strings.Split(string(data), "\n") {
+		if name = strings.TrimSpace(name); name != "" {
+			_ = fs.Remove(filepath.Join(commandsDir, name))
+		}
+	}
+}
+
+// hasExportableClaudePrompts reports whether any prompt is enabled for Claude Code.
+func hasExportableClaudePrompts(prompts []*bundles.LoadedContent) bool {
+	for _, p := range prompts {
+		if p.Plugins.LM.ClaudeCode.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
+
+// writeClaudeCommands writes each enabled prompt as a Claude command file,
+// returning the manifest of written filenames.
+func writeClaudeCommands(fs afero.Fs, commandsDir string, prompts []*bundles.LoadedContent) ([]string, error) {
+	var manifest []string
+	for _, p := range prompts {
+		if !p.Plugins.LM.ClaudeCode.IsEnabled() {
+			continue // Explicitly disabled
+		}
+
+		md := TransformToClaudeCommand(p)
+		// Replace path separators with dashes for nested names.
+		filename := strings.ReplaceAll(p.Name, "/", "-") + ".md"
+		if err := afero.WriteFile(fs, filepath.Join(commandsDir, filename), []byte(md), 0644); err != nil {
+			return nil, fmt.Errorf("write command %s: %w", p.Name, err)
+		}
+		manifest = append(manifest, filename)
+	}
+	return manifest, nil
 }
 
 // TransformToClaudeCommand converts a ctxloom prompt to Claude Code command format.

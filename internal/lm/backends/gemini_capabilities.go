@@ -154,17 +154,8 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 		return fmt.Errorf("remove ctxloom commands dir: %w", err)
 	}
 
-	// Check if we have any prompts to export
-	hasExportable := false
-	for _, p := range prompts {
-		if p.Plugins.LM.Gemini.IsEnabled() {
-			hasExportable = true
-			break
-		}
-	}
-
-	// Only create directory if we have prompts to export
-	if !hasExportable {
+	// Only create the directory if there are prompts to export.
+	if !hasExportableGeminiPrompts(prompts) {
 		return nil
 	}
 
@@ -176,26 +167,42 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 		if !p.Plugins.LM.Gemini.IsEnabled() {
 			continue // Explicitly disabled
 		}
-
-		tomlData, err := TransformToGeminiCommand(p)
-		if err != nil {
-			return fmt.Errorf("transform command %s: %w", p.Name, err)
-		}
-
-		path := filepath.Join(appDir, p.Name+".toml")
-
-		// Ensure parent directory exists for nested prompt names
-		if dir := filepath.Dir(path); dir != appDir {
-			if err := fs.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf("create command subdir %s: %w", dir, err)
-			}
-		}
-
-		if err := afero.WriteFile(fs, path, tomlData, 0644); err != nil {
-			return fmt.Errorf("write command %s: %w", p.Name, err)
+		if err := writeGeminiCommand(fs, appDir, p); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// hasExportableGeminiPrompts reports whether any prompt is enabled for Gemini.
+func hasExportableGeminiPrompts(prompts []*bundles.LoadedContent) bool {
+	for _, p := range prompts {
+		if p.Plugins.LM.Gemini.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
+
+// writeGeminiCommand writes one prompt as a Gemini .toml command, creating any
+// parent directory needed for a nested prompt name.
+func writeGeminiCommand(fs afero.Fs, appDir string, p *bundles.LoadedContent) error {
+	tomlData, err := TransformToGeminiCommand(p)
+	if err != nil {
+		return fmt.Errorf("transform command %s: %w", p.Name, err)
+	}
+
+	path := filepath.Join(appDir, p.Name+".toml")
+	if dir := filepath.Dir(path); dir != appDir {
+		if err := fs.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create command subdir %s: %w", dir, err)
+		}
+	}
+
+	if err := afero.WriteFile(fs, path, tomlData, 0644); err != nil {
+		return fmt.Errorf("write command %s: %w", p.Name, err)
+	}
 	return nil
 }
 

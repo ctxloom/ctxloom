@@ -116,15 +116,11 @@ func TestAllowedDuringReview(t *testing.T) {
 	// appear in the allowlist.
 	blockedTools := []string{
 		"assemble_context",
-		"get_fragment",
-		"get_prompt",
 		"search_content",
 		"apply_hooks",
-		"pull_remote",
 		"sync_dependencies",
 		"load_session",
 		"recover_session",
-		"update_remote",
 	}
 	for _, name := range blockedTools {
 		if _, ok := allowedDuringReview[name]; ok {

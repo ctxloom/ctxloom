@@ -323,7 +323,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	}
 
 	if sessionID == "" {
-		return nil, nil, fmt.Errorf("session_id is required. Use browse_session_history or list_sessions to find session IDs")
+		return nil, nil, fmt.Errorf("session_id is required; list sessions via the ctxloom://sessions/recent resource to find one")
 	}
 
 	session, err := history.GetSession(workDir, sessionID)

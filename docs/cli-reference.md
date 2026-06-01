@@ -339,53 +339,6 @@ ctxloom completion powershell
 
 ---
 
-## MCP Tools
-
-When running as an MCP server (`ctxloom mcp serve`), the following tools are exposed:
-
-### Content Management
-- `list_fragments` - List available fragments
-- `get_fragment` - Get fragment content
-- `create_fragment` - Create new fragment
-- `delete_fragment` - Delete fragment
-- `list_prompts` - List prompts
-- `get_prompt` - Get prompt content
-- `search_content` - Search all content
-
-### Profile Management
-- `list_profiles` - List profiles
-- `get_profile` - Get profile config
-- `create_profile` - Create profile
-- `update_profile` - Update profile
-- `delete_profile` - Delete profile
-- `assemble_context` - Assemble context from profile/fragments
-
-### Remote Operations
-- `list_remotes` - List remotes
-- `add_remote` - Add remote
-- `remove_remote` - Remove remote
-- `search_remotes` - Search across remotes
-- `browse_remote` - Browse remote contents
-- `pull_remote` - Install from remote
-- `discover_remotes` - Discover repositories
-- `sync_dependencies` - Sync from config
-
-### MCP Server Management
-- `list_mcp_servers` - List MCP servers
-- `add_mcp_server` - Add MCP server
-- `remove_mcp_server` - Remove MCP server
-- `set_mcp_auto_register` - Configure auto-registration
-- `apply_hooks` - Apply hooks to backend configs
-
-### Session Management
-- `list_sessions` - List sessions
-- `compact_session` - Compact session log
-- `load_session` - Load session context
-- `recover_session` - Recover after /clear
-- `browse_session_history` - Browse recent sessions
-- `get_previous_session` - Get previous session
-
----
 
 ## Reference Syntax
 

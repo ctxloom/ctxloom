@@ -20,4 +20,4 @@ Recover context from the session before the last `/clear`.
 3. Ask: "I've recovered context from before the clear. Ready to continue?"
 
 If no previous session is found:
-"No previous session found for this process. Use /loadctx to browse session history."
+"No previous session found for this process."

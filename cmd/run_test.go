@@ -6,12 +6,60 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
+
+// TestBuildPickerEntries_DedupMergeSort covers the merge of indexed harp
+// sessions with raw backend transcripts: already-indexed transcripts (by path
+// or session id) are dropped, survivors become raw rows (empty HarpName), and
+// the combined list is most-recent-first.
+func TestBuildPickerEntries_DedupMergeSort(t *testing.T) {
+	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	indexed := []sessions.Entry{
+		{HarpName: "swift-amber-falcon", SessionID: "sid-A", TranscriptPath: "/t/sid-A.jsonl", StartedAt: base},
+		{HarpName: "quiet-silver-meadow", TranscriptPath: "/t/sid-B.jsonl", StartedAt: base.Add(-2 * time.Hour)},
+	}
+	raw := []backends.SessionMeta{
+		{ID: "sid-A", Path: "/t/sid-A.jsonl", StartTime: base},                       // dup by path+id → dropped
+		{ID: "sid-B", Path: "/t/sid-B.jsonl", StartTime: base},                       // dup by path → dropped
+		{ID: "sid-C", Path: "/t/sid-C.jsonl", StartTime: base.Add(-1 * time.Hour)},   // new → kept as raw
+		{ID: "", Path: "", StartTime: base},                                          // empty → skipped
+	}
+
+	got := buildPickerEntries(indexed, raw, "claude-code")
+	require.Len(t, got, 3, "2 indexed + 1 surviving raw")
+	// Most-recent-first: sid-A (base), sid-C (base-1h), meadow (base-2h).
+	assert.Equal(t, "swift-amber-falcon", got[0].HarpName)
+	assert.Equal(t, "", got[1].HarpName, "raw row carries empty harp (the picker sentinel)")
+	assert.Equal(t, "sid-C", got[1].SessionID)
+	assert.Equal(t, "/t/sid-C.jsonl", got[1].TranscriptPath)
+	assert.Equal(t, "claude-code", got[1].Backend)
+	assert.Equal(t, "quiet-silver-meadow", got[2].HarpName)
+}
+
+// TestBuildPickerEntries_DedupBySessionID confirms a raw transcript is deduped
+// against an indexed entry by session id even when the index recorded no
+// transcript path (the bind hook hadn't supplied one).
+func TestBuildPickerEntries_DedupBySessionID(t *testing.T) {
+	indexed := []sessions.Entry{{HarpName: "h", SessionID: "sid-X"}}
+	raw := []backends.SessionMeta{{ID: "sid-X", Path: "/t/sid-X.jsonl"}}
+	got := buildPickerEntries(indexed, raw, "claude-code")
+	require.Len(t, got, 1, "raw matched by session id is deduped despite empty index transcript path")
+	assert.Equal(t, "h", got[0].HarpName)
+}
+
+func TestBuildPickerEntries_NoRaw(t *testing.T) {
+	indexed := []sessions.Entry{{HarpName: "h"}}
+	got := buildPickerEntries(indexed, nil, "claude-code")
+	require.Len(t, got, 1)
+	assert.Equal(t, "h", got[0].HarpName)
+}
 
 // =============================================================================
 // Run Command Tests
@@ -36,7 +84,7 @@ func newRunTestMgr(t *testing.T) *sessions.Manager {
 
 func TestResolveResumeIntentWith_SessionFlag(t *testing.T) {
 	t.Run("default_restores_both", func(t *testing.T) {
-		dec, err := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon"}, nil, "/p", false)
+		dec, err := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon"}, nil, "/p", false, "", nil, nil)
 		require.NoError(t, err)
 		assert.Equal(t, sessions.ResumeAction, dec.Action)
 		assert.Equal(t, "swift-amber-falcon", dec.FromHarp)
@@ -45,14 +93,14 @@ func TestResolveResumeIntentWith_SessionFlag(t *testing.T) {
 	})
 
 	t.Run("no_tasks_modifier", func(t *testing.T) {
-		dec, _ := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon", NoTasks: true}, nil, "/p", false)
+		dec, _ := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon", NoTasks: true}, nil, "/p", false, "", nil, nil)
 		assert.True(t, dec.RestoreSession)
 		assert.False(t, dec.RestoreTasks, "--no-tasks must suppress task hydration")
 	})
 }
 
 func TestResolveResumeIntentWith_TasksFromFlag(t *testing.T) {
-	dec, err := resolveResumeIntentWith(resumeFlags{TasksFrom: "quiet-silver-meadow"}, nil, "/p", false)
+	dec, err := resolveResumeIntentWith(resumeFlags{TasksFrom: "quiet-silver-meadow"}, nil, "/p", false, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.ResumeAction, dec.Action)
 	assert.Equal(t, "quiet-silver-meadow", dec.FromHarp)
@@ -61,7 +109,7 @@ func TestResolveResumeIntentWith_TasksFromFlag(t *testing.T) {
 }
 
 func TestResolveResumeIntentWith_NewSessionFlag(t *testing.T) {
-	dec, err := resolveResumeIntentWith(resumeFlags{NewSession: true}, nil, "/p", true)
+	dec, err := resolveResumeIntentWith(resumeFlags{NewSession: true}, nil, "/p", true, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)
 }
@@ -73,7 +121,7 @@ func TestResolveResumeIntentWith_NoFlagsNoTTY(t *testing.T) {
 
 	// Non-TTY context with no flags should fall through to NewAction
 	// even if entries exist — picker requires interactive stdin.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", false)
+	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", false, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)
 }
@@ -82,7 +130,7 @@ func TestResolveResumeIntentWith_TTYButEmptyIndex(t *testing.T) {
 	mgr := newRunTestMgr(t)
 	// Fresh index for a project that's never had a session — picker has
 	// nothing to show, so we fall through silently.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", true)
+	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", true, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)
 }
@@ -90,7 +138,7 @@ func TestResolveResumeIntentWith_TTYButEmptyIndex(t *testing.T) {
 func TestResolveResumeIntentWith_NilManager(t *testing.T) {
 	// If sessions.Open failed (rare; bad HOME), the run path passes a
 	// nil manager. We must not panic — silently fall through to new.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, nil, "/p", true)
+	dec, err := resolveResumeIntentWith(resumeFlags{}, nil, "/p", true, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)
 }
@@ -102,7 +150,7 @@ func TestResolveResumeIntentWith_FlagPrecedence(t *testing.T) {
 		Session:    "winner",
 		TasksFrom:  "loser",
 		NewSession: true,
-	}, nil, "/p", true)
+	}, nil, "/p", true, "", nil, nil)
 	assert.Equal(t, "winner", dec.FromHarp, "--session beats --tasks-from + --new-session")
 }
 

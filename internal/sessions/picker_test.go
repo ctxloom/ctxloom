@@ -57,6 +57,50 @@ func TestPicker_ResumeByNumber(t *testing.T) {
 	assert.Contains(t, out, "row-b")
 }
 
+func TestPicker_RawRow_AdoptThenResume(t *testing.T) {
+	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	// A raw (unadopted) transcript row: no harp name yet.
+	entries := []Entry{{SessionID: "abcd1234ef", TranscriptPath: "/t/abcd1234ef.jsonl", Backend: "claude-code", StartedAt: base}}
+
+	var gotID, gotPath string
+	var out bytes.Buffer
+	p := &Picker{
+		Entries: entries,
+		In:      strings.NewReader("1\n"),
+		Out:     &out,
+		Now:     fixedNow(time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)),
+		Adopt: func(sessionID, transcriptPath string) (string, error) {
+			gotID, gotPath = sessionID, transcriptPath
+			return "newly-adopted-harp", nil
+		},
+	}
+	dec, err := p.Run()
+	require.NoError(t, err)
+
+	assert.Equal(t, ResumeAction, dec.Action)
+	assert.Equal(t, "newly-adopted-harp", dec.FromHarp, "selecting a raw row resumes from the adopted harp")
+	assert.False(t, dec.RestoreTasks, "a freshly adopted transcript has no harp-scoped tasks")
+	assert.Equal(t, "abcd1234ef", gotID, "adopt receives the transcript's session id")
+	assert.Equal(t, "/t/abcd1234ef.jsonl", gotPath)
+	assert.Contains(t, out.String(), "unadopted", "raw rows render distinctly")
+}
+
+func TestPicker_RawRow_NoAdoptCallback(t *testing.T) {
+	base := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	entries := []Entry{{SessionID: "abcd1234ef", StartedAt: base}}
+	var out bytes.Buffer
+	p := &Picker{
+		Entries: entries,
+		In:      strings.NewReader("1\n"), // select, then EOF
+		Out:     &out,
+		Now:     fixedNow(time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)),
+	}
+	dec, err := p.Run()
+	require.NoError(t, err)
+	assert.Equal(t, NewAction, dec.Action, "no adopt callback → row loops, then EOF falls through to new")
+	assert.Contains(t, out.String(), "adopt not available")
+}
+
 func TestPicker_NKeystrokeForNew(t *testing.T) {
 	entries := makeEntries(2, time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC))
 	dec, _ := runPicker(t, entries, "n\n")

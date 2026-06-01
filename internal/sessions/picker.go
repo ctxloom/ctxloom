@@ -50,6 +50,7 @@ type Picker struct {
 	In            io.Reader        // line-buffered input source
 	Out           io.Writer        // rendering target (typically os.Stderr)
 	Distill       DistillFunc      // optional: invoked by the `d<N>` keystroke
+	Adopt         AdoptFunc        // optional: invoked when a raw (unadopted) row is selected
 	HorizonCount  int              // 0 → DefaultHorizonCount
 	HorizonDays   int              // 0 → DefaultHorizonDays
 	Now           func() time.Time // injectable clock for tests; nil → time.Now
@@ -177,7 +178,10 @@ func (p *Picker) handlePrefixCommand(low string) (Decision, handleKind, bool) {
 	return Decision{}, 0, false
 }
 
-// handleRowSelection resolves a bare row number into a ResumeAction.
+// handleRowSelection resolves a bare row number into a ResumeAction. A row
+// backed by an adopted harp resumes that harp directly; a raw (unadopted)
+// transcript row is adopted into a new harp first (see selectRaw), then resumed
+// — so the downstream resume path distills it like any other harp.
 func (p *Picker) handleRowSelection(low string) (Decision, handleKind, bool) {
 	n, ok := parseRowNumber(low)
 	if !ok {
@@ -189,6 +193,10 @@ func (p *Picker) handleRowSelection(low string) (Decision, handleKind, bool) {
 		return Decision{}, actionLoop, true
 	}
 	entryIdx := visible[n-1]
+	if isRawEntry(p.Entries[entryIdx]) {
+		dec, kind := p.selectRaw(entryIdx)
+		return dec, kind, true
+	}
 	return Decision{
 		Action:         ResumeAction,
 		FromHarp:       p.Entries[entryIdx].HarpName,
@@ -197,10 +205,44 @@ func (p *Picker) handleRowSelection(low string) (Decision, handleKind, bool) {
 	}, actionResolved, true
 }
 
+// selectRaw adopts the raw transcript at p.Entries[entryIdx] into a new harp via
+// the injected Adopt callback, then resumes from it. On adopt failure the error
+// is surfaced inline and the picker keeps looping. RestoreTasks is always false:
+// a just-adopted transcript has no harp-scoped tasks to restore.
+func (p *Picker) selectRaw(entryIdx int) (Decision, handleKind) {
+	e := p.Entries[entryIdx]
+	if p.Adopt == nil {
+		p.diag().Println("(adopt not available in this context)")
+		return Decision{}, actionLoop
+	}
+	p.diag().Printf("adopting transcript %s...\n", shortSessionID(e.SessionID))
+	harp, err := p.Adopt(e.SessionID, e.TranscriptPath)
+	if err != nil {
+		p.diag().Printf("adopt failed: %v\n", err)
+		return Decision{}, actionLoop
+	}
+	return Decision{
+		Action:         ResumeAction,
+		FromHarp:       harp,
+		RestoreSession: p.checkSession[entryIdx],
+		RestoreTasks:   false,
+	}, actionResolved
+}
+
+// isRawEntry reports whether an entry is a raw (unadopted) backend transcript
+// rather than an indexed harp session. Raw entries carry no harp name.
+func isRawEntry(e Entry) bool { return e.HarpName == "" }
+
 // DistillFunc shells out to force-distill a harp. Injected from the
 // caller (cmd/run.go) so this package stays decoupled from cobra and
 // the cmd binary. When nil, the keystroke surfaces a helpful error.
 type DistillFunc func(harpName string) error
+
+// AdoptFunc adopts a raw (unindexed) backend transcript into a new harp and
+// returns the assigned harp name. Injected from cmd/run.go so this package
+// stays decoupled from the session index's write path and the backend registry.
+// When nil, selecting a raw row surfaces a helpful message instead.
+type AdoptFunc func(sessionID, transcriptPath string) (harpName string, err error)
 
 // distillRow invokes the picker's distill callback for visible row n
 // (1-based). On success the index entry now has a summary, so the
@@ -211,6 +253,10 @@ func (p *Picker) distillRow(n int) {
 	visible := p.visible()
 	if n < 1 || n > len(visible) {
 		w.Printf("row %d out of range (1..%d)\n", n, len(visible))
+		return
+	}
+	if isRawEntry(p.Entries[visible[n-1]]) {
+		w.Println("(select this row to adopt the transcript first; it distills on resume)")
 		return
 	}
 	if p.Distill == nil {
@@ -286,6 +332,10 @@ func (p *Picker) render() {
 	w.Println("")
 	for i, entryIdx := range visible {
 		e := p.Entries[entryIdx]
+		if isRawEntry(e) {
+			p.renderRawRow(w, i+1, entryIdx, e)
+			continue
+		}
 		w.Printf(" [%d] [s%s] [t%s] %s   %s\n",
 			i+1,
 			checkbox(p.checkSession[entryIdx]),
@@ -304,6 +354,37 @@ func (p *Picker) render() {
 	}
 	w.Println("")
 	w.Printf("Choose [1-%d] resume · n new · s<N>/t<N> toggle · d<N> distill · m more · q quit\n> ", len(visible))
+}
+
+// renderRawRow renders a raw (unadopted) backend transcript row. Tasks have no
+// meaning before adoption, so the [t] box is shown as a dash; [s] is honored
+// (the adopted session's essence is restored on resume). Selecting the row
+// adopts the transcript and resumes from it.
+func (p *Picker) renderRawRow(w *iox.ErrWriter, row, entryIdx int, e Entry) {
+	w.Printf(" [%d] [s%s] [t-] (unadopted %s transcript)   %s\n",
+		row,
+		checkbox(p.checkSession[entryIdx]),
+		backendLabel(e.Backend),
+		e.StartedAt.Local().Format("2006-01-02 15:04"),
+	)
+	w.Printf("       transcript: %s (select to adopt + distill)\n", shortSessionID(e.SessionID))
+}
+
+// backendLabel returns a non-empty backend name for display.
+func backendLabel(backend string) string {
+	if backend == "" {
+		return "backend"
+	}
+	return backend
+}
+
+// shortSessionID abbreviates a backend session UUID for compact display,
+// keeping the leading segment that's enough to disambiguate at a glance.
+func shortSessionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8] + "…"
 }
 
 func checkbox(checked bool) string {

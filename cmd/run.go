@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,21 +54,25 @@ type resumeFlags struct {
 // and which parts to restore. Flag bypasses win over the picker;
 // non-interactive contexts (no TTY, no flags) silently fall through to
 // a fresh session.
-func resolveResumeIntent(mgr *sessions.Manager, workDir string) (sessions.Decision, error) {
+func resolveResumeIntent(mgr *sessions.Manager, workDir, backend string) (sessions.Decision, error) {
 	flags := resumeFlags{
 		Session:    runResumeSession,
 		TasksFrom:  runResumeTasksFrom,
 		NewSession: runResumeNewSession,
 		NoTasks:    runResumeNoTasks,
 	}
-	return resolveResumeIntentWith(flags, mgr, workDir, isInteractiveTerminal())
+	return resolveResumeIntentWith(flags, mgr, workDir, isInteractiveTerminal(),
+		backend, historyForBackend(backend), newAdoptFunc(mgr, workDir, backend))
 }
 
 // resolveResumeIntentWith is the IoC seam: takes the resume flags, the
-// session manager, the work directory, and a "stdin is a TTY" boolean.
-// All side-effect surfaces are arguments, so the decision tree is
-// trivially unit-testable across the flag matrix.
-func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir string, isTTY bool) (sessions.Decision, error) {
+// session manager, the work directory, a "stdin is a TTY" boolean, and the
+// backend's name + session history + adopt callback. All side-effect surfaces
+// are arguments, so the decision tree is trivially unit-testable across the
+// flag matrix. hist and adopt may be nil (e.g. unknown backend); the picker
+// then simply shows no raw transcripts / refuses adoption.
+func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir string, isTTY bool,
+	backend string, hist backends.SessionHistory, adopt sessions.AdoptFunc) (sessions.Decision, error) {
 	switch {
 	case flags.Session != "":
 		return sessions.Decision{
@@ -89,8 +94,12 @@ func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir s
 	if mgr == nil || !isTTY {
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
-	entries, err := mgr.ListForProject(workDir)
-	if err != nil || len(entries) == 0 {
+	// Combine indexed harp sessions with raw, not-yet-adopted backend
+	// transcripts (e.g. sessions started outside `ctxloom run`). Both reads are
+	// best-effort: a failure just narrows the picker, never blocks launch.
+	indexed, _ := mgr.ListForProject(workDir)
+	entries := buildPickerEntries(indexed, rawTranscripts(hist, workDir), backend)
+	if len(entries) == 0 {
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
 	p := &sessions.Picker{
@@ -98,8 +107,99 @@ func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir s
 		In:      os.Stdin,
 		Out:     os.Stderr,
 		Distill: shellOutDistill,
+		Adopt:   adopt,
 	}
 	return p.Run()
+}
+
+// historyForBackend returns the named backend's session history, or nil when
+// the backend is unknown — so raw-transcript scanning degrades to "no raw rows"
+// rather than failing the picker.
+func historyForBackend(name string) backends.SessionHistory {
+	if name == "" || !backends.Exists(name) {
+		return nil
+	}
+	b := backends.Get(name)
+	if b == nil {
+		return nil
+	}
+	return b.History()
+}
+
+// rawTranscripts lists the backend's raw transcripts for workDir, best-effort.
+func rawTranscripts(hist backends.SessionHistory, workDir string) []backends.SessionMeta {
+	if hist == nil {
+		return nil
+	}
+	metas, err := hist.ListSessions(workDir)
+	if err != nil {
+		return nil
+	}
+	return metas
+}
+
+// newAdoptFunc builds the picker's adopt callback: assign a fresh harp for the
+// chosen raw transcript and bind the transcript's session id / path to it, so
+// the downstream resume path distills and injects it like any other harp.
+// Returns nil when there's no index to write to.
+func newAdoptFunc(mgr *sessions.Manager, workDir, backend string) sessions.AdoptFunc {
+	if mgr == nil {
+		return nil
+	}
+	return func(sessionID, transcriptPath string) (string, error) {
+		entry, err := mgr.AssignHarp(workDir, backend)
+		if err != nil {
+			return "", fmt.Errorf("assign harp: %w", err)
+		}
+		if err := mgr.BindSession(entry.HarpName, sessionID, transcriptPath); err != nil {
+			return "", fmt.Errorf("bind session: %w", err)
+		}
+		return entry.HarpName, nil
+	}
+}
+
+// buildPickerEntries merges indexed harp sessions with raw, not-yet-adopted
+// backend transcripts into one most-recent-first list for the picker. A raw
+// transcript already represented in the index — matched by transcript path or
+// session id — is dropped so a session never appears twice. Surviving raw
+// transcripts become Entry values with an empty HarpName (the picker's "raw"
+// sentinel), carrying the session id / path the adopt step needs.
+func buildPickerEntries(indexed []sessions.Entry, raw []backends.SessionMeta, backend string) []sessions.Entry {
+	known := make(map[string]struct{}, len(indexed)*2)
+	for _, e := range indexed {
+		if e.TranscriptPath != "" {
+			known[filepath.Clean(e.TranscriptPath)] = struct{}{}
+		}
+		if e.SessionID != "" {
+			known["id:"+e.SessionID] = struct{}{}
+		}
+	}
+	out := append([]sessions.Entry(nil), indexed...)
+	for _, m := range raw {
+		if m.ID == "" && m.Path == "" {
+			continue
+		}
+		if m.Path != "" {
+			if _, ok := known[filepath.Clean(m.Path)]; ok {
+				continue
+			}
+		}
+		if m.ID != "" {
+			if _, ok := known["id:"+m.ID]; ok {
+				continue
+			}
+		}
+		out = append(out, sessions.Entry{
+			Backend:        backend,
+			SessionID:      m.ID,
+			TranscriptPath: m.Path,
+			StartedAt:      m.StartTime,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	return out
 }
 
 // execCommand is the seam tests override to avoid actually shelling
@@ -316,7 +416,7 @@ Examples:
 		if sessMgrErr != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", sessMgrErr)
 		}
-		resume, err := resolveResumeIntent(sessMgr, workDir)
+		resume, err := resolveResumeIntent(sessMgr, workDir, pluginName)
 		if err != nil {
 			return fmt.Errorf("resume intent: %w", err)
 		}

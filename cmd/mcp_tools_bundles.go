@@ -51,14 +51,6 @@ type deleteBundleInput struct {
 	Name string `json:"name" jsonschema:"Bundle name to delete"`
 }
 
-type pushBundleInput struct {
-	Path     string `json:"path" jsonschema:"Path to the bundle file to push"`
-	Title    string `json:"title,omitempty" jsonschema:"PR title (used when create_pr is true)"`
-	Message  string `json:"message,omitempty" jsonschema:"Commit message and PR body"`
-	CreatePR bool   `json:"create_pr,omitempty" jsonschema:"Open a pull request after pushing (default: false)"`
-	DryRun   bool   `json:"dry_run,omitempty" jsonschema:"Show what would be pushed without actually pushing"`
-}
-
 func (s *ctxServer) registerBundleTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -131,17 +123,6 @@ func (s *ctxServer) handleUpdateBundle(ctx context.Context, _ *mcp.CallToolReque
 
 func (s *ctxServer) handleDeleteBundle(ctx context.Context, _ *mcp.CallToolRequest, in deleteBundleInput) (*mcp.CallToolResult, *operations.DeleteBundleResult, error) {
 	result, err := operations.DeleteBundle(ctx, s.cfg, operations.DeleteBundleRequest{Name: in.Name})
-	return nil, result, err
-}
-
-func (s *ctxServer) handlePushBundle(ctx context.Context, _ *mcp.CallToolRequest, in pushBundleInput) (*mcp.CallToolResult, *operations.PushBundleResult, error) {
-	result, err := operations.PushBundle(ctx, s.cfg, operations.PushBundleRequest{
-		Path:     in.Path,
-		Title:    in.Title,
-		Message:  in.Message,
-		CreatePR: in.CreatePR,
-		DryRun:   in.DryRun,
-	})
 	return nil, result, err
 }
 

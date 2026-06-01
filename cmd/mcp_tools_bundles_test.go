@@ -116,30 +116,6 @@ func TestHandleUpdateBundle_PointerOptionalSemantics(t *testing.T) {
 		"setting a pointer field must trigger an update")
 }
 
-// TestHandlePushBundle_DryRun exercises the push handler without a real
-// remote or Publisher. The dry-run path produces a "preview" status and
-// surfaces enough metadata for the client to display what would be
-// pushed.
-func TestHandlePushBundle_DryRun(t *testing.T) {
-	s, appDir := newTestCtxServer(t)
-
-	_, _, err := s.handleCreateBundle(context.Background(), nil, createBundleInput{Name: "to-push"})
-	require.NoError(t, err)
-	bundlePath := filepath.Join(paths.BundlesPath(appDir), "to-push.yaml")
-
-	_, result, err := s.handlePushBundle(context.Background(), nil, pushBundleInput{
-		Path:    bundlePath,
-		DryRun:  true,
-		Message: "Add to-push",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Equal(t, "preview", result.Status)
-	assert.Equal(t, "personal", result.Remote)
-	assert.Equal(t, "ctxloom/bundles/to-push.yaml", result.TargetPath)
-	assert.NotEmpty(t, result.Preview)
-}
-
 // TestHandleDeleteBundle_RemovesFile checks the dispatch path and the
 // filesystem side-effect together. Operations.DeleteBundle has its own
 // tests, but this asserts our handler wires them correctly.
@@ -209,7 +185,6 @@ func TestBundleTools_RequiredFields(t *testing.T) {
 		"create_bundle": {"name"},
 		"update_bundle": {"name"},
 		"delete_bundle": {"name"},
-		"push_bundle":   {"path"},
 	}
 
 	for _, tool := range result.Tools {

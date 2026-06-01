@@ -139,7 +139,12 @@ flowchart LR
 
 ## Installation
 
-**macOS / Linux:**
+**macOS (Homebrew):**
+```bash
+brew install ctxloom/tap/ctxloom-full   # or ctxloom for the lighter build
+```
+
+**Linux (script):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
 ```
@@ -185,6 +190,9 @@ defaults:
   </Card>
   <Card title="Session Memory" icon="open-book">
     [Preserve context across sessions](/getting-started/memory/)
+  </Card>
+  <Card title="llm-tool-killer (ltk)" icon="approve-check">
+    Companion tool — [guide the commands your agent runs](/ecosystem/llm-tool-killer/), not just its context.
   </Card>
 </CardGrid>
 

@@ -21,8 +21,11 @@ ctxloom organizes context into reusable **bundles** that can be:
 ## Quick Start
 
 ```bash
-# Install
-just install              # Build and install to ~/go/bin
+# Install — macOS (Homebrew)
+brew install ctxloom/tap/ctxloom-full   # full build (tree-sitter); use ctxloom for the lighter build
+
+# Install — Linux / Windows (script)
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
 
 # Initialize a project
 ctxloom init                  # Create .ctxloom directory in current project
@@ -78,6 +81,10 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 - [MCP Server Setup](https://ctxloom.dev/guides/mcp-server)
 - [CLI Reference](https://ctxloom.dev/reference/cli)
 - [Contributing](https://ctxloom.dev/contributing)
+
+## Related projects
+
+- [**llm-tool-killer (`ltk`)**](https://github.com/ctxloom/llm-tool-killer) — a small static binary that hooks an AI coding agent's pre-tool step and redirects commands you'd rather it not run (e.g. `go test` → "use the task runner" → the agent retries `just test`). Pairs well with ctxloom: ctxloom shapes the *context* the agent sees, ltk guides the *commands* it runs.
 
 ## Development
 

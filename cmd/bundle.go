@@ -34,17 +34,10 @@ func init() {
 	bundleCmd.AddCommand(bundleImportCmd)
 	bundleCmd.AddCommand(bundleDistillCmd)
 
-	// Fragment subcommands
-	bundleCmd.AddCommand(bundleFragmentCmd)
-	bundleFragmentCmd.AddCommand(bundleFragmentListCmd)
-	bundleFragmentCmd.AddCommand(bundleFragmentEditCmd)
-
-	// Prompt subcommands
-	bundleCmd.AddCommand(bundlePromptCmd)
-	bundlePromptCmd.AddCommand(bundlePromptListCmd)
-	bundlePromptCmd.AddCommand(bundlePromptEditCmd)
-
-	// MCP subcommands
+	// Fragment/prompt management lives under the top-level `fragment` and
+	// `prompt` commands (full CRUD, routed through operations); the former
+	// duplicate `bundle fragment`/`bundle prompt` subtrees were removed. MCP
+	// editing has no top-level home, so it stays under `bundle mcp`.
 	bundleCmd.AddCommand(bundleMCPCmd)
 	bundleMCPCmd.AddCommand(bundleMCPEditCmd)
 

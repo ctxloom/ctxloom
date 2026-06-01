@@ -1,302 +1,25 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// ============ Bundle Fragment Commands ============
-
-var bundleFragmentCmd = &cobra.Command{
-	Use:   "fragment",
-	Short: "Manage fragments within a bundle",
-	Long:  `Commands for managing fragments within a bundle.`,
-}
-
-var bundleFragmentListCmd = &cobra.Command{
-	Use:   "list <bundle-name>",
-	Short: "List fragments in a bundle",
-	Long: `List all fragments in a specific bundle.
-
-Examples:
-  ctxloom bundle fragment list my-bundle
-  ctxloom bundle fragment list go-tools`,
-	Args: cobra.ExactArgs(1),
-	RunE: runBundleFragmentList,
-}
-
-func runBundleFragmentList(cmd *cobra.Command, args []string) error {
-	bundleName := args[0]
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	return renderBundleFragmentList(cmd.OutOrStdout(), bundle)
-}
-
-// renderBundleFragmentList writes one line per fragment to out:
-// `<name>[ [tag1, tag2]]`. Empty bundle gets a helpful one-line hint.
-// Iteration order follows the map iteration order (intentionally
-// unordered — the show command's FragmentNames() produces a stable
-// sort instead).
-func renderBundleFragmentList(out io.Writer, bundle *bundles.Bundle) error {
-	w := iox.NewErrWriter(out)
-	if len(bundle.Fragments) == 0 {
-		w.Println("No fragments in this bundle.")
-		return w.Err()
-	}
-	for name, frag := range bundle.Fragments {
-		w.Printf("%s", name)
-		if len(frag.Tags) > 0 {
-			w.Printf(" [%s]", strings.Join(frag.Tags, ", "))
-		}
-		w.Println()
-	}
-	return w.Err()
-}
-
-var bundleFragmentEditCmd = &cobra.Command{
-	Use:   "edit <bundle-name> <fragment-name>",
-	Short: "Edit a fragment's content",
-	Long: `Edit a fragment's content using your configured editor.
-
-Opens the fragment content in your editor. When you save and close,
-the bundle is updated with the new content.
-
-Examples:
-  ctxloom bundle fragment edit my-bundle coding-standards
-  ctxloom bundle fragment edit go-tools golang`,
-	Args: cobra.ExactArgs(2),
-	RunE: runBundleFragmentEdit,
-}
-
-func runBundleFragmentEdit(cmd *cobra.Command, args []string) error {
-	bundleName, fragName := args[0], args[1]
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	frag, exists := bundle.Fragments[fragName]
-	if !exists {
-		return fmt.Errorf("fragment not found: %s", fragName)
-	}
-
-	// Edit content using editor
-	newContent, err := editInEditor(cfg, frag.Content, fragName+".md")
-	if err != nil {
-		return fmt.Errorf("editor failed: %w", err)
-	}
-
-	if newContent == frag.Content {
-		fmt.Println("No changes made.")
-		return nil
-	}
-
-	// Update fragment content
-	frag.Content = newContent
-	bundle.Fragments[fragName] = frag
-
-	// Auto-distill if not marked as no_distill
-	if !frag.NoDistill {
-		fmt.Printf("Distilling %s...", fragName)
-
-		// Load distill prompt
-		distillPrompt, err := loadDistillPrompt()
-		if err != nil {
-			fmt.Printf(" skipped (no distill prompt)\n")
-		} else {
-			// Get plugin config
-			pluginName := cfg.GetDefaultLLMPlugin()
-			pluginCfg := cfg.LM.Plugins[pluginName]
-
-			// Build sibling context
-			siblingCtx := buildSiblingContext(bundle, "fragments/"+fragName)
-
-			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, fragName, frag.Content, distillPrompt, siblingCtx)
-			if err != nil {
-				fmt.Printf(" failed: %v\n", err)
-			} else {
-				frag.Distilled = distilled
-				frag.DistilledBy = modelID
-				frag.ContentHash = frag.ComputeContentHash()
-				bundle.Fragments[fragName] = frag
-				fmt.Printf(" done\n")
-			}
-		}
-	}
-
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
-	}
-
-	fmt.Printf("Updated fragment %q in bundle %q\n", fragName, bundleName)
-	return nil
-}
-
-// ============ Bundle Prompt Commands ============
-
-var bundlePromptCmd = &cobra.Command{
-	Use:   "prompt",
-	Short: "Manage prompts within a bundle",
-	Long:  `Commands for managing prompts within a bundle.`,
-}
-
-var bundlePromptListCmd = &cobra.Command{
-	Use:   "list <bundle-name>",
-	Short: "List prompts in a bundle",
-	Long: `List all prompts in a specific bundle.
-
-Examples:
-  ctxloom bundle prompt list my-bundle
-  ctxloom bundle prompt list go-tools`,
-	Args: cobra.ExactArgs(1),
-	RunE: runBundlePromptList,
-}
-
-func runBundlePromptList(cmd *cobra.Command, args []string) error {
-	bundleName := args[0]
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	return renderBundlePromptList(cmd.OutOrStdout(), bundle)
-}
-
-// renderBundlePromptList writes one line per prompt name to out, or a
-// one-line hint when the bundle has no prompts. Names only — tag and
-// description rendering live in renderBundlePromptEntry (used by show).
-func renderBundlePromptList(out io.Writer, bundle *bundles.Bundle) error {
-	w := iox.NewErrWriter(out)
-	if len(bundle.Prompts) == 0 {
-		w.Println("No prompts in this bundle.")
-		return w.Err()
-	}
-	for name := range bundle.Prompts {
-		w.Println(name)
-	}
-	return w.Err()
-}
-
-var bundlePromptEditCmd = &cobra.Command{
-	Use:   "edit <bundle-name> <prompt-name>",
-	Short: "Edit a prompt's content",
-	Long: `Edit a prompt's content using your configured editor.
-
-Opens the prompt content in your editor. When you save and close,
-the bundle is updated with the new content.
-
-Examples:
-  ctxloom bundle prompt edit my-bundle code-review
-  ctxloom bundle prompt edit go-tools refactor`,
-	Args: cobra.ExactArgs(2),
-	RunE: runBundlePromptEdit,
-}
-
-func runBundlePromptEdit(cmd *cobra.Command, args []string) error {
-	bundleName, promptName := args[0], args[1]
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	prompt, exists := bundle.Prompts[promptName]
-	if !exists {
-		return fmt.Errorf("prompt not found: %s", promptName)
-	}
-
-	// Edit content using editor
-	newContent, err := editInEditor(cfg, prompt.Content, promptName+".md")
-	if err != nil {
-		return fmt.Errorf("editor failed: %w", err)
-	}
-
-	if newContent == prompt.Content {
-		fmt.Println("No changes made.")
-		return nil
-	}
-
-	// Update prompt content
-	prompt.Content = newContent
-	bundle.Prompts[promptName] = prompt
-
-	// Auto-distill if not marked as no_distill
-	if !prompt.NoDistill {
-		fmt.Printf("Distilling %s...", promptName)
-
-		// Load distill prompt
-		distillPrompt, err := loadDistillPrompt()
-		if err != nil {
-			fmt.Printf(" skipped (no distill prompt)\n")
-		} else {
-			// Get plugin config
-			pluginName := cfg.GetDefaultLLMPlugin()
-			pluginCfg := cfg.LM.Plugins[pluginName]
-
-			// Build sibling context
-			siblingCtx := buildSiblingContext(bundle, "prompts/"+promptName)
-
-			distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, promptName, prompt.Content, distillPrompt, siblingCtx)
-			if err != nil {
-				fmt.Printf(" failed: %v\n", err)
-			} else {
-				prompt.Distilled = distilled
-				prompt.DistilledBy = modelID
-				prompt.ContentHash = prompt.ComputeContentHash()
-				bundle.Prompts[promptName] = prompt
-				fmt.Printf(" done\n")
-			}
-		}
-	}
-
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
-	}
-
-	fmt.Printf("Updated prompt %q in bundle %q\n", promptName, bundleName)
-	return nil
-}
+// Fragment and prompt management under `bundle` was a partial duplicate of the
+// top-level `fragment`/`prompt` command trees (which carry the full CRUD and
+// already route through internal/operations). Those duplicate subtrees were
+// removed; MCP-server editing has no top-level equivalent, so it stays here —
+// routed through the operations core like everything else.
 
 // ============ Bundle MCP Commands ============
 
@@ -329,51 +52,56 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	// Read the current config through operations; YAML is just this frontend's
+	// editor representation (the core deals in structured BundleMCPInput).
+	cur, err := operations.GetBundleMCP(cmd.Context(), cfg, operations.GetBundleMCPRequest{Bundle: bundleName, Name: mcpName})
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		if errors.Is(err, operations.ErrItemNotFound) {
+			return fmt.Errorf("MCP server not found: %s", mcpName)
+		}
+		return err
 	}
 
-	mcp, exists := bundle.MCP[mcpName]
-	if !exists {
-		return fmt.Errorf("MCP server not found: %s", mcpName)
-	}
-
-	// Serialize MCP config to YAML for editing
-	mcpYAML, err := yaml.Marshal(&mcp)
+	mcpYAML, err := yaml.Marshal(&cur.MCP)
 	if err != nil {
 		return fmt.Errorf("failed to serialize MCP config: %w", err)
 	}
 
-	// Edit content using editor
 	newContent, err := editInEditor(cfg, string(mcpYAML), mcpName+".yaml")
 	if err != nil {
 		return fmt.Errorf("editor failed: %w", err)
 	}
-
 	if newContent == string(mcpYAML) {
 		fmt.Println("No changes made.")
 		return nil
 	}
 
-	// Parse new YAML
-	var newMCP bundles.BundleMCP
-	if err := yaml.Unmarshal([]byte(newContent), &newMCP); err != nil {
+	var edited bundles.BundleMCP
+	if err := yaml.Unmarshal([]byte(newContent), &edited); err != nil {
 		return fmt.Errorf("invalid YAML: %w", err)
 	}
 
-	bundle.MCP[mcpName] = newMCP
-
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
+	if _, err := operations.SetBundleMCP(cmd.Context(), cfg, operations.SetBundleMCPRequest{
+		Bundle: bundleName,
+		Name:   mcpName,
+		MCP: operations.BundleMCPInput{
+			Command:      edited.Command,
+			Args:         edited.Args,
+			Env:          edited.Env,
+			Notes:        edited.Notes,
+			Installation: edited.Installation,
+		},
+	}); err != nil {
+		return err
 	}
 
 	fmt.Printf("Updated MCP server %q in bundle %q\n", mcpName, bundleName)
 	return nil
 }
 
-// editInEditor opens content in the configured editor and returns the edited content.
+// editInEditor opens content in the configured editor and returns the edited
+// content. The temp-file round-trip and editor invocation are frontend concerns;
+// callers persist the result through internal/operations.
 func editInEditor(cfg *config.Config, content, filename string) (string, error) {
 	// Create temp file
 	tmpDir := os.TempDir()

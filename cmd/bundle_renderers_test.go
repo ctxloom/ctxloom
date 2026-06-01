@@ -268,50 +268,6 @@ func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 }
 
 // =============================================================================
-// renderBundleFragmentList / renderBundlePromptList
-// =============================================================================
-
-func TestRenderBundleFragmentList_EmptyShowsHint(t *testing.T) {
-	var buf bytes.Buffer
-	assert.NoError(t, renderBundleFragmentList(&buf, &bundles.Bundle{}))
-	assert.Equal(t, "No fragments in this bundle.\n", buf.String())
-}
-
-func TestRenderBundleFragmentList_TagsRenderedWhenPresent(t *testing.T) {
-	b := &bundles.Bundle{Fragments: map[string]bundles.BundleFragment{
-		"with-tags": {Tags: []string{"go", "review"}},
-		"plain":     {},
-	}}
-	var buf bytes.Buffer
-	assert.NoError(t, renderBundleFragmentList(&buf, b))
-	out := buf.String()
-	assert.Contains(t, out, "with-tags [go, review]")
-	// Plain entry must NOT carry empty brackets.
-	assert.Contains(t, out, "plain\n")
-	assert.NotContains(t, out, "plain []")
-}
-
-func TestRenderBundlePromptList_EmptyShowsHint(t *testing.T) {
-	var buf bytes.Buffer
-	assert.NoError(t, renderBundlePromptList(&buf, &bundles.Bundle{}))
-	assert.Equal(t, "No prompts in this bundle.\n", buf.String())
-}
-
-func TestRenderBundlePromptList_OneLinePerName(t *testing.T) {
-	b := &bundles.Bundle{Prompts: map[string]bundles.BundlePrompt{
-		"alpha": {Description: "ignored by list view"},
-		"beta":  {},
-	}}
-	var buf bytes.Buffer
-	assert.NoError(t, renderBundlePromptList(&buf, b))
-	out := buf.String()
-	assert.Contains(t, out, "alpha\n")
-	assert.Contains(t, out, "beta\n")
-	// List view must NOT leak descriptions — only show does that.
-	assert.NotContains(t, out, "ignored by list view")
-}
-
-// =============================================================================
 // parseBundleViewRef
 // =============================================================================
 

@@ -315,6 +315,65 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	}, nil
 }
 
+// MCP servers are a third kind of bundle item, but unlike fragments/prompts
+// they carry no distilled content, so they get a focused get/set pair rather
+// than joining the ItemKind machinery.
+
+// GetBundleMCPRequest identifies an MCP server to read.
+type GetBundleMCPRequest struct {
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+}
+
+// GetBundleMCPResult carries an MCP server's configuration.
+type GetBundleMCPResult struct {
+	MCP bundles.BundleMCP `json:"mcp"`
+}
+
+// GetBundleMCP returns a bundle's MCP server config, or ErrItemNotFound. The
+// read half of an MCP edit; the frontend renders it however it likes.
+func GetBundleMCP(_ context.Context, cfg *config.Config, req GetBundleMCPRequest) (*GetBundleMCPResult, error) {
+	bundle, err := bundleLoader(cfg).Load(req.Bundle)
+	if err != nil {
+		return nil, fmt.Errorf("bundle %q not found: %w", req.Bundle, err)
+	}
+	mcp, ok := bundle.MCP[req.Name]
+	if !ok {
+		return nil, fmt.Errorf("mcp %q: %w", req.Name, ErrItemNotFound)
+	}
+	return &GetBundleMCPResult{MCP: mcp}, nil
+}
+
+// SetBundleMCPRequest is the input for SetBundleMCP.
+type SetBundleMCPRequest struct {
+	Bundle string         `json:"bundle"`
+	Name   string         `json:"name"`
+	MCP    BundleMCPInput `json:"mcp"`
+}
+
+// SetBundleMCPResult reports an updated MCP server.
+type SetBundleMCPResult struct {
+	Status string `json:"status"`
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+}
+
+// SetBundleMCP upserts an MCP server config into a bundle (symlink-guarded
+// save), the write half of an MCP edit. The frontend supplies a structured
+// BundleMCPInput — it never hands the core its editor's raw YAML.
+func SetBundleMCP(_ context.Context, cfg *config.Config, req SetBundleMCPRequest) (*SetBundleMCPResult, error) {
+	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	applyMCPEdits(bundle, map[string]BundleMCPInput{req.Name: req.MCP}, nil, nil)
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	return &SetBundleMCPResult{Status: "updated", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
+}
+
 // itemContent returns the raw and distilled content of a named item, and whether
 // it exists, for either kind.
 func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distilled string, ok bool) {

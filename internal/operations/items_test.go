@@ -198,6 +198,36 @@ func TestDistillItem_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
+func TestBundleMCP_GetSet(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	// Seed an MCP server.
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:          "b",
+		SetMCPServers: map[string]BundleMCPInput{"srv": {Command: "old"}},
+	})
+	require.NoError(t, err)
+
+	got, err := GetBundleMCP(context.Background(), cfg, GetBundleMCPRequest{Bundle: "b", Name: "srv"})
+	require.NoError(t, err)
+	assert.Equal(t, "old", got.MCP.Command)
+
+	_, err = SetBundleMCP(context.Background(), cfg, SetBundleMCPRequest{
+		Bundle: "b", Name: "srv", MCP: BundleMCPInput{Command: "new", Args: []string{"-x"}},
+	})
+	require.NoError(t, err)
+
+	got, err = GetBundleMCP(context.Background(), cfg, GetBundleMCPRequest{Bundle: "b", Name: "srv"})
+	require.NoError(t, err)
+	assert.Equal(t, "new", got.MCP.Command)
+	assert.Equal(t, []string{"-x"}, got.MCP.Args)
+}
+
+func TestGetBundleMCP_NotFound(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	_, err := GetBundleMCP(context.Background(), cfg, GetBundleMCPRequest{Bundle: "b", Name: "ghost"})
+	require.ErrorIs(t, err, ErrItemNotFound)
+}
+
 func TestItemOps_InvalidKind(t *testing.T) {
 	cfg := newItemTestBundle(t)
 	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: "bogus", Name: "x", Content: "c"})

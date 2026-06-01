@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // TestEnsureGitignoreEntry covers ctxloom init's "make sure
@@ -95,7 +97,7 @@ func TestEnsureGitignoreEntry(t *testing.T) {
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "gemini", "codex"} {
 		t.Run(engine, func(t *testing.T) {
-			data := generateConfig(engine)
+			data := operations.GenerateConfigYAML(engine)
 			body := string(data)
 			// Two substitution sites.
 			assert.Contains(t, body, "  "+engine+": {}",
@@ -112,7 +114,7 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data := generateConfig("claude-code")
+	data := operations.GenerateConfigYAML("claude-code")
 	body := string(data)
 	// Three default fields land at the top level so a user can grep for
 	// each without parsing.

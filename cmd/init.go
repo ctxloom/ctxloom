@@ -18,8 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 var initCmd = &cobra.Command{
@@ -358,25 +356,6 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 }
 
 // generateConfig creates a config.yaml with the selected engine and options.
-func generateConfig(engine string) []byte {
-	return []byte(fmt.Sprintf(`# ctxloom Configuration
-# See https://github.com/ctxloom/ctxloom for documentation
-
-# Language model plugin configuration
-llm:
-  plugins:
-    %s: {}
-
-# Default settings
-defaults:
-  llm_plugin: %s
-  use_distilled: true
-
-# MCP server configuration
-mcp:
-  auto_register_ctxloom: true
-`, engine, engine))
-}
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
 // It uses only the real ctxloom surface: the search_remotes MCP tool (which
@@ -657,33 +636,14 @@ func promptForEngineAndRepos() (engine string, repos []string, err error) {
 	return engine, repos, nil
 }
 
-// writeInitialConfig creates the .ctxloom directory skeleton and writes
-// config.yaml (carrying the chosen engine) and remotes.yaml (default remotes).
-// Safe to re-run: directories use MkdirAll and files are overwritten.
+// writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
+// config.yaml + default remotes.yaml) to the operations core.
 func writeInitialConfig(appDir, engine string) error {
-	dirs := []string{
-		appDir,
-		filepath.Join(appDir, paths.ProfilesDir),
-		paths.BundlesPath(appDir),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	if err := os.WriteFile(paths.ConfigPath(appDir), generateConfig(engine), 0644); err != nil {
-		return fmt.Errorf("failed to create config.yaml: %w", err)
-	}
-
-	remotesContent, err := resources.GetDefaultRemotes()
-	if err != nil {
-		return fmt.Errorf("failed to read default remotes: %w", err)
-	}
-	if err := os.WriteFile(paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
-		return fmt.Errorf("failed to create remotes.yaml: %w", err)
-	}
-	return nil
+	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+		AppDir: appDir,
+		Engine: engine,
+	})
+	return err
 }
 
 // addPersonalRemotes registers the user's personal repos. The first is named

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var bundleViewCmd = &cobra.Command{
@@ -46,33 +46,22 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return fmt.Errorf("no bundles directory found")
-	}
-
-	loader := bundles.NewLoader(bundleDirs, false)
-
 	bundleName, itemPath := parseBundleViewRef(ref)
 
-	bundle, err := loader.Load(bundleName)
+	res, err := operations.ReadBundle(cmd.Context(), cfg, operations.ReadBundleRequest{Name: bundleName})
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		return err
 	}
 
 	out := cmd.OutOrStdout()
 
 	// If no path, show full bundle YAML.
 	if itemPath == "" {
-		data, err := os.ReadFile(bundle.Path)
-		if err != nil {
-			return fmt.Errorf("failed to read bundle: %w", err)
-		}
-		_, _ = out.Write(data)
+		_, _ = out.Write(res.Raw)
 		return nil
 	}
 
-	return renderBundleViewItem(out, bundle, itemPath, bundleViewDistilled)
+	return renderBundleViewItem(out, res.Bundle, itemPath, bundleViewDistilled)
 }
 
 // parseBundleViewRef splits a `view` argument like `mybundle` or

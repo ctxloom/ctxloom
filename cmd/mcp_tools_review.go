@@ -498,11 +498,7 @@ func (s *ctxServer) handleTrustRemote(ctx context.Context, _ *mcp.CallToolReques
 	if in.Name == "" {
 		return nil, nil, fmt.Errorf("name is required")
 	}
-	registry, err := operations.GetRegistry(s.cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load registry: %w", err)
-	}
-	if err := registry.SetTrustBundles(in.Name, in.Trust); err != nil {
+	if _, err := operations.SetRemoteTrust(ctx, s.cfg, operations.SetRemoteTrustRequest{Name: in.Name, Trust: in.Trust}); err != nil {
 		return nil, nil, err
 	}
 

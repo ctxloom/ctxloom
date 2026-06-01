@@ -225,6 +225,19 @@ func TestSetAndGetDefaultRemote(t *testing.T) {
 	assert.Empty(t, got.Name, "cleared default reads back empty")
 }
 
+func TestSetRemoteTrust(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	res, err := SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "alice", Trust: true, Registry: registry})
+	require.NoError(t, err)
+	assert.Equal(t, "trusted", res.Status)
+
+	res, err = SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "alice", Trust: false, Registry: registry})
+	require.NoError(t, err)
+	assert.Equal(t, "untrusted", res.Status)
+}
+
 func TestListRemotes_Empty(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 

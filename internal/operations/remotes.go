@@ -257,6 +257,44 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 	return registry, nil
 }
 
+// SetRemoteTrustRequest is the input for SetRemoteTrust.
+type SetRemoteTrustRequest struct {
+	Name  string `json:"name"`
+	Trust bool   `json:"trust"`
+
+	Registry *remote.Registry `json:"-"`
+	FS       afero.Fs         `json:"-"`
+}
+
+// SetRemoteTrustResult reports the trust change. Status is "trusted" or
+// "untrusted".
+type SetRemoteTrustResult struct {
+	Status string `json:"status"`
+	Name   string `json:"name"`
+	Trust  bool   `json:"trust"`
+}
+
+// SetRemoteTrust sets whether a remote's bundle changes are auto-trusted. The
+// trust mutation lives here so every frontend (the MCP trust_remote tool today)
+// goes through the same path rather than poking the registry directly.
+func SetRemoteTrust(_ context.Context, cfg *config.Config, req SetRemoteTrustRequest) (*SetRemoteTrustResult, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	registry, err := defaultRemoteRegistry(cfg, DefaultRemoteRequest{Registry: req.Registry, FS: req.FS})
+	if err != nil {
+		return nil, err
+	}
+	if err := registry.SetTrustBundles(req.Name, req.Trust); err != nil {
+		return nil, err
+	}
+	status := "untrusted"
+	if req.Trust {
+		status = "trusted"
+	}
+	return &SetRemoteTrustResult{Status: status, Name: req.Name, Trust: req.Trust}, nil
+}
+
 // UpdateRemoteRequest contains parameters for updating cached remote repos.
 type UpdateRemoteRequest struct {
 	// Name is an optional remote name. If empty, all remotes are updated.

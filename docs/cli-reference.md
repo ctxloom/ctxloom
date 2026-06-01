@@ -310,14 +310,6 @@ ctxloom plugin list
 ctxloom plugin default claude-code
 ```
 
-#### `ctxloom meta stamp`
-
-Output metadata for session tracking.
-
-```bash
-ctxloom meta stamp
-```
-
 #### `ctxloom version`
 
 Print version number.

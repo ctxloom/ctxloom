@@ -111,7 +111,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "recover_session",
-			Description: "Recover context from the current session after /clear. Uses the stable process ID from CTXLOOM_STAMP to find the previous session, or falls back to the most recent session.",
+			Description: "Recover context from the current session after /clear. Resolves the most recent session transcript for this working directory and distills it (no session id needed; pass one to target a specific session).",
 		},
 		s.handleRecoverSession)
 

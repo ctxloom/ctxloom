@@ -23,9 +23,6 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new .ctxloom directory",
-	Annotations: map[string]string{
-		AnnotationLLMWrapper: "true",
-	},
 	Long: `Initialize a new .ctxloom directory in the current working directory.
 
 This creates a marker directory that ctxloom uses to identify a project root.

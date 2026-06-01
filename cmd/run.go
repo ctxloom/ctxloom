@@ -274,9 +274,6 @@ func resumePartsCSV(d sessions.Decision) string {
 var runCmd = &cobra.Command{
 	Use:   "run [flags] [prompt...]",
 	Short: "Assemble context and run AI",
-	Annotations: map[string]string{
-		AnnotationLLMWrapper: "true",
-	},
 	Long: `Assemble context from fragments and execute the configured AI plugin.
 
 Fragments are loaded from bundles in .ctxloom/bundles/.

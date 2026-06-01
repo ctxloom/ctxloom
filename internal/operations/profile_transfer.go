@@ -3,18 +3,34 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/profiles"
 )
+
+// profileLoaderFS builds a profile loader over the given filesystem. It resolves
+// dirs directly (not via GetProfileDirs, which os.Stat-gates on the real FS) so
+// an injected filesystem works; the loader filters non-existent dirs itself.
+func profileLoaderFS(cfg *config.Config, fs afero.Fs) *profiles.Loader {
+	var dirs []string
+	for _, p := range cfg.AppPaths {
+		dirs = append(dirs, paths.ProfilesPath(p))
+	}
+	return profiles.NewLoader(dirs, profiles.WithFS(fs))
+}
 
 // ExportProfileRequest is the input for ExportProfile.
 type ExportProfileRequest struct {
 	Name    string `json:"name"`
 	DestDir string `json:"dest_dir"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // ExportProfileResult reports the export.
@@ -31,19 +47,20 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 	if req.DestDir == "" {
 		return nil, fmt.Errorf("destination directory is required")
 	}
-	profile, err := profileLoader(cfg).Load(req.Name)
+	fs := getFS(req.FS)
+	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("profile %q not found", req.Name)
 	}
-	srcData, err := os.ReadFile(profile.Path)
+	srcData, err := afero.ReadFile(fs, profile.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile: %w", err)
 	}
-	if err := os.MkdirAll(req.DestDir, 0755); err != nil {
+	if err := fs.MkdirAll(req.DestDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
 	dest := filepath.Join(req.DestDir, filepath.Base(profile.Path))
-	if err := os.WriteFile(dest, srcData, 0644); err != nil {
+	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ExportProfileResult{Status: "exported", Name: req.Name, Source: profile.Path, Dest: dest}, nil
@@ -53,6 +70,9 @@ func ExportProfile(_ context.Context, cfg *config.Config, req ExportProfileReque
 type ImportProfileRequest struct {
 	SourcePath string `json:"source_path"`
 	Force      bool   `json:"force"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // ImportProfileResult reports the import.
@@ -68,7 +88,8 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	srcData, err := os.ReadFile(req.SourcePath)
+	fs := getFS(req.FS)
+	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}
@@ -80,14 +101,14 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	}
 
 	profileDir := filepath.Join(cfg.AppPaths[0], "profiles")
-	if err := os.MkdirAll(profileDir, 0755); err != nil {
+	if err := fs.MkdirAll(profileDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create profiles directory: %w", err)
 	}
 	dest := filepath.Join(profileDir, filepath.Base(req.SourcePath))
-	if _, err := os.Stat(dest); err == nil && !req.Force {
+	if exists, _ := afero.Exists(fs, dest); exists && !req.Force {
 		return nil, fmt.Errorf("profile already exists: %s (use --force to overwrite)", dest)
 	}
-	if err := os.WriteFile(dest, srcData, 0644); err != nil {
+	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write profile: %w", err)
 	}
 	return &ImportProfileResult{Status: "imported", Source: req.SourcePath, Dest: dest}, nil
@@ -98,6 +119,9 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 // result back through the core (which validates and persists).
 type GetProfileContentRequest struct {
 	Name string `json:"name"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // GetProfileContentResult carries a profile's raw YAML.
@@ -108,11 +132,12 @@ type GetProfileContentResult struct {
 
 // GetProfileContent returns a profile's raw YAML file content.
 func GetProfileContent(_ context.Context, cfg *config.Config, req GetProfileContentRequest) (*GetProfileContentResult, error) {
-	profile, err := profileLoader(cfg).Load(req.Name)
+	fs := getFS(req.FS)
+	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("profile %q not found", req.Name)
 	}
-	data, err := os.ReadFile(profile.Path)
+	data, err := afero.ReadFile(fs, profile.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile: %w", err)
 	}
@@ -123,6 +148,9 @@ func GetProfileContent(_ context.Context, cfg *config.Config, req GetProfileCont
 type SetProfileContentRequest struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // SetProfileContentResult reports the write.
@@ -135,7 +163,8 @@ type SetProfileContentResult struct {
 // SetProfileContent validates edited YAML and writes it back to the profile's
 // file. Invalid YAML is rejected so a botched edit doesn't corrupt the profile.
 func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileContentRequest) (*SetProfileContentResult, error) {
-	profile, err := profileLoader(cfg).Load(req.Name)
+	fs := getFS(req.FS)
+	profile, err := profileLoaderFS(cfg, fs).Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("profile %q not found", req.Name)
 	}
@@ -143,7 +172,7 @@ func SetProfileContent(_ context.Context, cfg *config.Config, req SetProfileCont
 	if err := yaml.Unmarshal([]byte(req.Content), &probe); err != nil {
 		return nil, fmt.Errorf("invalid profile: %w", err)
 	}
-	if err := os.WriteFile(profile.Path, []byte(req.Content), 0644); err != nil {
+	if err := afero.WriteFile(fs, profile.Path, []byte(req.Content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)
 	}
 	return &SetProfileContentResult{Status: "updated", Name: req.Name, Path: profile.Path}, nil

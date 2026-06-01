@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -18,6 +19,9 @@ type ExportBundleRequest struct {
 	Name       string `json:"name"`
 	OutputFile string `json:"output_file,omitempty"`
 	DestDir    string `json:"dest_dir,omitempty"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // ExportBundleResult reports the export.
@@ -32,14 +36,22 @@ type ExportBundleResult struct {
 // author workflow — e.g. staging for publish). The destination is user-chosen
 // and outside the bundles tree, so no symlink guard applies.
 func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest) (*ExportBundleResult, error) {
-	if cfg == nil || len(cfg.GetBundleDirs()) == 0 {
+	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
 	}
-	bundle, err := bundles.NewLoader(cfg.GetBundleDirs(), false).Load(req.Name)
+	fs := getFS(req.FS)
+	// Resolve bundle dirs directly (not via GetBundleDirs, which os.Stat-gates
+	// on the real FS) so an injected filesystem works; the loader filters
+	// non-existent dirs itself via afero.DirExists.
+	var dirs []string
+	for _, p := range cfg.AppPaths {
+		dirs = append(dirs, paths.BundlesPath(p))
+	}
+	bundle, err := bundles.NewLoader(dirs, false, bundles.WithFS(fs)).Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
 	}
-	srcData, err := os.ReadFile(bundle.Path)
+	srcData, err := afero.ReadFile(fs, bundle.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
 	}
@@ -49,12 +61,12 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	case req.OutputFile != "":
 		dest = req.OutputFile
 		if dir := filepath.Dir(dest); dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := fs.MkdirAll(dir, 0755); err != nil {
 				return nil, fmt.Errorf("failed to create destination directory: %w", err)
 			}
 		}
 	case req.DestDir != "":
-		if err := os.MkdirAll(req.DestDir, 0755); err != nil {
+		if err := fs.MkdirAll(req.DestDir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create destination directory: %w", err)
 		}
 		dest = filepath.Join(req.DestDir, filepath.Base(bundle.Path))
@@ -62,7 +74,7 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("either an output file or a destination directory must be specified")
 	}
 
-	if err := os.WriteFile(dest, srcData, 0644); err != nil {
+	if err := afero.WriteFile(fs, dest, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest}, nil
@@ -72,6 +84,9 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 type ImportBundleRequest struct {
 	SourcePath string `json:"source_path"`
 	Force      bool   `json:"force"`
+
+	// FS is an optional filesystem (defaults to the OS filesystem).
+	FS afero.Fs `json:"-"`
 }
 
 // ImportBundleResult reports the import plus a small summary of the bundle.
@@ -92,7 +107,8 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	srcData, err := os.ReadFile(req.SourcePath)
+	fs := getFS(req.FS)
+	srcData, err := afero.ReadFile(fs, req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %w", err)
 	}
@@ -106,13 +122,13 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	if err := requireSafeBundlePath([]string{bundleDir}, destPath); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(bundleDir, 0755); err != nil {
+	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
-	if _, err := os.Stat(destPath); err == nil && !req.Force {
+	if exists, _ := afero.Exists(fs, destPath); exists && !req.Force {
 		return nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
 	}
-	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
+	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 

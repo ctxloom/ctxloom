@@ -23,8 +23,14 @@ type HookInput struct {
 
 // HookOutput represents the JSON output format for AI tool hooks.
 // This format is compatible with both Claude Code and Gemini CLI SessionStart hooks.
+//
+// SystemMessage rides a separate channel from HookSpecificOutput: Claude Code
+// surfaces it to the user in the terminal, NOT to the model. We use it to nudge
+// the user toward /recover after a /clear, where the model gets no context but
+// the human needs to know prior context can be pulled back.
 type HookOutput struct {
 	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
+	SystemMessage      string              `json:"systemMessage,omitempty"`
 }
 
 // HookSpecificOutput contains hook-specific data to inject.
@@ -88,6 +94,12 @@ Output format (JSON to stdout):
 		// multiple ordered hooks, only the first chunk registers — the rest are
 		// kept lightweight so the rendezvous (AwaitTurn) sequences on uniform,
 		// minimal work and never on variable registration latency.
+		//
+		// clearRecoverable tracks whether, after registering this session, a
+		// prior session exists to recover from. It only ever flips true on a
+		// /clear at part<=1; later chunks skip this block, so the user-facing
+		// nudge fires exactly once per clear.
+		var clearRecoverable bool
 		if injectContextPart <= 1 {
 			backend := backends.Get(injectContextBackend)
 			if backend == nil {
@@ -99,6 +111,17 @@ Output format (JSON to stdout):
 					pid := findCtxloomWrapperPID()
 					if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
 						fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
+					}
+					// On /clear the model gets no recovered context, so check
+					// whether there's a prior session to point the user at.
+					// GetPreviousSession is local file I/O (no LLM call): it
+					// reads the registry and parses the prior transcript. On any
+					// error we stay silent rather than promise a recovery we
+					// can't confirm.
+					if hookInput.Source == "clear" {
+						if prev, err := history.GetPreviousSession(workDir, pid); err == nil && prev != nil {
+							clearRecoverable = true
+						}
 					}
 				}
 			}
@@ -134,6 +157,11 @@ Output format (JSON to stdout):
 		// (header/footer, empty-content handling, SessionStart event
 		// name) is unit-testable without the surrounding hook plumbing.
 		output := buildInjectContextOutput(content, resumedEssence, part, total)
+
+		// After a /clear with a recoverable prior session, nudge the user
+		// (not the model) toward /recover. Rides the user-facing systemMessage
+		// channel, independent of any context injected above.
+		output.SystemMessage = clearRecoveryMessage(hookInput.Source, part, clearRecoverable)
 
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
@@ -220,6 +248,18 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 			AdditionalContext: body,
 		},
 	}
+}
+
+// clearRecoveryMessage returns the user-facing nudge shown after a /clear when
+// a prior session is recoverable, or "" otherwise. It rides only part<=1 (so a
+// chunked injection shows it once) and only the "clear" source — startup,
+// resume, and compact already retain or re-inject context, so the user has
+// nothing to recover there.
+func clearRecoveryMessage(source string, part int, recoverable bool) string {
+	if part > 1 || source != "clear" || !recoverable {
+		return ""
+	}
+	return "ctxloom: context cleared. Run /recover to bring your previous session's context back."
 }
 
 // resumedEssenceForInjection returns the distilled essence to inject for a

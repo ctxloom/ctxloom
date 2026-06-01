@@ -187,12 +187,18 @@ type UpdateBundleRequest struct {
 	AddTags        []string `json:"add_tags,omitempty"`
 	RemoveTags     []string `json:"remove_tags,omitempty"`
 
+	// Add* are create-if-absent: an entry whose name already exists is left
+	// untouched (no clobber). Set* are upsert. The CLI `bundle edit --add-*`
+	// flags map to Add*; MCP tools that overwrite use Set*.
+	AddFragments    map[string]BundleFragmentInput `json:"add_fragments,omitempty"`
 	SetFragments    map[string]BundleFragmentInput `json:"set_fragments,omitempty"`
 	RemoveFragments []string                       `json:"remove_fragments,omitempty"`
 
+	AddPrompts    map[string]BundlePromptInput `json:"add_prompts,omitempty"`
 	SetPrompts    map[string]BundlePromptInput `json:"set_prompts,omitempty"`
 	RemovePrompts []string                     `json:"remove_prompts,omitempty"`
 
+	AddMCPServers    map[string]BundleMCPInput `json:"add_mcp_servers,omitempty"`
 	SetMCPServers    map[string]BundleMCPInput `json:"set_mcp_servers,omitempty"`
 	RemoveMCPServers []string                  `json:"remove_mcp_servers,omitempty"`
 
@@ -231,9 +237,16 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	// maps and (for fragments/prompts) report which names need (re)distillation.
 	bundle.Tags, changes = applyListEdits(bundle.Tags, req.AddTags, req.RemoveTags, "tag", changes)
 
+	// Add* are create-if-absent: filter to names not already present, then reuse
+	// the same merge path (for brand-new names a merge is identical to a set).
 	var fragmentDistillTargets, promptDistillTargets []string
+	changes, addFT := applyFragmentEdits(bundle, onlyNewFragments(bundle, req.AddFragments), nil, changes)
 	changes, fragmentDistillTargets = applyFragmentEdits(bundle, req.SetFragments, req.RemoveFragments, changes)
+	fragmentDistillTargets = append(fragmentDistillTargets, addFT...)
+	changes, addPT := applyPromptEdits(bundle, onlyNewPrompts(bundle, req.AddPrompts), nil, changes)
 	changes, promptDistillTargets = applyPromptEdits(bundle, req.SetPrompts, req.RemovePrompts, changes)
+	promptDistillTargets = append(promptDistillTargets, addPT...)
+	changes = applyMCPEdits(bundle, onlyNewMCP(bundle, req.AddMCPServers), nil, changes)
 	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
 
 	if len(changes) == 0 {
@@ -378,6 +391,49 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundlePromptInput, 
 		}
 	}
 	return changes, distillTargets
+}
+
+// onlyNewFragments returns the subset of in whose names are not already present
+// in the bundle — the add-only filter so create-if-absent never overwrites.
+func onlyNewFragments(b *bundles.Bundle, in map[string]BundleFragmentInput) map[string]BundleFragmentInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]BundleFragmentInput, len(in))
+	for name, v := range in {
+		if _, exists := b.Fragments[name]; !exists {
+			out[name] = v
+		}
+	}
+	return out
+}
+
+// onlyNewPrompts is the prompt counterpart of onlyNewFragments.
+func onlyNewPrompts(b *bundles.Bundle, in map[string]BundlePromptInput) map[string]BundlePromptInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]BundlePromptInput, len(in))
+	for name, v := range in {
+		if _, exists := b.Prompts[name]; !exists {
+			out[name] = v
+		}
+	}
+	return out
+}
+
+// onlyNewMCP is the MCP-server counterpart of onlyNewFragments.
+func onlyNewMCP(b *bundles.Bundle, in map[string]BundleMCPInput) map[string]BundleMCPInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]BundleMCPInput, len(in))
+	for name, v := range in {
+		if _, exists := b.MCP[name]; !exists {
+			out[name] = v
+		}
+	}
+	return out
 }
 
 // applyMCPEdits merges set inputs into the bundle's MCP servers and applies

@@ -4,7 +4,13 @@
 
 ## Status
 
-Accepted.
+Superseded by [0019](0019-cli-pure-frontend.md).
+
+The add-only-vs-upsert mismatch that justified keeping `bundle edit` out of
+`UpdateBundle` was resolved by adding create-if-absent `AddFragments`/
+`AddPrompts`/`AddMCPServers` fields to `UpdateBundleRequest`. `bundle edit` now
+routes fully through `operations.UpdateBundle` (no in-CLI mutation, no separate
+guard call). See 0019 for the CLI-pure-frontend invariant.
 
 ## Context
 

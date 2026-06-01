@@ -395,6 +395,30 @@ func TestUpdateBundle_RemoveFragment(t *testing.T) {
 	assert.NotContains(t, got.Fragments, "intro")
 }
 
+// TestUpdateBundle_AddFragmentsAddOnly — Add* is create-if-absent: a new name
+// lands, an existing name is left untouched (no clobber), unlike Set*. This is
+// what lets the CLI `bundle edit --add-fragment` route through UpdateBundle.
+func TestUpdateBundle_AddFragmentsAddOnly(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	createSeedBundle(t, cfg, "seed") // has fragment "intro" = "intro content"
+
+	result, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name: "seed",
+		AddFragments: map[string]BundleFragmentInput{
+			"fresh": {Content: "new"},                      // absent → added
+			"intro": {Content: "CLOBBER", NoDistill: true}, // present → untouched
+		},
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(result.Path)
+	require.NoError(t, err)
+	var got bundles.Bundle
+	require.NoError(t, yaml.Unmarshal(data, &got))
+	assert.Equal(t, "new", got.Fragments["fresh"].Content)
+	assert.Equal(t, "intro content", got.Fragments["intro"].Content, "add-only must not clobber an existing fragment")
+}
+
 // TestUpdateBundle_DistillOptOutWholesale — distill: false at the request
 // level skips ALL fragment distillation, even those without NoDistill.
 func TestUpdateBundle_DistillOptOutWholesale(t *testing.T) {

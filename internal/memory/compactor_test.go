@@ -8,11 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -185,25 +183,6 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	assert.Contains(t, loaded.Body, "Distilled body.")
 }
 
-func TestSessionEssence_Serialization(t *testing.T) {
-	original := SessionEssence{
-		SessionID:   "test-session",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Essence:     "Brief summary of the session",
-		GeneratedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC),
-	}
-
-	data, err := yaml.Marshal(original)
-	require.NoError(t, err)
-
-	var loaded SessionEssence
-	err = yaml.Unmarshal(data, &loaded)
-	require.NoError(t, err)
-
-	assert.Equal(t, original.SessionID, loaded.SessionID)
-	assert.Equal(t, original.Essence, loaded.Essence)
-}
-
 func TestLoadDistilledSession(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -252,52 +231,6 @@ func TestListDistilledSessions_Empty(t *testing.T) {
 	sessions, err := ListDistilledSessions(tmpDir)
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
-}
-
-func TestLoadSessionEssence(t *testing.T) {
-	tmpDir := t.TempDir()
-	essencesDir := filepath.Join(tmpDir, EssencesDir)
-	require.NoError(t, os.MkdirAll(essencesDir, 0755))
-
-	essence := SessionEssence{
-		SessionID:   "test123",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
-		Essence:     "Test essence content",
-		GeneratedAt: time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC),
-	}
-	data, err := yaml.Marshal(essence)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(essencesDir, "session-test123.yaml"), data, 0644))
-
-	loaded, err := LoadSessionEssence(tmpDir, "test123")
-	require.NoError(t, err)
-
-	assert.Equal(t, "test123", loaded.SessionID)
-	assert.Equal(t, "Test essence content", loaded.Essence)
-}
-
-func TestSaveSessionEssence(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	essence := &SessionEssence{
-		SessionID:   "saved123",
-		CreatedAt:   time.Now(),
-		Essence:     "Saved essence",
-		GeneratedAt: time.Now(),
-	}
-
-	err := SaveSessionEssence(tmpDir, essence)
-	require.NoError(t, err)
-
-	// Verify file was created
-	path := filepath.Join(tmpDir, EssencesDir, "session-saved123.yaml")
-	_, err = os.Stat(path)
-	require.NoError(t, err)
-
-	// Load and verify
-	loaded, err := LoadSessionEssence(tmpDir, "saved123")
-	require.NoError(t, err)
-	assert.Equal(t, "Saved essence", loaded.Essence)
 }
 
 func TestCompactionConfig_Defaults(t *testing.T) {
@@ -377,104 +310,6 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 	_, err := c.distillChunk(context.Background(), "content", 1, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "exited with code 1")
-}
-
-func TestGenerateSessionEssence_WithMockClient(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			_, _ = stdout.Write([]byte("Brief session summary for testing."))
-			return 0, nil
-		},
-	}
-
-	session := &backends.Session{
-		ID:        "test-essence-session",
-		StartTime: time.Now(),
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeUser, Content: "What's the weather?"},
-			{Type: backends.EntryTypeAssistant, Content: "I don't have access to weather data."},
-		},
-	}
-
-	config := EssenceConfig{
-		Plugin:        "test-plugin",
-		Model:         "fast",
-		MemoryDir:     tmpDir,
-		ClientFactory: pb.MockClientFactory(mockClient),
-	}
-
-	essence, err := GenerateSessionEssence(context.Background(), session, config)
-	require.NoError(t, err)
-
-	assert.Equal(t, "test-essence-session", essence.SessionID)
-	assert.Equal(t, "Brief session summary for testing.", essence.Essence)
-	assert.Equal(t, 1, mockClient.RunCalls)
-}
-
-func TestGenerateSessionEssence_UsesCache(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Pre-populate cache
-	cachedEssence := &SessionEssence{
-		SessionID:   "cached-session",
-		CreatedAt:   time.Now(),
-		Essence:     "Cached essence content",
-		GeneratedAt: time.Now(),
-	}
-	require.NoError(t, SaveSessionEssence(tmpDir, cachedEssence))
-
-	// Mock client that should NOT be called
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
-			t.Fatal("Client should not be called when cache exists")
-			return 0, nil
-		},
-	}
-
-	session := &backends.Session{
-		ID: "cached-session",
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeUser, Content: "test"},
-		},
-	}
-
-	config := EssenceConfig{
-		Plugin:        "test-plugin",
-		MemoryDir:     tmpDir,
-		ClientFactory: pb.MockClientFactory(mockClient),
-	}
-
-	essence, err := GenerateSessionEssence(context.Background(), session, config)
-	require.NoError(t, err)
-
-	assert.Equal(t, "Cached essence content", essence.Essence)
-	assert.Equal(t, 0, mockClient.RunCalls)
-}
-
-func TestGenerateSessionEssence_EmptySession(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	mockClient := &pb.MockClient{}
-
-	session := &backends.Session{
-		ID:        "empty-session",
-		StartTime: time.Now(),
-		Entries:   []backends.SessionEntry{},
-	}
-
-	config := EssenceConfig{
-		Plugin:        "test-plugin",
-		MemoryDir:     tmpDir,
-		ClientFactory: pb.MockClientFactory(mockClient),
-	}
-
-	essence, err := GenerateSessionEssence(context.Background(), session, config)
-	require.NoError(t, err)
-
-	assert.Equal(t, "(empty session)", essence.Essence)
-	assert.Equal(t, 0, mockClient.RunCalls) // Client not called for empty sessions
 }
 
 func TestMockClientFactory(t *testing.T) {

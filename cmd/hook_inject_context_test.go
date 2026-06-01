@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,7 +18,7 @@ import (
 // and the SessionStart event name being set.
 func TestBuildInjectContextOutput(t *testing.T) {
 	t.Run("empty_content_yields_empty_output", func(t *testing.T) {
-		out := buildInjectContextOutput("", 1, 1)
+		out := buildInjectContextOutput("", "", 1, 1)
 		assert.Nil(t, out.HookSpecificOutput,
 			"empty content must NOT surface an AdditionalContext field — "+
 				"otherwise the LLM sees the 'ctxloom content loaded' header "+
@@ -24,7 +26,7 @@ func TestBuildInjectContextOutput(t *testing.T) {
 	})
 
 	t.Run("wraps_content_with_header_and_footer", func(t *testing.T) {
-		out := buildInjectContextOutput("rust rules go here", 1, 1)
+		out := buildInjectContextOutput("rust rules go here", "", 1, 1)
 		require.NotNil(t, out.HookSpecificOutput)
 		body := out.HookSpecificOutput.AdditionalContext
 		assert.Contains(t, body, "# Project Context (assembled by ctxloom)")
@@ -40,7 +42,7 @@ func TestBuildInjectContextOutput(t *testing.T) {
 	})
 
 	t.Run("event_name_pinned", func(t *testing.T) {
-		out := buildInjectContextOutput("anything", 1, 1)
+		out := buildInjectContextOutput("anything", "", 1, 1)
 		require.NotNil(t, out.HookSpecificOutput)
 		assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName,
 			"hook event name MUST be SessionStart — Claude/Gemini route by this string")
@@ -52,7 +54,7 @@ func TestBuildInjectContextOutput(t *testing.T) {
 // preamble, while still being independently framed in its own
 // <ctxloom-context> block.
 func TestBuildInjectContextOutput_Segments(t *testing.T) {
-	first := buildInjectContextOutput("alpha body", 1, 3)
+	first := buildInjectContextOutput("alpha body", "", 1, 3)
 	require.NotNil(t, first.HookSpecificOutput)
 	fb := first.HookSpecificOutput.AdditionalContext
 	assert.Contains(t, fb, "segment 1 of 3")
@@ -60,7 +62,7 @@ func TestBuildInjectContextOutput_Segments(t *testing.T) {
 	assert.Contains(t, fb, "<ctxloom-context>")
 	assert.Contains(t, fb, "</ctxloom-context>")
 
-	later := buildInjectContextOutput("gamma body", 3, 3)
+	later := buildInjectContextOutput("gamma body", "", 3, 3)
 	require.NotNil(t, later.HookSpecificOutput)
 	lb := later.HookSpecificOutput.AdditionalContext
 	assert.Contains(t, lb, "segment 3 of 3")
@@ -68,6 +70,80 @@ func TestBuildInjectContextOutput_Segments(t *testing.T) {
 	assert.Contains(t, lb, "<ctxloom-context>", "every segment is self-framed")
 	assert.Contains(t, lb, "</ctxloom-context>")
 	assert.Contains(t, lb, "gamma body")
+}
+
+// TestShouldInjectResumedEssence covers the source gate: the resumed essence
+// rides an initial launch but never /clear or /compact.
+func TestShouldInjectResumedEssence(t *testing.T) {
+	for _, src := range []string{"startup", "resume", "", "unexpected"} {
+		assert.True(t, shouldInjectResumedEssence(src), "source %q should inject essence", src)
+	}
+	for _, src := range []string{"clear", "compact"} {
+		assert.False(t, shouldInjectResumedEssence(src), "source %q must not inject essence", src)
+	}
+}
+
+// TestResumePartsIncludeSession covers the parts gate: essence is for resumes
+// that carried the session, not tasks-only resumes.
+func TestResumePartsIncludeSession(t *testing.T) {
+	assert.True(t, resumePartsIncludeSession(""), "empty parts default to session+tasks")
+	assert.True(t, resumePartsIncludeSession("session,tasks"))
+	assert.True(t, resumePartsIncludeSession("session"))
+	assert.True(t, resumePartsIncludeSession("tasks, session "))
+	assert.False(t, resumePartsIncludeSession("tasks"))
+}
+
+// TestBuildInjectContextOutput_ResumedEssence covers essence framing: it rides
+// the first chunk (before the project context), stands alone when there is no
+// project context, and never appears on later chunks.
+func TestBuildInjectContextOutput_ResumedEssence(t *testing.T) {
+	t.Run("essence_precedes_content_on_first_chunk", func(t *testing.T) {
+		out := buildInjectContextOutput("project rules", "what we did last time", 1, 1)
+		require.NotNil(t, out.HookSpecificOutput)
+		body := out.HookSpecificOutput.AdditionalContext
+		assert.Contains(t, body, "<ctxloom-resumed-session>")
+		assert.Contains(t, body, "what we did last time")
+		assert.Contains(t, body, "<ctxloom-context>")
+		assert.Contains(t, body, "project rules")
+		assert.Less(t, strings.Index(body, "ctxloom-resumed-session"),
+			strings.Index(body, "ctxloom-context>"), "essence must precede project context")
+	})
+
+	t.Run("essence_alone_when_no_content", func(t *testing.T) {
+		out := buildInjectContextOutput("", "prior essence", 1, 1)
+		require.NotNil(t, out.HookSpecificOutput)
+		body := out.HookSpecificOutput.AdditionalContext
+		assert.Contains(t, body, "prior essence")
+		assert.NotContains(t, body, "<ctxloom-context>")
+	})
+
+	t.Run("essence_omitted_on_later_chunks", func(t *testing.T) {
+		out := buildInjectContextOutput("chunk 2 body", "prior essence", 2, 3)
+		require.NotNil(t, out.HookSpecificOutput)
+		body := out.HookSpecificOutput.AdditionalContext
+		assert.NotContains(t, body, "prior essence", "essence rides only the first chunk")
+		assert.NotContains(t, body, "<ctxloom-resumed-session>")
+	})
+}
+
+// TestResumedEssenceForInjection covers the end-to-end gate that reads the
+// resumed harp's essence.md, including the source, chunk, parts, and
+// presence conditions.
+func TestResumedEssenceForInjection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	harp := "swift-amber-falcon"
+	dir := filepath.Join(home, ".ctxloom", "sessions", harp)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "essence.md"), []byte("  distilled summary  \n"), 0o644))
+
+	assert.Equal(t, "distilled summary",
+		resumedEssenceForInjection(1, "startup", harp, "session,tasks"), "trimmed essence on startup")
+	assert.Empty(t, resumedEssenceForInjection(1, "clear", harp, "session,tasks"), "no essence on /clear")
+	assert.Empty(t, resumedEssenceForInjection(2, "startup", harp, "session,tasks"), "no essence on later chunk")
+	assert.Empty(t, resumedEssenceForInjection(1, "startup", "", "session,tasks"), "no essence without a resume")
+	assert.Empty(t, resumedEssenceForInjection(1, "startup", harp, "tasks"), "no essence for tasks-only resume")
+	assert.Empty(t, resumedEssenceForInjection(1, "startup", "no-such-harp", "session,tasks"), "no essence when file missing")
 }
 
 // TestSelectChunk covers chunk selection: single-shot (total<1) returns the

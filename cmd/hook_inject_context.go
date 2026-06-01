@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 type HookInput struct {
 	SessionID      string `json:"session_id"`      // Claude Code: session identifier
 	TranscriptPath string `json:"transcript_path"` // Gemini CLI: full path to transcript file
+	Source         string `json:"source"`          // Claude Code SessionStart source: startup|resume|clear|compact
 }
 
 // HookOutput represents the JSON output format for AI tool hooks.
@@ -120,10 +122,18 @@ Output format (JSON to stdout):
 			backends.AwaitTurn(hookInput.SessionID, part, total)
 		}
 
+		// On the initial launch of a resumed session, inject the resumed
+		// session's distilled essence alongside the project context. Skipped on
+		// /clear and /compact (by source), where re-injecting would also mean a
+		// redistill on the resume hot path — there the user pulls prior context
+		// back explicitly with /recover.
+		resumedEssence := resumedEssenceForInjection(part, hookInput.Source,
+			os.Getenv("CTXLOOM_RESUMED_FROM"), os.Getenv("CTXLOOM_RESUMED_PARTS"))
+
 		// Build output via the extracted helper so the wrapping logic
 		// (header/footer, empty-content handling, SessionStart event
 		// name) is unit-testable without the surrounding hook plumbing.
-		output := buildInjectContextOutput(content, part, total)
+		output := buildInjectContextOutput(content, resumedEssence, part, total)
 
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
@@ -166,32 +176,97 @@ func selectChunk(content string, part, total int) (chunk string, outPart, outTot
 //
 // Extracted as a pure function so the wrapping format is testable without
 // spinning up the full hook plumbing.
-func buildInjectContextOutput(content string, part, total int) HookOutput {
-	if content == "" {
+func buildInjectContextOutput(content, resumedEssence string, part, total int) HookOutput {
+	includeEssence := part <= 1 && resumedEssence != ""
+	if content == "" && !includeEssence {
 		return HookOutput{}
 	}
-	header := "# Project Context (assembled by ctxloom)"
-	if total > 1 {
-		header = fmt.Sprintf("# Project Context (assembled by ctxloom) — segment %d of %d", part, total)
+
+	var body string
+	if includeEssence {
+		body = "# Resumed session (assembled by ctxloom)" +
+			"\n\n_The summary below is the distilled essence of the session you resumed from. " +
+			"Use it to pick up where that session left off. It is recovered memory, not project instructions._" +
+			"\n\n<ctxloom-resumed-session>\n\n" + resumedEssence + "\n\n</ctxloom-resumed-session>\n"
 	}
-	var preamble string
-	if part <= 1 {
-		preamble = "\n\n_The content below was assembled by ctxloom from your active profile " +
-			"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
-			"coding standards, language conventions, testing practices, and other " +
-			"guidance that apply to this project. Treat it as authoritative project " +
-			"instructions._"
+
+	if content != "" {
+		header := "# Project Context (assembled by ctxloom)"
 		if total > 1 {
-			preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
+			header = fmt.Sprintf("# Project Context (assembled by ctxloom) — segment %d of %d", part, total)
+		}
+		var preamble string
+		if part <= 1 {
+			preamble = "\n\n_The content below was assembled by ctxloom from your active profile " +
+				"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
+				"coding standards, language conventions, testing practices, and other " +
+				"guidance that apply to this project. Treat it as authoritative project " +
+				"instructions._"
+			if total > 1 {
+				preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
+			}
+		}
+		ctxBlock := header + preamble + "\n\n<ctxloom-context>\n\n" + content + "\n\n</ctxloom-context>\n"
+		if body != "" {
+			body += "\n" + ctxBlock
+		} else {
+			body = ctxBlock
 		}
 	}
-	body := header + preamble + "\n\n<ctxloom-context>\n\n" + content + "\n\n</ctxloom-context>\n"
+
 	return HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
 			HookEventName:     "SessionStart",
 			AdditionalContext: body,
 		},
 	}
+}
+
+// resumedEssenceForInjection returns the distilled essence to inject for a
+// resumed session, or "" when none should be injected. Essence rides only the
+// first chunk, only on an initial launch (not /clear or /compact, see
+// shouldInjectResumedEssence), only when a resume happened (resumedFrom set),
+// and only when the resume carried the session part (CTXLOOM_RESUMED_PARTS).
+func resumedEssenceForInjection(part int, source, resumedFrom, resumedParts string) string {
+	if part > 1 || resumedFrom == "" || !shouldInjectResumedEssence(source) {
+		return ""
+	}
+	if !resumePartsIncludeSession(resumedParts) {
+		return ""
+	}
+	data, err := readHarpEssence(resumedFrom)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// shouldInjectResumedEssence reports whether a SessionStart with the given
+// source should carry the resumed essence. It rides the initial launch
+// (startup, resume, or an unknown/empty source) but not "clear" or "compact",
+// which fire mid-session where /recover is the explicit path.
+func shouldInjectResumedEssence(source string) bool {
+	switch source {
+	case "clear", "compact":
+		return false
+	default:
+		return true
+	}
+}
+
+// resumePartsIncludeSession reports whether the resume carried the session
+// essence rather than being a tasks-only resume. Empty parts default to true,
+// matching the default "session,tasks".
+func resumePartsIncludeSession(parts string) bool {
+	if parts == "" {
+		return true
+	}
+	for _, p := range strings.Split(parts, ",") {
+		if strings.TrimSpace(p) == "session" {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveInjectContextWorkDir picks the directory ctxloom should treat

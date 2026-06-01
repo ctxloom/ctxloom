@@ -1,0 +1,39 @@
+name: Weekly Mutation
+
+# Whole-codebase mutation testing on a schedule. Per-PR/push CI runs the fast
+# diff-only mutation (see ci.yml); this catches efficacy regressions across the
+# entire tree that a diff can't see. It gates nothing — a failure surfaces in
+# the Actions tab, and GitHub emails the repo admins when a scheduled run fails.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  full-mutation:
+    name: Full Mutation Testing
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Generate protobuf code
+        run: buf generate
+
+      - name: Run full mutation tests
+        run: gremlins unleash

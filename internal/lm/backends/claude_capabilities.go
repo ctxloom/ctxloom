@@ -323,14 +323,12 @@ func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
 			continue
 		}
 
-		entry, err := h.parseEntry(line)
+		entries, err := h.parseEntries(line)
 		if err != nil {
 			// Skip malformed entries
 			continue
 		}
-		if entry != nil {
-			session.Entries = append(session.Entries, *entry)
-		}
+		session.Entries = append(session.Entries, entries...)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -346,31 +344,65 @@ func (h *ClaudeSessionHistory) parseSessionFile(path string) (*Session, error) {
 	return session, nil
 }
 
-// claudeEntry represents a raw entry from Claude's session.jsonl.
+// claudeEntry represents a raw top-level entry from Claude's session.jsonl.
 type claudeEntry struct {
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp"`
-	Message   json.RawMessage `json:"message"`
-	// Tool-related fields
-	ToolUseID string          `json:"tool_use_id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	Output    string          `json:"output"`
-	IsError   bool            `json:"is_error"`
+	Type        string          `json:"type"`
+	Timestamp   string          `json:"timestamp"`
+	IsSidechain bool            `json:"isSidechain"`
+	Message     json.RawMessage `json:"message"`
+	// Legacy flat tool fields (older transcript schema, kept for back-compat).
+	Name    string          `json:"name"`
+	Input   json.RawMessage `json:"input"`
+	Output  string          `json:"output"`
+	IsError bool            `json:"is_error"`
 }
 
-// parseEntry converts a Claude JSONL entry to a normalized SessionEntry.
-func (h *ClaudeSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
+// claudeMessage is the {role, content} object on user/assistant entries.
+// Content is either a JSON string (legacy) or an array of typed blocks.
+type claudeMessage struct {
+	Content json.RawMessage `json:"content"`
+}
+
+// claudeBlock is one content block in the modern array schema: text/thinking
+// for prose, tool_use for calls, tool_result for outputs.
+type claudeBlock struct {
+	Type    string          `json:"type"`
+	Text    string          `json:"text"`
+	Name    string          `json:"name"`
+	Input   json.RawMessage `json:"input"`
+	Content json.RawMessage `json:"content"`
+	IsError bool            `json:"is_error"`
+}
+
+// parseEntries converts one Claude JSONL line into zero or more normalized
+// SessionEntries. The modern schema nests typed blocks under message.content,
+// so one assistant line can yield a text entry plus a tool-call entry per
+// tool_use block, and a user line can yield tool-result entries. Sidechain
+// (sub-agent) lines are skipped so a session reflects only its main thread.
+func (h *ClaudeSessionHistory) parseEntries(line []byte) ([]SessionEntry, error) {
 	var raw claudeEntry
 	if err := json.Unmarshal(line, &raw); err != nil {
 		return nil, err
 	}
-
-	entry := &SessionEntry{Timestamp: parseClaudeTimestamp(raw.Timestamp)}
-	if !populateClaudeEntry(entry, raw) {
-		return nil, nil // Unknown type - skip
+	if raw.IsSidechain {
+		return nil, nil
 	}
-	return entry, nil
+	ts := parseClaudeTimestamp(raw.Timestamp)
+	switch raw.Type {
+	case "user", "human":
+		return claudeMessageEntries(raw.Message, ts, EntryTypeUser), nil
+	case "assistant":
+		return claudeMessageEntries(raw.Message, ts, EntryTypeAssistant), nil
+	case "system":
+		if c := claudeFirstText(raw.Message); c != "" {
+			return []SessionEntry{{Timestamp: ts, Type: EntryTypeSystem, Content: c}}, nil
+		}
+	case "tool_use": // legacy flat schema
+		return []SessionEntry{{Timestamp: ts, Type: EntryTypeToolUse, ToolName: raw.Name, ToolInput: raw.Input}}, nil
+	case "tool_result": // legacy flat schema
+		return []SessionEntry{{Timestamp: ts, Type: EntryTypeToolResult, ToolName: raw.Name, ToolOutput: raw.Output, IsError: raw.IsError}}, nil
+	}
+	return nil, nil
 }
 
 // parseClaudeTimestamp parses an RFC3339 timestamp, returning the zero time for
@@ -386,57 +418,94 @@ func parseClaudeTimestamp(s string) time.Time {
 	return t
 }
 
-// claudeMessageContent extracts message content, trying the {"content": "..."}
-// object shape first, then a plain JSON string.
-func claudeMessageContent(message json.RawMessage) string {
-	content := claudeStructContent(message)
-	if content != "" {
-		return content
+// claudeBlocks decodes a message's content into blocks. content may be a plain
+// JSON string (legacy — returned as a single text block) or an array of blocks
+// (modern schema).
+func claudeBlocks(message json.RawMessage) []claudeBlock {
+	var msg claudeMessage
+	if len(message) == 0 || json.Unmarshal(message, &msg) != nil || len(msg.Content) == 0 {
+		return nil
 	}
-	var plain string
-	if json.Unmarshal(message, &plain) == nil {
-		return plain
+	var s string
+	if json.Unmarshal(msg.Content, &s) == nil {
+		return []claudeBlock{{Type: "text", Text: s}}
 	}
-	return ""
+	var blocks []claudeBlock
+	if json.Unmarshal(msg.Content, &blocks) == nil {
+		return blocks
+	}
+	return nil
 }
 
-// claudeStructContent extracts content from the {"content": "..."} object shape.
-func claudeStructContent(message json.RawMessage) string {
-	if len(message) == 0 {
+// claudeMessageEntries decomposes one user/assistant message's content blocks
+// into normalized entries, preserving order: prose text becomes a proseType
+// entry, tool_use becomes a ToolUse entry, tool_result becomes a ToolResult
+// entry. thinking and other block types are intentionally dropped.
+func claudeMessageEntries(message json.RawMessage, ts time.Time, proseType SessionEntryType) []SessionEntry {
+	var out []SessionEntry
+	var text strings.Builder
+	flushText := func() {
+		if text.Len() > 0 {
+			out = append(out, SessionEntry{Timestamp: ts, Type: proseType, Content: text.String()})
+			text.Reset()
+		}
+	}
+	for _, b := range claudeBlocks(message) {
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				if text.Len() > 0 {
+					text.WriteString("\n")
+				}
+				text.WriteString(b.Text)
+			}
+		case "tool_use":
+			flushText()
+			out = append(out, SessionEntry{Timestamp: ts, Type: EntryTypeToolUse, ToolName: b.Name, ToolInput: b.Input})
+		case "tool_result":
+			flushText()
+			out = append(out, SessionEntry{Timestamp: ts, Type: EntryTypeToolResult, ToolOutput: claudeBlockText(b.Content), IsError: b.IsError})
+		}
+	}
+	flushText()
+	return out
+}
+
+// claudeBlockText flattens a tool_result block's content (a string, or an array
+// of {type:"text", text}) to a plain string.
+func claudeBlockText(content json.RawMessage) string {
+	if len(content) == 0 {
 		return ""
 	}
-	var msg struct {
-		Content string `json:"content"`
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s
 	}
-	if json.Unmarshal(message, &msg) == nil {
-		return msg.Content
+	var blocks []claudeBlock
+	if json.Unmarshal(content, &blocks) == nil {
+		var b strings.Builder
+		for _, blk := range blocks {
+			if blk.Type == "text" && blk.Text != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(blk.Text)
+			}
+		}
+		return b.String()
 	}
 	return ""
 }
 
-// populateClaudeEntry maps a raw Claude entry's type onto entry, returning false
-// for unknown types (which the caller skips).
-func populateClaudeEntry(entry *SessionEntry, raw claudeEntry) bool {
-	switch raw.Type {
-	case "user", "human":
-		entry.Type = EntryTypeUser
-		entry.Content = claudeMessageContent(raw.Message)
-	case "assistant":
-		entry.Type = EntryTypeAssistant
-		entry.Content = claudeStructContent(raw.Message)
-	case "tool_use":
-		entry.Type = EntryTypeToolUse
-		entry.ToolName = raw.Name
-		entry.ToolInput = raw.Input
-	case "tool_result":
-		entry.Type = EntryTypeToolResult
-		entry.ToolName = raw.Name
-		entry.ToolOutput = raw.Output
-		entry.IsError = raw.IsError
-	default:
-		return false
+// claudeFirstText returns the first text block's text from a message (used for
+// short system entries).
+func claudeFirstText(message json.RawMessage) string {
+	for _, b := range claudeBlocks(message) {
+		if b.Type == "text" && b.Text != "" {
+			return b.Text
+		}
 	}
-	return true
+	return ""
 }
 
 // TranscriptPathFromHook computes the transcript path from hook input.

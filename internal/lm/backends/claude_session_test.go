@@ -202,6 +202,59 @@ func TestClaudeSessionHistory_GetSessionByPath(t *testing.T) {
 	assert.Len(t, session.Entries, 1)
 }
 
+// TestClaudeSessionHistory_ModernBlockSchema covers the CURRENT Claude Code
+// transcript schema, where `message.content` is an array of typed blocks
+// (text / thinking / tool_use for assistant; tool_result for user) rather than
+// a plain string, the top-level type is only user/assistant, and sub-agent
+// lines carry `isSidechain: true`. The pre-fix parser read content only as a
+// string, so it produced empty entries and never surfaced tool blocks — the
+// ~99% under-read behind the broken /recover distillation.
+func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+
+	// One JSONL line per entry. Mirrors real shapes sampled from a live
+	// transcript: assistant content = [thinking, text, tool_use]; the tool
+	// result comes back as a user message with a tool_result block; metadata
+	// lines (mode/file-history-snapshot) and isSidechain sub-agent lines must
+	// be excluded from the main thread.
+	content := `{"type":"file-history-snapshot","timestamp":"2026-06-01T10:00:00Z"}
+{"type":"user","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"Merge PR 8"}}
+{"type":"assistant","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"internal reasoning, should be dropped"},{"type":"text","text":"I'll check PR 8 first."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr view 8"}}]}}
+{"type":"user","timestamp":"2026-06-01T10:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"PR 8 is open","is_error":false}]}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"SIDECHAIN_SHOULD_NOT_APPEAR"}]}}`
+
+	sessionPath := "/p/modern.jsonl"
+	require.NoError(t, fs.MkdirAll("/p", 0755))
+	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte(content), 0644))
+
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+	session, err := history.GetSessionByPath(sessionPath)
+	require.NoError(t, err)
+
+	// Sidechain text must never leak into the main-thread entries.
+	for _, e := range session.Entries {
+		assert.NotContains(t, e.Content, "SIDECHAIN_SHOULD_NOT_APPEAR", "sidechain content must be excluded")
+		assert.NotContains(t, e.Content, "internal reasoning", "thinking blocks must be dropped")
+	}
+
+	require.Len(t, session.Entries, 4)
+
+	assert.Equal(t, EntryTypeUser, session.Entries[0].Type)
+	assert.Equal(t, "Merge PR 8", session.Entries[0].Content)
+
+	assert.Equal(t, EntryTypeAssistant, session.Entries[1].Type)
+	assert.Equal(t, "I'll check PR 8 first.", session.Entries[1].Content)
+
+	assert.Equal(t, EntryTypeToolUse, session.Entries[2].Type)
+	assert.Equal(t, "Bash", session.Entries[2].ToolName)
+	assert.Contains(t, string(session.Entries[2].ToolInput), "gh pr view 8")
+
+	assert.Equal(t, EntryTypeToolResult, session.Entries[3].Type)
+	assert.Equal(t, "PR 8 is open", session.Entries[3].ToolOutput)
+	assert.False(t, session.Entries[3].IsError)
+}
+
 func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()
@@ -291,11 +344,12 @@ func TestClaudeSessionHistory_ParseEntry_UserMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entry, err := history.parseEntry([]byte(tt.input))
+			entries, err := history.parseEntries([]byte(tt.input))
 			require.NoError(t, err)
-			assert.Equal(t, tt.expected, entry.Type)
+			require.Len(t, entries, 1)
+			assert.Equal(t, tt.expected, entries[0].Type)
 			if tt.content != "" {
-				assert.Equal(t, tt.content, entry.Content)
+				assert.Equal(t, tt.content, entries[0].Content)
 			}
 		})
 	}
@@ -306,7 +360,7 @@ func TestClaudeSessionHistory_ParseEntry_MalformedJSON(t *testing.T) {
 	backend := NewClaudeCode()
 	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
 
-	_, err := history.parseEntry([]byte("not json"))
+	_, err := history.parseEntries([]byte("not json"))
 	assert.Error(t, err)
 }
 

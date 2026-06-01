@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var pluginDefaultCmd = &cobra.Command{
@@ -38,17 +39,14 @@ With a plugin name argument, sets that plugin as the default.`,
 			return fmt.Errorf("unknown plugin %q; available: %s", name, strings.Join(available, ", "))
 		}
 
-		current := cfg.GetDefaultLLMPlugin()
-		if current == name {
+		res, err := operations.SetDefaultPlugin(cmd.Context(), cfg, operations.SetDefaultPluginRequest{Name: name})
+		if err != nil {
+			return err
+		}
+		if res.Status == "unchanged" {
 			fmt.Printf("Default plugin is already %s\n", name)
 			return nil
 		}
-
-		cfg.SetDefaultLLMPlugin(name)
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
-		}
-
 		fmt.Printf("Default plugin set to: %s\n", name)
 		return nil
 	},

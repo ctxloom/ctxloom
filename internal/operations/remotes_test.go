@@ -205,6 +205,26 @@ func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 	return registry, fs
 }
 
+func TestSetAndGetDefaultRemote(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	_, err := SetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Name: "alice", Registry: registry})
+	require.NoError(t, err)
+
+	got, err := GetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Registry: registry})
+	require.NoError(t, err)
+	assert.Equal(t, "alice", got.Name)
+
+	res, err := SetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Name: "", Registry: registry})
+	require.NoError(t, err)
+	assert.Equal(t, "cleared", res.Status)
+
+	got, err = GetDefaultRemote(context.Background(), nil, DefaultRemoteRequest{Registry: registry})
+	require.NoError(t, err)
+	assert.Empty(t, got.Name, "cleared default reads back empty")
+}
+
 func TestListRemotes_Empty(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 

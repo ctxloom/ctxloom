@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 var remoteCmd = &cobra.Command{
@@ -150,38 +149,40 @@ Examples:
 var remoteDefaultClear bool
 
 func runRemoteDefault(cmd *cobra.Command, args []string) error {
-	registry, err := remote.NewRegistry("")
+	cfg, err := GetConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Clear the default
+	// Clear the default.
 	if remoteDefaultClear {
-		if err := registry.SetDefault(""); err != nil {
+		if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: ""}); err != nil {
 			return err
 		}
 		fmt.Println("Cleared default remote.")
 		return nil
 	}
 
-	// Get current default
+	// Show the current default.
 	if len(args) == 0 {
-		defaultRemote := registry.GetDefault()
-		if defaultRemote == "" {
+		res, err := operations.GetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{})
+		if err != nil {
+			return err
+		}
+		if res.Name == "" {
 			fmt.Println("No default remote set.")
 			fmt.Println("Set one with: ctxloom remote default <name>")
 		} else {
-			fmt.Printf("Default remote: %s\n", defaultRemote)
+			fmt.Printf("Default remote: %s\n", res.Name)
 		}
 		return nil
 	}
 
-	// Set new default
+	// Set a new default.
 	name := args[0]
-	if err := registry.SetDefault(name); err != nil {
+	if _, err := operations.SetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{Name: name}); err != nil {
 		return err
 	}
-
 	fmt.Printf("Set default remote to: %s\n", name)
 	return nil
 }

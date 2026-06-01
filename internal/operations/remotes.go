@@ -205,6 +205,58 @@ func RemoveRemote(ctx context.Context, cfg *config.Config, req RemoveRemoteReque
 	}, nil
 }
 
+// DefaultRemoteRequest is the input for Get/SetDefaultRemote.
+type DefaultRemoteRequest struct {
+	Name string `json:"name,omitempty"` // SetDefaultRemote: "" clears the default
+
+	// Registry is an optional pre-configured registry (for testing).
+	Registry *remote.Registry `json:"-"`
+	// FS is an optional filesystem (for testing).
+	FS afero.Fs `json:"-"`
+}
+
+// DefaultRemoteResult reports the default-remote state. Status is "ok" (read),
+// "set", or "cleared".
+type DefaultRemoteResult struct {
+	Status string `json:"status"`
+	Name   string `json:"name,omitempty"`
+}
+
+// GetDefaultRemote returns the configured default remote (empty when none).
+func GetDefaultRemote(_ context.Context, cfg *config.Config, req DefaultRemoteRequest) (*DefaultRemoteResult, error) {
+	registry, err := defaultRemoteRegistry(cfg, req)
+	if err != nil {
+		return nil, err
+	}
+	return &DefaultRemoteResult{Status: "ok", Name: registry.GetDefault()}, nil
+}
+
+// SetDefaultRemote sets the default remote, or clears it when Name is empty.
+func SetDefaultRemote(_ context.Context, cfg *config.Config, req DefaultRemoteRequest) (*DefaultRemoteResult, error) {
+	registry, err := defaultRemoteRegistry(cfg, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := registry.SetDefault(req.Name); err != nil {
+		return nil, err
+	}
+	if req.Name == "" {
+		return &DefaultRemoteResult{Status: "cleared"}, nil
+	}
+	return &DefaultRemoteResult{Status: "set", Name: req.Name}, nil
+}
+
+func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remote.Registry, error) {
+	if req.Registry != nil {
+		return req.Registry, nil
+	}
+	registry, err := getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize registry: %w", err)
+	}
+	return registry, nil
+}
+
 // UpdateRemoteRequest contains parameters for updating cached remote repos.
 type UpdateRemoteRequest struct {
 	// Name is an optional remote name. If empty, all remotes are updated.

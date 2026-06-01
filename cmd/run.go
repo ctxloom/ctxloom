@@ -337,6 +337,17 @@ Examples:
 					runEnv["CTXLOOM_RESUMED_PARTS"] = parts
 					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
 						entry.HarpName, resume.FromHarp, parts)
+					// Ensure the resumed session is distilled before launch so
+					// the SessionStart hook can inject its essence. Distilling
+					// here keeps the LLM call on the acceptable startup path
+					// rather than on /clear.
+					if resumePartsIncludeSession(parts) {
+						if _, essErr := readHarpEssence(resume.FromHarp); essErr != nil {
+							if dErr := shellOutDistill(resume.FromHarp); dErr != nil {
+								fmt.Fprintf(os.Stderr, "ctxloom: warning: could not distill %s for resume essence: %v\n", resume.FromHarp, dErr)
+							}
+						}
+					}
 				} else {
 					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
 				}

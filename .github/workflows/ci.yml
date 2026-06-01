@@ -11,6 +11,30 @@ env:
   IMAGE_NAME: ${{ github.repository }}-devcontainer
 
 jobs:
+  # Release gate: every change to main must carry a fresh, untagged VERSION.
+  # Fails the PR/push if VERSION already has a git tag, forcing a deliberate
+  # `versionator set` bump (no auto-increment). On merge, auto-release.yml tags
+  # this VERSION and triggers the release.
+  version-guard:
+    name: Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if VERSION is already tagged
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$V" ]; then
+            echo "::error::VERSION file is empty"; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            echo "::error file=VERSION::VERSION $V is already tagged. Bump it (versionator set <next>) before merging."
+            exit 1
+          fi
+          echo "VERSION $V is not yet tagged — OK to merge and release."
+
   build-container:
     name: Build Dev Container
     runs-on: ubuntu-latest
@@ -172,7 +196,21 @@ jobs:
 
       - name: Run mutation tests (PR - diff only)
         if: github.event_name == 'pull_request'
-        run: gremlins unleash --diff origin/${{ github.base_ref }}
+        run: |
+          base="origin/${{ github.base_ref }}"
+          # gremlins has no native handling for an empty changeset: with a
+          # threshold set, a diff containing no mutable Go produces 0 mutants =>
+          # 0% efficacy => "below efficacy-threshold" (exit 10). Skip when the
+          # diff has no mutable Go files (mirroring .gremlins.yaml exclude-files)
+          # so docs/workflow/test-only PRs aren't blocked.
+          mutable="$(git diff --name-only "$base"...HEAD -- '*.go' \
+            | grep -vE '(_test\.go$|\.pb\.go$|/mock_[^/]*\.go$|(^|/)testdata/|(^|/)tests/integration/)' || true)"
+          if [ -z "$mutable" ]; then
+            echo "No mutable Go files changed vs $base — skipping mutation testing."
+            exit 0
+          fi
+          echo "Mutable Go files in diff:"; printf '  %s\n' $mutable
+          gremlins unleash --diff "$base"
 
       - name: Run mutation tests (push - full)
         if: github.event_name == 'push'

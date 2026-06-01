@@ -228,6 +228,57 @@ func TestGetBundleMCP_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
+func TestDistillBundleFile(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	// Two fragments: one distillable, one no_distill.
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name: "b",
+		SetFragments: map[string]BundleFragmentInput{
+			"live": {Content: "raw"},
+			"keep": {Content: "x", NoDistill: true},
+		},
+	})
+	require.NoError(t, err)
+	path, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+
+	d := &recordingDistiller{returnValue: "DISTILLED", returnModel: "mock"}
+	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{Path: path.Path, Distiller: d})
+	require.NoError(t, err)
+	assert.True(t, res.Saved)
+
+	byName := map[string]DistillBundleItem{}
+	for _, it := range res.Items {
+		byName[it.Name] = it
+	}
+	assert.Equal(t, DistillStatusDistilled, byName["live"].Status)
+	assert.Equal(t, DistillStatusSkipped, byName["keep"].Status)
+	assert.Equal(t, "no_distill", byName["keep"].Reason)
+}
+
+func TestDistillBundleFile_DryRunAndNoDistiller(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:         "b",
+		SetFragments: map[string]BundleFragmentInput{"live": {Content: "raw"}},
+	})
+	require.NoError(t, err)
+	b, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+
+	dry, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{Path: b.Path, DryRun: true})
+	require.NoError(t, err)
+	assert.False(t, dry.Saved)
+	require.Len(t, dry.Items, 1)
+	assert.Equal(t, DistillStatusPlanned, dry.Items[0].Status)
+
+	none, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{Path: b.Path, Distiller: nil})
+	require.NoError(t, err)
+	assert.False(t, none.Saved)
+	require.Len(t, none.Items, 1)
+	assert.Equal(t, "no_distiller", none.Items[0].Reason)
+}
+
 func TestItemOps_InvalidKind(t *testing.T) {
 	cfg := newItemTestBundle(t)
 	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: "bogus", Name: "x", Content: "c"})

@@ -6,48 +6,6 @@ import (
 	"testing"
 )
 
-// shouldSkipDistill gates one item: a no_distill item is always skipped; an
-// unchanged item is skipped unless --force; a changed item proceeds.
-func TestShouldSkipDistill(t *testing.T) {
-	prev := bundleDistillForce
-	defer func() { bundleDistillForce = prev }()
-
-	t.Run("no_distill always skips", func(t *testing.T) {
-		bundleDistillForce = false
-		if !shouldSkipDistill("fragment", "x", true, true) {
-			t.Error("no_distill item should be skipped")
-		}
-	})
-
-	t.Run("unchanged item skips without force", func(t *testing.T) {
-		bundleDistillForce = false
-		if !shouldSkipDistill("fragment", "x", false, false) {
-			t.Error("unchanged item should be skipped without --force")
-		}
-	})
-
-	t.Run("unchanged item proceeds with force", func(t *testing.T) {
-		bundleDistillForce = true
-		if shouldSkipDistill("fragment", "x", false, false) {
-			t.Error("--force should re-distill an unchanged item")
-		}
-	})
-
-	t.Run("changed item proceeds", func(t *testing.T) {
-		bundleDistillForce = false
-		if shouldSkipDistill("prompt", "x", false, true) {
-			t.Error("a changed (NeedsDistill) item should not be skipped")
-		}
-	})
-
-	t.Run("no_distill wins over force", func(t *testing.T) {
-		bundleDistillForce = true
-		if !shouldSkipDistill("fragment", "x", true, true) {
-			t.Error("no_distill should skip even under --force")
-		}
-	})
-}
-
 // expandDistillFiles resolves glob patterns and literal paths, warns on
 // no-match, and errors only when nothing resolves.
 func TestExpandDistillFiles(t *testing.T) {

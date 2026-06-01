@@ -2,15 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/iox"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -125,66 +123,22 @@ func runBundleExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return fmt.Errorf("no bundles directory found")
-	}
-
-	loader := bundles.NewLoader(bundleDirs, false)
-	bundle, err := loader.Load(name)
-	if err != nil {
-		return fmt.Errorf("bundle not found: %s", name)
-	}
-
 	destDir := ""
 	if len(args) > 1 {
 		destDir = args[1]
 	}
-	destPath, err := exportBundleFile(afero.NewOsFs(), bundle.Path, bundleExportOutput, destDir)
+	res, err := operations.ExportBundle(cmd.Context(), cfg, operations.ExportBundleRequest{
+		Name:       name,
+		OutputFile: bundleExportOutput,
+		DestDir:    destDir,
+	})
 	if err != nil {
 		return err
 	}
 
 	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Exported: %s -> %s\n", bundle.Path, destPath)
+	w.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
 	return w.Err()
-}
-
-// exportBundleFile copies srcPath to a destination chosen by the
-// outputFile / destDir pair. Exactly one must be non-empty. The
-// destination directory (or parent dir of outputFile) is created if
-// missing. Returns the resolved destination path on success.
-//
-// Extracted from runBundleExport so the (-o <file> vs <dest-dir>)
-// dispatch and the missing-arg error are testable against a MemMapFs.
-func exportBundleFile(fs afero.Fs, srcPath, outputFile, destDir string) (string, error) {
-	srcData, err := afero.ReadFile(fs, srcPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read bundle: %w", err)
-	}
-
-	var destPath string
-	switch {
-	case outputFile != "":
-		destPath = outputFile
-		if dir := filepath.Dir(destPath); dir != "." {
-			if err := fs.MkdirAll(dir, 0755); err != nil {
-				return "", fmt.Errorf("failed to create destination directory: %w", err)
-			}
-		}
-	case destDir != "":
-		if err := fs.MkdirAll(destDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create destination directory: %w", err)
-		}
-		destPath = filepath.Join(destDir, filepath.Base(srcPath))
-	default:
-		return "", fmt.Errorf("either -o <file> or <dest-dir> must be specified")
-	}
-
-	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
-		return "", fmt.Errorf("failed to write bundle: %w", err)
-	}
-	return destPath, nil
 }
 
 var bundleImportForce bool
@@ -212,50 +166,18 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
-	destPath, bundle, err := importBundleFile(afero.NewOsFs(), srcPath, bundleDir, bundleImportForce)
+	res, err := operations.ImportBundle(cmd.Context(), cfg, operations.ImportBundleRequest{
+		SourcePath: srcPath,
+		Force:      bundleImportForce,
+	})
 	if err != nil {
 		return err
 	}
 
 	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Imported: %s -> %s\n", srcPath, destPath)
-	w.Printf("  Version: %s\n", bundle.Version)
-	w.Printf("  Fragments: %d, Prompts: %d, MCP: %d\n", len(bundle.Fragments), len(bundle.Prompts), len(bundle.MCP))
+	w.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
+	w.Printf("  Version: %s\n", res.Version)
+	w.Printf("  Fragments: %d, Prompts: %d, MCP: %d\n", res.Fragments, res.Prompts, res.MCP)
 
 	return w.Err()
-}
-
-// importBundleFile reads srcPath via fs, validates it parses as a bundle,
-// then copies it into bundleDir (creating bundleDir if needed). force=false
-// errors when the destination exists. Returns the destination path and the
-// parsed bundle (for caller-side summary output) on success.
-//
-// Extracted from runBundleImport so the validation + overwrite-guard
-// decision tree is testable against a MemMapFs without touching real
-// .ctxloom/bundles/.
-func importBundleFile(fs afero.Fs, srcPath, bundleDir string, force bool) (string, *bundles.Bundle, error) {
-	srcData, err := afero.ReadFile(fs, srcPath)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to read source file: %w", err)
-	}
-
-	bundle, err := bundles.ParseBundle(srcData)
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid bundle file: %w", err)
-	}
-
-	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
-		return "", nil, fmt.Errorf("failed to create bundles directory: %w", err)
-	}
-
-	destPath := filepath.Join(bundleDir, filepath.Base(srcPath))
-	if _, err := fs.Stat(destPath); err == nil && !force {
-		return "", nil, fmt.Errorf("bundle already exists: %s (use --force to overwrite)", destPath)
-	}
-
-	if err := afero.WriteFile(fs, destPath, srcData, 0644); err != nil {
-		return "", nil, fmt.Errorf("failed to write bundle: %w", err)
-	}
-	return destPath, bundle, nil
 }

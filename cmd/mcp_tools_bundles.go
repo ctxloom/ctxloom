@@ -147,8 +147,13 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 	if cfg == nil {
 		return nil
 	}
-	pluginName := cfg.GetDefaultLLMPlugin()
-	if pluginName == "" {
+	return newLLMDistillerForPlugin(cfg, cfg.GetDefaultLLMPlugin())
+}
+
+// newLLMDistillerForPlugin is newLLMDistiller with an explicit plugin override
+// (e.g. `bundle distill --plugin`). Returns nil when no plugin/prompt resolves.
+func newLLMDistillerForPlugin(cfg *config.Config, pluginName string) operations.Distiller {
+	if cfg == nil || pluginName == "" {
 		return nil
 	}
 	prompt, err := loadDistillPrompt()

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -159,12 +161,42 @@ var sessionBindCmd = &cobra.Command{
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		harp := os.Getenv("CTXLOOM_SESSION_HARP")
+		// Read the hook payload once: the marker doesn't need it, the bind does.
+		raw, _ := io.ReadAll(cmd.InOrStdin())
+		// Emit the deterministic harp self-id marker as SessionStart context so
+		// the transcript carries a greppable owner tag, independent of the index,
+		// the binding, or PID bookkeeping. This is the SessionStart hook installed
+		// for every ctxloom session, so it identifies the harp even when no
+		// project context (inject-context) is configured. Best-effort: a hook must
+		// never fail the host backend's startup, so failures past this point only
+		// skip the index bind — the marker is already on stdout.
+		emitHarpMarker(cmd.OutOrStdout(), harp)
 		mgr, err := sessions.Open("")
 		if err != nil {
-			return fmt.Errorf("session index: %w", err)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", err)
+			return nil
 		}
-		return bindSessionFromPayload(cmd.InOrStdin(), os.Getenv("CTXLOOM_SESSION_HARP"), mgr)
+		return bindSessionFromPayload(bytes.NewReader(raw), harp, mgr)
 	},
+}
+
+// emitHarpMarker writes the harp self-id marker to w as a SessionStart hook
+// output (the same envelope inject-context uses), so the backend injects it into
+// the session and it lands in the transcript. No-op when harp is empty.
+func emitHarpMarker(w io.Writer, harp string) {
+	marker := harpmarker.Format(harp)
+	if marker == "" {
+		return
+	}
+	out := HookOutput{HookSpecificOutput: &HookSpecificOutput{
+		HookEventName:     "SessionStart",
+		AdditionalContext: marker,
+	}}
+	// Best-effort: a marshal/write failure must not fail the bind hook.
+	if b, err := json.Marshal(out); err == nil {
+		_, _ = w.Write(append(b, '\n'))
+	}
 }
 
 // bindSessionFromPayload reads a SessionStart hook payload from in,

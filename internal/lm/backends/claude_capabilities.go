@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/harpmarker"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.
@@ -528,24 +529,74 @@ func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 
 // GetPreviousSession returns the session before the current one, resolved at
 // read time from the transcript store (the old PID-registry lookup assumed
-// /clear did not fork the session, but it does).
+// /clear did not fork the session, but it does). When the active harp is known
+// (CTXLOOM_SESSION_HARP), resolution is scoped to transcripts carrying that
+// harp's self-id marker, so a concurrent terminal's session in the same project
+// directory can't be mistaken for the previous one.
 func (h *ClaudeSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
+	return previousSessionByListing(workDir, os.Getenv("CTXLOOM_SESSION_HARP"),
+		h.ListSessions, h.GetSessionByPath, h.harpFromTranscript)
 }
 
 // previousSessionByListing resolves the session before the current one at READ
 // time. ListSessions is sorted most-recent-first, so the current (actively
-// written) session is index 0 and the previous is index 1. Returns nil when
-// fewer than two sessions exist. Replaces the PID-registry lookup, which never
-// found a second session because /clear forks a new transcript under a freshly
-// detected wrapper PID.
-func previousSessionByListing(workDir string, list func(string) ([]SessionMeta, error), byPath func(string) (*Session, error)) (*Session, error) {
+// written) session is index 0 and the previous is index 1.
+//
+// When myHarp is set and harpOf is provided, it first scopes to transcripts
+// whose embedded marker matches myHarp: with /clear forking a new transcript per
+// session (all under the same harp), the harp's own current and previous
+// transcripts are both marked, so scoped[1] is the true previous session for
+// this harp — immune to a second terminal interleaving transcripts in the same
+// project directory. Resolution falls back to the positional previous (metas[1])
+// when the harp is unknown, the harp has fewer than two marked transcripts
+// (e.g. pre-marker history), or the backend embeds no marker — preserving the
+// datetime-ordered behavior as a floor. Returns nil when fewer than two
+// sessions exist.
+func previousSessionByListing(
+	workDir, myHarp string,
+	list func(string) ([]SessionMeta, error),
+	byPath func(string) (*Session, error),
+	harpOf func(string) string,
+) (*Session, error) {
 	metas, err := list(workDir)
 	if err != nil {
 		return nil, err
+	}
+	if myHarp != "" && harpOf != nil {
+		var scoped []SessionMeta
+		for _, m := range metas {
+			if harpOf(m.Path) == myHarp {
+				scoped = append(scoped, m)
+			}
+		}
+		if len(scoped) >= 2 {
+			return byPath(scoped[1].Path)
+		}
 	}
 	if len(metas) < 2 {
 		return nil, nil
 	}
 	return byPath(metas[1].Path)
+}
+
+// harpFromTranscript returns the harp that owns the transcript at path by
+// scanning for its self-id marker, or "" if absent or unreadable. The marker is
+// emitted into the SessionStart context, so it sits in the first lines; scanning
+// stops at the first hit, keeping the cost off the (potentially multi-MB) body.
+func (h *ClaudeSessionHistory) harpFromTranscript(path string) string {
+	file, err := h.fs.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		if harp := harpmarker.Scan(scanner.Bytes()); harp != "" {
+			return harp
+		}
+	}
+	return ""
 }

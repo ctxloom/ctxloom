@@ -450,7 +450,9 @@ func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 }
 
 // GetPreviousSession returns the session before the current one, resolved at
-// read time from the transcript store (see previousSessionByListing).
+// read time from the transcript store (see previousSessionByListing). Gemini
+// does not yet embed the harp self-id marker, so resolution stays positional
+// (no harp scoping) until that producer path is verified for this backend.
 func (h *GeminiSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
+	return previousSessionByListing(workDir, "", h.ListSessions, h.GetSessionByPath, nil)
 }

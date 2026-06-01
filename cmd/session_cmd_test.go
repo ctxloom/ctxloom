@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,8 +10,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
+
+// TestEmitHarpMarker covers the SessionStart producer side: the bind hook emits
+// the harp self-id marker as valid SessionStart hook output so it lands in the
+// transcript, and emits nothing when no harp is active.
+func TestEmitHarpMarker(t *testing.T) {
+	t.Run("emits valid SessionStart marker", func(t *testing.T) {
+		var buf bytes.Buffer
+		emitHarpMarker(&buf, "plump-loose-sash")
+
+		var out HookOutput
+		require.NoError(t, json.Unmarshal(buf.Bytes(), &out))
+		require.NotNil(t, out.HookSpecificOutput)
+		assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName)
+		assert.Equal(t, harpmarker.Format("plump-loose-sash"), out.HookSpecificOutput.AdditionalContext)
+		// The decoded additionalContext must be recoverable by the read-time scanner.
+		assert.Equal(t, "plump-loose-sash", harpmarker.Scan(buf.Bytes()))
+	})
+
+	t.Run("no harp emits nothing", func(t *testing.T) {
+		var buf bytes.Buffer
+		emitHarpMarker(&buf, "")
+		assert.Empty(t, buf.Bytes())
+	})
+}
 
 // newTestSessionManager opens a sessions.Manager rooted at a temp
 // directory so each test gets its own isolated index.yaml.

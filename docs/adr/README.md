@@ -65,3 +65,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0014](0014-remove-transcript-scan-binding.md) | Remove transcript-scan / marker session binding | Accepted |
 | [0015](0015-local-git-test-remote.md) | Local bare-git `file://` remote for integration tests | Accepted |
 | [0016](0016-accept-compression-parser-ccn.md) | Accept >10 cyclomatic complexity in compression parsers/classifiers | Accepted |
+| [0017](0017-harp-self-id-marker.md) | Deterministic harp self-id marker for read-time recovery; defer LLM-echo fallback | Accepted/Deferred |

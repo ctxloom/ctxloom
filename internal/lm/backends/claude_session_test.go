@@ -292,6 +292,97 @@ func TestClaudeSessionHistory_GetPreviousSession_ReadTime(t *testing.T) {
 	assert.Equal(t, "PREVIOUS session work", prev.Entries[0].Content)
 }
 
+// markedTranscriptLine returns a JSONL user line whose content carries the harp
+// self-id marker for harp, plus some work text — the read-time shape the
+// SessionStart marker produces once the backend has decoded the hook output.
+func markedTranscriptLine(harp, work, ts string) []byte {
+	return []byte(`{"type":"user","timestamp":"` + ts +
+		`","message":{"role":"user","content":"<ctxloom name=\"` + harp +
+		`\" kind=\"harp\" /> ` + work + `"}}`)
+}
+
+func TestClaudeSessionHistory_harpFromTranscript(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	require.NoError(t, fs.MkdirAll("/p", 0755))
+	marked := "/p/marked.jsonl"
+	bare := "/p/bare.jsonl"
+	require.NoError(t, afero.WriteFile(fs, marked, markedTranscriptLine("swift-amber-falcon", "did work", "2026-06-01T10:00:00Z"), 0644))
+	require.NoError(t, afero.WriteFile(fs, bare,
+		[]byte(`{"type":"user","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"no marker here"}}`), 0644))
+
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+	assert.Equal(t, "swift-amber-falcon", history.harpFromTranscript(marked))
+	assert.Equal(t, "", history.harpFromTranscript(bare))
+	assert.Equal(t, "", history.harpFromTranscript("/p/missing.jsonl"), "unreadable transcript → empty, not error")
+}
+
+// TestClaudeSessionHistory_GetPreviousSession_HarpScoped covers the multi-
+// terminal case: a second terminal's session is the newest transcript in the
+// same project dir, so positional [1] would mis-resolve to the active session.
+// With the harp marker present, resolution scopes to this harp's own
+// transcripts and returns its true previous session.
+func TestClaudeSessionHistory_GetPreviousSession_HarpScoped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	// Another terminal's session — newest overall, different harp.
+	other := filepath.Join(projectDir, "other.jsonl")
+	// My current (post-clear) and previous sessions — same harp "mine".
+	cur := filepath.Join(projectDir, "cur.jsonl")
+	prev := filepath.Join(projectDir, "prev.jsonl")
+	require.NoError(t, afero.WriteFile(fs, other, markedTranscriptLine("other-harp", "OTHER terminal", "2026-06-01T12:00:00Z"), 0644))
+	require.NoError(t, afero.WriteFile(fs, cur, markedTranscriptLine("mine", "current post-clear", "2026-06-01T11:00:00Z"), 0644))
+	require.NoError(t, afero.WriteFile(fs, prev, markedTranscriptLine("mine", "PREVIOUS mine work", "2026-06-01T10:00:00Z"), 0644))
+	require.NoError(t, fs.Chtimes(other, time.Unix(3000, 0), time.Unix(3000, 0)))
+	require.NoError(t, fs.Chtimes(cur, time.Unix(2000, 0), time.Unix(2000, 0)))
+	require.NoError(t, fs.Chtimes(prev, time.Unix(1000, 0), time.Unix(1000, 0)))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs), WithClaudeSessionHomeDir(homeDir))
+
+	t.Setenv("CTXLOOM_SESSION_HARP", "mine")
+	got, err := history.GetPreviousSession(workDir)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "prev", got.ID, "harp scoping returns this harp's previous session, not the other terminal's or my own current")
+}
+
+// TestClaudeSessionHistory_GetPreviousSession_FallsBackPositional confirms the
+// floor: with no harp marker resolvable (pre-marker history), resolution falls
+// back to positional [1] — the datetime-ordered previous transcript.
+func TestClaudeSessionHistory_GetPreviousSession_FallsBackPositional(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	prevPath := filepath.Join(projectDir, "previous.jsonl")
+	curPath := filepath.Join(projectDir, "current.jsonl")
+	require.NoError(t, afero.WriteFile(fs, prevPath,
+		[]byte(`{"type":"user","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"PREVIOUS session work"}}`), 0644))
+	require.NoError(t, afero.WriteFile(fs, curPath,
+		[]byte(`{"type":"user","timestamp":"2026-06-01T11:00:00Z","message":{"role":"user","content":"current"}}`), 0644))
+	require.NoError(t, fs.Chtimes(prevPath, time.Unix(1000, 0), time.Unix(1000, 0)))
+	require.NoError(t, fs.Chtimes(curPath, time.Unix(2000, 0), time.Unix(2000, 0)))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs), WithClaudeSessionHomeDir(homeDir))
+
+	// Even with a harp set, unmarked transcripts fall back to positional [1].
+	t.Setenv("CTXLOOM_SESSION_HARP", "mine")
+	got, err := history.GetPreviousSession(workDir)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "previous", got.ID)
+}
+
 func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()

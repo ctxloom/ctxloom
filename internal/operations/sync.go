@@ -56,7 +56,7 @@ type SyncDependenciesResult struct {
 
 	// Changes lists the bundle-level delta between active and pending
 	// lockfiles after this sync. Non-empty only when a bundle was added
-	// or its SHA changed AND its source remote is not TrustBundles=true.
+	// or its SHA changed AND its source remote is not Trusted=true.
 	// Consumed by the MCP review state in ctxServer (see
 	// docs/bundle-review-plan.md Phase 3). nil for non-bundle syncs.
 	Changes *BundleChangeSet `json:"-"`
@@ -192,7 +192,7 @@ func applyTrustedPromotions(cfg *config.Config, registry *remote.Registry, fs af
 
 // computeBundleChanges loads the active + pending lockfiles and diffs them.
 // nil result means "nothing to review" — either no pending file exists or
-// every change was filtered out by TrustBundles.
+// every change was filtered out by Trusted.
 func computeBundleChanges(cfg *config.Config, registry *remote.Registry, fs afero.Fs) *BundleChangeSet {
 	baseDir := getBaseDir(cfg)
 	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))

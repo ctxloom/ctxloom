@@ -72,7 +72,7 @@ func TestMCP_WireProtocol_SyncRoutesNewBundleThroughReview(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
 	require.NoError(t, os.MkdirAll(paths.BundlesPath(appDir), 0o755))
 
-	// Untrusted remote (no trust_bundles) → a new bundle must go through review.
+	// Untrusted remote (not trusted) → a new bundle must go through review.
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"),
 		[]byte("remotes:\n  demo-remote:\n    url: "+remoteURL+"\n    version: v1\n"), 0o644))
 	// Non-default profile referencing the remote bundle.

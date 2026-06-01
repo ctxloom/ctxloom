@@ -502,7 +502,7 @@ func (s *ctxServer) handleTrustRemote(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, nil, fmt.Errorf("load registry: %w", err)
 	}
-	if err := registry.SetTrustBundles(in.Name, in.Trust); err != nil {
+	if err := registry.SetTrusted(in.Name, in.Trust); err != nil {
 		return nil, nil, err
 	}
 

@@ -58,7 +58,7 @@ func MergePendingLockfileCount(cfg *config.Config) (int, error) {
 }
 
 // PromoteTrustedPendingBundles lifts every pending bundle whose source
-// remote is marked TrustBundles=true straight into the active lockfile,
+// remote is marked Trusted=true straight into the active lockfile,
 // dropping it from pending. Trust means "apply without review", so these
 // changes bypass the review gate entirely instead of being orphaned in
 // pending (where nothing would ever promote them).

@@ -69,7 +69,7 @@ func TestDiffLockfiles(t *testing.T) {
 		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
 		require.NoError(t, err)
 		require.NoError(t, registry.Add("trusted", "https://github.com/trusted/repo"))
-		require.NoError(t, registry.SetTrustBundles("trusted", true))
+		require.NoError(t, registry.SetTrusted("trusted", true))
 		require.NoError(t, registry.Add("untrusted", "https://github.com/untrusted/repo"))
 
 		prev := mkLock(nil)

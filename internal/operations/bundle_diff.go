@@ -49,8 +49,8 @@ func (c *BundleChangeSet) All() []BundleChange {
 }
 
 // DiffLockfiles returns the bundle-only delta between prev (active) and curr
-// (pending). Entries whose source remote carries TrustBundles=true are
-// filtered out — trusted remotes auto-apply without review.
+// (pending). Entries whose source remote carries Trusted=true are filtered
+// out; trusted remotes auto-apply without review.
 //
 // A nil prev is treated as "everything in curr is new." A nil curr produces
 // an empty change set: removed bundles aren't shown for review (the user
@@ -102,7 +102,7 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 	return cs
 }
 
-// isTrustedRemote reports whether the registry has TrustBundles=true for
+// isTrustedRemote reports whether the registry has Trusted=true for
 // remoteName. Unknown remotes are treated as untrusted.
 func isTrustedRemote(registry *remote.Registry, remoteName string) bool {
 	if registry == nil || remoteName == "" {
@@ -112,5 +112,5 @@ func isTrustedRemote(registry *remote.Registry, remoteName string) bool {
 	if err != nil || rem == nil {
 		return false
 	}
-	return rem.TrustBundles
+	return rem.Trusted
 }

@@ -4,3 +4,6 @@
 remotes:
   ctxloom-default:
     url: https://github.com/ctxloom/ctxloom-default
+    # First-party remote: trust it so its bundle changes auto-apply on sync
+    # instead of surfacing a review prompt. Untrust via trust_remote(trust=false).
+    trusted: true

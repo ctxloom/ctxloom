@@ -264,13 +264,13 @@ func TestPromoteTrustedPendingBundles(t *testing.T) {
 	}
 
 	// trustedRegistry returns a registry where "trusted" carries
-	// TrustBundles=true and "untrusted" does not.
+	// Trusted=true and "untrusted" does not.
 	trustedRegistry := func(t *testing.T) *remote.Registry {
 		t.Helper()
 		reg, err := remote.NewRegistry("", remote.WithRegistryFS(afero.NewMemMapFs()))
 		require.NoError(t, err)
 		require.NoError(t, reg.Add("trusted", "https://github.com/trusted/repo"))
-		require.NoError(t, reg.SetTrustBundles("trusted", true))
+		require.NoError(t, reg.SetTrusted("trusted", true))
 		require.NoError(t, reg.Add("untrusted", "https://github.com/untrusted/repo"))
 		return reg
 	}

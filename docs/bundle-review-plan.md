@@ -17,7 +17,7 @@ The branch landed bundle review on startup with SHA-keyed reads, a native task l
 | 1.3 Migrate read sites | All `operations.bundleLoader(cfg)` and `*Loader` constructions now delegate to `Config.SeededBundleLoader(...)`. Seeded bundles surface via `bundles.WithSeededBundles` (`internal/bundles/bundles.go`) |
 | 1.4 Legacy cleanup | `internal/operations/legacy_cleanup.go::PurgeExtractedBundles`; invoked from `cmd/mcp_server.go::startup` |
 | 2.1 Diff | `internal/operations/bundle_diff.go::DiffLockfiles`, `BundleChangeSet`, trust filter |
-| 2.2 TrustBundles | `internal/remote/types.go::Remote.TrustBundles`; persisted by `registry.save()`; mutated via `Registry.SetTrustBundles` |
+| 2.2 Trusted | `internal/remote/types.go::Remote.Trusted`; persisted by `registry.save()`; mutated via `Registry.SetTrusted` |
 | 2.3 Pending lockfile | `internal/remote/lockfile.go::WithPendingLockfile`; `Puller.WithBundleLockfileTarget` routes bundle writes to pending; `operations.computeBundleChanges` runs the diff post-sync |
 | 3.1 + 3.3 Review state, deferred hooks | `cmd/bundle_review.go::bundleReviewState`; `cmd/mcp_server.go::applyHooksIfNotPending` |
 | 3.2 + 3.4 Initialize wiring + template | `cmd/mcp_server.go::startup` calls `s.handleSyncChanges`; `Instructions` set on `NewServer`; template in `cmd/bundle_review.go::renderReviewTemplate`; env-var bypass `CTXLOOM_AUTO_APPROVE_BUNDLES=1` |
@@ -54,7 +54,7 @@ The plan referenced legacy line numbers in `cmd/mcp.go` (`handleInitialize`, `ha
 - **Storage model:** version-aware getter at repo layer (`BundleReader → cacheFetcher → GitCloneFetcher`). No fs extraction.
 - **Injection sites:** both `initialize.instructions` + sticky tool-result prepend.
 - **Change scope:** new bundles + content-modified bundles (SHA diff). Profile/hook deltas excluded.
-- **Trust persistence:** per-session approve default; per-remote trust persisted via the `TrustBundles` config flag.
+- **Trust persistence:** per-session approve default; per-remote trust persisted via the `Trusted` config flag.
 - **Non-interactive bypass:** explicit env var `CTXLOOM_AUTO_APPROVE_BUNDLES=1` with stderr warning. No TTY-magic.
 - **Block scope:** B3 (hard block — only allowlisted tools callable until acknowledged).
 - **Template authoring:** fixed verbatim template, not natural-language paraphrase.

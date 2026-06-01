@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
@@ -724,93 +722,6 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		"repeated calls must not accumulate hooks via shared config state")
 	assert.Len(t, cfg.Hooks.Unified.SessionStart, 1,
 		"AssembleManagedHooks must not mutate the caller's config.Hooks")
-}
-
-// =============================================================================
-// Base Session Registry Tests
-// =============================================================================
-
-func TestBaseSessionRegistry_New(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	assert.NotNil(t, registry)
-}
-
-func TestBaseSessionRegistry_RegisterSession(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	workDir := "/test/project"
-
-	err := registry.RegisterSession(workDir, 12345, "/path/to/session.jsonl")
-	require.NoError(t, err)
-
-	// Second registration with same path should be idempotent
-	err = registry.RegisterSession(workDir, 12345, "/path/to/session.jsonl")
-	require.NoError(t, err)
-
-	// Verify file was created
-	exists, _ := afero.Exists(fs, "/test/project/.ctxloom/ephemeral/test-registry.json")
-	assert.True(t, exists)
-}
-
-func TestBaseSessionRegistry_GetPreviousSession_NoPrevious(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	workDir := "/test/project"
-
-	// Only one session registered
-	_ = registry.RegisterSession(workDir, 12345, "/path/to/session1.jsonl")
-
-	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
-		return &Session{ID: "test"}, nil
-	})
-	require.NoError(t, err)
-	assert.Nil(t, session) // No previous when only one session exists
-}
-
-func TestBaseSessionRegistry_GetPreviousSession_WithPrevious(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	workDir := "/test/project"
-
-	// Register two sessions
-	_ = registry.RegisterSession(workDir, 12345, "/path/to/session1.jsonl")
-	_ = registry.RegisterSession(workDir, 12345, "/path/to/session2.jsonl")
-
-	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
-		return &Session{ID: path}, nil
-	})
-	require.NoError(t, err)
-	assert.NotNil(t, session)
-	assert.Equal(t, "/path/to/session1.jsonl", session.ID) // Returns the first (previous) session
-}
-
-func TestBaseSessionRegistry_Pruning(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	workDir := "/test/project"
-
-	// Register sessions for many PIDs to trigger pruning
-	for i := 0; i < 150; i++ {
-		_ = registry.RegisterSession(workDir, 10000+i, "/path/to/session.jsonl")
-	}
-
-	// Should still work - pruning keeps maxEntries (100)
-	err := registry.RegisterSession(workDir, 99999, "/path/to/new.jsonl")
-	require.NoError(t, err)
-}
-
-func TestBaseSessionRegistry_EmptyRegistry(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry := NewBaseSessionRegistry("test-registry.json", WithRegistryFS(fs))
-	workDir := "/test/project"
-
-	// Get previous session when no sessions exist
-	session, err := registry.GetPreviousSession(workDir, 12345, func(path string) (*Session, error) {
-		return &Session{ID: path}, nil
-	})
-	require.NoError(t, err)
-	assert.Nil(t, session)
 }
 
 // =============================================================================

@@ -162,10 +162,9 @@ type SessionHistory interface {
 	// Claude: computes path from sessionID + workDir
 	// Gemini: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
-	// RegisterSession records a session transcript path for the given ctxloom run (by PID).
-	RegisterSession(workDir string, pid int, transcriptPath string) error
-	// GetPreviousSession returns the session before the current one for recovery.
-	GetPreviousSession(workDir string, pid int) (*Session, error)
+	// GetPreviousSession returns the session before the current one for recovery,
+	// resolved at read time from the transcript store (most-recent-first, [1]).
+	GetPreviousSession(workDir string) (*Session, error)
 }
 
 // Session represents a conversation session with normalized entries.

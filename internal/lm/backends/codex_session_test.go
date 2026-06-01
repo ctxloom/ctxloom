@@ -274,11 +274,8 @@ func TestCodexSessionHistory_RegistryNoOps(t *testing.T) {
 	// TranscriptPathFromHook always returns "".
 	assert.Empty(t, h.TranscriptPathFromHook("/proj", "session-id", "/tmp/x.jsonl"))
 
-	// RegisterSession silently succeeds.
-	require.NoError(t, h.RegisterSession("/proj", 12345, "/tmp/x.jsonl"))
-
 	// GetPreviousSession returns nil, nil.
-	prev, err := h.GetPreviousSession("/proj", 12345)
+	prev, err := h.GetPreviousSession("/proj")
 	require.NoError(t, err)
 	assert.Nil(t, prev)
 }

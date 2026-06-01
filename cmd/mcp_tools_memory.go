@@ -267,8 +267,6 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
-	pid := findCtxloomWrapperPID()
-
 	workDir, err := os.Getwd()
 	if err != nil {
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
@@ -287,19 +285,18 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		return nil, nil, fmt.Errorf("session history not available for backend %q", backendName)
 	}
 
-	prevSession, err := history.GetPreviousSession(workDir, pid)
+	prevSession, err := history.GetPreviousSession(workDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("lookup previous session: %w", err)
 	}
 	if prevSession == nil {
 		return nil, &loadSessionResult{
 			Loaded:  false,
-			Message: fmt.Sprintf("No previous session found for PID %d.", pid),
-			PID:     pid,
+			Message: "No previous session found for this project.",
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, prevSession.ID, backendName, in.Model, pid)
+	return s.loadOrDistillSession(ctx, prevSession.ID, backendName, in.Model, 0)
 }
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.

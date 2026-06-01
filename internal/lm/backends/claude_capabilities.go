@@ -149,10 +149,9 @@ func NewClaudeContext(backend *ClaudeCode) *ClaudeContext {
 // ClaudeSessionHistory implements SessionHistory for Claude Code.
 // Reads from ~/.claude/projects/<hash>/session.jsonl
 type ClaudeSessionHistory struct {
-	backend  *ClaudeCode
-	registry *BaseSessionRegistry
-	fs       afero.Fs
-	homeDir  string // Override home directory for testing
+	backend *ClaudeCode
+	fs      afero.Fs
+	homeDir string // Override home directory for testing
 }
 
 // ClaudeSessionHistoryOption configures ClaudeSessionHistory.
@@ -173,10 +172,6 @@ func WithClaudeSessionHomeDir(dir string) ClaudeSessionHistoryOption {
 }
 
 // NewClaudeSessionHistory creates a new Claude session history handler.
-// The registry shares h.fs so a single WithClaudeSessionFS option
-// hermetically swaps both surfaces — otherwise the underlying registry
-// would still hit the real filesystem during RegisterSession /
-// GetPreviousSession.
 func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOption) *ClaudeSessionHistory {
 	h := &ClaudeSessionHistory{
 		backend: backend,
@@ -185,7 +180,6 @@ func NewClaudeSessionHistory(backend *ClaudeCode, opts ...ClaudeSessionHistoryOp
 	for _, opt := range opts {
 		opt(h)
 	}
-	h.registry = NewBaseSessionRegistry("claude-session-registry.json", WithRegistryFS(h.fs))
 	return h
 }
 
@@ -532,17 +526,10 @@ func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return filepath.Join(homeDir, ".claude", "projects", projectName, sessionID+".jsonl")
 }
 
-// RegisterSession records a session transcript path for the given ctxloom run (by PID).
-// Delegates to BaseSessionRegistry for shared implementation with file locking.
-func (h *ClaudeSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	return h.registry.RegisterSession(workDir, pid, transcriptPath)
-}
-
 // GetPreviousSession returns the session before the current one, resolved at
-// read time from the transcript store. The pid arg is ignored (see
-// previousSessionByListing); the old PID-registry lookup assumed /clear did not
-// fork the session, but it does.
-func (h *ClaudeSessionHistory) GetPreviousSession(workDir string, _ int) (*Session, error) {
+// read time from the transcript store (the old PID-registry lookup assumed
+// /clear did not fork the session, but it does).
+func (h *ClaudeSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
 	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
 }
 

@@ -84,26 +84,6 @@ Output format (JSON to stdout):
 		// Determine work directory from --project flag, git root, or current directory
 		workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
 
-		// Register session for /clear recovery. When context is chunked across
-		// multiple ordered hooks, only the first chunk registers — the rest are
-		// kept lightweight so the rendezvous (AwaitTurn) sequences on uniform,
-		// minimal work and never on variable registration latency.
-		if injectContextPart <= 1 {
-			backend := backends.Get(injectContextBackend)
-			if backend == nil {
-				backend = backends.Get("claude-code") // default
-			}
-			if history := backend.History(); history != nil {
-				transcriptPath := history.TranscriptPathFromHook(workDir, hookInput.SessionID, hookInput.TranscriptPath)
-				if transcriptPath != "" {
-					pid := findCtxloomWrapperPID()
-					if err := history.RegisterSession(workDir, pid, transcriptPath); err != nil {
-						fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to register session: %v\n", err)
-					}
-				}
-			}
-		}
-
 		// Read context file by hash
 		content, err := backends.ReadContextFile(workDir, hash)
 		if err != nil {

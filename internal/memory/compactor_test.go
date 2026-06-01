@@ -378,11 +378,7 @@ func (m *mockSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcri
 	return ""
 }
 
-func (m *mockSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	return nil
-}
-
-func (m *mockSessionHistory) GetPreviousSession(workDir string, pid int) (*backends.Session, error) {
+func (m *mockSessionHistory) GetPreviousSession(workDir string) (*backends.Session, error) {
 	return nil, errors.New("not implemented")
 }
 

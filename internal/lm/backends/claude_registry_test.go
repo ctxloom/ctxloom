@@ -1,18 +1,13 @@
-// Tests for the registry-side methods on ClaudeSessionHistory:
-// TranscriptPathFromHook, RegisterSession, GetPreviousSession.
-// These are 0% covered by the existing claude_session_test.go because
-// the registry surface depends on a per-workDir .ctxloom/ephemeral
-// directory on disk; the constructor change that propagates h.fs into
-// the registry makes hermetic MemMapFs tests possible.
+// Tests for ClaudeSessionHistory.TranscriptPathFromHook (the path-derivation
+// surface). Previous-session resolution is covered by
+// TestClaudeSessionHistory_GetPreviousSession_ReadTime in claude_session_test.go.
 package backends
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -38,47 +33,4 @@ func TestClaudeSessionHistory_TranscriptPathFromHook_EmptySessionIDReturnsEmpty(
 	)
 	assert.Empty(t, h.TranscriptPathFromHook("/p", "", "x"),
 		"empty session id is a structural absence, not a guess at the path")
-}
-
-// =============================================================================
-// RegisterSession + GetPreviousSession
-// =============================================================================
-
-func TestClaudeSessionHistory_RegisterSession_PersistsToRegistry(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	workDir := "/proj"
-	require.NoError(t, fs.MkdirAll(filepath.Join(workDir, ".ctxloom", "ephemeral"), 0755))
-
-	h := NewClaudeSessionHistory(NewClaudeCode(), WithClaudeSessionFS(fs))
-
-	require.NoError(t, h.RegisterSession(workDir, 1234, "/transcripts/t1.jsonl"))
-
-	// Re-registering the same path is idempotent (no error, no duplicate).
-	require.NoError(t, h.RegisterSession(workDir, 1234, "/transcripts/t1.jsonl"))
-
-	// The registry file should now exist in the MemMapFs.
-	exists, err := afero.Exists(fs, filepath.Join(workDir, ".ctxloom", "ephemeral", "claude-session-registry.json"))
-	require.NoError(t, err)
-	assert.True(t, exists, "registry must persist through the shared fs")
-}
-
-func TestClaudeSessionHistory_RegisterSession_FSIsShared(t *testing.T) {
-	// This pins the fix in NewClaudeSessionHistory: the registry must
-	// share h.fs, not silently fall back to OsFs. If a future refactor
-	// breaks that wiring, RegisterSession would either write nothing to
-	// the MemMapFs (and we'd see Exists=false) or panic when locking
-	// against an OsFs path that doesn't exist.
-	fs := afero.NewMemMapFs()
-	h := NewClaudeSessionHistory(NewClaudeCode(), WithClaudeSessionFS(fs))
-
-	require.NoError(t, h.RegisterSession("/proj", 42, "/t/path.jsonl"))
-
-	exists, err := afero.Exists(fs, "/proj/.ctxloom/ephemeral/claude-session-registry.json")
-	require.NoError(t, err)
-	require.True(t, exists, "WithClaudeSessionFS must reach the registry too")
-
-	// Belt-and-suspenders: the registry file is non-empty JSON.
-	data, err := afero.ReadFile(fs, "/proj/.ctxloom/ephemeral/claude-session-registry.json")
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "/t/path.jsonl", "registered path must round-trip")
 }

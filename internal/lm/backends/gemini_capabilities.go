@@ -227,10 +227,9 @@ func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
 // GeminiSessionHistory implements SessionHistory for Gemini CLI.
 // Reads from ~/.gemini/tmp/<hash>/chats/*.json
 type GeminiSessionHistory struct {
-	backend  *Gemini
-	registry *BaseSessionRegistry
-	fs       afero.Fs
-	homeDir  string // Override home directory for testing
+	backend *Gemini
+	fs      afero.Fs
+	homeDir string // Override home directory for testing
 }
 
 // GeminiSessionHistoryOption configures GeminiSessionHistory.
@@ -253,9 +252,8 @@ func WithGeminiSessionHomeDir(dir string) GeminiSessionHistoryOption {
 // NewGeminiSessionHistory creates a new Gemini session history handler.
 func NewGeminiSessionHistory(backend *Gemini, opts ...GeminiSessionHistoryOption) *GeminiSessionHistory {
 	h := &GeminiSessionHistory{
-		backend:  backend,
-		registry: NewBaseSessionRegistry("gemini-session-registry.json"),
-		fs:       afero.NewOsFs(),
+		backend: backend,
+		fs:      afero.NewOsFs(),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -451,14 +449,8 @@ func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return transcriptPath
 }
 
-// RegisterSession records a session for the given ctxloom run (by PID).
-// Delegates to BaseSessionRegistry for shared implementation with file locking.
-func (h *GeminiSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	return h.registry.RegisterSession(workDir, pid, transcriptPath)
-}
-
 // GetPreviousSession returns the session before the current one, resolved at
-// read time from the transcript store (pid ignored; see previousSessionByListing).
-func (h *GeminiSessionHistory) GetPreviousSession(workDir string, _ int) (*Session, error) {
+// read time from the transcript store (see previousSessionByListing).
+func (h *GeminiSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
 	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
 }

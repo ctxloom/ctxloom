@@ -284,7 +284,7 @@ func TestClaudeSessionHistory_GetPreviousSession_ReadTime(t *testing.T) {
 		WithClaudeSessionHomeDir(homeDir),
 	)
 
-	prev, err := history.GetPreviousSession(workDir, 0)
+	prev, err := history.GetPreviousSession(workDir)
 	require.NoError(t, err)
 	require.NotNil(t, prev, "previous session (second-most-recent) must resolve")
 	assert.Equal(t, "previous", prev.ID)

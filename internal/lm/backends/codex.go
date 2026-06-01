@@ -366,17 +366,12 @@ func (h *CodexSessionHistory) GetSessionByPath(path string) (*Session, error) {
 	return h.parseSessionFile(path)
 }
 
-// RegisterSession is a no-op for Codex (no registry support yet).
 // TranscriptPathFromHook returns empty string - Codex doesn't support session registration yet.
 func (h *CodexSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
 	return ""
 }
 
-func (h *CodexSessionHistory) RegisterSession(workDir string, pid int, transcriptPath string) error {
-	return nil // Silent no-op - Codex doesn't have registry support
-}
-
 // GetPreviousSession returns nil for Codex (no registry support yet).
-func (h *CodexSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
+func (h *CodexSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
 	return nil, nil // No previous session tracking for Codex
 }

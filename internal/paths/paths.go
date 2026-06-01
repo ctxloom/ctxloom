@@ -47,6 +47,12 @@ const (
 	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
 	SessionsDir = "sessions"
 
+	// IndexFileName is the name of the home-rooted session index file.
+	IndexFileName = "index.yaml"
+
+	// EssenceFileName is the name of a harp's distilled session essence.
+	EssenceFileName = "essence.md"
+
 	// TasksFileName is the name of the task store file.
 	TasksFileName = "tasks.md"
 
@@ -68,6 +74,16 @@ func HomeSessionsDir() (string, error) {
 	return filepath.Join(home, AppDirName, SessionsDir), nil
 }
 
+// SessionIndexPath returns ~/.ctxloom/sessions/index.yaml — the home-rooted
+// session index that binds harp names to backend sessions.
+func SessionIndexPath() (string, error) {
+	root, err := HomeSessionsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, IndexFileName), nil
+}
+
 // HarpDir returns ~/.ctxloom/sessions/<harp>/. Errors when the home dir
 // can't be resolved; callers fall back to the legacy layout in that case.
 func HarpDir(harp string) (string, error) {
@@ -76,6 +92,31 @@ func HarpDir(harp string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, harp), nil
+}
+
+// HarpEssencePath returns ~/.ctxloom/sessions/<harp>/essence.md — the distilled
+// session essence for a harp-named session.
+func HarpEssencePath(harp string) (string, error) {
+	dir, err := HarpDir(harp)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, EssenceFileName), nil
+}
+
+// ProjectSessionsDir returns the project-rooted directory holding distilled
+// session .md files. It is distinct from the home-rooted HomeSessionsDir: this
+// is per-project state under the app dir. Resolution prefers the configured app
+// dir, then <cwd>/.ctxloom/sessions, then a bare relative .ctxloom/sessions when
+// even the working directory can't be resolved.
+func ProjectSessionsDir(appDir string) string {
+	if appDir != "" {
+		return filepath.Join(appDir, SessionsDir)
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return filepath.Join(wd, AppDirName, SessionsDir)
+	}
+	return filepath.Join(AppDirName, SessionsDir)
 }
 
 // HarpTasksPath returns ~/.ctxloom/sessions/<harp>/tasks.md — the active

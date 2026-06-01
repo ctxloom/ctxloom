@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
@@ -93,7 +94,7 @@ var sessionShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
-		path := filepath.Join(resolveSessionsDir(cfg), entry.SessionID+".md")
+		path := filepath.Join(paths.ProjectSessionsDir(cfg.AppDir), entry.SessionID+".md")
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read essence: %w (run `ctxloom session distill %s` to compact this session first)", err, args[0])
@@ -107,11 +108,11 @@ var sessionShowCmd = &cobra.Command{
 // Errors when home can't be resolved or the file is missing; callers fall
 // back to the legacy layout in either case.
 func readHarpEssence(harpName string) ([]byte, error) {
-	home, err := os.UserHomeDir()
+	p, err := paths.HarpEssencePath(harpName)
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(filepath.Join(home, ".ctxloom", "sessions", harpName, "essence.md"))
+	return os.ReadFile(p)
 }
 
 var sessionRenameCmd = &cobra.Command{
@@ -349,15 +350,3 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 	return w.Err()
 }
 
-// resolveSessionsDir mirrors the sessions-dir resolution from
-// cmd/mcp_tools_memory.go so CLI lookups land at the same path the
-// MCP server writes to. Kept local to avoid coupling cmd files.
-func resolveSessionsDir(cfg *config.Config) string {
-	if cfg.AppDir != "" {
-		return filepath.Join(cfg.AppDir, "sessions")
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return filepath.Join(wd, ".ctxloom", "sessions")
-	}
-	return filepath.Join(".ctxloom", "sessions")
-}

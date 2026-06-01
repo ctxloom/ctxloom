@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
@@ -86,13 +86,7 @@ type loadSessionResult struct {
 // Persistent (not ephemeral) because distilled summaries are a per-repo cache
 // the user benefits from across restarts.
 func (s *ctxServer) getSessionsDir() string {
-	if s.cfg.AppDir != "" {
-		return filepath.Join(s.cfg.AppDir, "sessions")
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return filepath.Join(wd, ".ctxloom", "sessions")
-	}
-	return filepath.Join(".ctxloom", "sessions")
+	return paths.ProjectSessionsDir(s.cfg.AppDir)
 }
 
 func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
@@ -211,11 +205,10 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 	if entry == nil {
 		return nil, nil, fmt.Errorf("harp not found in index: %q", harpName)
 	}
-	home, err := os.UserHomeDir()
+	essencePath, err := paths.HarpEssencePath(harpName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("home dir: %w", err)
 	}
-	essencePath := filepath.Join(home, ".ctxloom", "sessions", harpName, "essence.md")
 	data, err := os.ReadFile(essencePath)
 	if err != nil {
 		return nil, &loadSessionResult{

@@ -542,7 +542,7 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 		harpDir, err := harpSessionDir(meta.HarpName)
 		if err == nil {
 			if err := os.MkdirAll(harpDir, 0o755); err == nil {
-				essencePath := filepath.Join(harpDir, "essence.md")
+				essencePath := filepath.Join(harpDir, paths.EssenceFileName)
 				if err := os.WriteFile(essencePath, docBytes, 0o644); err == nil {
 					// NB: the active task store already lives at
 					// <harpDir>/tasks.md (see tasks.OpenSession migration), so

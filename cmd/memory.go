@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 var memoryCmd = &cobra.Command{
@@ -84,10 +84,6 @@ func init() {
 	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: claude-code)")
 }
 
-func getSessionsDir(cfg *config.Config) string {
-	return filepath.Join(cfg.AppDir, "sessions")
-}
-
 func runMemoryList(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -140,7 +136,7 @@ func resolveHistoryBackend(cfg *config.Config, backendName string) (backends.Ses
 // loadDistilledSet returns the set of session IDs already distilled (best
 // effort; a listing error is non-fatal and yields an empty set).
 func loadDistilledSet(cfg *config.Config) map[string]bool {
-	distilled, err := memory.ListDistilledSessions(getSessionsDir(cfg))
+	distilled, err := memory.ListDistilledSessions(paths.ProjectSessionsDir(cfg.AppDir))
 	if err != nil {
 		distilled = nil // Non-fatal
 	}
@@ -219,7 +215,7 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Entries: %d\n", len(session.Entries))
 
 	// Check for distilled version
-	sessionsDir := getSessionsDir(cfg)
+	sessionsDir := paths.ProjectSessionsDir(cfg.AppDir)
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err == nil {
 		fmt.Println("\n--- Distilled Summary ---")
@@ -271,7 +267,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 		ChunkSize: cfg.GetCompactionChunkSize(),
 		SessionID: compactSession,
 		WorkDir:   workDir,
-		OutputDir: getSessionsDir(cfg),
+		OutputDir: paths.ProjectSessionsDir(cfg.AppDir),
 	})
 	if err != nil {
 		return fmt.Errorf("create compactor: %w", err)

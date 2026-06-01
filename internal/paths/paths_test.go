@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,6 +92,43 @@ func TestHarpPlanPath_InSessionDir(t *testing.T) {
 	// so a session can hold multiple distinctly named plans.
 	assert.Equal(t, filepath.Join(harpDir, "v1-removal.plan.md"), planPath)
 	assert.True(t, strings.HasSuffix(planPath, filepath.Join("sessions", "swift-amber-falcon", "v1-removal.plan.md")))
+}
+
+func TestSessionIndexPath_InSessionsRoot(t *testing.T) {
+	root, err := HomeSessionsDir()
+	if err != nil {
+		t.Skipf("home dir unavailable: %v", err)
+	}
+	got, err := SessionIndexPath()
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(root, "index.yaml"), got)
+	assert.True(t, strings.HasSuffix(got, filepath.Join("sessions", "index.yaml")))
+}
+
+func TestHarpEssencePath_InHarpDir(t *testing.T) {
+	harpDir, err := HarpDir("swift-amber-falcon")
+	if err != nil {
+		t.Skipf("home dir unavailable: %v", err)
+	}
+	got, err := HarpEssencePath("swift-amber-falcon")
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(harpDir, "essence.md"), got)
+}
+
+// TestProjectSessionsDir covers the consolidated project-sessions resolver,
+// including the cwd fallback the old truncated cmd/memory.go variant dropped.
+func TestProjectSessionsDir(t *testing.T) {
+	// Configured app dir wins.
+	assert.Equal(t, filepath.Join("/app", "sessions"), ProjectSessionsDir("/app"))
+
+	// Empty app dir falls back to <cwd>/.ctxloom/sessions — the behavior the
+	// truncated variant lacked. We compare against the live cwd.
+	got := ProjectSessionsDir("")
+	if wd, err := os.Getwd(); err == nil {
+		assert.Equal(t, filepath.Join(wd, AppDirName, SessionsDir), got)
+	} else {
+		assert.Equal(t, filepath.Join(AppDirName, SessionsDir), got)
+	}
 }
 
 // =============================================================================

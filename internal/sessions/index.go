@@ -56,11 +56,11 @@ type Manager struct {
 func Open(override string) (*Manager, error) {
 	path := override
 	if path == "" {
-		home, err := os.UserHomeDir()
+		p, err := paths.SessionIndexPath()
 		if err != nil {
 			return nil, fmt.Errorf("home dir: %w", err)
 		}
-		path = filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
+		path = p
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir sessions dir: %w", err)

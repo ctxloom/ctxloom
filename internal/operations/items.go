@@ -1,0 +1,260 @@
+package operations
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+)
+
+// Bundle items (fragments and prompts) are managed through this frontend-
+// agnostic core: every write goes through the same symlink-traversal guard
+// (loadBundleForUpdate), the same field-preserving merge (applyFragmentEdits /
+// applyPromptEdits), and the same provider-agnostic distillation seam
+// (Distiller). Frontends — the CLI today, an MCP tool tomorrow — supply
+// arguments and render results; they do no bundle IO and host no LLM
+// themselves. The terminal-only concerns (an $EDITOR round-trip, status lines)
+// stay in the frontend; the library never touches stdin/stdout.
+
+// ItemKind identifies which kind of bundle item an operation targets.
+type ItemKind string
+
+const (
+	ItemKindFragment ItemKind = "fragment"
+	ItemKindPrompt   ItemKind = "prompt"
+)
+
+func (k ItemKind) valid() bool { return k == ItemKindFragment || k == ItemKindPrompt }
+
+// ErrItemExists and ErrItemNotFound are sentinels so any frontend can map them
+// to its own UX (a CLI message, an MCP error code) via errors.Is rather than
+// string matching.
+var (
+	ErrItemExists   = errors.New("item already exists")
+	ErrItemNotFound = errors.New("item not found")
+)
+
+// GetItemRequest identifies a single fragment/prompt to read.
+type GetItemRequest struct {
+	Bundle string   `json:"bundle"`
+	Kind   ItemKind `json:"kind"`
+	Name   string   `json:"name"`
+}
+
+// GetItemResult carries an item's raw and distilled content.
+type GetItemResult struct {
+	Content   string `json:"content"`
+	Distilled string `json:"distilled,omitempty"`
+}
+
+// GetItemContent returns a bundle item's content (and distilled form). It is the
+// read half the edit flow needs: a frontend fetches the current content, lets
+// the user change it however it likes, then calls SetItemContent.
+func GetItemContent(_ context.Context, cfg *config.Config, req GetItemRequest) (*GetItemResult, error) {
+	if !req.Kind.valid() {
+		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	bundle, err := bundleLoader(cfg).Load(req.Bundle)
+	if err != nil {
+		return nil, fmt.Errorf("bundle %q not found: %w", req.Bundle, err)
+	}
+	content, distilled, ok := itemContent(bundle, req.Kind, req.Name)
+	if !ok {
+		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+	}
+	return &GetItemResult{Content: content, Distilled: distilled}, nil
+}
+
+// AddItemRequest is the input for AddItem.
+type AddItemRequest struct {
+	Bundle  string   `json:"bundle"`
+	Kind    ItemKind `json:"kind"`
+	Name    string   `json:"name"`
+	Content string   `json:"content"`
+
+	// Distiller, when non-nil and the content is distillable, distills the new
+	// item. Frontends inject an LLM-backed implementation (or nil to skip — the
+	// CLI's placeholder-then-edit flow adds raw and distills on the later edit).
+	Distiller Distiller `json:"-"`
+}
+
+// AddItemResult reports a created item.
+type AddItemResult struct {
+	Status string `json:"status"`
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+}
+
+// AddItem adds a fragment or prompt to an existing bundle. It is add-only:
+// an existing name yields ErrItemExists rather than overwriting (the data-loss
+// hazard that bars routing add through UpdateBundle's upsert SetFragments).
+func AddItem(ctx context.Context, cfg *config.Config, req AddItemRequest) (*AddItemResult, error) {
+	if !req.Kind.valid() {
+		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, ok := itemContent(bundle, req.Kind, req.Name); ok {
+		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemExists)
+	}
+
+	var distillTargets []string
+	switch req.Kind {
+	case ItemKindFragment:
+		_, distillTargets = applyFragmentEdits(bundle,
+			map[string]BundleFragmentInput{req.Name: {Content: req.Content}}, nil, nil)
+		distillFragments(ctx, bundle, distillTargets, req.Distiller)
+	case ItemKindPrompt:
+		_, distillTargets = applyPromptEdits(bundle,
+			map[string]BundlePromptInput{req.Name: {Content: req.Content}}, nil, nil)
+		distillPrompts(ctx, bundle, distillTargets, req.Distiller)
+	}
+
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	return &AddItemResult{Status: "created", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
+}
+
+// DeleteItemRequest is the input for DeleteItem.
+type DeleteItemRequest struct {
+	Bundle string   `json:"bundle"`
+	Kind   ItemKind `json:"kind"`
+	Name   string   `json:"name"`
+}
+
+// DeleteItemResult reports a removed item.
+type DeleteItemResult struct {
+	Status string `json:"status"`
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+}
+
+// DeleteItem removes a fragment or prompt from a bundle, returning
+// ErrItemNotFound when the named item is absent.
+func DeleteItem(_ context.Context, cfg *config.Config, req DeleteItemRequest) (*DeleteItemResult, error) {
+	if !req.Kind.valid() {
+		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, ok := itemContent(bundle, req.Kind, req.Name); !ok {
+		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+	}
+	switch req.Kind {
+	case ItemKindFragment:
+		delete(bundle.Fragments, req.Name)
+	case ItemKindPrompt:
+		delete(bundle.Prompts, req.Name)
+	}
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	return &DeleteItemResult{Status: "deleted", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
+}
+
+// SetItemContentRequest is the input for SetItemContent.
+type SetItemContentRequest struct {
+	Bundle  string   `json:"bundle"`
+	Kind    ItemKind `json:"kind"`
+	Name    string   `json:"name"`
+	Content string   `json:"content"`
+
+	// Distiller, when non-nil, (re)distills the item after the content change
+	// unless the item is marked no_distill. Injected by the frontend.
+	Distiller Distiller `json:"-"`
+}
+
+// SetItemContentResult reports an updated item.
+type SetItemContentResult struct {
+	Status    string `json:"status"`
+	Bundle    string `json:"bundle"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Distilled bool   `json:"distilled"`
+}
+
+// SetItemContent replaces an existing item's content (the write half of an edit
+// flow), preserving its other fields (tags, notes, installation, no_distill).
+// A content change clears the stale distilled form and, when a Distiller is
+// supplied and the item is distillable, regenerates it.
+func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentRequest) (*SetItemContentResult, error) {
+	if !req.Kind.valid() {
+		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+
+	var distillTargets []string
+	switch req.Kind {
+	case ItemKindFragment:
+		existing, ok := bundle.Fragments[req.Name]
+		if !ok {
+			return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+		}
+		// Carry the existing fields through so the content-only edit can't wipe
+		// them (applyFragmentEdits replaces tags/notes/installation from input).
+		_, distillTargets = applyFragmentEdits(bundle, map[string]BundleFragmentInput{req.Name: {
+			Content:      req.Content,
+			Tags:         existing.Tags,
+			Notes:        existing.Notes,
+			Installation: existing.Installation,
+			NoDistill:    existing.NoDistill,
+		}}, nil, nil)
+		distillFragments(ctx, bundle, distillTargets, req.Distiller)
+	case ItemKindPrompt:
+		existing, ok := bundle.Prompts[req.Name]
+		if !ok {
+			return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+		}
+		_, distillTargets = applyPromptEdits(bundle, map[string]BundlePromptInput{req.Name: {
+			Content:      req.Content,
+			Description:  existing.Description,
+			Tags:         existing.Tags,
+			Notes:        existing.Notes,
+			Installation: existing.Installation,
+			NoDistill:    existing.NoDistill,
+		}}, nil, nil)
+		distillPrompts(ctx, bundle, distillTargets, req.Distiller)
+	}
+
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	return &SetItemContentResult{
+		Status:    "updated",
+		Bundle:    req.Bundle,
+		Name:      req.Name,
+		Path:      bundle.Path,
+		Distilled: req.Distiller != nil && len(distillTargets) > 0,
+	}, nil
+}
+
+// itemContent returns the raw and distilled content of a named item, and whether
+// it exists, for either kind.
+func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distilled string, ok bool) {
+	switch kind {
+	case ItemKindFragment:
+		if f, exists := b.Fragments[name]; exists {
+			return f.Content, f.Distilled, true
+		}
+	case ItemKindPrompt:
+		if p, exists := b.Prompts[name]; exists {
+			return p.Content, p.Distilled, true
+		}
+	}
+	return "", "", false
+}

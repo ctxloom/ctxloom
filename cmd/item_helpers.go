@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -197,44 +199,25 @@ func showItem(ref string, itemType ItemType, showDistilled bool) error {
 	return nil
 }
 
-// createItem creates a new item in a bundle.
+// createItem creates a new item in a bundle. Thin wrapper over the
+// frontend-agnostic operations.AddItem core.
 func createItem(bundleName, itemName string, itemType ItemType) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	_, err = operations.AddItem(context.Background(), cfg, operations.AddItemRequest{
+		Bundle:  bundleName,
+		Kind:    operations.ItemKind(itemType),
+		Name:    itemName,
+		Content: "# " + itemName + "\n\nAdd content here.",
+	})
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	switch itemType {
-	case ItemTypeFragment:
-		if _, exists := bundle.Fragments[itemName]; exists {
-			return fmt.Errorf("fragment already exists: %s", itemName)
+		if errors.Is(err, operations.ErrItemExists) {
+			return fmt.Errorf("%s already exists: %s", itemType, itemName)
 		}
-		if bundle.Fragments == nil {
-			bundle.Fragments = make(map[string]bundles.BundleFragment)
-		}
-		bundle.Fragments[itemName] = bundles.BundleFragment{
-			Content: "# " + itemName + "\n\nAdd content here.",
-		}
-	case ItemTypePrompt:
-		if _, exists := bundle.Prompts[itemName]; exists {
-			return fmt.Errorf("prompt already exists: %s", itemName)
-		}
-		if bundle.Prompts == nil {
-			bundle.Prompts = make(map[string]bundles.BundlePrompt)
-		}
-		bundle.Prompts[itemName] = bundles.BundlePrompt{
-			Content: "# " + itemName + "\n\nAdd content here.",
-		}
-	}
-
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
+		return err
 	}
 
 	fmt.Printf("Created %s %q in bundle %q\n", itemType, itemName, bundleName)
@@ -242,7 +225,8 @@ func createItem(bundleName, itemName string, itemType ItemType) error {
 	return nil
 }
 
-// deleteItem removes an item from a bundle.
+// deleteItem removes an item from a bundle. Thin wrapper over
+// operations.DeleteItem.
 func deleteItem(ref string, itemType ItemType) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
@@ -254,34 +238,25 @@ func deleteItem(ref string, itemType ItemType) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	_, err = operations.DeleteItem(context.Background(), cfg, operations.DeleteItemRequest{
+		Bundle: bundleName,
+		Kind:   operations.ItemKind(itemType),
+		Name:   itemName,
+	})
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
-	}
-
-	switch itemType {
-	case ItemTypeFragment:
-		if _, exists := bundle.Fragments[itemName]; !exists {
-			return fmt.Errorf("fragment not found: %s", itemName)
+		if errors.Is(err, operations.ErrItemNotFound) {
+			return fmt.Errorf("%s not found: %s", itemType, itemName)
 		}
-		delete(bundle.Fragments, itemName)
-	case ItemTypePrompt:
-		if _, exists := bundle.Prompts[itemName]; !exists {
-			return fmt.Errorf("prompt not found: %s", itemName)
-		}
-		delete(bundle.Prompts, itemName)
-	}
-
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
+		return err
 	}
 
 	fmt.Printf("Deleted %s %q from bundle %q\n", itemType, itemName, bundleName)
 	return nil
 }
 
-// editItem opens an item for editing.
+// editItem opens an item in the editor, then writes the new content back through
+// the operations core. The $EDITOR round-trip is the only CLI-specific concern;
+// the load, guard, distillation, and save all live in the library.
 func editItem(ref string, itemType ItemType) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
@@ -292,20 +267,43 @@ func editItem(ref string, itemType ItemType) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	kind := operations.ItemKind(itemType)
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	cur, err := operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
+		Bundle: bundleName,
+		Kind:   kind,
+		Name:   itemName,
+	})
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		return err
 	}
 
-	switch itemType {
-	case ItemTypeFragment:
-		return editFragment(cfg, bundle, itemName)
-	case ItemTypePrompt:
-		return editPrompt(cfg, bundle, itemName)
+	newContent, err := editInEditor(cfg, cur.Content, itemName+".md")
+	if err != nil {
+		return fmt.Errorf("editor failed: %w", err)
+	}
+	if newContent == cur.Content {
+		fmt.Println("No changes made.")
+		return nil
 	}
 
+	res, err := operations.SetItemContent(context.Background(), cfg, operations.SetItemContentRequest{
+		Bundle:    bundleName,
+		Kind:      kind,
+		Name:      itemName,
+		Content:   newContent,
+		Distiller: newLLMDistiller(cfg),
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Updated %s %q in bundle %q", itemType, itemName, bundleName)
+	if res.Distilled {
+		fmt.Print(" (re-distilled)")
+	}
+	fmt.Println()
+	printPushReminder(bundleName)
 	return nil
 }
 
@@ -389,6 +387,12 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 
 	applyDistilled(bundle, itemName, itemType, distilled, modelID)
 
+	// distillItem still mutates a loaded bundle and saves it directly (a
+	// force-redistill, not a CRUD op), so apply the same symlink guard the
+	// operations write paths use before saving.
+	if err := operations.RequireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
+		return err
+	}
 	if err := bundle.Save(); err != nil {
 		return fmt.Errorf("failed to save bundle: %w", err)
 	}

@@ -135,6 +135,18 @@ func (s *ctxServer) bundleDistiller() operations.Distiller {
 	if err != nil {
 		return nil
 	}
+	return newLLMDistiller(cfg)
+}
+
+// newLLMDistiller builds an operations.Distiller backed by the configured LLM
+// plugin and distill prompt. It is the single construction point shared by every
+// frontend (MCP bundle tools, CLI item edits) so distillation wiring lives in
+// one place. Returns nil when no plugin or distill prompt is available — the
+// operations layer then stores raw content (fault-tolerant).
+func newLLMDistiller(cfg *config.Config) operations.Distiller {
+	if cfg == nil {
+		return nil
+	}
 	pluginName := cfg.GetDefaultLLMPlugin()
 	if pluginName == "" {
 		return nil

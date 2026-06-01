@@ -66,6 +66,12 @@ export default defineConfig({
 						{ label: 'Environment', link: '/reference/environment/' },
 					],
 				},
+				{
+					label: 'Ecosystem',
+					items: [
+						{ label: 'llm-tool-killer (ltk)', link: '/ecosystem/llm-tool-killer/' },
+					],
+				},
 				{ label: 'Troubleshooting', link: '/troubleshooting/' },
 				{ label: 'Contributing', link: '/contributing/' },
 			],

@@ -15,6 +15,20 @@ While the author says these scripts are safe, **thou shalt be paranoid**. We enc
 The scripts are open source and designed to be auditable. Your security paranoia is valid and encouraged!
 :::
 
+## Homebrew (macOS)
+
+The simplest way to install on macOS:
+
+```bash
+brew install ctxloom/tap/ctxloom-full   # full build (tree-sitter AST compression)
+# or, for the lighter build without tree-sitter:
+brew install ctxloom/tap/ctxloom
+```
+
+The `ctxloom/tap/...` shorthand auto-taps [`ctxloom/homebrew-tap`](https://github.com/ctxloom/homebrew-tap) — no separate `brew tap` needed. The two casks both install the `ctxloom` binary and are declared to conflict, so install just one. Upgrade later with `brew upgrade ctxloom/tap/ctxloom-full`.
+
+Homebrew casks are macOS-only. On Linux or Windows, use the install script or manual download below.
+
 ## Quick Install (Recommended)
 
 ### macOS / Linux

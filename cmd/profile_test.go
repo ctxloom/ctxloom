@@ -1,25 +1,17 @@
-// Tests for cmd/profile.go's extracted helpers. The cobra wrappers
-// remain trivial composition (config + loader + delegate), so the
-// testable surface is the mutation matrix in applyProfileMutations
-// and the formatting in renderProfileList / renderProfileShow.
+// Tests for cmd/profile.go's extracted helpers. The cobra wrappers route
+// create/modify/delete through internal/operations (covered by
+// operations/profiles_test.go), so the remaining CLI-local testable surface
+// is the formatting in renderProfileList / renderProfileShow.
 package cmd
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 )
-
-// ptrString is a small helper for building profileMutations.SetDescription
-// in test setup, since the field semantics require a pointer (nil = leave
-// alone, non-nil = overwrite — including with the empty string).
-func ptrString(s string) *string { return &s }
 
 // =============================================================================
 // renderProfileList
@@ -111,166 +103,4 @@ func TestRenderProfileShow_EmptyOptionalSectionsSuppressed(t *testing.T) {
 	for _, banned := range []string{"Description:", "Parents:", "Bundles:", "Tags:", "Variables:", "Excluded"} {
 		assert.NotContains(t, out, banned, "empty profile must not emit %q", banned)
 	}
-}
-
-// =============================================================================
-// applyProfileMutations
-// =============================================================================
-
-func TestApplyProfileMutations_NoMutationsReturnsFalse(t *testing.T) {
-	p := &profiles.Profile{Name: "x", Parents: []string{"existing"}}
-	var buf bytes.Buffer
-	modified := applyProfileMutations(p, profileMutations{}, iox.NewErrWriter(&buf))
-
-	assert.False(t, modified, "empty mutations must return false")
-	assert.Empty(t, buf.String(), "no mutations means no output")
-	assert.Equal(t, []string{"existing"}, p.Parents, "profile must be untouched")
-}
-
-func TestApplyProfileMutations_SetDescriptionEmptyStringStillCounts(t *testing.T) {
-	// Pointer-with-empty-value is a "clear the description" intent.
-	// It must count as a modification even though the new value is "".
-	p := &profiles.Profile{Description: "old"}
-	var buf bytes.Buffer
-	modified := applyProfileMutations(p, profileMutations{SetDescription: ptrString("")}, iox.NewErrWriter(&buf))
-
-	assert.True(t, modified)
-	assert.Equal(t, "", p.Description)
-}
-
-func TestApplyProfileMutations_AddDedupes(t *testing.T) {
-	p := &profiles.Profile{Parents: []string{"already-here"}}
-	var buf bytes.Buffer
-	modified := applyProfileMutations(p, profileMutations{
-		AddParents: []string{"already-here", "fresh"},
-	}, iox.NewErrWriter(&buf))
-
-	assert.True(t, modified, "at least one fresh parent landed")
-	assert.Equal(t, []string{"already-here", "fresh"}, p.Parents)
-
-	out := buf.String()
-	assert.Contains(t, out, "Parent already present: already-here")
-	assert.Contains(t, out, "Added parent: fresh")
-}
-
-func TestApplyProfileMutations_RemoveMissing(t *testing.T) {
-	p := &profiles.Profile{Bundles: []string{"keep"}}
-	var buf bytes.Buffer
-	modified := applyProfileMutations(p, profileMutations{
-		RemoveBundles: []string{"never-was-there"},
-	}, iox.NewErrWriter(&buf))
-
-	assert.False(t, modified, "removing nothing must return false")
-	assert.Equal(t, []string{"keep"}, p.Bundles)
-	assert.Contains(t, buf.String(), "Bundle not found: never-was-there")
-}
-
-func TestApplyProfileMutations_AllExcludeSlotsRoundTrip(t *testing.T) {
-	// Exercise every exclude_* slot end-to-end: add, then remove, then
-	// confirm the no-op messages on a second pass. This pins the
-	// per-slot message templates (each slot has its own four strings).
-	cases := []struct {
-		name             string
-		field            func(*profiles.Profile) []string
-		add, rm          func(profileMutations) profileMutations
-		addedMsg, dupMsg string
-		rmMsg, absentMsg string
-	}{
-		{
-			name:  "exclude_fragments",
-			field: func(p *profiles.Profile) []string { return p.ExcludeFragments },
-			add: func(m profileMutations) profileMutations {
-				m.AddExcludeFragments = []string{"f1"}
-				return m
-			},
-			rm: func(m profileMutations) profileMutations {
-				m.RemoveExcludeFragments = []string{"f1"}
-				return m
-			},
-			addedMsg: "Added exclude fragment: f1", dupMsg: "Fragment already excluded: f1",
-			rmMsg: "Removed exclude fragment: f1", absentMsg: "Fragment not excluded: f1",
-		},
-		{
-			name:  "exclude_prompts",
-			field: func(p *profiles.Profile) []string { return p.ExcludePrompts },
-			add: func(m profileMutations) profileMutations {
-				m.AddExcludePrompts = []string{"p1"}
-				return m
-			},
-			rm: func(m profileMutations) profileMutations {
-				m.RemoveExcludePrompts = []string{"p1"}
-				return m
-			},
-			addedMsg: "Added exclude prompt: p1", dupMsg: "Prompt already excluded: p1",
-			rmMsg: "Removed exclude prompt: p1", absentMsg: "Prompt not excluded: p1",
-		},
-		{
-			name:  "exclude_mcp",
-			field: func(p *profiles.Profile) []string { return p.ExcludeMCP },
-			add: func(m profileMutations) profileMutations {
-				m.AddExcludeMCP = []string{"m1"}
-				return m
-			},
-			rm: func(m profileMutations) profileMutations {
-				m.RemoveExcludeMCP = []string{"m1"}
-				return m
-			},
-			addedMsg: "Added exclude MCP: m1", dupMsg: "MCP already excluded: m1",
-			rmMsg: "Removed exclude MCP: m1", absentMsg: "MCP not excluded: m1",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p := &profiles.Profile{}
-
-			// Add fresh.
-			var buf bytes.Buffer
-			require.True(t, applyProfileMutations(p, tc.add(profileMutations{}), iox.NewErrWriter(&buf)))
-			assert.Contains(t, buf.String(), tc.addedMsg)
-			assert.Equal(t, []string{strings.SplitN(tc.addedMsg, ": ", 2)[1]}, tc.field(p))
-
-			// Add duplicate -> no-op.
-			buf.Reset()
-			require.False(t, applyProfileMutations(p, tc.add(profileMutations{}), iox.NewErrWriter(&buf)))
-			assert.Contains(t, buf.String(), tc.dupMsg)
-
-			// Remove existing.
-			buf.Reset()
-			require.True(t, applyProfileMutations(p, tc.rm(profileMutations{}), iox.NewErrWriter(&buf)))
-			assert.Contains(t, buf.String(), tc.rmMsg)
-			assert.Empty(t, tc.field(p))
-
-			// Remove absent -> no-op.
-			buf.Reset()
-			require.False(t, applyProfileMutations(p, tc.rm(profileMutations{}), iox.NewErrWriter(&buf)))
-			assert.Contains(t, buf.String(), tc.absentMsg)
-		})
-	}
-}
-
-func TestApplyProfileMutations_MultipleSlotsTogether(t *testing.T) {
-	// A single invocation can touch every slot — pin that the modified
-	// flag goes true iff at least one slot saw a real change, and that
-	// each slot's effect is independent.
-	p := &profiles.Profile{
-		Parents:          []string{"keep-parent"},
-		Bundles:          []string{"keep-bundle"},
-		ExcludeFragments: []string{},
-	}
-	mut := profileMutations{
-		SetDescription:      ptrString("new-desc"),
-		AddParents:          []string{"add-parent"},
-		RemoveBundles:       []string{"keep-bundle"},
-		AddExcludeFragments: []string{"new-excl"},
-	}
-
-	var buf bytes.Buffer
-	modified := applyProfileMutations(p, mut, iox.NewErrWriter(&buf))
-
-	assert.True(t, modified)
-	assert.Equal(t, "new-desc", p.Description)
-	assert.Equal(t, []string{"keep-parent", "add-parent"}, p.Parents)
-	assert.Empty(t, p.Bundles, "keep-bundle was removed")
-	assert.Equal(t, []string{"new-excl"}, p.ExcludeFragments)
 }

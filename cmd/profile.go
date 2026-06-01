@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -130,22 +129,23 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := profiles.NewLoader(profileCreateDirs(cfg))
-	if err := checkProfileCreatable(loader, name); err != nil {
-		return err
-	}
-
-	profile := &profiles.Profile{
+	// Route through the operations core so the CLI shares the MCP path's
+	// validation and the default auto-promotion (so `ctxloom run` doesn't
+	// launch with empty context after the first profile is created). The
+	// pre-built loader preserves the CLI's "default to <appPath>/profiles when
+	// none configured" behavior.
+	res, err := operations.CreateProfile(cmd.Context(), cfg, operations.CreateProfileRequest{
 		Name:        name,
 		Description: profileCreateDescription,
 		Parents:     profileCreateParents,
 		Bundles:     profileCreateBundles,
-	}
-	if err := loader.Save(profile); err != nil {
-		return fmt.Errorf("failed to save profile: %w", err)
+		Loader:      profiles.NewLoader(profileCreateDirs(cfg)),
+	})
+	if err != nil {
+		return err
 	}
 
-	printProfileCreated(name, profile.Path)
+	printProfileCreated(name, res.Path)
 	return nil
 }
 
@@ -157,20 +157,6 @@ func profileCreateDirs(cfg *config.Config) []string {
 		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return dirs
-}
-
-// checkProfileCreatable verifies the name is free and every declared parent
-// exists.
-func checkProfileCreatable(loader *profiles.Loader, name string) error {
-	if loader.Exists(name) {
-		return fmt.Errorf("profile %q already exists (use 'profile delete' first)", name)
-	}
-	for _, parent := range profileCreateParents {
-		if !loader.Exists(parent) {
-			return fmt.Errorf("parent profile %q not found", parent)
-		}
-	}
-	return nil
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
@@ -201,15 +187,10 @@ var profileDeleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-		if len(profileDirs) == 0 {
-			return fmt.Errorf("profile not found: no profiles directory")
-		}
-
-		loader := profiles.NewLoader(profileDirs)
-
-		if err := loader.Delete(name); err != nil {
-			return fmt.Errorf("failed to delete profile: %w", err)
+		// Operations core deletes the profile AND clears it from the config
+		// defaults if it was the default — a cleanup the old CLI path skipped.
+		if _, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name}); err != nil {
+			return err
 		}
 
 		fmt.Printf("Deleted profile %q\n", name)
@@ -306,18 +287,8 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-		if len(profileDirs) == 0 {
-			return fmt.Errorf("profile not found: no profiles directory")
-		}
-
-		loader := profiles.NewLoader(profileDirs)
-		p, err := loader.Load(name)
-		if err != nil {
-			return fmt.Errorf("profile %q not found", name)
-		}
-
-		mut := profileMutations{
+		req := operations.UpdateProfileRequest{
+			Name:                   name,
 			AddParents:             profileUpdateAddParents,
 			RemoveParents:          profileUpdateRemoveParents,
 			AddBundles:             profileUpdateAddBundles,
@@ -331,115 +302,28 @@ Examples:
 		}
 		if cmd.Flags().Changed("description") {
 			d := profileUpdateDescription
-			mut.SetDescription = &d
+			req.Description = &d
+		}
+
+		// Route through the operations core: it validates added parents exist
+		// before mutating (a check the old CLI path lacked) and reflects the
+		// default flag into config.
+		res, err := operations.UpdateProfile(cmd.Context(), cfg, req)
+		if err != nil {
+			return err
 		}
 
 		w := iox.NewErrWriter(cmd.OutOrStdout())
-		modified := applyProfileMutations(p, mut, w)
-		if !modified {
+		if res.Status == "no_changes" {
 			w.Println("No changes made.")
 			return w.Err()
 		}
-
-		if err := loader.Save(p); err != nil {
-			return fmt.Errorf("failed to save profile: %w", err)
+		for _, c := range res.Changes {
+			w.Printf("%s\n", c)
 		}
-
 		w.Printf("Modified profile %q\n", name)
 		return w.Err()
 	},
-}
-
-// profileMutations bundles the set of changes a `profile modify` invocation
-// wants to apply. Nil SetDescription means leave Description alone;
-// non-nil (even pointing at "") means overwrite. Slices are read-only —
-// applyProfileMutations does not mutate them.
-type profileMutations struct {
-	SetDescription         *string
-	AddParents             []string
-	RemoveParents          []string
-	AddBundles             []string
-	RemoveBundles          []string
-	AddExcludeFragments    []string
-	RemoveExcludeFragments []string
-	AddExcludePrompts      []string
-	RemoveExcludePrompts   []string
-	AddExcludeMCP          []string
-	RemoveExcludeMCP       []string
-}
-
-// applyProfileMutations updates p in place per m, writing one
-// human-readable status line per attempted change to out. Returns true
-// iff at least one change actually landed (versus duplicates that
-// no-op'd). Duplicate-adds and absent-removes are not errors — they're
-// echoed as informational lines so a `profile modify` script run twice
-// reports cleanly rather than failing.
-//
-// Extracted from profileUpdateCmd's RunE so the decision matrix
-// (10 slice-mutation branches plus the description toggle) is testable
-// without spinning up cobra or touching the profile loader.
-func applyProfileMutations(p *profiles.Profile, m profileMutations, w *iox.ErrWriter) bool {
-	modified := false
-
-	if m.SetDescription != nil {
-		p.Description = *m.SetDescription
-		modified = true
-	}
-
-	// Message templates intentionally vary per slot — these strings are
-	// part of the CLI surface and someone may have scripted against them.
-	type messages struct {
-		added, duplicate, removed, absent string
-	}
-	type slot struct {
-		field   *[]string
-		add, rm []string
-		msgs    messages
-	}
-	slots := []slot{
-		{&p.Parents, m.AddParents, m.RemoveParents, messages{
-			"Added parent: %s\n", "Parent already present: %s\n",
-			"Removed parent: %s\n", "Parent not found: %s\n",
-		}},
-		{&p.Bundles, m.AddBundles, m.RemoveBundles, messages{
-			"Added bundle: %s\n", "Bundle already present: %s\n",
-			"Removed bundle: %s\n", "Bundle not found: %s\n",
-		}},
-		{&p.ExcludeFragments, m.AddExcludeFragments, m.RemoveExcludeFragments, messages{
-			"Added exclude fragment: %s\n", "Fragment already excluded: %s\n",
-			"Removed exclude fragment: %s\n", "Fragment not excluded: %s\n",
-		}},
-		{&p.ExcludePrompts, m.AddExcludePrompts, m.RemoveExcludePrompts, messages{
-			"Added exclude prompt: %s\n", "Prompt already excluded: %s\n",
-			"Removed exclude prompt: %s\n", "Prompt not excluded: %s\n",
-		}},
-		{&p.ExcludeMCP, m.AddExcludeMCP, m.RemoveExcludeMCP, messages{
-			"Added exclude MCP: %s\n", "MCP already excluded: %s\n",
-			"Removed exclude MCP: %s\n", "MCP not excluded: %s\n",
-		}},
-	}
-	for _, s := range slots {
-		for _, item := range s.add {
-			if slices.Contains(*s.field, item) {
-				w.Printf(s.msgs.duplicate, item)
-				continue
-			}
-			*s.field = append(*s.field, item)
-			w.Printf(s.msgs.added, item)
-			modified = true
-		}
-		for _, item := range s.rm {
-			idx := slices.Index(*s.field, item)
-			if idx < 0 {
-				w.Printf(s.msgs.absent, item)
-				continue
-			}
-			*s.field = slices.Delete(*s.field, idx, idx+1)
-			w.Printf(s.msgs.removed, item)
-			modified = true
-		}
-	}
-	return modified
 }
 
 var (

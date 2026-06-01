@@ -135,6 +135,69 @@ func TestSetItemContent_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
+func TestDistillItem_DistillsStaleContent(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	// Seed raw (no distiller) → its distilled form is stale.
+	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "raw"})
+	require.NoError(t, err)
+
+	d := &recordingDistiller{returnValue: "DISTILLED", returnModel: "mock"}
+	res, err := DistillItem(context.Background(), cfg, DistillItemRequest{
+		Bundle: "b", Kind: ItemKindFragment, Name: "f", Distiller: d,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "distilled", res.Status)
+	assert.Equal(t, "mock", res.ModelID)
+	require.Len(t, d.calls, 1)
+}
+
+func TestDistillItem_SkipsWhenUnchanged(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	d := &recordingDistiller{returnValue: "DISTILLED", returnModel: "mock"}
+	// Add WITH distiller → distilled and content hash recorded (fresh).
+	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "raw", Distiller: d})
+	require.NoError(t, err)
+
+	// Without force, a fresh item is skipped.
+	res, err := DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Distiller: d})
+	require.NoError(t, err)
+	assert.Equal(t, "skipped", res.Status)
+	assert.Equal(t, "unchanged", res.Reason)
+
+	// Force redistills it.
+	res, err = DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Force: true, Distiller: d})
+	require.NoError(t, err)
+	assert.Equal(t, "distilled", res.Status)
+}
+
+func TestDistillItem_SkipsNoDistillAndNoDistiller(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	// no_distill item.
+	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:         "b",
+		SetFragments: map[string]BundleFragmentInput{"nd": {Content: "x", NoDistill: true}},
+	})
+	require.NoError(t, err)
+	res, err := DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "nd", Force: true, Distiller: &recordingDistiller{}})
+	require.NoError(t, err)
+	assert.Equal(t, "skipped", res.Status)
+	assert.Equal(t, "no_distill", res.Reason)
+
+	// Distillable item but no distiller supplied → skipped, not a silent save.
+	_, err = AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Content: "raw"})
+	require.NoError(t, err)
+	res, err = DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "f", Distiller: nil})
+	require.NoError(t, err)
+	assert.Equal(t, "skipped", res.Status)
+	assert.Equal(t, "no_distiller", res.Reason)
+}
+
+func TestDistillItem_NotFound(t *testing.T) {
+	cfg := newItemTestBundle(t)
+	_, err := DistillItem(context.Background(), cfg, DistillItemRequest{Bundle: "b", Kind: ItemKindFragment, Name: "ghost", Distiller: &recordingDistiller{}})
+	require.ErrorIs(t, err, ErrItemNotFound)
+}
+
 func TestItemOps_InvalidKind(t *testing.T) {
 	cfg := newItemTestBundle(t)
 	_, err := AddItem(context.Background(), cfg, AddItemRequest{Bundle: "b", Kind: "bogus", Name: "x", Content: "c"})

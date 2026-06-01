@@ -309,95 +309,45 @@ func editItem(ref string, itemType ItemType) error {
 
 // distillSource returns the content and distill flags for an item, erroring
 // when it doesn't exist.
-func distillSource(bundle *bundles.Bundle, itemName string, itemType ItemType) (content string, noDistill, needsDistill bool, err error) {
-	switch itemType {
-	case ItemTypeFragment:
-		frag, exists := bundle.Fragments[itemName]
-		if !exists {
-			return "", false, false, fmt.Errorf("fragment not found: %s", itemName)
-		}
-		return frag.Content, frag.NoDistill, frag.NeedsDistill(), nil
-	case ItemTypePrompt:
-		prompt, exists := bundle.Prompts[itemName]
-		if !exists {
-			return "", false, false, fmt.Errorf("prompt not found: %s", itemName)
-		}
-		return prompt.Content, prompt.NoDistill, prompt.NeedsDistill(), nil
-	}
-	return "", false, false, nil
-}
-
-// applyDistilled writes a distilled result (and its model + content hash) back
-// onto the named item in the bundle.
-func applyDistilled(bundle *bundles.Bundle, itemName string, itemType ItemType, distilled, modelID string) {
-	switch itemType {
-	case ItemTypeFragment:
-		frag := bundle.Fragments[itemName]
-		frag.Distilled = distilled
-		frag.DistilledBy = modelID
-		frag.ContentHash = frag.ComputeContentHash()
-		bundle.Fragments[itemName] = frag
-	case ItemTypePrompt:
-		prompt := bundle.Prompts[itemName]
-		prompt.Distilled = distilled
-		prompt.DistilledBy = modelID
-		prompt.ContentHash = prompt.ComputeContentHash()
-		bundle.Prompts[itemName] = prompt
-	}
-}
-
-// distillItem distills an item to create a token-efficient version.
+// distillItem (re)distills an item via the operations core; the CLI only
+// supplies the LLM-backed Distiller and renders the outcome.
 func distillItem(ref string, itemType ItemType, force bool) error {
-	bundle, itemName, cfg, err := loadBundleForItem(ref, itemType)
+	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
 	}
-
-	content, noDistill, needsDistill, err := distillSource(bundle, itemName, itemType)
+	cfg, err := GetConfig()
 	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	res, err := operations.DistillItem(context.Background(), cfg, operations.DistillItemRequest{
+		Bundle:    bundleName,
+		Kind:      operations.ItemKind(itemType),
+		Name:      itemName,
+		Force:     force,
+		Distiller: newLLMDistiller(cfg),
+	})
+	if err != nil {
+		if errors.Is(err, operations.ErrItemNotFound) {
+			return fmt.Errorf("%s not found: %s", itemType, itemName)
+		}
 		return err
 	}
 
-	if noDistill {
-		fmt.Printf("%s %q is marked as no_distill\n", titleCase(string(itemType)), itemName)
+	if res.Status == "skipped" {
+		switch res.Reason {
+		case "no_distill":
+			fmt.Printf("%s %q is marked as no_distill\n", titleCase(string(itemType)), itemName)
+		case "unchanged":
+			fmt.Printf("%s %q is already distilled and unchanged\n", titleCase(string(itemType)), itemName)
+		case "no_distiller":
+			fmt.Printf("no LLM plugin configured; cannot distill %s %q\n", itemType, itemName)
+		}
 		return nil
 	}
 
-	if !force && !needsDistill {
-		fmt.Printf("%s %q is already distilled and unchanged\n", titleCase(string(itemType)), itemName)
-		return nil
-	}
-
-	fmt.Printf("Distilling %s...", itemName)
-
-	distillPrompt, err := loadDistillPrompt()
-	if err != nil {
-		return fmt.Errorf("failed to load distill prompt: %w", err)
-	}
-
-	pluginName := cfg.GetDefaultLLMPlugin()
-	pluginCfg := cfg.LM.Plugins[pluginName]
-	siblingCtx := buildSiblingContext(bundle, itemType.prefix()+itemName)
-
-	distilled, modelID, err := distillWithModel(pluginName, pluginCfg.Env, itemName, content, distillPrompt, siblingCtx)
-	if err != nil {
-		fmt.Printf(" FAILED: %v\n", err)
-		return err
-	}
-
-	applyDistilled(bundle, itemName, itemType, distilled, modelID)
-
-	// distillItem still mutates a loaded bundle and saves it directly (a
-	// force-redistill, not a CRUD op), so apply the same symlink guard the
-	// operations write paths use before saving.
-	if err := operations.RequireSafeBundlePath(cfg.GetBundleDirs(), bundle.Path); err != nil {
-		return err
-	}
-	if err := bundle.Save(); err != nil {
-		return fmt.Errorf("failed to save bundle: %w", err)
-	}
-
-	fmt.Printf(" done (%s)\n", modelID)
+	fmt.Printf("Distilled %s (%s)\n", itemName, res.ModelID)
 	return nil
 }
 

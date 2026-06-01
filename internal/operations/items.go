@@ -243,6 +243,78 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 	}, nil
 }
 
+// DistillItemRequest is the input for DistillItem.
+type DistillItemRequest struct {
+	Bundle string   `json:"bundle"`
+	Kind   ItemKind `json:"kind"`
+	Name   string   `json:"name"`
+	Force  bool     `json:"force"` // distill even when the content is unchanged
+
+	// Distiller performs the distillation. A nil Distiller is reported as a
+	// skip (no engine available) rather than a silent no-op.
+	Distiller Distiller `json:"-"`
+}
+
+// DistillItemResult reports the outcome. Status is "distilled" or "skipped";
+// when skipped, Reason is one of "no_distill", "unchanged", "no_distiller".
+type DistillItemResult struct {
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Bundle  string `json:"bundle"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	ModelID string `json:"model_id,omitempty"`
+}
+
+// DistillItem (re)distills a single fragment or prompt in place — the force-
+// redistill operation behind `ctxloom <kind> distill`. It honors the item's
+// no_distill flag and the content-hash freshness check (unless Force), and runs
+// the actual distillation through the injected Distiller so the LLM stays out of
+// the core.
+func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest) (*DistillItemResult, error) {
+	if !req.Kind.valid() {
+		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
+	}
+	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	noDistill, needsDistill, ok := itemDistillState(bundle, req.Kind, req.Name)
+	if !ok {
+		return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
+	}
+
+	skip := func(reason string) *DistillItemResult {
+		return &DistillItemResult{Status: "skipped", Reason: reason, Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}
+	}
+	switch {
+	case noDistill:
+		return skip("no_distill"), nil
+	case !req.Force && !needsDistill:
+		return skip("unchanged"), nil
+	case req.Distiller == nil:
+		return skip("no_distiller"), nil
+	}
+
+	switch req.Kind {
+	case ItemKindFragment:
+		distillFragments(ctx, bundle, []string{req.Name}, req.Distiller)
+	case ItemKindPrompt:
+		distillPrompts(ctx, bundle, []string{req.Name}, req.Distiller)
+	}
+	if err := bundle.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	_, modelID := itemDistilled(bundle, req.Kind, req.Name)
+	return &DistillItemResult{
+		Status:  "distilled",
+		Bundle:  req.Bundle,
+		Name:    req.Name,
+		Path:    bundle.Path,
+		ModelID: modelID,
+	}, nil
+}
+
 // itemContent returns the raw and distilled content of a named item, and whether
 // it exists, for either kind.
 func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distilled string, ok bool) {
@@ -257,4 +329,34 @@ func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distil
 		}
 	}
 	return "", "", false
+}
+
+// itemDistillState reports an item's no_distill flag and whether its distilled
+// form is stale (content changed since last distill), plus whether it exists.
+func itemDistillState(b *bundles.Bundle, kind ItemKind, name string) (noDistill, needsDistill, ok bool) {
+	switch kind {
+	case ItemKindFragment:
+		if f, exists := b.Fragments[name]; exists {
+			return f.NoDistill, f.NeedsDistill(), true
+		}
+	case ItemKindPrompt:
+		if p, exists := b.Prompts[name]; exists {
+			return p.NoDistill, p.NeedsDistill(), true
+		}
+	}
+	return false, false, false
+}
+
+// itemDistilled returns an item's distilled content and the model that produced
+// it.
+func itemDistilled(b *bundles.Bundle, kind ItemKind, name string) (distilled, modelID string) {
+	switch kind {
+	case ItemKindFragment:
+		f := b.Fragments[name]
+		return f.Distilled, f.DistilledBy
+	case ItemKindPrompt:
+		p := b.Prompts[name]
+		return p.Distilled, p.DistilledBy
+	}
+	return "", ""
 }

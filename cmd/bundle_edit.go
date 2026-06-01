@@ -4,15 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
-	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/iox"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var bundleCreateDesc string
@@ -38,60 +35,30 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleDir := paths.BundlesPath(cfg.AppPaths[0])
-	bundlePath, err := writeBundleSkeleton(afero.NewOsFs(), bundleDir, name, bundleCreateDesc)
+	// Route through the operations core so create gets the symlink-traversal
+	// guard. nil Distiller: the starter template ships raw, exactly as the old
+	// CLI skeleton did (NoDistill also marks the examples so a future wired
+	// distiller still wouldn't waste a call on placeholder text).
+	res, err := operations.CreateBundle(cmd.Context(), cfg, operations.CreateBundleRequest{
+		Name:        name,
+		Description: bundleCreateDesc,
+		Tags:        []string{},
+		Fragments: map[string]operations.BundleFragmentInput{
+			"example": {Tags: []string{"example"}, Content: "# Example Fragment\n\nAdd your content here.", NoDistill: true},
+		},
+		Prompts: map[string]operations.BundlePromptInput{
+			"example": {Description: "Example prompt", Tags: []string{"example"}, Content: "Example prompt content. Describe what this prompt does.", NoDistill: true},
+		},
+	})
 	if err != nil {
 		return err
 	}
 
 	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Created bundle: %s\n", bundlePath)
+	w.Printf("Created bundle: %s\n", res.Path)
 	w.Println("Edit the file to add your fragments and prompts.")
 
 	return w.Err()
-}
-
-// writeBundleSkeleton creates a starter bundle YAML at <bundleDir>/<name>.yaml
-// on fs, refusing to overwrite an existing file. Returns the path it
-// wrote (for the user-visible success line) and any error encountered.
-// Extracted from runBundleCreate so the "already exists" guard and the
-// initial bundle shape are testable without a real filesystem.
-func writeBundleSkeleton(fs afero.Fs, bundleDir, name, description string) (string, error) {
-	if err := fs.MkdirAll(bundleDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create bundles directory: %w", err)
-	}
-
-	bundlePath := filepath.Join(bundleDir, name+".yaml")
-	if _, err := fs.Stat(bundlePath); err == nil {
-		return "", fmt.Errorf("bundle already exists: %s", bundlePath)
-	}
-
-	bundle := bundles.Bundle{
-		Version:     "1.0.0",
-		Description: description,
-		Tags:        []string{},
-		Fragments: map[string]bundles.BundleFragment{
-			"example": {
-				Tags:    []string{"example"},
-				Content: "# Example Fragment\n\nAdd your content here.",
-			},
-		},
-		Prompts: map[string]bundles.BundlePrompt{
-			"example": {
-				Description: "Example prompt",
-				Tags:        []string{"example"},
-				Content:     "Example prompt content. Describe what this prompt does.",
-			},
-		},
-	}
-	data, err := yaml.Marshal(&bundle)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal bundle: %w", err)
-	}
-	if err := afero.WriteFile(fs, bundlePath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to write bundle: %w", err)
-	}
-	return bundlePath, nil
 }
 
 // bundleEdit flags
@@ -168,6 +135,14 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	}
 
+	// `bundle edit` mutates a loaded bundle in place and saves it directly
+	// (operations.UpdateBundle's set-semantics would clobber existing fragment
+	// content with the flag path's placeholders — see ADR 0018), so it must
+	// apply the symlink-traversal guard itself, exactly as the operations write
+	// paths do before saving.
+	if err := operations.RequireSafeBundlePath(bundleDirs, bundle.Path); err != nil {
+		return err
+	}
 	if err := bundle.Save(); err != nil {
 		return fmt.Errorf("failed to save bundle: %w", err)
 	}
@@ -392,14 +367,28 @@ func runBundleDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no bundles directory found")
 	}
 
+	// Load read-only just to show the path in the confirm prompt; the actual
+	// (guarded) removal goes through operations.DeleteBundle.
 	loader := bundles.NewLoader(bundleDirs, false)
 	bundle, err := loader.Load(name)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	confirm := stdinConfirmer(cmd.InOrStdin())
-	return deleteBundleFile(afero.NewOsFs(), name, bundle.Path, bundleDeleteForce, confirm, cmd.OutOrStdout())
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	if !bundleDeleteForce {
+		confirm := stdinConfirmer(cmd.InOrStdin())
+		if !confirm(fmt.Sprintf("Delete bundle %q at %s? [y/N] ", name, bundle.Path)) {
+			w.Println("Cancelled.")
+			return w.Err()
+		}
+	}
+	res, err := operations.DeleteBundle(cmd.Context(), cfg, operations.DeleteBundleRequest{Name: name})
+	if err != nil {
+		return err
+	}
+	w.Printf("Deleted bundle: %s\n", res.Path)
+	return w.Err()
 }
 
 // confirmFn returns true iff the user confirms an interactive prompt.
@@ -422,26 +411,3 @@ func stdinConfirmer(in io.Reader) confirmFn {
 	}
 }
 
-// deleteBundleFile removes the bundle file at path on fs. When force is
-// false, confirm is consulted with a "Delete bundle... [y/N]" prompt
-// first; a negative response prints "Cancelled." to out and returns nil
-// without touching the file. Returns an error iff the file removal
-// itself failed.
-//
-// Extracted from runBundleDelete so the confirm-gating decision and the
-// cancellation message are testable without driving stdin.
-func deleteBundleFile(fs afero.Fs, name, path string, force bool, confirm confirmFn, out io.Writer) error {
-	w := iox.NewErrWriter(out)
-	if !force {
-		prompt := fmt.Sprintf("Delete bundle %q at %s? [y/N] ", name, path)
-		if !confirm(prompt) {
-			w.Println("Cancelled.")
-			return w.Err()
-		}
-	}
-	if err := fs.Remove(path); err != nil {
-		return fmt.Errorf("failed to delete bundle: %w", err)
-	}
-	w.Printf("Deleted bundle: %s\n", path)
-	return w.Err()
-}

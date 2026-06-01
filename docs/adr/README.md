@@ -66,3 +66,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0015](0015-local-git-test-remote.md) | Local bare-git `file://` remote for integration tests | Accepted |
 | [0016](0016-accept-compression-parser-ccn.md) | Accept >10 cyclomatic complexity in compression parsers/classifiers | Accepted |
 | [0017](0017-harp-self-id-marker.md) | Deterministic harp self-id marker for read-time recovery; defer LLM-echo fallback | Accepted/Deferred |
+| [0018](0018-bundle-edit-keeps-add-only-semantics.md) | `bundle edit` keeps add-only semantics; guards in place vs routing through UpdateBundle | Accepted |

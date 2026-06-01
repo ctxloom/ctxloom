@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -183,83 +182,6 @@ func TestApplyBundleEdits_AllSectionsTogether(t *testing.T) {
 	assert.NotContains(t, b.Fragments, "keep-frag")
 	assert.Contains(t, b.Prompts, "new-prompt")
 	assert.Contains(t, b.MCP, "new-mcp")
-}
-
-// =============================================================================
-// deleteBundleFile
-// =============================================================================
-
-// confirmStub builds a confirmFn that always returns the given answer
-// and records the prompt it was called with for assertions.
-type confirmStub struct {
-	answer bool
-	prompt string
-	calls  int
-}
-
-func (s *confirmStub) fn() confirmFn {
-	return func(prompt string) bool {
-		s.prompt = prompt
-		s.calls++
-		return s.answer
-	}
-}
-
-func TestDeleteBundleFile_ConfirmYesDeletes(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/dst/x.yaml", []byte("body"), 0644))
-
-	stub := &confirmStub{answer: true}
-	var out bytes.Buffer
-	err := deleteBundleFile(fs, "x", "/dst/x.yaml", false, stub.fn(), &out)
-	require.NoError(t, err)
-
-	exists, _ := afero.Exists(fs, "/dst/x.yaml")
-	assert.False(t, exists, "confirmed deletion must remove the file")
-	assert.Contains(t, out.String(), "Deleted bundle: /dst/x.yaml")
-
-	// The prompt content carries both the name and the path so the user
-	// can verify what they're about to nuke.
-	assert.Contains(t, stub.prompt, `"x"`)
-	assert.Contains(t, stub.prompt, "/dst/x.yaml")
-	assert.Equal(t, 1, stub.calls)
-}
-
-func TestDeleteBundleFile_ConfirmNoCancels(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/dst/x.yaml", []byte("body"), 0644))
-
-	stub := &confirmStub{answer: false}
-	var out bytes.Buffer
-	err := deleteBundleFile(fs, "x", "/dst/x.yaml", false, stub.fn(), &out)
-	require.NoError(t, err, "cancelled delete is not an error")
-
-	exists, _ := afero.Exists(fs, "/dst/x.yaml")
-	assert.True(t, exists, "declined confirm must leave the file in place")
-	assert.Contains(t, out.String(), "Cancelled.")
-}
-
-func TestDeleteBundleFile_ForceSkipsConfirm(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/dst/x.yaml", []byte("body"), 0644))
-
-	stub := &confirmStub{answer: false} // would say "no" if asked
-	var out bytes.Buffer
-	err := deleteBundleFile(fs, "x", "/dst/x.yaml", true, stub.fn(), &out)
-	require.NoError(t, err)
-
-	exists, _ := afero.Exists(fs, "/dst/x.yaml")
-	assert.False(t, exists, "force must delete without asking")
-	assert.Equal(t, 0, stub.calls, "force must skip the confirm prompt entirely")
-}
-
-func TestDeleteBundleFile_RemoveErrorSurfaces(t *testing.T) {
-	// Empty MemMapFs → Remove of non-existent path errors.
-	fs := afero.NewMemMapFs()
-	stub := &confirmStub{answer: true}
-	err := deleteBundleFile(fs, "x", "/ghost.yaml", false, stub.fn(), &bytes.Buffer{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to delete bundle")
 }
 
 // =============================================================================

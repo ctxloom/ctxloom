@@ -62,63 +62,6 @@ func TestClaudeSessionHistory_RegisterSession_PersistsToRegistry(t *testing.T) {
 	assert.True(t, exists, "registry must persist through the shared fs")
 }
 
-func TestClaudeSessionHistory_GetPreviousSession_ReturnsNilWhenSingleSession(t *testing.T) {
-	// With only one registered session for the PID, there's no "previous"
-	// to return — GetPreviousSession must surface nil, nil rather than
-	// the current session itself.
-	fs := afero.NewMemMapFs()
-	h := NewClaudeSessionHistory(NewClaudeCode(), WithClaudeSessionFS(fs))
-
-	require.NoError(t, h.RegisterSession("/proj", 1234, "/transcripts/only.jsonl"))
-
-	prev, err := h.GetPreviousSession("/proj", 1234)
-	require.NoError(t, err)
-	assert.Nil(t, prev)
-}
-
-func TestClaudeSessionHistory_GetPreviousSession_ReturnsParsedPrior(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	homeDir := "/home/test"
-	workDir := "/proj"
-
-	// First "previous" transcript needs to be readable through h.fs so
-	// the registry's parseFunc callback (h.parseSessionFile) can decode it.
-	priorPath := filepath.Join("/transcripts", "prior.jsonl")
-	priorContent := `{"type":"user","timestamp":"2026-05-27T10:00:00Z","message":{"content":"earlier turn"}}` + "\n"
-	require.NoError(t, afero.WriteFile(fs, priorPath, []byte(priorContent), 0644))
-
-	currentPath := filepath.Join("/transcripts", "current.jsonl")
-	require.NoError(t, afero.WriteFile(fs, currentPath, []byte(""), 0644))
-
-	h := NewClaudeSessionHistory(NewClaudeCode(),
-		WithClaudeSessionFS(fs),
-		WithClaudeSessionHomeDir(homeDir),
-	)
-
-	// Register prior, then current — GetPreviousSession returns prior.
-	require.NoError(t, h.RegisterSession(workDir, 1234, priorPath))
-	require.NoError(t, h.RegisterSession(workDir, 1234, currentPath))
-
-	prev, err := h.GetPreviousSession(workDir, 1234)
-	require.NoError(t, err)
-	require.NotNil(t, prev, "two registered sessions means a previous exists")
-
-	require.Len(t, prev.Entries, 1)
-	assert.Equal(t, EntryTypeUser, prev.Entries[0].Type)
-	assert.Equal(t, "earlier turn", prev.Entries[0].Content)
-}
-
-func TestClaudeSessionHistory_GetPreviousSession_UnknownPIDIsNil(t *testing.T) {
-	// No registration ever happened for the PID. Registry returns an
-	// empty RegistryData, and GetPreviousSession surfaces nil, nil.
-	fs := afero.NewMemMapFs()
-	h := NewClaudeSessionHistory(NewClaudeCode(), WithClaudeSessionFS(fs))
-
-	prev, err := h.GetPreviousSession("/proj", 99999)
-	require.NoError(t, err)
-	assert.Nil(t, prev)
-}
-
 func TestClaudeSessionHistory_RegisterSession_FSIsShared(t *testing.T) {
 	// This pins the fix in NewClaudeSessionHistory: the registry must
 	// share h.fs, not silently fall back to OsFs. If a future refactor

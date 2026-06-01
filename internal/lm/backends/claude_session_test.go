@@ -255,6 +255,43 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	assert.False(t, session.Entries[3].IsError)
 }
 
+// TestClaudeSessionHistory_GetPreviousSession_ReadTime covers read-time
+// previous-session resolution: the previous session is the second-most-recent
+// transcript for the project (ListSessions is mtime-sorted, so [0] is the
+// current/active session and [1] is the one before it). This replaces the old
+// PID-registry lookup, which assumed /clear did not fork the session — it does,
+// so the registry never accumulated a second session and recovery returned nil.
+func TestClaudeSessionHistory_GetPreviousSession_ReadTime(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode()
+	homeDir := "/test/home"
+	workDir := "/test/project"
+	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
+	require.NoError(t, fs.MkdirAll(projectDir, 0755))
+
+	prevPath := filepath.Join(projectDir, "previous.jsonl")
+	curPath := filepath.Join(projectDir, "current.jsonl")
+	require.NoError(t, afero.WriteFile(fs, prevPath,
+		[]byte(`{"type":"user","timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"PREVIOUS session work"}}`), 0644))
+	require.NoError(t, afero.WriteFile(fs, curPath,
+		[]byte(`{"type":"user","timestamp":"2026-06-01T11:00:00Z","message":{"role":"user","content":"current post-clear session"}}`), 0644))
+	// Make ordering deterministic: current is newer than previous.
+	require.NoError(t, fs.Chtimes(prevPath, time.Unix(1000, 0), time.Unix(1000, 0)))
+	require.NoError(t, fs.Chtimes(curPath, time.Unix(2000, 0), time.Unix(2000, 0)))
+
+	history := NewClaudeSessionHistory(backend,
+		WithClaudeSessionFS(fs),
+		WithClaudeSessionHomeDir(homeDir),
+	)
+
+	prev, err := history.GetPreviousSession(workDir, 0)
+	require.NoError(t, err)
+	require.NotNil(t, prev, "previous session (second-most-recent) must resolve")
+	assert.Equal(t, "previous", prev.ID)
+	require.Len(t, prev.Entries, 1)
+	assert.Equal(t, "PREVIOUS session work", prev.Entries[0].Content)
+}
+
 func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()

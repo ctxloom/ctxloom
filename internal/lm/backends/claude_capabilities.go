@@ -538,8 +538,27 @@ func (h *ClaudeSessionHistory) RegisterSession(workDir string, pid int, transcri
 	return h.registry.RegisterSession(workDir, pid, transcriptPath)
 }
 
-// GetPreviousSession returns the session before the current one for /clear recovery.
-// Delegates to BaseSessionRegistry for shared implementation with file locking.
-func (h *ClaudeSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
-	return h.registry.GetPreviousSession(workDir, pid, h.parseSessionFile)
+// GetPreviousSession returns the session before the current one, resolved at
+// read time from the transcript store. The pid arg is ignored (see
+// previousSessionByListing); the old PID-registry lookup assumed /clear did not
+// fork the session, but it does.
+func (h *ClaudeSessionHistory) GetPreviousSession(workDir string, _ int) (*Session, error) {
+	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
+}
+
+// previousSessionByListing resolves the session before the current one at READ
+// time. ListSessions is sorted most-recent-first, so the current (actively
+// written) session is index 0 and the previous is index 1. Returns nil when
+// fewer than two sessions exist. Replaces the PID-registry lookup, which never
+// found a second session because /clear forks a new transcript under a freshly
+// detected wrapper PID.
+func previousSessionByListing(workDir string, list func(string) ([]SessionMeta, error), byPath func(string) (*Session, error)) (*Session, error) {
+	metas, err := list(workDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(metas) < 2 {
+		return nil, nil
+	}
+	return byPath(metas[1].Path)
 }

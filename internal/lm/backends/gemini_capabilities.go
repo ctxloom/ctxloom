@@ -457,8 +457,8 @@ func (h *GeminiSessionHistory) RegisterSession(workDir string, pid int, transcri
 	return h.registry.RegisterSession(workDir, pid, transcriptPath)
 }
 
-// GetPreviousSession returns the session before the current one for /clear recovery.
-// Delegates to BaseSessionRegistry for shared implementation with file locking.
-func (h *GeminiSessionHistory) GetPreviousSession(workDir string, pid int) (*Session, error) {
-	return h.registry.GetPreviousSession(workDir, pid, h.parseSessionFile)
+// GetPreviousSession returns the session before the current one, resolved at
+// read time from the transcript store (pid ignored; see previousSessionByListing).
+func (h *GeminiSessionHistory) GetPreviousSession(workDir string, _ int) (*Session, error) {
+	return previousSessionByListing(workDir, h.ListSessions, h.GetSessionByPath)
 }

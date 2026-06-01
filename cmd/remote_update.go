@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
@@ -442,32 +439,31 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 	}
 
 	fmt.Fprintln(out, "\nCleaning up local files...")
-	cleaned := 0
-	for _, item := range removed {
-		localPath := filepath.Join(appDir, item.Type.DirName(), strings.Replace(item.Ref, "/", string(filepath.Separator), 1)+".yaml")
-		if err := fs.Remove(localPath); err != nil {
-			if !os.IsNotExist(err) {
-				fmt.Fprintf(out, "  Warning: failed to remove %s: %v\n", localPath, err)
-			}
-		} else {
-			fmt.Fprintf(out, "  Removed: %s\n", localPath)
-			cleaned++
-		}
-		lockfile.RemoveEntry(item.Type, item.Ref)
+	items := make([]operations.RemovedItem, len(removed))
+	for i, item := range removed {
+		items[i] = operations.RemovedItem{Type: item.Type, Ref: item.Ref}
 	}
-
-	if cleaned > 0 {
-		if err := lockManager.Save(lockfile); err != nil {
-			fmt.Fprintf(out, "  Warning: failed to update lockfile: %v\n", err)
-		} else {
-			fmt.Fprintf(out, "  Updated lockfile (removed %d entries)\n", cleaned)
-		}
+	res, _ := operations.RemoveLocalItems(operations.RemoveLocalItemsRequest{
+		AppDir:      appDir,
+		Items:       items,
+		Lockfile:    lockfile,
+		LockManager: lockManager,
+		FS:          fs,
+	})
+	for _, p := range res.Removed {
+		fmt.Fprintf(out, "  Removed: %s\n", p)
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(out, "  Warning: %s\n", w)
+	}
+	if res.Saved {
+		fmt.Fprintf(out, "  Updated lockfile (removed %d entries)\n", len(res.Removed))
 	}
 }
 
 // reportBundleIssues prints orphan/missing/invalid bundle findings plus any
 // non-fatal warnings. Silent when there is nothing to report.
-func reportBundleIssues(out io.Writer, analysis *bundleAnalysis) {
+func reportBundleIssues(out io.Writer, analysis *operations.BundleAnalysis) {
 	for _, warn := range analysis.Warnings {
 		fmt.Fprintf(out, "Warning: %s\n", warn)
 	}
@@ -511,113 +507,10 @@ func reportMissingDefaults(out io.Writer, missing []string) {
 	fmt.Fprintln(out, "\nUpdate your ctxloom.yaml to fix the defaults.profiles list.")
 }
 
-// bundleAnalysis contains the results of analyzing bundle references.
-type bundleAnalysis struct {
-	Orphans  []string // Bundles in lockfile but not referenced by any profile
-	Missing  []string // Bundles referenced by profiles but not in lockfile
-	Invalid  []string // Invalid bundle references that couldn't be parsed
-	Warnings []string // Non-fatal warnings encountered during analysis
-}
-
-// analyzeBundleReferences checks for orphaned, missing, and invalid bundle
-// references against the active lockfile. Production callers use this form
-// (real OS filesystem rooted at .ctxloom); tests should call
-// analyzeBundleReferencesWithFS directly so they can inject an afero
-// MemMapFs and an arbitrary base dir.
-func analyzeBundleReferences(lockfile *remote.Lockfile) *bundleAnalysis {
-	return analyzeBundleReferencesWithFS(lockfile, afero.NewOsFs(), ".ctxloom")
-}
-
-// collectProfileBundleRefs parses a profile file's bundle list, recording each
-// valid (normalized to local-name) reference in referenced and noting
-// malformed or unparseable entries on result.
-func collectProfileBundleRefs(path string, content []byte, result *bundleAnalysis, referenced map[string]bool) {
-	var profile struct {
-		Bundles []string `yaml:"bundles"`
-	}
-	if err := yaml.Unmarshal(content, &profile); err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("invalid YAML in %s: %v", path, err))
-		return
-	}
-
-	for _, bundle := range profile.Bundles {
-		if bundle == "" {
-			continue
-		}
-
-		// Strip any item path suffix (e.g., #fragments/name).
-		bundleRef, _, _ := strings.Cut(bundle, "#")
-
-		// Validate the reference format (should contain "/").
-		if !strings.Contains(bundleRef, "/") {
-			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
-			continue
-		}
-
-		// Normalize canonical URLs to local names for comparison, e.g.
-		// https://github.com/owner/ctxloom-github@v1/bundles/name → ctxloom-github/name
-		if ref, err := remote.ParseReference(bundleRef); err == nil && ref.IsCanonical {
-			bundleRef = ref.ToLocalName()
-		}
-
-		referenced[bundleRef] = true
-	}
-}
-
-// analyzeBundleReferencesWithFS is the seam'd implementation. fs is the
-// filesystem to walk; appDir is the base under which "profiles/" and
-// "bundles/" subdirs live. Always returns a non-nil result; partial
-// failures land in Warnings so the caller can surface them.
-func analyzeBundleReferencesWithFS(lockfile *remote.Lockfile, fs afero.Fs, appDir string) *bundleAnalysis {
-	result := &bundleAnalysis{}
-
-	// Collect all bundle references from all profiles
-	referencedBundles := make(map[string]bool)
-
-	// Scan local profile files
-	profileDir := filepath.Join(appDir, "profiles")
-	err := afero.Walk(fs, profileDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Warn but continue walking
-			result.Warnings = append(result.Warnings, fmt.Sprintf("error accessing %s: %v", path, err))
-			return nil
-		}
-		if info.IsDir() || !strings.HasSuffix(path, ".yaml") {
-			return nil
-		}
-
-		content, rerr := afero.ReadFile(fs, path)
-		if rerr != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("error reading %s: %v", path, rerr))
-			return nil
-		}
-
-		collectProfileBundleRefs(path, content, result, referencedBundles)
-		return nil
-	})
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("error walking profiles directory: %v", err))
-	}
-
-	// Find bundles in lockfile not referenced by any profile (orphans)
-	for ref := range lockfile.Bundles {
-		if !referencedBundles[ref] {
-			result.Orphans = append(result.Orphans, ref)
-		}
-	}
-
-	// Find bundles referenced by profiles but not in lockfile (missing)
-	for ref := range referencedBundles {
-		if _, exists := lockfile.Bundles[ref]; !exists {
-			// Check if the bundle file exists locally at the local name path
-			bundlePath := filepath.Join(appDir, "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
-			if _, err := fs.Stat(bundlePath); os.IsNotExist(err) {
-				result.Missing = append(result.Missing, ref)
-			}
-		}
-	}
-
-	return result
+// analyzeBundleReferences cross-checks the lockfile against the bundle
+// references declared by local profiles, via the operations core.
+func analyzeBundleReferences(lockfile *remote.Lockfile) *operations.BundleAnalysis {
+	return operations.AnalyzeBundleReferences(operations.AnalyzeBundleReferencesRequest{Lockfile: lockfile, AppDir: ".ctxloom"})
 }
 
 func shortSHA(sha string) string {

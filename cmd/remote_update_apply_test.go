@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -130,7 +131,7 @@ func TestPrintAvailableUpdates_OmitsEmptySections(t *testing.T) {
 
 func TestReportBundleIssues(t *testing.T) {
 	var out bytes.Buffer
-	reportBundleIssues(&out, &bundleAnalysis{
+	reportBundleIssues(&out, &operations.BundleAnalysis{
 		Warnings: []string{"could not read x"},
 		Invalid:  []string{"bad-ref"},
 		Missing:  []string{"acme/missing"},
@@ -146,7 +147,7 @@ func TestReportBundleIssues(t *testing.T) {
 
 func TestReportBundleIssues_EmptyIsSilent(t *testing.T) {
 	var out bytes.Buffer
-	reportBundleIssues(&out, &bundleAnalysis{})
+	reportBundleIssues(&out, &operations.BundleAnalysis{})
 	if out.Len() != 0 {
 		t.Errorf("expected no output, got %q", out.String())
 	}

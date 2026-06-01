@@ -25,6 +25,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          # On a tag push, github.ref is the tag. On manual dispatch, check out
+          # the tag the user named (without this, dispatch built the default
+          # branch and GoReleaser failed on a non-tagged commit).
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Install dependencies
@@ -69,7 +73,7 @@ jobs:
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with push access to benjaminabbitt/homebrew-tap (formula publish).
+          # PAT with push access to ctxloom/homebrew-tap (cask publish).
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           HASH_INSTALL_SH: ${{ env.HASH_INSTALL_SH }}
           HASH_INSTALL_PS1: ${{ env.HASH_INSTALL_PS1 }}

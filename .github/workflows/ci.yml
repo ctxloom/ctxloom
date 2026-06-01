@@ -194,24 +194,26 @@ jobs:
       - name: Generate protobuf code
         run: buf generate
 
-      - name: Run mutation tests (PR - diff only)
-        if: github.event_name == 'pull_request'
+      # Diff-only mutation on both PR and push, so a green PR runs the same
+      # check that gates the release on main. The whole-codebase run is too slow
+      # for every PR; it runs weekly instead (mutation-weekly.yml).
+      - name: Run mutation tests (diff)
         run: |
-          base="origin/${{ github.base_ref }}"
-          # gremlins has no native handling for an empty changeset: with a
-          # threshold set, a diff containing no mutable Go produces 0 mutants =>
-          # 0% efficacy => "below efficacy-threshold" (exit 10). Skip when the
-          # diff has no mutable Go files (mirroring .gremlins.yaml exclude-files)
-          # so docs/workflow/test-only PRs aren't blocked.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base commit to diff against — skipping mutation testing."; exit 0
+          fi
+          # gremlins fails an empty changeset (0 mutants => 0% efficacy => exit
+          # 10); skip when the diff has no mutable Go (mirrors .gremlins.yaml
+          # exclude-files) so docs/workflow/test-only changes aren't blocked.
           mutable="$(git diff --name-only "$base"...HEAD -- '*.go' \
             | grep -vE '(_test\.go$|\.pb\.go$|/mock_[^/]*\.go$|(^|/)testdata/|(^|/)tests/integration/)' || true)"
           if [ -z "$mutable" ]; then
-            echo "No mutable Go files changed vs $base — skipping mutation testing."
-            exit 0
+            echo "No mutable Go files changed vs $base — skipping mutation testing."; exit 0
           fi
           echo "Mutable Go files in diff:"; printf '  %s\n' $mutable
           gremlins unleash --diff "$base"
-
-      - name: Run mutation tests (push - full)
-        if: github.event_name == 'push'
-        run: gremlins unleash

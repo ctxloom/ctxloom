@@ -3,12 +3,10 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/iox"
@@ -534,35 +532,12 @@ func runProfileExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-	if len(profileDirs) == 0 {
-		return fmt.Errorf("profile not found: no profiles directory")
-	}
-
-	loader := profiles.NewLoader(profileDirs)
-	profile, err := loader.Load(name)
+	res, err := operations.ExportProfile(cmd.Context(), cfg, operations.ExportProfileRequest{Name: name, DestDir: destDir})
 	if err != nil {
-		return fmt.Errorf("profile not found: %s", name)
+		return err
 	}
 
-	// Ensure destination directory exists
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
-	}
-
-	// Read source file
-	srcData, err := os.ReadFile(profile.Path)
-	if err != nil {
-		return fmt.Errorf("failed to read profile: %w", err)
-	}
-
-	// Write to destination
-	destPath := filepath.Join(destDir, filepath.Base(profile.Path))
-	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
-		return fmt.Errorf("failed to write profile: %w", err)
-	}
-
-	fmt.Printf("Exported: %s -> %s\n", profile.Path, destPath)
+	fmt.Printf("Exported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 
@@ -590,41 +565,15 @@ func runProfileImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Verify source exists and is valid
-	srcData, err := os.ReadFile(srcPath)
+	res, err := operations.ImportProfile(cmd.Context(), cfg, operations.ImportProfileRequest{
+		SourcePath: srcPath,
+		Force:      profileImportForce,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to read source file: %w", err)
+		return err
 	}
 
-	// Parse against the Profile schema so we catch malformed profiles
-	// (not just unparseable YAML) before copying them. The parsed value
-	// is discarded — we only copy the source file on disk — but
-	// validating shape surfaces "this isn't a profile" errors at import
-	// time instead of at the next ctxloom run.
-	var profileData config.Profile
-	if err := yaml.Unmarshal(srcData, &profileData); err != nil {
-		return fmt.Errorf("invalid profile file: %w", err)
-	}
-
-	// Determine destination path
-	profileDir := filepath.Join(cfg.AppPaths[0], "profiles")
-	if err := os.MkdirAll(profileDir, 0755); err != nil {
-		return fmt.Errorf("failed to create profiles directory: %w", err)
-	}
-
-	destPath := filepath.Join(profileDir, filepath.Base(srcPath))
-
-	// Check if destination exists
-	if _, err := os.Stat(destPath); err == nil && !profileImportForce {
-		return fmt.Errorf("profile already exists: %s (use --force to overwrite)", destPath)
-	}
-
-	// Write to destination
-	if err := os.WriteFile(destPath, srcData, 0644); err != nil {
-		return fmt.Errorf("failed to write profile: %w", err)
-	}
-
-	fmt.Printf("Imported: %s -> %s\n", srcPath, destPath)
+	fmt.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
 	return nil
 }
 

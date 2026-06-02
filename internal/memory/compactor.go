@@ -127,9 +127,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// shows "(no summary)" and the user can re-run distill on demand.
 	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
 	if !hadFM {
-		fmt.Fprintln(os.Stderr, "ctxloom: warning: distillation lacks YAML frontmatter; summary will be empty")
+		fmt.Fprintln(os.Stderr, "ctxloom: warning: distillation lacks YAML frontmatter; deriving summary from body")
 		cleanedBody = strings.TrimSpace(combined)
 	}
+
+	// Fall back to the first prose line when the LLM omitted a summary, so a
+	// distilled session never renders as "(no summary)" in the picker.
+	summary = deriveSummary(summary, cleanedBody)
 
 	body := assembleBody(cleanedBody, plans)
 	harpName := c.resolveHarpName()
@@ -483,16 +487,38 @@ func parseLLMFrontmatter(out string) (summary, body string, ok bool) {
 		return "", out, false
 	}
 	bodyText := strings.TrimLeft(rest[end+len("\n---"):], "\r\n")
-	summary = strings.TrimSpace(parsed.Summary)
-	// Take only the first line in case the LLM emitted a multi-line value
-	// despite the prompt.
-	if i := strings.IndexByte(summary, '\n'); i >= 0 {
-		summary = strings.TrimSpace(summary[:i])
+	return firstLineSummary(parsed.Summary), bodyText, true
+}
+
+// deriveSummary returns the picker one-liner for a distillation: the LLM's
+// frontmatter summary when present, otherwise the first non-empty, non-heading
+// line of the body. Both are reduced to a single line capped at 80 bytes so a
+// session with any content never renders as "(no summary)".
+func deriveSummary(frontmatterSummary, body string) string {
+	if s := firstLineSummary(frontmatterSummary); s != "" {
+		return s
 	}
-	if len(summary) > 80 {
-		summary = textutil.TruncateBytes(summary, 80)
+	for line := range strings.SplitSeq(body, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		return firstLineSummary(t)
 	}
-	return summary, bodyText, true
+	return ""
+}
+
+// firstLineSummary trims s to its first non-empty line and caps it at 80 bytes,
+// matching the picker-summary spec.
+func firstLineSummary(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if len(s) > 80 {
+		s = textutil.TruncateBytes(s, 80)
+	}
+	return s
 }
 
 // saveDistilled writes the distilled session as markdown with YAML

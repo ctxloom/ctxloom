@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -75,13 +74,6 @@ func TestRunCommand_Integration(t *testing.T) {
 	t.Skip("Run command requires full system setup - tested in integration tests")
 }
 
-func newRunTestMgr(t *testing.T) *sessions.Manager {
-	t.Helper()
-	mgr, err := sessions.Open(filepath.Join(t.TempDir(), "index.yaml"))
-	require.NoError(t, err)
-	return mgr
-}
-
 func TestResolveResumeIntentWith_SessionFlag(t *testing.T) {
 	t.Run("default_restores_both", func(t *testing.T) {
 		dec, err := resolveResumeIntentWith(resumeFlags{Session: "swift-amber-falcon"}, nil, "/p", false, "", nil, nil)
@@ -115,29 +107,19 @@ func TestResolveResumeIntentWith_NewSessionFlag(t *testing.T) {
 }
 
 func TestResolveResumeIntentWith_NoFlagsNoTTY(t *testing.T) {
-	mgr := newRunTestMgr(t)
-	_, err := mgr.AssignHarp("/p", "claude-code")
-	require.NoError(t, err)
-
+	indexed := []sessions.Entry{{HarpName: "swift-amber-falcon", ProjectDir: "/p"}}
 	// Non-TTY context with no flags should fall through to NewAction
 	// even if entries exist — picker requires interactive stdin.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", false, "", nil, nil)
+	dec, err := resolveResumeIntentWith(resumeFlags{}, indexed, "/p", false, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)
 }
 
 func TestResolveResumeIntentWith_TTYButEmptyIndex(t *testing.T) {
-	mgr := newRunTestMgr(t)
-	// Fresh index for a project that's never had a session — picker has
-	// nothing to show, so we fall through silently.
-	dec, err := resolveResumeIntentWith(resumeFlags{}, mgr, "/p", true, "", nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, sessions.NewAction, dec.Action)
-}
-
-func TestResolveResumeIntentWith_NilManager(t *testing.T) {
-	// If sessions.Open failed (rare; bad HOME), the run path passes a
-	// nil manager. We must not panic — silently fall through to new.
+	// No indexed sessions and no raw transcripts (nil hist) — the picker has
+	// nothing to show, so we fall through silently. Nil entries also models the
+	// case where the caller's best-effort index read failed (open error / bad
+	// HOME): the seam must not panic, just start fresh.
 	dec, err := resolveResumeIntentWith(resumeFlags{}, nil, "/p", true, "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, sessions.NewAction, dec.Action)

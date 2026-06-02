@@ -239,19 +239,21 @@ const (
 //   - alice/security@v1.0.0 → with ContentVersion
 //
 // HTTPS URL (canonical, self-contained):
-//   - https://github.com/owner/repo@v1/bundles/name (latest)
-//   - https://github.com/owner/repo@v1/bundles/name@v1.2.3 (pinned tag)
-//   - https://github.com/owner/repo@v1/bundles/name@abc123 (pinned SHA)
+//   - https://github.com/owner/repo@bundles/name (latest)
+//   - https://github.com/owner/repo@bundles/name@v1.2.3 (pinned tag)
+//   - https://github.com/owner/repo@bundles/name@abc123 (pinned SHA)
 //
 // SSH URL:
-//   - git@github.com:owner/repo@v1/bundles/name@v1.2.3
+//   - git@github.com:owner/repo@bundles/name@v1.2.3
 //
 // File URL (local repos):
-//   - file:///path/to/repo@v1/bundles/name@v1.2.3
+//   - file:///path/to/repo@bundles/name@v1.2.3
 //
-// Format: <repo>@<ctxloom_version>/<type>/<path>@<content_version>
-// - First @ = ctxloom schema version (directory: ctxloom/bundles/...)
+// Format: <repo>@<type>/<path>@<content_version>
+// - First @ = item type and path (bundles/<name> or profiles/<name>)
 // - Second @ = content version (git tag or SHA, optional)
+// Pre-removal refs carried a schema-version segment (repo@v1/<type>/<path>);
+// it is silently dropped on parse (see stripLegacySchemaSegment).
 type Reference struct {
 	// Remote is the remote name (for simple format) or empty for URL-based refs
 	Remote string
@@ -264,7 +266,7 @@ type Reference struct {
 
 	// ContentVersion is the git tag or SHA for content versioning
 	// For simple refs: from @version suffix (e.g., remote/path@v1.0.0)
-	// For canonical URLs: from second @ (e.g., repo@v1/bundles/name@v1.0.0)
+	// For canonical URLs: from second @ (e.g., repo@bundles/name@v1.0.0)
 	// Empty means use HEAD/latest
 	ContentVersion string
 

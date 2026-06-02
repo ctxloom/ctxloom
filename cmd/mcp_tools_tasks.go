@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -15,9 +15,10 @@ import (
 // `include_summary` flag — saving the tool-tax of two extra MCP entries.
 
 type taskListInput struct {
-	Statuses       []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = all."`
-	Term           string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
-	IncludeSummary bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list."`
+	Statuses         []string `json:"statuses,omitempty" jsonschema:"Optional list of statuses to filter by (e.g. [\"In Progress\", \"To Do\"]). Empty = active tasks only (completed tasks are hidden unless include_completed is set or a completed status is named here)."`
+	Term             string   `json:"term,omitempty" jsonschema:"Optional case-insensitive substring filter against task text."`
+	IncludeCompleted bool     `json:"include_completed,omitempty" jsonschema:"When true, include completed (Done/Archived) tasks, which are hidden by default."`
+	IncludeSummary   bool     `json:"include_summary,omitempty" jsonschema:"When true, include per-status counts and the in-progress harp IDs alongside the task list. Counts always cover every task, including completed ones."`
 }
 
 type taskListResult struct {
@@ -82,50 +83,37 @@ func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 }
 
 func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
-	store, err := openSessionTaskStore()
+	res, err := operations.ListTasks(taskContext(), in.Statuses, in.Term, in.IncludeCompleted, in.IncludeSummary)
 	if err != nil {
 		return nil, nil, err
 	}
-	list, err := store.List(in.Statuses, in.Term)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list tasks: %w", err)
-	}
+	warnTask(res.Warning)
 	out := &taskListResult{
-		Path:  store.Path(),
-		Tasks: toTaskOuts(list),
+		Path:  res.Path,
+		Tasks: toTaskOuts(res.Tasks),
 	}
-	if in.IncludeSummary {
-		sum, err := store.Summarize()
-		if err != nil {
-			return nil, nil, fmt.Errorf("summarize: %w", err)
-		}
-		out.Summary = &summaryOut{Counts: sum.Counts, InProgress: sum.InProgress}
+	if res.Summary != nil {
+		out.Summary = &summaryOut{Counts: res.Summary.Counts, InProgress: res.Summary.InProgress}
 	}
 	return nil, out, nil
 }
 
 func (s *ctxServer) handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	store, err := openSessionTaskStore()
+	res, err := operations.AddTask(taskContext(), in.Text, in.Status)
 	if err != nil {
 		return nil, nil, err
 	}
-	task, err := store.Add(in.Text, in.Status)
-	if err != nil {
-		return nil, nil, fmt.Errorf("add task: %w", err)
-	}
-	return nil, &taskAddResult{Path: store.Path(), Task: toTaskOut(task)}, nil
+	warnTask(res.Warning)
+	return nil, &taskAddResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
 }
 
 func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	store, err := openSessionTaskStore()
+	res, err := operations.SetTaskStatus(taskContext(), in.HarpID, in.Status)
 	if err != nil {
 		return nil, nil, err
 	}
-	task, err := store.SetStatus(in.HarpID, in.Status)
-	if err != nil {
-		return nil, nil, fmt.Errorf("set status: %w", err)
-	}
-	return nil, &taskSetStatusResult{Path: store.Path(), Task: toTaskOut(task)}, nil
+	warnTask(res.Warning)
+	return nil, &taskSetStatusResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
 }
 
 func toTaskOut(t tasks.Task) taskOut {

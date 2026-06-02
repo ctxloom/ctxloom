@@ -70,6 +70,10 @@ type CreateBundleRequest struct {
 	// NoDistill flag is unset. Distill failures are warned to stderr but
 	// do not fail the create (fault-tolerance principle).
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter to persist through
+	// (ADR 0026); nil defaults to the filesystem. Frontends leave it nil.
+	Store bundles.Store `json:"-"`
 }
 
 // BundleFragmentInput describes a fragment to add or update via operations.
@@ -165,7 +169,7 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Prompts), req.Distiller)
 
-	if err := bundle.Save(); err != nil {
+	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -207,6 +211,10 @@ type UpdateBundleRequest struct {
 	// NoDistill flags.
 	Distill   *bool     `json:"distill,omitempty"`
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // UpdateBundleResult reports what changed. Status is "updated" when at least
@@ -224,7 +232,8 @@ type UpdateBundleResult struct {
 // Path safety: req.Name is validated via bundles.ValidateBundleName — see
 // CreateBundle for the contract.
 func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleRequest) (*UpdateBundleResult, error) {
-	bundle, err := loadBundleForUpdate(cfg, req.Name)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +264,7 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 
 	runUpdateDistill(ctx, bundle, req, fragmentDistillTargets, promptDistillTargets)
 
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -270,7 +279,7 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 // loadBundleForUpdate validates the request, loads the named bundle, and
 // rejects symlinked paths (the loader resolves a name to whatever it finds on
 // disk; a symlinked component or file would let Save escape the bundles tree).
-func loadBundleForUpdate(cfg *config.Config, name string) (*bundles.Bundle, error) {
+func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -281,8 +290,7 @@ func loadBundleForUpdate(cfg *config.Config, name string) (*bundles.Bundle, erro
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(name)
+	bundle, err := store.Load(name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", name, err)
 	}
@@ -290,6 +298,35 @@ func loadBundleForUpdate(cfg *config.Config, name string) (*bundles.Bundle, erro
 		return nil, err
 	}
 	return bundle, nil
+}
+
+// ListBundles returns a summary of every installed bundle (ADR 0019: the read
+// path lives here, not in the CLI).
+func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("no .ctxloom directory configured")
+	}
+	return bundles.NewLoader(cfg.GetBundleDirs(), false).List()
+}
+
+// GetBundle loads a single bundle by name through the configured bundle store.
+func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("no .ctxloom directory configured")
+	}
+	return bundleStore(cfg, nil).Load(name)
+}
+
+// bundleStore returns the injected bundle store or the default filesystem
+// adapter over the configured bundle dirs. Per ADR 0026 operations depends on
+// the Store port; a frontend (or test) may inject an alternative, and the
+// filesystem is the default when none is supplied — the same nil-default
+// pattern as the profile loader and afero.Fs seams.
+func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
+	if injected != nil {
+		return injected
+	}
+	return bundles.NewFSStore(cfg.GetBundleDirs(), false)
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending
@@ -465,6 +502,10 @@ func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove
 // DeleteBundleRequest is the input for DeleteBundle.
 type DeleteBundleRequest struct {
 	Name string `json:"name"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // DeleteBundleResult reports the path that was removed.
@@ -491,12 +532,12 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(req.Name)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := store.Load(req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
 	}
-	// os.Remove on a symlink removes the link (not its target), so delete
+	// Delete on a symlink removes the link (not its target), so delete
 	// is intrinsically safer than write — but a symlinked parent could
 	// still steer the loader at a file outside the bundles tree, so apply
 	// the same check Update uses.
@@ -504,8 +545,8 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 		return nil, err
 	}
 
-	if err := os.Remove(bundle.Path); err != nil {
-		return nil, fmt.Errorf("failed to remove bundle file: %w", err)
+	if err := store.Delete(req.Name); err != nil {
+		return nil, fmt.Errorf("failed to remove bundle: %w", err)
 	}
 
 	return &DeleteBundleResult{Status: "deleted", Name: req.Name, Path: bundle.Path}, nil

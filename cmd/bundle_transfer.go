@@ -82,13 +82,10 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// loadBundleForPush loads the named bundle from the configured bundle dirs.
+// loadBundleForPush loads the named bundle through the operations read-path,
+// returning it for the publish flow (which needs its on-disk Path).
 func loadBundleForPush(cfg *config.Config, bundleName string) (*bundles.Bundle, error) {
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return nil, fmt.Errorf("no bundles directory found")
-	}
-	bundle, err := bundles.NewLoader(bundleDirs, false).Load(bundleName)
+	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
 		return nil, fmt.Errorf("bundle not found: %s", bundleName)
 	}

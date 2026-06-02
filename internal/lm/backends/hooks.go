@@ -678,17 +678,35 @@ func (w *GeminiHookWriter) HooksPath(projectDir string) string {
 
 // geminiSettings represents the structure of .gemini/settings.json
 type geminiSettings struct {
-	Hooks      map[string][]geminiHook    `json:"hooks,omitempty"`
-	MCPServers map[string]geminiMCPServer `json:"mcpServers,omitempty"`
+	Hooks      map[string][]geminiHookGroup `json:"hooks,omitempty"`
+	MCPServers map[string]geminiMCPServer   `json:"mcpServers,omitempty"`
 	// Preserve other settings
 	Other map[string]json.RawMessage `json:"-"`
 }
 
-// geminiHook represents a single hook in Gemini CLI format.
-type geminiHook struct {
-	Command string `json:"command,omitempty"`
-	SCM     string `json:"-"` // Internal marker for ctxloom-managed hooks (not serialized - Gemini CLI rejects unknown fields)
+// geminiHookGroup is one entry in a Gemini hook event array: a matcher plus the
+// command hooks that fire for it. This nested shape (event → group → hooks[]) is
+// Gemini's required schema — a flat {"command": …} object (Claude's shape) is
+// silently ignored by Gemini, so ctxloom hooks must be emitted this way to fire.
+type geminiHookGroup struct {
+	Matcher string            `json:"matcher,omitempty"`
+	Hooks   []geminiHookEntry `json:"hooks"`
 }
+
+// geminiHookEntry is a single command hook. Gemini requires type:"command" and
+// expects timeout in milliseconds (Claude uses seconds). name is a durable,
+// Gemini-serialized field used to mark and later identify ctxloom-managed hooks
+// for clean removal — more robust than command-substring matching.
+type geminiHookEntry struct {
+	Type    string `json:"type"`
+	Command string `json:"command,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
+}
+
+// geminiCtxloomHookName marks a hook entry as ctxloom-managed in the durable
+// (serialized) name field.
+const geminiCtxloomHookName = "ctxloom-managed"
 
 // geminiMCPServer represents an MCP server in Gemini CLI format.
 type geminiMCPServer struct {
@@ -752,7 +770,7 @@ func (w *GeminiHookWriter) WriteHooks(cfg *config.HooksConfig, projectDir string
 // loadSettings loads existing settings.json or returns empty settings.
 func (w *GeminiHookWriter) loadSettings(path string) (*geminiSettings, error) {
 	settings := &geminiSettings{
-		Hooks:      make(map[string][]geminiHook),
+		Hooks:      make(map[string][]geminiHookGroup),
 		MCPServers: make(map[string]geminiMCPServer),
 		Other:      make(map[string]json.RawMessage),
 	}
@@ -831,20 +849,30 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 	return afero.WriteFile(fs, path, data, 0644)
 }
 
-// removeCtxloomHooks removes ctxloom-managed hooks from settings.
-// Since _ctxloom is not serialized to JSON (Gemini CLI rejects unknown fields),
-// we identify ctxloom hooks by checking if the command contains "ctxloom" and "inject-context".
+// removeCtxloomHooks removes ctxloom-managed hooks from settings, descending
+// into Gemini's nested group→hooks[] shape. A hook entry is ctxloom-managed if
+// its durable name marker matches, or (defensively, for entries written before
+// the marker existed or by an external flat writer) its command's executable
+// token is ctxloom. Groups left with no entries are dropped, and events left
+// with no groups are removed.
 func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
-	for eventName, hooks := range settings.Hooks {
-		var filteredHooks []geminiHook
-		for _, hook := range hooks {
-			// Keep hooks that are NOT ctxloom-managed
-			if !isCtxloomManagedHook(hook.Command) {
-				filteredHooks = append(filteredHooks, hook)
+	for eventName, groups := range settings.Hooks {
+		var keptGroups []geminiHookGroup
+		for _, g := range groups {
+			var keptEntries []geminiHookEntry
+			for _, e := range g.Hooks {
+				if e.Name == geminiCtxloomHookName || isCtxloomManagedHook(e.Command) {
+					continue // ctxloom-managed — drop
+				}
+				keptEntries = append(keptEntries, e)
+			}
+			if len(keptEntries) > 0 {
+				g.Hooks = keptEntries
+				keptGroups = append(keptGroups, g)
 			}
 		}
-		if len(filteredHooks) > 0 {
-			settings.Hooks[eventName] = filteredHooks
+		if len(keptGroups) > 0 {
+			settings.Hooks[eventName] = keptGroups
 		} else {
 			delete(settings.Hooks, eventName)
 		}
@@ -949,14 +977,28 @@ func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHook
 	}
 }
 
-// addHook adds a single hook to the settings for the given event.
+// addHook adds a single hook to the settings for the given event, emitting
+// Gemini's nested group→hooks[] shape with type:"command", the ctxloom name
+// marker, and the timeout converted from seconds to Gemini's milliseconds.
 func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h config.Hook) {
-	hook := geminiHook{
+	entry := geminiHookEntry{
+		Type:    "command",
 		Command: h.Command,
-		SCM:     computeHookHash(h),
+		Name:    geminiCtxloomHookName,
+		Timeout: hookTimeoutMillis(h.Timeout),
 	}
+	group := geminiHookGroup{Matcher: h.Matcher, Hooks: []geminiHookEntry{entry}}
+	settings.Hooks[eventName] = append(settings.Hooks[eventName], group)
+}
 
-	settings.Hooks[eventName] = append(settings.Hooks[eventName], hook)
+// hookTimeoutMillis converts a hook timeout from seconds (ctxloom/Claude's unit)
+// to milliseconds (Gemini's unit). Zero or negative stays zero so Gemini applies
+// its own default.
+func hookTimeoutMillis(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	return seconds * 1000
 }
 
 // removeCtxloomMCPServers removes ctxloom-managed MCP servers from settings.

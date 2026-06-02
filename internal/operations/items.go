@@ -78,6 +78,10 @@ type AddItemRequest struct {
 	// item. Frontends inject an LLM-backed implementation (or nil to skip — the
 	// CLI's placeholder-then-edit flow adds raw and distills on the later edit).
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // AddItemResult reports a created item.
@@ -98,7 +102,8 @@ func AddItem(ctx context.Context, cfg *config.Config, req AddItemRequest) (*AddI
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +123,7 @@ func AddItem(ctx context.Context, cfg *config.Config, req AddItemRequest) (*AddI
 		distillPrompts(ctx, bundle, distillTargets, req.Distiller)
 	}
 
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	return &AddItemResult{Status: "created", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
@@ -129,6 +134,10 @@ type DeleteItemRequest struct {
 	Bundle string   `json:"bundle"`
 	Kind   ItemKind `json:"kind"`
 	Name   string   `json:"name"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // DeleteItemResult reports a removed item.
@@ -145,7 +154,8 @@ func DeleteItem(_ context.Context, cfg *config.Config, req DeleteItemRequest) (*
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
 	}
-	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +168,7 @@ func DeleteItem(_ context.Context, cfg *config.Config, req DeleteItemRequest) (*
 	case ItemKindPrompt:
 		delete(bundle.Prompts, req.Name)
 	}
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	return &DeleteItemResult{Status: "deleted", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
@@ -174,6 +184,10 @@ type SetItemContentRequest struct {
 	// Distiller, when non-nil, (re)distills the item after the content change
 	// unless the item is marked no_distill. Injected by the frontend.
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // SetItemContentResult reports an updated item.
@@ -193,7 +207,8 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
 	}
-	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +246,7 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 		distillPrompts(ctx, bundle, distillTargets, req.Distiller)
 	}
 
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	return &SetItemContentResult{
@@ -253,6 +268,10 @@ type DistillItemRequest struct {
 	// Distiller performs the distillation. A nil Distiller is reported as a
 	// skip (no engine available) rather than a silent no-op.
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // DistillItemResult reports the outcome. Status is "distilled" or "skipped";
@@ -275,7 +294,8 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
 	}
-	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +322,7 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	case ItemKindPrompt:
 		distillPrompts(ctx, bundle, []string{req.Name}, req.Distiller)
 	}
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	_, modelID := itemDistilled(bundle, req.Kind, req.Name)
@@ -349,6 +369,10 @@ type SetBundleMCPRequest struct {
 	Bundle string         `json:"bundle"`
 	Name   string         `json:"name"`
 	MCP    BundleMCPInput `json:"mcp"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // SetBundleMCPResult reports an updated MCP server.
@@ -363,12 +387,13 @@ type SetBundleMCPResult struct {
 // save), the write half of an MCP edit. The frontend supplies a structured
 // BundleMCPInput — it never hands the core its editor's raw YAML.
 func SetBundleMCP(_ context.Context, cfg *config.Config, req SetBundleMCPRequest) (*SetBundleMCPResult, error) {
-	bundle, err := loadBundleForUpdate(cfg, req.Bundle)
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
 	applyMCPEdits(bundle, map[string]BundleMCPInput{req.Name: req.MCP}, nil, nil)
-	if err := bundle.Save(); err != nil {
+	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 	return &SetBundleMCPResult{Status: "updated", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil

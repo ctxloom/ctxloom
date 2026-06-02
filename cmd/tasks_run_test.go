@@ -41,9 +41,10 @@ func TestLaunchTaskAgent_SessionOriginContinues(t *testing.T) {
 	require.NotEmpty(t, args)
 	assert.Equal(t, "run", args[1], "first arg after exe must be the run subcommand")
 	joined := strings.Join(args, " ")
-	// Continuation of the origin session + single-task seed, not whole-store carry.
+	// Continuation of the origin session + single-task seed (tasks are
+	// project-scoped now, so there is no whole-store carry to suppress).
 	assert.Contains(t, joined, "--session origin-harp")
-	assert.Contains(t, joined, "--no-tasks")
+	assert.NotContains(t, joined, "--no-tasks")
 	assert.Contains(t, joined, "--seed-task swift-amber-falcon")
 	// Default launch marks In Progress, so no explicit --seed-status override.
 	assert.NotContains(t, joined, "--seed-status")

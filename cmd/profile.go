@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -34,6 +35,10 @@ var profileListCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
+		// The directory-existence check stays a CLI concern: it distinguishes
+		// "no profiles dir at all" (suggest mkdir) from "dir exists but empty"
+		// (suggest create). operations.ListProfiles would conflate the two by
+		// defaulting the dir.
 		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 		if len(profileDirs) == 0 {
 			fmt.Println("No profiles directory found.")
@@ -41,36 +46,32 @@ var profileListCmd = &cobra.Command{
 			return nil
 		}
 
-		loader := profiles.NewLoader(profileDirs)
-		profileList, err := loader.List()
+		res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
 		if err != nil {
-			return fmt.Errorf("failed to list profiles: %w", err)
+			return err
 		}
 
-		if len(profileList) == 0 {
+		if res.Count == 0 {
 			fmt.Println("No profiles defined.")
 			fmt.Println("Use 'ctxloom profile add <name> -f <fragments...>' to create one.")
 			return nil
 		}
 
-		defaultProfiles := make(map[string]bool)
-		for _, name := range cfg.Defaults.Profiles {
-			defaultProfiles[name] = true
-		}
-		return renderProfileList(cmd.OutOrStdout(), profileList, defaultProfiles)
+		return renderProfileList(cmd.OutOrStdout(), res.Profiles)
 	},
 }
 
 // renderProfileList writes the human-readable summary of a profile list
 // to out. Extracted from profileListCmd's RunE so the formatting decisions
 // (default-tag, parents/bundles line, description indentation) are
-// testable without invoking cobra or touching the real config.
-func renderProfileList(out io.Writer, list []*profiles.Profile, defaults map[string]bool) error {
+// testable without invoking cobra or touching the real config. The
+// per-entry Default flag is resolved by the operations layer.
+func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
 	w := iox.NewErrWriter(out)
 	w.Printf("Profiles (%d):\n", len(list))
 	for _, p := range list {
 		w.Printf("  %s", p.Name)
-		if defaults[p.Name] {
+		if p.Default {
 			w.Printf(" (default)")
 		}
 		w.Println()
@@ -104,10 +105,10 @@ var profileCreateCmd = &cobra.Command{
 	Long: `Create a new profile with bundles and/or parents.
 
 Bundle references use full URLs:
-  https://github.com/user/repo@v1/bundles/name    # Bundle from remote
+  https://github.com/user/repo@bundles/name    # Bundle from remote
 
 Example:
-  ctxloom profile create developer -b https://github.com/user/ctxloom@v1/bundles/go-development -d "Standard dev context"`,
+  ctxloom profile create developer -b https://github.com/user/ctxloom@bundles/go-development -d "Standard dev context"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runProfileCreate,
 }
@@ -211,17 +212,11 @@ var profileShowCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-		if len(profileDirs) == 0 {
-			return fmt.Errorf("profile not found: no profiles directory")
-		}
-
-		loader := profiles.NewLoader(profileDirs)
-		p, err := loader.Load(name)
+		res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-		return renderProfileShow(cmd.OutOrStdout(), p, cfg.Defaults.IsDefaultProfile(p.Name))
+		return renderProfileShow(cmd.OutOrStdout(), res, cfg.Defaults.IsDefaultProfile(res.Name))
 	},
 }
 
@@ -229,7 +224,7 @@ var profileShowCmd = &cobra.Command{
 // to out. Each optional section (description, parents, bundles, tags,
 // variables, exclude_*) is suppressed when empty. Extracted from
 // profileShowCmd's RunE.
-func renderProfileShow(out io.Writer, p *profiles.Profile, isDefault bool) error {
+func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault bool) error {
 	w := iox.NewErrWriter(out)
 	w.Printf("Profile: %s\n", p.Name)
 	w.Printf("Path: %s\n", p.Path)
@@ -269,8 +264,8 @@ var profileUpdateCmd = &cobra.Command{
 	Long: `Modify an existing profile by adding or removing items.
 
 Examples:
-  ctxloom profile modify go-developer --add-parent https://github.com/user/ctxloom@v1/profiles/developer
-  ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@v1/bundles/go-development
+  ctxloom profile modify go-developer --add-parent https://github.com/user/ctxloom@profiles/developer
+  ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@bundles/go-development
   ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -370,7 +365,7 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	profile, err := loadProfileForPush(cfg, profileName)
+	profilePath, err := resolveProfilePathForPush(cmd.Context(), cfg, profileName)
 	if err != nil {
 		return err
 	}
@@ -394,7 +389,7 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Publishing profile %q to %s...\n", profileName, remoteName)
 
 	pm := remote.NewPublishManager(registry, remote.LoadAuth(""))
-	result, err := pm.Publish(cmd.Context(), profile.Path, remoteName, opts)
+	result, err := pm.Publish(cmd.Context(), profilePath, remoteName, opts)
 	if err != nil {
 		return err
 	}
@@ -403,17 +398,15 @@ func runProfilePush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// loadProfileForPush loads the named profile from the configured profile dirs.
-func loadProfileForPush(cfg *config.Config, profileName string) (*profiles.Profile, error) {
-	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-	if len(profileDirs) == 0 {
-		return nil, fmt.Errorf("no profiles directory found")
-	}
-	profile, err := profiles.NewLoader(profileDirs).Load(profileName)
+// resolveProfilePathForPush returns the on-disk path of the named profile,
+// which the publish manager needs as its source. Routed through the operations
+// read-path so the CLI no longer constructs a loader inline.
+func resolveProfilePathForPush(ctx context.Context, cfg *config.Config, profileName string) (string, error) {
+	res, err := operations.GetProfile(ctx, cfg, operations.GetProfileRequest{Name: profileName})
 	if err != nil {
-		return nil, fmt.Errorf("profile not found: %s", profileName)
+		return "", fmt.Errorf("profile not found: %s", profileName)
 	}
-	return profile, nil
+	return res.Path, nil
 }
 
 // resolveDefaultRemote returns remoteName when set, else the registry default,
@@ -470,7 +463,7 @@ var profileInstallCmd = &cobra.Command{
 
 Reference formats:
   ctxloom-default/developer                    # Profile from default remote path
-  https://github.com/user/repo@v1/profiles/developer   # Full URL
+  https://github.com/user/repo@profiles/developer   # Full URL
 
 Examples:
   ctxloom profile install ctxloom-default/developer

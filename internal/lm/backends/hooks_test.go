@@ -976,6 +976,87 @@ func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
 	assert.True(t, hasCustom, "should have custom-server")
 }
 
+// TestGeminiHookWriter_NestedSchema locks in Gemini's required nested hook
+// shape: event → [{matcher, hooks:[{type:"command", command, name, timeout}]}]
+// with timeout in milliseconds. A flat {command} object (Claude's shape) is
+// silently ignored by Gemini, so this is the contract that makes hooks fire.
+func TestGeminiHookWriter_NestedSchema(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &GeminiHookWriter{FS: fs}
+
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{
+			SessionStart: []config.Hook{{Command: "ctxloom session bind", Timeout: 60}},
+		},
+	}
+	require.NoError(t, writer.WriteHooks(cfg, "/project"))
+
+	data, err := afero.ReadFile(fs, "/project/.gemini/settings.json")
+	require.NoError(t, err)
+
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+				Name    string `json:"name"`
+				Timeout int    `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &settings))
+
+	groups := settings.Hooks["SessionStart"]
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Hooks, 1)
+	entry := groups[0].Hooks[0]
+	assert.Equal(t, "command", entry.Type, "Gemini requires type:command")
+	assert.Equal(t, "ctxloom session bind", entry.Command)
+	assert.Equal(t, "ctxloom-managed", entry.Name, "durable ctxloom marker")
+	assert.Equal(t, 60000, entry.Timeout, "timeout must be milliseconds (60s → 60000ms)")
+}
+
+// TestGeminiHookWriter_RemovesManagedHooks verifies a second write replaces
+// ctxloom-managed hooks rather than duplicating them, while preserving a
+// user-authored hook in the same event.
+func TestGeminiHookWriter_RemovesManagedHooks(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_ = fs.MkdirAll("/project/.gemini", 0755)
+	// Existing file: one user hook + one stale ctxloom-managed hook.
+	existing := `{"hooks":{"SessionStart":[
+		{"matcher":"","hooks":[{"type":"command","command":"user-hook.sh"}]},
+		{"matcher":"","hooks":[{"type":"command","command":"ctxloom hook inject-context old","name":"ctxloom-managed"}]}
+	]}}`
+	require.NoError(t, afero.WriteFile(fs, "/project/.gemini/settings.json", []byte(existing), 0644))
+
+	writer := &GeminiHookWriter{FS: fs}
+	cfg := &config.HooksConfig{
+		Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "ctxloom session bind"}}},
+	}
+	require.NoError(t, writer.WriteHooks(cfg, "/project"))
+
+	data, _ := afero.ReadFile(fs, "/project/.gemini/settings.json")
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &settings))
+
+	var commands []string
+	for _, g := range settings.Hooks["SessionStart"] {
+		for _, e := range g.Hooks {
+			commands = append(commands, e.Command)
+		}
+	}
+	assert.Contains(t, commands, "user-hook.sh", "user hook preserved")
+	assert.Contains(t, commands, "ctxloom session bind", "fresh ctxloom hook present")
+	assert.NotContains(t, commands, "ctxloom hook inject-context old", "stale ctxloom hook removed")
+}
+
 func TestGeminiHookWriter_WithFS(t *testing.T) {
 	// Verify that FS injection works for isolated testing
 	fs := afero.NewMemMapFs()

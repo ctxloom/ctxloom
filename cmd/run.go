@@ -14,13 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
@@ -59,24 +57,27 @@ type resumeFlags struct {
 // and which parts to restore. Flag bypasses win over the picker;
 // non-interactive contexts (no TTY, no flags) silently fall through to
 // a fresh session.
-func resolveResumeIntent(mgr *sessions.Manager, workDir, backend string) (sessions.Decision, error) {
+func resolveResumeIntent(workDir, backend string) (sessions.Decision, error) {
 	flags := resumeFlags{
 		Session:    runResumeSession,
 		TasksFrom:  runResumeTasksFrom,
 		NewSession: runResumeNewSession,
 		NoTasks:    runResumeNoTasks,
 	}
-	return resolveResumeIntentWith(flags, mgr, workDir, isInteractiveTerminal(),
-		backend, historyForBackend(backend), newAdoptFunc(mgr, workDir, backend))
+	// Best-effort read of the project's indexed sessions: a failure just
+	// narrows the picker, never blocks launch (CLAUDE.md fault tolerance).
+	indexed, _ := operations.ListSessionsForProject(workDir)
+	return resolveResumeIntentWith(flags, indexed, workDir, isInteractiveTerminal(),
+		backend, historyForBackend(backend), newAdoptFunc(workDir, backend))
 }
 
-// resolveResumeIntentWith is the IoC seam: takes the resume flags, the
-// session manager, the work directory, a "stdin is a TTY" boolean, and the
-// backend's name + session history + adopt callback. All side-effect surfaces
-// are arguments, so the decision tree is trivially unit-testable across the
-// flag matrix. hist and adopt may be nil (e.g. unknown backend); the picker
-// then simply shows no raw transcripts / refuses adoption.
-func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir string, isTTY bool,
+// resolveResumeIntentWith is the IoC seam: takes the resume flags, the project's
+// already-read indexed sessions, the work directory, a "stdin is a TTY" boolean,
+// and the backend's name + session history + adopt callback. All side-effect
+// surfaces are arguments, so the decision tree is trivially unit-testable across
+// the flag matrix. indexed may be empty and adopt may be nil (e.g. unknown
+// backend); the picker then simply shows no rows / refuses adoption.
+func resolveResumeIntentWith(flags resumeFlags, indexed []sessions.Entry, workDir string, isTTY bool,
 	backend string, hist backends.SessionHistory, adopt sessions.AdoptFunc) (sessions.Decision, error) {
 	switch {
 	case flags.Session != "":
@@ -96,13 +97,12 @@ func resolveResumeIntentWith(flags resumeFlags, mgr *sessions.Manager, workDir s
 	case flags.NewSession:
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
-	if mgr == nil || !isTTY {
+	if !isTTY {
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
 	// Combine indexed harp sessions with raw, not-yet-adopted backend
-	// transcripts (e.g. sessions started outside `ctxloom run`). Both reads are
+	// transcripts (e.g. sessions started outside `ctxloom run`). The raw read is
 	// best-effort: a failure just narrows the picker, never blocks launch.
-	indexed, _ := mgr.ListForProject(workDir)
 	entries := buildPickerEntries(indexed, rawTranscripts(hist, workDir), backend)
 	if len(entries) == 0 {
 		return sessions.Decision{Action: sessions.NewAction}, nil
@@ -145,21 +145,12 @@ func rawTranscripts(hist backends.SessionHistory, workDir string) []backends.Ses
 
 // newAdoptFunc builds the picker's adopt callback: assign a fresh harp for the
 // chosen raw transcript and bind the transcript's session id / path to it, so
-// the downstream resume path distills and injects it like any other harp.
-// Returns nil when there's no index to write to.
-func newAdoptFunc(mgr *sessions.Manager, workDir, backend string) sessions.AdoptFunc {
-	if mgr == nil {
-		return nil
-	}
+// the downstream resume path distills and injects it like any other harp. The
+// index write is delegated to operations; an open failure surfaces as an error
+// to the picker rather than blocking launch.
+func newAdoptFunc(workDir, backend string) sessions.AdoptFunc {
 	return func(sessionID, transcriptPath string) (string, error) {
-		entry, err := mgr.AssignHarp(workDir, backend)
-		if err != nil {
-			return "", fmt.Errorf("assign harp: %w", err)
-		}
-		if err := mgr.BindSession(entry.HarpName, sessionID, transcriptPath); err != nil {
-			return "", fmt.Errorf("bind session: %w", err)
-		}
-		return entry.HarpName, nil
+		return operations.AdoptRawSession(workDir, backend, sessionID, transcriptPath)
 	}
 }
 
@@ -262,39 +253,28 @@ func resolveSelfExecutable() string {
 	return exe
 }
 
-// seedTaskIntoSession moves the task with harpID from the resume source store
-// into the new session's (activeHarp) store, setting its status (defaulting to
-// In Progress). The source is the resumed-from session's store when resuming a
-// named session, otherwise the legacy project store. All failures warn and
+// seedTaskIntoSession marks the task with harpID In Progress (or the given
+// status) in the project's task log, attributing the change to the new session
+// (activeHarp). Tasks are project-scoped now (ADR 0025), so seeding is a status
+// change rather than a move between per-session stores. All failures warn and
 // return — seeding never blocks the launch.
-func seedTaskIntoSession(workDir, activeHarp string, resume sessions.Decision, harpID, status string) {
+func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	if status == "" {
 		status = tasks.StatusInProgress
 	}
-	root, err := paths.HomeSessionsDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: cannot resolve sessions dir for --seed-task: %v\n", err)
-		return
-	}
-	dst := tasks.OpenPath(tasks.HarpStorePath(root, activeHarp))
-
-	var src *tasks.Store
-	if resume.Action == sessions.ResumeAction && resume.FromHarp != "" {
-		src = tasks.OpenPath(tasks.HarpStorePath(root, resume.FromHarp))
-	} else {
-		src, err = tasks.Open(workDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: open legacy task store for --seed-task: %v\n", err)
-			return
-		}
-	}
-
-	moved, err := tasks.MoveTask(src, dst, harpID, status)
+	res, err := operations.SetTaskStatus(operations.TaskContext{
+		WorkDir:     workDir,
+		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
+		SessionHarp: activeHarp,
+	}, harpID, status)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: seed task %s: %v\n", harpID, err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "ctxloom: seeded task %s into %s (%s)\n", moved.HarpID, activeHarp, moved.Status)
+	if res.Warning != "" {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", res.Warning)
+	}
+	fmt.Fprintf(os.Stderr, "ctxloom: seeded task %s into %s (%s)\n", res.Task.HarpID, activeHarp, res.Task.Status)
 }
 
 func resumePartsCSV(d sessions.Decision) string {
@@ -359,12 +339,11 @@ Examples:
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
 		if prompt == "" && runSavedPrompt != "" {
-			loader := bundles.NewLoader(cfg.GetBundleDirs(), cfg.Defaults.ShouldUseDistilled())
-			promptObj, err := loader.GetPrompt(runSavedPrompt)
+			promptRes, err := operations.GetPrompt(cmd.Context(), cfg, operations.GetPromptRequest{Name: runSavedPrompt})
 			if err != nil {
 				return fmt.Errorf("failed to load prompt: %w", err)
 			}
-			prompt = promptObj.Content
+			prompt = promptRes.Content
 		}
 		if prompt == "" && len(args) > 0 {
 			prompt = strings.Join(args, " ")
@@ -455,11 +434,7 @@ Examples:
 		for k, v := range llmCfg.Env {
 			runEnv[k] = v
 		}
-		sessMgr, sessMgrErr := sessions.Open("")
-		if sessMgrErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", sessMgrErr)
-		}
-		resume, err := resolveResumeIntent(sessMgr, workDir, llmName)
+		resume, err := resolveResumeIntent(workDir, llmName)
 		if err != nil {
 			return fmt.Errorf("resume intent: %w", err)
 		}
@@ -468,56 +443,68 @@ Examples:
 			return nil
 		}
 		// If loading the index normalized an older on-disk format, offer to
-		// persist it before the upcoming AssignHarp write (which would otherwise
-		// rewrite it as a side effect of creating the new session).
-		if sessMgr != nil {
-			confirmUpgrade(sessMgr.PendingUpgrade(), sessMgr.CommitUpgrade)
+		// persist it before the upcoming AssignSession write (which would
+		// otherwise rewrite it as a side effect of creating the new session).
+		if pending, commit, upErr := operations.SessionIndexUpgrade(); upErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", upErr)
+		} else {
+			confirmUpgrade(pending, commit)
 		}
 		var activeHarp string
-		if sessMgr != nil {
-			if entry, err := sessMgr.AssignHarp(workDir, llmName); err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
-			} else {
-				activeHarp = entry.HarpName
-				runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
-				if resume.Action == sessions.ResumeAction {
-					parts := resumePartsCSV(resume)
-					runEnv["CTXLOOM_RESUMED_FROM"] = resume.FromHarp
-					runEnv["CTXLOOM_RESUMED_PARTS"] = parts
-					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
-						entry.HarpName, resume.FromHarp, parts)
-					// Ensure the resumed session is distilled before launch so
-					// the SessionStart hook can inject its essence. Distilling
-					// here keeps the LLM call on the acceptable startup path
-					// rather than on /clear.
-					if resumePartsIncludeSession(parts) {
-						if _, essErr := readHarpEssence(resume.FromHarp); essErr != nil {
-							if dErr := shellOutDistill(resume.FromHarp); dErr != nil {
-								fmt.Fprintf(os.Stderr, "ctxloom: warning: could not distill %s for resume essence: %v\n", resume.FromHarp, dErr)
-							}
+		if entry, err := operations.AssignSession(workDir, llmName); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
+		} else {
+			activeHarp = entry.HarpName
+			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+			if resume.Action == sessions.ResumeAction {
+				parts := resumePartsCSV(resume)
+				runEnv["CTXLOOM_RESUMED_FROM"] = resume.FromHarp
+				runEnv["CTXLOOM_RESUMED_PARTS"] = parts
+				fmt.Fprintf(os.Stderr, "ctxloom: starting session %s (resuming from %s: %s)\n",
+					entry.HarpName, resume.FromHarp, parts)
+				// Ensure the resumed session is distilled before launch so
+				// the SessionStart hook can inject its essence. Distilling
+				// here keeps the LLM call on the acceptable startup path
+				// rather than on /clear.
+				if resumePartsIncludeSession(parts) {
+					if _, essErr := readHarpEssence(resume.FromHarp); essErr != nil {
+						if dErr := shellOutDistill(resume.FromHarp); dErr != nil {
+							fmt.Fprintf(os.Stderr, "ctxloom: warning: could not distill %s for resume essence: %v\n", resume.FromHarp, dErr)
 						}
 					}
-				} else {
-					fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
 				}
-				// Set the terminal window title to the harp name via the
-				// OSC2 escape sequence. Most terminals (xterm, iTerm2,
-				// alacritty, WezTerm, kitty, Windows Terminal) render it;
-				// the rest silently ignore the sequence. Skipped for
-				// non-TTY (CI, piped) so we don't pollute pipelines.
-				if isInteractiveTerminal() {
-					fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
-				}
+			} else {
+				fmt.Fprintf(os.Stderr, "ctxloom: starting session %s\n", entry.HarpName)
+			}
+			// Set the terminal window title to the harp name via the
+			// OSC2 escape sequence. Most terminals (xterm, iTerm2,
+			// alacritty, WezTerm, kitty, Windows Terminal) render it;
+			// the rest silently ignore the sequence. Skipped for
+			// non-TTY (CI, piped) so we don't pollute pipelines.
+			if isInteractiveTerminal() {
+				fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
 			}
 		}
+		// Resolve the project's stable identity (ADR 0025) and export it into the
+		// session env. Fault-tolerant — any failure warns and leaves
+		// CTXLOOM_PROJECT_ID unset; the task store degrades rather than blocking.
+		if pid, warning, err := operations.ResolveProjectIdentity(workDir); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: project identity unresolved: %v\n", err)
+		} else {
+			runEnv["CTXLOOM_PROJECT_ID"] = pid
+			if warning != "" {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
+			}
+		}
+
 		// Mark the harp ended on whatever exit path we take — clean
 		// return, ctrl+c, or panic. The end timestamp lets the time-
 		// window fallback in `ctxloom session distill` find this
 		// session's transcript even when the bind middleware never
 		// fired (session ended before any MCP method was processed).
-		if activeHarp != "" && sessMgr != nil {
+		if activeHarp != "" {
 			defer func() {
-				if err := sessMgr.MarkEnded(activeHarp, time.Now()); err != nil {
+				if err := operations.MarkSessionEnded(activeHarp, time.Now()); err != nil {
 					fmt.Fprintf(os.Stderr, "ctxloom: warning: session end-mark failed: %v\n", err)
 				}
 			}()
@@ -526,11 +513,11 @@ Examples:
 		// --seed-task: move one task from the resume source store into this
 		// freshly minted session's store, marked for active work. Used by
 		// `ctxloom tasks run` to spin a browsed task into its own session.
-		// Writing the dest store here also means the LLM's OpenSession finds it
-		// already present and skips its own whole-store migration. Best-effort:
-		// a failure warns and the session still launches (CLAUDE.md).
+		// The task already lives in the project log; seeding marks it In
+		// Progress under the new session. Best-effort: a failure warns and
+		// the session still launches (CLAUDE.md).
 		if runSeedTask != "" && activeHarp != "" {
-			seedTaskIntoSession(workDir, activeHarp, resume, runSeedTask, runSeedStatus)
+			seedTaskIntoSession(workDir, activeHarp, runSeedTask, runSeedStatus)
 		}
 
 		// Build request

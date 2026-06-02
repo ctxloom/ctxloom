@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // =============================================================================
@@ -18,14 +18,13 @@ import (
 // =============================================================================
 
 func TestRenderProfileList_HighlightsDefaults(t *testing.T) {
-	list := []*profiles.Profile{
-		{Name: "developer", Description: "Standard dev context", Bundles: []string{"a", "b"}},
+	list := []operations.ProfileEntry{
+		{Name: "developer", Description: "Standard dev context", Bundles: []string{"a", "b"}, Default: true},
 		{Name: "reviewer", Parents: []string{"developer"}},
 	}
-	defaults := map[string]bool{"developer": true}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderProfileList(&buf, list, defaults))
+	assert.NoError(t, renderProfileList(&buf, list))
 	out := buf.String()
 
 	assert.Contains(t, out, "Profiles (2):")
@@ -39,10 +38,10 @@ func TestRenderProfileList_HighlightsDefaults(t *testing.T) {
 func TestRenderProfileList_EmptySectionsSuppressed(t *testing.T) {
 	// A profile with no parents/bundles/description should produce only
 	// the name line — no dangling "0 bundles" or empty description line.
-	list := []*profiles.Profile{{Name: "minimal"}}
+	list := []operations.ProfileEntry{{Name: "minimal"}}
 
 	var buf bytes.Buffer
-	assert.NoError(t, renderProfileList(&buf, list, nil))
+	assert.NoError(t, renderProfileList(&buf, list))
 	out := buf.String()
 
 	assert.Contains(t, out, "  minimal\n")
@@ -55,7 +54,7 @@ func TestRenderProfileList_EmptySectionsSuppressed(t *testing.T) {
 // =============================================================================
 
 func TestRenderProfileShow_AllSectionsPresent(t *testing.T) {
-	p := &profiles.Profile{
+	p := &operations.GetProfileResult{
 		Name:             "developer",
 		Path:             "/proj/.ctxloom/profiles/developer.yaml",
 		Description:      "Standard dev context",
@@ -86,14 +85,14 @@ func TestRenderProfileShow_AllSectionsPresent(t *testing.T) {
 }
 
 func TestRenderProfileShow_NonDefaultOmitsDefaultLine(t *testing.T) {
-	p := &profiles.Profile{Name: "x", Path: "/p"}
+	p := &operations.GetProfileResult{Name: "x", Path: "/p"}
 	var buf bytes.Buffer
 	assert.NoError(t, renderProfileShow(&buf, p, false))
 	assert.NotContains(t, buf.String(), "Default:", "non-default profile must not show Default line")
 }
 
 func TestRenderProfileShow_EmptyOptionalSectionsSuppressed(t *testing.T) {
-	p := &profiles.Profile{Name: "minimal", Path: "/p"}
+	p := &operations.GetProfileResult{Name: "minimal", Path: "/p"}
 	var buf bytes.Buffer
 	assert.NoError(t, renderProfileShow(&buf, p, false))
 	out := buf.String()

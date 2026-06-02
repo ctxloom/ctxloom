@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // geminiAppCommandsDir is the subdirectory for ctxloom-managed Gemini commands.
@@ -279,8 +281,8 @@ func (h *GeminiSessionHistory) GetCurrentSession(workDir string) (*Session, erro
 		return nil, fmt.Errorf("no sessions found in %s", chatsDir)
 	}
 
-	// Return most recent
-	return h.parseSessionFile(filepath.Join(chatsDir, sessions[0].ID+".json"))
+	// Return most recent (Path carries the real extension: .jsonl or .json).
+	return h.parseSessionFile(sessions[0].Path)
 }
 
 // ListSessions returns available session metadata.
@@ -294,15 +296,63 @@ func (h *GeminiSessionHistory) ListSessions(workDir string) ([]SessionMeta, erro
 	return h.listChatFiles(chatsDir)
 }
 
-// GetSession returns a specific session by ID.
+// GetSession returns a specific session by ID. Gemini transcript filenames are
+// session-<timestamp>-<shortid>, while the real session UUID (what the index
+// binds and the compactor looks up) lives in the transcript header. So it
+// matches the filename stem first (cheap), then falls back to the header
+// sessionId, then to a full parse for the legacy whole-file form whose id is
+// only recoverable after parsing.
 func (h *GeminiSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
-	projectDir, err := h.findProjectDir(workDir)
+	metas, err := h.ListSessions(workDir)
 	if err != nil {
 		return nil, err
 	}
+	for _, m := range metas {
+		if m.ID == sessionID {
+			return h.parseSessionFile(m.Path)
+		}
+	}
+	for _, m := range metas {
+		if h.headerSessionID(m.Path) == sessionID {
+			return h.parseSessionFile(m.Path)
+		}
+	}
+	// Legacy whole-file transcripts carry sessionId only inside the JSON object;
+	// fall back to a full parse and compare the resolved ID.
+	for _, m := range metas {
+		if s, err := h.parseSessionFile(m.Path); err == nil && s.ID == sessionID {
+			return s, nil
+		}
+	}
+	return nil, fmt.Errorf("session %s not found", sessionID)
+}
 
-	sessionPath := filepath.Join(projectDir, "chats", sessionID+".json")
-	return h.parseSessionFile(sessionPath)
+// headerSessionID reads the sessionId from a JSONL transcript's header line
+// without parsing the whole file. Returns "" if unreadable, absent, or if the
+// first record is not a header (e.g. the legacy whole-file form).
+func (h *GeminiSessionHistory) headerSessionID(path string) string {
+	f, err := h.fs.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var hdr struct {
+			SessionID string `json:"sessionId"`
+		}
+		if json.Unmarshal(line, &hdr) == nil {
+			return hdr.SessionID
+		}
+		return ""
+	}
+	return ""
 }
 
 // GetSessionByPath returns a session by its transcript file path.
@@ -311,6 +361,13 @@ func (h *GeminiSessionHistory) GetSessionByPath(path string) (*Session, error) {
 }
 
 // findProjectDir finds the Gemini project directory for the given workDir.
+//
+// Current Gemini stores transcripts under ~/.gemini/tmp/<slug>/ where <slug> is
+// a slugified project basename, with the real absolute path recorded in a
+// sibling .project_root file. The directory name is not derivable from the path
+// (it is a slug, and older Gemini used sha256(path)), so resolution reads
+// .project_root and matches the absolute path — robust across layout changes.
+// A sha256(path) lookup remains as a fallback for pre-slug transcript stores.
 func (h *GeminiSessionHistory) findProjectDir(workDir string) (string, error) {
 	homeDir := h.homeDir
 	if homeDir == "" {
@@ -321,21 +378,53 @@ func (h *GeminiSessionHistory) findProjectDir(workDir string) (string, error) {
 		}
 	}
 
-	// Gemini uses SHA256 hash of the absolute path
 	absPath, err := filepath.Abs(workDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	hash := sha256.Sum256([]byte(absPath))
-	projectHash := hex.EncodeToString(hash[:])
+	tmpDir := filepath.Join(homeDir, ".gemini", "tmp")
 
-	projectDir := filepath.Join(homeDir, ".gemini", "tmp", projectHash)
-	if _, err := h.fs.Stat(projectDir); err != nil {
-		return "", fmt.Errorf("project directory not found: %s", projectDir)
+	if dir := h.scanProjectRoots(tmpDir, absPath); dir != "" {
+		return dir, nil
 	}
 
-	return projectDir, nil
+	// Legacy fallback: pre-slug Gemini named the dir sha256(absPath).
+	legacy := filepath.Join(tmpDir, geminiPathHash(absPath))
+	if _, err := h.fs.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+
+	return "", fmt.Errorf("project directory not found under %s for %s", tmpDir, absPath)
+}
+
+// scanProjectRoots returns the tmp subdirectory whose .project_root file records
+// absPath, or "" if none matches (or the tmp dir is unreadable).
+func (h *GeminiSessionHistory) scanProjectRoots(tmpDir, absPath string) string {
+	entries, err := afero.ReadDir(h.fs, tmpDir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		data, err := afero.ReadFile(h.fs, filepath.Join(tmpDir, e.Name(), ".project_root"))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(data)) == absPath {
+			return filepath.Join(tmpDir, e.Name())
+		}
+	}
+	return ""
+}
+
+// geminiPathHash is the legacy pre-slug project-directory name: sha256 of the
+// absolute project path, hex-encoded.
+func geminiPathHash(absPath string) string {
+	h := sha256.Sum256([]byte(absPath))
+	return hex.EncodeToString(h[:])
 }
 
 // listChatFiles returns session metadata for all chat files, sorted by time (most recent first).
@@ -350,14 +439,20 @@ func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, er
 
 	var sessions []SessionMeta
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := filepath.Ext(name)
+		// Current Gemini writes .jsonl transcripts; older Gemini wrote .json.
+		if ext != ".jsonl" && ext != ".json" {
 			continue
 		}
 
 		sessions = append(sessions, SessionMeta{
-			ID:        strings.TrimSuffix(entry.Name(), ".json"),
+			ID:        strings.TrimSuffix(name, ext),
 			StartTime: entry.ModTime(), // Approximate
-			Path:      filepath.Join(chatsDir, entry.Name()),
+			Path:      filepath.Join(chatsDir, name),
 		})
 	}
 
@@ -369,78 +464,147 @@ func (h *GeminiSessionHistory) listChatFiles(chatsDir string) ([]SessionMeta, er
 	return sessions, nil
 }
 
-// parseSessionFile reads and parses a Gemini session JSON file.
+// parseSessionFile reads a Gemini transcript into the normalized Session
+// contract. Current Gemini writes JSONL — a header line carrying sessionId,
+// then one message object per line; older Gemini wrote a single JSON object
+// with a messages array. Both are handled. Unrecognized or contentless lines
+// (the interleaved null/typeless records Gemini emits) are skipped so a session
+// degrades to a partial transcript rather than an error or an empty result.
 func (h *GeminiSessionHistory) parseSessionFile(path string) (*Session, error) {
 	data, err := afero.ReadFile(h.fs, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
 
-	// Gemini stores sessions as a JSON object with messages array
-	var rawSession geminiRawSession
-	if err := json.Unmarshal(data, &rawSession); err != nil {
-		return nil, fmt.Errorf("failed to parse session JSON: %w", err)
-	}
-
 	session := &Session{
-		ID:      filepath.Base(path),
+		ID:      strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
 		Entries: []SessionEntry{},
 	}
 
-	for _, msg := range rawSession.Messages {
-		entry := h.convertMessage(msg)
-		if entry != nil {
-			session.Entries = append(session.Entries, *entry)
+	// Legacy whole-file form: {"sessionId": ..., "messages": [ ... ]}.
+	var legacy struct {
+		SessionID string        `json:"sessionId"`
+		Messages  []geminiEntry `json:"messages"`
+	}
+	if json.Unmarshal(data, &legacy) == nil && len(legacy.Messages) > 0 {
+		if legacy.SessionID != "" {
+			session.ID = legacy.SessionID
+		}
+		for _, m := range legacy.Messages {
+			if e := h.convertEntry(m); e != nil {
+				session.Entries = append(session.Entries, *e)
+			}
+		}
+		h.stampTimes(session)
+		return session, nil
+	}
+
+	// Current JSONL form: header line followed by one message per line.
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var ge geminiEntry
+		if err := json.Unmarshal(line, &ge); err != nil {
+			continue // skip malformed line
+		}
+		// Header line: carries sessionId and no message type.
+		if ge.SessionID != "" && ge.Type == "" && ge.Role == "" {
+			session.ID = ge.SessionID
+			continue
+		}
+		if e := h.convertEntry(ge); e != nil {
+			session.Entries = append(session.Entries, *e)
 		}
 	}
-
-	// Set start/end times from entries
-	if len(session.Entries) > 0 {
-		session.StartTime = session.Entries[0].Timestamp
-		session.EndTime = session.Entries[len(session.Entries)-1].Timestamp
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan session file: %w", err)
 	}
 
+	h.stampTimes(session)
 	return session, nil
 }
 
-// geminiRawSession represents Gemini's session JSON structure.
-type geminiRawSession struct {
-	Messages []geminiMessage `json:"messages"`
+// stampTimes sets a session's start/end from its first and last entries.
+func (h *GeminiSessionHistory) stampTimes(s *Session) {
+	if len(s.Entries) > 0 {
+		s.StartTime = s.Entries[0].Timestamp
+		s.EndTime = s.Entries[len(s.Entries)-1].Timestamp
+	}
 }
 
-// geminiMessage represents a message in Gemini's session.
-type geminiMessage struct {
-	Role      string `json:"role"` // "user", "model"
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
+// geminiEntry is one Gemini transcript record, covering the JSONL header line,
+// JSONL message lines, and legacy whole-file messages. content is polymorphic:
+// a plain string (gemini/info/error turns) or a [{"text": ...}] array (user
+// turns), so it is captured raw and decoded by geminiContentText.
+type geminiEntry struct {
+	SessionID string          `json:"sessionId"`
+	Role      string          `json:"role"` // older/role-keyed transcripts
+	Type      string          `json:"type"` // user|gemini|info|error
+	Content   json.RawMessage `json:"content"`
+	Timestamp string          `json:"timestamp"`
 }
 
-// convertMessage converts a Gemini message to a normalized SessionEntry.
-func (h *GeminiSessionHistory) convertMessage(msg geminiMessage) *SessionEntry {
-	entry := &SessionEntry{}
-
-	// Parse timestamp
-	if msg.Timestamp != "" {
-		if t, err := time.Parse(time.RFC3339, msg.Timestamp); err == nil {
-			entry.Timestamp = t
-		}
+// convertEntry maps a Gemini record to a normalized SessionEntry, or nil for
+// records that carry no conversational content (header, info, or null lines).
+func (h *GeminiSessionHistory) convertEntry(m geminiEntry) *SessionEntry {
+	kind := m.Type
+	if kind == "" {
+		kind = m.Role // tolerate older role-keyed transcripts
 	}
 
-	// Map Gemini roles to normalized types
-	switch msg.Role {
-	case "user":
-		entry.Type = EntryTypeUser
-		entry.Content = msg.Content
-
-	case "model", "assistant":
-		entry.Type = EntryTypeAssistant
-		entry.Content = msg.Content
-
+	var entryType SessionEntryType
+	switch kind {
+	case "user", "human":
+		entryType = EntryTypeUser
+	case "gemini", "model", "assistant":
+		entryType = EntryTypeAssistant
+	case "error":
+		entryType = EntryTypeSystem
 	default:
+		return nil // info, empty, or unknown — no conversational content
+	}
+
+	content := geminiContentText(m.Content)
+	if content == "" {
 		return nil
 	}
 
+	entry := &SessionEntry{Type: entryType, Content: content}
+	if m.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339, m.Timestamp); err == nil {
+			entry.Timestamp = t
+		}
+	}
 	return entry
+}
+
+// geminiContentText extracts plain text from a Gemini content field, which is
+// either a JSON string or an array of {"text": ...} parts. Falls back to the
+// raw bytes so an unexpected shape still surfaces something rather than nothing.
+func geminiContentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		var b strings.Builder
+		for _, p := range parts {
+			b.WriteString(p.Text)
+		}
+		return b.String()
+	}
+	return string(raw)
 }
 
 // TranscriptPathFromHook returns the transcript path from hook input.
@@ -449,10 +613,51 @@ func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return transcriptPath
 }
 
-// GetPreviousSession returns the session before the current one, resolved at
-// read time from the transcript store (see previousSessionByListing). Gemini
-// does not yet embed the harp self-id marker, so resolution stays positional
-// (no harp scoping) until that producer path is verified for this backend.
+// GetPreviousSession returns the session before the current one for this harp.
+//
+// Gemini does not persist SessionStart additionalContext into its transcript, so
+// the harp self-id marker that Claude scans for never lands there. Harp
+// ownership is instead resolved from the ctxloom session index: `ctxloom session
+// bind` records the active harp's session_id and transcript_path (both present
+// in Gemini's SessionStart hook payload), so the previous session is the most
+// recent prior index entry for this project that carries a readable transcript.
+// When the active harp is unknown or the index has no prior bound entry
+// (pre-binding history), resolution falls back to the positional datetime floor.
 func (h *GeminiSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
+	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
+		if mgr, err := sessions.Open(""); err == nil {
+			if s, err := previousSessionByIndex(workDir, harp, mgr.ListForProject, h.GetSessionByPath); err == nil && s != nil {
+				return s, nil
+			}
+		}
+	}
 	return previousSessionByListing(workDir, "", h.ListSessions, h.GetSessionByPath, nil)
+}
+
+// previousSessionByIndex resolves the session before the current one using the
+// ctxloom session index rather than transcript content — the deterministic path
+// for backends (e.g. Gemini) whose transcripts carry no harp self-id marker.
+// list returns a project's entries most-recent-first; the active harp's own
+// entry is skipped and the first prior entry with a readable transcript wins.
+// Returns nil without error when no such entry exists, so the caller can fall
+// back to the positional floor. This is the index-backed sibling of
+// previousSessionByListing (claude_capabilities.go).
+func previousSessionByIndex(
+	workDir, myHarp string,
+	list func(projectDir string) ([]sessions.Entry, error),
+	byPath func(string) (*Session, error),
+) (*Session, error) {
+	entries, err := list(workDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.HarpName == myHarp || e.TranscriptPath == "" {
+			continue
+		}
+		if s, err := byPath(e.TranscriptPath); err == nil && s != nil {
+			return s, nil
+		}
+	}
+	return nil, nil
 }

@@ -9,8 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // reductionPct formats the in→out token reduction as a percentage, guarding
@@ -143,7 +143,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	sessionsDir := s.getSessionsDir()
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:    plugin,
+		LLM:       plugin,
 		Model:     model,
 		Backend:   backend,
 		ChunkSize: s.cfg.GetCompactionChunkSize(),
@@ -194,11 +194,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 // session UUIDs. Errors when the harp is unknown to the index or its
 // essence.md doesn't exist (compact_session hasn't run for this harp yet).
 func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *loadSessionResult, error) {
-	mgr, err := sessions.Open("")
-	if err != nil {
-		return nil, nil, fmt.Errorf("session index: %w", err)
-	}
-	entry, err := mgr.Find(harpName)
+	entry, err := operations.GetSession(harpName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("lookup harp %q: %w", harpName, err)
 	}
@@ -366,7 +362,7 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:    s.cfg.GetCompactionLLM(),
+		LLM:       s.cfg.GetCompactionLLM(),
 		Model:     model,
 		Backend:   backendName,
 		ChunkSize: s.cfg.GetCompactionChunkSize(),

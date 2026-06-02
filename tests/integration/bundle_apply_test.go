@@ -4,8 +4,10 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -105,4 +107,46 @@ func TestBundleApply_InheritedProfile(t *testing.T) {
 		"child":  "name: child\nparents:\n  - parent\n",
 	})
 	assertBundleApplied(t, mcpJSON, geminiJSON, claudeJSON)
+}
+
+// TestBundleApply_GeminiHookNestedSchema drives ApplyHooks end-to-end and asserts
+// the bundle's session_start hook reaches .gemini/settings.json in Gemini's
+// required nested shape (event → [{hooks:[{type:"command", command}]}]). A flat
+// {command} object — the shape ctxloom emitted before — is silently ignored by
+// Gemini, so this is the contract that makes Gemini hooks actually fire. The
+// built-in `session bind` hook (the recovery producer) must also be present.
+func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
+	_, geminiJSON, _ := applyHooksForProfile(t, "base", map[string]string{
+		"base": "name: base\nbundles:\n  - demo\n",
+	})
+	require.NotEmpty(t, geminiJSON, ".gemini/settings.json must be written")
+
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(geminiJSON), &settings))
+
+	groups := settings.Hooks["SessionStart"]
+	require.NotEmpty(t, groups, "SessionStart must have hook groups in nested form")
+
+	var sawBundleHook, sawSessionBind bool
+	for _, g := range groups {
+		require.NotEmpty(t, g.Hooks, "each group must carry a nested hooks[] array")
+		for _, e := range g.Hooks {
+			assert.Equal(t, "command", e.Type, "every Gemini hook entry needs type:command")
+			if strings.Contains(e.Command, "demo-hook") {
+				sawBundleHook = true
+			}
+			if strings.Contains(e.Command, "session bind") {
+				sawSessionBind = true
+			}
+		}
+	}
+	assert.True(t, sawBundleHook, "bundle session_start hook must reach .gemini in nested form")
+	assert.True(t, sawSessionBind, "built-in `session bind` (recovery producer) must reach .gemini")
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
@@ -36,24 +37,16 @@ var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List harp-named sessions (default: current project; --all for everything)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := sessions.Open("")
-		if err != nil {
-			return err
-		}
-		idx, err := mgr.Load()
-		if err != nil {
-			return err
-		}
-		entries := idx.Sessions
-		if !sessionListAll {
+		var entries []sessions.Entry
+		var err error
+		if sessionListAll {
+			entries, err = operations.ListSessions()
+		} else {
 			wd, _ := os.Getwd()
-			filtered := entries[:0]
-			for _, e := range entries {
-				if e.ProjectDir == wd {
-					filtered = append(filtered, e)
-				}
-			}
-			entries = filtered
+			entries, err = operations.ListSessionsForProject(wd)
+		}
+		if err != nil {
+			return err
 		}
 		if len(entries) == 0 {
 			w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -69,11 +62,7 @@ var sessionShowCmd = &cobra.Command{
 	Short: "Print the distilled essence of a harp-named session",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := sessions.Open("")
-		if err != nil {
-			return err
-		}
-		entry, err := mgr.Find(args[0])
+		entry, err := operations.GetSession(args[0])
 		if err != nil {
 			return err
 		}
@@ -120,11 +109,7 @@ var sessionRenameCmd = &cobra.Command{
 	Short: "Rename a harp entry. The backend transcript is unaffected.",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := sessions.Open("")
-		if err != nil {
-			return err
-		}
-		if err := mgr.Rename(args[0], args[1]); err != nil {
+		if err := operations.RenameSession(args[0], args[1]); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -138,11 +123,7 @@ var sessionForgetCmd = &cobra.Command{
 	Short: "Drop a harp entry from the index. Transcript and essence files stay on disk.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := sessions.Open("")
-		if err != nil {
-			return err
-		}
-		if err := mgr.Forget(args[0]); err != nil {
+		if err := operations.ForgetSession(args[0]); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -173,12 +154,10 @@ var sessionBindCmd = &cobra.Command{
 		// never fail the host backend's startup, so failures past this point only
 		// skip the index bind — the marker is already on stdout.
 		emitHarpMarker(cmd.OutOrStdout(), harp)
-		mgr, err := sessions.Open("")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", err)
-			return nil
+		if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: session bind failed: %v\n", err)
 		}
-		return bindSessionFromPayload(bytes.NewReader(raw), harp, mgr)
+		return nil
 	},
 }
 
@@ -208,8 +187,8 @@ func emitHarpMarker(w io.Writer, harp string) {
 //
 // Extracted from sessionBindCmd's RunE so the binding logic is testable
 // without spinning up cobra or the real os.Stdin.
-func bindSessionFromPayload(in io.Reader, harp string, mgr *sessions.Manager) error {
-	if harp == "" || mgr == nil {
+func bindSessionFromPayload(in io.Reader, harp string) error {
+	if harp == "" {
 		return nil
 	}
 	raw, err := io.ReadAll(in)
@@ -223,17 +202,9 @@ func bindSessionFromPayload(in io.Reader, harp string, mgr *sessions.Manager) er
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil // malformed payload — no-op
 	}
-	if payload.SessionID == "" {
-		return nil
-	}
-	entry, _ := mgr.Find(harp)
-	if entry == nil || entry.SessionID != "" {
-		return nil // not in index or already bound
-	}
-	if err := mgr.BindSession(harp, payload.SessionID, payload.TranscriptPath); err != nil {
-		return fmt.Errorf("bind: %w", err)
-	}
-	return nil
+	// operations.BindSession applies first-bind-wins and no-ops a harp that is
+	// absent or already bound.
+	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)
 }
 
 var sessionDistillCmd = &cobra.Command{
@@ -267,11 +238,7 @@ func init() {
 // names for them.
 func runSessionDistill(cmd *cobra.Command, args []string) error {
 	harpName := args[0]
-	mgr, err := sessions.Open("")
-	if err != nil {
-		return fmt.Errorf("session index: %w", err)
-	}
-	entry, err := mgr.Find(harpName)
+	entry, err := operations.GetSession(harpName)
 	if err != nil {
 		return err
 	}
@@ -306,7 +273,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	progress := iox.NewErrWriter(cmd.ErrOrStderr())
 	progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:    cfg.GetCompactionLLM(),
+		LLM:       cfg.GetCompactionLLM(),
 		Model:     cfg.GetCompactionModel(),
 		Backend:   backendName,
 		ChunkSize: cfg.GetCompactionChunkSize(),
@@ -349,4 +316,3 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 	}
 	return w.Err()
 }
-

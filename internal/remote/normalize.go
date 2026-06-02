@@ -10,17 +10,17 @@ import (
 // lockfile operations, or comparisons.
 //
 // Input formats supported:
-//   - Canonical HTTPS: https://github.com/owner/ctxloom-github@v1/bundles/core
-//   - Canonical SSH: git@github.com:owner/repo@v1/bundles/core
-//   - Canonical file: file:///path/to/repo@v1/bundles/core
+//   - Canonical HTTPS: https://github.com/owner/ctxloom-github@bundles/core
+//   - Canonical SSH: git@github.com:owner/repo@bundles/core
+//   - Canonical file: file:///path/to/repo@bundles/core
 //   - Simple: alice/core or alice/core@v1.0.0
 //
 // Output format: repoName/path (e.g., ctxloom-github/core)
 //
 // Examples:
 //
-//	https://github.com/owner/ctxloom-github@v1/bundles/core → ctxloom-github/core
-//	git@github.com:owner/my-repo@v1/bundles/core → my-repo/core
+//	https://github.com/owner/ctxloom-github@bundles/core → ctxloom-github/core
+//	git@github.com:owner/my-repo@bundles/core → my-repo/core
 //	alice/core@v1.0.0 → alice/core
 //	alice/core → alice/core (unchanged)
 func ToLocalRef(ref string) (string, error) {

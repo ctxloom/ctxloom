@@ -155,7 +155,7 @@ from the specified remote.
 
 Reference formats:
   ctxloom-default/core                    # Bundle from default remote path
-  https://github.com/user/repo@v1/bundles/core   # Full URL
+  https://github.com/user/repo@bundles/core   # Full URL
 
 Examples:
   ctxloom fragment install ctxloom-default/core

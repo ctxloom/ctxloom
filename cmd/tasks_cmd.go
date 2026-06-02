@@ -15,8 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -35,24 +34,22 @@ var (
 	tasksListStatuses []string
 	tasksListTerm     string
 	tasksListJSON     bool
+	tasksListAll      bool
 )
 
 var tasksListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tasks, optionally filtered by status or term",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openSessionTaskStore()
+		res, err := operations.ListTasks(taskContext(), tasksListStatuses, tasksListTerm, tasksListAll, false)
 		if err != nil {
 			return err
 		}
-		list, err := store.List(tasksListStatuses, tasksListTerm)
-		if err != nil {
-			return err
-		}
+		warnTask(res.Warning)
 		if tasksListJSON {
-			return writeJSON(cmd.OutOrStdout(), list)
+			return writeJSON(cmd.OutOrStdout(), res.Tasks)
 		}
-		return renderTaskTable(cmd.OutOrStdout(), list)
+		return renderTaskTable(cmd.OutOrStdout(), res.Tasks)
 	},
 }
 
@@ -63,15 +60,13 @@ var tasksAddCmd = &cobra.Command{
 	Short: "Add a new task",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openSessionTaskStore()
-		if err != nil {
-			return err
-		}
 		text := strings.Join(args, " ")
-		task, err := store.Add(text, tasksAddStatus)
+		res, err := operations.AddTask(taskContext(), text, tasksAddStatus)
 		if err != nil {
 			return err
 		}
+		warnTask(res.Warning)
+		task := res.Task
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
@@ -83,14 +78,12 @@ var tasksStatusCmd = &cobra.Command{
 	Short: "Change the status of a task",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openSessionTaskStore()
+		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1])
 		if err != nil {
 			return err
 		}
-		task, err := store.SetStatus(args[0], args[1])
-		if err != nil {
-			return err
-		}
+		warnTask(res.Warning)
+		task := res.Task
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
@@ -101,14 +94,12 @@ var tasksSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := openSessionTaskStore()
+		res, err := operations.ListTasks(taskContext(), nil, "", false, true)
 		if err != nil {
 			return err
 		}
-		sum, err := store.Summarize()
-		if err != nil {
-			return err
-		}
+		warnTask(res.Warning)
+		sum := res.Summary
 		// Stable order so output is diffable.
 		keys := make([]string, 0, len(sum.Counts))
 		for k := range sum.Counts {
@@ -131,43 +122,26 @@ var tasksRunNoStart bool
 var tasksRunCmd = &cobra.Command{
 	Use:   "run [task-harp-id]",
 	Short: "Browse a task and launch an agent on it",
-	Long: `Browse the project's open tasks (across all sessions plus the legacy
-project store) and launch an agent on the chosen one.
+	Long: `Browse the project's open tasks and launch an agent on the chosen one.
 
-The selected task is moved out of its origin session's store into a brand-new
-session that continues the origin session, and is marked "In Progress" there.
-The agent starts with the task text as its prompt.
+The selected task is marked "In Progress" in the project task log under a
+brand-new session that continues the task's originating session. The agent
+starts with the task text as its prompt.
 
 With a task harp id argument the picker is skipped and that task is launched
 directly. In a non-interactive shell a task harp id is required.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		workDir := taskRunWorkDir()
-
-		// Candidate session harps for this project come from the session
-		// index; each task is tagged with the harp store it currently lives
-		// in. Both the index read and the sessions-root lookup are
-		// best-effort — a failure just narrows the browse to the legacy store.
-		var harps []string
-		if mgr, err := sessions.Open(""); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", err)
-		} else if entries, err := mgr.ListForProject(workDir); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: listing sessions failed: %v\n", err)
-		} else {
-			for _, e := range entries {
-				harps = append(harps, e.HarpName)
-			}
-		}
-		var sessionsRoot string
-		if root, err := paths.HomeSessionsDir(); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: cannot resolve sessions dir: %v\n", err)
-		} else {
-			sessionsRoot = root
-		}
-
-		located, err := tasks.CollectForSessions(sessionsRoot, workDir, harps, nil)
+		// All of the project's tasks live in one append-only log now (ADR
+		// 0025); each carries the harp of the session that originated it.
+		res, err := operations.ListTasks(taskContext(), nil, "", false, false)
 		if err != nil {
-			return err
+			return fmt.Errorf("list tasks: %w", err)
+		}
+		warnTask(res.Warning)
+		located := make([]tasks.Located, 0, len(res.Tasks))
+		for _, tk := range res.Tasks {
+			located = append(located, tasks.Located{Task: tk, OriginHarp: tk.OriginSession})
 		}
 
 		var chosen tasks.Located
@@ -217,15 +191,15 @@ func findLocated(located []tasks.Located, harpID string) (tasks.Located, bool) {
 
 // launchTaskAgent shells out to `ctxloom run` to spin the chosen task into its
 // own session. We re-invoke ourselves (rather than calling run inline) so the
-// new session's harp — minted inside run by AssignHarp — owns the seeding; the
-// --seed-task hook there moves the task from its origin store into the new one.
-// Continuation is requested via --session <origin> (omitted for legacy-store
-// tasks, which have no session to continue).
+// new session's harp — minted inside run by AssignHarp — owns the seeding;
+// --seed-task there marks the task In Progress in the project log. Continuation
+// of the originating session is requested via --session <origin> (omitted for
+// tasks with no recorded origin).
 func launchTaskAgent(chosen tasks.Located, noStart bool) error {
 	prompt := fmt.Sprintf("Work on this task (`%s`): %s", chosen.HarpID, chosen.Text)
 	runArgs := []string{"run"}
 	if chosen.OriginHarp != "" {
-		runArgs = append(runArgs, "--session", chosen.OriginHarp, "--no-tasks")
+		runArgs = append(runArgs, "--session", chosen.OriginHarp)
 	}
 	runArgs = append(runArgs, "--seed-task", chosen.HarpID)
 	if noStart {
@@ -340,7 +314,8 @@ var tasksStampPlanCmd = &cobra.Command{
 func init() {
 	tasksListCmd.Flags().StringSliceVar(&tasksListStatuses, "status", nil, "filter by status (repeatable)")
 	tasksListCmd.Flags().StringVar(&tasksListTerm, "term", "", "filter by case-insensitive substring of task text")
-	tasksListCmd.Flags().BoolVar(&tasksListJSON, "json", false, "emit JSON instead of a table")
+	tasksListCmd.Flags().BoolVar(&tasksListJSON, "json", false, "emit JSON instead of a table (for jq)")
+	tasksListCmd.Flags().BoolVar(&tasksListAll, "all", false, "include completed (Done/Archived) tasks, hidden by default")
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 
@@ -371,52 +346,25 @@ func parseEditPayload(raw []byte) (string, error) {
 	return w.FilePath, nil
 }
 
-// openSessionTaskStore resolves the active task store for the current
-// session context. When CTXLOOM_SESSION_HARP is set the store is the
-// harp-keyed ~/.ctxloom/sessions/<harp>/tasks.md (migrated on first use from
-// the resumed-from session, or from the legacy project file for a fresh
-// session); otherwise it falls back to the legacy <cwd>/.ctxloom/tasks.md.
-// Shared by the CLI `tasks` subcommands, the MCP task tools, and the task
-// summary resource so all three resolve the same store.
-func openSessionTaskStore() (*tasks.Store, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
+// taskContext gathers the inputs operations needs to resolve the project task
+// log (ADR 0019): the project root (git root, like `ctxloom run`), the
+// project-id exported by `ctxloom run` pre-launch (empty for a bare CLI run, so
+// operations resolves it live), and the active session harp stamped as task
+// provenance.
+func taskContext() operations.TaskContext {
+	return operations.TaskContext{
+		WorkDir:     taskRunWorkDir(),
+		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
+		SessionHarp: os.Getenv("CTXLOOM_SESSION_HARP"),
 	}
-	var sessionsRoot string
-	if os.Getenv("CTXLOOM_SESSION_HARP") != "" {
-		if root, err := paths.HomeSessionsDir(); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: cannot resolve sessions dir: %v\n", err)
-		} else {
-			sessionsRoot = root
-		}
-	}
-	return tasks.OpenSession(tasks.SessionConfig{
-		Harp:         os.Getenv("CTXLOOM_SESSION_HARP"),
-		ResumedFrom:  os.Getenv("CTXLOOM_RESUMED_FROM"),
-		RestoreTasks: resumeRestoresTasks(),
-		SessionsRoot: sessionsRoot,
-		ProjectDir:   wd,
-	})
 }
 
-// resumeRestoresTasks reports whether a resume elected to carry tasks
-// forward. Mirrors the convention used elsewhere: an empty parts list on a
-// resume defaults to "session,tasks".
-func resumeRestoresTasks() bool {
-	if os.Getenv("CTXLOOM_RESUMED_FROM") == "" {
-		return false
+// warnTask surfaces a project-resolution notice (move/fork) returned by an
+// operations task call.
+func warnTask(warning string) {
+	if warning != "" {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
 	}
-	parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
-	if parts == "" {
-		return true
-	}
-	for _, p := range strings.Split(parts, ",") {
-		if strings.TrimSpace(p) == "tasks" {
-			return true
-		}
-	}
-	return false
 }
 
 func writeJSON(w io.Writer, v any) error {
@@ -431,12 +379,21 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		w.Println("(no tasks)")
 		return w.Err()
 	}
+	// Pad the harp-id column to the widest id in this list so the columns line
+	// up regardless of id length (ids are never truncated — they're copy-paste
+	// identifiers). The machine-readable view is --json; this table is for eyes.
+	idWidth := 0
+	for _, t := range list {
+		if len(t.HarpID) > idWidth {
+			idWidth = len(t.HarpID)
+		}
+	}
 	for _, t := range list {
 		check := " "
 		if t.Checked {
 			check = "x"
 		}
-		w.Printf("[%s] %-22s  %-12s  %s\n", check, t.HarpID, t.Status, t.Text)
+		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, t.Text)
 	}
 	return w.Err()
 }

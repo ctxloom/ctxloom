@@ -14,6 +14,15 @@ func addTask(t *testing.T, storePath, text, status string) {
 	}
 }
 
+// writeHarpTask seeds a legacy markdown store with a task carrying an explicit
+// harp id (Add would mint a random one), so migration dedup can be exercised.
+func writeHarpTask(t *testing.T, storePath, harpID, text, status string) {
+	t.Helper()
+	if _, err := OpenPath(storePath).insert(Task{HarpID: harpID, Text: text, Status: status}); err != nil {
+		t.Fatalf("insert %q: %v", harpID, err)
+	}
+}
+
 func taskTexts(t *testing.T, s *Store) []string {
 	t.Helper()
 	list, err := s.List(nil, "")
@@ -40,155 +49,89 @@ func TestHarpStorePath(t *testing.T) {
 	}
 }
 
-func TestOpenSession_NoHarp_FallsBackToLegacy(t *testing.T) {
-	proj := t.TempDir()
-	s, err := OpenSession(SessionConfig{ProjectDir: proj})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Path() != legacyStorePath(proj) {
-		t.Fatalf("path = %q, want legacy %q", s.Path(), legacyStorePath(proj))
-	}
-}
-
-func TestOpenSession_EmptySessionsRoot_FallsBackToLegacy(t *testing.T) {
-	proj := t.TempDir()
-	s, err := OpenSession(SessionConfig{Harp: "h", ProjectDir: proj})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Path() != legacyStorePath(proj) {
-		t.Fatalf("path = %q, want legacy fallback %q", s.Path(), legacyStorePath(proj))
-	}
-}
-
-func TestOpenSession_Fresh_MigratesLegacy(t *testing.T) {
+// TestMigrateLegacyIfNeeded covers the one-time import of pre-ADR-0025 markdown
+// stores into the per-project log: per-harp tasks keep their harp as origin,
+// the legacy project store contributes origin-less tasks, and status survives.
+func TestMigrateLegacyIfNeeded(t *testing.T) {
 	proj := t.TempDir()
 	root := t.TempDir()
+	addTask(t, HarpStorePath(root, "harp-x"), "harp task", StatusInProgress)
 	addTask(t, legacyStorePath(proj), "legacy task", StatusToDo)
 
-	s, err := OpenSession(SessionConfig{Harp: "harp-y", SessionsRoot: root, ProjectDir: proj})
+	logPath := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if err := MigrateLegacyIfNeeded(logPath, proj, root, []string{"harp-x"}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	s, err := OpenLog(logPath, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Path() != HarpStorePath(root, "harp-y") {
-		t.Fatalf("path = %q, want harp store", s.Path())
-	}
-	if got := taskTexts(t, s); len(got) != 1 || got[0] != "legacy task" {
-		t.Fatalf("harp store tasks = %v, want [legacy task]", got)
-	}
-	if exists(legacyStorePath(proj)) {
-		t.Error("legacy store should have been moved away (atomic rename), but still exists")
-	}
-}
-
-func TestOpenSession_Fresh_NoLegacy_StartsEmpty(t *testing.T) {
-	proj := t.TempDir()
-	root := t.TempDir()
-
-	s, err := OpenSession(SessionConfig{Harp: "h", SessionsRoot: root, ProjectDir: proj})
+	got, err := s.List(nil, "")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("list: %v", err)
 	}
-	if got := taskTexts(t, s); len(got) != 0 {
-		t.Fatalf("want empty store, got %v", got)
+	if len(got) != 2 {
+		t.Fatalf("want 2 migrated tasks, got %d: %+v", len(got), got)
 	}
-	if exists(HarpStorePath(root, "h")) {
-		t.Error("harp store file should be created lazily on first Add, not on open")
+	byText := map[string]Task{}
+	for _, tk := range got {
+		byText[tk.Text] = tk
 	}
-}
-
-func TestOpenSession_ResumeWithTasks_MigratesFromPriorHarp(t *testing.T) {
-	proj := t.TempDir()
-	root := t.TempDir()
-	addTask(t, HarpStorePath(root, "harp-x"), "carried task", StatusInProgress)
-
-	s, err := OpenSession(SessionConfig{
-		Harp: "harp-y", ResumedFrom: "harp-x", RestoreTasks: true,
-		SessionsRoot: root, ProjectDir: proj,
-	})
-	if err != nil {
-		t.Fatal(err)
+	if byText["harp task"].OriginSession != "harp-x" {
+		t.Fatalf("harp task origin = %q, want harp-x", byText["harp task"].OriginSession)
 	}
-	if got := taskTexts(t, s); len(got) != 1 || got[0] != "carried task" {
-		t.Fatalf("resumed harp tasks = %v, want [carried task]", got)
+	if byText["legacy task"].OriginSession != "" {
+		t.Fatalf("legacy task origin = %q, want empty", byText["legacy task"].OriginSession)
 	}
-	if exists(HarpStorePath(root, "harp-x")) {
-		t.Error("prior harp store should have been moved into the new harp")
+	if byText["harp task"].Status != StatusInProgress {
+		t.Fatalf("status not preserved: %q", byText["harp task"].Status)
 	}
 }
 
-func TestOpenSession_ResumeWithoutTasks_StartsEmptyAndKeepsPrior(t *testing.T) {
+func TestMigrateLegacyIfNeeded_NoOpWhenLogExists(t *testing.T) {
 	proj := t.TempDir()
-	root := t.TempDir()
-	addTask(t, HarpStorePath(root, "harp-x"), "carried task", StatusToDo)
-
-	s, err := OpenSession(SessionConfig{
-		Harp: "harp-y", ResumedFrom: "harp-x", RestoreTasks: false,
-		SessionsRoot: root, ProjectDir: proj,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := taskTexts(t, s); len(got) != 0 {
-		t.Fatalf("declined task carry-over should yield empty store, got %v", got)
-	}
-	if !exists(HarpStorePath(root, "harp-x")) {
-		t.Error("prior harp store must be left untouched when tasks are not restored")
-	}
-}
-
-func TestOpenSession_Idempotent_DoesNotRePull(t *testing.T) {
-	proj := t.TempDir()
-	root := t.TempDir()
-	addTask(t, legacyStorePath(proj), "first", StatusToDo)
-
-	if _, err := OpenSession(SessionConfig{Harp: "h", SessionsRoot: root, ProjectDir: proj}); err != nil {
-		t.Fatal(err)
-	}
-	// Legacy was migrated away; simulate a new project-local file appearing.
-	addTask(t, legacyStorePath(proj), "second", StatusToDo)
-
-	s2, err := OpenSession(SessionConfig{Harp: "h", SessionsRoot: root, ProjectDir: proj})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := taskTexts(t, s2); len(got) != 1 || got[0] != "first" {
-		t.Fatalf("established harp store should keep only the migrated 'first', got %v", got)
-	}
-	if !exists(legacyStorePath(proj)) {
-		t.Error("a new legacy file must NOT be consumed once the harp store exists (no re-pull)")
-	}
-}
-
-// TestOpenSession_RenameRaceLoserGetsEmpty models the concurrency guarantee:
-// once one fresh session has consumed the legacy file, a different fresh
-// session (distinct harp) finds the source gone and is left with an empty
-// store rather than clobbering anything.
-func TestOpenSession_RenameRaceLoserGetsEmpty(t *testing.T) {
-	proj := t.TempDir()
-	root := t.TempDir()
 	addTask(t, legacyStorePath(proj), "legacy", StatusToDo)
 
-	if _, err := OpenSession(SessionConfig{Harp: "a", SessionsRoot: root, ProjectDir: proj}); err != nil {
-		t.Fatal(err)
-	}
-	sB, err := OpenSession(SessionConfig{Harp: "b", SessionsRoot: root, ProjectDir: proj})
+	logPath := filepath.Join(t.TempDir(), "tasks.jsonl")
+	s, err := OpenLog(logPath, "sess")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := taskTexts(t, sB); len(got) != 0 {
-		t.Fatalf("second fresh harp must start empty after legacy consumed, got %v", got)
+	if _, err := s.Add("existing", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateLegacyIfNeeded(logPath, proj, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.List(nil, "")
+	if len(got) != 1 || got[0].Text != "existing" {
+		t.Fatalf("migration ran over an existing log: %+v", got)
+	}
+	if !exists(legacyStorePath(proj)) {
+		t.Error("migration must not delete the legacy source")
 	}
 }
 
-func TestMoveStore_SourceMissing_NoOp(t *testing.T) {
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "sub", "tasks.md")
-	if err := moveStore(filepath.Join(dir, "nope.md"), dst); err != nil {
-		t.Fatalf("moveStore with missing source must be a no-op, got %v", err)
+// TestMigrateLegacyIfNeeded_DedupMostRecentWins verifies that a harp id present
+// in more than one per-harp store is imported once, with the most-recent
+// session (first in the harp list) winning.
+func TestMigrateLegacyIfNeeded_DedupMostRecentWins(t *testing.T) {
+	root := t.TempDir()
+	writeHarpTask(t, HarpStorePath(root, "recent"), "shared-harp", "newer text", StatusDone)
+	writeHarpTask(t, HarpStorePath(root, "older"), "shared-harp", "older text", StatusToDo)
+
+	logPath := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if err := MigrateLegacyIfNeeded(logPath, "", root, []string{"recent", "older"}); err != nil {
+		t.Fatal(err)
 	}
-	if exists(dst) {
-		t.Error("dst must not be created when source is missing")
+	s, _ := OpenLog(logPath, "")
+	got, _ := s.List(nil, "")
+	if len(got) != 1 {
+		t.Fatalf("dedup by harp id failed, got %d: %+v", len(got), got)
+	}
+	if got[0].Text != "newer text" || got[0].Status != StatusDone {
+		t.Fatalf("most-recent should win, got %+v", got[0])
 	}
 }

@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,27 +37,30 @@ func TestEmitHarpMarker(t *testing.T) {
 	})
 }
 
-// newTestSessionManager opens a sessions.Manager rooted at a temp
-// directory so each test gets its own isolated index.yaml.
-func newTestSessionManager(t *testing.T) *sessions.Manager {
+// seedHomeSession isolates the home-rooted session index to a temp HOME (which
+// operations.BindSession resolves) and seeds a pending harp entry. Tests point
+// HOME at a temp dir rather than injecting a manager, since bindSessionFromPayload
+// now goes through operations.
+func seedHomeSession(t *testing.T) (*sessions.Manager, sessions.Entry) {
 	t.Helper()
-	mgr, err := sessions.Open(filepath.Join(t.TempDir(), "index.yaml"))
+	t.Setenv("HOME", t.TempDir())
+	mgr, err := sessions.Open("")
 	require.NoError(t, err)
-	return mgr
+	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
+	require.NoError(t, err)
+	return mgr, entry
 }
 
-// TestBindSessionFromPayload covers the SessionStart hook target. The
-// happy path is one call with a well-formed payload binding harp →
-// session_id. Edge cases enumerated: empty harp, nil manager, missing
-// session_id, malformed JSON, harp not in index, harp already bound.
+// TestBindSessionFromPayload covers the SessionStart hook target. The happy
+// path is one call with a well-formed payload binding harp → session_id. Edge
+// cases enumerated: empty harp, missing session_id, malformed JSON, harp not in
+// index, harp already bound.
 func TestBindSessionFromPayload(t *testing.T) {
 	t.Run("happy_path_binds_session_id", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
-		require.NoError(t, err)
+		mgr, entry := seedHomeSession(t)
 
 		payload := `{"session_id":"abc-123","transcript_path":"/t/session.jsonl","hook_event_name":"SessionStart"}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName, mgr))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
 
 		got, err := mgr.Find(entry.HarpName)
 		require.NoError(t, err)
@@ -68,48 +70,39 @@ func TestBindSessionFromPayload(t *testing.T) {
 	})
 
 	t.Run("empty_harp_is_noop", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		_, _ = mgr.AssignHarp("/tmp/project", "claude-code")
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "", mgr)
+		t.Setenv("HOME", t.TempDir())
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "")
 		assert.NoError(t, err, "no harp means we're not in a ctxloom session — silently succeed")
 	})
 
-	t.Run("nil_manager_is_noop", func(t *testing.T) {
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "harp", nil)
-		assert.NoError(t, err)
-	})
-
 	t.Run("missing_session_id_is_noop", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		entry, _ := mgr.AssignHarp("/tmp/project", "claude-code")
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(`{"transcript_path":"/t/x"}`), entry.HarpName, mgr))
+		mgr, entry := seedHomeSession(t)
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(`{"transcript_path":"/t/x"}`), entry.HarpName))
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Empty(t, got.SessionID, "no session_id in payload → no bind")
 	})
 
 	t.Run("malformed_json_is_noop", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		entry, _ := mgr.AssignHarp("/tmp/project", "claude-code")
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(`not json`), entry.HarpName, mgr))
+		mgr, entry := seedHomeSession(t)
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(`not json`), entry.HarpName))
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Empty(t, got.SessionID, "hook must never fail the host backend over a bad message")
 	})
 
 	t.Run("unknown_harp_is_noop", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "no-such-harp", mgr)
+		t.Setenv("HOME", t.TempDir())
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "no-such-harp")
 		assert.NoError(t, err, "stale CTXLOOM_SESSION_HARP env shouldn't crash the hook")
 	})
 
 	t.Run("already_bound_is_idempotent", func(t *testing.T) {
-		mgr := newTestSessionManager(t)
-		entry, _ := mgr.AssignHarp("/tmp/project", "claude-code")
+		mgr, entry := seedHomeSession(t)
 		require.NoError(t, mgr.BindSession(entry.HarpName, "first-id", "/orig"))
 
 		// Re-running the hook with a different session_id must NOT
 		// overwrite the existing binding — once bound, we trust the
 		// first writer.
-		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"second-id"}`), entry.HarpName, mgr)
+		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"second-id"}`), entry.HarpName)
 		require.NoError(t, err)
 		got, _ := mgr.Find(entry.HarpName)
 		assert.Equal(t, "first-id", got.SessionID, "first bind wins; second is no-op")
@@ -118,11 +111,9 @@ func TestBindSessionFromPayload(t *testing.T) {
 
 // TestBindSessionFromPayload_StdinReaderError exercises the IO failure
 // path. errReader always errors on Read; the helper should surface that
-// as a wrapped error rather than panicking.
+// as a wrapped error rather than panicking (before any index access).
 func TestBindSessionFromPayload_StdinReaderError(t *testing.T) {
-	mgr := newTestSessionManager(t)
-	_, _ = mgr.AssignHarp("/tmp/project", "claude-code")
-	err := bindSessionFromPayload(&errReader{}, "anything", mgr)
+	err := bindSessionFromPayload(&errReader{}, "anything")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read payload")
 }

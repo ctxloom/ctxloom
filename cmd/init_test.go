@@ -12,11 +12,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestEnsureGitignoreEntry covers ctxloom init's "make sure
-// .ctxloom/ephemeral/ stays out of source control" sweep. Six cases
-// covering all the file-state branches.
+// TestEnsureGitignoreEntry covers ctxloom init's "keep ctxloom's private
+// working state (ephemeral cache + project-id marker) out of source control"
+// sweep. Cases cover all the file-state branches.
 func TestEnsureGitignoreEntry(t *testing.T) {
 	const ephemeral = ".ctxloom/ephemeral/"
+	const marker = ".ctxloom/project-id"
 
 	t.Run("creates_gitignore_when_missing", func(t *testing.T) {
 		dir := t.TempDir()
@@ -25,8 +26,10 @@ func TestEnsureGitignoreEntry(t *testing.T) {
 		data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
 		require.NoError(t, err)
 		assert.Contains(t, string(data), ephemeral)
-		assert.Contains(t, string(data), "ctxloom ephemeral data",
-			"comment must be written so the entry is self-documenting")
+		assert.Contains(t, string(data), marker,
+			"the project-id marker must be ignored (ADR 0025 private/distributable wall)")
+		assert.Contains(t, string(data), "ctxloom private working state",
+			"comment must be written so the entries are self-documenting")
 	})
 
 	t.Run("appends_to_existing_gitignore", func(t *testing.T) {
@@ -65,6 +68,30 @@ func TestEnsureGitignoreEntry(t *testing.T) {
 		data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
 		assert.Equal(t, 1, strings.Count(string(data), ephemeral),
 			"trim-aware match prevents duplicate-on-whitespace")
+	})
+
+	t.Run("idempotent_across_reruns", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, ensureGitignoreEntry(dir))
+		require.NoError(t, ensureGitignoreEntry(dir))
+		data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+		assert.Equal(t, 1, strings.Count(string(data), marker),
+			"marker must not be duplicated on rerun")
+		assert.Equal(t, 1, strings.Count(string(data), ephemeral),
+			"ephemeral must not be duplicated on rerun")
+	})
+
+	t.Run("adds_missing_marker_to_gitignore_that_has_only_ephemeral", func(t *testing.T) {
+		dir := t.TempDir()
+		existing := "# ctxloom ephemeral data\n.ctxloom/ephemeral/\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(existing), 0o644))
+
+		require.NoError(t, ensureGitignoreEntry(dir))
+		data, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+		assert.Equal(t, 1, strings.Count(string(data), ephemeral),
+			"pre-existing ephemeral entry must not be re-added")
+		assert.Contains(t, string(data), marker,
+			"the marker must be appended to a gitignore that predates ADR 0025")
 	})
 
 	t.Run("adds_newline_when_file_lacks_trailing_newline", func(t *testing.T) {

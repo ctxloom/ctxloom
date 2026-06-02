@@ -59,8 +59,12 @@ func TestHandleTaskList_FiltersByStatusAndTerm(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, res.Tasks, 2)
 
-	// Term filter (case-insensitive)
+	// Term filter (case-insensitive); a completed task needs include_completed.
 	_, res, err = s.handleTaskList(context.Background(), nil, taskListInput{Term: "GAMMA"})
+	require.NoError(t, err)
+	assert.Empty(t, res.Tasks, "completed task is hidden from the default term search")
+
+	_, res, err = s.handleTaskList(context.Background(), nil, taskListInput{Term: "GAMMA", IncludeCompleted: true})
 	require.NoError(t, err)
 	require.Len(t, res.Tasks, 1)
 	assert.Equal(t, "gamma", res.Tasks[0].Text)

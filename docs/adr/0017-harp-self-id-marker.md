@@ -31,6 +31,9 @@ The LLM-echo fallback is **not** built: `session bind` already covers every ctxl
 
 - Multi-terminal recovery is correct for Claude; single-terminal and historical (unmarked) sessions keep the prior datetime-positional behavior as a floor. No `SessionHistory` interface change — the harp is read from the environment.
 - Gemini and other backends stay positional until their producer path is verified.
+  (Resolved for Gemini in ADR [0023](0023-gemini-wire-format-conversions.md): its
+  producer path was verified to HTML-escape the marker in-transcript, so Gemini
+  scopes recovery on the session index instead — index-binding, not the marker.)
 - The marker appears once in each session's context; it is a tiny self-closing tag and does not wrap content.
 
 **Revive trigger (LLM-echo fallback):** a backend that needs harp-marker coverage but has no bind-equivalent deterministic SessionStart inject point. Then add the echo instruction for that backend only — keeping the deterministic path primary everywhere it is reachable.

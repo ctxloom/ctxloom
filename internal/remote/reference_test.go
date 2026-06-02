@@ -185,6 +185,20 @@ func TestParseReference_HTTPS(t *testing.T) {
 			input:   "https://github.com/owner/repo@invalid/core",
 			wantErr: true,
 		},
+		{
+			name:     "legacy v1 schema segment stripped (bundle)",
+			input:    "https://github.com/owner/repo@v1/bundles/core-practices",
+			wantURL:  "https://github.com/owner/repo",
+			wantType: ItemTypeBundle,
+			wantPath: "core-practices",
+		},
+		{
+			name:     "legacy v1 schema segment stripped (profile)",
+			input:    "https://github.com/ctxloom/ctxloom-default@v1/profiles/rust-developer",
+			wantURL:  "https://github.com/ctxloom/ctxloom-default",
+			wantType: ItemTypeProfile,
+			wantPath: "rust-developer",
+		},
 	}
 
 	for _, tt := range tests {
@@ -211,6 +225,29 @@ func TestParseReference_HTTPS(t *testing.T) {
 			}
 			if !got.IsCanonical {
 				t.Errorf("IsCanonical = false, want true for URL reference")
+			}
+		})
+	}
+}
+
+func TestStripLegacySchemaSegment(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"v1 before profiles", "v1/profiles/rust-developer", "profiles/rust-developer"},
+		{"v1 before bundles", "v1/bundles/core", "bundles/core"},
+		{"v1 keeps content version", "v1/bundles/core@v1.2.3", "bundles/core@v1.2.3"},
+		{"already clean type/path untouched", "bundles/core", "bundles/core"},
+		{"profiles untouched", "profiles/go-developer", "profiles/go-developer"},
+		{"unknown leading without type follows is untouched", "invalid/core", "invalid/core"},
+		{"single segment untouched", "core", "core"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripLegacySchemaSegment(tt.in); got != tt.want {
+				t.Errorf("stripLegacySchemaSegment(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

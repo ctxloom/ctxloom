@@ -64,47 +64,56 @@ func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-// ensureGitignoreEntry adds ctxloom ephemeral directory to .gitignore if not already present.
-// This keeps ephemeral data local (synced bundles, session data, context files).
+// ensureGitignoreEntry adds ctxloom's private working-state paths to .gitignore
+// if not already present: the ephemeral cache dir (synced bundles, session and
+// context data) and the project-id marker (ADR 0025 — private identity must
+// never ride a distributable tree). Idempotent: only the missing entries are
+// appended.
 func ensureGitignoreEntry(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	ephemeralEntry := ".ctxloom/ephemeral/"
-	comment := "# ctxloom ephemeral data (synced bundles, session data, context files)"
+	comment := "# ctxloom private working state (synced bundles, session/context, project id)"
+	wanted := []string{".ctxloom/ephemeral/", ".ctxloom/project-id"}
 
-	// Read existing .gitignore if it exists
-	var lines []string
+	// Read existing .gitignore if it exists.
 	content, err := os.ReadFile(gitignorePath)
-	if err == nil {
-		lines = strings.Split(string(content), "\n")
-		// Check if entry already exists
-		for _, line := range lines {
-			if strings.TrimSpace(line) == ephemeralEntry {
-				return nil // Already present
-			}
-		}
-	} else if !os.IsNotExist(err) {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	present := make(map[string]bool)
+	for _, line := range strings.Split(string(content), "\n") {
+		present[strings.TrimSpace(line)] = true
+	}
+	var missing []string
+	for _, e := range wanted {
+		if !present[e] {
+			missing = append(missing, e)
+		}
+	}
+	if len(missing) == 0 {
+		return nil // all present
+	}
 
-	// Append the entry
+	// Append the missing entries under a single comment.
 	f, err := os.OpenFile(gitignorePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
-	// Add newline if file doesn't end with one
+	// Add newline if file doesn't end with one.
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		if _, err := f.WriteString("\n"); err != nil {
 			return err
 		}
 	}
-
-	// Write comment and entry
-	if _, err := fmt.Fprintf(f, "\n%s\n%s\n", comment, ephemeralEntry); err != nil {
+	if _, err := fmt.Fprintf(f, "\n%s\n", comment); err != nil {
 		return err
 	}
-
+	for _, e := range missing {
+		if _, err := fmt.Fprintf(f, "%s\n", e); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

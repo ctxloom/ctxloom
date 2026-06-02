@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var bundleListCmd = &cobra.Command{
@@ -34,8 +35,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 		return w.Err()
 	}
 
-	loader := bundles.NewLoader(bundleDirs, false)
-	bundleInfos, err := loader.List()
+	bundleInfos, err := operations.ListBundles(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to list bundles: %w", err)
 	}
@@ -129,8 +129,7 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no bundles directory found")
 	}
 
-	loader := bundles.NewLoader(bundleDirs, false)
-	bundle, err := loader.Load(name)
+	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", name)
 	}

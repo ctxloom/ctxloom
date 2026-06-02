@@ -115,13 +115,28 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 		lockfile.Profiles = make(map[string]LockEntry)
 	}
 
+	// Self-heal legacy schema-version residue (ctxloom_version: v1). The field no
+	// longer exists on LockEntry, so re-marshalling drops it; persist the cleaned
+	// form up front rather than waiting for the next sync. Best-effort: a write
+	// failure leaves the (still-valid) in-memory lockfile untouched.
+	if strings.Contains(string(data), "ctxloom_version") {
+		if err := m.write(&lockfile); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clean legacy lockfile %s: %v\n", path, err)
+		}
+	}
+
 	return &lockfile, nil
 }
 
-// Save writes the lockfile to disk.
+// Save writes the lockfile to disk, stamping LockedAt with the current time.
 func (m *LockfileManager) Save(lockfile *Lockfile) error {
 	lockfile.LockedAt = time.Now().UTC()
+	return m.write(lockfile)
+}
 
+// write marshals the lockfile and atomically replaces the on-disk file without
+// modifying LockedAt. Shared by Save and the load-time self-heal.
+func (m *LockfileManager) write(lockfile *Lockfile) error {
 	data, err := yaml.Marshal(lockfile)
 	if err != nil {
 		return fmt.Errorf("failed to marshal lockfile: %w", err)

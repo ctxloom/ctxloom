@@ -2,6 +2,7 @@ package remote
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,43 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	}
 	if entry.URL != "https://github.com/alice/ctxloom" {
 		t.Errorf("URL = %q, want %q", entry.URL, "https://github.com/alice/ctxloom")
+	}
+}
+
+func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	manager := NewLockfileManager("/test", WithLockfileFS(fs))
+	path := manager.Path()
+
+	legacy := "version: 1\n" +
+		"bundles:\n" +
+		"  alice/go-tools:\n" +
+		"    sha: abc1234\n" +
+		"    url: https://github.com/alice/ctxloom\n" +
+		"    ctxloom_version: v1\n"
+	if err := afero.WriteFile(fs, path, []byte(legacy), 0644); err != nil {
+		t.Fatalf("seed legacy lockfile: %v", err)
+	}
+
+	loaded, err := manager.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	entry, ok := loaded.GetEntry(ItemTypeBundle, "alice/go-tools")
+	if !ok {
+		t.Fatal("entry not found after self-heal")
+	}
+	if entry.SHA != "abc1234" {
+		t.Errorf("SHA = %q, want %q (real fields must survive)", entry.SHA, "abc1234")
+	}
+
+	// The cleaned form is written back to disk up front.
+	onDisk, err := afero.ReadFile(fs, path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if strings.Contains(string(onDisk), "ctxloom_version") {
+		t.Errorf("legacy ctxloom_version not stripped from disk:\n%s", onDisk)
 	}
 }
 

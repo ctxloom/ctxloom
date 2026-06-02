@@ -9,6 +9,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
+// geminiTrustWorkspaceEnv is Gemini CLI's workspace-trust override. Set to
+// "true" it lets Gemini run headless and execute project hooks without an
+// interactive trust prompt.
+const geminiTrustWorkspaceEnv = "GEMINI_CLI_TRUST_WORKSPACE"
+
 // Gemini implements the Backend interface for Gemini CLI.
 type Gemini struct {
 	BaseBackend
@@ -31,6 +36,25 @@ func NewGemini() *Gemini {
 	b.mcp = NewGeminiMCPManager(b)
 	b.history = NewGeminiSessionHistory(b)
 	return b
+}
+
+// defaultGeminiModel is the fallback model when none is set on the request or
+// in config. Kept current with Gemini's own default tier.
+const defaultGeminiModel = "gemini-2.5-flash"
+
+// Configure applies per-LLM configuration (binary path, args, env) to this
+// backend. Without it, ApplyLLMConfig's Configurable type-assertion skips Gemini
+// and config.yaml's llm.configs.gemini overrides never take effect.
+func (b *Gemini) Configure(cfg *config.LLMConfig) {
+	if cfg.BinaryPath != "" {
+		b.BinaryPath = cfg.BinaryPath
+	}
+	if len(cfg.Args) > 0 {
+		b.Args = cfg.Args
+	}
+	for k, v := range cfg.Env {
+		b.Env[k] = v
+	}
 }
 
 // Lifecycle returns the lifecycle handler (hooks).
@@ -90,10 +114,15 @@ func (b *Gemini) Setup(ctx context.Context, req *SetupRequest) error {
 
 // Execute runs the backend with the given request.
 func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
-	// Build model info
+	// Resolve the model: explicit request, then per-LLM config, then default.
 	modelName := req.Model
 	if modelName == "" {
-		modelName = "gemini-2.0-flash"
+		if cfg, err := config.Load(); err == nil {
+			modelName = cfg.LM.GetDefaultModel(b.Name())
+		}
+	}
+	if modelName == "" {
+		modelName = defaultGeminiModel
 	}
 	modelInfo := &ModelInfo{
 		ModelName: modelName,
@@ -106,7 +135,7 @@ func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stder
 	}
 
 	// Build args
-	args := b.buildArgs(req)
+	args := b.buildArgs(req, modelName)
 
 	// Verbosity level 16+: show command
 	if req.Verbosity >= 16 {
@@ -120,6 +149,13 @@ func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stder
 	}
 	if b.context.GetContextFilePath() != "" {
 		env[SCMContextFileEnv] = b.context.GetContextFilePath()
+	}
+	// Gemini refuses to run headless and won't fire project hooks (context
+	// injection, session bind) in an untrusted folder. A ctxloom-launched project
+	// is trusted by construction, so grant workspace trust unless the caller set
+	// it explicitly — keeping startup unblocked per the fault-tolerance contract.
+	if _, ok := env[geminiTrustWorkspaceEnv]; !ok {
+		env[geminiTrustWorkspaceEnv] = "true"
 	}
 
 	// Run based on mode
@@ -139,17 +175,33 @@ func (b *Gemini) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// buildArgs constructs the command-line arguments.
-func (b *Gemini) buildArgs(req *ExecuteRequest) []string {
+// buildArgs constructs the command-line arguments for the gemini CLI.
+func (b *Gemini) buildArgs(req *ExecuteRequest, model string) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	if req.AutoApprove {
+	if model != "" {
+		args = append(args, "-m", model)
+	}
+
+	// SkipSetup is the distillation/minimal path: run read-only so the oneshot
+	// can't invoke tools or mutate the workspace. It takes precedence over
+	// auto-approve (the two are contradictory).
+	if req.SkipSetup {
+		args = append(args, "--approval-mode", "plan")
+	} else if req.AutoApprove {
 		args = append(args, "--yolo")
 	}
 
 	if prompt := GetPromptContent(req.Prompt); prompt != "" {
-		args = append(args, "-i", prompt)
+		// Oneshot: -p runs headless and exits. Interactive: -i runs the prompt
+		// then stays in the session. The previous code always used -i, which
+		// would hang a oneshot (e.g. distillation) in interactive mode.
+		if req.Mode == ModeOneshot {
+			args = append(args, "-p", prompt)
+		} else {
+			args = append(args, "-i", prompt)
+		}
 	}
 
 	return args

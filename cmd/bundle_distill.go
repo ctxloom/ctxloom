@@ -185,8 +185,7 @@ func loadDistillPrompt() (string, error) {
 	}
 
 	// Try to load "distill" prompt from bundles
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	prompt, err := loader.GetPrompt("distill")
+	prompt, err := operations.GetPrompt(context.Background(), cfg, operations.GetPromptRequest{Name: "distill"})
 	if err == nil && prompt.Content != "" {
 		return strings.TrimSpace(prompt.Content), nil
 	}

@@ -216,13 +216,15 @@ type GetProfileRequest struct {
 
 // GetProfileResult contains the profile details.
 type GetProfileResult struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Parents     []string          `json:"parents,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	Bundles     []string          `json:"bundles,omitempty"`
-	Variables   map[string]string `json:"variables,omitempty"`
-	Path        string            `json:"path,omitempty"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description,omitempty"`
+	Parents          []string          `json:"parents,omitempty"`
+	Tags             []string          `json:"tags,omitempty"`
+	Bundles          []string          `json:"bundles,omitempty"`
+	Variables        map[string]string `json:"variables,omitempty"`
+	ExcludeFragments []string          `json:"exclude_fragments,omitempty"`
+	ExcludeMCP       []string          `json:"exclude_mcp,omitempty"`
+	Path             string            `json:"path,omitempty"`
 }
 
 // GetProfile returns a specific profile by name.
@@ -241,13 +243,15 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 	}
 
 	return &GetProfileResult{
-		Name:        profile.Name,
-		Description: profile.Description,
-		Parents:     profile.Parents,
-		Tags:        profile.Tags,
-		Bundles:     profile.Bundles,
-		Variables:   profile.Variables,
-		Path:        profile.Path,
+		Name:             profile.Name,
+		Description:      profile.Description,
+		Parents:          profile.Parents,
+		Tags:             profile.Tags,
+		Bundles:          profile.Bundles,
+		Variables:        profile.Variables,
+		ExcludeFragments: profile.ExcludeFragments,
+		ExcludeMCP:       profile.ExcludeMCP,
+		Path:             profile.Path,
 	}, nil
 }
 

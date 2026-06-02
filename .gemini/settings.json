@@ -2,7 +2,13 @@
   "hooks": {
     "SessionStart": [
       {
-        "command": "ctxloom session bind"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ctxloom session bind",
+            "name": "ctxloom-managed"
+          }
+        ]
       }
     ]
   },

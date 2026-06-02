@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
@@ -203,15 +202,9 @@ func runBundleDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return fmt.Errorf("no bundles directory found")
-	}
-
-	// Load read-only just to show the path in the confirm prompt; the actual
+	// Read-only load just to show the path in the confirm prompt; the actual
 	// (guarded) removal goes through operations.DeleteBundle.
-	loader := bundles.NewLoader(bundleDirs, false)
-	bundle, err := loader.Load(name)
+	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", name)
 	}

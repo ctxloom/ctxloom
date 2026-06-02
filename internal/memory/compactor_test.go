@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -660,4 +661,54 @@ func TestParseLLMFrontmatter_EmptySummaryStillSucceeds(t *testing.T) {
 	assert.True(t, ok)
 	assert.Empty(t, summary)
 	assert.Equal(t, "body\n", body)
+}
+
+// =============================================================================
+// deriveSummary — body fallback so a distilled session is never "(no summary)"
+// =============================================================================
+
+func TestDeriveSummary(t *testing.T) {
+	longLine := strings.Repeat("x", 120)
+	tests := []struct {
+		name        string
+		frontmatter string
+		body        string
+		expected    string
+	}{
+		{
+			name:        "frontmatter wins when present",
+			frontmatter: "From the frontmatter",
+			body:        "# Heading\n\nFirst body line",
+			expected:    "From the frontmatter",
+		},
+		{
+			name:        "falls back to first prose line",
+			frontmatter: "",
+			body:        "# Session summary\n\nSee you! Setup is live.",
+			expected:    "See you! Setup is live.",
+		},
+		{
+			name:        "skips headings and blank lines",
+			frontmatter: "",
+			body:        "## Top\n\n###  Sub\n\n   \nActual content here",
+			expected:    "Actual content here",
+		},
+		{
+			name:        "caps fallback at 80 bytes",
+			frontmatter: "",
+			body:        longLine,
+			expected:    longLine[:80],
+		},
+		{
+			name:        "empty when body has no prose",
+			frontmatter: "",
+			body:        "# Only\n## Headings\n   \n",
+			expected:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, deriveSummary(tt.frontmatter, tt.body))
+		})
+	}
 }

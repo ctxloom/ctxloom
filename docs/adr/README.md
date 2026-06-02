@@ -72,6 +72,8 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0021](0021-consolidate-llm-config.md) | Consolidate all LLM config under `llm:`; breaking schema change | Accepted |
 | [0022](0022-flatten-bundle-llm-schema.md) | Flatten the bundle item LLM-export schema (`plugins.llm.*` → `llm.*`) | Accepted |
 | [0024](0024-minimize-mcp-surface.md) | Minimize the MCP surface to operational session tools; front-load configuration via CLI | Accepted |
+| [0025](0025-per-project-task-log.md) | Per-project append-only task log keyed by project identity; tasks reference origin session; defer movement layer | Accepted/Deferred |
+| [0026](0026-ports-and-adapters.md) | Ports and adapters: domain logic in operations; subsidiary-application IO via plugins; persistence via storage ports | Accepted/Proposed |
 | [0027](0027-mirror-established-tool-naming.md) | Mirror established tools' naming when the concept is the same (apt `update`/`upgrade`); borrow at the CLI layer, keep precise internal names | Accepted |
 | [0028](0028-reference-pinned-discovery-head.md) | Referenced content read at its pinned SHA; discovery reads HEAD; clones full + eager on `remote add` | Accepted |
 | [0029](0029-cli-json-output.md) | Every data-emitting CLI command offers `--json` (JSON/JSONL to stdout, diagnostics to stderr); JSON shape is the operations result type | Accepted |

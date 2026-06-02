@@ -61,47 +61,76 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 	return bundleName, itemName, nil
 }
 
-// listItemInfos lists every item of the given type via the loader.
-func listItemInfos(loader *bundles.Loader, itemType ItemType) ([]bundles.ContentInfo, error) {
+// itemRow is the normalized listing shape shared by the fragment and prompt
+// listings: a name, its merged tags, and the bundle it came from (the grouping
+// key). It flattens the operations FragmentEntry / PromptEntry projections so
+// the grouping/printing logic is type-agnostic.
+type itemRow struct {
+	Name   string
+	Tags   []string
+	Bundle string
+}
+
+// listItemRows returns every item of the given type via the operations
+// read-path, grouped by bundle (SortBy:"source", since an entry's Source is its
+// bundle name).
+func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
+	ctx := context.Background()
 	switch itemType {
 	case ItemTypeFragment:
-		return loader.ListAllFragments()
+		res, err := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
+		if err != nil {
+			return nil, err
+		}
+		rows := make([]itemRow, 0, len(res.Fragments))
+		for _, f := range res.Fragments {
+			rows = append(rows, itemRow{Name: f.Name, Tags: f.Tags, Bundle: f.Source})
+		}
+		return rows, nil
 	case ItemTypePrompt:
-		return loader.ListAllPrompts()
+		res, err := operations.ListPrompts(ctx, cfg, operations.ListPromptsRequest{SortBy: "source"})
+		if err != nil {
+			return nil, err
+		}
+		rows := make([]itemRow, 0, len(res.Prompts))
+		for _, p := range res.Prompts {
+			rows = append(rows, itemRow{Name: p.Name, Tags: p.Tags, Bundle: p.Source})
+		}
+		return rows, nil
 	}
 	return nil, nil
 }
 
 // filterByBundle keeps only the items belonging to bundleFilter (or all when
 // the filter is empty).
-func filterByBundle(infos []bundles.ContentInfo, bundleFilter string) []bundles.ContentInfo {
+func filterByBundle(rows []itemRow, bundleFilter string) []itemRow {
 	if bundleFilter == "" {
-		return infos
+		return rows
 	}
-	var filtered []bundles.ContentInfo
-	for _, info := range infos {
-		if info.Bundle == bundleFilter {
-			filtered = append(filtered, info)
+	var filtered []itemRow
+	for _, r := range rows {
+		if r.Bundle == bundleFilter {
+			filtered = append(filtered, r)
 		}
 	}
 	return filtered
 }
 
 // printItemInfos prints items grouped by bundle, with tags.
-func printItemInfos(infos []bundles.ContentInfo, itemType ItemType) {
-	fmt.Printf("%ss (%d):\n\n", titleCase(string(itemType)), len(infos))
+func printItemInfos(rows []itemRow, itemType ItemType) {
+	fmt.Printf("%ss (%d):\n\n", titleCase(string(itemType)), len(rows))
 	currentBundle := ""
-	for _, info := range infos {
-		if info.Bundle != currentBundle {
+	for _, r := range rows {
+		if r.Bundle != currentBundle {
 			if currentBundle != "" {
 				fmt.Println()
 			}
-			fmt.Printf("  %s:\n", info.Bundle)
-			currentBundle = info.Bundle
+			fmt.Printf("  %s:\n", r.Bundle)
+			currentBundle = r.Bundle
 		}
-		fmt.Printf("    - %s", info.Name)
-		if len(info.Tags) > 0 {
-			fmt.Printf(" [%s]", strings.Join(info.Tags, ", "))
+		fmt.Printf("    - %s", r.Name)
+		if len(r.Tags) > 0 {
+			fmt.Printf(" [%s]", strings.Join(r.Tags, ", "))
 		}
 		fmt.Println()
 	}
@@ -114,19 +143,18 @@ func listItems(itemType ItemType, bundleFilter string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	infos, err := listItemInfos(loader, itemType)
+	rows, err := listItemRows(cfg, itemType)
 	if err != nil {
 		return fmt.Errorf("failed to list %ss: %w", itemType, err)
 	}
 
-	if len(infos) == 0 {
+	if len(rows) == 0 {
 		fmt.Printf("No %ss found.\n", itemType)
 		fmt.Printf("Install bundles with: ctxloom %s install <remote>/bundle-name\n", itemType)
 		return nil
 	}
 
-	printItemInfos(filterByBundle(infos, bundleFilter), itemType)
+	printItemInfos(filterByBundle(rows, bundleFilter), itemType)
 	return nil
 }
 
@@ -143,8 +171,7 @@ func loadBundleForItem(ref string, itemType ItemType) (*bundles.Bundle, string, 
 		return nil, "", nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("bundle not found: %s", bundleName)
 	}
@@ -386,8 +413,7 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	bundle, err := loader.Load(bundleName)
+	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", bundleName)
 	}

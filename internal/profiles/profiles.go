@@ -41,7 +41,7 @@ type Profile struct {
 
 	// Bundles are content references using standardized path syntax
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"
-	// Full URLs: "https://github.com/user/repo@v1/bundles/name"
+	// Full URLs: "https://github.com/user/repo@bundles/name"
 	Bundles []string `yaml:"bundles,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`

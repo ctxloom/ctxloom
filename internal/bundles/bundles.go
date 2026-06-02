@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -134,15 +133,15 @@ type BundleFragment struct {
 
 // BundlePrompt defines a prompt within a bundle.
 type BundlePrompt struct {
-	Description  string        `yaml:"description,omitempty"`
-	Tags         []string      `yaml:"tags,omitempty"`
-	Notes        string        `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string        `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
-	Content      string        `yaml:"content"`
-	ContentHash  string        `yaml:"content_hash,omitempty"`
-	Distilled    string        `yaml:"distilled,omitempty"`
-	DistilledBy  string        `yaml:"distilled_by,omitempty"`
-	NoDistill    bool          `yaml:"no_distill,omitempty"`
+	Description  string     `yaml:"description,omitempty"`
+	Tags         []string   `yaml:"tags,omitempty"`
+	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	Content      string     `yaml:"content"`
+	ContentHash  string     `yaml:"content_hash,omitempty"`
+	Distilled    string     `yaml:"distilled,omitempty"`
+	DistilledBy  string     `yaml:"distilled_by,omitempty"`
+	NoDistill    bool       `yaml:"no_distill,omitempty"`
 	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
 }
 
@@ -268,20 +267,6 @@ func (b *Bundle) AllTags() []string {
 	tags := tagSet.Items()
 	sort.Strings(tags)
 	return tags
-}
-
-// Save writes the bundle back to its file path.
-func (b *Bundle) Save() error {
-	if b.Path == "" {
-		return fmt.Errorf("bundle has no path set")
-	}
-
-	data, err := yaml.Marshal(b)
-	if err != nil {
-		return fmt.Errorf("failed to marshal bundle: %w", err)
-	}
-
-	return os.WriteFile(b.Path, data, 0644)
 }
 
 // AssembledContent combines all fragment content with separators.

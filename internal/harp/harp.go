@@ -168,6 +168,13 @@ func GenerateName() string {
 	return GenerateNameWithOptions(Options{})
 }
 
+// GenerateShortName returns a two-word name ("adj-noun"). Used where the
+// identity space can be smaller and a shorter, more uniform id reads better —
+// e.g. per-project task ids, which are few and benefit from tidy columns.
+func GenerateShortName() string {
+	return GenerateNameWithOptions(Options{Components: 2})
+}
+
 // GenerateNameWithOptions returns a name built per the given options.
 // Invalid options are silently clamped (see Options.normalize).
 func GenerateNameWithOptions(opts Options) string {

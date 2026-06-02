@@ -15,6 +15,10 @@ type DistillBundleFileRequest struct {
 	DryRun bool   `json:"dry_run"` // report what would distill; save nothing
 
 	Distiller Distiller `json:"-"`
+
+	// Store, when non-nil, is the bundle storage adapter the result is saved
+	// through (ADR 0026); nil defaults to the filesystem.
+	Store bundles.Store `json:"-"`
 }
 
 // DistillBundleItemStatus is an item's per-file distill outcome.
@@ -102,7 +106,11 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {
-		if err := bundle.Save(); err != nil {
+		store := req.Store
+		if store == nil {
+			store = bundles.NewFSStore(nil, false)
+		}
+		if err := store.Save(bundle); err != nil {
 			return nil, fmt.Errorf("save %s: %w", req.Path, err)
 		}
 		res.Saved = true

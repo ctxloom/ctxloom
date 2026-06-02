@@ -364,7 +364,7 @@ func TestBundle_AllTags(t *testing.T) {
 	assert.Contains(t, tags, "shared")
 }
 
-func TestBundle_Save(t *testing.T) {
+func TestFSStore_Save(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlePath := filepath.Join(tmpDir, "test-bundle.yaml")
 
@@ -376,7 +376,7 @@ func TestBundle_Save(t *testing.T) {
 		},
 	}
 
-	err := bundle.Save()
+	err := NewFSStore([]string{tmpDir}, false).Save(bundle)
 	require.NoError(t, err)
 
 	// Verify file was written
@@ -386,9 +386,8 @@ func TestBundle_Save(t *testing.T) {
 	assert.Contains(t, string(data), "test content")
 }
 
-func TestBundle_Save_NoPath(t *testing.T) {
-	bundle := &Bundle{Version: "1.0"}
-	err := bundle.Save()
+func TestFSStore_Save_NoPath(t *testing.T) {
+	err := NewFSStore(nil, false).Save(&Bundle{Version: "1.0"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no path set")
 }

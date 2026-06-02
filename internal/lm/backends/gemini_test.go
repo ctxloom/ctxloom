@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // =============================================================================
@@ -58,50 +59,79 @@ func TestNewGemini_SupportedModes(t *testing.T) {
 // buildArgs constructs the command-line arguments for the gemini command.
 // =============================================================================
 
+// argPair reports whether args contains flag immediately followed by value.
+func argPair(args []string, flag, value string) bool {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
 // TestGemini_BuildArgs_AutoApprove verifies that auto-approve mode adds
-// the --yolo flag for non-interactive use.
+// the --yolo flag.
 func TestGemini_BuildArgs_AutoApprove(t *testing.T) {
 	backend := NewGemini()
 
-	req := &ExecuteRequest{
-		AutoApprove: true,
-	}
-	args := backend.buildArgs(req)
+	args := backend.buildArgs(&ExecuteRequest{AutoApprove: true}, "")
 
 	assert.Contains(t, args, "--yolo")
 }
 
-// TestGemini_BuildArgs_Prompt verifies that prompt content is passed via
-// the -i flag.
-func TestGemini_BuildArgs_Prompt(t *testing.T) {
+// TestGemini_BuildArgs_Model verifies the resolved model is passed via -m.
+func TestGemini_BuildArgs_Model(t *testing.T) {
 	backend := NewGemini()
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: "Review this code"},
-	}
-	args := backend.buildArgs(req)
+	args := backend.buildArgs(&ExecuteRequest{}, "gemini-2.5-pro")
 
-	found := false
-	for i, arg := range args {
-		if arg == "-i" && i+1 < len(args) && args[i+1] == "Review this code" {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "-i flag should be set with prompt")
+	assert.True(t, argPair(args, "-m", "gemini-2.5-pro"), "-m should carry the resolved model")
 }
 
-// TestGemini_BuildArgs_NoPrompt verifies that missing prompt doesn't add
-// the -i flag.
+// TestGemini_BuildArgs_InteractivePrompt verifies an interactive prompt uses -i
+// (run then stay in the session).
+func TestGemini_BuildArgs_InteractivePrompt(t *testing.T) {
+	backend := NewGemini()
+
+	req := &ExecuteRequest{Mode: ModeInteractive, Prompt: &Fragment{Content: "Review this code"}}
+	args := backend.buildArgs(req, "")
+
+	assert.True(t, argPair(args, "-i", "Review this code"), "-i should carry the interactive prompt")
+}
+
+// TestGemini_BuildArgs_OneshotPrompt verifies a oneshot prompt uses -p (headless
+// and exits) rather than -i (which would hang in interactive mode).
+func TestGemini_BuildArgs_OneshotPrompt(t *testing.T) {
+	backend := NewGemini()
+
+	req := &ExecuteRequest{Mode: ModeOneshot, Prompt: &Fragment{Content: "distill this"}}
+	args := backend.buildArgs(req, "")
+
+	assert.True(t, argPair(args, "-p", "distill this"), "oneshot must use -p")
+	assert.NotContains(t, args, "-i", "oneshot must not use interactive -i")
+}
+
+// TestGemini_BuildArgs_SkipSetup verifies the minimal/distillation path runs
+// read-only (--approval-mode plan) and does not auto-approve.
+func TestGemini_BuildArgs_SkipSetup(t *testing.T) {
+	backend := NewGemini()
+
+	req := &ExecuteRequest{SkipSetup: true, AutoApprove: true}
+	args := backend.buildArgs(req, "")
+
+	assert.True(t, argPair(args, "--approval-mode", "plan"), "SkipSetup should run read-only")
+	assert.NotContains(t, args, "--yolo", "SkipSetup takes precedence over auto-approve")
+}
+
+// TestGemini_BuildArgs_NoPrompt verifies that a missing prompt adds neither
+// -i nor -p.
 func TestGemini_BuildArgs_NoPrompt(t *testing.T) {
 	backend := NewGemini()
 
-	req := &ExecuteRequest{
-		Prompt: nil,
-	}
-	args := backend.buildArgs(req)
+	args := backend.buildArgs(&ExecuteRequest{Prompt: nil}, "")
 
 	assert.NotContains(t, args, "-i")
+	assert.NotContains(t, args, "-p")
 }
 
 // TestGemini_BuildArgs_Combined verifies that multiple options are combined
@@ -111,14 +141,31 @@ func TestGemini_BuildArgs_Combined(t *testing.T) {
 	backend.Args = []string{"--existing-flag"}
 
 	req := &ExecuteRequest{
+		Mode:        ModeInteractive,
 		AutoApprove: true,
 		Prompt:      &Fragment{Content: "Test prompt"},
 	}
-	args := backend.buildArgs(req)
+	args := backend.buildArgs(req, "gemini-2.5-flash")
 
 	assert.Contains(t, args, "--existing-flag")
+	assert.True(t, argPair(args, "-m", "gemini-2.5-flash"))
 	assert.Contains(t, args, "--yolo")
 	assert.Contains(t, args, "-i")
+}
+
+// TestGemini_Configure verifies per-LLM config (binary/args/env) is applied.
+func TestGemini_Configure(t *testing.T) {
+	backend := NewGemini()
+
+	backend.Configure(&config.LLMConfig{
+		BinaryPath: "/opt/gemini/bin/gemini",
+		Args:       []string{"--flag"},
+		Env:        map[string]string{"FOO": "bar"},
+	})
+
+	assert.Equal(t, "/opt/gemini/bin/gemini", backend.BinaryPath)
+	assert.Equal(t, []string{"--flag"}, backend.Args)
+	assert.Equal(t, "bar", backend.Env["FOO"])
 }
 
 // =============================================================================

@@ -211,6 +211,11 @@ func parseFileReference(ref string) (*Reference, error) {
 //   - "bundles/core-practices@v1.2.3" → bundles, core-practices, "v1.2.3"
 //   - "bundles/core-practices@abc123" → bundles, core-practices, "abc123"
 func parseTypePathVersion(s string) (itemType ItemType, itemPath string, contentVersion string, err error) {
+	// Drop a legacy schema-version segment (pre-removal "repo@v1/type/path").
+	// The v1 directory is gone — git tag/SHA is the sole content version now — so
+	// old refs/lockfiles that still carry it resolve instead of erroring.
+	s = stripLegacySchemaSegment(s)
+
 	parts := strings.SplitN(s, "/", 2)
 	if len(parts) < 2 {
 		return "", "", "", fmt.Errorf("expected type/path, got: %s", s)
@@ -243,6 +248,26 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	}
 
 	return itemType, itemPath, contentVersion, nil
+}
+
+// stripLegacySchemaSegment removes a leading schema-version segment from a
+// pre-removal "schemaVersion/type/path" remainder (e.g. "v1/profiles/x" →
+// "profiles/x"). It only strips when the first segment is not itself a type but
+// the next one is, so a genuine "type/path" passes through untouched.
+func stripLegacySchemaSegment(s string) string {
+	first, rest, ok := strings.Cut(s, "/")
+	if !ok || isItemTypeDir(first) {
+		return s
+	}
+	if next, _, _ := strings.Cut(rest, "/"); isItemTypeDir(next) {
+		return rest
+	}
+	return s
+}
+
+// isItemTypeDir reports whether s names a supported item-type directory.
+func isItemTypeDir(s string) bool {
+	return s == "bundles" || s == "profiles"
 }
 
 // String returns the string representation of a reference.

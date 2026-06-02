@@ -155,14 +155,10 @@ list_* / get_* MCP tools remain the primary surface for those queries.
 }
 
 func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	mgr, err := sessions.Open("")
+	wd, _ := os.Getwd()
+	entries, err := operations.ListSessionsForProject(wd)
 	if err != nil {
 		return nil, fmt.Errorf("session index: %w", err)
-	}
-	wd, _ := os.Getwd()
-	entries, err := mgr.ListForProject(wd)
-	if err != nil {
-		return nil, err
 	}
 	// Cap the body so a project with thousands of sessions doesn't blow
 	// the client's context. 25 mirrors the picker's max-after-`m` rough
@@ -193,14 +189,12 @@ func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.Rea
 }
 
 func (s *ctxServer) handleResourceTasksSummary(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	store, err := openSessionTaskStore()
+	res, err := operations.ListTasks(taskContext(), nil, "", false, true)
 	if err != nil {
 		return nil, err
 	}
-	sum, err := store.Summarize()
-	if err != nil {
-		return nil, err
-	}
+	warnTask(res.Warning)
+	sum := res.Summary
 	// Stable key order for diff-friendly output.
 	keys := make([]string, 0, len(sum.Counts))
 	for k := range sum.Counts {
@@ -212,7 +206,7 @@ func (s *ctxServer) handleResourceTasksSummary(_ context.Context, req *mcp.ReadR
 		counts[k] = sum.Counts[k]
 	}
 	out, err := yaml.Marshal(map[string]any{
-		"path":        store.Path(),
+		"path":        res.Path,
 		"counts":      counts,
 		"in_progress": sum.InProgress,
 	})
@@ -267,15 +261,11 @@ func (s *ctxServer) handleResourceMCPServers(ctx context.Context, req *mcp.ReadR
 // handleResourceSessionsAll returns every harp-named session in the index,
 // not project-filtered. Mirrors `ctxloom session list --all`.
 func (s *ctxServer) handleResourceSessionsAll(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	mgr, err := sessions.Open("")
+	entries, err := operations.ListSessions()
 	if err != nil {
 		return nil, err
 	}
-	idx, err := mgr.Load()
-	if err != nil {
-		return nil, err
-	}
-	return marshalResourceYAML(req.Params.URI, idx)
+	return marshalResourceYAML(req.Params.URI, sessions.Index{Sessions: entries})
 }
 
 // --- Single-record templates (Phase 4 Lever A) ---

@@ -3,23 +3,25 @@ package operations
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// PromptEntry represents a prompt in operation results.
+// PromptEntry represents a prompt in operation results. Tags carry the
+// bundle's tags merged with the prompt's own; Source is the bundle name,
+// which also serves as the grouping key for the CLI's grouped listing.
 type PromptEntry struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+	Name   string   `json:"name"`
+	Tags   []string `json:"tags,omitempty"`
+	Source string   `json:"source"`
 }
 
 // ListPromptsRequest contains parameters for listing prompts.
 type ListPromptsRequest struct {
 	Query     string `json:"query"`
-	SortBy    string `json:"sort_by"`    // "name"
+	SortBy    string `json:"sort_by"`    // "name" or "source"
 	SortOrder string `json:"sort_order"` // "asc" or "desc"
 
 	// Loader is an optional pre-configured loader (for testing).
@@ -32,45 +34,48 @@ type ListPromptsResult struct {
 	Count   int           `json:"count"`
 }
 
-// ListPrompts returns all prompts matching the criteria.
+// ListPrompts returns all prompts matching the criteria. Mirrors
+// ListFragments: it filters and sorts the raw ContentInfo (so SortBy:"source"
+// groups by bundle) before projecting, keeping one read path for both the MCP
+// resource surface and the grouped CLI listing.
 func ListPrompts(ctx context.Context, cfg *config.Config, req ListPromptsRequest) (*ListPromptsResult, error) {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
 
-	prompts, err := loader.ListAllPrompts()
+	infos, err := loader.ListAllPrompts()
 	if err != nil {
 		return nil, err
 	}
 
-	var result []PromptEntry
-	query := strings.ToLower(req.Query)
-	for _, p := range prompts {
-		// Filter by query if provided
-		if query != "" && !strings.Contains(strings.ToLower(p.Name), query) {
-			continue
+	// Filter by query if provided (name match, matching the prior behavior).
+	if req.Query != "" {
+		query := strings.ToLower(req.Query)
+		var filtered []bundles.ContentInfo
+		for _, info := range infos {
+			if strings.Contains(strings.ToLower(info.Name), query) {
+				filtered = append(filtered, info)
+			}
 		}
-		result = append(result, PromptEntry{
-			Name:   p.Name,
-			Source: p.Source,
+		infos = filtered
+	}
+
+	sortContentInfos(infos, req.SortBy, req.SortOrder)
+
+	result := &ListPromptsResult{
+		Prompts: make([]PromptEntry, 0, len(infos)),
+		Count:   len(infos),
+	}
+	for _, info := range infos {
+		result.Prompts = append(result.Prompts, PromptEntry{
+			Name:   info.Name,
+			Tags:   info.Tags,
+			Source: info.Source,
 		})
 	}
 
-	// Sort results
-	reverse := req.SortOrder == "desc"
-	sort.Slice(result, func(i, j int) bool {
-		cmp := strings.Compare(strings.ToLower(result[i].Name), strings.ToLower(result[j].Name))
-		if reverse {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
-
-	return &ListPromptsResult{
-		Prompts: result,
-		Count:   len(result),
-	}, nil
+	return result, nil
 }
 
 // GetPromptRequest contains parameters for getting a prompt.

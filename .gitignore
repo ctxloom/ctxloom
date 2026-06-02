@@ -56,6 +56,7 @@ coverage.raw.out
 .cache/
 .cache/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # ctxloom ephemeral data (synced bundles, session data, context files)
 .ctxloom/ephemeral/

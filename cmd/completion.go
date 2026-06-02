@@ -7,10 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 var completionCmd = &cobra.Command{
@@ -78,15 +77,14 @@ func completeFragmentNames(cmd *cobra.Command, args []string, toComplete string)
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	infos, err := loader.ListAllFragments()
+	res, err := operations.ListFragments(cmd.Context(), cfg, operations.ListFragmentsRequest{})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	for _, info := range infos {
-		names = append(names, info.Name)
+	for _, f := range res.Fragments {
+		names = append(names, f.Name)
 	}
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
@@ -98,19 +96,13 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-	if len(profileDirs) == 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	loader := profiles.NewLoader(profileDirs)
-	profileList, err := loader.List()
+	res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	for _, p := range profileList {
+	for _, p := range res.Profiles {
 		names = append(names, p.Name)
 	}
 
@@ -135,12 +127,9 @@ func completeTagNames(cmd *cobra.Command, args []string, toComplete string) ([]s
 	// Collect tags from profile definitions (fast - already in memory)
 	tagSet := make(map[string]bool)
 
-	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-	if len(profileDirs) > 0 {
-		loader := profiles.NewLoader(profileDirs)
-		profileList, _ := loader.List()
-		for _, profile := range profileList {
-			for _, tag := range profile.Tags {
+	if res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{}); err == nil {
+		for _, p := range res.Profiles {
+			for _, tag := range p.Tags {
 				tagSet[tag] = true
 			}
 		}
@@ -162,15 +151,14 @@ func completePromptNames(cmd *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	loader := bundles.NewLoader(cfg.GetBundleDirs(), false)
-	infos, err := loader.ListAllPrompts()
+	res, err := operations.ListPrompts(cmd.Context(), cfg, operations.ListPromptsRequest{})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	for _, info := range infos {
-		names = append(names, info.Name)
+	for _, p := range res.Prompts {
+		names = append(names, p.Name)
 	}
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }

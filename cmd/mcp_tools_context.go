@@ -65,8 +65,8 @@ func (s *ctxServer) registerContextTools(server *mcp.Server) {
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name:        "search_remotes",
-			Description: "Search configured remotes for installable bundles and profiles by reading their local git clones (no network). Use this for discovery — search_content only sees content already installed in this project. Returns each match's pull_ref (e.g. \"ctxloom-default/go-developer\") for installing via the CLI.",
+			Name:        "search_library",
+			Description: "Search the library of installable bundles and profiles across configured remotes, reading their local git clones (no network). Use this for discovery — search_content only sees content already installed in this project. Returns each match's pull_ref (e.g. \"ctxloom-default/go-developer\") for installing via the CLI.",
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in searchRemotesInput) (*mcp.CallToolResult, *operations.SearchRemotesResult, error) {
 			result, err := operations.SearchRemotes(ctx, s.cfg, operations.SearchRemotesRequest{

@@ -355,7 +355,7 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // generateConfig creates a config.yaml with the selected engine and options.
 
 // profileDiscoveryPrompt is the prompt sent to the AI to help discover profiles.
-// It uses only the real ctxloom surface: the search_remotes MCP tool (which
+// It uses only the real ctxloom surface: the search_library MCP tool (which
 // reads the local clones init just made), the ctxloom://remotes resource, and
 // CLI install commands. Do not reference list_remotes / browse_remote /
 // list_profiles / create_profile / update_profile — those are not MCP tools.
@@ -370,14 +370,14 @@ const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and s
 **Surface (read this first):**
 - The configured remotes have already been cloned locally during init. Read the
   ` + "`ctxloom://remotes`" + ` MCP resource to see them.
-- Use the **search_remotes** MCP tool to find matching bundles/profiles across
+- Use the **search_library** MCP tool to find matching bundles/profiles across
   ALL remotes. It reads the local clones (no network).
   - Search by tag: ` + "`tag:golang`" + `, ` + "`tag:react`" + `, ` + "`tag:docker`" + `
   - Search by text: ` + "`security`" + `, ` + "`testing`" + `, ` + "`ci-cd`" + `
   - Optionally pass item_type ("bundle" or "profile") to narrow.
   - Each result carries a ` + "`pull_ref`" + ` (e.g. ` + "`ctxloom-default/go-developer`" + `) — that is what you install.
 - ` + "`search_content`" + ` is for content ALREADY installed in this project; it does
-  NOT reach remotes. Use search_remotes for discovery.
+  NOT reach remotes. Use search_library for discovery.
 
 **After scanning**, present your findings:
 1. What project type/stack you detected
@@ -387,14 +387,14 @@ const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and s
 3. Ask the user which items to install
 
 **Example workflow:**
-1. Detect go.mod → search_remotes with query "tag:golang"
-2. Detect Dockerfile → search_remotes with "tag:docker" and "tag:container"
+1. Detect go.mod → search_library with query "tag:golang"
+2. Detect Dockerfile → search_library with "tag:docker" and "tag:container"
 3. Present matches grouped by remote, let the user choose
 
 **Install selected items** with the CLI, then sync:
 - Profile:  ` + "`ctxloom profile install <pull_ref>`" + ` (e.g. ` + "`ctxloom profile install ctxloom-default/go-developer`" + `)
 - Bundle/fragment/prompt:  ` + "`ctxloom install <pull_ref>`" + `
-- Then call the **sync_dependencies** MCP tool so every bundle a profile depends
+- Then run ` + "`ctxloom remote sync`" + ` so every bundle a profile depends
   on is fetched into the cache.
 - To pin a content version, append ` + "`@<git-tag-or-sha>`" + ` to the ref
   (e.g. ` + "`ctxloom-default/go-developer@v1.2.0`" + `). Unpinned installs track the
@@ -672,7 +672,7 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string) {
 }
 
 // cloneConfiguredRemotes eagerly clones every configured remote so discovery
-// (search_remotes, browse) can read them offline. Fault-tolerant: per-remote
+// (search_library, browse) can read them offline. Fault-tolerant: per-remote
 // failures warn and continue.
 func cloneConfiguredRemotes(cmd *cobra.Command) {
 	cfg, loadErr := config.Load()

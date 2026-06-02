@@ -6,7 +6,7 @@ Scan the current project and discover matching ctxloom content from configured r
 
 ## Surface (read this first)
 
-- **Discovery is the `search_remotes` MCP tool.** It searches every configured
+- **Discovery is the `search_library` MCP tool.** It searches every configured
   remote by reading their local git clones (no network) and returns matching
   bundles and profiles, each with a `pull_ref` you install.
   - Search by tag: `tag:golang`, `tag:react`, `tag:docker`.
@@ -19,7 +19,7 @@ Scan the current project and discover matching ctxloom content from configured r
   remotes, and `ctxloom://profiles` / `ctxloom://fragments` / `ctxloom://prompts`
   for what is already installed locally.
 - **Installing is CLI** (`ctxloom install` / `ctxloom profile install`), then the
-  `sync_dependencies` MCP tool fetches bundle dependencies.
+  `ctxloom remote sync` fetches bundle dependencies.
 
 ## Steps
 
@@ -31,7 +31,7 @@ Scan the current project and discover matching ctxloom content from configured r
 
 2. **(Optional) List configured remotes** by reading `ctxloom://remotes`.
 
-3. **Search the remotes** with the `search_remotes` MCP tool, using tags/text
+3. **Search the remotes** with the `search_library` MCP tool, using tags/text
    derived from the stack you detected (e.g. `tag:golang`, `tag:docker`,
    `python-development`, `web-frontend`). Each result's `pull_ref` (e.g.
    `ctxloom-default/go-developer`) is what you install.
@@ -46,7 +46,7 @@ Scan the current project and discover matching ctxloom content from configured r
 5. **Install selected items** with the CLI, then sync dependencies:
    - `ctxloom profile install <pull_ref>` (e.g. `ctxloom profile install ctxloom-default/go-developer`)
    - `ctxloom install <pull_ref>` for an individual bundle/fragment/prompt
-   - Call the `sync_dependencies` MCP tool afterward so every bundle a profile
+   - Run `ctxloom remote sync` afterward so every bundle a profile
      depends on is fetched into the cache.
    - To pin a specific content version, append a git tag or commit SHA to the
      ref with `@`: `ctxloom-default/go-developer@v1.2.0`. Unpinned installs track
@@ -59,9 +59,9 @@ Scan the current project and discover matching ctxloom content from configured r
 ## Example workflow
 
 1. Read `ctxloom://remotes` -> `ctxloom-default` (and any personal remotes) are configured
-2. Detect go.mod + Dockerfile -> `search_remotes` with `tag:golang`, then `tag:docker`
+2. Detect go.mod + Dockerfile -> `search_library` with `tag:golang`, then `tag:docker`
 3. Spot the `go-developer` profile and `go-ai-practices`/`container` bundles in the results
 4. Present matches grouped by remote, let the user choose
-5. `ctxloom profile install ctxloom-default/go-developer`, then call `sync_dependencies`
+5. `ctxloom profile install ctxloom-default/go-developer`, then run `ctxloom remote sync`
 
 If the user says "skip", acknowledge and let them know they can run `/discover` again later.

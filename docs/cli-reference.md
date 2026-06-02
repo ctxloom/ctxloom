@@ -31,7 +31,7 @@ ctxloom run [flags] [prompt...]
 | `--tag` | `-t` | Include fragments with tag (repeatable) |
 | `--prompt` | | Custom prompt text |
 | `--saved-prompt` | | Load saved prompt template |
-| `--plugin` | `-l` | LLM plugin to use |
+| `--llm` | `-l` | LLM to use for this run only (overrides the default; not persisted) |
 | `--dry-run` | `-n` | Preview context without running |
 | `--print` | | Print assembled context |
 | `--verbose` | `-v` | Increase verbosity (-v, -vv, -vvv) |
@@ -294,20 +294,19 @@ ctxloom memory show abc123
 ctxloom memory compact --session abc123
 ```
 
-#### `ctxloom plugin`
+#### `ctxloom llm`
 
-Manage AI backend plugins.
+Manage LLM backends.
 
 | Subcommand | Description |
 |------------|-------------|
-| `list` | List available plugins |
-| `default [name]` | Get/set default plugin |
-| `extract` | Extract built-in plugins |
+| `list` | List available LLMs |
+| `default [name]` | Get/set the default LLM |
 
 **Examples:**
 ```bash
-ctxloom plugin list
-ctxloom plugin default claude-code
+ctxloom llm list
+ctxloom llm default claude-code
 ```
 
 #### `ctxloom version`

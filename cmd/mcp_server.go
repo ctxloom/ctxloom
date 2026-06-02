@@ -22,9 +22,14 @@ import (
 // One instance per process — the cfg is loaded during startup and stays
 // for the lifetime of the MCP session.
 type ctxServer struct {
-	cfg    *config.Config
-	review *bundleReviewState
+	cfg *config.Config
 }
+
+// mcpServerInstructions tells the client what this reduced MCP surface is for.
+// ctxloom keeps only the agent's runtime context tools here; all management is
+// CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
+// guidance injected at session start).
+const mcpServerInstructions = `ctxloom exposes a small set of tools for retrieving context during a session: search and load fragments, prompts (skills), and prior session history, plus task tracking. All ctxloom management — creating or editing bundles/profiles/fragments/prompts, syncing remotes, reviewing/approving/trusting remote bundle changes, pinning bundles, applying hooks — is done with the ctxloom CLI via your shell (e.g. ` + "`ctxloom bundle review`, `ctxloom remote trust <name>`, `ctxloom remote sync`" + `), not through tools here.`
 
 // runMCPServerSDK is the cobra RunE for `ctxloom mcp serve`. The SDK's
 // Server.Run handles its own stdin EOF and ctx-cancellation cleanup — we
@@ -34,7 +39,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
-	s := &ctxServer{review: &bundleReviewState{}}
+	s := &ctxServer{}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -45,11 +50,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Append the review-protocol instructions to ServerOptions.Instructions
-	// regardless of current pending state, so clients reading initialize
-	// see the rules and can react when pending becomes non-empty later in
-	// the session. The middleware below is what actually enforces them.
-	instructions := reviewInstructionsBlock
+	instructions := mcpServerInstructions
 	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
 		// Tell the LLM its own session name so it can self-reference
 		// ("save this as the swift-amber-falcon plan") and so plan-
@@ -77,7 +78,6 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 		Name:    "ctxloom",
 		Version: Version,
 	}, opts)
-	s.installReviewMiddleware(server)
 	s.registerTools(server)
 	s.registerResources(server)
 
@@ -125,10 +125,9 @@ func (s *ctxServer) startup(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// Apply hooks only when no review is pending — bundle-shipped hook
-	// scripts can execute arbitrary code and MUST NOT run against
-	// unreviewed bundle content (docs/bundle-review-plan.md Phase 3.3).
-	s.applyHooksIfNotPending(ctx)
+	// Apply hooks against the active (approved) lockfile. ApplyHooks never
+	// reads pending content, so unreviewed bundle hooks never run here.
+	s.applyStartupHooks(ctx)
 
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -188,15 +187,12 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 	writeSyncSummary(os.Stderr, result)
 }
 
-// handleSyncChanges decides what to do with the BundleChangeSet produced
-// by SyncOnStartup. Three branches:
-//
-//   - Empty: nothing to do, hooks run normally.
-//   - Bypass env var set: stderr warning listing changes, merge pending
-//     into active immediately, hooks run normally.
-//   - Otherwise: populate review state, defer hooks until acknowledge/
-//     decline/trust clears pending.
-func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.BundleChangeSet) {
+// handleSyncChanges reports bundle changes that sync left pending. Bundle review
+// is no longer an in-chat gate: untrusted changes wait for an explicit CLI review
+// (`ctxloom bundle review`) and the server never blocks on them. The only action
+// taken here is the non-interactive bypass: with CTXLOOM_AUTO_APPROVE_BUNDLES=1
+// (CI/cron), pending changes are merged into active immediately.
+func (s *ctxServer) handleSyncChanges(_ context.Context, changes *operations.BundleChangeSet) {
 	if changes.IsEmpty() {
 		return
 	}
@@ -212,23 +208,16 @@ func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.B
 		if err := operations.MergePendingLockfile(s.cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: merge pending lockfile: %v\n", err)
 		}
-		_ = ctx
 		return
 	}
-	s.review.set(changes)
-	fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) awaiting review (hooks deferred)\n", len(changes.All()))
+	fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(changes.All()))
 }
 
-// applyHooksIfNotPending runs the ApplyHooks startup phase, but only when
-// no bundle review is outstanding. Hook scripts can execute arbitrary code
-// shipped from bundles; running them before the user approves the new
-// content would defeat the review purpose. Called from startup() (initial
-// pass) and from the review-clearing tool handlers (acknowledge / decline /
-// trust) whenever pending transitions to empty.
-func (s *ctxServer) applyHooksIfNotPending(ctx context.Context) {
-	if s.review.hasPending() {
-		return
-	}
+// applyStartupHooks runs the ApplyHooks startup phase against the active
+// (approved) lockfile. ApplyHooks never reads pending content, so unreviewed
+// bundle hooks are not executed — they only run after a CLI approval merges
+// them into active.
+func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	if _, err := operations.ApplyHooks(ctx, s.cfg, operations.ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
@@ -249,10 +238,6 @@ func (s *ctxServer) applyHooksIfNotPending(ctx context.Context) {
 // is the only thing the SDK server needs at construction.
 func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
-	s.registerBundleTools(server)
-	s.registerHooksTools(server)
-	s.registerSyncTools(server)
 	s.registerMemoryTools(server)
-	s.registerReviewTools(server)
 	s.registerTaskTools(server)
 }

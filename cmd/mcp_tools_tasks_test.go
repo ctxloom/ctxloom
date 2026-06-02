@@ -139,17 +139,3 @@ func TestParseEditPayload_MalformedJSON(t *testing.T) {
 	_, err := parseEditPayload([]byte("not json"))
 	assert.Error(t, err)
 }
-
-func TestTaskToolsInReviewAllowlist(t *testing.T) {
-	// Defense-in-depth: task tools must remain callable while a bundle
-	// review is pending — they don't touch bundle bytes or execute
-	// bundle-shipped code, so they're explicitly safe. If somebody adds
-	// a new task tool later and forgets to allowlist it, this test fires.
-	for _, name := range []string{"task_list", "task_add", "task_set_status"} {
-		t.Run(name, func(t *testing.T) {
-			if _, ok := allowedDuringReview[name]; !ok {
-				t.Errorf("%s should be in allowedDuringReview but isn't", name)
-			}
-		})
-	}
-}

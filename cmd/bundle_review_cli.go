@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -286,5 +288,105 @@ func applyHooksAfterReview(ctx context.Context, cfg *config.Config) {
 		RegenerateContext: true,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)
+	}
+}
+
+// diffBundleYAMLs parses two bundle YAML blobs and returns a short human-readable
+// summary of what's structurally different — which fragments/prompts/mcp/hooks
+// were added, removed, or modified. Returns a "(parse error)" note if either
+// side fails to unmarshal; the caller still shows the raw content.
+func diffBundleYAMLs(oldData, newData []byte) string {
+	var oldB, newB bundlesYAML
+	if err := yaml.Unmarshal(oldData, &oldB); err != nil {
+		return "(parse error on old bundle)"
+	}
+	if err := yaml.Unmarshal(newData, &newB); err != nil {
+		return "(parse error on new bundle)"
+	}
+	var sb strings.Builder
+	writeSection(&sb, "Fragments", oldB.Fragments, newB.Fragments)
+	writeSection(&sb, "Prompts", oldB.Prompts, newB.Prompts)
+	writeSection(&sb, "MCP servers", oldB.MCP, newB.MCP)
+	writeHookCounts(&sb, oldB.Hooks, newB.Hooks)
+	if sb.Len() == 0 {
+		return "(no structural changes; SHA change is metadata-only)\n"
+	}
+	return sb.String()
+}
+
+// bundlesYAML is the minimal shape diffBundleYAMLs needs to compute a structural
+// delta — which keys exist and whether their content text matches, not the rich
+// fields of internal/bundles.Bundle.
+type bundlesYAML struct {
+	Fragments map[string]yamlBlob   `yaml:"fragments"`
+	Prompts   map[string]yamlBlob   `yaml:"prompts"`
+	MCP       map[string]yamlBlob   `yaml:"mcp"`
+	Hooks     map[string][]yamlBlob `yaml:"hooks"`
+}
+
+type yamlBlob struct {
+	Content string `yaml:"content"`
+	Command string `yaml:"command"` // MCP servers and hooks
+}
+
+// writeSection emits "+name", "- name", "~ name" lines for entries added,
+// removed, or modified between two named-blob maps. Suppresses the section
+// header when there are no changes to keep the diff short.
+func writeSection(sb *strings.Builder, label string, oldMap, newMap map[string]yamlBlob) {
+	var added, removed, modified []string
+	for name := range newMap {
+		if _, ok := oldMap[name]; !ok {
+			added = append(added, name)
+		} else if oldMap[name] != newMap[name] {
+			modified = append(modified, name)
+		}
+	}
+	for name := range oldMap {
+		if _, ok := newMap[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	if len(added)+len(removed)+len(modified) == 0 {
+		return
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	sort.Strings(modified)
+	fmt.Fprintf(sb, "%s:\n", label)
+	for _, n := range added {
+		fmt.Fprintf(sb, "  + %s\n", n)
+	}
+	for _, n := range removed {
+		fmt.Fprintf(sb, "  - %s\n", n)
+	}
+	for _, n := range modified {
+		fmt.Fprintf(sb, "  ~ %s\n", n)
+	}
+}
+
+// writeHookCounts summarizes hook deltas per event. Hooks have no stable
+// identifiers (an ordered list per event), so we report counts. A hook count
+// change is the most security-relevant diff — each hook is arbitrary code.
+func writeHookCounts(sb *strings.Builder, oldHooks, newHooks map[string][]yamlBlob) {
+	events := make(map[string]struct{})
+	for k := range oldHooks {
+		events[k] = struct{}{}
+	}
+	for k := range newHooks {
+		events[k] = struct{}{}
+	}
+	var changed []string
+	for event := range events {
+		if len(oldHooks[event]) != len(newHooks[event]) {
+			changed = append(changed, fmt.Sprintf("%s: %d → %d", event, len(oldHooks[event]), len(newHooks[event])))
+		}
+	}
+	if len(changed) == 0 {
+		return
+	}
+	sort.Strings(changed)
+	sb.WriteString("Hooks:\n")
+	for _, line := range changed {
+		fmt.Fprintf(sb, "  ~ %s\n", line)
 	}
 }

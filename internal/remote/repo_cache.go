@@ -100,7 +100,7 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 		// NOT advance origin/* past the original shallow boundary, so updates on
 		// a shallow clone would silently no-op (the bug). Always do the full,
 		// unshallowing fetch (Depth:0) so refs/remotes/origin/main tracks the
-		// live remote HEAD — which is what `remote update`, `remote relock`, and
+		// live remote HEAD — which is what `remote update`, `remote upgrade`, and
 		// the lockfile outdated check all rely on.
 		if fetchErr := c.unshallowRepo(ctx, repo, forgeType); fetchErr != nil {
 			return repoDir, fmt.Errorf("git fetch failed: %w", fetchErr)

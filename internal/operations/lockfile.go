@@ -338,7 +338,7 @@ func pinRelockEntries(ctx context.Context, lockfile *remote.Lockfile, items []re
 		if serr != nil || sha == "" {
 			failed++
 			errs = append(errs, fmt.Sprintf("%s: no SHA resolved (skipped)", it.Ref))
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: relock %s: no SHA resolved, skipping\n", it.Ref)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: could not resolve SHA for %s, skipping\n", it.Ref)
 			continue
 		}
 

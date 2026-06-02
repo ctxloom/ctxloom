@@ -48,7 +48,6 @@ type Profile struct {
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `yaml:"exclude_fragments,omitempty"`
-	ExcludePrompts   []string `yaml:"exclude_prompts,omitempty"`
 	ExcludeMCP       []string `yaml:"exclude_mcp,omitempty"`
 }
 

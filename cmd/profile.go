@@ -249,7 +249,6 @@ func renderProfileShow(out io.Writer, p *profiles.Profile, isDefault bool) error
 		}
 	}
 	writeBulletList(w, "Excluded fragments", p.ExcludeFragments)
-	writeBulletList(w, "Excluded prompts", p.ExcludePrompts)
 	writeBulletList(w, "Excluded MCP servers", p.ExcludeMCP)
 	return w.Err()
 }
@@ -293,8 +292,6 @@ Examples:
 			RemoveBundles:          profileUpdateRemoveBundles,
 			AddExcludeFragments:    profileUpdateAddExcludeFragments,
 			RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
-			AddExcludePrompts:      profileUpdateAddExcludePrompts,
-			RemoveExcludePrompts:   profileUpdateRemoveExcludePrompts,
 			AddExcludeMCP:          profileUpdateAddExcludeMCP,
 			RemoveExcludeMCP:       profileUpdateRemoveExcludeMCP,
 		}
@@ -332,8 +329,6 @@ var (
 	profileUpdateDescription            string
 	profileUpdateAddExcludeFragments    []string
 	profileUpdateRemoveExcludeFragments []string
-	profileUpdateAddExcludePrompts      []string
-	profileUpdateRemoveExcludePrompts   []string
 	profileUpdateAddExcludeMCP          []string
 	profileUpdateRemoveExcludeMCP       []string
 )
@@ -606,8 +601,6 @@ func init() {
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeFragments, "exclude-fragment", nil, "Fragment name(s) to exclude")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeFragments, "include-fragment", nil, "Fragment name(s) to stop excluding")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludePrompts, "exclude-prompt", nil, "Prompt name(s) to exclude")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludePrompts, "include-prompt", nil, "Prompt name(s) to stop excluding")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeMCP, "exclude-mcp", nil, "MCP server name(s) to exclude")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeMCP, "include-mcp", nil, "MCP server name(s) to stop excluding")
 

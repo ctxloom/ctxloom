@@ -30,7 +30,6 @@ type profileBuilder struct {
 	seenHooks collections.Set[string]
 	// Exclusion sets - accumulate through inheritance
 	ExcludeFragments collections.Set[string]
-	ExcludePrompts   collections.Set[string]
 	ExcludeMCP       collections.Set[string]
 }
 
@@ -51,7 +50,6 @@ func newProfileBuilder() *profileBuilder {
 		},
 		seenHooks:        collections.NewSet[string](),
 		ExcludeFragments: collections.NewSet[string](),
-		ExcludePrompts:   collections.NewSet[string](),
 		ExcludeMCP:       collections.NewSet[string](),
 	}
 }
@@ -180,7 +178,6 @@ func (b *profileBuilder) toProfile() *Profile {
 		Hooks:            b.Hooks,
 		MCP:              filteredMCP,
 		ExcludeFragments: b.ExcludeFragments.Items(),
-		ExcludePrompts:   b.ExcludePrompts.Items(),
 		ExcludeMCP:       b.ExcludeMCP.Items(),
 	}
 }
@@ -284,9 +281,6 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 
 	for _, frag := range profile.ExcludeFragments {
 		builder.ExcludeFragments.Add(frag)
-	}
-	for _, prompt := range profile.ExcludePrompts {
-		builder.ExcludePrompts.Add(prompt)
 	}
 	for _, mcp := range profile.ExcludeMCP {
 		builder.ExcludeMCP.Add(mcp)

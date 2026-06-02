@@ -825,29 +825,6 @@ exclude_fragments:
 	assert.Contains(t, result.Changes, "removed exclude fragment: existing-exclude")
 }
 
-func TestUpdateProfile_AddExcludePrompts(t *testing.T) {
-	tmpDir := t.TempDir()
-	profilesDir := filepath.Join(tmpDir, "profiles")
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	profile := `description: Test profile`
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
-
-	loader := profiles.NewLoader([]string{profilesDir})
-	cfg := &config.Config{}
-
-	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
-		Name:                 "test",
-		AddExcludePrompts:    []string{"prompt1"},
-		RemoveExcludePrompts: []string{},
-		Loader:               loader,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "updated", result.Status)
-	assert.Contains(t, result.Changes, "added exclude prompt: prompt1")
-}
-
 func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 	tmpDir := t.TempDir()
 	profilesDir := filepath.Join(tmpDir, "profiles")

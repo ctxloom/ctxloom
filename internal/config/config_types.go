@@ -234,11 +234,9 @@ type Profile struct {
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
 	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`             // Hooks for this profile (inherited)
 	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`                 // MCP servers for this profile (inherited)
-	MCPServers  []string          `mapstructure:"mcp_servers" yaml:"mcp_servers,omitempty"` // Remote MCP server references (legacy)
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`
-	ExcludePrompts   []string `mapstructure:"exclude_prompts" yaml:"exclude_prompts,omitempty"`
 	ExcludeMCP       []string `mapstructure:"exclude_mcp" yaml:"exclude_mcp,omitempty"`
 }
 

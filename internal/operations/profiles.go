@@ -262,7 +262,6 @@ type CreateProfileRequest struct {
 
 	// Exclusions
 	ExcludeFragments []string `json:"exclude_fragments"`
-	ExcludePrompts   []string `json:"exclude_prompts"`
 	ExcludeMCP       []string `json:"exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
@@ -306,7 +305,6 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		Bundles:          req.Bundles,
 		Tags:             req.Tags,
 		ExcludeFragments: req.ExcludeFragments,
-		ExcludePrompts:   req.ExcludePrompts,
 		ExcludeMCP:       req.ExcludeMCP,
 	}
 
@@ -348,8 +346,6 @@ type UpdateProfileRequest struct {
 	// Exclusion management
 	AddExcludeFragments    []string `json:"add_exclude_fragments"`
 	RemoveExcludeFragments []string `json:"remove_exclude_fragments"`
-	AddExcludePrompts      []string `json:"add_exclude_prompts"`
-	RemoveExcludePrompts   []string `json:"remove_exclude_prompts"`
 	AddExcludeMCP          []string `json:"add_exclude_mcp"`
 	RemoveExcludeMCP       []string `json:"remove_exclude_mcp"`
 
@@ -401,7 +397,6 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	profile.Bundles, changes = applyListEdits(profile.Bundles, req.AddBundles, req.RemoveBundles, "bundle", changes)
 	profile.Tags, changes = applyListEdits(profile.Tags, req.AddTags, req.RemoveTags, "tag", changes)
 	profile.ExcludeFragments, changes = applyListEdits(profile.ExcludeFragments, req.AddExcludeFragments, req.RemoveExcludeFragments, "exclude fragment", changes)
-	profile.ExcludePrompts, changes = applyListEdits(profile.ExcludePrompts, req.AddExcludePrompts, req.RemoveExcludePrompts, "exclude prompt", changes)
 	profile.ExcludeMCP, changes = applyListEdits(profile.ExcludeMCP, req.AddExcludeMCP, req.RemoveExcludeMCP, "exclude mcp", changes)
 
 	if len(changes) == 0 {

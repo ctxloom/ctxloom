@@ -458,7 +458,6 @@ func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
 		"child": {
 			Fragments:        []FragmentRef{{Name: "frag-a"}},
 			ExcludeFragments: []string{"frag-b"},
-			ExcludePrompts:   []string{"prompt-a"},
 			ExcludeMCP:       []string{"server-a"},
 		},
 	}
@@ -468,7 +467,6 @@ func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
 
 	// Exclusion lists should be preserved in resolved profile
 	assert.Contains(t, resolved.ExcludeFragments, "frag-b")
-	assert.Contains(t, resolved.ExcludePrompts, "prompt-a")
 	assert.Contains(t, resolved.ExcludeMCP, "server-a")
 }
 

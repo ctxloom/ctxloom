@@ -64,7 +64,6 @@ func TestRenderProfileShow_AllSectionsPresent(t *testing.T) {
 		Tags:             []string{"security"},
 		Variables:        map[string]string{"LANG": "go"},
 		ExcludeFragments: []string{"old-style"},
-		ExcludePrompts:   []string{"legacy"},
 		ExcludeMCP:       []string{"deprecated"},
 	}
 
@@ -83,7 +82,6 @@ func TestRenderProfileShow_AllSectionsPresent(t *testing.T) {
 	assert.Contains(t, out, "Variables:")
 	assert.Contains(t, out, "LANG: go")
 	assert.Contains(t, out, "Excluded fragments:\n  - old-style")
-	assert.Contains(t, out, "Excluded prompts:\n  - legacy")
 	assert.Contains(t, out, "Excluded MCP servers:\n  - deprecated")
 }
 

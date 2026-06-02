@@ -104,6 +104,9 @@ type AddRemoteRequest struct {
 	Registry *remote.Registry `json:"-"`
 	// Fetcher is an optional pre-configured fetcher (for testing).
 	Fetcher remote.Fetcher `json:"-"`
+	// Cache is an optional pre-configured repo cache for the eager clone-on-add
+	// (for testing — a fake avoids real git/network).
+	Cache repoCloner `json:"-"`
 	// FS is an optional filesystem (for testing).
 	FS afero.Fs `json:"-"`
 }
@@ -174,6 +177,20 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	}
 	if !valid {
 		result.Warning = "repository does not have a ctxloom/ directory structure"
+	}
+
+	// Eagerly clone the remote into the local cache so a bad URL, missing auth,
+	// or network problem surfaces now (at add time) rather than on first use —
+	// friction up front. Best-effort (CLAUDE.md): a failed clone leaves the
+	// remote registered with a warning so a transient issue doesn't block
+	// registration; `remote update` retries the clone later.
+	cache := req.Cache
+	if cache == nil {
+		cache = newRepoCache(cfg)
+	}
+	if msg := ensureClone(ctx, cache, rem); msg != "" {
+		result.Warning = appendWarning(result.Warning, msg)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
 	}
 
 	return result, nil
@@ -737,16 +754,7 @@ func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteC
 	result := &EnsureRemoteClonesResult{}
 
 	for _, rem := range registry.List() {
-		forgeType, _, derr := remote.DetectForge(rem.URL)
-		if derr != nil {
-			msg := fmt.Sprintf("%s: detect forge: %v", rem.Name, derr)
-			result.Failed = append(result.Failed, rem.Name)
-			result.Warnings = append(result.Warnings, msg)
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
-			continue
-		}
-		if _, cerr := cache.EnsureRepo(ctx, rem.URL, forgeType); cerr != nil {
-			msg := fmt.Sprintf("%s: clone failed: %v", rem.Name, cerr)
+		if msg := ensureClone(ctx, cache, rem); msg != "" {
 			result.Failed = append(result.Failed, rem.Name)
 			result.Warnings = append(result.Warnings, msg)
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
@@ -756,6 +764,36 @@ func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteC
 	}
 
 	return result, nil
+}
+
+// repoCloner clones a remote repository into the local cache with full history.
+// *remote.RepoCache satisfies it; tests inject a fake to avoid real git/network.
+type repoCloner interface {
+	EnsureFullRepo(ctx context.Context, repoURL string, forgeType remote.ForgeType) (string, error)
+}
+
+// ensureClone clones rem into the local repo cache with full history (so any
+// pinned SHA is readable), returning a human-readable warning string on failure
+// (empty on success). Shared by the eager clone at `remote add` (AddRemote) and
+// the all-remotes clone at init (EnsureRemoteClones).
+func ensureClone(ctx context.Context, cache repoCloner, rem *remote.Remote) string {
+	forgeType, _, derr := remote.DetectForge(rem.URL)
+	if derr != nil {
+		return fmt.Sprintf("%s: detect forge: %v", rem.Name, derr)
+	}
+	if _, cerr := cache.EnsureFullRepo(ctx, rem.URL, forgeType); cerr != nil {
+		return fmt.Sprintf("%s: clone failed: %v", rem.Name, cerr)
+	}
+	return ""
+}
+
+// appendWarning joins two warning strings with "; ", treating an empty existing
+// warning as "no warning yet".
+func appendWarning(existing, msg string) string {
+	if existing == "" {
+		return msg
+	}
+	return existing + "; " + msg
 }
 
 // SearchRemotesRequest contains parameters for searching across all remotes.

@@ -112,6 +112,24 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 	return c.EnsureRepo(ctx, repoURL, forgeType)
 }
 
+// EnsureFullRepo clones a repo with complete history if it is missing, or
+// deepens an existing shallow clone to full history, returning the local path.
+//
+// Unlike EnsureRepo — which leaves a fresh clone shallow (Depth:1, HEAD only) —
+// this guarantees every commit is locally readable. That is required to read a
+// bundle pinned at an arbitrary historical SHA straight out of the clone, so the
+// eager clone at `remote add` (and the init-time clone of all remotes) use it.
+// A shallow clone would only carry HEAD and silently fail any pin off the tip.
+func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
+	// EnsureRepo clones shallow if missing (or no-ops if present); UpdateRepo
+	// then does the full, unshallowing fetch (Depth:0) that deepens it to
+	// complete history.
+	if _, err := c.EnsureRepo(ctx, repoURL, forgeType); err != nil {
+		return "", err
+	}
+	return c.UpdateRepo(ctx, repoURL, forgeType)
+}
+
 // RepoDirForURL returns the local cache path for a repo URL (exported for operations).
 func (c *RepoCache) RepoDirForURL(repoURL string) string {
 	return c.repoDirForURL(repoURL)

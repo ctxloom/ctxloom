@@ -257,6 +257,22 @@ func TestListRemotes_SurfacesTrust(t *testing.T) {
 	assert.True(t, byName["bob"].Trusted, "trusted remote should report Trusted=true")
 }
 
+// fakeCloner stands in for *remote.RepoCache in AddRemote tests so the eager
+// clone-on-add never performs a real git clone / network call. It records the
+// URLs it was asked to clone and returns a configurable error.
+type fakeCloner struct {
+	urls []string
+	err  error
+}
+
+func (f *fakeCloner) EnsureFullRepo(_ context.Context, repoURL string, _ remote.ForgeType) (string, error) {
+	f.urls = append(f.urls, repoURL)
+	if f.err != nil {
+		return "", f.err
+	}
+	return "/fake/cache/" + repoURL, nil
+}
+
 func TestAddRemote_TrustOnAdd(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
@@ -267,6 +283,7 @@ func TestAddRemote_TrustOnAdd(t *testing.T) {
 		Trust:    true,
 		Registry: registry,
 		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
 	})
 	require.NoError(t, err)
 
@@ -341,6 +358,7 @@ func TestAddRemote_WithFS(t *testing.T) {
 		URL:     "https://github.com/alice/ctxloom",
 		FS:      fs,
 		Fetcher: fetcher,
+		Cache:   &fakeCloner{},
 	})
 
 	require.NoError(t, err)
@@ -379,11 +397,13 @@ func TestAddRemote_Success(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
+	cloner := &fakeCloner{}
 	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "alice",
 		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
+		Cache:    cloner,
 	})
 
 	require.NoError(t, err)
@@ -391,6 +411,8 @@ func TestAddRemote_Success(t *testing.T) {
 	assert.Equal(t, "alice", result.Name)
 	assert.Contains(t, result.URL, "github.com/alice/ctxloom")
 	assert.Empty(t, result.Warning)
+	assert.Equal(t, []string{"https://github.com/alice/ctxloom"}, cloner.urls,
+		"remote add must eagerly clone the remote (full history)")
 
 	// Verify fetcher was called
 	assert.Len(t, fetcher.ValidateCalls, 1)
@@ -409,6 +431,7 @@ func TestAddRemote_InvalidRepo(t *testing.T) {
 		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
 	})
 
 	require.NoError(t, err)
@@ -426,6 +449,7 @@ func TestAddRemote_Duplicate(t *testing.T) {
 		URL:      "https://github.com/alice/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
 	})
 	require.NoError(t, err)
 
@@ -498,12 +522,38 @@ func TestAddRemote_ValidationFailed(t *testing.T) {
 		URL:      "https://github.com/test/ctxloom",
 		Registry: registry,
 		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
 	})
 
 	// Should succeed but include warning
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
 	assert.Contains(t, result.Warning, "ctxloom/")
+}
+
+// TestAddRemote_CloneFailureWarns verifies the eager clone-on-add is
+// best-effort: a clone failure leaves the remote registered but surfaces the
+// failure as a warning rather than aborting the add (CLAUDE.md fault tolerance).
+func TestAddRemote_CloneFailureWarns(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
+
+	result, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "alice",
+		URL:      "https://github.com/alice/ctxloom",
+		Registry: registry,
+		Fetcher:  fetcher,
+		Cache:    &fakeCloner{err: fmt.Errorf("boom")},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "added", result.Status)
+	assert.Contains(t, result.Warning, "clone failed")
+
+	// The remote stays registered despite the clone failure.
+	rem, gerr := registry.Get("alice")
+	require.NoError(t, gerr)
+	assert.Equal(t, "alice", rem.Name)
 }
 
 func TestRemoveRemote_EmptyName(t *testing.T) {

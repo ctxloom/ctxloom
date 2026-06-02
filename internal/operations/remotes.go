@@ -40,8 +40,9 @@ func GetRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Reg
 
 // RemoteEntry represents a remote in operation results.
 type RemoteEntry struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Trusted bool   `json:"trusted"` // mirrors Remote.TrustBundles: bundle changes auto-apply without review
 }
 
 // ListRemotesRequest is empty but exists for consistency.
@@ -80,8 +81,9 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 
 	for _, r := range remotes {
 		result.Remotes = append(result.Remotes, RemoteEntry{
-			Name: r.Name,
-			URL:  r.URL,
+			Name:    r.Name,
+			URL:     r.URL,
+			Trusted: r.TrustBundles,
 		})
 	}
 
@@ -92,6 +94,11 @@ func ListRemotes(ctx context.Context, cfg *config.Config, req ListRemotesRequest
 type AddRemoteRequest struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+
+	// Trust, when true, marks the remote as trusted on add (bundle changes from
+	// it auto-apply without review). Used for the user's own personal repos
+	// registered during `ctxloom init`.
+	Trust bool `json:"trust,omitempty"`
 
 	// Registry is an optional pre-configured registry (for testing).
 	Registry *remote.Registry `json:"-"`
@@ -149,6 +156,14 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	}
 
 	valid, _ := fetcher.ValidateRepo(ctx, owner, repo)
+
+	// Trust on add (e.g. the user's own personal repos during init): bundle
+	// changes from a trusted remote auto-apply without review.
+	if req.Trust {
+		if err := registry.SetTrustBundles(req.Name, true); err != nil {
+			return nil, fmt.Errorf("trust remote %q: %w", req.Name, err)
+		}
+	}
 
 	rem, _ := registry.Get(req.Name)
 

@@ -20,7 +20,9 @@ Registry:
   ctxloom remote list                    List configured remotes
   ctxloom remote add <name> <url>        Register a remote
   ctxloom remote rm <name>               Remove a remote
-  ctxloom remote default [name]          Get/set default remote
+  ctxloom remote default <name>          Set the default remote
+  ctxloom remote trust <name>            Auto-apply this remote's bundle changes
+  ctxloom remote untrust <name>          Require review for this remote again
 
 Discovery:
   ctxloom remote search <query>          Search for bundles/profiles
@@ -118,30 +120,71 @@ var remoteListCmd = &cobra.Command{
 
 		fmt.Println("Configured remotes:")
 		for _, r := range result.Remotes {
-			defaultMark := ""
+			var marks string
 			if r.Name == result.Default {
-				defaultMark = " (default)"
+				marks += " (default)"
 			}
-			fmt.Printf("  %-15s %s%s\n", r.Name, r.URL, defaultMark)
+			if r.Trusted {
+				marks += " (trusted)"
+			}
+			fmt.Printf("  %-15s %s%s\n", r.Name, r.URL, marks)
 		}
 
 		return nil
 	},
 }
 
-var remoteDefaultCmd = &cobra.Command{
-	Use:   "default [name]",
-	Short: "Get or set the default remote",
-	Long: `Get or set the default remote for push operations.
+var remoteTrustCmd = &cobra.Command{
+	Use:   "trust <name>",
+	Short: "Trust a remote so its bundle changes auto-apply without review",
+	Long: `Mark a remote as trusted. Bundle changes from a trusted remote are applied
+automatically during sync, without surfacing for review. Any changes currently
+pending from this remote are approved.
 
-Without arguments, displays the current default remote.
-With a name, sets that remote as the default.
+Revoke with 'ctxloom remote untrust <name>'.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return setRemoteTrust(cmd, args[0], true)
+	},
+}
+
+var remoteUntrustCmd = &cobra.Command{
+	Use:   "untrust <name>",
+	Short: "Revoke trust from a remote so its changes require review again",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return setRemoteTrust(cmd, args[0], false)
+	},
+}
+
+// setRemoteTrust toggles a remote's trust flag and reports the outcome.
+func setRemoteTrust(cmd *cobra.Command, name string, trust bool) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	result, err := operations.SetRemoteTrust(cmd.Context(), cfg, operations.SetRemoteTrustRequest{
+		Name:  name,
+		Trust: trust,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Remote '%s' is now %s.\n", result.Name, result.Status)
+	return nil
+}
+
+var remoteDefaultCmd = &cobra.Command{
+	Use:   "default <name>",
+	Short: "Set the default remote",
+	Long: `Set the default remote for push operations.
+
+The current default is shown by 'ctxloom remote list' (marked "(default)").
 Use --clear to remove the default.
 
 Examples:
-  ctxloom remote default              # Show current default
   ctxloom remote default ctxloom-default   # Set default to ctxloom-default
-  ctxloom remote default --clear      # Clear the default`,
+  ctxloom remote default --clear           # Clear the default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runRemoteDefault,
 }
@@ -163,19 +206,10 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Show the current default.
+	// A name is required to set the default; the current default is visible via
+	// `ctxloom remote list`.
 	if len(args) == 0 {
-		res, err := operations.GetDefaultRemote(cmd.Context(), cfg, operations.DefaultRemoteRequest{})
-		if err != nil {
-			return err
-		}
-		if res.Name == "" {
-			fmt.Println("No default remote set.")
-			fmt.Println("Set one with: ctxloom remote default <name>")
-		} else {
-			fmt.Printf("Default remote: %s\n", res.Name)
-		}
-		return nil
+		return fmt.Errorf("remote name required (or use --clear); see the current default in 'ctxloom remote list'")
 	}
 
 	// Set a new default.
@@ -255,6 +289,8 @@ func init() {
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
 	remoteCmd.AddCommand(remoteSyncCmd)
+	remoteCmd.AddCommand(remoteTrustCmd)
+	remoteCmd.AddCommand(remoteUntrustCmd)
 
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,
 		"Clear the default remote")

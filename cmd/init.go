@@ -660,10 +660,13 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string) {
 		if i > 0 {
 			name = fmt.Sprintf("personal-%d", i+1)
 		}
-		if _, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{Name: name, URL: repo}); addErr != nil {
+		// Personal repos are the user's own, so trust them by default: their
+		// bundle changes auto-apply without review. The trust is visible here and
+		// revokable via `ctxloom remote untrust`.
+		if _, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{Name: name, URL: repo, Trust: true}); addErr != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", name, repo, addErr)
 		} else {
-			fmt.Printf("Added remote %q: %s\n", name, repo)
+			fmt.Printf("Added remote %q: %s (trusted — revoke with: ctxloom remote untrust %s)\n", name, repo, name)
 		}
 	}
 }

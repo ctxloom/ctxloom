@@ -238,6 +238,43 @@ func TestSetRemoteTrust(t *testing.T) {
 	assert.Equal(t, "untrusted", res.Status)
 }
 
+func TestListRemotes_SurfacesTrust(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	require.NoError(t, registry.Add("bob", "https://github.com/bob/ctxloom"))
+	_, err := SetRemoteTrust(context.Background(), nil, SetRemoteTrustRequest{Name: "bob", Trust: true, Registry: registry})
+	require.NoError(t, err)
+
+	result, err := ListRemotes(context.Background(), nil, ListRemotesRequest{Registry: registry})
+	require.NoError(t, err)
+	require.Len(t, result.Remotes, 2)
+
+	byName := map[string]RemoteEntry{}
+	for _, r := range result.Remotes {
+		byName[r.Name] = r
+	}
+	assert.False(t, byName["alice"].Trusted, "untrusted remote should report Trusted=false")
+	assert.True(t, byName["bob"].Trusted, "trusted remote should report Trusted=true")
+}
+
+func TestAddRemote_TrustOnAdd(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
+
+	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "alice",
+		URL:      "https://github.com/alice/ctxloom",
+		Trust:    true,
+		Registry: registry,
+		Fetcher:  fetcher,
+	})
+	require.NoError(t, err)
+
+	rem, err := registry.Get("alice")
+	require.NoError(t, err)
+	assert.True(t, rem.TrustBundles, "Trust:true on add should mark the remote trusted")
+}
+
 func TestListRemotes_Empty(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 

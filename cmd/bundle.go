@@ -41,6 +41,15 @@ func init() {
 	bundleCmd.AddCommand(bundleMCPCmd)
 	bundleMCPCmd.AddCommand(bundleMCPEditCmd)
 
+	// Bundle-review CLI (replaces the former in-chat MCP review flow).
+	bundleCmd.AddCommand(bundleReviewCmd)
+	bundleCmd.AddCommand(bundleApproveCmd)
+	bundleCmd.AddCommand(bundleDeclineCmd)
+	bundleCmd.AddCommand(bundlePinCmd)
+	bundleCmd.AddCommand(bundleUnpinCmd)
+	bundleCmd.AddCommand(bundleShowPendingCmd)
+	bundleApproveCmd.Flags().StringVar(&bundleApproveRemote, "remote", "", "Approve only pending changes from this remote")
+
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
 	bundlePushCmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")

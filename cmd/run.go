@@ -351,6 +351,13 @@ Examples:
 			}
 		}
 
+		// Surface untrusted bundle changes that sync left pending. Trusted
+		// remotes auto-apply; the rest wait for an explicit CLI review (this
+		// replaces the former in-chat review gate — startup is never blocked).
+		if pending := operations.PendingBundleChanges(cfg); !pending.IsEmpty() {
+			fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(pending.All()))
+		}
+
 		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
 			Profile:   runProfile,
 			Fragments: runFragments,

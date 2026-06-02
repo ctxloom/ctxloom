@@ -83,11 +83,11 @@ func TestIsAvailable(t *testing.T) {
 	})
 }
 
-func TestApplyPluginConfig(t *testing.T) {
+func TestApplyLLMConfig(t *testing.T) {
 	t.Run("with nil config", func(t *testing.T) {
 		backend := Get("mock")
 		// Should not panic with nil config
-		ApplyPluginConfig(backend, nil)
+		ApplyLLMConfig(backend, nil)
 		assert.NotNil(t, backend)
 	})
 
@@ -95,7 +95,7 @@ func TestApplyPluginConfig(t *testing.T) {
 		backend := Get("mock")
 		// Mock might be configurable, just verify it doesn't panic
 		config := &config.LLMConfig{}
-		ApplyPluginConfig(backend, config)
+		ApplyLLMConfig(backend, config)
 		assert.NotNil(t, backend)
 	})
 }

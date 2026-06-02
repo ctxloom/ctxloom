@@ -98,7 +98,7 @@ func TestClaudeCode_Configure_Env(t *testing.T) {
 
 // TestClaudeCode_Configure_RequiresNonNil documents that Configure expects
 // a non-nil config. Callers should check for nil before calling Configure.
-// ApplyPluginConfig in registry.go handles the nil check.
+// ApplyLLMConfig in registry.go handles the nil check.
 func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 	backend := NewClaudeCode()
 

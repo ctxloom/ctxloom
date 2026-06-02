@@ -143,7 +143,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	sessionsDir := s.getSessionsDir()
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    plugin,
+		LLM:    plugin,
 		Model:     model,
 		Backend:   backend,
 		ChunkSize: s.cfg.GetCompactionChunkSize(),
@@ -366,7 +366,7 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    s.cfg.GetCompactionLLM(),
+		LLM:    s.cfg.GetCompactionLLM(),
 		Model:     model,
 		Backend:   backendName,
 		ChunkSize: s.cfg.GetCompactionChunkSize(),

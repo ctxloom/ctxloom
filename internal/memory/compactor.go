@@ -29,7 +29,7 @@ const (
 
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
-	Plugin          string           // LLM plugin to use for distillation (default: claude-code)
+	LLM          string           // LLM plugin to use for distillation (default: claude-code)
 	Model           string           // Model to use within the plugin (e.g., "haiku", "sonnet")
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
 	ChunkSize       int              // Target tokens per chunk
@@ -67,8 +67,8 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	if config.Backend == "" {
 		config.Backend = "claude-code"
 	}
-	if config.Plugin == "" {
-		config.Plugin = "claude-code"
+	if config.LLM == "" {
+		config.LLM = "claude-code"
 	}
 	if config.ClientFactory == nil {
 		config.ClientFactory = pb.DefaultClientFactory()
@@ -403,7 +403,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	}
 
 	// Create plugin client using the factory
-	client, err := c.clientFactory(c.config.Plugin, 0)
+	client, err := c.clientFactory(c.config.LLM, 0)
 	if err != nil {
 		return "", fmt.Errorf("start plugin: %w", err)
 	}

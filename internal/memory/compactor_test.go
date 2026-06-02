@@ -240,7 +240,7 @@ func TestCompactionConfig_Defaults(t *testing.T) {
 		WorkDir: "/test",
 	}
 
-	assert.Empty(t, config.Plugin)
+	assert.Empty(t, config.LLM)
 	assert.Empty(t, config.Backend)
 	assert.Zero(t, config.ChunkSize)
 }
@@ -258,7 +258,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 
 	c := &Compactor{
 		config: CompactionConfig{
-			Plugin:    "test-plugin",
+			LLM:    "test-plugin",
 			OutputDir: tmpDir,
 		},
 		clientFactory: pb.MockClientFactory(mockClient),
@@ -281,7 +281,7 @@ func TestCompactor_DistillChunk_ClientError(t *testing.T) {
 
 	c := &Compactor{
 		config: CompactionConfig{
-			Plugin: "test-plugin",
+			LLM: "test-plugin",
 		},
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
@@ -302,7 +302,7 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 
 	c := &Compactor{
 		config: CompactionConfig{
-			Plugin: "test-plugin",
+			LLM: "test-plugin",
 		},
 		clientFactory: pb.MockClientFactory(mockClient),
 	}
@@ -405,7 +405,7 @@ func TestNewCompactor_SetsDefaults(t *testing.T) {
 
 	assert.Equal(t, DefaultChunkTokens, compactor.config.ChunkSize)
 	assert.Equal(t, "claude-code", compactor.config.Backend)
-	assert.Equal(t, "claude-code", compactor.config.Plugin)
+	assert.Equal(t, "claude-code", compactor.config.LLM)
 	assert.NotNil(t, compactor.clientFactory)
 }
 

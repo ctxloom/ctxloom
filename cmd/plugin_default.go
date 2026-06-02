@@ -39,7 +39,7 @@ With a plugin name argument, sets that plugin as the default.`,
 			return fmt.Errorf("unknown plugin %q; available: %s", name, strings.Join(available, ", "))
 		}
 
-		res, err := operations.SetDefaultPlugin(cmd.Context(), cfg, operations.SetDefaultPluginRequest{Name: name})
+		res, err := operations.SetDefaultLLM(cmd.Context(), cfg, operations.SetDefaultLLMRequest{Name: name})
 		if err != nil {
 			return err
 		}

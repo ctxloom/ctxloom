@@ -11,9 +11,9 @@ type Configurable interface {
 	Configure(cfg *config.LLMConfig)
 }
 
-// ApplyPluginConfig applies plugin configuration to a backend.
+// ApplyLLMConfig applies plugin configuration to a backend.
 // This sets binary path, args, and env.
-func ApplyPluginConfig(backend Backend, cfg *config.LLMConfig) {
+func ApplyLLMConfig(backend Backend, cfg *config.LLMConfig) {
 	if cfg == nil {
 		return
 	}

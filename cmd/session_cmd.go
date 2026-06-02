@@ -306,7 +306,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	progress := iox.NewErrWriter(cmd.ErrOrStderr())
 	progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, sessionID)
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    cfg.GetCompactionLLM(),
+		LLM:    cfg.GetCompactionLLM(),
 		Model:     cfg.GetCompactionModel(),
 		Backend:   backendName,
 		ChunkSize: cfg.GetCompactionChunkSize(),

@@ -261,7 +261,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 
 	// Create compactor
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    plugin,
+		LLM:    plugin,
 		Model:     model,
 		Backend:   backend,
 		ChunkSize: cfg.GetCompactionChunkSize(),

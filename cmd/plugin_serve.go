@@ -31,7 +31,7 @@ var pluginServeCmd = &cobra.Command{
 		cfg, _ := config.Load()
 		if cfg != nil {
 			if pluginCfg, ok := cfg.LM.Configs[backendName]; ok {
-				backends.ApplyPluginConfig(backend, &pluginCfg)
+				backends.ApplyLLMConfig(backend, &pluginCfg)
 			}
 		}
 

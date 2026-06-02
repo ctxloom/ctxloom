@@ -43,10 +43,6 @@ func TestMemoryPath_InCache(t *testing.T) {
 	assert.Equal(t, ".ctxloom/cache/memory", MemoryPath(".ctxloom"))
 }
 
-func TestPluginsPath_InCache(t *testing.T) {
-	assert.Equal(t, ".ctxloom/cache/plugins", PluginsPath(".ctxloom"))
-}
-
 // =============================================================================
 // Root-Level Persistent Items Tests
 // =============================================================================

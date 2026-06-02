@@ -38,9 +38,6 @@ const (
 	// MemoryDir is the subdirectory for memory/session files.
 	MemoryDir = "memory"
 
-	// PluginsDir is the subdirectory for plugins.
-	PluginsDir = "plugins"
-
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
 
@@ -185,11 +182,6 @@ func ContextPath(appPath string) string {
 // MemoryPath returns the path to the memory directory (under cache/).
 func MemoryPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), MemoryDir)
-}
-
-// PluginsPath returns the path to the plugins directory (under cache/).
-func PluginsPath(appPath string) string {
-	return filepath.Join(GetCacheDir(appPath), PluginsDir)
 }
 
 // ReposCachePath returns the path to the repos cache directory (under cache/).

@@ -61,18 +61,16 @@ func GenerateConfigYAML(engine string) []byte {
 	return []byte(fmt.Sprintf(`# ctxloom Configuration
 # See https://github.com/ctxloom/ctxloom for documentation
 
-# Language model plugin configuration
+# Large language model configuration
 llm:
-  plugins:
-    %s: {}
+  default: %s
 
 # Default settings
 defaults:
-  llm_plugin: %s
   use_distilled: true
 
 # MCP server configuration
 mcp:
   auto_register_ctxloom: true
-`, engine, engine))
+`, engine))
 }

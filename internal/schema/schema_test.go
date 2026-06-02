@@ -23,10 +23,9 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
 llm:
-  plugins:
+  default: claude-code
+  configs:
     claude-code: {}
-defaults:
-  llm_plugin: claude-code
 `
 		err := v.ValidateBytes([]byte(yaml))
 		assert.NoError(t, err)

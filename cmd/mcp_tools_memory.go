@@ -25,7 +25,7 @@ func reductionPct(in, out int) string {
 
 // Memory-tool input types. All session-targeting tools accept an optional
 // session_id and an optional backend override. The defaults come from cfg
-// (cfg.LM.GetDefaultPlugin() for backend, current session for ID).
+// (cfg.LM.GetDefaultLLM() for backend, current session for ID).
 
 type compactSessionInput struct {
 	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to compact (defaults to current session)"`
@@ -124,7 +124,7 @@ func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
 }
 
 func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolRequest, in compactSessionInput) (*mcp.CallToolResult, *compactSessionResult, error) {
-	plugin := s.cfg.GetCompactionPlugin()
+	plugin := s.cfg.GetCompactionLLM()
 	model := in.Model
 	if model == "" {
 		model = s.cfg.GetCompactionModel()
@@ -132,7 +132,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 
 	backend := in.Backend
 	if backend == "" {
-		backend = s.cfg.LM.GetDefaultPlugin()
+		backend = s.cfg.LM.GetDefaultLLM()
 	}
 
 	workDir, err := os.Getwd()
@@ -228,7 +228,7 @@ func (s *ctxServer) loadHarpEssence(harpName string) (*mcp.CallToolResult, *load
 func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolRequest, in recoverSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
 	backendName := in.Backend
 	if backendName == "" {
-		backendName = s.cfg.LM.GetDefaultPlugin()
+		backendName = s.cfg.LM.GetDefaultLLM()
 	}
 	backend := backends.Get(backendName)
 	if backend == nil {
@@ -265,7 +265,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	backendName := s.cfg.LM.GetDefaultPlugin()
+	backendName := s.cfg.LM.GetDefaultLLM()
 	if backendName == "" {
 		backendName = "claude-code"
 	}
@@ -366,7 +366,7 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		Plugin:    s.cfg.GetCompactionPlugin(),
+		Plugin:    s.cfg.GetCompactionLLM(),
 		Model:     model,
 		Backend:   backendName,
 		ChunkSize: s.cfg.GetCompactionChunkSize(),

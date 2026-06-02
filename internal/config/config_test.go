@@ -43,26 +43,26 @@ import (
 // The default LLM plugin determines which AI backend is used when none is
 // explicitly specified. Falls back to claude-code for backwards compatibility.
 
-func TestGetDefaultLLMPlugin(t *testing.T) {
-	t.Run("returns configured plugin", func(t *testing.T) {
+func TestGetDefaultLLM(t *testing.T) {
+	t.Run("returns configured llm", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				LLMPlugin: "gemini",
+			LM: LMConfig{
+				Default: "gemini",
 			},
 		}
-		assert.Equal(t, "gemini", cfg.GetDefaultLLMPlugin())
+		assert.Equal(t, "gemini", cfg.GetDefaultLLM())
 	})
 
 	t.Run("returns claude-code as fallback", func(t *testing.T) {
 		cfg := &Config{}
-		assert.Equal(t, "claude-code", cfg.GetDefaultLLMPlugin())
+		assert.Equal(t, "claude-code", cfg.GetDefaultLLM())
 	})
 }
 
-func TestSetDefaultLLMPlugin(t *testing.T) {
+func TestSetDefaultLLM(t *testing.T) {
 	cfg := &Config{}
-	cfg.SetDefaultLLMPlugin("gemini")
-	assert.Equal(t, "gemini", cfg.Defaults.LLMPlugin)
+	cfg.SetDefaultLLM("gemini")
+	assert.Equal(t, "gemini", cfg.LM.Default)
 }
 
 // =============================================================================
@@ -562,16 +562,16 @@ func TestMCPConfig_ShouldAutoRegisterCtxloom(t *testing.T) {
 // LMConfig Tests
 // =============================================================================
 
-func TestLMConfig_GetDefaultPlugin(t *testing.T) {
-	// GetDefaultPlugin always returns "claude-code" as the fallback
-	// The actual default is configured via Config.Defaults.LLMPlugin
+func TestLMConfig_GetDefaultLLM(t *testing.T) {
+	// GetDefaultLLM always returns "claude-code" as the fallback
+	// The actual default is configured via Config.LM.Default
 	lm := LMConfig{}
-	assert.Equal(t, "claude-code", lm.GetDefaultPlugin())
+	assert.Equal(t, "claude-code", lm.GetDefaultLLM())
 }
 
 func TestLMConfig_GetDefaultModel(t *testing.T) {
 	config := LMConfig{
-		Plugins: map[string]PluginConfig{
+		Configs: map[string]LLMConfig{
 			"claude-code": {Model: "claude-3-opus"},
 			"gemini":      {Model: ""},
 		},
@@ -652,25 +652,6 @@ func TestConfig_GetBundleDirs_NoBundlesDir(t *testing.T) {
 	assert.Empty(t, dirs)
 }
 
-func TestConfig_GetPluginPaths(t *testing.T) {
-	t.Run("uses configured paths", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{
-				PluginPaths: []string{"/custom/path1", "/custom/path2"},
-			},
-		}
-		paths := cfg.GetPluginPaths()
-		assert.Equal(t, []string{"/custom/path1", "/custom/path2"}, paths)
-	})
-
-	t.Run("defaults to ctxloom plugins dir", func(t *testing.T) {
-		cfg := &Config{
-			AppPaths: []string{"/home/user/.ctxloom"},
-		}
-		paths := cfg.GetPluginPaths()
-		assert.Equal(t, []string{"/home/user/.ctxloom/cache/plugins"}, paths)
-	})
-}
 
 func TestConfig_GetConfigFilePath(t *testing.T) {
 	t.Run("returns path when AppPaths set", func(t *testing.T) {
@@ -799,13 +780,13 @@ func TestConfig_Save(t *testing.T) {
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Plugins: map[string]PluginConfig{
+			Default: "claude-code",
+			Configs: map[string]LLMConfig{
 				"claude-code": {},
 			},
 		},
 		Defaults: Defaults{
-			LLMPlugin: "claude-code",
-			Profiles:  []string{"dev"},
+			Profiles: []string{"dev"},
 		},
 		Profiles: map[string]Profile{
 			"dev": {Description: "development"},
@@ -820,7 +801,7 @@ func TestConfig_Save(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
 	assert.Contains(t, string(data), "- dev")
-	assert.Contains(t, string(data), "llm_plugin")
+	assert.Contains(t, string(data), "llm")
 }
 
 func TestConfig_Save_NoAppPaths(t *testing.T) {
@@ -830,20 +811,17 @@ func TestConfig_Save_NoAppPaths(t *testing.T) {
 }
 
 // Regression: Save dropped the whole `defaults` block unless one of three
-// fields was set, so a config with only compaction defaults lost them on Save.
-// Also covers the editor round-trip, which Save never wrote.
-func TestConfig_Save_PreservesCompactionDefaultsAndEditor(t *testing.T) {
+// fields was set. Compaction now lives under `llm` (always written), and this
+// also covers the editor round-trip, which Save never wrote.
+func TestConfig_Save_PreservesCompactionAndEditor(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
-		LM:       LMConfig{Plugins: map[string]PluginConfig{"claude-code": {}}},
-		Defaults: Defaults{
-			// Deliberately none of Profiles/LLMPlugin/UseDistilled set.
-			CompactionPlugin: "gemini",
-			CompactionModel:  "haiku",
-			CompactionChunks: 4096,
+		LM: LMConfig{
+			Configs:    map[string]LLMConfig{"claude-code": {}},
+			Compaction: CompactionConfig{LLM: "gemini", Model: "haiku", Chunks: 4096},
 		},
 		Editor: EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
@@ -852,9 +830,9 @@ func TestConfig_Save_PreservesCompactionDefaultsAndEditor(t *testing.T) {
 	// Round-trip through Load to confirm the values survived.
 	loaded, err := Load(WithAppDir(tmpDir))
 	require.NoError(t, err)
-	assert.Equal(t, "gemini", loaded.Defaults.CompactionPlugin)
-	assert.Equal(t, "haiku", loaded.Defaults.CompactionModel)
-	assert.Equal(t, 4096, loaded.Defaults.CompactionChunks)
+	assert.Equal(t, "gemini", loaded.LM.Compaction.LLM)
+	assert.Equal(t, "haiku", loaded.LM.Compaction.Model)
+	assert.Equal(t, 4096, loaded.LM.Compaction.Chunks)
 	assert.Equal(t, "vim", loaded.Editor.Command)
 	assert.Equal(t, []string{"-p"}, loaded.Editor.Args)
 }
@@ -892,10 +870,10 @@ func TestLoad_WithOptions(t *testing.T) {
 	// Create a valid config file in persistent directory
 	configContent := `
 llm:
-  plugins:
+  default: claude-code
+  configs:
     claude-code: {}
 defaults:
-  llm_plugin: claude-code
   profiles:
     - test
 `
@@ -905,7 +883,7 @@ defaults:
 	require.NoError(t, err)
 
 	assert.Contains(t, cfg.Defaults.Profiles, "test")
-	assert.Equal(t, "claude-code", cfg.Defaults.LLMPlugin)
+	assert.Equal(t, "claude-code", cfg.LM.Default)
 	assert.Equal(t, []string{appDir}, cfg.AppPaths)
 	assert.Equal(t, appDir, cfg.AppDir)
 	assert.Equal(t, SourceProject, cfg.Source)
@@ -921,7 +899,7 @@ func TestLoad_NoConfigFile(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotNil(t, cfg.Profiles)
-	assert.NotNil(t, cfg.LM.Plugins)
+	assert.NotNil(t, cfg.LM.Configs)
 }
 
 func TestLoadConfigFile_Errors(t *testing.T) {
@@ -1514,7 +1492,7 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Plugins: map[string]PluginConfig{},
+			Configs: map[string]LLMConfig{},
 		},
 		MCP: MCPConfig{
 			AutoRegisterCtxloom: &trueVal,
@@ -1543,19 +1521,17 @@ func TestConfig_Save_PreservesExisting(t *testing.T) {
 	existingContent := `
 custom_field: preserved
 llm:
-  plugins: {}
+  configs: {}
 `
 	require.NoError(t, os.WriteFile(paths.ConfigPath(tmpDir), []byte(existingContent), 0644))
 
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Plugins: map[string]PluginConfig{
+			Default: "claude-code",
+			Configs: map[string]LLMConfig{
 				"claude-code": {},
 			},
-		},
-		Defaults: Defaults{
-			LLMPlugin: "claude-code",
 		},
 	}
 
@@ -1634,7 +1610,7 @@ func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
 	// Create config that fails schema validation (using wrong type)
 	configContent := `
 llm:
-  plugins: "should be a map not string"
+  configs: "should be a map not string"
 `
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
 
@@ -1684,7 +1660,7 @@ func TestResilientStartup_MalformedConfig(t *testing.T) {
 	// Create malformed YAML (array where object expected)
 	malformedYAML := `
 llm:
-  plugins:
+  configs:
     - this is wrong format
     claude-code: {}
 `
@@ -1770,7 +1746,7 @@ func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
 	// Schema validation may catch this, but we should still not fail
 	configYAML := `
 llm:
-  plugins:
+  configs:
     claude-code:
       unknown_property: true
 profiles:
@@ -1795,7 +1771,7 @@ func TestResilientStartup_WarningsAreCollected(t *testing.T) {
 	// Create config with type mismatch that schema validation should catch
 	configYAML := `
 llm:
-  plugins: invalid-should-be-map
+  configs: invalid-should-be-map
 `
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
 
@@ -1815,9 +1791,7 @@ llm:
 func TestGetDefaultLLMModel(t *testing.T) {
 	t.Run("returns configured model", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				LLMModel: "sonnet",
-			},
+			LM: LMConfig{Model: "sonnet"},
 		}
 		assert.Equal(t, "sonnet", cfg.GetDefaultLLMModel())
 	})
@@ -1828,37 +1802,31 @@ func TestGetDefaultLLMModel(t *testing.T) {
 	})
 }
 
-func TestGetCompactionPlugin(t *testing.T) {
-	t.Run("returns configured compaction plugin", func(t *testing.T) {
+func TestGetCompactionLLM(t *testing.T) {
+	t.Run("returns configured compaction llm", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				CompactionPlugin: "gemini",
-			},
+			LM: LMConfig{Compaction: CompactionConfig{LLM: "gemini"}},
 		}
-		assert.Equal(t, "gemini", cfg.GetCompactionPlugin())
+		assert.Equal(t, "gemini", cfg.GetCompactionLLM())
 	})
 
-	t.Run("falls back to LLM plugin", func(t *testing.T) {
+	t.Run("falls back to default llm", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				LLMPlugin: "codex",
-			},
+			LM: LMConfig{Default: "codex"},
 		}
-		assert.Equal(t, "codex", cfg.GetCompactionPlugin())
+		assert.Equal(t, "codex", cfg.GetCompactionLLM())
 	})
 
 	t.Run("falls back to claude-code", func(t *testing.T) {
 		cfg := &Config{}
-		assert.Equal(t, "claude-code", cfg.GetCompactionPlugin())
+		assert.Equal(t, "claude-code", cfg.GetCompactionLLM())
 	})
 }
 
 func TestGetCompactionModel(t *testing.T) {
 	t.Run("returns configured model", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				CompactionModel: "opus",
-			},
+			LM: LMConfig{Compaction: CompactionConfig{Model: "opus"}},
 		}
 		assert.Equal(t, "opus", cfg.GetCompactionModel())
 	})
@@ -1872,9 +1840,7 @@ func TestGetCompactionModel(t *testing.T) {
 func TestGetCompactionChunkSize(t *testing.T) {
 	t.Run("returns configured size", func(t *testing.T) {
 		cfg := &Config{
-			Defaults: Defaults{
-				CompactionChunks: 4000,
-			},
+			LM: LMConfig{Compaction: CompactionConfig{Chunks: 4000}},
 		}
 		assert.Equal(t, 4000, cfg.GetCompactionChunkSize())
 	})
@@ -1886,28 +1852,28 @@ func TestGetCompactionChunkSize(t *testing.T) {
 }
 
 // =============================================================================
-// LMConfig Plugin Settings Tests
+// LMConfig per-LLM settings tests
 // =============================================================================
 
-func TestLMConfig_GetConfiguredPlugins(t *testing.T) {
-	t.Run("returns configured plugins", func(t *testing.T) {
+func TestLMConfig_GetConfiguredLLMs(t *testing.T) {
+	t.Run("returns configured llms", func(t *testing.T) {
 		lmCfg := &LMConfig{
-			Plugins: map[string]PluginConfig{
+			Configs: map[string]LLMConfig{
 				"claude": {},
 				"gemini": {},
 			},
 		}
-		plugins := lmCfg.GetConfiguredPlugins()
-		assert.Len(t, plugins, 2)
-		assert.Contains(t, plugins, "claude")
-		assert.Contains(t, plugins, "gemini")
+		llms := lmCfg.GetConfiguredLLMs()
+		assert.Len(t, llms, 2)
+		assert.Contains(t, llms, "claude")
+		assert.Contains(t, llms, "gemini")
 	})
 
-	t.Run("returns default when no plugins configured", func(t *testing.T) {
+	t.Run("returns default when no llms configured", func(t *testing.T) {
 		lmCfg := &LMConfig{}
-		plugins := lmCfg.GetConfiguredPlugins()
-		// Falls back to default plugin when none configured
-		assert.Equal(t, []string{"claude-code"}, plugins)
+		llms := lmCfg.GetConfiguredLLMs()
+		// Falls back to the default LLM when none configured
+		assert.Equal(t, []string{"claude-code"}, llms)
 	})
 }
 
@@ -1936,42 +1902,6 @@ func TestSyncConfig_ShouldAutoSync(t *testing.T) {
 		enabled := true
 		cfg := &SyncConfig{AutoSync: &enabled}
 		assert.True(t, cfg.ShouldAutoSync())
-	})
-}
-
-func TestSyncConfig_ShouldLock(t *testing.T) {
-	t.Run("returns true by default", func(t *testing.T) {
-		cfg := &SyncConfig{}
-		assert.True(t, cfg.ShouldLock())
-	})
-
-	t.Run("returns true for nil config", func(t *testing.T) {
-		var cfg *SyncConfig
-		assert.True(t, cfg.ShouldLock())
-	})
-
-	t.Run("returns false when disabled", func(t *testing.T) {
-		disabled := false
-		cfg := &SyncConfig{Lock: &disabled}
-		assert.False(t, cfg.ShouldLock())
-	})
-}
-
-func TestSyncConfig_ShouldApplyHooks(t *testing.T) {
-	t.Run("returns true by default", func(t *testing.T) {
-		cfg := &SyncConfig{}
-		assert.True(t, cfg.ShouldApplyHooks())
-	})
-
-	t.Run("returns true for nil config", func(t *testing.T) {
-		var cfg *SyncConfig
-		assert.True(t, cfg.ShouldApplyHooks())
-	})
-
-	t.Run("returns false when disabled", func(t *testing.T) {
-		disabled := false
-		cfg := &SyncConfig{ApplyHooks: &disabled}
-		assert.False(t, cfg.ShouldApplyHooks())
 	})
 }
 

@@ -72,7 +72,7 @@ exec "%s" plugin serve %s "$@"
 		}
 
 		fmt.Println("\nPlugins extracted successfully.")
-		fmt.Println("Add this directory to your config's plugin_paths to use them.")
+		fmt.Println("Add this directory to your config's llm_paths to use them.")
 
 		return nil
 	},

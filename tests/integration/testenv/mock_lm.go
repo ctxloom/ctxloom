@@ -110,7 +110,8 @@ func (m *MockLM) WriteConfig() error {
 	// Build config with mock settings
 	var config strings.Builder
 	config.WriteString("llm:\n")
-	config.WriteString("  plugins:\n")
+	config.WriteString("  default: mock\n")
+	config.WriteString("  configs:\n")
 	config.WriteString("    mock:\n")
 	config.WriteString("      args: []\n")
 	config.WriteString("      env:\n")
@@ -118,9 +119,7 @@ func (m *MockLM) WriteConfig() error {
 	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_response: \"%s\"\n", escapeYAMLString(m.Response))
 	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_exit_code: \"%d\"\n", m.ExitCode)
 
-	// Always set llm_plugin to mock
 	config.WriteString("defaults:\n")
-	config.WriteString("  llm_plugin: mock\n")
 	config.WriteString("  use_distilled: false\n")
 
 	if profilesSection != "" {

@@ -647,7 +647,7 @@ func TestParseLLMFrontmatter_FirstLineOnlyIfMultiline(t *testing.T) {
 }
 
 func TestParseLLMFrontmatter_StripsLeadingWhitespace(t *testing.T) {
-	// Some LLMs put a stray blank line or whitespace before the ---. Tolerate it.
+	// Some Configs put a stray blank line or whitespace before the ---. Tolerate it.
 	in := "\n\n  \n---\nsummary: ok\n---\nbody\n"
 	summary, _, ok := parseLLMFrontmatter(in)
 	assert.True(t, ok)

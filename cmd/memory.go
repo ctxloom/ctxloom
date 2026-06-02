@@ -120,7 +120,7 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 // the memory list and load tools.
 func resolveHistoryBackend(cfg *config.Config, backendName string) (backends.SessionHistory, string, error) {
 	if backendName == "" {
-		backendName = cfg.LM.GetDefaultPlugin()
+		backendName = cfg.LM.GetDefaultLLM()
 	}
 	backend := backends.Get(backendName)
 	if backend == nil {
@@ -180,7 +180,7 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 	// Determine backend
 	backendName := showBackend
 	if backendName == "" {
-		backendName = cfg.LM.GetDefaultPlugin()
+		backendName = cfg.LM.GetDefaultLLM()
 	}
 
 	backend := backends.Get(backendName)
@@ -241,7 +241,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine plugin and model for distillation
-	plugin := cfg.GetCompactionPlugin()
+	plugin := cfg.GetCompactionLLM()
 	model := compactModel
 	if model == "" {
 		model = cfg.GetCompactionModel()
@@ -250,7 +250,7 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	// Determine backend to read session from
 	backend := compactBackend
 	if backend == "" {
-		backend = cfg.LM.GetDefaultPlugin()
+		backend = cfg.LM.GetDefaultLLM()
 	}
 
 	// Get working directory

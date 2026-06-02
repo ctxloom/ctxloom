@@ -84,7 +84,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "defaults", c.Defaults.hasAny(), c.Defaults)
 	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
 	setOrDelete(existing, "profiles", len(c.Profiles) > 0, c.Profiles)
-	setOrDelete(existing, "sync", c.Sync.AutoSync != nil || c.Sync.Lock != nil || c.Sync.ApplyHooks != nil, c.Sync)
+	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.hasAny(), c.Hooks)
 }

@@ -24,8 +24,9 @@ func fixtureConfig() *config.Config {
 			"developer": {Bundles: []string{"alice/coding"}},
 		},
 	}
-	cfg.Defaults.LLMPlugin = "claude-code"
-	cfg.LM.Plugins = map[string]config.PluginConfig{
+	cfg.Defaults.Profiles = []string{"default-profile"}
+	cfg.LM.Default = "claude-code"
+	cfg.LM.Configs = map[string]config.LLMConfig{
 		"gemini": {Model: "gemini-2.5-pro"},
 	}
 	cfg.MCP.Servers = map[string]config.MCPServer{
@@ -42,7 +43,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 		section  string
 		contains string // substring expected in the marshaled YAML
 	}{
-		{"defaults", "defaults", "claude-code"},
+		{"defaults", "defaults", "default-profile"},
 		{"llm", "llm", "gemini-2.5-pro"},
 		{"mcp", "mcp", "mcp-fs"},
 		{"profiles", "profiles", "developer"},

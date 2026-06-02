@@ -305,7 +305,7 @@ Examples:
 		// Determine which plugin to use
 		pluginName := runPlugin
 		if pluginName == "" {
-			pluginName = cfg.GetDefaultLLMPlugin()
+			pluginName = cfg.GetDefaultLLM()
 		}
 
 		// Verify the backend exists
@@ -314,7 +314,7 @@ Examples:
 		}
 
 		// Get plugin configuration from config
-		pluginCfg := cfg.LM.Plugins[pluginName]
+		pluginCfg := cfg.LM.Configs[pluginName]
 
 		// Build the prompt - from saved prompt, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)

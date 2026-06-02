@@ -57,7 +57,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 
 	pluginName := bundleDistillPlugin
 	if pluginName == "" {
-		pluginName = cfg.GetDefaultLLMPlugin()
+		pluginName = cfg.GetDefaultLLM()
 	}
 	distiller := newLLMDistillerForPlugin(cfg, pluginName)
 
@@ -384,7 +384,7 @@ var preambleRe = regexp.MustCompile(`(?m)^-{3,}\s*$`)
 // codeFenceRe matches opening code fences
 var codeFenceRe = regexp.MustCompile("^```[a-z]*\\s*\n")
 
-// conversationalStarts are patterns LLMs add despite instructions
+// conversationalStarts are patterns Configs add despite instructions
 var conversationalStarts = []string{
 	"here's ", "here is ", "below is ", "below you'll find ",
 	"the compressed version", "the following ",

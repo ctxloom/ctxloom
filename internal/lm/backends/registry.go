@@ -8,12 +8,12 @@ import (
 
 // Configurable is an interface for backends that can be configured with plugin settings.
 type Configurable interface {
-	Configure(cfg *config.PluginConfig)
+	Configure(cfg *config.LLMConfig)
 }
 
 // ApplyPluginConfig applies plugin configuration to a backend.
 // This sets binary path, args, and env.
-func ApplyPluginConfig(backend Backend, cfg *config.PluginConfig) {
+func ApplyPluginConfig(backend Backend, cfg *config.LLMConfig) {
 	if cfg == nil {
 		return
 	}

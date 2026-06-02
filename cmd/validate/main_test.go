@@ -47,7 +47,8 @@ func TestRun_ValidConfig(t *testing.T) {
 defaults:
   profiles:
     - default
-  llm_plugin: mock
+llm:
+  default: mock
 `
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(validConfig), 0644))
 
@@ -152,13 +153,11 @@ defaults:
   profiles:
     - development
     - testing
-  llm_plugin: claudecode
   use_distilled: true
 
 llm:
-  plugin_paths:
-    - /home/user/.ctxloom/plugins
-  plugins:
+  default: claudecode
+  configs:
     claudecode:
       model: opus
     gemini:

@@ -138,43 +138,37 @@ func (c *Config) GetDefaultProfiles() []string {
 	return nil
 }
 
-// GetDefaultLLMPlugin returns the default LLM plugin name.
+// GetDefaultLLM returns the default LLM name.
 // Returns "claude-code" as fallback if not configured.
-func (c *Config) GetDefaultLLMPlugin() string {
-	if c.Defaults.LLMPlugin != "" {
-		return c.Defaults.LLMPlugin
-	}
-	return "claude-code"
+func (c *Config) GetDefaultLLM() string {
+	return c.LM.GetDefaultLLM()
 }
 
 // GetDefaultLLMModel returns the default LLM model name.
 // Returns empty string if not configured (backend will use its own default).
 func (c *Config) GetDefaultLLMModel() string {
-	return c.Defaults.LLMModel
+	return c.LM.Model
 }
 
-// SetDefaultLLMPlugin sets the default LLM plugin name.
-func (c *Config) SetDefaultLLMPlugin(name string) {
-	c.Defaults.LLMPlugin = name
+// SetDefaultLLM sets the default LLM name.
+func (c *Config) SetDefaultLLM(name string) {
+	c.LM.Default = name
 }
 
-// GetCompactionPlugin returns the plugin to use for session compaction.
-// Defaults to the default LLM plugin, or "claude-code" if not set.
-func (c *Config) GetCompactionPlugin() string {
-	if c.Defaults.CompactionPlugin != "" {
-		return c.Defaults.CompactionPlugin
+// GetCompactionLLM returns the LLM to use for session compaction.
+// Defaults to the default LLM if not set.
+func (c *Config) GetCompactionLLM() string {
+	if c.LM.Compaction.LLM != "" {
+		return c.LM.Compaction.LLM
 	}
-	if c.Defaults.LLMPlugin != "" {
-		return c.Defaults.LLMPlugin
-	}
-	return "claude-code"
+	return c.LM.GetDefaultLLM()
 }
 
 // GetCompactionModel returns the model to use for session compaction.
 // Defaults to "haiku".
 func (c *Config) GetCompactionModel() string {
-	if c.Defaults.CompactionModel != "" {
-		return c.Defaults.CompactionModel
+	if c.LM.Compaction.Model != "" {
+		return c.LM.Compaction.Model
 	}
 	return "haiku"
 }
@@ -182,8 +176,8 @@ func (c *Config) GetCompactionModel() string {
 // GetCompactionChunkSize returns the target chunk size for compaction.
 // Defaults to 8000 tokens.
 func (c *Config) GetCompactionChunkSize() int {
-	if c.Defaults.CompactionChunks > 0 {
-		return c.Defaults.CompactionChunks
+	if c.LM.Compaction.Chunks > 0 {
+		return c.LM.Compaction.Chunks
 	}
 	return 8000
 }
@@ -217,7 +211,7 @@ func Load(opts ...LoadOption) (*Config, error) {
 
 	cfg := &Config{
 		LM: LMConfig{
-			Plugins: make(map[string]PluginConfig),
+			Configs: make(map[string]LLMConfig),
 		},
 		Profiles: make(map[string]Profile),
 		fs:       fs,
@@ -430,20 +424,6 @@ func (c *Config) SourceName() string {
 	default:
 		return "unknown"
 	}
-}
-
-// GetPluginPaths returns the paths where external plugins are searched for.
-// Defaults to .ctxloom/cache/plugins if not configured.
-func (c *Config) GetPluginPaths() []string {
-	if len(c.LM.PluginPaths) > 0 {
-		return c.LM.PluginPaths
-	}
-	// Default plugin paths from project .ctxloom/cache
-	var pluginPaths []string
-	for _, appPath := range c.AppPaths {
-		pluginPaths = append(pluginPaths, paths.PluginsPath(appPath))
-	}
-	return pluginPaths
 }
 
 // GetConfigFilePath returns the path to the primary config file.

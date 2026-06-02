@@ -69,3 +69,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0018](0018-bundle-edit-keeps-add-only-semantics.md) | `bundle edit` keeps add-only semantics; guards in place vs routing through UpdateBundle | Superseded |
 | [0019](0019-cli-pure-frontend.md) | The CLI (and every frontend) is a pure frontend over internal/operations | Accepted |
 | [0020](0020-operations-llm-boundary.md) | The operations/LLM boundary: Distiller interface + backends polymorphic package | Accepted |
+| [0021](0021-consolidate-llm-config.md) | Consolidate all LLM config under `llm:`; breaking schema change | Accepted |

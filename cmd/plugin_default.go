@@ -28,7 +28,7 @@ With a plugin name argument, sets that plugin as the default.`,
 		}
 
 		if len(args) == 0 {
-			fmt.Println(cfg.GetDefaultLLMPlugin())
+			fmt.Println(cfg.GetDefaultLLM())
 			return nil
 		}
 
@@ -52,24 +52,31 @@ With a plugin name argument, sets that plugin as the default.`,
 	},
 }
 
-// isKnownPlugin checks if a plugin is registered as a built-in or found as an external plugin.
+// isKnownPlugin checks if a plugin is a registered built-in or has a config entry.
 func isKnownPlugin(cfg *config.Config, name string) bool {
 	if backends.Exists(name) {
 		return true
 	}
-	for _, p := range findExternalPlugins(cfg.GetPluginPaths()) {
-		if p.name == name {
-			return true
-		}
-	}
-	return false
+	_, ok := cfg.LM.Configs[name]
+	return ok
 }
 
-// availablePluginNames returns a sorted list of all known plugin names.
+// availablePluginNames returns a sorted list of all known plugin names:
+// registered built-ins plus any with an explicit config entry.
 func availablePluginNames(cfg *config.Config) []string {
-	names := backends.List()
-	for _, p := range findExternalPlugins(cfg.GetPluginPaths()) {
-		names = append(names, p.name)
+	seen := map[string]bool{}
+	var names []string
+	for _, n := range backends.List() {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	for n := range cfg.LM.Configs {
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
 	}
 	sort.Strings(names)
 	return names

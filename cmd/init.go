@@ -523,8 +523,8 @@ func ctxloomDirExists(appDir string) bool {
 // engineFromExistingConfig returns the engine recorded in an existing config,
 // falling back to current when the config is unreadable or names none.
 func engineFromExistingConfig(current string) string {
-	if cfg, err := config.Load(); err == nil && cfg.Defaults.LLMPlugin != "" {
-		return cfg.Defaults.LLMPlugin
+	if cfg, err := config.Load(); err == nil && cfg.LM.Default != "" {
+		return cfg.LM.Default
 	}
 	return current
 }

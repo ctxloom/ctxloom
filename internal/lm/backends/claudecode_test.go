@@ -58,7 +58,7 @@ func TestNewClaudeCode_SupportedModes(t *testing.T) {
 func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.PluginConfig{
+	cfg := &config.LLMConfig{
 		BinaryPath: "/custom/path/to/claude",
 	}
 	backend.Configure(cfg)
@@ -71,7 +71,7 @@ func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 func TestClaudeCode_Configure_Args(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.PluginConfig{
+	cfg := &config.LLMConfig{
 		Args: []string{"--no-telemetry", "--config", "/custom/config"},
 	}
 	backend.Configure(cfg)
@@ -84,7 +84,7 @@ func TestClaudeCode_Configure_Args(t *testing.T) {
 func TestClaudeCode_Configure_Env(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.PluginConfig{
+	cfg := &config.LLMConfig{
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": "test-key",
 			"CUSTOM_VAR":        "custom-value",
@@ -103,7 +103,7 @@ func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 	backend := NewClaudeCode()
 
 	// Configure with empty config (not nil) should work
-	cfg := &config.PluginConfig{}
+	cfg := &config.LLMConfig{}
 	backend.Configure(cfg)
 
 	// Defaults should be preserved
@@ -115,7 +115,7 @@ func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.PluginConfig{
+	cfg := &config.LLMConfig{
 		// BinaryPath, Args, Env all empty
 	}
 	backend.Configure(cfg)

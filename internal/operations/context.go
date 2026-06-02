@@ -195,7 +195,7 @@ func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 
 // sortFragmentsByPriority arranges fragments using bookend strategy:
 // Highest priority at start, second-highest at end, rest fill middle (descending).
-// This addresses the "lost in the middle" problem where LLMs poorly attend to middle content.
+// This addresses the "lost in the middle" problem where Configs poorly attend to middle content.
 func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
 	if len(fragments) == 0 {
 		return nil

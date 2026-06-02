@@ -26,10 +26,10 @@ func SetDefaultPlugin(_ context.Context, cfg *config.Config, req SetDefaultPlugi
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if cfg.GetDefaultLLMPlugin() == req.Name {
+	if cfg.GetDefaultLLM() == req.Name {
 		return &SetDefaultPluginResult{Status: "unchanged", Name: req.Name}, nil
 	}
-	cfg.SetDefaultLLMPlugin(req.Name)
+	cfg.SetDefaultLLM(req.Name)
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}

@@ -27,7 +27,7 @@ func TestCleanDistilledOutput_NoPreambleIsUnchanged(t *testing.T) {
 }
 
 func TestCleanDistilledOutput_StripsConversationalPrefixLine(t *testing.T) {
-	// LLMs often prepend a chatty opener; we strip the first line when
+	// Configs often prepend a chatty opener; we strip the first line when
 	// it begins with a known conversational pattern.
 	cases := []struct {
 		name string

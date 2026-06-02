@@ -94,7 +94,7 @@ func TestApplyPluginConfig(t *testing.T) {
 	t.Run("with configurable backend", func(t *testing.T) {
 		backend := Get("mock")
 		// Mock might be configurable, just verify it doesn't panic
-		config := &config.PluginConfig{}
+		config := &config.LLMConfig{}
 		ApplyPluginConfig(backend, config)
 		assert.NotNil(t, backend)
 	})

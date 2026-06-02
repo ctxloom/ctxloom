@@ -147,7 +147,7 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 	if cfg == nil {
 		return nil
 	}
-	return newLLMDistillerForPlugin(cfg, cfg.GetDefaultLLMPlugin())
+	return newLLMDistillerForPlugin(cfg, cfg.GetDefaultLLM())
 }
 
 // newLLMDistillerForPlugin is newLLMDistiller with an explicit plugin override
@@ -162,7 +162,7 @@ func newLLMDistillerForPlugin(cfg *config.Config, pluginName string) operations.
 	}
 	return &mcpLLMDistillerSDK{
 		pluginName: pluginName,
-		pluginEnv:  cfg.LM.Plugins[pluginName].Env,
+		pluginEnv:  cfg.LM.Configs[pluginName].Env,
 		prompt:     prompt,
 	}
 }

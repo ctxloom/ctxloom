@@ -21,7 +21,7 @@ func TestInitializeProject(t *testing.T) {
 
 	cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
 	require.NoError(t, err, "config.yaml should be written")
-	assert.Contains(t, string(cfgData), "llm_plugin: claude-code")
+	assert.Contains(t, string(cfgData), "default: claude-code")
 
 	bundlesDir, err := afero.DirExists(fs, paths.BundlesPath(appDir))
 	require.NoError(t, err)

@@ -13,41 +13,43 @@
     },
     "llm": {
       "type": "object",
-      "description": "Language model plugin configuration",
+      "description": "Large language model configuration",
       "properties": {
-        "plugin_paths": {
-          "type": "array",
-          "description": "Paths to search for external plugin binaries",
-          "items": {
-            "type": "string"
-          },
-          "examples": [["/home/user/.ctxloom/plugins", ".ctxloom/plugins"]]
+        "default": {
+          "type": "string",
+          "description": "Default LLM name",
+          "examples": ["claude-code", "gemini", "codex"]
         },
-        "plugins": {
+        "model": {
+          "type": "string",
+          "description": "Default model (per-LLM overrides go under configs)",
+          "examples": ["opus", "sonnet"]
+        },
+        "configs": {
           "type": "object",
-          "description": "Plugin configurations keyed by name",
+          "description": "Per-LLM overrides keyed by name",
           "additionalProperties": {
             "type": "object",
             "properties": {
               "model": {
                 "type": "string",
-                "description": "Default model to use with this plugin",
+                "description": "Default model to use with this LLM",
                 "examples": ["opus", "sonnet", "gpt-4"]
               },
               "binary_path": {
                 "type": "string",
-                "description": "Path to the plugin binary (optional, uses PATH if empty)"
+                "description": "Path to the LLM binary (optional, uses PATH if empty)"
               },
               "args": {
                 "type": "array",
-                "description": "Command line arguments to pass to the plugin",
+                "description": "Command line arguments to pass to the LLM",
                 "items": {
                   "type": "string"
                 }
               },
               "env": {
                 "type": "object",
-                "description": "Environment variables to set for the plugin",
+                "description": "Environment variables to set for the LLM",
                 "additionalProperties": {
                   "type": "string"
                 }
@@ -55,6 +57,25 @@
             },
             "additionalProperties": false
           }
+        },
+        "compaction": {
+          "type": "object",
+          "description": "Session-compaction LLM settings",
+          "properties": {
+            "llm": {
+              "type": "string",
+              "description": "LLM for compaction (default: the default LLM)"
+            },
+            "model": {
+              "type": "string",
+              "description": "Model for compaction (default: haiku)"
+            },
+            "chunks": {
+              "type": "integer",
+              "description": "Target tokens per chunk (default: 8000)"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -90,14 +111,6 @@
             "minLength": 1
           },
           "uniqueItems": true
-        },
-        "llm_plugin": {
-          "type": "string",
-          "description": "Default LLM plugin to use (e.g., 'claude-code', 'gemini')"
-        },
-        "llm_model": {
-          "type": "string",
-          "description": "Default LLM model to use within the plugin (e.g., 'opus', 'sonnet', 'haiku')"
         },
         "use_distilled": {
           "type": "boolean",

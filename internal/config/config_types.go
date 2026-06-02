@@ -129,48 +129,58 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 	}
 }
 
-// PluginConfig holds configuration for a specific AI plugin.
-type PluginConfig struct {
-	Model      string            `mapstructure:"model" yaml:"model,omitempty"` // Default model for this plugin
+// LLMConfig holds configuration for a specific LLM backend.
+type LLMConfig struct {
+	Model      string            `mapstructure:"model" yaml:"model,omitempty"` // Default model for this LLM
 	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
 	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
 	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
 }
 
-// LMConfig holds LM (language model) configuration.
+// LMConfig holds all large-language-model configuration: the default LLM and
+// model, per-LLM overrides, and session-compaction settings.
 type LMConfig struct {
-	PluginPaths []string                `mapstructure:"plugin_paths" yaml:"plugin_paths,omitempty"`
-	Plugins     map[string]PluginConfig `mapstructure:"plugins" yaml:"plugins"`
+	Default    string               `mapstructure:"default" yaml:"default,omitempty"`       // Default LLM name (e.g., "claude-code", "gemini")
+	Model      string               `mapstructure:"model" yaml:"model,omitempty"`           // Default model (e.g., "opus", "sonnet")
+	Configs    map[string]LLMConfig `mapstructure:"configs" yaml:"configs,omitempty"`       // Per-LLM overrides, keyed by name
+	Compaction CompactionConfig     `mapstructure:"compaction" yaml:"compaction,omitempty"` // Session-compaction LLM settings
 }
 
-// DefaultPlugin is the LM backend used when none is selected. There is no
-// per-config override yet, so this is a hard constant.
-const DefaultPlugin = "claude-code"
-
-// GetDefaultPlugin returns the default LM plugin name. It currently always
-// returns DefaultPlugin and ignores the receiver — the method form is kept so
-// a configurable default can be wired in later without touching call sites.
-func (*LMConfig) GetDefaultPlugin() string {
-	return DefaultPlugin
+// CompactionConfig holds the LLM settings used for session compaction.
+type CompactionConfig struct {
+	LLM    string `mapstructure:"llm" yaml:"llm,omitempty"`       // LLM for compaction (default: the default LLM)
+	Model  string `mapstructure:"model" yaml:"model,omitempty"`   // Model for compaction (default: "haiku")
+	Chunks int    `mapstructure:"chunks" yaml:"chunks,omitempty"` // Target tokens per chunk (default: 8000)
 }
 
-// GetConfiguredPlugins returns the list of configured plugin names.
-// If no plugins are configured, returns the default plugin.
-func (c *LMConfig) GetConfiguredPlugins() []string {
-	if len(c.Plugins) == 0 {
-		return []string{c.GetDefaultPlugin()}
+// DefaultLLM is the LLM used when none is configured.
+const DefaultLLM = "claude-code"
+
+// GetDefaultLLM returns the configured default LLM, or DefaultLLM if unset.
+func (c *LMConfig) GetDefaultLLM() string {
+	if c != nil && c.Default != "" {
+		return c.Default
+	}
+	return DefaultLLM
+}
+
+// GetConfiguredLLMs returns the names of Configs with explicit config.
+// If none are configured, returns the default LLM.
+func (c *LMConfig) GetConfiguredLLMs() []string {
+	if len(c.Configs) == 0 {
+		return []string{c.GetDefaultLLM()}
 	}
 	var names []string
-	for name := range c.Plugins {
+	for name := range c.Configs {
 		names = append(names, name)
 	}
 	return names
 }
 
-// GetDefaultModel returns the default model for the specified plugin.
-// Returns empty string if no default is configured.
-func (c *LMConfig) GetDefaultModel(pluginName string) string {
-	if cfg, ok := c.Plugins[pluginName]; ok {
+// GetDefaultModel returns the per-LLM default model for the named LLM.
+// Returns empty string if no override is configured.
+func (c *LMConfig) GetDefaultModel(llmName string) string {
+	if cfg, ok := c.Configs[llmName]; ok {
 		return cfg.Model
 	}
 	return ""
@@ -178,7 +188,7 @@ func (c *LMConfig) GetDefaultModel(pluginName string) string {
 
 // FragmentRef references a fragment with optional priority for context ordering.
 // Higher priority fragments are placed at the beginning/end of context (bookend strategy)
-// to address the "lost in the middle" problem where LLMs poorly attend to middle content.
+// to address the "lost in the middle" problem where Configs poorly attend to middle content.
 type FragmentRef struct {
 	Name     string `yaml:"name"`
 	Priority int    `yaml:"priority,omitempty"` // Higher = more important (default: 0)
@@ -234,27 +244,16 @@ type Profile struct {
 
 // Defaults holds default settings applied when no explicit values are specified.
 type Defaults struct {
-	Profiles         []string `mapstructure:"profiles" yaml:"profiles,omitempty"`                   // Default profiles to load (supports multiple)
-	LLMPlugin        string   `mapstructure:"llm_plugin" yaml:"llm_plugin,omitempty"`               // Default LLM plugin name (e.g., "claude-code", "gemini")
-	LLMModel         string   `mapstructure:"llm_model" yaml:"llm_model,omitempty"`                 // Default LLM model (e.g., "opus", "sonnet", "haiku")
-	UseDistilled     *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
-	CompactionPlugin string   `mapstructure:"compaction_plugin" yaml:"compaction_plugin,omitempty"` // LLM plugin for session compaction (default: llm_plugin)
-	CompactionModel  string   `mapstructure:"compaction_model" yaml:"compaction_model,omitempty"`   // Model for session compaction (default: "haiku")
-	CompactionChunks int      `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per chunk (default: 8000)
+	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`          // Default profiles to load (supports multiple)
+	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
 }
 
 // hasAny reports whether any default is set. Save uses this to decide whether
 // to persist the `defaults` block; it MUST cover every field, or setting only
-// an uncovered field (e.g. a compaction setting) would silently drop the whole
-// block on the next Save.
+// an uncovered field would silently drop the whole block on the next Save.
 func (d Defaults) hasAny() bool {
 	return len(d.Profiles) > 0 ||
-		d.LLMPlugin != "" ||
-		d.LLMModel != "" ||
-		d.UseDistilled != nil ||
-		d.CompactionPlugin != "" ||
-		d.CompactionModel != "" ||
-		d.CompactionChunks != 0
+		d.UseDistilled != nil
 }
 
 // SyncConfig holds configuration for dependency sync behavior.
@@ -262,14 +261,6 @@ type SyncConfig struct {
 	// AutoSync enables automatic sync of remote dependencies on startup.
 	// Defaults to true if not specified.
 	AutoSync *bool `mapstructure:"auto_sync" yaml:"auto_sync,omitempty"`
-
-	// Lock controls whether to update lockfile after sync.
-	// Defaults to true if not specified.
-	Lock *bool `mapstructure:"lock" yaml:"lock,omitempty"`
-
-	// ApplyHooks controls whether to apply hooks after sync.
-	// Defaults to true if not specified.
-	ApplyHooks *bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
 }
 
 // ShouldAutoSync returns whether to auto-sync dependencies on startup.
@@ -279,24 +270,6 @@ func (s *SyncConfig) ShouldAutoSync() bool {
 		return true
 	}
 	return *s.AutoSync
-}
-
-// ShouldLock returns whether to update lockfile after sync.
-// Defaults to true if not explicitly set.
-func (s *SyncConfig) ShouldLock() bool {
-	if s == nil || s.Lock == nil {
-		return true
-	}
-	return *s.Lock
-}
-
-// ShouldApplyHooks returns whether to apply hooks after sync.
-// Defaults to true if not explicitly set.
-func (s *SyncConfig) ShouldApplyHooks() bool {
-	if s == nil || s.ApplyHooks == nil {
-		return true
-	}
-	return *s.ApplyHooks
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.

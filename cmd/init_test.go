@@ -93,17 +93,14 @@ func TestEnsureGitignoreEntry(t *testing.T) {
 
 // TestGenerateConfig covers the ctxloom init config template. The
 // engine name appears in two places (llm.plugins.<engine> and
-// defaults.llm_plugin), and the template must be valid YAML.
+// defaults.llm), and the template must be valid YAML.
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "gemini", "codex"} {
 		t.Run(engine, func(t *testing.T) {
 			data := operations.GenerateConfigYAML(engine)
 			body := string(data)
-			// Two substitution sites.
-			assert.Contains(t, body, "  "+engine+": {}",
-				"engine must appear as a key under llm.plugins")
-			assert.Contains(t, body, "llm_plugin: "+engine,
-				"engine must appear as defaults.llm_plugin")
+			assert.Contains(t, body, "default: "+engine,
+				"engine must appear as llm.default")
 			// Sanity: must be parseable shape (top-level keys, ends with newline).
 			assert.True(t, strings.HasPrefix(body, "# ctxloom Configuration"),
 				"comment header pins the file's identity")

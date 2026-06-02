@@ -1,14 +1,22 @@
 # ctxloom Configuration
 # See https://github.com/ctxloom/ctxloom for documentation
 
-# Language model plugin configuration
+# Large language model configuration
 llm:
-  plugins:
-    claude-code: {}
+  default: claude-code
+  # Optional global default model (per-LLM overrides go under `configs`):
+  # model: opus
+  # Per-LLM overrides (only needed to change a model, point at an external
+  # binary, or pass args/env):
+  # configs:
+  #   claude-code: { binary_path: /custom/claude }
+  #   gemini:      { model: gemini-2.5-pro }
+  # Session-compaction LLM (defaults to the default LLM + "haiku"):
+  # compaction: { llm: claude-code, model: haiku, chunks: 8000 }
 
 # Default settings
 defaults:
-  llm_plugin: claude-code
+  use_distilled: true
   # Uncomment to set default profiles from ctxloom-default:
   # profiles:
   #   - ctxloom-default/go-developer

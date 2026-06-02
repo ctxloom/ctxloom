@@ -27,11 +27,11 @@ func TestHandshakeConfig_HasRequiredFields(t *testing.T) {
 	assert.Equal(t, "ai-backend-v1", HandshakeConfig.MagicCookieValue)
 }
 
-// TestPluginMap_ContainsAIPlugin verifies that the plugin map contains
+// TestPluginMap_ContainsLLM verifies that the plugin map contains
 // the expected AI plugin entry. This is required for plugin dispensing.
-func TestPluginMap_ContainsAIPlugin(t *testing.T) {
-	assert.Contains(t, PluginMap, PluginName)
-	assert.Equal(t, "ai_plugin", PluginName)
+func TestPluginMap_ContainsLLM(t *testing.T) {
+	assert.Contains(t, PluginMap, LLMPluginKey)
+	assert.Equal(t, "ai_plugin", LLMPluginKey)
 }
 
 // =============================================================================
@@ -247,15 +247,15 @@ func TestConvertModelInfoToProto_EmptyFields(t *testing.T) {
 }
 
 // =============================================================================
-// AIPluginGRPC Tests
+// LLMGRPCPlugin Tests
 //
 // These tests verify the plugin wrapper creates correct server/client types.
 // =============================================================================
 
-// TestAIPluginGRPC_GRPCClient verifies that GRPCClient returns a properly
+// TestLLMGRPCPlugin_GRPCClient verifies that GRPCClient returns a properly
 // constructed client wrapper. This is called by go-plugin during connection.
-func TestAIPluginGRPC_GRPCClient(t *testing.T) {
-	plugin := &AIPluginGRPC{}
+func TestLLMGRPCPlugin_GRPCClient(t *testing.T) {
+	plugin := &LLMGRPCPlugin{}
 
 	// GRPCClient requires a connection, but we can verify it doesn't panic
 	// with nil broker (broker is only used for advanced scenarios)
@@ -343,8 +343,8 @@ func TestMockClient_DefaultBehavior(t *testing.T) {
 // TestMockClient_CustomInfo verifies that custom Info behavior can be injected.
 func TestMockClient_CustomInfo(t *testing.T) {
 	mock := &MockClient{
-		InfoFunc: func(ctx context.Context) (*PluginInfo, error) {
-			return &PluginInfo{Name: "custom-plugin", Version: "2.0.0"}, nil
+		InfoFunc: func(ctx context.Context) (*LLMInfo, error) {
+			return &LLMInfo{Name: "custom-plugin", Version: "2.0.0"}, nil
 		},
 	}
 
@@ -425,10 +425,10 @@ func TestMockClientFactory_ReturnsProvidedMock(t *testing.T) {
 	assert.Same(t, mock, client2)
 }
 
-// TestClient_InterfaceCompliance verifies that PluginClient implements Client.
+// TestClient_InterfaceCompliance verifies that LLMRunner implements Client.
 func TestClient_InterfaceCompliance(t *testing.T) {
-	// This is a compile-time check that PluginClient implements Client
-	var _ Client = (*PluginClient)(nil)
+	// This is a compile-time check that LLMRunner implements Client
+	var _ Client = (*LLMRunner)(nil)
 
 	// And MockClient
 	var _ Client = (*MockClient)(nil)

@@ -520,10 +520,10 @@ Examples:
 		}
 
 		// Create plugin client
-		var client *pb.PluginClient
+		var client *pb.LLMRunner
 		if llmCfg.BinaryPath != "" {
 			// Use external plugin binary
-			client, err = pb.NewPluginClient(llmCfg.BinaryPath, llmCfg.Args, runVerbosity)
+			client, err = pb.NewLLMRunner(llmCfg.BinaryPath, llmCfg.Args, runVerbosity)
 		} else {
 			// Use built-in plugin via self-invocation
 			client, err = pb.NewSelfInvokingClient(llmName, runVerbosity)

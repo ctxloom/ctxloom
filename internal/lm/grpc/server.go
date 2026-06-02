@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// AIPluginGRPC is the implementation of plugin.GRPCPlugin for AI backends.
-type AIPluginGRPC struct {
+// LLMGRPCPlugin is the implementation of plugin.GRPCPlugin for AI backends.
+type LLMGRPCPlugin struct {
 	plugin.Plugin
 	// Impl is the concrete backend implementation.
 	// This is only set on the server (plugin) side.
@@ -18,30 +18,30 @@ type AIPluginGRPC struct {
 }
 
 // GRPCServer returns the gRPC server for the plugin.
-func (p *AIPluginGRPC) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
-	RegisterAIPluginServer(s, &GRPCServer{Impl: p.Impl})
+func (p *LLMGRPCPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+	RegisterLLMServer(s, &GRPCServer{Impl: p.Impl})
 	return nil
 }
 
 // GRPCClient returns the gRPC client for the plugin.
-func (p *AIPluginGRPC) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return &GRPCClient{client: NewAIPluginClient(c)}, nil
+func (p *LLMGRPCPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+	return &GRPCClient{client: NewLLMClient(c)}, nil
 }
 
 // GRPCServer wraps a Backend implementation to serve over gRPC.
 type GRPCServer struct {
-	UnimplementedAIPluginServer
+	UnimplementedLLMServer
 	Impl backends.Backend
 }
 
 // Info returns metadata about the plugin.
-func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*PluginInfo, error) {
+func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*LLMInfo, error) {
 	modes := s.Impl.SupportedModes()
 	pbModes := make([]ExecutionMode, len(modes))
 	for i, m := range modes {
 		pbModes[i] = ExecutionMode(m)
 	}
-	return &PluginInfo{
+	return &LLMInfo{
 		Name:           s.Impl.Name(),
 		Version:        s.Impl.Version(),
 		SupportedModes: pbModes,
@@ -49,7 +49,7 @@ func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*PluginInfo, error) {
 }
 
 // Run executes the backend and streams output.
-func (s *GRPCServer) Run(req *RunRequest, stream AIPlugin_RunServer) error {
+func (s *GRPCServer) Run(req *RunRequest, stream LLM_RunServer) error {
 	// Create writers that send output over the stream. os/exec copies
 	// stdout and stderr from separate goroutines, so both writers may call
 	// stream.Send concurrently — which gRPC forbids. Share one mutex so
@@ -156,7 +156,7 @@ func convertModelInfoToProto(m *backends.ModelInfo) *ModelInfo {
 // and stderr writers so their concurrent Write calls never invoke
 // stream.Send concurrently (gRPC forbids concurrent Send on one stream).
 type streamWriter struct {
-	stream   AIPlugin_RunServer
+	stream   LLM_RunServer
 	sendMu   *sync.Mutex
 	isStderr bool
 }

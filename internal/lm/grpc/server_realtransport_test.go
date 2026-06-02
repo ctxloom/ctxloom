@@ -71,7 +71,7 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 
 	lis := bufconn.Listen(1 << 20)
 	grpcServer := googlegrpc.NewServer()
-	RegisterAIPluginServer(grpcServer, &GRPCServer{Impl: &concurrentWriteBackend{chunks: chunks}})
+	RegisterLLMServer(grpcServer, &GRPCServer{Impl: &concurrentWriteBackend{chunks: chunks}})
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- grpcServer.Serve(lis) }()
@@ -85,7 +85,7 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	client := NewAIPluginClient(conn)
+	client := NewLLMClient(conn)
 
 	stream, err := client.Run(context.Background(), &RunRequest{
 		Prompt:  &Fragment{Content: "hi"},

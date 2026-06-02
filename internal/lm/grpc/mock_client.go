@@ -9,7 +9,7 @@ import (
 // Configure the function fields to control behavior in tests.
 type MockClient struct {
 	// InfoFunc is called when Info is invoked.
-	InfoFunc func(ctx context.Context) (*PluginInfo, error)
+	InfoFunc func(ctx context.Context) (*LLMInfo, error)
 
 	// RunFunc is called when Run is invoked.
 	RunFunc func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error)
@@ -31,12 +31,12 @@ type MockClient struct {
 var _ Client = (*MockClient)(nil)
 
 // Info returns metadata about the plugin.
-func (m *MockClient) Info(ctx context.Context) (*PluginInfo, error) {
+func (m *MockClient) Info(ctx context.Context) (*LLMInfo, error) {
 	m.InfoCalls++
 	if m.InfoFunc != nil {
 		return m.InfoFunc(ctx)
 	}
-	return &PluginInfo{Name: "mock", Version: "1.0.0"}, nil
+	return &LLMInfo{Name: "mock", Version: "1.0.0"}, nil
 }
 
 // Run executes the plugin and streams output to the provided writers.

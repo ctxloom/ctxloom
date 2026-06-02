@@ -9,7 +9,7 @@ import (
 // This interface enables dependency injection and testing.
 type Client interface {
 	// Info returns metadata about the plugin.
-	Info(ctx context.Context) (*PluginInfo, error)
+	Info(ctx context.Context) (*LLMInfo, error)
 
 	// Run executes the plugin and streams output to the provided writers.
 	// Returns the exit code.
@@ -26,8 +26,8 @@ type Client interface {
 // This type enables dependency injection for client creation.
 type ClientFactory func(backendName string, verbosity int) (Client, error)
 
-// Ensure PluginClient implements Client interface.
-var _ Client = (*PluginClient)(nil)
+// Ensure LLMRunner implements Client interface.
+var _ Client = (*LLMRunner)(nil)
 
 // DefaultClientFactory returns the default factory that creates real plugin clients.
 func DefaultClientFactory() ClientFactory {

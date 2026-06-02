@@ -1,22 +1,22 @@
 syntax = "proto3";
 
-package ctxloom.lm.plugin;
+package ctxloom.lm.llm;
 
 option go_package = "github.com/ctxloom/ctxloom/internal/lm/grpc";
 
-// AIPlugin is the gRPC service that all AI backend plugins must implement.
-service AIPlugin {
-  // Info returns metadata about the plugin.
-  rpc Info(Empty) returns (PluginInfo);
+// LLM is the gRPC service that all LLM backends must implement.
+service LLM {
+  // Info returns metadata about the LLM.
+  rpc Info(Empty) returns (LLMInfo);
 
-  // Run executes the AI backend with the given prompt and context.
+  // Run executes the LLM backend with the given prompt and context.
   // Streams output back to the caller for real-time display.
   rpc Run(RunRequest) returns (stream RunResponse);
 }
 
 message Empty {}
 
-message PluginInfo {
+message LLMInfo {
   string name = 1;
   string version = 2;
   repeated ExecutionMode supported_modes = 3;

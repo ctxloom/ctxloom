@@ -13,11 +13,11 @@ import (
 
 // GRPCClient is the client-side implementation that communicates with the plugin.
 type GRPCClient struct {
-	client AIPluginClient
+	client LLMClient
 }
 
 // Info returns metadata about the plugin.
-func (c *GRPCClient) Info(ctx context.Context) (*PluginInfo, error) {
+func (c *GRPCClient) Info(ctx context.Context) (*LLMInfo, error) {
 	return c.client.Info(ctx, &Empty{})
 }
 
@@ -68,9 +68,9 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdo
 	return result, nil
 }
 
-// PluginClient manages the lifecycle of a plugin process.
-type PluginClient struct {
-	conn pluginConnection
+// LLMRunner manages the lifecycle of a plugin process.
+type LLMRunner struct {
+	conn llmConnection
 	grpc *GRPCClient
 }
 
@@ -89,11 +89,11 @@ func verbosityToHclogLevel(verbosity int) hclog.Level {
 	}
 }
 
-// pluginConnection is the abstraction over the hashicorp/go-plugin
-// machinery that NewPluginClient depends on. Production
-// dialPluginConnection wraps a real *plugin.Client; tests inject a
+// llmConnection is the abstraction over the hashicorp/go-plugin
+// machinery that NewLLMRunner depends on. Production
+// dialLLMConnection wraps a real *plugin.Client; tests inject a
 // fake that returns canned errors at each lifecycle step.
-type pluginConnection interface {
+type llmConnection interface {
 	// Client returns the plugin's gRPC client interface, or an error if
 	// the subprocess didn't come up.
 	Client() (plugin.ClientProtocol, error)
@@ -101,18 +101,18 @@ type pluginConnection interface {
 	Kill()
 }
 
-// realPluginConnection adapts *plugin.Client to pluginConnection.
-type realPluginConnection struct {
+// realLLMConnection adapts *plugin.Client to llmConnection.
+type realLLMConnection struct {
 	client *plugin.Client
 }
 
-func (r *realPluginConnection) Client() (plugin.ClientProtocol, error) { return r.client.Client() }
-func (r *realPluginConnection) Kill()                                  { r.client.Kill() }
+func (r *realLLMConnection) Client() (plugin.ClientProtocol, error) { return r.client.Client() }
+func (r *realLLMConnection) Kill()                                  { r.client.Kill() }
 
-// dialPluginConnection is the IoC seam tests override to avoid spawning
+// dialLLMConnection is the IoC seam tests override to avoid spawning
 // real subprocesses. Production points it at the real go-plugin machinery.
-var dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
-	return &realPluginConnection{client: plugin.NewClient(&plugin.ClientConfig{
+var dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: HandshakeConfig,
 		Plugins:         PluginMap,
 		Cmd:             exec.Command(cmd, args...),
@@ -123,10 +123,10 @@ var dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) 
 	})}
 }
 
-// NewPluginClient creates a new plugin client that spawns the given command.
+// NewLLMRunner creates a new plugin client that spawns the given command.
 // The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
-func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, error) {
+func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) {
 	level := verbosityToHclogLevel(verbosity)
 	output := io.Discard
 	if verbosity > 0 {
@@ -139,7 +139,7 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 		Level:  level,
 	})
 
-	conn := dialPluginConnection(cmd, args, logger)
+	conn := dialLLMConnection(cmd, args, logger)
 
 	// Connect via gRPC
 	rpcClient, err := conn.Client()
@@ -149,7 +149,7 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 	}
 
 	// Dispense the plugin
-	raw, err := rpcClient.Dispense(PluginName)
+	raw, err := rpcClient.Dispense(LLMPluginKey)
 	if err != nil {
 		conn.Kill()
 		return nil, err
@@ -161,7 +161,7 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 		return nil, fmt.Errorf("unexpected plugin type: %T", raw)
 	}
 
-	return &PluginClient{
+	return &LLMRunner{
 		conn: conn,
 		grpc: grpcClient,
 	}, nil
@@ -170,33 +170,33 @@ func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, e
 // NewSelfInvokingClient creates a plugin client that invokes "ctxloom plugin serve <backend>".
 // This is used when no external plugin binary is found.
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
-func NewSelfInvokingClient(backendName string, verbosity int) (*PluginClient, error) {
+func NewSelfInvokingClient(backendName string, verbosity int) (*LLMRunner, error) {
 	// Get the path to the current executable
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 
-	return NewPluginClient(executable, []string{"llm", "serve", backendName}, verbosity)
+	return NewLLMRunner(executable, []string{"llm", "serve", backendName}, verbosity)
 }
 
 // Info returns metadata about the plugin.
-func (p *PluginClient) Info(ctx context.Context) (*PluginInfo, error) {
+func (p *LLMRunner) Info(ctx context.Context) (*LLMInfo, error) {
 	return p.grpc.Info(ctx)
 }
 
 // Run executes the plugin.
-func (p *PluginClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+func (p *LLMRunner) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
 	return p.grpc.Run(ctx, req, stdout, stderr)
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (p *PluginClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
 	return p.grpc.RunWithModelInfo(ctx, req, stdout, stderr)
 }
 
 // Kill terminates the plugin process.
-func (p *PluginClient) Kill() {
+func (p *LLMRunner) Kill() {
 	if p.conn != nil {
 		p.conn.Kill()
 	}

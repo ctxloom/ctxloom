@@ -14,10 +14,10 @@ var HandshakeConfig = plugin.HandshakeConfig{
 	MagicCookieValue: "ai-backend-v1",
 }
 
-// PluginName is the name used in the plugin map.
-const PluginName = "ai_plugin"
+// LLMPluginKey is the name used in the plugin map.
+const LLMPluginKey = "ai_plugin"
 
 // PluginMap is the map of plugins the host can dispense.
 var PluginMap = map[string]plugin.Plugin{
-	PluginName: &AIPluginGRPC{},
+	LLMPluginKey: &LLMGRPCPlugin{},
 }

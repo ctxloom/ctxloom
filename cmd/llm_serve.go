@@ -37,7 +37,7 @@ var llmServeCmd = &cobra.Command{
 
 		// Create the plugin map with our backend
 		pluginMap := map[string]plugin.Plugin{
-			pb.PluginName: &pb.AIPluginGRPC{Impl: backend},
+			pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
 		}
 
 		// Serve the plugin

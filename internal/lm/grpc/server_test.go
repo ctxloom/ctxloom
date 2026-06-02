@@ -17,7 +17,7 @@ import (
 )
 
 // fakeRunServer captures everything the GRPCServer streams during Run.
-// Implements AIPlugin_RunServer well enough for these tests; the
+// Implements LLM_RunServer well enough for these tests; the
 // methods our code path doesn't touch are no-ops.
 type fakeRunServer struct {
 	sent []*RunResponse

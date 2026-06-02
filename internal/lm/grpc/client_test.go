@@ -15,14 +15,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// fakeAIPluginClient implements AIPluginClient for unit-testing
+// fakeLLMClient implements LLMClient for unit-testing
 // GRPCClient against a controlled set of responses. No real gRPC,
 // no network — pure in-process.
-type fakeAIPluginClient struct {
-	infoResp *PluginInfo
+type fakeLLMClient struct {
+	infoResp *LLMInfo
 	infoErr  error
 
-	runStream AIPlugin_RunClient
+	runStream LLM_RunClient
 	runErr    error
 
 	gotInfoCalls int
@@ -30,12 +30,12 @@ type fakeAIPluginClient struct {
 	lastRunReq   *RunRequest
 }
 
-func (f *fakeAIPluginClient) Info(ctx context.Context, in *Empty, opts ...googlegrpc.CallOption) (*PluginInfo, error) {
+func (f *fakeLLMClient) Info(ctx context.Context, in *Empty, opts ...googlegrpc.CallOption) (*LLMInfo, error) {
 	f.gotInfoCalls++
 	return f.infoResp, f.infoErr
 }
 
-func (f *fakeAIPluginClient) Run(ctx context.Context, in *RunRequest, opts ...googlegrpc.CallOption) (googlegrpc.ServerStreamingClient[RunResponse], error) {
+func (f *fakeLLMClient) Run(ctx context.Context, in *RunRequest, opts ...googlegrpc.CallOption) (googlegrpc.ServerStreamingClient[RunResponse], error) {
 	f.gotRunCalls++
 	f.lastRunReq = in
 	if f.runErr != nil {
@@ -74,7 +74,7 @@ func (s *fakeStream) SendMsg(m any) error          { return nil }
 func (s *fakeStream) RecvMsg(m any) error          { return nil }
 
 func TestGRPCClient_Info_Delegates(t *testing.T) {
-	fake := &fakeAIPluginClient{infoResp: &PluginInfo{Name: "test", Version: "1.2.3"}}
+	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "test", Version: "1.2.3"}}
 	c := &GRPCClient{client: fake}
 
 	info, err := c.Info(context.Background())
@@ -86,7 +86,7 @@ func TestGRPCClient_Info_Delegates(t *testing.T) {
 
 func TestGRPCClient_Info_PropagatesError(t *testing.T) {
 	want := errors.New("boom")
-	fake := &fakeAIPluginClient{infoErr: want}
+	fake := &fakeLLMClient{infoErr: want}
 	c := &GRPCClient{client: fake}
 
 	_, err := c.Info(context.Background())
@@ -100,7 +100,7 @@ func TestGRPCClient_Run_RoutesStdoutStderr(t *testing.T) {
 		{Output: &RunResponse_Stdout{Stdout: []byte("world\n")}},
 		{Output: &RunResponse_ExitCode{ExitCode: 0}, ModelInfo: &ModelInfo{ModelName: "claude-sonnet"}},
 	}}
-	fake := &fakeAIPluginClient{runStream: stream}
+	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout, stderr bytes.Buffer
@@ -115,7 +115,7 @@ func TestGRPCClient_RunWithModelInfo_CapturesExitAndModel(t *testing.T) {
 	stream := &fakeStream{responses: []*RunResponse{
 		{Output: &RunResponse_ExitCode{ExitCode: 42}, ModelInfo: &ModelInfo{ModelName: "haiku"}},
 	}}
-	fake := &fakeAIPluginClient{runStream: stream}
+	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout, stderr bytes.Buffer
@@ -127,7 +127,7 @@ func TestGRPCClient_RunWithModelInfo_CapturesExitAndModel(t *testing.T) {
 }
 
 func TestGRPCClient_Run_PropagatesStartError(t *testing.T) {
-	fake := &fakeAIPluginClient{runErr: errors.New("dial failed")}
+	fake := &fakeLLMClient{runErr: errors.New("dial failed")}
 	c := &GRPCClient{client: fake}
 
 	exit, err := c.Run(context.Background(), &RunRequest{}, io.Discard, io.Discard)
@@ -142,7 +142,7 @@ func TestGRPCClient_RunWithModelInfo_PropagatesStreamRecvError(t *testing.T) {
 		},
 		recvErr: errors.New("stream broken"),
 	}
-	fake := &fakeAIPluginClient{runStream: stream}
+	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer
@@ -156,7 +156,7 @@ func TestGRPCClient_Run_PassesRequestThrough(t *testing.T) {
 	stream := &fakeStream{responses: []*RunResponse{
 		{Output: &RunResponse_ExitCode{ExitCode: 0}},
 	}}
-	fake := &fakeAIPluginClient{runStream: stream}
+	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	req := &RunRequest{Prompt: &Fragment{Content: "hi"}}
@@ -165,19 +165,19 @@ func TestGRPCClient_Run_PassesRequestThrough(t *testing.T) {
 	assert.Equal(t, req, fake.lastRunReq, "request must reach the underlying client unchanged")
 }
 
-// fakePluginConnection is a stand-in for plugin.Client in tests of
-// NewPluginClient. It satisfies the pluginConnection interface with
+// fakeLLMConnection is a stand-in for plugin.Client in tests of
+// NewLLMRunner. It satisfies the llmConnection interface with
 // configurable error responses at each lifecycle step.
-type fakePluginConnection struct {
+type fakeLLMConnection struct {
 	clientResult plugin.ClientProtocol
 	clientErr    error
 	killCalls    int
 }
 
-func (f *fakePluginConnection) Client() (plugin.ClientProtocol, error) {
+func (f *fakeLLMConnection) Client() (plugin.ClientProtocol, error) {
 	return f.clientResult, f.clientErr
 }
-func (f *fakePluginConnection) Kill() { f.killCalls++ }
+func (f *fakeLLMConnection) Kill() { f.killCalls++ }
 
 // fakeClientProtocol is the rpcClient handle that go-plugin's Client()
 // returns. Tests use it to control Dispense() behavior.
@@ -192,77 +192,77 @@ func (f *fakeClientProtocol) Dispense(name string) (any, error) {
 }
 func (f *fakeClientProtocol) Ping() error { return nil }
 
-func TestNewPluginClient_ClientErrorTriggersKill(t *testing.T) {
-	fake := &fakePluginConnection{clientErr: errors.New("dial failed")}
-	orig := dialPluginConnection
-	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+func TestNewLLMRunner_ClientErrorTriggersKill(t *testing.T) {
+	fake := &fakeLLMConnection{clientErr: errors.New("dial failed")}
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
-	t.Cleanup(func() { dialPluginConnection = orig })
+	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewPluginClient("dummy", nil, 0)
+	_, err := NewLLMRunner("dummy", nil, 0)
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Client() fails")
 }
 
-func TestNewPluginClient_DispenseErrorTriggersKill(t *testing.T) {
-	fake := &fakePluginConnection{
+func TestNewLLMRunner_DispenseErrorTriggersKill(t *testing.T) {
+	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{dispenseErr: errors.New("dispense failed")},
 	}
-	orig := dialPluginConnection
-	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
-	t.Cleanup(func() { dialPluginConnection = orig })
+	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewPluginClient("dummy", nil, 0)
+	_, err := NewLLMRunner("dummy", nil, 0)
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked when Dispense() fails")
 }
 
-func TestNewPluginClient_WrongTypeTriggersKill(t *testing.T) {
-	fake := &fakePluginConnection{
+func TestNewLLMRunner_WrongTypeTriggersKill(t *testing.T) {
+	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{
 			dispenseResult: "not a *GRPCClient", // string instead of *GRPCClient
 		},
 	}
-	orig := dialPluginConnection
-	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
-	t.Cleanup(func() { dialPluginConnection = orig })
+	t.Cleanup(func() { dialLLMConnection = orig })
 
-	_, err := NewPluginClient("dummy", nil, 0)
+	_, err := NewLLMRunner("dummy", nil, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected plugin type")
 	assert.Equal(t, 1, fake.killCalls, "Kill must be invoked on type assertion failure")
 }
 
-func TestNewPluginClient_HappyPath(t *testing.T) {
-	grpcClient := &GRPCClient{client: &fakeAIPluginClient{}}
-	fake := &fakePluginConnection{
+func TestNewLLMRunner_HappyPath(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
+	fake := &fakeLLMConnection{
 		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
 	}
-	orig := dialPluginConnection
-	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
 		return fake
 	}
-	t.Cleanup(func() { dialPluginConnection = orig })
+	t.Cleanup(func() { dialLLMConnection = orig })
 
-	pc, err := NewPluginClient("dummy", nil, 0)
+	pc, err := NewLLMRunner("dummy", nil, 0)
 	require.NoError(t, err)
 	require.NotNil(t, pc)
 	assert.Equal(t, 0, fake.killCalls, "Kill must NOT be invoked on success")
 
-	// PluginClient.Kill delegates to the connection.
+	// LLMRunner.Kill delegates to the connection.
 	pc.Kill()
 	assert.Equal(t, 1, fake.killCalls)
 }
 
-func TestNewPluginClient_KillIsNilSafe(t *testing.T) {
-	// A PluginClient with nil conn (constructed for tests) must not
+func TestNewLLMRunner_KillIsNilSafe(t *testing.T) {
+	// A LLMRunner with nil conn (constructed for tests) must not
 	// panic when Kill is called.
-	pc := &PluginClient{}
+	pc := &LLMRunner{}
 	pc.Kill() // no panic
 }
 
@@ -272,16 +272,16 @@ func TestNewPluginClient_KillIsNilSafe(t *testing.T) {
 func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	var gotCmd string
 	var gotArgs []string
-	fake := &fakePluginConnection{
-		clientResult: &fakeClientProtocol{dispenseResult: &GRPCClient{client: &fakeAIPluginClient{}}},
+	fake := &fakeLLMConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: &GRPCClient{client: &fakeLLMClient{}}},
 	}
-	orig := dialPluginConnection
-	dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) pluginConnection {
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
 		gotCmd = cmd
 		gotArgs = args
 		return fake
 	}
-	t.Cleanup(func() { dialPluginConnection = orig })
+	t.Cleanup(func() { dialLLMConnection = orig })
 
 	_, err := NewSelfInvokingClient("claude-code", 0)
 	require.NoError(t, err)
@@ -289,11 +289,11 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	assert.Equal(t, []string{"llm", "serve", "claude-code"}, gotArgs)
 }
 
-// TestPluginClient_InfoAndRunDelegate confirms PluginClient passes
+// TestLLMRunner_InfoAndRunDelegate confirms LLMRunner passes
 // through Info/Run/RunWithModelInfo to its embedded GRPCClient.
-func TestPluginClient_InfoAndRunDelegate(t *testing.T) {
-	fake := &fakeAIPluginClient{infoResp: &PluginInfo{Name: "x"}}
-	pc := &PluginClient{grpc: &GRPCClient{client: fake}}
+func TestLLMRunner_InfoAndRunDelegate(t *testing.T) {
+	fake := &fakeLLMClient{infoResp: &LLMInfo{Name: "x"}}
+	pc := &LLMRunner{grpc: &GRPCClient{client: fake}}
 
 	info, err := pc.Info(t.Context())
 	require.NoError(t, err)
@@ -314,7 +314,7 @@ func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {
 	// exit=0 (default) and empty output. Possible if a plugin connects
 	// and dies before sending anything.
 	stream := &fakeStream{}
-	fake := &fakeAIPluginClient{runStream: stream}
+	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer

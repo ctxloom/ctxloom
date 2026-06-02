@@ -96,7 +96,7 @@ func cleanupTrackedCommands(fs afero.Fs, commandsDir, manifestPath string) {
 // hasExportableClaudePrompts reports whether any prompt is enabled for Claude Code.
 func hasExportableClaudePrompts(prompts []*bundles.LoadedContent) bool {
 	for _, p := range prompts {
-		if p.Plugins.LM.ClaudeCode.IsEnabled() {
+		if p.LLM.ClaudeCode.IsEnabled() {
 			return true
 		}
 	}
@@ -108,7 +108,7 @@ func hasExportableClaudePrompts(prompts []*bundles.LoadedContent) bool {
 func writeClaudeCommands(fs afero.Fs, commandsDir string, prompts []*bundles.LoadedContent) ([]string, error) {
 	var manifest []string
 	for _, p := range prompts {
-		if !p.Plugins.LM.ClaudeCode.IsEnabled() {
+		if !p.LLM.ClaudeCode.IsEnabled() {
 			continue // Explicitly disabled
 		}
 
@@ -127,7 +127,7 @@ func writeClaudeCommands(fs afero.Fs, commandsDir string, prompts []*bundles.Loa
 // It generates a markdown file with YAML frontmatter and transforms {{var}} to $N.
 func TransformToClaudeCommand(p *bundles.LoadedContent) string {
 	var buf bytes.Buffer
-	cc := p.Plugins.LM.ClaudeCode
+	cc := p.LLM.ClaudeCode
 
 	// Build frontmatter if we have any metadata
 	hasFrontmatter := cc.Description != "" ||

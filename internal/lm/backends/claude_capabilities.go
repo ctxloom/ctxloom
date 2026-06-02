@@ -58,8 +58,8 @@ func (s *ClaudeSkills) Register(workDir string, skill Skill) error {
 		Name:    skill.Name,
 		Content: skill.Content,
 	}
-	content.Plugins.LM.ClaudeCode.Enabled = &enabled
-	content.Plugins.LM.ClaudeCode.Description = skill.Description
+	content.LLM.ClaudeCode.Enabled = &enabled
+	content.LLM.ClaudeCode.Description = skill.Description
 	return WriteCommandFiles(workDir, []*bundles.LoadedContent{content})
 }
 
@@ -72,8 +72,8 @@ func (s *ClaudeSkills) RegisterAll(workDir string, skills []Skill) error {
 			Name:    skill.Name,
 			Content: skill.Content,
 		}
-		content.Plugins.LM.ClaudeCode.Enabled = &enabled
-		content.Plugins.LM.ClaudeCode.Description = skill.Description
+		content.LLM.ClaudeCode.Enabled = &enabled
+		content.LLM.ClaudeCode.Description = skill.Description
 		contents = append(contents, content)
 	}
 	return WriteCommandFiles(workDir, contents)

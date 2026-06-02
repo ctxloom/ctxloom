@@ -143,7 +143,7 @@ type BundlePrompt struct {
 	Distilled    string        `yaml:"distilled,omitempty"`
 	DistilledBy  string        `yaml:"distilled_by,omitempty"`
 	NoDistill    bool          `yaml:"no_distill,omitempty"`
-	Plugins      PluginsConfig `yaml:"plugins,omitempty"` // Plugin-specific settings (e.g., claude-code skill config)
+	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
 }
 
 // ComputeContentHash computes SHA256 hash of the content.

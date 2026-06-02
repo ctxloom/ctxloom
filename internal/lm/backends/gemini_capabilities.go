@@ -84,8 +84,8 @@ func (s *GeminiSkills) Register(workDir string, skill Skill) error {
 		Name:    skill.Name,
 		Content: skill.Content,
 	}
-	content.Plugins.LM.Gemini.Enabled = &enabled
-	content.Plugins.LM.Gemini.Description = skill.Description
+	content.LLM.Gemini.Enabled = &enabled
+	content.LLM.Gemini.Description = skill.Description
 	return WriteGeminiCommandFiles(workDir, []*bundles.LoadedContent{content})
 }
 
@@ -98,8 +98,8 @@ func (s *GeminiSkills) RegisterAll(workDir string, skills []Skill) error {
 			Name:    skill.Name,
 			Content: skill.Content,
 		}
-		content.Plugins.LM.Gemini.Enabled = &enabled
-		content.Plugins.LM.Gemini.Description = skill.Description
+		content.LLM.Gemini.Enabled = &enabled
+		content.LLM.Gemini.Description = skill.Description
 		contents = append(contents, content)
 	}
 	return WriteGeminiCommandFiles(workDir, contents)
@@ -164,7 +164,7 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 	}
 
 	for _, p := range prompts {
-		if !p.Plugins.LM.Gemini.IsEnabled() {
+		if !p.LLM.Gemini.IsEnabled() {
 			continue // Explicitly disabled
 		}
 		if err := writeGeminiCommand(fs, appDir, p); err != nil {
@@ -178,7 +178,7 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 // hasExportableGeminiPrompts reports whether any prompt is enabled for Gemini.
 func hasExportableGeminiPrompts(prompts []*bundles.LoadedContent) bool {
 	for _, p := range prompts {
-		if p.Plugins.LM.Gemini.IsEnabled() {
+		if p.LLM.Gemini.IsEnabled() {
 			return true
 		}
 	}
@@ -211,7 +211,7 @@ func writeGeminiCommand(fs afero.Fs, appDir string, p *bundles.LoadedContent) er
 // Gemini uses {{args}} for argument injection natively.
 func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
 	cmd := GeminiCommand{
-		Description: p.Plugins.LM.Gemini.Description,
+		Description: p.LLM.Gemini.Description,
 		Prompt:      p.Content,
 	}
 

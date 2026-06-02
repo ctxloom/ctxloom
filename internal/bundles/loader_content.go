@@ -22,7 +22,7 @@ type LoadedContent struct {
 	IsDistilled  bool              // Whether distilled version was used
 	DistilledBy  string            // Model that created distillation
 	Exports      map[string]string // Exported variables (from generators)
-	Plugins      PluginsConfig     // Plugin-specific settings
+	LLM          LLMExports        // Per-LLM export settings (slash-command config)
 }
 
 // ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
@@ -50,15 +50,11 @@ func (c GeminiConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// LMPluginConfig holds LM plugin-specific settings.
-type LMPluginConfig struct {
+// LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
+// surfaces as a slash command in each backend — keyed by backend name.
+type LLMExports struct {
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
 	Gemini     GeminiConfig     `yaml:"gemini"`
-}
-
-// PluginsConfig holds plugin-specific settings.
-type PluginsConfig struct {
-	LM LMPluginConfig `yaml:"llm"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.
@@ -243,7 +239,7 @@ func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundleP
 		Installation: prompt.Installation,
 		IsDistilled:  l.preferDistilled && prompt.Distilled != "",
 		DistilledBy:  prompt.DistilledBy,
-		Plugins:      prompt.Plugins,
+		LLM:          prompt.LLM,
 	}
 }
 

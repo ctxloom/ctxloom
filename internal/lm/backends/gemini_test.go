@@ -175,11 +175,9 @@ func TestTransformToGeminiCommand(t *testing.T) {
 			content: &bundles.LoadedContent{
 				Name:    "review",
 				Content: "Review {{args}} for issues",
-				Plugins: bundles.PluginsConfig{
-					LM: bundles.LMPluginConfig{
-						Gemini: bundles.GeminiConfig{
-							Description: "Code review command",
-						},
+				LLM: bundles.LLMExports{
+					Gemini: bundles.GeminiConfig{
+						Description: "Code review command",
 					},
 				},
 			},
@@ -254,22 +252,18 @@ func TestWriteGeminiCommandFiles(t *testing.T) {
 		{
 			Name:    "review",
 			Content: "Review {{args}}",
-			Plugins: bundles.PluginsConfig{
-				LM: bundles.LMPluginConfig{
-					Gemini: bundles.GeminiConfig{
-						Description: "Code review",
-					},
+			LLM: bundles.LLMExports{
+				Gemini: bundles.GeminiConfig{
+					Description: "Code review",
 				},
 			},
 		},
 		{
 			Name:    "disabled",
 			Content: "This should not be exported",
-			Plugins: bundles.PluginsConfig{
-				LM: bundles.LMPluginConfig{
-					Gemini: bundles.GeminiConfig{
-						Enabled: boolPtr(false),
-					},
+			LLM: bundles.LLMExports{
+				Gemini: bundles.GeminiConfig{
+					Enabled: boolPtr(false),
 				},
 			},
 		},
@@ -362,11 +356,9 @@ func TestTransformToGeminiCommand_RoundTrip(t *testing.T) {
 	content := &bundles.LoadedContent{
 		Name:    "test",
 		Content: "Review {{args}} for issues\nMultiple lines\nWith special chars: \"quotes\" and 'apostrophes'",
-		Plugins: bundles.PluginsConfig{
-			LM: bundles.LMPluginConfig{
-				Gemini: bundles.GeminiConfig{
-					Description: "Test command with special chars: \"quotes\"",
-				},
+		LLM: bundles.LLMExports{
+			Gemini: bundles.GeminiConfig{
+				Description: "Test command with special chars: \"quotes\"",
 			},
 		},
 	}
@@ -380,7 +372,7 @@ func TestTransformToGeminiCommand_RoundTrip(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify round-trip
-	assert.Equal(t, content.Plugins.LM.Gemini.Description, parsed.Description)
+	assert.Equal(t, content.LLM.Gemini.Description, parsed.Description)
 	assert.Equal(t, content.Content, parsed.Prompt)
 }
 

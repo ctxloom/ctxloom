@@ -4,17 +4,28 @@
   "title": "ctxloom Context Fragment",
   "description": "Schema for ctxloom context fragment YAML files",
   "type": "object",
-  "required": ["content"],
+  "required": [
+    "content"
+  ],
   "properties": {
     "version": {
-      "type": ["string", "number"],
+      "type": [
+        "string",
+        "number"
+      ],
       "description": "Schema version for the fragment format",
-      "examples": ["1.0", 1.0]
+      "examples": [
+        "1.0",
+        1.0
+      ]
     },
     "author": {
       "type": "string",
       "description": "Who created or maintains this fragment",
-      "examples": ["username", "team-name"]
+      "examples": [
+        "username",
+        "team-name"
+      ]
     },
     "tags": {
       "type": "array",
@@ -24,7 +35,16 @@
         "minLength": 1
       },
       "uniqueItems": true,
-      "examples": [["golang", "code-style"], ["review", "security"]]
+      "examples": [
+        [
+          "golang",
+          "code-style"
+        ],
+        [
+          "review",
+          "security"
+        ]
+      ]
     },
     "notes": {
       "type": "string",
@@ -43,7 +63,9 @@
       "type": "string",
       "description": "SHA256 hash of content for change detection. Format: sha256:<hex>",
       "pattern": "^sha256:[a-f0-9]{64}$",
-      "examples": ["sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+      "examples": [
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      ]
     },
     "distilled": {
       "type": "string",
@@ -52,7 +74,11 @@
     "distilled_by": {
       "type": "string",
       "description": "The LLM model that performed the distillation (e.g., 'claude-3-opus', 'gpt-4').",
-      "examples": ["claude-3-opus", "claude-3-sonnet", "gpt-4"]
+      "examples": [
+        "claude-3-opus",
+        "claude-3-sonnet",
+        "gpt-4"
+      ]
     },
     "no_distill": {
       "type": "boolean",
@@ -66,48 +92,59 @@
         "type": "string"
       }
     },
-    "plugins": {
+    "llm": {
       "type": "object",
-      "description": "Plugin-specific settings for this fragment/prompt.",
+      "description": "Per-LLM export settings (e.g. slash-command config), keyed by backend.",
       "properties": {
-        "lm": {
+        "claude-code": {
           "type": "object",
-          "description": "Language model plugin settings.",
+          "description": "Claude Code slash command export settings. Prompts are exported by default (opt-out model).",
           "properties": {
-            "claude-code": {
-              "type": "object",
-              "description": "Claude Code slash command export settings. Prompts are exported by default (opt-out model).",
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "description": "Set to false to disable slash command export. Default is true (exported).",
-                  "default": true
-                },
-                "description": {
-                  "type": "string",
-                  "description": "Description shown in /help for this command.",
-                  "examples": ["Review code for security issues", "Generate unit tests"]
-                },
-                "argument_hint": {
-                  "type": "string",
-                  "description": "Hint for expected arguments, shown in autocomplete.",
-                  "examples": ["[file] [focus]", "[issue-number]"]
-                },
-                "allowed_tools": {
-                  "type": "array",
-                  "description": "Tool restrictions for this command. If not specified, all tools are allowed.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "examples": [["Read", "Grep"], ["Bash(git diff:*)", "Read"]]
-                },
-                "model": {
-                  "type": "string",
-                  "description": "Override model for this command.",
-                  "examples": ["claude-sonnet-4-20250514", "claude-opus-4-20250514"]
-                }
+            "enabled": {
+              "type": "boolean",
+              "description": "Set to false to disable slash command export. Default is true (exported).",
+              "default": true
+            },
+            "description": {
+              "type": "string",
+              "description": "Description shown in /help for this command.",
+              "examples": [
+                "Review code for security issues",
+                "Generate unit tests"
+              ]
+            },
+            "argument_hint": {
+              "type": "string",
+              "description": "Hint for expected arguments, shown in autocomplete.",
+              "examples": [
+                "[file] [focus]",
+                "[issue-number]"
+              ]
+            },
+            "allowed_tools": {
+              "type": "array",
+              "description": "Tool restrictions for this command. If not specified, all tools are allowed.",
+              "items": {
+                "type": "string"
               },
-              "additionalProperties": false
+              "examples": [
+                [
+                  "Read",
+                  "Grep"
+                ],
+                [
+                  "Bash(git diff:*)",
+                  "Read"
+                ]
+              ]
+            },
+            "model": {
+              "type": "string",
+              "description": "Override model for this command.",
+              "examples": [
+                "claude-sonnet-4-20250514",
+                "claude-opus-4-20250514"
+              ]
             }
           },
           "additionalProperties": false

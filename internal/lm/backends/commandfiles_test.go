@@ -72,14 +72,12 @@ func TestTransformToClaudeCommand(t *testing.T) {
 			fragment: &bundles.LoadedContent{
 				Name:    "review",
 				Content: "Review {{file}} for {{focus}}",
-				Plugins: bundles.PluginsConfig{
-					LM: bundles.LMPluginConfig{
-						ClaudeCode: bundles.ClaudeCodeConfig{
-							Description:  "Code review",
-							ArgumentHint: "[file] [focus]",
-							AllowedTools: []string{"Read", "Grep"},
-							Model:        "claude-sonnet-4-20250514",
-						},
+				LLM: bundles.LLMExports{
+					ClaudeCode: bundles.ClaudeCodeConfig{
+						Description:  "Code review",
+						ArgumentHint: "[file] [focus]",
+						AllowedTools: []string{"Read", "Grep"},
+						Model:        "claude-sonnet-4-20250514",
 					},
 				},
 			},
@@ -106,11 +104,9 @@ func TestTransformToClaudeCommand(t *testing.T) {
 			fragment: &bundles.LoadedContent{
 				Name:    "partial",
 				Content: "Review the code",
-				Plugins: bundles.PluginsConfig{
-					LM: bundles.LMPluginConfig{
-						ClaudeCode: bundles.ClaudeCodeConfig{
-							Description: "Quick review",
-						},
+				LLM: bundles.LLMExports{
+					ClaudeCode: bundles.ClaudeCodeConfig{
+						Description: "Quick review",
 					},
 				},
 			},
@@ -130,12 +126,10 @@ func TestTransformToClaudeCommand(t *testing.T) {
 			fragment: &bundles.LoadedContent{
 				Name:    "enabled",
 				Content: "Content",
-				Plugins: bundles.PluginsConfig{
-					LM: bundles.LMPluginConfig{
-						ClaudeCode: bundles.ClaudeCodeConfig{
-							Enabled:     boolPtr(true),
-							Description: "Enabled command",
-						},
+				LLM: bundles.LLMExports{
+					ClaudeCode: bundles.ClaudeCodeConfig{
+						Enabled:     boolPtr(true),
+						Description: "Enabled command",
 					},
 				},
 			},
@@ -207,22 +201,18 @@ func TestWriteCommandFiles(t *testing.T) {
 		{
 			Name:    "review",
 			Content: "Review {{file}}",
-			Plugins: bundles.PluginsConfig{
-				LM: bundles.LMPluginConfig{
-					ClaudeCode: bundles.ClaudeCodeConfig{
-						Description: "Code review",
-					},
+			LLM: bundles.LLMExports{
+				ClaudeCode: bundles.ClaudeCodeConfig{
+					Description: "Code review",
 				},
 			},
 		},
 		{
 			Name:    "disabled",
 			Content: "This should not be exported",
-			Plugins: bundles.PluginsConfig{
-				LM: bundles.LMPluginConfig{
-					ClaudeCode: bundles.ClaudeCodeConfig{
-						Enabled: boolPtr(false),
-					},
+			LLM: bundles.LLMExports{
+				ClaudeCode: bundles.ClaudeCodeConfig{
+					Enabled: boolPtr(false),
 				},
 			},
 		},

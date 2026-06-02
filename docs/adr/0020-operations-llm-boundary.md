@@ -34,7 +34,8 @@ An audit of every `.go` file under `internal/operations/` (2026-06-01) found:
 
 The question this ADR settles is whether that last item is a leak to remediate.
 
-It is not LLM behavior. `LMPluginConfig` (`internal/bundles/loader_content.go:54`)
+It is not LLM behavior. `LLMExports` (`internal/bundles/loader_content.go`; was
+`LMPluginConfig` before the plugin→llm rename / bundle-schema flatten in ADR 0022)
 is a *typed, per-backend* config schema: `ClaudeCode` and `Gemini` are named
 struct fields carrying **different** data (Claude has `ArgumentHint`,
 `AllowedTools`, `Model`; Gemini has only `Description`). Each backend's
@@ -71,7 +72,7 @@ LLM-touching operation must take the same shape — an injected interface, not a
 constructed backend.
 
 The cost is that adding a third LM backend means adding a field to
-`LMPluginConfig` and updating `getBuiltinPrompts()` to set its description. That
+`LLMExports` and updating `getBuiltinPrompts()` to set its description. That
 edit is in the bundles schema's blast radius regardless; this ADR just declines
 to pretend otherwise behind a neutral-description indirection.
 

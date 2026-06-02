@@ -251,14 +251,12 @@ func getBuiltinPrompts(_ *config.Config) []*bundles.LoadedContent {
 		prompts = append(prompts, &bundles.LoadedContent{
 			Name:    name,
 			Content: body,
-			Plugins: bundles.PluginsConfig{
-				LM: bundles.LMPluginConfig{
-					ClaudeCode: bundles.ClaudeCodeConfig{
-						Description: description,
-					},
-					Gemini: bundles.GeminiConfig{
-						Description: description,
-					},
+			LLM: bundles.LLMExports{
+				ClaudeCode: bundles.ClaudeCodeConfig{
+					Description: description,
+				},
+				Gemini: bundles.GeminiConfig{
+					Description: description,
 				},
 			},
 		})

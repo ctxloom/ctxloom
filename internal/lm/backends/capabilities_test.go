@@ -382,8 +382,8 @@ func TestClaudeSkills_RegisterFromContent(t *testing.T) {
 
 	enabled := true
 	content := &bundles.LoadedContent{Name: "from-bundle", Content: "body"}
-	content.Plugins.LM.ClaudeCode.Enabled = &enabled
-	content.Plugins.LM.ClaudeCode.Description = "From a bundle"
+	content.LLM.ClaudeCode.Enabled = &enabled
+	content.LLM.ClaudeCode.Description = "From a bundle"
 
 	require.NoError(t, skills.RegisterFromContent(workDir, []*bundles.LoadedContent{content}))
 	// Check the manifest tracks it.

@@ -6,12 +6,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// Configurable is an interface for backends that can be configured with plugin settings.
+// Configurable is an interface for backends that can be configured with per-LLM settings.
 type Configurable interface {
 	Configure(cfg *config.LLMConfig)
 }
 
-// ApplyLLMConfig applies plugin configuration to a backend.
+// ApplyLLMConfig applies per-LLM configuration to a backend.
 // This sets binary path, args, and env.
 func ApplyLLMConfig(backend Backend, cfg *config.LLMConfig) {
 	if cfg == nil {

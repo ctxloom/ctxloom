@@ -33,7 +33,7 @@ func NewClaudeCode() *ClaudeCode {
 	return b
 }
 
-// Configure applies plugin configuration to this backend.
+// Configure applies per-LLM configuration to this backend.
 func (b *ClaudeCode) Configure(cfg *config.LLMConfig) {
 	if cfg.BinaryPath != "" {
 		b.BinaryPath = cfg.BinaryPath

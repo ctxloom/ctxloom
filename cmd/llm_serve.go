@@ -11,7 +11,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-var pluginServeCmd = &cobra.Command{
+var llmServeCmd = &cobra.Command{
 	Use:     "serve <backend>",
 	Aliases: []string{"srv"},
 	Short:   "Run as a plugin server (internal use)",
@@ -30,8 +30,8 @@ var pluginServeCmd = &cobra.Command{
 		// Load config to get plugin settings
 		cfg, _ := config.Load()
 		if cfg != nil {
-			if pluginCfg, ok := cfg.LM.Configs[backendName]; ok {
-				backends.ApplyLLMConfig(backend, &pluginCfg)
+			if llmCfg, ok := cfg.LM.Configs[backendName]; ok {
+				backends.ApplyLLMConfig(backend, &llmCfg)
 			}
 		}
 
@@ -52,5 +52,5 @@ var pluginServeCmd = &cobra.Command{
 }
 
 func init() {
-	pluginCmd.AddCommand(pluginServeCmd)
+	llmCmd.AddCommand(llmServeCmd)
 }

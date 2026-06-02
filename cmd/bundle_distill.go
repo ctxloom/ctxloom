@@ -20,7 +20,7 @@ import (
 
 var bundleDistillForce bool
 var bundleDistillDryRun bool
-var bundleDistillPlugin string
+var bundleDistillLLM string
 
 var bundleDistillCmd = &cobra.Command{
 	Use:   "distill <file-pattern>...",
@@ -55,11 +55,11 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	pluginName := bundleDistillPlugin
-	if pluginName == "" {
-		pluginName = cfg.GetDefaultLLM()
+	llmName := bundleDistillLLM
+	if llmName == "" {
+		llmName = cfg.GetDefaultLLM()
 	}
-	distiller := newLLMDistillerForPlugin(cfg, pluginName)
+	distiller := newLLMDistillerForLLM(cfg, llmName)
 
 	var totalFiles, totalItems, totalSkipped int
 	for _, filePath := range files {
@@ -276,7 +276,7 @@ var compressionRouter = compression.NewRouter()
 // distillWithModel sends content through compression and returns distilled content and model ID.
 // It first tries AST-based compression for code and JSON structure compression for JSON content.
 // For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
-func distillWithModel(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithModel(llmName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	ctx := context.Background()
 
 	// Detect content type and try AST/JSON compression first
@@ -293,7 +293,7 @@ func distillWithModel(pluginName string, env map[string]string, name, content, d
 	}
 
 	// For text content or when AST compression isn't effective, use LLM
-	return distillWithLLM(pluginName, env, name, content, distillPrompt, siblingCtx)
+	return distillWithLLM(llmName, env, name, content, distillPrompt, siblingCtx)
 }
 
 // isStructuredContent returns true for content types that can be compressed structurally.
@@ -308,7 +308,7 @@ func isStructuredContent(ct compression.ContentType) bool {
 }
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(pluginName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithLLM(llmName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	// Build content to distill
 	var builder strings.Builder
 
@@ -329,7 +329,7 @@ func distillWithLLM(pluginName string, env map[string]string, name, content, dis
 	builder.WriteString("\n</content_to_compress>")
 
 	// Create plugin client
-	client, err := pb.NewSelfInvokingClient(pluginName, 0)
+	client, err := pb.NewSelfInvokingClient(llmName, 0)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start plugin: %w", err)
 	}
@@ -362,7 +362,7 @@ func distillWithLLM(pluginName string, env map[string]string, name, content, dis
 	}
 
 	// Build model ID from model info
-	modelID := pluginName
+	modelID := llmName
 	if result.ModelInfo != nil {
 		if result.ModelInfo.ModelName != "" {
 			modelID = result.ModelInfo.ModelName

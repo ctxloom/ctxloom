@@ -12,15 +12,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-var pluginDefaultCmd = &cobra.Command{
+var llmDefaultCmd = &cobra.Command{
 	Use:   "default [name]",
-	Short: "Show or set the default plugin",
-	Long: `Show or set the default AI backend plugin.
+	Short: "Show or set the default LLM",
+	Long: `Show or set the default AI backend LLM.
 
-Without arguments, prints the current default plugin name.
-With a plugin name argument, sets that plugin as the default.`,
+Without arguments, prints the current default LLM name.
+With an LLM name argument, sets that LLM as the default.`,
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completePluginNames,
+	ValidArgsFunction: completeLLMNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -34,9 +34,9 @@ With a plugin name argument, sets that plugin as the default.`,
 
 		name := args[0]
 
-		if !isKnownPlugin(cfg, name) {
-			available := availablePluginNames(cfg)
-			return fmt.Errorf("unknown plugin %q; available: %s", name, strings.Join(available, ", "))
+		if !isKnownLLM(cfg, name) {
+			available := availableLLMNames(cfg)
+			return fmt.Errorf("unknown LLM %q; available: %s", name, strings.Join(available, ", "))
 		}
 
 		res, err := operations.SetDefaultLLM(cmd.Context(), cfg, operations.SetDefaultLLMRequest{Name: name})
@@ -44,16 +44,16 @@ With a plugin name argument, sets that plugin as the default.`,
 			return err
 		}
 		if res.Status == "unchanged" {
-			fmt.Printf("Default plugin is already %s\n", name)
+			fmt.Printf("Default LLM is already %s\n", name)
 			return nil
 		}
-		fmt.Printf("Default plugin set to: %s\n", name)
+		fmt.Printf("Default LLM set to: %s\n", name)
 		return nil
 	},
 }
 
-// isKnownPlugin checks if a plugin is a registered built-in or has a config entry.
-func isKnownPlugin(cfg *config.Config, name string) bool {
+// isKnownLLM checks if an LLM is a registered built-in or has a config entry.
+func isKnownLLM(cfg *config.Config, name string) bool {
 	if backends.Exists(name) {
 		return true
 	}
@@ -61,9 +61,9 @@ func isKnownPlugin(cfg *config.Config, name string) bool {
 	return ok
 }
 
-// availablePluginNames returns a sorted list of all known plugin names:
+// availableLLMNames returns a sorted list of all known LLM names:
 // registered built-ins plus any with an explicit config entry.
-func availablePluginNames(cfg *config.Config) []string {
+func availableLLMNames(cfg *config.Config) []string {
 	seen := map[string]bool{}
 	var names []string
 	for _, n := range backends.List() {
@@ -83,5 +83,5 @@ func availablePluginNames(cfg *config.Config) []string {
 }
 
 func init() {
-	pluginCmd.AddCommand(pluginDefaultCmd)
+	llmCmd.AddCommand(llmDefaultCmd)
 }

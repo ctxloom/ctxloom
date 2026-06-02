@@ -267,7 +267,7 @@ func TestNewPluginClient_KillIsNilSafe(t *testing.T) {
 }
 
 // TestNewSelfInvokingClient_UsesOsExecutable confirms the wrapper
-// resolves the current binary and passes "plugin serve <backend>"
+// resolves the current binary and passes "llm serve <backend>"
 // args. We capture the dial seam's inputs to verify.
 func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	var gotCmd string
@@ -286,7 +286,7 @@ func TestNewSelfInvokingClient_UsesOsExecutable(t *testing.T) {
 	_, err := NewSelfInvokingClient("claude-code", 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, gotCmd, "self-invoking client must pass the current executable path")
-	assert.Equal(t, []string{"plugin", "serve", "claude-code"}, gotArgs)
+	assert.Equal(t, []string{"llm", "serve", "claude-code"}, gotArgs)
 }
 
 // TestPluginClient_InfoAndRunDelegate confirms PluginClient passes

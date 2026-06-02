@@ -147,13 +147,13 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 	if cfg == nil {
 		return nil
 	}
-	return newLLMDistillerForPlugin(cfg, cfg.GetDefaultLLM())
+	return newLLMDistillerForLLM(cfg, cfg.GetDefaultLLM())
 }
 
-// newLLMDistillerForPlugin is newLLMDistiller with an explicit plugin override
-// (e.g. `bundle distill --plugin`). Returns nil when no plugin/prompt resolves.
-func newLLMDistillerForPlugin(cfg *config.Config, pluginName string) operations.Distiller {
-	if cfg == nil || pluginName == "" {
+// newLLMDistillerForLLM is newLLMDistiller with an explicit LLM override
+// (e.g. `bundle distill --llm`). Returns nil when no LLM/prompt resolves.
+func newLLMDistillerForLLM(cfg *config.Config, llmName string) operations.Distiller {
+	if cfg == nil || llmName == "" {
 		return nil
 	}
 	prompt, err := loadDistillPrompt()
@@ -161,9 +161,9 @@ func newLLMDistillerForPlugin(cfg *config.Config, pluginName string) operations.
 		return nil
 	}
 	return &mcpLLMDistillerSDK{
-		pluginName: pluginName,
-		pluginEnv:  cfg.LM.Configs[pluginName].Env,
-		prompt:     prompt,
+		llmName: llmName,
+		llmEnv:  cfg.LM.Configs[llmName].Env,
+		prompt:  prompt,
 	}
 }
 
@@ -173,8 +173,8 @@ func newLLMDistillerForPlugin(cfg *config.Config, pluginName string) operations.
 // legacy mcpLLMDistiller — kept under a different name so both versions
 // coexist until the legacy mcp.go is deleted at cutover.
 type mcpLLMDistillerSDK struct {
-	pluginName string
-	pluginEnv  map[string]string
+	llmName string
+	llmEnv  map[string]string
 	prompt     string
 }
 
@@ -190,7 +190,7 @@ func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRe
 	if req.Bundle != nil {
 		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
 	}
-	distilled, modelID, err := distillWithModel(d.pluginName, d.pluginEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	distilled, modelID, err := distillWithModel(d.llmName, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
 	if err != nil {
 		return operations.DistillResult{}, err
 	}

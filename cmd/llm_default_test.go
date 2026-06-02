@@ -15,21 +15,21 @@ import (
 // ctxloom must recognize built-in plugins without explicit configuration,
 // while rejecting unknown plugin names to prevent typos.
 
-func TestIsKnownPlugin_BuiltIn(t *testing.T) {
+func TestIsKnownLLM_BuiltIn(t *testing.T) {
 	// Built-in plugins must be recognized even with empty config
 	cfg := &config.Config{}
-	if !isKnownPlugin(cfg, "claude-code") {
+	if !isKnownLLM(cfg, "claude-code") {
 		t.Error("expected claude-code to be known")
 	}
-	if !isKnownPlugin(cfg, "gemini") {
+	if !isKnownLLM(cfg, "gemini") {
 		t.Error("expected gemini to be known")
 	}
 }
 
-func TestIsKnownPlugin_Unknown(t *testing.T) {
+func TestIsKnownLLM_Unknown(t *testing.T) {
 	// Unknown plugins should be rejected to catch typos early
 	cfg := &config.Config{}
-	if isKnownPlugin(cfg, "nonexistent-plugin") {
+	if isKnownLLM(cfg, "nonexistent-plugin") {
 		t.Error("expected nonexistent-plugin to be unknown")
 	}
 }
@@ -39,10 +39,10 @@ func TestIsKnownPlugin_Unknown(t *testing.T) {
 // =============================================================================
 // Available plugin list is shown to users in help and error messages.
 
-func TestAvailablePluginNames_IncludesBuiltIns(t *testing.T) {
+func TestAvailableLLMNames_IncludesBuiltIns(t *testing.T) {
 	// All built-in plugins must appear in the available list
 	cfg := &config.Config{}
-	names := availablePluginNames(cfg)
+	names := availableLLMNames(cfg)
 
 	expected := map[string]bool{
 		"claude-code": false,
@@ -63,10 +63,10 @@ func TestAvailablePluginNames_IncludesBuiltIns(t *testing.T) {
 	}
 }
 
-func TestAvailablePluginNames_Sorted(t *testing.T) {
+func TestAvailableLLMNames_Sorted(t *testing.T) {
 	// Sorted output provides consistent, scannable display to users
 	cfg := &config.Config{}
-	names := availablePluginNames(cfg)
+	names := availableLLMNames(cfg)
 
 	for i := 1; i < len(names); i++ {
 		if names[i] < names[i-1] {

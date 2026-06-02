@@ -124,7 +124,7 @@ var dialPluginConnection = func(cmd string, args []string, logger hclog.Logger) 
 }
 
 // NewPluginClient creates a new plugin client that spawns the given command.
-// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["plugin", "serve", "claudecode"]).
+// The command should be the path to the plugin binary (e.g., "ctxloom" with args ["llm", "serve", "claudecode"]).
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
 func NewPluginClient(cmd string, args []string, verbosity int) (*PluginClient, error) {
 	level := verbosityToHclogLevel(verbosity)
@@ -177,7 +177,7 @@ func NewSelfInvokingClient(backendName string, verbosity int) (*PluginClient, er
 		return nil, err
 	}
 
-	return NewPluginClient(executable, []string{"plugin", "serve", backendName}, verbosity)
+	return NewPluginClient(executable, []string{"llm", "serve", backendName}, verbosity)
 }
 
 // Info returns metadata about the plugin.

@@ -117,8 +117,8 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
-// completePluginNames returns a completion function for plugin names.
-func completePluginNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+// completeLLMNames returns a completion function for LLM names.
+func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	plugins := backends.List()
 	return filterPrefix(plugins, toComplete), cobra.ShellCompDirectiveNoFileComp
 }

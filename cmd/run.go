@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	runPlugin           string
+	runLLM           string
 	runPrompt           string
 	runFragments        []string
 	runTags             []string
@@ -274,7 +274,7 @@ func resumePartsCSV(d sessions.Decision) string {
 var runCmd = &cobra.Command{
 	Use:   "run [flags] [prompt...]",
 	Short: "Assemble context and run AI",
-	Long: `Assemble context from fragments and execute the configured AI plugin.
+	Long: `Assemble context from fragments and execute the configured LLM.
 
 Fragments are loaded from bundles in .ctxloom/bundles/.
 
@@ -282,10 +282,10 @@ Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.
 Additional -f flags will be appended to the profile's fragments.
 
-The AI plugin runs in isolation, ignoring default context files like Claude.md.
+The LLM runs in isolation, ignoring default context files like Claude.md.
 
 Verbosity levels (-v can be repeated):
-  -v      Show plugin commands being executed
+  -v      Show LLM commands being executed
   -vv     Show command arguments
   -vvv    Show debug output
 
@@ -302,19 +302,15 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Determine which plugin to use
-		pluginName := runPlugin
-		if pluginName == "" {
-			pluginName = cfg.GetDefaultLLM()
+		// Determine which LLM to use. An explicit --llm override is validated
+		// up front (friction); no override uses the configured default.
+		llmName, err := resolveRunLLM(cfg, runLLM)
+		if err != nil {
+			return err
 		}
 
-		// Verify the backend exists
-		if !backends.Exists(pluginName) {
-			return fmt.Errorf("unknown plugin: %s (available: %v)", pluginName, backends.List())
-		}
-
-		// Get plugin configuration from config
-		pluginCfg := cfg.LM.Configs[pluginName]
+		// Get per-LLM configuration from config
+		llmCfg := cfg.LM.Configs[llmName]
 
 		// Build the prompt - from saved prompt, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
@@ -382,7 +378,7 @@ Examples:
 		}
 
 		// Determine model to use: plugin config > global default
-		model := pluginCfg.Model
+		model := llmCfg.Model
 		if model == "" {
 			model = cfg.GetDefaultLLMModel()
 		}
@@ -406,14 +402,14 @@ Examples:
 		// Phase 3 session resolution: optional pre-launch resume picker,
 		// followed by a fresh harp assignment for the new session.
 		runEnv := map[string]string{}
-		for k, v := range pluginCfg.Env {
+		for k, v := range llmCfg.Env {
 			runEnv[k] = v
 		}
 		sessMgr, sessMgrErr := sessions.Open("")
 		if sessMgrErr != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", sessMgrErr)
 		}
-		resume, err := resolveResumeIntent(sessMgr, workDir, pluginName)
+		resume, err := resolveResumeIntent(sessMgr, workDir, llmName)
 		if err != nil {
 			return fmt.Errorf("resume intent: %w", err)
 		}
@@ -423,7 +419,7 @@ Examples:
 		}
 		var activeHarp string
 		if sessMgr != nil {
-			if entry, err := sessMgr.AssignHarp(workDir, pluginName); err != nil {
+			if entry, err := sessMgr.AssignHarp(workDir, llmName); err != nil {
 				fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
 			} else {
 				activeHarp = entry.HarpName
@@ -487,8 +483,8 @@ Examples:
 
 		// Dry run mode - show the assembled context and prompt
 		if runDryRun {
-			fmt.Println("=== Plugin ===")
-			fmt.Println(pluginName)
+			fmt.Println("=== LLM ===")
+			fmt.Println(llmName)
 			fmt.Println("\n=== Profiles ===")
 			if len(ctxResult.Profiles) > 0 {
 				for _, p := range ctxResult.Profiles {
@@ -525,12 +521,12 @@ Examples:
 
 		// Create plugin client
 		var client *pb.PluginClient
-		if pluginCfg.BinaryPath != "" {
+		if llmCfg.BinaryPath != "" {
 			// Use external plugin binary
-			client, err = pb.NewPluginClient(pluginCfg.BinaryPath, pluginCfg.Args, runVerbosity)
+			client, err = pb.NewPluginClient(llmCfg.BinaryPath, llmCfg.Args, runVerbosity)
 		} else {
 			// Use built-in plugin via self-invocation
-			client, err = pb.NewSelfInvokingClient(pluginName, runVerbosity)
+			client, err = pb.NewSelfInvokingClient(llmName, runVerbosity)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to start plugin: %w", err)
@@ -551,10 +547,58 @@ Examples:
 	},
 }
 
+// resolveRunLLM picks the LLM for this run. An explicit override (--llm) is
+// validated up front (friction-up-front): it must be a registered backend that
+// is either configured for this project or has its binary installed, otherwise
+// we fail fast rather than silently falling back. With no override, the
+// configured default is used as-is (the graceful path).
+func resolveRunLLM(cfg *config.Config, override string) (string, error) {
+	if override == "" {
+		return cfg.GetDefaultLLM(), nil
+	}
+	if !backends.Exists(override) {
+		return "", fmt.Errorf("unknown LLM %q; usable now: %s", override, strings.Join(usableLLMs(cfg), ", "))
+	}
+	// A configured LLM is trusted (the user set up its binary/args/env).
+	if _, configured := cfg.LM.Configs[override]; configured {
+		return override, nil
+	}
+	// Otherwise the backend's binary must actually be installed.
+	if !backends.IsAvailable(override) {
+		return "", fmt.Errorf("LLM %q is registered but not configured and its binary is not installed; usable now: %s",
+			override, strings.Join(usableLLMs(cfg), ", "))
+	}
+	return override, nil
+}
+
+// usableLLMs returns the LLMs that can be launched right now: every configured
+// LLM, plus any registered backend whose binary is installed. "mock" (test-only)
+// is excluded.
+func usableLLMs(cfg *config.Config) []string {
+	set := map[string]bool{}
+	for name := range cfg.LM.Configs {
+		set[name] = true
+	}
+	for _, name := range backends.List() {
+		if name == "mock" {
+			continue
+		}
+		if backends.IsAvailable(name) {
+			set[name] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for name := range set {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func init() {
 	rootCmd.AddCommand(runCmd)
 
-	runCmd.Flags().StringVarP(&runPlugin, "plugin", "l", "", "LLM to use (default from config)")
+	runCmd.Flags().StringVarP(&runLLM, "llm", "l", "", "LLM to use for this run only (overrides the configured default; not persisted)")
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
 	runCmd.Flags().StringVarP(&runSavedPrompt, "run-prompt", "r", "", "Run a saved prompt by name")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")
@@ -575,7 +619,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
 
 	// Register completions
-	_ = runCmd.RegisterFlagCompletionFunc("plugin", completePluginNames)
+	_ = runCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = runCmd.RegisterFlagCompletionFunc("fragment", completeFragmentNames)
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

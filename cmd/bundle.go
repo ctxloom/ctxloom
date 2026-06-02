@@ -64,5 +64,5 @@ func init() {
 
 	bundleDistillCmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	bundleDistillCmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
-	bundleDistillCmd.Flags().StringVarP(&bundleDistillPlugin, "plugin", "l", "", "LLM to use (default from config)")
+	bundleDistillCmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "LLM to use (default from config)")
 }

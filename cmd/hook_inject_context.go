@@ -181,7 +181,12 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
 				"coding standards, language conventions, testing practices, and other " +
 				"guidance that apply to this project. Treat it as authoritative project " +
-				"instructions._"
+				"instructions._" +
+				"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
+				"bundles, profiles, fragments, and prompts; `ctxloom remote sync`, `ctxloom remote " +
+				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom hook apply`. The ctxloom " +
+				"MCP tools are only for retrieving context during the session — searching and loading " +
+				"fragments, prompts (skills), and prior session history — plus task tracking._"
 			if total > 1 {
 				preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
 			}

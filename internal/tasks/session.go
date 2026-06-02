@@ -97,6 +97,82 @@ func migrationSource(cfg SessionConfig) string {
 	return legacyStorePath(cfg.ProjectDir) // fresh session
 }
 
+// MoveTask moves a single task (by harpID) from src to dst, setting its status
+// on arrival (e.g. StatusInProgress). The task's harp id and text are
+// preserved so its identity survives the move. dst is written before src is
+// mutated, so a crash mid-move leaves the task present in at least one store
+// rather than losing it. Returns the task as written to dst.
+//
+// This is the single-task analogue of moveStore (which moves a whole file) and
+// backs `ctxloom run --seed-task` / `ctxloom tasks run`: a task selected from
+// one session's store is spun into a fresh session's store, marked in progress.
+func MoveTask(src, dst *Store, harpID, status string) (Task, error) {
+	if src == nil || dst == nil {
+		return Task{}, fmt.Errorf("src and dst stores required")
+	}
+	srcTasks, err := src.Snapshot()
+	if err != nil {
+		return Task{}, fmt.Errorf("read source store: %w", err)
+	}
+	var found *Task
+	for i := range srcTasks {
+		if srcTasks[i].HarpID == harpID {
+			found = &srcTasks[i]
+			break
+		}
+	}
+	if found == nil {
+		return Task{}, fmt.Errorf("task not found in source store: %s", harpID)
+	}
+	written, err := dst.insert(Task{HarpID: found.HarpID, Text: found.Text, Status: status})
+	if err != nil {
+		return Task{}, fmt.Errorf("write to dest store: %w", err)
+	}
+	if _, err := src.Remove(harpID); err != nil {
+		// dst already holds the task, so it is not lost; surface the partial.
+		return written, fmt.Errorf("remove from source store: %w", err)
+	}
+	return written, nil
+}
+
+// Located is a task paired with the harp of the session store it lives in.
+// OriginHarp == "" denotes the legacy project store
+// (<projectDir>/.ctxloom/tasks.md).
+type Located struct {
+	Task
+	OriginHarp string
+}
+
+// CollectForSessions gathers tasks from each per-harp session store under
+// sessionsRoot (one per name in harps) plus the legacy project store, tagging
+// each task with its origin harp. statuses filters by status (empty = all).
+//
+// Each store is read best-effort: a store that fails to read warns to stderr
+// and is skipped, so one unreadable store never sinks the whole listing
+// (fault-tolerance — see CLAUDE.md). Missing stores simply contribute nothing.
+func CollectForSessions(sessionsRoot, projectDir string, harps, statuses []string) ([]Located, error) {
+	var out []Located
+	collect := func(store *Store, origin string) {
+		list, err := store.List(statuses, "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: reading task store %s: %v\n", store.Path(), err)
+			return
+		}
+		for _, t := range list {
+			out = append(out, Located{Task: t, OriginHarp: origin})
+		}
+	}
+	if sessionsRoot != "" {
+		for _, h := range harps {
+			collect(OpenPath(HarpStorePath(sessionsRoot, h)), h)
+		}
+	}
+	if projectDir != "" {
+		collect(OpenPath(legacyStorePath(projectDir)), "")
+	}
+	return out, nil
+}
+
 // moveStore moves src to dst, creating dst's parent dir. It is a no-op when
 // src does not exist — which is the normal outcome when another process has
 // already consumed the source (the rename-race loser), or when there is

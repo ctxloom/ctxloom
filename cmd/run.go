@@ -20,7 +20,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
@@ -40,6 +42,8 @@ var (
 	runResumeTasksFrom  string
 	runResumeNewSession bool
 	runResumeNoTasks    bool
+	runSeedTask         string
+	runSeedStatus       string
 )
 
 // resumeFlags bundles the four CLI flags that govern resume behavior
@@ -256,6 +260,41 @@ func resolveSelfExecutable() string {
 		return fallback
 	}
 	return exe
+}
+
+// seedTaskIntoSession moves the task with harpID from the resume source store
+// into the new session's (activeHarp) store, setting its status (defaulting to
+// In Progress). The source is the resumed-from session's store when resuming a
+// named session, otherwise the legacy project store. All failures warn and
+// return — seeding never blocks the launch.
+func seedTaskIntoSession(workDir, activeHarp string, resume sessions.Decision, harpID, status string) {
+	if status == "" {
+		status = tasks.StatusInProgress
+	}
+	root, err := paths.HomeSessionsDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: cannot resolve sessions dir for --seed-task: %v\n", err)
+		return
+	}
+	dst := tasks.OpenPath(tasks.HarpStorePath(root, activeHarp))
+
+	var src *tasks.Store
+	if resume.Action == sessions.ResumeAction && resume.FromHarp != "" {
+		src = tasks.OpenPath(tasks.HarpStorePath(root, resume.FromHarp))
+	} else {
+		src, err = tasks.Open(workDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: open legacy task store for --seed-task: %v\n", err)
+			return
+		}
+	}
+
+	moved, err := tasks.MoveTask(src, dst, harpID, status)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: seed task %s: %v\n", harpID, err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "ctxloom: seeded task %s into %s (%s)\n", moved.HarpID, activeHarp, moved.Status)
 }
 
 func resumePartsCSV(d sessions.Decision) string {
@@ -484,6 +523,16 @@ Examples:
 			}()
 		}
 
+		// --seed-task: move one task from the resume source store into this
+		// freshly minted session's store, marked for active work. Used by
+		// `ctxloom tasks run` to spin a browsed task into its own session.
+		// Writing the dest store here also means the LLM's OpenSession finds it
+		// already present and skips its own whole-store migration. Best-effort:
+		// a failure warns and the session still launches (CLAUDE.md).
+		if runSeedTask != "" && activeHarp != "" {
+			seedTaskIntoSession(workDir, activeHarp, resume, runSeedTask, runSeedStatus)
+		}
+
 		// Build request
 		req := &pb.RunRequest{
 			Fragments: protoFragments,
@@ -634,6 +683,13 @@ func init() {
 	runCmd.Flags().StringVar(&runResumeTasksFrom, "tasks-from", "", "Start a fresh session but hydrate tasks from the named harp session. Skips the picker.")
 	runCmd.Flags().BoolVar(&runResumeNewSession, "new-session", false, "Start a fresh session without resume. Skips the picker.")
 	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
+
+	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
+	// new session's store. Hidden — not part of the public run surface.
+	runCmd.Flags().StringVar(&runSeedTask, "seed-task", "", "Move the named task (harp id) from the resume source store into this session, marked for active work")
+	runCmd.Flags().StringVar(&runSeedStatus, "seed-status", "", "Status to set on the seeded task (default: \"In Progress\")")
+	_ = runCmd.Flags().MarkHidden("seed-task")
+	_ = runCmd.Flags().MarkHidden("seed-status")
 
 	// Register completions
 	_ = runCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)

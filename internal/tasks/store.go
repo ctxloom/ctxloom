@@ -82,6 +82,14 @@ func Open(projectDir string) (*Store, error) {
 	return &Store{path: filepath.Join(projectDir, ".ctxloom", "tasks.md")}, nil
 }
 
+// OpenPath returns a Store backed by an explicit tasks.md path. Unlike Open
+// (which derives the legacy <projectDir>/.ctxloom/tasks.md location), this lets
+// callers target a session-scoped store at ~/.ctxloom/sessions/<harp>/tasks.md
+// (see HarpStorePath) or any other known location.
+func OpenPath(path string) *Store {
+	return &Store{path: path}
+}
+
 // Path returns the absolute path of the tasks file.
 func (s *Store) Path() string { return s.path }
 
@@ -133,6 +141,83 @@ func (s *Store) Add(text, status string) (Task, error) {
 		return Task{}, err
 	}
 	return task, nil
+}
+
+// insert adds a task while preserving an explicit harp id (unlike Add, which
+// generates one). A pre-existing task with the same harp id is replaced in
+// place. Empty status defaults to StatusToDo. Checked/TextHash are derived.
+// Returns the persisted task. Used by MoveTask to carry a task's identity
+// across stores.
+func (s *Store) insert(t Task) (Task, error) {
+	t.Text = strings.TrimSpace(t.Text)
+	if t.Text == "" {
+		return Task{}, fmt.Errorf("text required")
+	}
+	if t.HarpID == "" {
+		return Task{}, fmt.Errorf("harp id required")
+	}
+	if t.Status == "" {
+		t.Status = StatusToDo
+	}
+	t.Checked = statusIsDone(t.Status)
+	t.TextHash = hashText(t.Text)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := filelock.Lock(s.path + ".lock")
+	if err != nil {
+		return Task{}, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	all, err := s.snapshot()
+	if err != nil {
+		return Task{}, err
+	}
+	replaced := false
+	for i := range all {
+		if all[i].HarpID == t.HarpID {
+			all[i] = t
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		all = append(all, t)
+	}
+	if err := s.write(all); err != nil {
+		return Task{}, err
+	}
+	return t, nil
+}
+
+// Remove deletes the task with harpID and returns the removed task. Errors if
+// the harp ID isn't present.
+func (s *Store) Remove(harpID string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := filelock.Lock(s.path + ".lock")
+	if err != nil {
+		return Task{}, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	all, err := s.snapshot()
+	if err != nil {
+		return Task{}, err
+	}
+	for i := range all {
+		if all[i].HarpID != harpID {
+			continue
+		}
+		removed := all[i]
+		all = append(all[:i], all[i+1:]...)
+		if err := s.write(all); err != nil {
+			return Task{}, err
+		}
+		return removed, nil
+	}
+	return Task{}, fmt.Errorf("task not found: %s", harpID)
 }
 
 // SetStatus moves a task to a different section. Errors if the harp ID

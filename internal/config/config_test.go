@@ -650,7 +650,6 @@ func TestConfig_GetBundleDirs_NoBundlesDir(t *testing.T) {
 	assert.Empty(t, dirs)
 }
 
-
 func TestConfig_GetConfigFilePath(t *testing.T) {
 	t.Run("returns path when AppPaths set", func(t *testing.T) {
 		cfg := &Config{AppPaths: []string{"/path/to/.ctxloom"}}
@@ -885,6 +884,64 @@ defaults:
 	assert.Equal(t, []string{appDir}, cfg.AppPaths)
 	assert.Equal(t, appDir, cfg.AppDir)
 	assert.Equal(t, SourceProject, cfg.Source)
+}
+
+func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+
+	legacy := "# my config\n" +
+		"llm:\n  plugins:\n    claude-code:\n      model: opus\n" +
+		"defaults:\n  profiles:\n    - test\n  llm_plugin: gemini\n"
+	cfgPath := paths.ConfigPath(appDir)
+	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(legacy), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	require.NoError(t, err)
+
+	// In-memory config reflects the upgrade.
+	assert.Equal(t, "gemini", cfg.LM.Default, "llm_plugin should become llm.default")
+	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins should become llm.configs")
+	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Model)
+	assert.Contains(t, cfg.Defaults.Profiles, "test")
+	assert.Empty(t, cfg.Warnings, "upgraded config should not produce validation warnings")
+
+	// Load is non-destructive: the file on disk is untouched (no silent rewrite).
+	onDisk, err := afero.ReadFile(fs, cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, legacy, string(onDisk), "Load must not rewrite the file")
+
+	// The upgrade is staged as pending for an interactive caller to confirm.
+	require.NotNil(t, cfg.PendingUpgrade, "legacy config should record a pending upgrade")
+	assert.Equal(t, cfgPath, cfg.PendingUpgrade.Path)
+	assert.NotEmpty(t, cfg.PendingUpgrade.Applied)
+
+	// CommitUpgrade persists the upgraded form verbatim (comments preserved) and
+	// clears the pending state.
+	require.NoError(t, cfg.CommitUpgrade())
+	assert.Nil(t, cfg.PendingUpgrade)
+	committed, err := afero.ReadFile(fs, cfgPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(committed), "llm_plugin")
+	assert.NotContains(t, string(committed), "plugins:")
+	assert.Contains(t, string(committed), "version: 2", "upgrade stamps the schema version")
+	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
+}
+
+func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+
+	current := "version: 2\nllm:\n  default: claude-code\n"
+	cfgPath := paths.ConfigPath(appDir)
+	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	require.NoError(t, err)
+	assert.Nil(t, cfg.PendingUpgrade, "a current-version config must not record a pending upgrade")
+	assert.Equal(t, 2, cfg.Version)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -1829,9 +1886,21 @@ func TestGetCompactionModel(t *testing.T) {
 		assert.Equal(t, "opus", cfg.GetCompactionModel())
 	})
 
-	t.Run("defaults to haiku", func(t *testing.T) {
+	t.Run("defaults to haiku for Claude", func(t *testing.T) {
 		cfg := &Config{}
 		assert.Equal(t, "haiku", cfg.GetCompactionModel())
+	})
+
+	t.Run("empty for non-Claude compaction LLM", func(t *testing.T) {
+		// haiku is Claude-specific; a Gemini compaction LLM must not be handed it.
+		cfg := &Config{LM: LMConfig{Default: "gemini"}}
+		assert.Equal(t, "", cfg.GetCompactionModel(),
+			"non-Claude backend should resolve its own default model")
+	})
+
+	t.Run("configured model wins regardless of backend", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{Default: "gemini", Compaction: CompactionConfig{Model: "gemini-2.5-pro"}}}
+		assert.Equal(t, "gemini-2.5-pro", cfg.GetCompactionModel())
 	})
 }
 

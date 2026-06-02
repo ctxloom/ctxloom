@@ -10,12 +10,30 @@ import (
 
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
+	Version  int                `yaml:"version"`
 	LM       LMConfig           `yaml:"llm"`
 	Editor   EditorConfig       `yaml:"editor,omitempty"`
 	Defaults Defaults           `yaml:"defaults,omitempty"`
 	Sync     SyncConfig         `yaml:"sync,omitempty"`
 	Hooks    HooksConfig        `yaml:"hooks,omitempty"`
 	Profiles map[string]Profile `yaml:"profiles,omitempty"`
+}
+
+// CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
+// upgraded bytes verbatim so the comments and key order preserved by the node
+// rewrite survive. It is a no-op when nothing is pending, and clears
+// PendingUpgrade on success. Callers prompt the user before invoking this (see
+// cmd/run.go); ctxloom never rewrites a config without consent.
+func (c *Config) CommitUpgrade() error {
+	if c.PendingUpgrade == nil {
+		return nil
+	}
+	p := c.PendingUpgrade
+	if err := afero.WriteFile(c.getFS(), p.Path, p.Data, 0o644); err != nil {
+		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
+	}
+	c.PendingUpgrade = nil
+	return nil
 }
 
 // Save writes the configuration to the primary config file.
@@ -77,6 +95,7 @@ func setOrDelete(m map[string]interface{}, key string, present bool, value inter
 // keys for empty sections. Editor round-trips like every other block; without
 // it editor settings would be silently dropped.
 func (c *Config) applyConfigSections(existing map[string]interface{}) {
+	existing["version"] = CurrentConfigVersion // stamp current schema version so saved configs are never stale
 	existing["llm"] = c.LM
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported

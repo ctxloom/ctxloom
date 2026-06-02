@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
@@ -17,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
 // Re-export path constants for backwards compatibility
@@ -38,6 +40,7 @@ const (
 
 // Config holds the ctxloom configuration.
 type Config struct {
+	Version  int                `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
 	LM       LMConfig           `mapstructure:"llm" yaml:"llm"`
 	Editor   EditorConfig       `mapstructure:"editor"`
 	Defaults Defaults           `mapstructure:"defaults"`
@@ -50,7 +53,14 @@ type Config struct {
 	AppDir   string             // Full path to the .ctxloom directory
 	Source   ConfigSource       // Where the configuration was loaded from
 	Warnings []string           // Non-fatal warnings collected during load
-	fs       afero.Fs           // Filesystem for file operations (nil = OS filesystem)
+
+	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
+	// current one in memory. The upgraded bytes are NOT persisted automatically;
+	// an interactive caller may prompt the user and call CommitUpgrade. Nil when
+	// the file was already current.
+	PendingUpgrade *upgrade.Pending
+
+	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 }
 
 // LoadOption is a functional option for Load.
@@ -165,12 +175,19 @@ func (c *Config) GetCompactionLLM() string {
 }
 
 // GetCompactionModel returns the model to use for session compaction.
-// Defaults to "haiku".
+// "haiku" is a Claude-specific model name, so it is only a safe default when the
+// compaction LLM is Claude. For any other backend, return empty and let that
+// backend resolve its own default model (e.g. Gemini → gemini-2.5-flash) rather
+// than handing it a model name it doesn't recognize (which fails with
+// ModelNotFoundError). An explicitly configured model always wins.
 func (c *Config) GetCompactionModel() string {
 	if c.LM.Compaction.Model != "" {
 		return c.LM.Compaction.Model
 	}
-	return "haiku"
+	if c.GetCompactionLLM() == "claude-code" {
+		return "haiku"
+	}
+	return ""
 }
 
 // GetCompactionChunkSize returns the target chunk size for compaction.
@@ -257,6 +274,18 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 			return nil
 		}
 		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	// Upgrade older on-disk schema generations to the current one *in memory*
+	// before validation/parse, so old configs neither warn nor silently drop
+	// settings. We do NOT rewrite the file here: an interactive caller may prompt
+	// the user and persist via CommitUpgrade (see cmd/run.go). This keeps
+	// non-interactive contexts (MCP server, scripts) from silently rewriting a
+	// user's config — the exact failure mode that motivated this layer.
+	if upgraded, applied := configUpgrades.Run(data); len(applied) > 0 {
+		data = upgraded
+		cfg.PendingUpgrade = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
+		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
 	}
 
 	// Validate against schema before parsing - warn but continue on failure
@@ -395,14 +424,14 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
 	for name, err := range failures {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load remote bundle %q from cache: %v\n", name, err)
+		warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote bundle %q from cache: %v\n", name, err))
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
 	for name, data := range rawBytes {
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to parse remote bundle %q: %v\n", name, perr)
+			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote bundle %q: %v\n", name, perr))
 			continue
 		}
 		b.Name = name
@@ -412,6 +441,24 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		loaded[name] = b
 	}
 	return loaded
+}
+
+var (
+	warnedOnceMu   sync.Mutex
+	warnedOnceSeen = map[string]struct{}{}
+)
+
+// warnOncePerRun writes msg to stderr at most once per process for identical
+// text, collapsing the duplicate remote-bundle warnings emitted when profile
+// resolution re-seeds the same bundles several times during one startup.
+func warnOncePerRun(msg string) {
+	warnedOnceMu.Lock()
+	defer warnedOnceMu.Unlock()
+	if _, seen := warnedOnceSeen[msg]; seen {
+		return
+	}
+	warnedOnceSeen[msg] = struct{}{}
+	fmt.Fprint(os.Stderr, msg)
 }
 
 // SourceName returns a human-readable name for the config source.

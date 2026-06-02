@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -120,6 +121,152 @@ func TestSetSummary(t *testing.T) {
 	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup."))
 	found, _ := m.Find(e.HarpName)
 	assert.Equal(t, "Designed bundle review on startup.", found.Summary)
+}
+
+func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {
+	// Earlier (Python) ctxloom builds wrote timestamps as
+	// datetime.isoformat(sep=' '): space separator, microseconds, "+00:00"
+	// offset. Go's RFC3339-only YAML time decoder rejects them, which used to
+	// fail the whole load (and block `ctxloom run` resume). Loading must now
+	// parse them into normalized time.Time values.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const legacy = `sessions:
+- harp_name: generous-trustless-waltz
+  session_id: a295d415-f1cf-413e-9cfc-5ba4dc425e48
+  backend: claude-code
+  project_dir: /home/u/proj
+  started_at: 2026-05-28 16:57:20.781317+00:00
+  ended_at: 2026-05-28 19:21:32.662574+00:00
+`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	idx, err := m.Load()
+	require.NoError(t, err)
+	require.Len(t, idx.Sessions, 1)
+
+	e := idx.Sessions[0]
+	assert.Equal(t, "generous-trustless-waltz", e.HarpName)
+	wantStart := time.Date(2026, 5, 28, 16, 57, 20, 781317000, time.UTC)
+	assert.True(t, e.StartedAt.Equal(wantStart), "started_at: got %s want %s", e.StartedAt, wantStart)
+	require.NotNil(t, e.EndedAt)
+	wantEnd := time.Date(2026, 5, 28, 19, 21, 32, 662574000, time.UTC)
+	assert.True(t, e.EndedAt.Equal(wantEnd), "ended_at: got %s want %s", *e.EndedAt, wantEnd)
+
+	// Load is non-destructive: the file is untouched, with the upgrade staged.
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, legacy, string(onDisk), "Load must not rewrite the index")
+	require.NotNil(t, m.PendingUpgrade(), "legacy index should record a pending upgrade")
+	assert.Equal(t, path, m.PendingUpgrade().Path)
+}
+
+func TestCommitUpgrade_NormalizesAndClearsPending(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const legacy = `sessions:
+- harp_name: generous-trustless-waltz
+  backend: claude-code
+  project_dir: /home/u/proj
+  started_at: 2026-05-28 16:57:20.781317+00:00
+`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	_, err = m.Load() // stages the pending upgrade
+	require.NoError(t, err)
+	require.NotNil(t, m.PendingUpgrade())
+
+	require.NoError(t, m.CommitUpgrade())
+	assert.Nil(t, m.PendingUpgrade(), "commit clears pending")
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "started_at: 2026-05-28T16:57:20.781317Z",
+		"committed index uses canonical RFC3339Nano")
+	assert.NotContains(t, string(got), "781317+00:00", "legacy format gone after commit")
+}
+
+func TestLoad_CurrentIndexHasNoPendingUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const current = `sessions:
+- harp_name: generous-trustless-waltz
+  backend: claude-code
+  project_dir: /home/u/proj
+  started_at: 2026-05-28T16:57:20.781317Z
+`
+	require.NoError(t, os.WriteFile(path, []byte(current), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	_, err = m.Load()
+	require.NoError(t, err)
+	assert.Nil(t, m.PendingUpgrade(), "a canonical index must not record a pending upgrade")
+}
+
+func TestSave_NormalizesLegacyTimestampsToRFC3339(t *testing.T) {
+	// A load+save round-trip over a legacy index self-heals the on-disk
+	// timestamp format to canonical RFC3339Nano.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const legacy = `sessions:
+- harp_name: generous-trustless-waltz
+  backend: claude-code
+  project_dir: /home/u/proj
+  started_at: 2026-05-28 16:57:20.781317+00:00
+`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	// AssignHarp loads and saves the whole index, rewriting every entry.
+	_, err = m.AssignHarp("/home/u/proj", "claude-code")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	got := string(data)
+	assert.Contains(t, got, "started_at: 2026-05-28T16:57:20.781317Z",
+		"legacy timestamp should be rewritten as RFC3339Nano")
+	assert.NotContains(t, got, "781317+00:00", "Python isoformat should be gone after save")
+}
+
+func TestLoad_UnparseableTimestampDoesNotBlockLoad(t *testing.T) {
+	// Fault tolerance: one unrecognized timestamp must not fail the whole
+	// load. The entry loads with a zero StartedAt; everything else survives.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const bad = `sessions:
+- harp_name: busted
+  project_dir: /home/u/proj
+  started_at: not-a-timestamp-at-all
+`
+	require.NoError(t, os.WriteFile(path, []byte(bad), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	idx, err := m.Load()
+	require.NoError(t, err, "unparseable timestamp must not fail the load")
+	require.Len(t, idx.Sessions, 1)
+	assert.Equal(t, "busted", idx.Sessions[0].HarpName)
+	assert.True(t, idx.Sessions[0].StartedAt.IsZero(), "bad timestamp degrades to zero time")
+}
+
+func TestEntry_TimestampRoundTrip(t *testing.T) {
+	m := newManager(t)
+	e, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	require.NoError(t, m.MarkEnded(e.HarpName, time.Now()))
+
+	reloaded, err := m.Find(e.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded)
+	assert.WithinDuration(t, e.StartedAt, reloaded.StartedAt, time.Second)
+	require.NotNil(t, reloaded.EndedAt)
 }
 
 func TestFind_MissingReturnsNilNoError(t *testing.T) {

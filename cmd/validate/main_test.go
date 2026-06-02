@@ -147,7 +147,7 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.BundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `
-version: "1.0"
+version: 1
 
 defaults:
   profiles:

@@ -21,10 +21,11 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
 var (
-	runLLM           string
+	runLLM              string
 	runPrompt           string
 	runFragments        []string
 	runTags             []string
@@ -301,6 +302,9 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
+		// If loading upgraded an older config schema in memory, offer to persist
+		// it (interactive + consented only; never a silent rewrite).
+		confirmUpgrade(cfg.PendingUpgrade, cfg.CommitUpgrade)
 
 		// Determine which LLM to use. An explicit --llm override is validated
 		// up front (friction); no override uses the configured default.
@@ -416,6 +420,12 @@ Examples:
 		if resume.Action == sessions.QuitAction {
 			fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
 			return nil
+		}
+		// If loading the index normalized an older on-disk format, offer to
+		// persist it before the upcoming AssignHarp write (which would otherwise
+		// rewrite it as a side effect of creating the new session).
+		if sessMgr != nil {
+			confirmUpgrade(sessMgr.PendingUpgrade(), sessMgr.CommitUpgrade)
 		}
 		var activeHarp string
 		if sessMgr != nil {
@@ -631,6 +641,44 @@ func init() {
 // for y/N confirmation. Non-interactive contexts (CI, piped) and --yes
 // auto-confirm so they don't hang. On any check error, it falls through to
 // the existing graceful-failure path in SyncOnStartup.
+// confirmUpgrade offers to persist a schema upgrade that loading applied in
+// memory (config or session index). This is the only place ctxloom rewrites such
+// a file on startup, and only with consent: with -y it commits; outside an
+// interactive terminal it leaves the file untouched and the upgrade simply stays
+// in memory for this run (the next interactive run prompts again). A nil pending
+// means the file was already current.
+func confirmUpgrade(p *upgrade.Pending, commit func() error) {
+	if p == nil {
+		return
+	}
+	if runAssumeYes {
+		commitUpgrade(p, commit)
+		return
+	}
+	if !isInteractiveTerminal() {
+		return // in-memory only — never a silent rewrite
+	}
+
+	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", p.Path, strings.Join(p.Applied, ", "))
+	fmt.Fprint(os.Stderr, "Rewrite it to the current format? [y/N] ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return
+	}
+	if answer := strings.ToLower(strings.TrimSpace(line)); answer == "y" || answer == "yes" {
+		commitUpgrade(p, commit)
+	}
+}
+
+// commitUpgrade persists a pending upgrade, warning (never fatal) on failure —
+// the in-memory config is valid regardless.
+func commitUpgrade(p *upgrade.Pending, commit func() error) {
+	if err := commit(); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: could not rewrite %s: %v\n", p.Path, err)
+	}
+}
+
 func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
 	if runAssumeYes || !isInteractiveTerminal() {
 		return true

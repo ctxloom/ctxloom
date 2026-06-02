@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
 // Entry is one row in index.yaml.
@@ -49,6 +50,12 @@ type Index struct {
 type Manager struct {
 	path string
 	mu   sync.Mutex
+
+	// pendingUpgrade records an in-memory schema upgrade applied by the most
+	// recent load (e.g. legacy timestamps normalized). Nil when the on-disk
+	// index was already current. Never persisted automatically — an interactive
+	// caller prompts and calls CommitUpgrade.
+	pendingUpgrade *upgrade.Pending
 }
 
 // Open returns a Manager for the user-global index at
@@ -80,6 +87,7 @@ func (m *Manager) Load() (*Index, error) {
 }
 
 func (m *Manager) loadLocked() (*Index, error) {
+	m.pendingUpgrade = nil
 	data, err := os.ReadFile(m.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return &Index{}, nil
@@ -91,10 +99,54 @@ func (m *Manager) loadLocked() (*Index, error) {
 	if len(data) == 0 {
 		return &idx, nil
 	}
+	// Upgrade older on-disk encodings (e.g. legacy timestamp formats) to the
+	// current one *in memory* before parsing. We don't rewrite the file here —
+	// an interactive caller may prompt and persist via CommitUpgrade — so a
+	// read-only command never silently rewrites the index. Normal mutations
+	// (saveLocked) already write canonical form, so writes self-heal anyway.
+	data, applied := indexUpgrades.Run(data)
+	if len(applied) > 0 {
+		m.pendingUpgrade = &upgrade.Pending{Path: m.path, Data: data, Applied: applied}
+	}
 	if err := yaml.Unmarshal(data, &idx); err != nil {
 		return nil, fmt.Errorf("parse index: %w", err)
 	}
 	return &idx, nil
+}
+
+// PendingUpgrade returns the in-memory schema upgrade staged by the most recent
+// load, or nil if the on-disk index was already current. Safe for concurrent use.
+func (m *Manager) PendingUpgrade() *upgrade.Pending {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pendingUpgrade
+}
+
+// CommitUpgrade persists a pending index upgrade to disk (atomic tmp+rename),
+// writing the upgraded bytes verbatim. No-op when nothing is pending; clears the
+// pending state on success. Callers prompt the user before invoking this.
+func (m *Manager) CommitUpgrade() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pendingUpgrade == nil {
+		return nil
+	}
+
+	unlock, err := filelock.Lock(m.path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	tmp := m.path + ".tmp"
+	if err := os.WriteFile(tmp, m.pendingUpgrade.Data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, m.path); err != nil {
+		return err
+	}
+	m.pendingUpgrade = nil
+	return nil
 }
 
 // AssignHarp generates a fresh harp name (collision-checked against the
@@ -363,7 +415,13 @@ func (m *Manager) saveLocked(idx *Index) error {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, m.path)
+	if err := os.Rename(tmp, m.path); err != nil {
+		return err
+	}
+	// The file is now canonical, so any upgrade staged by the load that preceded
+	// this save is no longer pending.
+	m.pendingUpgrade = nil
+	return nil
 }
 
 // generateUniqueHarp picks a fresh harp name that isn't in `used`.

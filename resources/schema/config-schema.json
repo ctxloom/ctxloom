@@ -7,9 +7,9 @@
   "type": "object",
   "properties": {
     "version": {
-      "type": ["string", "number"],
-      "description": "Schema version for the config format",
-      "examples": ["1.0", 1.0]
+      "type": "integer",
+      "description": "Config schema version (integer; distinct from the application version)",
+      "examples": [1, 2]
     },
     "llm": {
       "type": "object",

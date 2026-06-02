@@ -71,3 +71,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0020](0020-operations-llm-boundary.md) | The operations/LLM boundary: Distiller interface + backends polymorphic package | Accepted |
 | [0021](0021-consolidate-llm-config.md) | Consolidate all LLM config under `llm:`; breaking schema change | Accepted |
 | [0022](0022-flatten-bundle-llm-schema.md) | Flatten the bundle item LLM-export schema (`plugins.llm.*` → `llm.*`) | Accepted |
+| [0024](0024-minimize-mcp-surface.md) | Minimize the MCP surface to operational session tools; front-load configuration via CLI | Accepted |

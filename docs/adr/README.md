@@ -72,3 +72,4 @@ The difference between Deferred and Rejected is the bar for reopening: Deferred 
 | [0021](0021-consolidate-llm-config.md) | Consolidate all LLM config under `llm:`; breaking schema change | Accepted |
 | [0022](0022-flatten-bundle-llm-schema.md) | Flatten the bundle item LLM-export schema (`plugins.llm.*` → `llm.*`) | Accepted |
 | [0024](0024-minimize-mcp-surface.md) | Minimize the MCP surface to operational session tools; front-load configuration via CLI | Accepted |
+| [0027](0027-mirror-established-tool-naming.md) | Mirror established tools' naming when the concept is the same (apt `update`/`upgrade`); borrow at the CLI layer, keep precise internal names | Accepted |

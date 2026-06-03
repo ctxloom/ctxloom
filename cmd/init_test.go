@@ -118,19 +118,19 @@ func TestEnsureGitignoreEntry(t *testing.T) {
 	})
 }
 
-// TestGenerateConfig covers the ctxloom init config template. The
-// engine name appears in two places (llm.plugins.<engine> and
-// defaults.llm), and the template must be valid YAML.
+// TestGenerateConfig covers the ctxloom init config builder. The selected
+// engine's backend type lands in the registry, and the output must be valid
+// YAML ending in a newline.
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "gemini", "codex"} {
 		t.Run(engine, func(t *testing.T) {
-			data := operations.GenerateConfigYAML(engine)
+			data, err := operations.BuildInitialConfig(engine)
+			require.NoError(t, err)
 			body := string(data)
-			assert.Contains(t, body, "default: "+engine,
-				"engine must appear as llm.default")
-			// Sanity: must be parseable shape (top-level keys, ends with newline).
-			assert.True(t, strings.HasPrefix(body, "# ctxloom Configuration"),
-				"comment header pins the file's identity")
+			assert.Contains(t, body, "type: "+engine,
+				"engine must appear as a registry entry type")
+			assert.NotContains(t, body, "role:",
+				"role is registry-only and stripped on write")
 			assert.True(t, strings.HasSuffix(body, "\n"),
 				"config must end with newline (POSIX-friendly + diff-friendly)")
 		})
@@ -138,11 +138,13 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data := operations.GenerateConfigYAML("claude-code")
+	data, err := operations.BuildInitialConfig("claude-code")
+	require.NoError(t, err)
 	body := string(data)
-	// Three default fields land at the top level so a user can grep for
-	// each without parsing.
-	assert.Contains(t, body, "defaults:")
+	// The scaffold settings survive into the written config.
 	assert.Contains(t, body, "use_distilled: true")
 	assert.Contains(t, body, "auto_register_ctxloom: true")
+	// The engine's role pair is wired into llm.defaults.
+	assert.Contains(t, body, "primary: claude-code")
+	assert.Contains(t, body, "fast: claude-fast")
 }

@@ -419,7 +419,7 @@ func addPublishMetadata(content []byte, localPath string) ([]byte, error) {
 
 // NewPublisher creates a publisher for the given repository URL.
 func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
-	forgeType, baseURL, err := DetectForge(repoURL)
+	forgeType, _, err := DetectForge(repoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -427,8 +427,8 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	switch forgeType {
 	case ForgeGitHub:
 		return NewGitHubPublisher(auth.GitHub), nil
-	case ForgeGitLab:
-		return NewGitLabPublisher(baseURL, auth.GitLab), nil
+	case ForgeGitGeneric:
+		return nil, fmt.Errorf("publishing to generic git hosts is not supported")
 	default:
 		return nil, fmt.Errorf("unsupported forge for publishing: %s", repoURL)
 	}

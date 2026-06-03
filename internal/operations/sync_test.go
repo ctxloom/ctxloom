@@ -1,6 +1,6 @@
 // Package operations tests for sync verify remote dependency synchronization.
 //
-// Sync is how ctxloom pulls remote bundles and profiles from GitHub/GitLab/etc.
+// Sync is how ctxloom pulls remote bundles and profiles from git remotes.
 // It scans config for remote references (anything with "/" like "github/bundle")
 // and downloads missing items to the local .ctxloom directory.
 //

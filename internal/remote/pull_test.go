@@ -550,10 +550,9 @@ func TestDefaultFetcherFactory(t *testing.T) {
 		assert.Equal(t, ForgeGitHub, fetcher.Forge())
 	})
 
-	t.Run("creates GitLab fetcher", func(t *testing.T) {
-		fetcher, err := DefaultFetcherFactory("https://gitlab.com/owner/repo", AuthConfig{})
-		require.NoError(t, err)
-		assert.Equal(t, ForgeGitLab, fetcher.Forge())
+	t.Run("rejects a generic git host (no API fetcher)", func(t *testing.T) {
+		_, err := DefaultFetcherFactory("https://gitlab.com/owner/repo", AuthConfig{})
+		require.Error(t, err)
 	})
 }
 

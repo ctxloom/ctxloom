@@ -27,12 +27,22 @@ type GitHubFetcherOption func(*gitHubFetcherConfig)
 
 type gitHubFetcherConfig struct {
 	httpClient *http.Client
+	apiURL     string
 }
 
 // WithHTTPClient sets a custom HTTP client (for testing).
 func WithHTTPClient(client *http.Client) GitHubFetcherOption {
 	return func(c *gitHubFetcherConfig) {
 		c.httpClient = client
+	}
+}
+
+// WithGitHubAPIURL points the fetcher at a GitHub Enterprise REST API base
+// (e.g. https://github.mycorp.com/api/v3). Empty uses the public github.com
+// endpoint.
+func WithGitHubAPIURL(apiURL string) GitHubFetcherOption {
+	return func(c *gitHubFetcherConfig) {
+		c.apiURL = apiURL
 	}
 }
 
@@ -66,7 +76,7 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 	}
 
 	fetcher := &GitHubFetcher{
-		client:   newRealGitHubClient(httpClient),
+		client:   newRealGitHubClient(httpClient, cfg.apiURL),
 		token:    token,
 		hasToken: hasToken,
 	}
@@ -75,7 +85,7 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 	if hasToken {
 		fetcher.fallback = newRealGitHubClient(&http.Client{
 			Transport: &loggingTransport{},
-		})
+		}, cfg.apiURL)
 	}
 
 	return fetcher
@@ -416,7 +426,7 @@ func NewGitHubPublisher(token string) *GitHubPublisher {
 	}
 
 	return &GitHubPublisher{
-		client: newRealGitHubClient(httpClient),
+		client: newRealGitHubClient(httpClient, ""),
 	}
 }
 

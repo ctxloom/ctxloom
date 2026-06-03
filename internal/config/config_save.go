@@ -64,6 +64,20 @@ func (c *Config) Save() error {
 	return nil
 }
 
+// Marshal renders the configuration to YAML bytes using the same section
+// assembly as Save (registry role-stripping included), but over a fresh map
+// rather than the on-disk file. Used by callers that build a config in memory
+// and write it themselves (e.g. init), so the written shape matches Save's.
+func (c *Config) Marshal() ([]byte, error) {
+	out := make(map[string]interface{})
+	c.applyConfigSections(out)
+	data, err := yaml.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return data, nil
+}
+
 // readExistingConfig loads the current config file into a generic map so that
 // unknown fields are preserved across a Save. A missing file yields an empty
 // map; a corrupt one warns and continues (fault tolerance — don't block).
@@ -81,6 +95,22 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 	return existing, nil
 }
 
+// persistableLM returns a copy of the LM config with the registry-only Role
+// dropped from every entry, so persisted user configs carry plain {type, model}
+// entries. The input is not mutated (the in-memory registry keeps its roles).
+func persistableLM(lm LMConfig) LMConfig {
+	if len(lm.Configs) == 0 {
+		return lm
+	}
+	configs := make(map[string]LLMConfig, len(lm.Configs))
+	for label, entry := range lm.Configs {
+		entry.Role = ""
+		configs[label] = entry
+	}
+	lm.Configs = configs
+	return lm
+}
+
 // setOrDelete writes value under key when present, otherwise removes key — so
 // emptied sections are pruned from the on-disk config rather than left behind.
 func setOrDelete(m map[string]interface{}, key string, present bool, value interface{}) {
@@ -96,7 +126,7 @@ func setOrDelete(m map[string]interface{}, key string, present bool, value inter
 // it editor settings would be silently dropped.
 func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	existing["version"] = CurrentConfigVersion // stamp current schema version so saved configs are never stale
-	existing["llm"] = c.LM
+	existing["llm"] = persistableLM(c.LM)
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported
 

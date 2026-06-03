@@ -349,6 +349,25 @@ func Load(opts ...LoadOption) (*Config, error) {
 	return cfg, nil
 }
 
+// ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded
+// default registry. Unlike Load it does not read from disk, validate, upgrade,
+// or merge defaults — callers that need the raw registry entries (e.g. init
+// reading the shipped default-config) use this so the role markers and exact
+// entries survive untouched.
+func ParseConfig(data []byte) (*Config, error) {
+	cfg := &Config{
+		LM:       LMConfig{Configs: make(map[string]LLMConfig)},
+		Profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
+	}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if cfg.LM.Configs == nil {
+		cfg.LM.Configs = make(map[string]LLMConfig)
+	}
+	return cfg, nil
+}
+
 // mergeDefaultConfig fills any LLM-role gaps from the embedded default config.
 // Per CLAUDE.md fault tolerance a malformed/unreadable default never blocks
 // startup — the merge is skipped silently. User config always wins: a default

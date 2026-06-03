@@ -50,8 +50,9 @@ func (f *cacheFetcher) localFetcher(ctx context.Context, ref string) (*GitCloneF
 	if err != nil {
 		return nil, err
 	}
-	gitAuth := f.cache.authMethod(f.forgeType)
-	return NewGitCloneFetcher(repoDir, normalizeCloneURL(f.repoURL), f.forgeType, gitAuth)
+	// Local reads need no credentials; the cache already handled the network
+	// clone/fetch via system git.
+	return NewGitCloneFetcher(repoDir, normalizeCloneURL(f.repoURL), f.forgeType, nil)
 }
 
 func (f *cacheFetcher) FetchFile(ctx context.Context, owner, repo, path, ref string) ([]byte, error) {
@@ -95,8 +96,13 @@ func (f *cacheFetcher) GetDefaultBranch(ctx context.Context, owner, repo string)
 }
 
 // SearchRepos has no local equivalent; it queries the forge's search index.
-// Constructed lazily so the API client is only created when search is invoked.
+// Only the GitHub adapter has a search API — the generic git adapter clones a
+// known URL and cannot enumerate a host, so it returns no results. The API
+// client is constructed lazily so it is only created when search is invoked.
 func (f *cacheFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {
+	if f.forgeType != ForgeGitHub {
+		return nil, nil
+	}
 	apiFetcher, err := NewFetcher(f.repoURL, f.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create API fetcher for search: %w", err)

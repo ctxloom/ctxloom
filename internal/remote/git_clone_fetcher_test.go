@@ -162,9 +162,9 @@ func TestGitCloneFetcher_Forge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ForgeGitHub, fetcher.Forge())
 
-	fetcher2, err := NewGitCloneFetcher(repoDir, "file://"+repoDir, ForgeGitLab, nil)
+	fetcher2, err := NewGitCloneFetcher(repoDir, "file://"+repoDir, ForgeGitGeneric, nil)
 	require.NoError(t, err)
-	assert.Equal(t, ForgeGitLab, fetcher2.Forge())
+	assert.Equal(t, ForgeGitGeneric, fetcher2.Forge())
 }
 
 func TestGitCloneFetcher_SearchRepos(t *testing.T) {

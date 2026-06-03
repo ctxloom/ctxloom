@@ -31,7 +31,7 @@ ctxloom run [flags] [prompt...]
 | `--tag` | `-t` | Include fragments with tag (repeatable) |
 | `--prompt` | | Custom prompt text |
 | `--saved-prompt` | | Load saved prompt template |
-| `--llm` | `-l` | LLM to use for this run only (overrides the default; not persisted) |
+| `--llm` | `-l` | Config label to use (e.g. claude-code, claude-fast, gemini-code, gemini-fast); overrides the configured default |
 | `--dry-run` | `-n` | Preview context without running |
 | `--print` | | Print assembled context |
 | `--verbose` | `-v` | Increase verbosity (-v, -vv, -vvv) |
@@ -171,7 +171,7 @@ Manage remote repositories.
 | Subcommand | Description |
 |------------|-------------|
 | `list` | List configured remotes |
-| `add <name> <url>` | Add remote source |
+| `add <name> <url>` | Add remote source (optionally `--forge <label>`) |
 | `remove <name>` | Remove remote |
 | `default [name]` | Get/set default remote |
 | `sync` | Sync dependencies from profiles |
@@ -184,14 +184,36 @@ Manage remote repositories.
 | `replace` | Manage local overrides for development |
 
 **URL formats:**
-- `user/repo` - GitHub shorthand
-- `https://github.com/user/repo` - Full URL
-- `https://gitlab.com/corp/repo` - GitLab
+- `user/repo` - GitHub shorthand (expands to `https://github.com/user/repo`)
+- `https://github.com/user/repo` - Full GitHub URL
+- `https://git.example.com/corp/repo` - Any other git host (GitLab, Gitea, Bitbucket, self-hosted)
+- `git@github.com:user/repo.git` - SSH URL (converted to HTTPS)
+
+**Forges:**
+
+A remote binds to a *forge* — the adapter ctxloom uses to read and publish:
+
+- `github` — rich adapter over the GitHub REST API (file/dir reads, ref
+  resolution, repo search, PR publish). Serves github.com and GitHub Enterprise
+  (the host comes from the remote URL; the API endpoint is derived from it).
+  Token: the env var named by the forge's `token_env`, default `GITHUB_TOKEN`.
+- `git` — generic adapter that clones over HTTPS/SSH and reads the working copy.
+  Works against any git host for consumption (no API search or PR publish). Auth
+  is ambient git (credential helper, ssh-agent, `~/.ssh/config`, per-host
+  `.gitconfig`).
+
+Without `--forge`, the forge resolves from the URL host: github.com (and the
+`owner/repo` shorthand) use `github`; every other host uses `git`. Pass
+`--forge <label>` to override with `github`, `git`, or a `forges:` label
+configured in `remotes.yaml` (for example a GitHub Enterprise instance with its
+own `base_url`/`token_env`).
 
 **Examples:**
 ```bash
 ctxloom remote list
 ctxloom remote add personal myuser/ctxloom-profiles
+ctxloom remote add corp https://git.example.com/corp/repo --forge git
+ctxloom remote add work https://github.mycorp.com/me/ctxloom --forge work-ghe
 ctxloom remote default personal
 ctxloom remote sync --force
 ctxloom remote search golang
@@ -355,7 +377,7 @@ user/repo                 # GitHub shorthand
 |----------|-------------|
 | `CTXLOOM_HOME` | Override default config directory |
 | `EDITOR` | Editor for edit commands |
-| `GITHUB_TOKEN` | GitHub API authentication |
+| `GITHUB_TOKEN` | Default token for the `github` forge (override per forge via `token_env`) |
 
 ---
 

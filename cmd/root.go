@@ -55,7 +55,7 @@ KEY CONCEPTS
   Prompts     Saved prompts for common tasks
   Profiles    Named configurations combining bundles and variables
   Bundles     YAML files containing fragments/prompts (internal format)
-  Remotes     Git repositories for sharing content (GitHub/GitLab)
+  Remotes     Git repositories for sharing content (GitHub or generic git)
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle

@@ -292,6 +292,43 @@ func TestAddRemote_TrustOnAdd(t *testing.T) {
 	assert.True(t, rem.TrustBundles, "Trust:true on add should mark the remote trusted")
 }
 
+func TestAddRemote_ForgeOnAdd(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	fetcher := remote.NewMockFetcher().WithValidRepo("corp", "ctxloom")
+
+	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "corp",
+		URL:      "https://git.example.com/corp/ctxloom",
+		Forge:    "git",
+		Registry: registry,
+		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
+	})
+	require.NoError(t, err)
+
+	rem, err := registry.Get("corp")
+	require.NoError(t, err)
+	assert.Equal(t, "git", rem.Forge, "Forge on add should bind the remote to the named forge")
+}
+
+func TestAddRemote_UnknownForgeRollsBack(t *testing.T) {
+	registry, _ := setupTestRegistry(t)
+	fetcher := remote.NewMockFetcher().WithValidRepo("corp", "ctxloom")
+
+	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
+		Name:     "corp",
+		URL:      "https://git.example.com/corp/ctxloom",
+		Forge:    "nope",
+		Registry: registry,
+		Fetcher:  fetcher,
+		Cache:    &fakeCloner{},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown forge")
+
+	assert.False(t, registry.Has("corp"), "an unknown forge must roll the registration back")
+}
+
 func TestListRemotes_Empty(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 
@@ -498,7 +535,7 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	fetcher := remote.NewMockFetcher()
 
-	// URL that can't be parsed as a GitHub/GitLab URL
+	// URL that can't be parsed as a repository URL
 	_, err := AddRemote(context.Background(), nil, AddRemoteRequest{
 		Name:     "test",
 		URL:      "not-a-valid-repo-url",
@@ -909,7 +946,7 @@ func TestSearchRemotes_NoRemotes(t *testing.T) {
 }
 
 func TestSearchRemotes_ManifestBased(t *testing.T) {
-	// Note: SearchRemotes uses real Fetcher (GitHub/GitLab), not MockFetcher
+	// Note: SearchRemotes uses real Fetcher (GitHub or generic git), not MockFetcher
 	// Testing the actual code paths with real URLs and error responses
 	// For now, test the higher-level behavior with mocks
 	// Can't add real remotes without network access

@@ -136,7 +136,12 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 // imports backend structs. The map label that keys this entry is an arbitrary
 // user string with zero semantics; the backend is determined ONLY by Type.
 type LLMConfig struct {
-	Type string                 `mapstructure:"type" yaml:"type,omitempty"`
+	Type string `mapstructure:"type" yaml:"type,omitempty"`
+	// Role marks an entry as its backend type's default primary or fast pick in
+	// the shipped registry. It is registry-only metadata: init reads it to wire a
+	// freshly-selected engine, and the persist path strips it so user configs
+	// stay plain {type, model}. It never affects runtime label resolution.
+	Role string                 `mapstructure:"role" yaml:"role,omitempty"`
 	Body map[string]interface{} `mapstructure:",remain" yaml:",inline"`
 }
 

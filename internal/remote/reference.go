@@ -21,11 +21,11 @@ import (
 //
 // HTTPS URL (canonical, self-contained):
 //   - "https://github.com/owner/repo@bundles/name"
-//   - "https://gitlab.com/group/repo@fragments/security"
+//   - "https://git.example.com/group/repo@fragments/security"
 //
 // SSH URL:
 //   - "git@github.com:owner/repo@bundles/name"
-//   - "git@gitlab.com:group/subgroup/repo@prompts/review"
+//   - "git@git.example.com:group/subgroup/repo@prompts/review"
 //
 // File URL (local repositories):
 //   - "file:///path/to/repo@bundles/name"

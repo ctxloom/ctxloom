@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -40,7 +41,11 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		}
 	}
 
-	if err := afero.WriteFile(fs, paths.ConfigPath(req.AppDir), GenerateConfigYAML(req.Engine), 0644); err != nil {
+	configData, err := BuildInitialConfig(req.Engine)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
+	}
+	if err := afero.WriteFile(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
@@ -55,22 +60,82 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
 }
 
-// GenerateConfigYAML renders the initial config.yaml for a freshly initialized
-// project, with the selected engine wired in as the sole plugin and default.
-func GenerateConfigYAML(engine string) []byte {
-	return []byte(fmt.Sprintf(`# ctxloom Configuration
-# See https://github.com/ctxloom/ctxloom for documentation
+// BuildInitialConfig renders the config.yaml a freshly initialized project
+// starts from. It loads the embedded init scaffold (version + settings + mcp,
+// no llm block), wires the selected engine's LLM registry into it, and marshals
+// the result. The registry is built from the shipped default-config: the two
+// entries whose type matches the engine and whose role is primary/fast are
+// copied in (role stripped) and pointed at by llm.defaults. Engines without
+// role-marked entries (e.g. codex, mock) get a single self-contained
+// {type: engine} entry serving both roles.
+func BuildInitialConfig(engine string) ([]byte, error) {
+	scaffold, err := config.ParseConfig(mustResource(resources.GetInitConfig))
+	if err != nil {
+		return nil, fmt.Errorf("parse init scaffold: %w", err)
+	}
 
-# Large language model configuration
-llm:
-  default: %s
+	registry, err := config.ParseConfig(mustResource(resources.GetDefaultConfig))
+	if err != nil {
+		return nil, fmt.Errorf("parse default registry: %w", err)
+	}
 
-# Default settings
-defaults:
-  use_distilled: true
+	scaffold.LM = engineRegistry(engine, registry.LM)
+	return scaffold.Marshal()
+}
 
-# MCP server configuration
-mcp:
-  auto_register_ctxloom: true
-`, engine))
+// engineRegistry builds the llm block for an engine by selecting its
+// role-marked entries out of the shipped registry. When the engine has both a
+// primary and a fast entry, both are copied (role cleared) under their original
+// labels with defaults pointing at them. Otherwise it falls back to a single
+// {type: engine} entry that plays both roles.
+func engineRegistry(engine string, registry config.LMConfig) config.LMConfig {
+	primaryLabel := roleLabel(registry, engine, "primary")
+	fastLabel := roleLabel(registry, engine, "fast")
+
+	if primaryLabel == "" {
+		return fallbackRegistry(engine)
+	}
+	if fastLabel == "" {
+		fastLabel = primaryLabel
+	}
+
+	out := config.LMConfig{
+		Configs:  map[string]config.LLMConfig{},
+		Defaults: config.RoleDefaults{Primary: primaryLabel, Fast: fastLabel},
+	}
+	for _, label := range []string{primaryLabel, fastLabel} {
+		entry := registry.Configs[label]
+		entry.Role = "" // role is registry-only; user configs carry plain entries
+		out.Configs[label] = entry
+	}
+	return out
+}
+
+// fallbackRegistry produces a self-contained single-entry registry for an
+// engine the shipped registry does not mark with roles. Both roles point at the
+// lone {type: engine} entry so resolution still succeeds.
+func fallbackRegistry(engine string) config.LMConfig {
+	return config.LMConfig{
+		Configs:  map[string]config.LLMConfig{engine: {Type: engine}},
+		Defaults: config.RoleDefaults{Primary: engine, Fast: engine},
+	}
+}
+
+// roleLabel returns the registry label whose entry has the given backend type
+// and role, or "" when none matches.
+func roleLabel(registry config.LMConfig, engine, role string) string {
+	for label, entry := range registry.Configs {
+		if entry.Type == engine && entry.Role == role {
+			return label
+		}
+	}
+	return ""
+}
+
+// mustResource reads an embedded resource, returning nil bytes on error. The
+// embedded files always exist, so an error here means a build/embed problem;
+// ParseConfig of nil bytes yields an empty config, which the caller surfaces.
+func mustResource(read func() ([]byte, error)) []byte {
+	data, _ := read()
+	return data
 }

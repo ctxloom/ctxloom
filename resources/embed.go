@@ -5,7 +5,7 @@ import (
 	"embed"
 )
 
-//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-config.yaml default-remotes.yaml
+//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetConfigSchema returns the embedded JSON schema for config validation.
@@ -23,6 +23,13 @@ func GetExampleConfig() ([]byte, error) {
 // empty user config still resolves a backend and model.
 func GetDefaultConfig() ([]byte, error) {
 	return resourcesFS.ReadFile("default-config.yaml")
+}
+
+// GetInitConfig returns the embedded scaffolding config `ctxloom init` starts
+// from: static defaults (version, settings, mcp) with no llm block — init fills
+// the llm registry from the selected engine before writing.
+func GetInitConfig() ([]byte, error) {
+	return resourcesFS.ReadFile("init-config.yaml")
 }
 
 // GetDefaultRemotes returns the embedded default remotes file.

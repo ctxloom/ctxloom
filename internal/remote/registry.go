@@ -20,6 +20,7 @@ import (
 type Registry struct {
 	mu            sync.RWMutex
 	remotes       map[string]*Remote
+	forges        map[string]ForgeConfig
 	defaultRemote string
 	configPath    string
 	fs            afero.Fs
@@ -44,6 +45,7 @@ func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 
 	r := &Registry{
 		remotes:    make(map[string]*Remote),
+		forges:     make(map[string]ForgeConfig),
 		configPath: configPath,
 		fs:         afero.NewOsFs(),
 	}
@@ -63,11 +65,12 @@ func NewRegistry(configPath string, opts ...RegistryOption) (*Registry, error) {
 // configFile represents the structure of the config file.
 // Only contains remotes-related fields to avoid overwriting other config.
 type configFile struct {
-	Remotes map[string]Remote `yaml:"remotes,omitempty"`
-	Default string            `yaml:"default,omitempty"`
-	Auth    AuthConfig        `yaml:"auth,omitempty"`
-	Replace map[string]string `yaml:"replace,omitempty"`
-	Vendor  bool              `yaml:"vendor,omitempty"`
+	Remotes map[string]Remote      `yaml:"remotes,omitempty"`
+	Forges  map[string]ForgeConfig `yaml:"forges,omitempty"`
+	Default string                 `yaml:"default,omitempty"`
+	Auth    AuthConfig             `yaml:"auth,omitempty"`
+	Replace map[string]string      `yaml:"replace,omitempty"`
+	Vendor  bool                   `yaml:"vendor,omitempty"`
 }
 
 // load reads remotes from the config file.
@@ -86,6 +89,13 @@ func (r *Registry) load() error {
 		remote := remote // Copy to avoid pointer issues
 		remote.Name = name
 		r.remotes[name] = &remote
+	}
+
+	for name, fc := range cfg.Forges {
+		if err := validateForgeConfig(name, fc); err != nil {
+			return err
+		}
+		r.forges[name] = fc
 	}
 
 	r.defaultRemote = cfg.Default
@@ -111,12 +121,20 @@ func (r *Registry) save() error {
 		remotesMap[name] = Remote{
 			URL:          remote.URL,
 			TrustBundles: remote.TrustBundles,
+			Forge:        remote.Forge,
 		}
 	}
 	if len(remotesMap) > 0 {
 		existingRaw["remotes"] = remotesMap
 	} else {
 		delete(existingRaw, "remotes")
+	}
+
+	// Update forges (built-in defaults are implicit and not persisted)
+	if len(r.forges) > 0 {
+		existingRaw["forges"] = r.forges
+	} else {
+		delete(existingRaw, "forges")
 	}
 
 	// Update default remote
@@ -245,6 +263,37 @@ func (r *Registry) SetTrustBundles(name string, trust bool) error {
 	rem.TrustBundles = trust
 	if err := r.save(); err != nil {
 		rem.TrustBundles = !trust // rollback
+		return err
+	}
+	return nil
+}
+
+// SetForge binds the named remote to a forge label and persists the registry.
+// The label must name a configured or built-in forge (github / git / a forges:
+// entry); an unknown label is rejected so a typo surfaces at bind time rather
+// than silently falling back to host-based resolution. An empty label clears
+// the binding, restoring URL-host resolution.
+func (r *Registry) SetForge(name, label string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rem, ok := r.remotes[name]
+	if !ok {
+		return fmt.Errorf("remote not found: %s", name)
+	}
+	if label != "" {
+		if _, known := MergeForges(r.forges)[label]; !known {
+			return fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
+				label, ForgeGitHub, ForgeGitGeneric)
+		}
+	}
+	if rem.Forge == label {
+		return nil
+	}
+	prev := rem.Forge
+	rem.Forge = label
+	if err := r.save(); err != nil {
+		rem.Forge = prev // rollback
 		return err
 	}
 	return nil
@@ -382,12 +431,39 @@ func (r *Registry) SetDefault(name string) error {
 	return r.save()
 }
 
-// GetFetcher creates a Fetcher for the specified remote.
+// Forges returns the configured forge instances merged over the built-in
+// defaults, so callers always see github + git even with no forges: block.
+func (r *Registry) Forges() map[string]ForgeConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return MergeForges(r.forges)
+}
+
+// ResolveForge returns the forge a remote binds to, applying the resolution
+// order (explicit remote.forge → host match → built-in github → git) against
+// the merged forge set.
+func (r *Registry) ResolveForge(name string) (ResolvedForge, error) {
+	remote, err := r.Get(name)
+	if err != nil {
+		return ResolvedForge{}, err
+	}
+	return resolveForge(remote.URL, remote.Forge, r.Forges()), nil
+}
+
+// ResolveForgeForURL resolves a forge for a bare URL with an optional explicit
+// label, for callers that hold a URL rather than a registered remote name.
+func (r *Registry) ResolveForgeForURL(remoteURL, forgeLabel string) ResolvedForge {
+	return resolveForge(remoteURL, forgeLabel, r.Forges())
+}
+
+// GetFetcher creates a Fetcher for the specified remote, using the remote's
+// resolved forge to pick the adapter, endpoint, and token source.
 func (r *Registry) GetFetcher(name string, auth AuthConfig) (Fetcher, error) {
 	remote, err := r.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewFetcher(remote.URL, auth)
+	rf := resolveForge(remote.URL, remote.Forge, r.Forges())
+	return NewForgeFetcher(remote.URL, rf, auth)
 }

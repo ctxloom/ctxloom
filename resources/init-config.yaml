@@ -1,0 +1,14 @@
+# Base config.yaml written by `ctxloom init`. It carries the static defaults a
+# fresh project starts with; init loads this into memory, sets the chosen LLM
+# backend (and optional model) on the in-memory config, and writes the result
+# before launching the engine. The `llm` block is intentionally absent here —
+# init fills it from the user's selection.
+version: 3
+
+# Behavioral settings.
+config:
+  use_distilled: true
+
+# MCP server configuration.
+mcp:
+  auto_register_ctxloom: true

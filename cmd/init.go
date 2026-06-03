@@ -49,14 +49,16 @@ var (
 	initNonInteractive bool
 	initSkipLaunch     bool
 	initEngine         string
+	initRemotes        []string
 )
 
 func init() {
 	rootCmd.AddCommand(initCmd)
 	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
-	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults)")
+	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
 	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
+	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
@@ -373,7 +375,7 @@ const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and s
 **First, scan the current directory** for project indicators like:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
 - Dockerfile, docker-compose.yml, Makefile, justfile
-- .github/, .gitlab-ci.yml, and other CI/CD configs
+- .github/ and other CI/CD configs
 - Framework-specific files (next.config.js, vite.config.ts, etc.)
 
 **Surface (read this first):**
@@ -570,7 +572,9 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
 
-	addPersonalRemotes(cmd, personalRepos)
+	// Remotes from --remote flags are added alongside any the interactive prompt
+	// collected, so a fully non-interactive run can still register personal repos.
+	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...))
 	cloneConfiguredRemotes(cmd)
 	applyInitHooks(cmd)
 

@@ -360,10 +360,9 @@ func TestNewPublisher(t *testing.T) {
 		// The publisher should be a GitHubPublisher (though we can't check the exact type)
 	})
 
-	t.Run("creates GitLab publisher for GitLab URL", func(t *testing.T) {
-		publisher, err := NewPublisher("https://gitlab.com/owner/repo", AuthConfig{GitLab: "token"})
-		require.NoError(t, err)
-		assert.NotNil(t, publisher)
+	t.Run("rejects publishing to a generic git host", func(t *testing.T) {
+		_, err := NewPublisher("https://gitlab.com/owner/repo", AuthConfig{})
+		require.Error(t, err)
 	})
 
 	t.Run("creates GitHub publisher for shorthand", func(t *testing.T) {
@@ -380,10 +379,9 @@ func TestDefaultPublisherFactory(t *testing.T) {
 		assert.NotNil(t, publisher)
 	})
 
-	t.Run("creates GitLab publisher", func(t *testing.T) {
-		publisher, err := defaultPublisherFactory("https://gitlab.com/owner/repo", AuthConfig{})
-		require.NoError(t, err)
-		assert.NotNil(t, publisher)
+	t.Run("rejects a generic git host", func(t *testing.T) {
+		_, err := defaultPublisherFactory("https://gitlab.com/owner/repo", AuthConfig{})
+		require.Error(t, err)
 	})
 }
 

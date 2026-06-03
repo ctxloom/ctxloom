@@ -3,13 +3,14 @@ package remote
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
 // NewFetcher creates a Fetcher appropriate for the given URL.
 // Detects the forge type from the URL and returns the correct implementation.
 func NewFetcher(repoURL string, auth AuthConfig) (Fetcher, error) {
-	forgeType, baseURL, err := DetectForge(repoURL)
+	forgeType, _, err := DetectForge(repoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -17,23 +18,57 @@ func NewFetcher(repoURL string, auth AuthConfig) (Fetcher, error) {
 	switch forgeType {
 	case ForgeGitHub:
 		return NewGitHubFetcher(auth.GitHub), nil
-	case ForgeGitLab:
-		return NewGitLabFetcher(baseURL, auth.GitLab)
+	case ForgeGitGeneric:
+		return nil, fmt.Errorf("generic git forge has no API fetcher; use the clone-backed cache fetcher")
 	default:
 		return nil, fmt.Errorf("unsupported forge type: %s", forgeType)
 	}
 }
 
+// NewForgeFetcher builds an API fetcher from a resolved forge: the github
+// adapter at the forge's endpoint with a token read from its token_env, or an
+// error for the generic git adapter (which has no API — reads go through the
+// clone cache).
+func NewForgeFetcher(repoURL string, rf ResolvedForge, auth AuthConfig) (Fetcher, error) {
+	switch rf.Type {
+	case ForgeGitHub:
+		opts := []GitHubFetcherOption{}
+		if rf.APIURL != "" {
+			opts = append(opts, WithGitHubAPIURL(rf.APIURL))
+		}
+		return NewGitHubFetcher(rf.Token(auth), opts...), nil
+	case ForgeGitGeneric:
+		return nil, fmt.Errorf("generic git forge has no API fetcher; use the clone-backed cache fetcher")
+	default:
+		return nil, fmt.Errorf("unsupported forge type: %s", rf.Type)
+	}
+}
+
+// Token returns the forge's token: the value of its token_env variable if set,
+// falling back to the ambient auth token (GITHUB_TOKEN/GH_TOKEN). The generic
+// git adapter holds no token here — its auth is ambient git.
+func (rf ResolvedForge) Token(auth AuthConfig) string {
+	if rf.Type != ForgeGitHub {
+		return ""
+	}
+	if rf.TokenEnv != "" {
+		if t := os.Getenv(rf.TokenEnv); t != "" {
+			return t
+		}
+	}
+	return auth.GitHub
+}
+
 // DetectForge determines the forge type from a repository URL.
-// Returns the forge type and the base URL for the forge.
+// github.com (and shorthand owner/repo) resolve to the GitHub API adapter; any
+// other host resolves to the generic git adapter, which clones the host's own
+// endpoint and reads locally. The returned base URL is the forge endpoint.
 func DetectForge(repoURL string) (ForgeType, string, error) {
-	// Handle shorthand notation (e.g., "alice/ctxloom" -> GitHub)
+	// Shorthand like "alice/ctxloom" implies GitHub.
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, ".") {
-		// Shorthand like "alice/ctxloom" implies GitHub
 		return ForgeGitHub, "https://github.com", nil
 	}
 
-	// Parse as URL
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL: %w", err)
@@ -41,32 +76,19 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 
 	host := strings.ToLower(u.Hostname())
 
-	// GitHub
 	if host == "github.com" || host == "www.github.com" {
 		return ForgeGitHub, "https://github.com", nil
 	}
 
-	// GitLab.com
-	if host == "gitlab.com" || host == "www.gitlab.com" {
-		return ForgeGitLab, "https://gitlab.com", nil
-	}
-
-	// Self-hosted GitLab (check for "gitlab" in hostname)
-	if strings.Contains(host, "gitlab") {
-		baseURL := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-		return ForgeGitLab, baseURL, nil
-	}
-
-	// Default to GitHub for unknown hosts (common for enterprise)
-	// Users can explicitly configure if this is wrong
-	return ForgeGitHub, "https://github.com", nil
+	// Any other host is consumed via the generic git adapter (clone + local
+	// read) against its own endpoint.
+	return ForgeGitGeneric, fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
 }
 
 // ParseRepoURL extracts owner and repo name from a URL or shorthand.
 // Supports:
 //   - "alice/ctxloom" (shorthand)
 //   - "https://github.com/alice/ctxloom"
-//   - "https://gitlab.com/alice/ctxloom"
 //   - "git@github.com:alice/ctxloom.git"
 func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	// Handle shorthand notation

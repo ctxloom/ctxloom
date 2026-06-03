@@ -13,7 +13,7 @@ var remoteCmd = &cobra.Command{
 	Short: "Manage remotes and discover content",
 	Long: `Manage remote sources and discover bundles/profiles.
 
-Remote sources are Git repositories (GitHub/GitLab) containing shared
+Remote sources are Git repositories (GitHub or generic git) containing shared
 bundles and profiles.
 
 Registry:
@@ -35,6 +35,8 @@ Examples:
   ctxloom remote browse ctxloom-default`,
 }
 
+var remoteAddForge string
+
 var remoteAddCmd = &cobra.Command{
 	Use:   "add <name> <url>",
 	Short: "Register a remote source",
@@ -43,12 +45,21 @@ var remoteAddCmd = &cobra.Command{
 URL formats:
   alice/ctxloom                      GitHub shorthand (expands to https://github.com/alice/ctxloom)
   https://github.com/alice/ctxloom   Full GitHub URL
-  https://gitlab.com/corp/ctxloom   Full GitLab URL
+  https://git.example.com/corp/ctxloom   Generic git host URL
   git@github.com:alice/ctxloom.git   SSH URL (converted to HTTPS)
+
+Forge selection:
+  Without --forge, the forge resolves from the URL host: github.com (and the
+  owner/repo shorthand) use the rich GitHub adapter; every other host uses the
+  generic git adapter (clone + local read, ambient git auth). Pass --forge to
+  override — "github", "git", or the label of a forges: entry (e.g. a GitHub
+  Enterprise instance).
 
 Examples:
   ctxloom remote add alice alice/ctxloom
-  ctxloom remote add corp https://gitlab.com/corp/ctxloom`,
+  ctxloom remote add corp https://git.example.com/corp/ctxloom
+  ctxloom remote add corp https://git.example.com/corp/ctxloom --forge git
+  ctxloom remote add work https://github.mycorp.com/me/ctxloom --forge work-ghe`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -57,8 +68,9 @@ Examples:
 		}
 
 		result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-			Name: args[0],
-			URL:  args[1],
+			Name:  args[0],
+			URL:   args[1],
+			Forge: remoteAddForge,
 		})
 		if err != nil {
 			return err
@@ -291,6 +303,9 @@ func init() {
 	remoteCmd.AddCommand(remoteSyncCmd)
 	remoteCmd.AddCommand(remoteTrustCmd)
 	remoteCmd.AddCommand(remoteUntrustCmd)
+
+	remoteAddCmd.Flags().StringVar(&remoteAddForge, "forge", "",
+		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")
 
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,
 		"Clear the default remote")

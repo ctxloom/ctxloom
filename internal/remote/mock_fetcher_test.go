@@ -78,10 +78,10 @@ func TestMockFetcher_WithValidRepo(t *testing.T) {
 }
 
 func TestMockFetcher_WithForge(t *testing.T) {
-	mock := NewMockFetcher().WithForge(ForgeGitLab)
+	mock := NewMockFetcher().WithForge(ForgeGitGeneric)
 
-	if mock.ForgeType != ForgeGitLab {
-		t.Errorf("ForgeType = %v, want %v", mock.ForgeType, ForgeGitLab)
+	if mock.ForgeType != ForgeGitGeneric {
+		t.Errorf("ForgeType = %v, want %v", mock.ForgeType, ForgeGitGeneric)
 	}
 }
 
@@ -350,8 +350,8 @@ func TestMockFetcher_Forge(t *testing.T) {
 		t.Errorf("Forge() = %v, want %v", mock.Forge(), ForgeGitHub)
 	}
 
-	mock.WithForge(ForgeGitLab)
-	if mock.Forge() != ForgeGitLab {
-		t.Errorf("Forge() = %v, want %v", mock.Forge(), ForgeGitLab)
+	mock.WithForge(ForgeGitGeneric)
+	if mock.Forge() != ForgeGitGeneric {
+		t.Errorf("Forge() = %v, want %v", mock.Forge(), ForgeGitGeneric)
 	}
 }

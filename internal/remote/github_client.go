@@ -46,8 +46,18 @@ type realGitHubClient struct {
 	client *github.Client
 }
 
-func newRealGitHubClient(httpClient *http.Client) GitHubClient {
-	return &realGitHubClient{client: github.NewClient(httpClient)}
+// newRealGitHubClient builds a GitHub API client. A non-empty apiURL points
+// it at a GitHub Enterprise REST endpoint (base and upload share the URL); an
+// invalid apiURL falls back to the public github.com client rather than
+// failing — a bad endpoint should degrade, not crash startup.
+func newRealGitHubClient(httpClient *http.Client, apiURL string) GitHubClient {
+	client := github.NewClient(httpClient)
+	if apiURL != "" {
+		if ent, err := client.WithEnterpriseURLs(apiURL, apiURL); err == nil {
+			client = ent
+		}
+	}
+	return &realGitHubClient{client: client}
 }
 
 func (c *realGitHubClient) Repositories() GitHubRepositoriesService {

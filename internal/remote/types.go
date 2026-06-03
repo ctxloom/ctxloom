@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Remote represents a configured remote source (GitHub/GitLab repo).
+// Remote represents a configured remote source (a git repository).
 type Remote struct {
 	Name string `yaml:"name" json:"name"`
 	URL  string `yaml:"url" json:"url"`
@@ -17,12 +17,17 @@ type Remote struct {
 	// Pending changes from a trusted remote are auto-applied into the
 	// active lockfile. Off by default — opt-in per remote.
 	TrustBundles bool `yaml:"trust_bundles,omitempty" json:"trust_bundles,omitempty"`
+
+	// Forge is the label of the forges entry this remote binds to. Empty
+	// means resolve by URL host (configured base_url match, else built-in
+	// github for github.com, else generic git).
+	Forge string `yaml:"forge,omitempty" json:"forge,omitempty"`
 }
 
 // SourceMeta contains provenance metadata embedded in installed fragments/prompts.
 // This tracks where the item was pulled from for audit and update purposes.
 type SourceMeta struct {
-	Org       string    `yaml:"org" json:"org"`               // GitHub/GitLab org or user
+	Org       string    `yaml:"org" json:"org"`               // Repository org or user
 	Name      string    `yaml:"name" json:"name"`             // Fragment/prompt name
 	SHA       string    `yaml:"sha" json:"sha"`               // Full git commit SHA
 	URL       string    `yaml:"url" json:"url"`               // Source repository URL
@@ -226,8 +231,12 @@ type RepoInfo struct {
 type ForgeType string
 
 const (
+	// ForgeGitHub is the rich GitHub adapter (REST API reads, search, publish).
 	ForgeGitHub ForgeType = "github"
-	ForgeGitLab ForgeType = "gitlab"
+	// ForgeGitGeneric is the generic git adapter: clone over the system git
+	// path and read locally. Serves any other host (GitLab, Gitea, Bitbucket,
+	// self-hosted) for consumption; no API search or publish.
+	ForgeGitGeneric ForgeType = "git"
 )
 
 // Reference represents a parsed remote reference.
@@ -370,5 +379,4 @@ type RemoteConfig struct {
 // AuthConfig holds authentication tokens for forges.
 type AuthConfig struct {
 	GitHub string `yaml:"github,omitempty" json:"github,omitempty"`
-	GitLab string `yaml:"gitlab,omitempty" json:"gitlab,omitempty"`
 }

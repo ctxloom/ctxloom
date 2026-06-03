@@ -53,7 +53,10 @@ var tasksListCmd = &cobra.Command{
 	},
 }
 
-var tasksAddStatus string
+var (
+	tasksAddStatus  string
+	tasksAddTrigger string
+)
 
 var tasksAddCmd = &cobra.Command{
 	Use:   "add <text>",
@@ -61,7 +64,7 @@ var tasksAddCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		res, err := operations.AddTask(taskContext(), text, tasksAddStatus)
+		res, err := operations.AddTask(taskContext(), text, tasksAddStatus, tasksAddTrigger)
 		if err != nil {
 			return err
 		}
@@ -73,12 +76,19 @@ var tasksAddCmd = &cobra.Command{
 	},
 }
 
+var tasksStatusTrigger string
+
 var tasksStatusCmd = &cobra.Command{
 	Use:   "status <harp-id> <status>",
 	Short: "Change the status of a task",
-	Args:  cobra.ExactArgs(2),
+	Long: `Change the status of a task.
+
+Use "Deferred" with --trigger to park a task on a named revive condition; the
+task then hides from the default list until the trigger fires. A task already
+carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1])
+		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1], tasksStatusTrigger)
 		if err != nil {
 			return err
 		}
@@ -313,6 +323,9 @@ func init() {
 	tasksListCmd.Flags().BoolVar(&tasksListAll, "all", false, "include completed (Done/Archived) tasks, hidden by default")
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
+	tasksAddCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")
+
+	tasksStatusCmd.Flags().StringVar(&tasksStatusTrigger, "trigger", "", "revive condition when setting status to Deferred")
 
 	tasksRunCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Leave the task's status unchanged instead of marking it In Progress")
 
@@ -388,7 +401,11 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		if t.Checked {
 			check = "x"
 		}
-		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, t.Text)
+		text := t.Text
+		if t.Trigger != "" {
+			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
+		}
+		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, text)
 	}
 	return w.Err()
 }

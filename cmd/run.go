@@ -266,7 +266,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		WorkDir:     workDir,
 		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
 		SessionHarp: activeHarp,
-	}, harpID, status)
+	}, harpID, status, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: seed task %s: %v\n", harpID, err)
 		return

@@ -16,7 +16,7 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 	testsupport.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "test-project", SessionHarp: "swift-amber-falcon"}
 
-	add, err := AddTask(tc, "write the docs", "")
+	add, err := AddTask(tc, "write the docs", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestResolveLiveMintsIdentity(t *testing.T) {
 	proj := t.TempDir()
 	tc := TaskContext{WorkDir: proj} // no ProjectID → live resolve
 
-	if _, err := AddTask(tc, "a task", ""); err != nil {
+	if _, err := AddTask(tc, "a task", "", ""); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	id, err := projectid.ReadMarker(proj)
@@ -77,11 +77,11 @@ func TestSetTaskStatusThroughOperations(t *testing.T) {
 	testsupport.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
 
-	add, err := AddTask(tc, "ship it", "")
+	add, err := AddTask(tc, "ship it", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	res, err := SetTaskStatus(tc, add.Task.HarpID, "Done")
+	res, err := SetTaskStatus(tc, add.Task.HarpID, "Done", "")
 	if err != nil {
 		t.Fatalf("set status: %v", err)
 	}

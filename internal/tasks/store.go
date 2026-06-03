@@ -42,12 +42,29 @@ import (
 const (
 	StatusInProgress = "In Progress"
 	StatusToDo       = "To Do"
+	StatusDeferred   = "Deferred"
 	StatusDone       = "Done"
 	StatusArchived   = "Archived"
 )
 
 // DefaultStatusOrder is the canonical section order in tasks.md.
-var DefaultStatusOrder = []string{StatusInProgress, StatusToDo, StatusDone, StatusArchived}
+var DefaultStatusOrder = []string{StatusInProgress, StatusToDo, StatusDeferred, StatusDone, StatusArchived}
+
+// ErrTriggerRequired is returned when a task is set Deferred without a trigger.
+// A Deferred task is parked on a named wake-up condition (mirroring an ADR
+// revive trigger), so the condition must be supplied.
+var ErrTriggerRequired = errors.New("a Deferred task requires a non-empty trigger (the condition that should revive it)")
+
+// ValidateStatusTrigger enforces the Deferred invariant: a task may only be
+// Deferred when it carries a non-empty trigger. Both store backends call this
+// before persisting an add or status change, so the CLI and MCP paths share
+// one rule.
+func ValidateStatusTrigger(status, trigger string) error {
+	if status == StatusDeferred && strings.TrimSpace(trigger) == "" {
+		return ErrTriggerRequired
+	}
+	return nil
+}
 
 // Task is one row in the store.
 type Task struct {
@@ -56,6 +73,13 @@ type Task struct {
 	Status   string // section name; one of DefaultStatusOrder or user-supplied
 	Checked  bool   // true when status is Done/Archived; tracks the `[x]` bit on disk
 	TextHash string // sha256(trimmed text), hex-encoded, first 12 chars
+
+	// Trigger is the named wake-up condition for a Deferred task: a free-text
+	// description of what should revive it, in the spirit of an ADR revive
+	// trigger. Required when Status is Deferred; preserved across status
+	// changes so a task re-deferred later keeps its condition unless a new one
+	// is supplied. Empty for non-Deferred tasks that never carried one.
+	Trigger string
 
 	// OriginSession is the harp of the session that created the task. Set by
 	// the append-only log backend (ADR 0025) from the `add` event; empty for
@@ -133,8 +157,17 @@ func (s *Store) List(statuses []string, term string) ([]Task, error) {
 // Add appends a new task with an auto-generated unique harp ID. Empty
 // status defaults to StatusToDo. Returns the persisted task.
 func (s *Store) Add(text, status string) (Task, error) {
+	return s.AddWithTrigger(text, status, "")
+}
+
+// AddWithTrigger is Add with a revive trigger for a Deferred task. A Deferred
+// status without a trigger is rejected (ErrTriggerRequired).
+func (s *Store) AddWithTrigger(text, status, trigger string) (Task, error) {
+	if err := ValidateStatusTrigger(status, trigger); err != nil {
+		return Task{}, err
+	}
 	if s.log != nil {
-		return s.log.add(text, status)
+		return s.log.add(text, status, trigger)
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -162,6 +195,7 @@ func (s *Store) Add(text, status string) (Task, error) {
 		Status:   status,
 		Checked:  statusIsDone(status),
 		TextHash: hashText(text),
+		Trigger:  strings.TrimSpace(trigger),
 	}
 	all = append(all, task)
 	if err := s.write(all); err != nil {
@@ -185,6 +219,10 @@ func (s *Store) insert(t Task) (Task, error) {
 	}
 	if t.Status == "" {
 		t.Status = StatusToDo
+	}
+	t.Trigger = strings.TrimSpace(t.Trigger)
+	if err := ValidateStatusTrigger(t.Status, t.Trigger); err != nil {
+		return Task{}, err
 	}
 	t.Checked = statusIsDone(t.Status)
 	t.TextHash = hashText(t.Text)
@@ -253,8 +291,17 @@ func (s *Store) Remove(harpID string) (Task, error) {
 // SetStatus moves a task to a different section. Errors if the harp ID
 // isn't present.
 func (s *Store) SetStatus(harpID, status string) (Task, error) {
+	return s.SetStatusWithTrigger(harpID, status, "")
+}
+
+// SetStatusWithTrigger moves a task to a different status, optionally setting
+// its revive trigger. Moving to Deferred requires a trigger: the one supplied
+// here, or the task's existing trigger if it already had one. An empty trigger
+// argument never clears an existing one, so a task can cycle Deferred → To Do →
+// Deferred without re-typing the condition.
+func (s *Store) SetStatusWithTrigger(harpID, status, trigger string) (Task, error) {
 	if s.log != nil {
-		return s.log.setStatus(harpID, status)
+		return s.log.setStatus(harpID, status, trigger)
 	}
 	if status == "" {
 		return Task{}, fmt.Errorf("status required")
@@ -276,14 +323,28 @@ func (s *Store) SetStatus(harpID, status string) (Task, error) {
 		if all[i].HarpID != harpID {
 			continue
 		}
+		effectiveTrigger := effectiveTrigger(trigger, all[i].Trigger)
+		if err := ValidateStatusTrigger(status, effectiveTrigger); err != nil {
+			return Task{}, err
+		}
 		all[i].Status = status
 		all[i].Checked = statusIsDone(status)
+		all[i].Trigger = effectiveTrigger
 		if err := s.write(all); err != nil {
 			return Task{}, err
 		}
 		return all[i], nil
 	}
 	return Task{}, fmt.Errorf("task not found: %s", harpID)
+}
+
+// effectiveTrigger picks the trigger to persist on a status change: a non-empty
+// new value wins, otherwise the task's existing trigger is preserved.
+func effectiveTrigger(newTrigger, existing string) string {
+	if t := strings.TrimSpace(newTrigger); t != "" {
+		return t
+	}
+	return existing
 }
 
 // Snapshot returns every task in the store, in file order.
@@ -396,6 +457,18 @@ func statusIsDone(status string) bool {
 	return status == StatusDone || status == StatusArchived
 }
 
+// triggerMarker renders the trailing `<!-- trigger: ... -->` suffix for a task
+// line, or "" when there is no trigger. Any embedded `-->` is defanged so it
+// can't close the comment early and corrupt the round-trip.
+func triggerMarker(trigger string) string {
+	trigger = strings.TrimSpace(trigger)
+	if trigger == "" {
+		return ""
+	}
+	trigger = strings.ReplaceAll(trigger, "-->", "--&gt;")
+	return fmt.Sprintf(" <!-- trigger: %s -->", trigger)
+}
+
 func hashText(s string) string {
 	h := sha256.Sum256([]byte(strings.TrimSpace(s)))
 	return hex.EncodeToString(h[:])[:12]
@@ -455,6 +528,11 @@ var taskLine = regexp.MustCompile("^- \\[([ x])\\] `([a-z][a-z0-9-]*)` (.+)$")
 // sectionHeader matches `## Status Name`.
 var sectionHeader = regexp.MustCompile(`^## (.+?)\s*$`)
 
+// triggerSuffix splits an optional trailing `<!-- trigger: ... -->` marker off
+// a task line's text, so a Deferred task's revive condition round-trips through
+// the human-editable markdown without polluting the task text.
+var triggerSuffix = regexp.MustCompile(`^(.*?)\s*<!-- trigger: (.*) -->\s*$`)
+
 const fileHeader = "# Tasks\n\n<!-- ctxloom-tasks:v1 -->\n\n"
 
 func parseFile(s string) []Task {
@@ -473,12 +551,19 @@ func parseFile(s string) []Task {
 			continue
 		}
 		text := strings.TrimSpace(m[3])
+		trigger := ""
+		if tm := triggerSuffix.FindStringSubmatch(text); tm != nil {
+			text = strings.TrimSpace(tm[1])
+			// Reverse the render-time defang of the comment terminator.
+			trigger = strings.ReplaceAll(strings.TrimSpace(tm[2]), "--&gt;", "-->")
+		}
 		tasks = append(tasks, Task{
 			HarpID:   m[2],
 			Text:     text,
 			Status:   currentStatus,
 			Checked:  m[1] == "x",
 			TextHash: hashText(text),
+			Trigger:  trigger,
 		})
 	}
 	return tasks
@@ -514,7 +599,7 @@ func renderFile(tasks []Task) string {
 			if t.Checked {
 				check = "x"
 			}
-			fmt.Fprintf(&b, "- [%s] `%s` %s\n", check, t.HarpID, t.Text)
+			fmt.Fprintf(&b, "- [%s] `%s` %s%s\n", check, t.HarpID, t.Text, triggerMarker(t.Trigger))
 		}
 		b.WriteString("\n")
 	}

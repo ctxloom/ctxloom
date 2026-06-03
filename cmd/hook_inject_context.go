@@ -7,10 +7,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 )
 
 // HookInput represents the JSON input from AI tool hooks.
@@ -258,8 +260,9 @@ func resumePartsIncludeSession(parts string) bool {
 // as the project root for an inject-context call. Precedence:
 //
 //  1. Explicit --project flag value, if non-empty.
-//  2. Git repository root containing the current directory.
-//  3. Fall back to ".".
+//  2. CTXLOOM_ROOT override, when set and a valid directory.
+//  3. Git repository root containing the current directory.
+//  4. Fall back to ".".
 //
 // findRoot is the injectable git-root finder; production uses
 // gitutil.FindRoot, tests pass a stub that returns a known value or
@@ -267,6 +270,9 @@ func resumePartsIncludeSession(parts string) bool {
 func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, error)) string {
 	if flagVal != "" {
 		return flagVal
+	}
+	if root, ok := projectroot.FromEnv(afero.NewOsFs()); ok {
+		return root
 	}
 	if findRoot != nil {
 		if root, err := findRoot("."); err == nil {

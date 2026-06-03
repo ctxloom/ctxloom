@@ -4,6 +4,30 @@ This is the complete set of environment variables ctxloom reads. Per its fault-t
 
 The canonical list of host and session variables read in production lives in `internal/testsupport/testsupport.go` (`EnvKeys`), and a test enforces that every `CTXLOOM_*` variable read in production appears there. Keep this document in sync with that list.
 
+## Project root
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CTXLOOM_ROOT` | unset | Explicit, authoritative project root. When set to a valid directory it supersedes both git-root detection and the cwd walk-up, so config resolves at `$CTXLOOM_ROOT/.ctxloom` and the session work directory is `$CTXLOOM_ROOT` itself. |
+
+`CTXLOOM_ROOT` is a single, predictable knob for layouts where the working directory is not the project root: monorepo subtrees, git worktrees, CI checkouts, containers, and projects with no `.git`. It is purely an override at the top of the existing resolution chain — removing it restores prior behavior exactly.
+
+Resolution precedence (highest wins):
+
+1. An explicit per-call override (`--project` flag, or `config.WithAppDir`).
+2. `CTXLOOM_ROOT`, when set and a valid directory.
+3. Git root (`git rev-parse`-style walk-up).
+4. cwd walk-up for a `.ctxloom` directory, else the current directory.
+5. `~/.ctxloom` (config only — the home fallback when no project directory is found).
+
+Behavior:
+
+- **Valid directory:** authoritative. ctxloom resolves config at `$CTXLOOM_ROOT/.ctxloom` and **creates** that directory if it does not exist (mirroring the way the home fallback creates `~/.ctxloom`). A missing `config.yaml` inside it is tolerated — defaults fill in so you still land in a working LLM.
+- **Set but invalid** (path missing or not a directory): ctxloom emits `ctxloom: warning: CTXLOOM_ROOT ...` once to stderr and falls through to git-root / cwd as if it were unset. A bad value never blocks startup.
+- **Unset:** no warning; the prior mechanisms apply unchanged.
+
+A relative value is anchored to the launching working directory. The variable is inherited by the LLM subprocess and MCP server ctxloom launches; ctxloom does not synthesize one when you haven't set it.
+
 ## Diagnostics
 
 | Variable | Values | Default | Purpose |

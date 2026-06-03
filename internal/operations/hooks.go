@@ -8,8 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/spf13/afero"
 )
@@ -117,15 +117,13 @@ func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	return freshCfg, nil
 }
 
-// resolveHookWorkDir returns the injected work dir, else the git root, else ".".
+// resolveHookWorkDir returns the injected work dir, else the CTXLOOM_ROOT
+// override / git root / cwd as resolved by projectroot.WorkDir.
 func resolveHookWorkDir(req ApplyHooksRequest) string {
 	if req.WorkDir != "" {
 		return req.WorkDir
 	}
-	if root, err := gitutil.FindRoot("."); err == nil {
-		return root
-	}
-	return "."
+	return projectroot.WorkDir()
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,

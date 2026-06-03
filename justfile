@@ -88,6 +88,7 @@ test-dirty:
     export CTXLOOM_PROJECT_ID=poison-project CTXLOOM_SESSION_HARP=poison-harp
     export CTXLOOM_RESUMED_FROM=poison CTXLOOM_RESUMED_PARTS=poison CTXLOOM_DEBUG_HTTP=1
     export GITHUB_TOKEN=poison-token GH_TOKEN=poison-token CODEX_HOME=/poison/codex
+    export CTXLOOM_ROOT=/poison/root
     "$GO" test ./internal/... ./cmd/...
 
 # Filter coverage output using patterns from .coverignore

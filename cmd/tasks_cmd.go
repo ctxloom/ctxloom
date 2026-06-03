@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -168,15 +168,10 @@ directly. In a non-interactive shell a task harp id is required.`,
 }
 
 // taskRunWorkDir resolves the project root the same way `ctxloom run` does:
-// the git root when in a repo, otherwise the current directory.
+// the CTXLOOM_ROOT override when valid, else the git root when in a repo,
+// otherwise the current directory.
 func taskRunWorkDir() string {
-	if root, err := gitutil.FindRoot("."); err == nil {
-		return root
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
+	return projectroot.WorkDir()
 }
 
 // findLocated returns the task with the given harp id, searching all statuses.

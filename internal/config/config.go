@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
@@ -456,11 +457,24 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 
 // findAppDir locates the .ctxloom directory.
 // Priority:
-//  1. Walk up from cwd looking for .ctxloom directory
-//  2. Fall back to user home ~/.ctxloom directory
+//  1. CTXLOOM_ROOT override (when set and a valid directory)
+//  2. Walk up from cwd looking for .ctxloom directory
+//  3. Fall back to user home ~/.ctxloom directory
 //
 // Always returns a path (creates user home .ctxloom if needed).
 func findAppDir(fs afero.Fs) (string, ConfigSource) {
+	// CTXLOOM_ROOT is authoritative when valid: the user named the root
+	// explicitly, so resolve config at $CTXLOOM_ROOT/.ctxloom and create it if
+	// absent, mirroring the home fallback below. A failed MkdirAll warns and
+	// continues — the path is still returned so the run isn't blocked.
+	if root, ok := projectroot.FromEnv(fs); ok {
+		appPath := filepath.Join(root, AppDirName)
+		if err := fs.MkdirAll(appPath, 0755); err != nil {
+			zap.L().Warn("failed to create CTXLOOM_ROOT .ctxloom directory", zap.String("path", appPath), zap.Error(err))
+		}
+		return appPath, SourceProject
+	}
+
 	// Try to find project .ctxloom by walking up from cwd
 	pwd, err := os.Getwd()
 	if err == nil {

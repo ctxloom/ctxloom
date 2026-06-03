@@ -1,0 +1,129 @@
+package projectroot
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+)
+
+func TestResolve(t *testing.T) {
+	testsupport.Isolate(t) // clears CTXLOOM_ROOT (and the rest) so subtests start clean
+
+	t.Run("unset", func(t *testing.T) {
+		t.Setenv(EnvVar, "")
+		root, ok, invalid := resolve(afero.NewMemMapFs())
+		assert.False(t, ok)
+		assert.Equal(t, "", root)
+		assert.Equal(t, "", invalid, "an unset var is not invalid — no warning should fire")
+	})
+
+	t.Run("valid_dir", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		dir := "/work/proj"
+		require.NoError(t, fs.MkdirAll(dir, 0o755))
+		t.Setenv(EnvVar, dir)
+		root, ok, invalid := resolve(fs)
+		assert.True(t, ok)
+		assert.Equal(t, "", invalid)
+		assert.Equal(t, dir, root)
+	})
+
+	t.Run("nonexistent_path", func(t *testing.T) {
+		bad := "/work/does-not-exist"
+		t.Setenv(EnvVar, bad)
+		root, ok, invalid := resolve(afero.NewMemMapFs())
+		assert.False(t, ok)
+		assert.Equal(t, "", root)
+		assert.Equal(t, bad, invalid, "the raw offending value is reported for the warning")
+	})
+
+	t.Run("file_not_dir", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		f := "/work/afile"
+		require.NoError(t, afero.WriteFile(fs, f, []byte("x"), 0o644))
+		t.Setenv(EnvVar, f)
+		root, ok, invalid := resolve(fs)
+		assert.False(t, ok, "a regular file is not a valid root")
+		assert.Equal(t, "", root)
+		assert.Equal(t, f, invalid)
+	})
+
+	t.Run("relative_is_anchored_to_cwd", func(t *testing.T) {
+		dir := testsupport.ProjectDir(t) // isolate env + chdir to a fresh temp dir
+		abs, err := filepath.Abs(dir)
+		require.NoError(t, err)
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(abs, 0o755))
+		t.Setenv(EnvVar, ".")
+		root, ok, _ := resolve(fs)
+		require.True(t, ok)
+		assert.Equal(t, filepath.Clean(abs), root,
+			"a relative override resolves against the launching cwd")
+	})
+}
+
+func TestFromEnv(t *testing.T) {
+	testsupport.Isolate(t)
+
+	t.Run("valid", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		dir := "/work/proj"
+		require.NoError(t, fs.MkdirAll(dir, 0o755))
+		t.Setenv(EnvVar, dir)
+		got, ok := FromEnv(fs)
+		assert.True(t, ok)
+		assert.Equal(t, dir, got)
+	})
+
+	t.Run("unset", func(t *testing.T) {
+		t.Setenv(EnvVar, "")
+		got, ok := FromEnv(afero.NewMemMapFs())
+		assert.False(t, ok)
+		assert.Equal(t, "", got)
+	})
+
+	t.Run("invalid_returns_unset_shape", func(t *testing.T) {
+		t.Setenv(EnvVar, "/work/nope")
+		got, ok := FromEnv(afero.NewMemMapFs())
+		assert.False(t, ok, "invalid override behaves exactly like unset to callers")
+		assert.Equal(t, "", got)
+	})
+}
+
+func TestWorkDir(t *testing.T) {
+	// WorkDir is the process-level resolver: it operates on the OS filesystem
+	// and on real git-root / cwd detection, so these exercise real dirs.
+	t.Run("env_beats_git", func(t *testing.T) {
+		testsupport.Isolate(t)
+		dir := t.TempDir()
+		t.Setenv(EnvVar, dir)
+		want, _ := filepath.Abs(dir)
+		assert.Equal(t, filepath.Clean(want), WorkDir(),
+			"a valid CTXLOOM_ROOT must win over git-root detection")
+	})
+
+	t.Run("invalid_env_falls_through_to_git", func(t *testing.T) {
+		testsupport.Isolate(t)
+		t.Setenv(EnvVar, filepath.Join(t.TempDir(), "nope"))
+		// The test runs inside the ctxloom repo, so git-root detection succeeds.
+		expected, err := gitutil.FindRoot(".")
+		require.NoError(t, err)
+		assert.Equal(t, expected, WorkDir(),
+			"an invalid override is ignored and git-root detection applies")
+	})
+
+	t.Run("falls_through_to_cwd_outside_repo", func(t *testing.T) {
+		testsupport.ProjectDir(t) // isolate env + chdir to a fresh non-git temp dir
+		cwd, err := os.Getwd()
+		require.NoError(t, err)
+		assert.Equal(t, cwd, WorkDir(),
+			"with no override and no git root, WorkDir resolves to the cwd")
+	})
+}

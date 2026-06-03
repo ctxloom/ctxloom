@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -183,11 +184,40 @@ func TestSelectChunk(t *testing.T) {
 // TestResolveInjectContextWorkDir covers the three-branch precedence
 // chain in inject-context's workDir resolver.
 func TestResolveInjectContextWorkDir(t *testing.T) {
+	// Neutralize any ambient CTXLOOM_ROOT so the git-root branches are
+	// exercised deterministically; individual subtests set it as needed.
+	t.Setenv(projectroot.EnvVar, "")
+
 	t.Run("flag_wins", func(t *testing.T) {
 		got := resolveInjectContextWorkDir("/explicit/project",
 			func(string) (string, error) { return "/git/root", nil })
 		assert.Equal(t, "/explicit/project", got,
 			"--project flag must beat git-root discovery")
+	})
+
+	t.Run("env_wins_over_git", func(t *testing.T) {
+		root := t.TempDir()
+		t.Setenv(projectroot.EnvVar, root)
+		got := resolveInjectContextWorkDir("",
+			func(string) (string, error) { return "/git/root", nil })
+		assert.Equal(t, root, got,
+			"a valid CTXLOOM_ROOT must beat git-root discovery")
+	})
+
+	t.Run("flag_wins_over_env", func(t *testing.T) {
+		t.Setenv(projectroot.EnvVar, t.TempDir())
+		got := resolveInjectContextWorkDir("/explicit/project",
+			func(string) (string, error) { return "/git/root", nil })
+		assert.Equal(t, "/explicit/project", got,
+			"--project flag is a deliberate per-call choice and must beat the env var")
+	})
+
+	t.Run("invalid_env_falls_through_to_git", func(t *testing.T) {
+		t.Setenv(projectroot.EnvVar, filepath.Join(t.TempDir(), "does-not-exist"))
+		got := resolveInjectContextWorkDir("",
+			func(string) (string, error) { return "/git/root", nil })
+		assert.Equal(t, "/git/root", got,
+			"an invalid CTXLOOM_ROOT must fall through to git-root discovery")
 	})
 
 	t.Run("git_root_when_no_flag", func(t *testing.T) {

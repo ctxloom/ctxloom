@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
@@ -428,13 +428,9 @@ Examples:
 			}
 		}
 
-		// Determine work directory: git root if in repo, current directory otherwise
-		workDir := ""
-		if root, err := gitutil.FindRoot("."); err == nil {
-			workDir = root
-		} else if cwd, err := os.Getwd(); err == nil {
-			workDir = cwd
-		}
+		// Determine work directory: CTXLOOM_ROOT override, else git root if in
+		// repo, else current directory.
+		workDir := projectroot.WorkDir()
 
 		// Phase 3 session resolution: optional pre-launch resume picker,
 		// followed by a fresh harp assignment for the new session.

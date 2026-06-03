@@ -101,3 +101,37 @@ func TestDeferredStatusIsNotChecked(t *testing.T) {
 	assert.True(t, statusIsDone(StatusDone))
 	assert.True(t, statusIsDone(StatusArchived))
 }
+
+func TestSetTextReplacesInPlace(t *testing.T) {
+	eachBackend(t, func(t *testing.T, s *Store) {
+		orig, err := s.AddWithTrigger("old text", StatusDeferred, "when ready")
+		require.NoError(t, err)
+
+		got, err := s.SetText(orig.HarpID, "  brand new text  ")
+		require.NoError(t, err)
+		assert.Equal(t, orig.HarpID, got.HarpID, "harp identity is stable across an edit")
+		assert.Equal(t, "brand new text", got.Text, "text is replaced and trimmed")
+		assert.NotEqual(t, orig.TextHash, got.TextHash, "text hash tracks the new text")
+		assert.Equal(t, StatusDeferred, got.Status, "edit leaves status untouched")
+		assert.Equal(t, "when ready", got.Trigger, "edit leaves the trigger untouched")
+
+		// The change survives a fresh read of the store.
+		list, err := s.List([]string{StatusDeferred}, "")
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		assert.Equal(t, "brand new text", list[0].Text)
+	})
+}
+
+func TestSetTextErrors(t *testing.T) {
+	eachBackend(t, func(t *testing.T, s *Store) {
+		task, err := s.Add("real task", StatusToDo)
+		require.NoError(t, err)
+
+		_, err = s.SetText(task.HarpID, "   ")
+		assert.Error(t, err, "empty replacement text is rejected")
+
+		_, err = s.SetText("no-such-harp", "whatever")
+		assert.Error(t, err, "editing an unknown harp errors")
+	})
+}

@@ -121,6 +121,21 @@ func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult,
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning}, nil
 }
 
+// EditTask replaces a task's text in place, keyed by harp ID, attributing the
+// edit to the acting session. The whole text is replaced; status and trigger
+// are untouched.
+func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
+	store, warning, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	task, err := store.SetText(harpID, text)
+	if err != nil {
+		return nil, fmt.Errorf("edit task: %w", err)
+	}
+	return &TaskResult{Path: store.Path(), Task: task, Warning: warning}, nil
+}
+
 // resolveTaskStore opens the per-project task log for tc: the project-id from
 // tc (set by `ctxloom run`) or a live registry resolution, then one-time legacy
 // migration, then OpenLog. The project-resolution warning is returned for the

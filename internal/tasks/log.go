@@ -31,6 +31,7 @@ type Event struct {
 const (
 	opAdd    = "add"
 	opStatus = "status"
+	opText   = "text"
 	opRemove = "remove"
 )
 
@@ -123,6 +124,11 @@ func (f *folded) apply(ev Event) {
 			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
 				t.Trigger = tr
 			}
+		}
+	case opText:
+		if t := f.byID[ev.Task]; t != nil {
+			t.Text = strings.TrimSpace(ev.Text)
+			t.TextHash = hashText(t.Text)
 		}
 	case opRemove:
 		delete(f.byID, ev.Task)
@@ -253,6 +259,34 @@ func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	out.Status = status
 	out.Checked = statusIsDone(status)
 	out.Trigger = effective
+	return out, nil
+}
+
+func (l *eventLog) setText(harpID, text string) (Task, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return Task{}, fmt.Errorf("text required")
+	}
+	release, err := l.lock()
+	if err != nil {
+		return Task{}, err
+	}
+	defer release()
+
+	f, err := l.fold()
+	if err != nil {
+		return Task{}, err
+	}
+	t := f.byID[harpID]
+	if t == nil {
+		return Task{}, fmt.Errorf("task not found: %s", harpID)
+	}
+	if err := l.append(Event{Op: opText, Task: harpID, Text: text, Session: l.session}); err != nil {
+		return Task{}, err
+	}
+	out := *t
+	out.Text = text
+	out.TextHash = hashText(text)
 	return out, nil
 }
 

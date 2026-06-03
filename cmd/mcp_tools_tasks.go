@@ -62,6 +62,16 @@ type taskSetStatusResult struct {
 	Task taskOut `json:"task"`
 }
 
+type taskEditInput struct {
+	HarpID string `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
+	Text   string `json:"text" jsonschema:"The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged."`
+}
+
+type taskEditResult struct {
+	Path string  `json:"path"`
+	Task taskOut `json:"task"`
+}
+
 func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
@@ -83,6 +93,13 @@ func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 			Description: "Move a task to a different status section. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history. Use \"Deferred\" with a `trigger` to park a task on a named revive condition (it then hides from the active list until the condition fires — see the check-triggers skill).",
 		},
 		s.handleTaskSetStatus)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "task_edit",
+			Description: "Replace a task's text in place, keyed by its harp ID. Pass the full new text (the whole text is replaced, not patched); status and any Deferred trigger are left unchanged.",
+		},
+		s.handleTaskEdit)
 }
 
 func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
@@ -117,6 +134,15 @@ func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolReques
 	}
 	warnTask(res.Warning)
 	return nil, &taskSetStatusResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
+}
+
+func (s *ctxServer) handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
+	res, err := operations.EditTask(taskContext(), in.HarpID, in.Text)
+	if err != nil {
+		return nil, nil, err
+	}
+	warnTask(res.Warning)
+	return nil, &taskEditResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
 }
 
 func toTaskOut(t tasks.Task) taskOut {

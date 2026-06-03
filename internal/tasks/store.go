@@ -347,6 +347,44 @@ func effectiveTrigger(newTrigger, existing string) string {
 	return existing
 }
 
+// SetText replaces a task's text in place, keyed by harp ID. The whole text is
+// replaced (not patched); status and trigger are untouched. Errors if the harp
+// ID isn't present or the new text is empty.
+func (s *Store) SetText(harpID, text string) (Task, error) {
+	if s.log != nil {
+		return s.log.setText(harpID, text)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return Task{}, fmt.Errorf("text required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := filelock.Lock(s.path + ".lock")
+	if err != nil {
+		return Task{}, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	all, err := s.snapshot()
+	if err != nil {
+		return Task{}, err
+	}
+	for i := range all {
+		if all[i].HarpID != harpID {
+			continue
+		}
+		all[i].Text = text
+		all[i].TextHash = hashText(text)
+		if err := s.write(all); err != nil {
+			return Task{}, err
+		}
+		return all[i], nil
+	}
+	return Task{}, fmt.Errorf("task not found: %s", harpID)
+}
+
 // Snapshot returns every task in the store, in file order.
 func (s *Store) Snapshot() ([]Task, error) {
 	if s.log != nil {

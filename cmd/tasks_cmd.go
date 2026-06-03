@@ -100,6 +100,28 @@ carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 	},
 }
 
+var tasksEditCmd = &cobra.Command{
+	Use:   "edit <harp-id> <text>",
+	Short: "Replace a task's text in place (full new text)",
+	Long: `Replace a task's text, keyed by its harp ID.
+
+The entire text is replaced with what you pass (not patched); the task's
+status and any Deferred trigger are left unchanged.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		text := strings.Join(args[1:], " ")
+		res, err := operations.EditTask(taskContext(), args[0], text)
+		if err != nil {
+			return err
+		}
+		warnTask(res.Warning)
+		task := res.Task
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	},
+}
+
 var tasksSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
@@ -329,7 +351,7 @@ func init() {
 
 	tasksRunCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Leave the task's status unchanged instead of marking it In Progress")
 
-	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksRunCmd, tasksStampPlanCmd)
+	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksEditCmd, tasksSummaryCmd, tasksRunCmd, tasksStampPlanCmd)
 	rootCmd.AddCommand(tasksCmd)
 }
 

@@ -3,21 +3,21 @@ package remote
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLoadAuth_GitHubToken(t *testing.T) {
 	t.Run("GITHUB_TOKEN", func(t *testing.T) {
-		// Clear all token env vars to isolate the test
+		testsupport.Isolate(t)
 		t.Setenv("GITHUB_TOKEN", "gh-token-123")
-		t.Setenv("GH_TOKEN", "")
 
 		auth := LoadAuth("")
 		assert.Equal(t, "gh-token-123", auth.GitHub)
 	})
 
 	t.Run("GH_TOKEN", func(t *testing.T) {
-		t.Setenv("GITHUB_TOKEN", "")
+		testsupport.Isolate(t)
 		t.Setenv("GH_TOKEN", "gh-short-token")
 
 		auth := LoadAuth("")
@@ -25,6 +25,7 @@ func TestLoadAuth_GitHubToken(t *testing.T) {
 	})
 
 	t.Run("GH_TOKEN overrides GITHUB_TOKEN", func(t *testing.T) {
+		testsupport.Isolate(t)
 		t.Setenv("GITHUB_TOKEN", "first-token")
 		t.Setenv("GH_TOKEN", "second-token")
 
@@ -35,9 +36,7 @@ func TestLoadAuth_GitHubToken(t *testing.T) {
 }
 
 func TestLoadAuth_NoTokens(t *testing.T) {
-	// Clear all token env vars to isolate the test
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
+	testsupport.Isolate(t)
 
 	auth := LoadAuth("")
 	assert.Empty(t, auth.GitHub)

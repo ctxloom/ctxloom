@@ -1,11 +1,11 @@
 package paths
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,12 +76,11 @@ func TestProfilesPath_AtRoot(t *testing.T) {
 // =============================================================================
 
 func TestHarpPlanPath_InSessionDir(t *testing.T) {
+	testsupport.Isolate(t)
 	assert.Equal(t, ".plan.md", PlanFileExt)
 
 	harpDir, err := HarpDir("swift-amber-falcon")
-	if err != nil {
-		t.Skipf("home dir unavailable: %v", err)
-	}
+	assert.NoError(t, err)
 	planPath, err := HarpPlanPath("swift-amber-falcon", "v1-removal")
 	assert.NoError(t, err)
 	// Plans are .plan.md files directly in the harp dir (next to tasks.md),
@@ -91,10 +90,9 @@ func TestHarpPlanPath_InSessionDir(t *testing.T) {
 }
 
 func TestSessionIndexPath_InSessionsRoot(t *testing.T) {
+	testsupport.Isolate(t)
 	root, err := HomeSessionsDir()
-	if err != nil {
-		t.Skipf("home dir unavailable: %v", err)
-	}
+	assert.NoError(t, err)
 	got, err := SessionIndexPath()
 	assert.NoError(t, err)
 	assert.Equal(t, filepath.Join(root, "index.yaml"), got)
@@ -102,10 +100,9 @@ func TestSessionIndexPath_InSessionsRoot(t *testing.T) {
 }
 
 func TestHarpEssencePath_InHarpDir(t *testing.T) {
+	testsupport.Isolate(t)
 	harpDir, err := HarpDir("swift-amber-falcon")
-	if err != nil {
-		t.Skipf("home dir unavailable: %v", err)
-	}
+	assert.NoError(t, err)
 	got, err := HarpEssencePath("swift-amber-falcon")
 	assert.NoError(t, err)
 	assert.Equal(t, filepath.Join(harpDir, "essence.md"), got)
@@ -114,17 +111,14 @@ func TestHarpEssencePath_InHarpDir(t *testing.T) {
 // TestProjectSessionsDir covers the consolidated project-sessions resolver,
 // including the cwd fallback the old truncated cmd/memory.go variant dropped.
 func TestProjectSessionsDir(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
 	// Configured app dir wins.
 	assert.Equal(t, filepath.Join("/app", "sessions"), ProjectSessionsDir("/app"))
 
 	// Empty app dir falls back to <cwd>/.ctxloom/sessions — the behavior the
-	// truncated variant lacked. We compare against the live cwd.
-	got := ProjectSessionsDir("")
-	if wd, err := os.Getwd(); err == nil {
-		assert.Equal(t, filepath.Join(wd, AppDirName, SessionsDir), got)
-	} else {
-		assert.Equal(t, filepath.Join(AppDirName, SessionsDir), got)
-	}
+	// truncated variant lacked. We compare against the isolated project cwd.
+	assert.Equal(t, filepath.Join(dir, AppDirName, SessionsDir), ProjectSessionsDir(""))
 }
 
 // =============================================================================

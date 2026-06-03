@@ -80,6 +80,7 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 - [Configuration Guide](https://ctxloom.dev/guides/configuration)
 - [MCP Server Setup](https://ctxloom.dev/guides/mcp-server)
 - [CLI Reference](https://ctxloom.dev/reference/cli)
+- [Environment Variables](docs/environment.md)
 - [Contributing](https://ctxloom.dev/contributing)
 
 ## Related projects

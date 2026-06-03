@@ -73,6 +73,23 @@ test: build
 test-verbose:
     go test -v ./...
 
+# Run the offline suite under a hostile environment to prove test isolation: a
+# junk HOME (no real ~/.ctxloom) plus poison session env. A green run means no
+# test depends on real-home content or ambient session env, and none pollutes the
+# user's ~/.ctxloom. The Go toolchain + caches are pinned to their real locations
+# first (the version-manager shim and module cache live under the real home), and
+# the real go binary is invoked directly so junking HOME doesn't break the build.
+test-dirty:
+    #!/usr/bin/env bash
+    set -e
+    GO="$(go env GOROOT)/bin/go"
+    export GOCACHE="$(go env GOCACHE)" GOMODCACHE="$(go env GOMODCACHE)" GOPATH="$(go env GOPATH)"
+    export HOME="$(mktemp -d)"
+    export CTXLOOM_PROJECT_ID=poison-project CTXLOOM_SESSION_HARP=poison-harp
+    export CTXLOOM_RESUMED_FROM=poison CTXLOOM_RESUMED_PARTS=poison CTXLOOM_DEBUG_HTTP=1
+    export GITHUB_TOKEN=poison-token GH_TOKEN=poison-token CODEX_HOME=/poison/codex
+    "$GO" test ./internal/... ./cmd/...
+
 # Filter coverage output using patterns from .coverignore
 # Usage: _filter_coverage <input> <output>
 _filter_coverage INPUT OUTPUT:

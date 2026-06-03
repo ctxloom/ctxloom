@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // buildCtxloomBinary compiles the ctxloom CLI to a tempdir and returns the
@@ -56,6 +58,10 @@ func startMCPServer(t *testing.T, binPath, workDir string) *mcpClient {
 
 	cmd := exec.CommandContext(ctx, binPath, "mcp")
 	cmd.Dir = workDir
+	// Isolate the spawned server: a fresh tempdir HOME and scrubbed session env
+	// so it never resolves a home-rooted store (tasks log, sessions index)
+	// against the host's ~/.ctxloom or the ambient session's CTXLOOM_PROJECT_ID.
+	cmd.Env = testsupport.ScrubbedEnv(t)
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
 	stdout, err := cmd.StdoutPipe()

@@ -3,6 +3,8 @@ package memory
 import (
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // assembleBody re-attaches rendered plan blocks after the LLM summary. These
@@ -49,6 +51,7 @@ func TestAssembleBody(t *testing.T) {
 // resolveHarpName prefers the config field over the env var.
 func TestResolveHarpName(t *testing.T) {
 	t.Run("config field wins over env", func(t *testing.T) {
+		testsupport.Isolate(t)
 		t.Setenv("CTXLOOM_SESSION_HARP", "from-env")
 		c := &Compactor{config: CompactionConfig{HarpName: "from-config"}}
 		if got := c.resolveHarpName(); got != "from-config" {
@@ -57,6 +60,7 @@ func TestResolveHarpName(t *testing.T) {
 	})
 
 	t.Run("falls back to env when config empty", func(t *testing.T) {
+		testsupport.Isolate(t)
 		t.Setenv("CTXLOOM_SESSION_HARP", "from-env")
 		c := &Compactor{config: CompactionConfig{}}
 		if got := c.resolveHarpName(); got != "from-env" {
@@ -65,7 +69,7 @@ func TestResolveHarpName(t *testing.T) {
 	})
 
 	t.Run("empty when neither set", func(t *testing.T) {
-		t.Setenv("CTXLOOM_SESSION_HARP", "")
+		testsupport.Isolate(t)
 		c := &Compactor{config: CompactionConfig{}}
 		if got := c.resolveHarpName(); got != "" {
 			t.Fatalf("got %q, want empty", got)

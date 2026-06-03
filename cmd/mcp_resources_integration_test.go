@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // stageMinimalProject sets up a workDir with a .ctxloom that doesn't
@@ -128,9 +130,9 @@ func TestMCP_WireProtocol_ReadTasksSummary(t *testing.T) {
 func TestMCP_WireProtocol_ReadSessionsRecent(t *testing.T) {
 	binPath := buildCtxloomBinary(t)
 	workDir := stageMinimalProject(t)
-	// Point HOME at a temp dir so the user-global index doesn't carry
-	// real-user state into the test.
-	t.Setenv("HOME", t.TempDir())
+	// Isolate HOME so the user-global index doesn't carry real-user state
+	// into the test.
+	testsupport.Isolate(t)
 	c := startMCPServer(t, binPath, workDir)
 	initSession(t, c)
 

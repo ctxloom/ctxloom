@@ -15,30 +15,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// TestMain isolates this package's tests from the user's real ~/.ctxloom.
-// Compact() reads the harp name from CTXLOOM_SESSION_HARP and writes the
-// global session index via sessions.Open(""), which resolves against
-// $HOME. Running the suite from inside a ctxloom session (where `ctxloom
-// run` exports CTXLOOM_SESSION_HARP) therefore let TestCompact_WithMockClient
-// bind its mock session ID ("test-compact-session") into the user's real
-// index.yaml — corrupting `session distill`. We neutralize both globals:
-// point HOME at a throwaway dir so any index write lands there, and clear
-// the inherited harp so the bind block is skipped outright.
-func TestMain(m *testing.M) {
-	tmpHome, err := os.MkdirTemp("", "ctxloom-memory-test-home")
-	if err != nil {
-		panic("memory test setup: " + err.Error())
-	}
-	if err := os.Setenv("HOME", tmpHome); err != nil {
-		panic("memory test setup: " + err.Error())
-	}
-	_ = os.Unsetenv("CTXLOOM_SESSION_HARP")
-	code := m.Run()
-	_ = os.RemoveAll(tmpHome)
-	os.Exit(code)
-}
 
 func TestEstimateTokens(t *testing.T) {
 	tests := []struct {
@@ -456,6 +434,7 @@ func TestCompact_EmptySession(t *testing.T) {
 }
 
 func TestCompact_WithMockClient(t *testing.T) {
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
 	mockHistory := &mockSessionHistory{
@@ -498,6 +477,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 }
 
 func TestCompact_PreservesPlansVerbatim(t *testing.T) {
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
 	planBody := "1. design the schema\n2. migrate data with backfill\n3. verify with smoke tests"
@@ -553,6 +533,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 }
 
 func TestCompact_BySessionID(t *testing.T) {
+	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
 	targetSession := &backends.Session{

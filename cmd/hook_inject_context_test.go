@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestBuildInjectContextOutput covers the wrapping logic that surrounds
@@ -130,8 +132,7 @@ func TestBuildInjectContextOutput_ResumedEssence(t *testing.T) {
 // resumed harp's essence.md, including the source, chunk, parts, and
 // presence conditions.
 func TestResumedEssenceForInjection(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := testsupport.Isolate(t)
 	harp := "swift-amber-falcon"
 	dir := filepath.Join(home, ".ctxloom", "sessions", harp)
 	require.NoError(t, os.MkdirAll(dir, 0o755))

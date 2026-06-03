@@ -5,14 +5,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestLinkTranscriptIntoHarpDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation requires privilege on Windows; the feature is best-effort there")
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := testsupport.Isolate(t)
 
 	target := filepath.Join(t.TempDir(), "abc.jsonl")
 	if err := os.WriteFile(target, []byte("{}\n"), 0o644); err != nil {

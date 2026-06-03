@@ -100,6 +100,10 @@ func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
 // Quiet by default; set CTXLOOM_DEBUG_HTTP=1 to enable. The cached-clone path
 // has eliminated most API traffic, so unconditional logging became noise on
 // every legitimate operation (discover, publish).
+//
+// CTXLOOM_DEBUG_HTTP is the canonical switch for all HTTP debugging in ctxloom.
+// It only instruments the GitHub client today, but any HTTP transport added
+// later should honor this same variable rather than introduce a parallel one.
 type loggingTransport struct {
 	base http.RoundTripper
 }

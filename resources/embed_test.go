@@ -151,3 +151,32 @@ func TestListBuiltinBundles(t *testing.T) {
 		t.Errorf("expected 'tasks' bundle in list, got %v", names)
 	}
 }
+
+// TestGetPromptText verifies every embedded prompt template loads non-empty,
+// trims its trailing newline, and that a missing name errors. These prompts
+// back package-level vars via MustGetPromptText, so a renamed or unembedded
+// file would otherwise only surface as an init-time panic at runtime.
+func TestGetPromptText(t *testing.T) {
+	for _, name := range []string{
+		"profile-discovery",
+		"distill-default",
+		"mcp-server-instructions",
+		"session-distill",
+	} {
+		got, err := GetPromptText(name)
+		if err != nil {
+			t.Errorf("GetPromptText(%q): %v", name, err)
+			continue
+		}
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("GetPromptText(%q) is empty", name)
+		}
+		if strings.HasSuffix(got, "\n") {
+			t.Errorf("GetPromptText(%q) has a trailing newline; want it trimmed", name)
+		}
+	}
+
+	if _, err := GetPromptText("does-not-exist"); err == nil {
+		t.Error("GetPromptText(missing) returned nil error")
+	}
+}

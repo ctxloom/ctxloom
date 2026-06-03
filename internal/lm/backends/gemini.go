@@ -14,6 +14,20 @@ import (
 // interactive trust prompt.
 const geminiTrustWorkspaceEnv = "GEMINI_CLI_TRUST_WORKSPACE"
 
+// GeminiConfig is gemini's typed LLM config. The backend owns this struct; the
+// config package only carries the raw body that decodes into it.
+type GeminiConfig struct {
+	Model          string            `mapstructure:"model"`
+	TrustWorkspace *bool             `mapstructure:"trust_workspace"`
+	ApprovalMode   string            `mapstructure:"approval_mode"`
+	BinaryPath     string            `mapstructure:"binary_path"`
+	Args           []string          `mapstructure:"args"`
+	Env            map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (GeminiConfig) BackendType() string { return "gemini" }
+
 // Gemini implements the Backend interface for Gemini CLI.
 type Gemini struct {
 	BaseBackend
@@ -42,18 +56,25 @@ func NewGemini() *Gemini {
 // in config. Kept current with Gemini's own default tier.
 const defaultGeminiModel = "gemini-2.5-flash"
 
-// Configure applies per-LLM configuration (binary path, args, env) to this
-// backend. Without it, ApplyLLMConfig's Configurable type-assertion skips Gemini
-// and config.yaml's llm.configs.gemini overrides never take effect.
-func (b *Gemini) Configure(cfg *config.LLMConfig) {
-	if cfg.BinaryPath != "" {
-		b.BinaryPath = cfg.BinaryPath
+// Configure applies a decoded gemini config (binary path, args, env, workspace
+// trust) to this backend. Without the Configurable type-assertion matching this
+// signature, a labeled gemini entry's overrides would never take effect.
+func (b *Gemini) Configure(cfg BackendConfig) {
+	c, ok := cfg.(*GeminiConfig)
+	if !ok {
+		return
 	}
-	if len(cfg.Args) > 0 {
-		b.Args = cfg.Args
+	if c.BinaryPath != "" {
+		b.BinaryPath = c.BinaryPath
 	}
-	for k, v := range cfg.Env {
+	if len(c.Args) > 0 {
+		b.Args = c.Args
+	}
+	for k, v := range c.Env {
 		b.Env[k] = v
+	}
+	if c.TrustWorkspace != nil && *c.TrustWorkspace {
+		b.Env[geminiTrustWorkspaceEnv] = "true"
 	}
 }
 
@@ -114,13 +135,9 @@ func (b *Gemini) Setup(ctx context.Context, req *SetupRequest) error {
 
 // Execute runs the backend with the given request.
 func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
-	// Resolve the model: explicit request, then per-LLM config, then default.
+	// Resolve the model: explicit request (the role's labeled config supplies
+	// it), then the backend default.
 	modelName := req.Model
-	if modelName == "" {
-		if cfg, err := config.Load(); err == nil {
-			modelName = cfg.LM.GetDefaultModel(b.Name())
-		}
-	}
 	if modelName == "" {
 		modelName = defaultGeminiModel
 	}

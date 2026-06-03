@@ -215,7 +215,7 @@ func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*
 		return prompts
 	}
 
-	loader := cfg.SeededBundleLoader(cfg.Defaults.ShouldUseDistilled(), opts...)
+	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 	infos, err := loader.ListAllPrompts()
 	if err != nil {
 		return prompts
@@ -300,7 +300,7 @@ func parseMarkdownFrontmatter(content string) (description, body string) {
 // regenerateContext loads fragments from default profiles and writes the context file.
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...backends.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles
-	loader := cfg.SeededBundleLoader(cfg.Defaults.ShouldUseDistilled(), bundleOpts...)
+	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
 	var allFragments []config.FragmentRef
 
 	for _, profileName := range cfg.GetDefaultProfiles() {

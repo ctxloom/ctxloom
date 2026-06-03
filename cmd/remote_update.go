@@ -565,7 +565,7 @@ func checkDefaultProfiles() []string {
 
 	for _, name := range defaultProfiles {
 		// Check if profile exists in config
-		if _, exists := cfg.Profiles[name]; exists {
+		if _, exists := cfg.Profiles.Definitions[name]; exists {
 			continue
 		}
 

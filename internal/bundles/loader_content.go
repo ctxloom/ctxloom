@@ -2,7 +2,6 @@ package bundles
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -375,7 +374,8 @@ func (l *Loader) expandBundleRef(ref string) []string {
 		// A profile referenced this bundle but it didn't resolve. Warn so the
 		// gap is diagnosable — silently dropping it produces context that is
 		// missing content with no error (fault-tolerance: log, don't crash).
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping unresolved bundle %q: %v\n", ref, err)
+		// Deduped process-wide: startup assembles context more than once.
+		unresolvedBundleWarner.unresolved(ref, err)
 		return nil
 	}
 	names := make([]string, 0, len(b.Fragments))

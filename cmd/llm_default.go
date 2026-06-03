@@ -28,7 +28,7 @@ With an LLM name argument, sets that LLM as the default.`,
 		}
 
 		if len(args) == 0 {
-			fmt.Println(cfg.GetDefaultLLM())
+			fmt.Println(cfg.PrimaryLabel())
 			return nil
 		}
 

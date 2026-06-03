@@ -129,61 +129,39 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 	}
 }
 
-// LLMConfig holds configuration for a specific LLM backend.
+// LLMConfig is the backend-agnostic envelope for one labeled LLM config entry.
+// Type is the discriminator naming the backend implementation (claude-code /
+// gemini / codex); Body carries that backend's own type-specific fields,
+// decoded and validated by the backend registry — the config package never
+// imports backend structs. The map label that keys this entry is an arbitrary
+// user string with zero semantics; the backend is determined ONLY by Type.
 type LLMConfig struct {
-	Model      string            `mapstructure:"model" yaml:"model,omitempty"` // Default model for this LLM
-	BinaryPath string            `mapstructure:"binary_path" yaml:"binary_path,omitempty"`
-	Args       []string          `mapstructure:"args" yaml:"args,omitempty"`
-	Env        map[string]string `mapstructure:"env" yaml:"env,omitempty"`
+	Type string                 `mapstructure:"type" yaml:"type,omitempty"`
+	Body map[string]interface{} `mapstructure:",remain" yaml:",inline"`
 }
 
-// LMConfig holds all large-language-model configuration: the default LLM and
-// model, per-LLM overrides, and session-compaction settings.
+// RoleDefaults maps a role to the config label that plays it. Roles select
+// which labeled config serves which part; labels are looked up verbatim in
+// LMConfig.Configs. "primary" is the coding/interactive role; "fast" is the
+// compression role (distillation, session compaction).
+type RoleDefaults struct {
+	Primary string `mapstructure:"primary" yaml:"primary,omitempty"`
+	Fast    string `mapstructure:"fast" yaml:"fast,omitempty"`
+}
+
+// LMConfig holds all large-language-model configuration: a registry of
+// arbitrarily-labeled, fully-specified backend configs and a role→label map.
 type LMConfig struct {
-	Default    string               `mapstructure:"default" yaml:"default,omitempty"`       // Default LLM name (e.g., "claude-code", "gemini")
-	Model      string               `mapstructure:"model" yaml:"model,omitempty"`           // Default model (e.g., "opus", "sonnet")
-	Configs    map[string]LLMConfig `mapstructure:"configs" yaml:"configs,omitempty"`       // Per-LLM overrides, keyed by name
-	Compaction CompactionConfig     `mapstructure:"compaction" yaml:"compaction,omitempty"` // Session-compaction LLM settings
+	Configs  map[string]LLMConfig `mapstructure:"configs" yaml:"configs,omitempty"` // labeled backend configs
+	Defaults RoleDefaults         `mapstructure:"defaults" yaml:"defaults,omitempty"`
 }
 
-// CompactionConfig holds the LLM settings used for session compaction.
-type CompactionConfig struct {
-	LLM    string `mapstructure:"llm" yaml:"llm,omitempty"`       // LLM for compaction (default: the default LLM)
-	Model  string `mapstructure:"model" yaml:"model,omitempty"`   // Model for compaction (default: "haiku")
-	Chunks int    `mapstructure:"chunks" yaml:"chunks,omitempty"` // Target tokens per chunk (default: 8000)
-}
-
-// DefaultLLM is the LLM used when none is configured.
+// DefaultLLM is the backend type used when no config resolves a label.
 const DefaultLLM = "claude-code"
 
-// GetDefaultLLM returns the configured default LLM, or DefaultLLM if unset.
-func (c *LMConfig) GetDefaultLLM() string {
-	if c != nil && c.Default != "" {
-		return c.Default
-	}
-	return DefaultLLM
-}
-
-// GetConfiguredLLMs returns the names of Configs with explicit config.
-// If none are configured, returns the default LLM.
-func (c *LMConfig) GetConfiguredLLMs() []string {
-	if len(c.Configs) == 0 {
-		return []string{c.GetDefaultLLM()}
-	}
-	var names []string
-	for name := range c.Configs {
-		names = append(names, name)
-	}
-	return names
-}
-
-// GetDefaultModel returns the per-LLM default model for the named LLM.
-// Returns empty string if no override is configured.
-func (c *LMConfig) GetDefaultModel(llmName string) string {
-	if cfg, ok := c.Configs[llmName]; ok {
-		return cfg.Model
-	}
-	return ""
+// hasAny reports whether the LM config carries anything worth persisting.
+func (c LMConfig) hasAny() bool {
+	return len(c.Configs) > 0 || c.Defaults.Primary != "" || c.Defaults.Fast != ""
 }
 
 // FragmentRef references a fragment with optional priority for context ordering.
@@ -232,26 +210,78 @@ type Profile struct {
 	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
 	Fragments   []FragmentRef     `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
-	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"`             // Hooks for this profile (inherited)
-	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`                 // MCP servers for this profile (inherited)
+	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
+	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`
 	ExcludeMCP       []string `mapstructure:"exclude_mcp" yaml:"exclude_mcp,omitempty"`
 }
 
-// Defaults holds default settings applied when no explicit values are specified.
-type Defaults struct {
-	Profiles     []string `mapstructure:"profiles" yaml:"profiles,omitempty"`          // Default profiles to load (supports multiple)
-	UseDistilled *bool    `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"` // Prefer .distilled.md versions (default true)
+// ProfilesConfig holds the default-profile list and the named profile
+// definitions. Defaults was the old top-level defaults.profiles array;
+// Definitions was the old root-level profiles map.
+type ProfilesConfig struct {
+	Defaults    []string           `mapstructure:"defaults" yaml:"defaults,omitempty"`       // Default profiles to load (supports multiple)
+	Definitions map[string]Profile `mapstructure:"definitions" yaml:"definitions,omitempty"` // Named profile definitions
 }
 
-// hasAny reports whether any default is set. Save uses this to decide whether
-// to persist the `defaults` block; it MUST cover every field, or setting only
-// an uncovered field would silently drop the whole block on the next Save.
-func (d Defaults) hasAny() bool {
-	return len(d.Profiles) > 0 ||
-		d.UseDistilled != nil
+// SettingsConfig holds misc behavioral settings (mapstructure key "config").
+type SettingsConfig struct {
+	UseDistilled     *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
+	CompactionChunks int   `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per compaction chunk (default 8000)
+}
+
+// hasAny reports whether any setting is set, so Save can prune the block when
+// empty. It MUST cover every field, or setting only an uncovered field would
+// silently drop the whole block on the next Save.
+func (s SettingsConfig) hasAny() bool {
+	return s.UseDistilled != nil || s.CompactionChunks > 0
+}
+
+// ShouldUseDistilled returns whether to prefer distilled versions of
+// fragments/prompts. Defaults to true if not explicitly set.
+func (s *SettingsConfig) ShouldUseDistilled() bool {
+	if s == nil || s.UseDistilled == nil {
+		return true
+	}
+	return *s.UseDistilled
+}
+
+// hasAny reports whether any profile config is set, so Save can prune the block.
+func (p ProfilesConfig) hasAny() bool {
+	return len(p.Defaults) > 0 || len(p.Definitions) > 0
+}
+
+// AddDefaultProfile adds a profile to the defaults list if not already present.
+func (p *ProfilesConfig) AddDefaultProfile(name string) bool {
+	if p.IsDefaultProfile(name) {
+		return false
+	}
+	p.Defaults = append(p.Defaults, name)
+	return true
+}
+
+// RemoveDefaultProfile removes a profile from the defaults list.
+// Returns true if the profile was removed, false if it wasn't present.
+func (p *ProfilesConfig) RemoveDefaultProfile(name string) bool {
+	for i, name2 := range p.Defaults {
+		if name2 == name {
+			p.Defaults = append(p.Defaults[:i], p.Defaults[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// IsDefaultProfile checks if a profile is in the defaults list.
+func (p *ProfilesConfig) IsDefaultProfile(name string) bool {
+	for _, name2 := range p.Defaults {
+		if name2 == name {
+			return true
+		}
+	}
+	return false
 }
 
 // SyncConfig holds configuration for dependency sync behavior.
@@ -268,44 +298,4 @@ func (s *SyncConfig) ShouldAutoSync() bool {
 		return true
 	}
 	return *s.AutoSync
-}
-
-// ShouldUseDistilled returns whether to prefer distilled versions of fragments/prompts.
-// Defaults to true if not explicitly set.
-func (d *Defaults) ShouldUseDistilled() bool {
-	if d.UseDistilled == nil {
-		return true
-	}
-	return *d.UseDistilled
-}
-
-// AddDefaultProfile adds a profile to the defaults list if not already present.
-func (d *Defaults) AddDefaultProfile(name string) bool {
-	if d.IsDefaultProfile(name) {
-		return false
-	}
-	d.Profiles = append(d.Profiles, name)
-	return true
-}
-
-// RemoveDefaultProfile removes a profile from the defaults list.
-// Returns true if the profile was removed, false if it wasn't present.
-func (d *Defaults) RemoveDefaultProfile(name string) bool {
-	for i, p := range d.Profiles {
-		if p == name {
-			d.Profiles = append(d.Profiles[:i], d.Profiles[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
-// IsDefaultProfile checks if a profile is in the defaults list.
-func (d *Defaults) IsDefaultProfile(name string) bool {
-	for _, p := range d.Profiles {
-		if p == name {
-			return true
-		}
-	}
-	return false
 }

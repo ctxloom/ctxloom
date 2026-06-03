@@ -10,11 +10,11 @@ import (
 // precedence), recording which field matched.
 func TestSearchProfiles(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev":   {Description: "Golang work", Tags: []string{"backend"}},
 			"frontend": {Description: "UI things", Tags: []string{"react", "go-adjacent"}},
 			"infra":    {Description: "ops", Tags: []string{"k8s"}},
-		},
+		}},
 	}
 
 	t.Run("matches by name", func(t *testing.T) {

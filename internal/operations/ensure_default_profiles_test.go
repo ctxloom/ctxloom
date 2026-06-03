@@ -41,7 +41,7 @@ func TestEnsureDefaultProfiles_RespectsProjectDefaults(t *testing.T) {
 
 	cfg := &config.Config{
 		AppPaths: []string{t.TempDir()},
-		Defaults: config.Defaults{Profiles: []string{"proj/dev"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"proj/dev"}},
 	}
 
 	EnsureDefaultProfiles(cfg)

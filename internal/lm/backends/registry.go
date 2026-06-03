@@ -2,24 +2,13 @@ package backends
 
 import (
 	"os/exec"
-
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// Configurable is an interface for backends that can be configured with per-LLM settings.
+// Configurable is implemented by backends that accept their own typed config.
+// The argument is the backend's concrete BackendConfig (decoded by the config
+// registry), so no shared code ever type-switches on backend specifics.
 type Configurable interface {
-	Configure(cfg *config.LLMConfig)
-}
-
-// ApplyLLMConfig applies per-LLM configuration to a backend.
-// This sets binary path, args, and env.
-func ApplyLLMConfig(backend Backend, cfg *config.LLMConfig) {
-	if cfg == nil {
-		return
-	}
-	if configurable, ok := backend.(Configurable); ok {
-		configurable.Configure(cfg)
-	}
+	Configure(cfg BackendConfig)
 }
 
 // registry holds all registered backends.
@@ -87,9 +76,25 @@ func IsAvailable(name string) bool {
 }
 
 func init() {
-	// Register all built-in backends
+	// Register all built-in backends along with their config decoders. The
+	// decoder turns a labeled entry's raw body into the backend's typed config.
 	Register("claude-code", func() Backend { return NewClaudeCode() })
+	RegisterConfig("claude-code", func(body map[string]interface{}) (BackendConfig, error) {
+		return decodeBody(body, &ClaudeConfig{})
+	})
+
 	Register("gemini", func() Backend { return NewGemini() })
+	RegisterConfig("gemini", func(body map[string]interface{}) (BackendConfig, error) {
+		return decodeBody(body, &GeminiConfig{})
+	})
+
 	Register("codex", func() Backend { return NewCodex() })
+	RegisterConfig("codex", func(body map[string]interface{}) (BackendConfig, error) {
+		return decodeBody(body, &CodexConfig{})
+	})
+
 	Register("mock", func() Backend { return NewMock() })
+	RegisterConfig("mock", func(body map[string]interface{}) (BackendConfig, error) {
+		return decodeBody(body, &MockConfig{})
+	})
 }

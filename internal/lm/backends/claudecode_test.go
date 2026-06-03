@@ -3,7 +3,6 @@ package backends
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -58,7 +57,7 @@ func TestNewClaudeCode_SupportedModes(t *testing.T) {
 func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.LLMConfig{
+	cfg := &ClaudeConfig{
 		BinaryPath: "/custom/path/to/claude",
 	}
 	backend.Configure(cfg)
@@ -71,7 +70,7 @@ func TestClaudeCode_Configure_BinaryPath(t *testing.T) {
 func TestClaudeCode_Configure_Args(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.LLMConfig{
+	cfg := &ClaudeConfig{
 		Args: []string{"--no-telemetry", "--config", "/custom/config"},
 	}
 	backend.Configure(cfg)
@@ -84,7 +83,7 @@ func TestClaudeCode_Configure_Args(t *testing.T) {
 func TestClaudeCode_Configure_Env(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.LLMConfig{
+	cfg := &ClaudeConfig{
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": "test-key",
 			"CUSTOM_VAR":        "custom-value",
@@ -103,7 +102,7 @@ func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 	backend := NewClaudeCode()
 
 	// Configure with empty config (not nil) should work
-	cfg := &config.LLMConfig{}
+	cfg := &ClaudeConfig{}
 	backend.Configure(cfg)
 
 	// Defaults should be preserved
@@ -115,7 +114,7 @@ func TestClaudeCode_Configure_RequiresNonNil(t *testing.T) {
 func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 	backend := NewClaudeCode()
 
-	cfg := &config.LLMConfig{
+	cfg := &ClaudeConfig{
 		// BinaryPath, Args, Env all empty
 	}
 	backend.Configure(cfg)
@@ -176,6 +175,60 @@ func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
 	assert.Contains(t, args, "--print")
 }
 
+// TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON verifies that minimal
+// oneshot mode (distillation/compaction) requests the JSON envelope so Execute
+// can read the resolved model id instead of guessing.
+func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
+	backend := NewClaudeCode()
+
+	req := &ExecuteRequest{
+		Mode:      ModeOneshot,
+		SkipSetup: true,
+	}
+	args := backend.buildArgs(req)
+
+	assert.Contains(t, args, "--print")
+	assert.True(t, argPair(args, "--output-format", "json"),
+		"minimal oneshot should request JSON output")
+}
+
+// TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault verifies that minimal
+// mode with no explicit model adds no --model flag: the model is resolved by
+// the caller from the fast role's labeled config, not defaulted in the backend.
+func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
+	backend := NewClaudeCode()
+
+	args := backend.buildArgs(&ExecuteRequest{Mode: ModeOneshot, SkipSetup: true})
+
+	assert.NotContains(t, args, "--model",
+		"minimal mode must not default a model; the caller supplies it")
+}
+
+// TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode verifies that a
+// configured fast model (passed as req.Model) overrides the backend default.
+func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
+	backend := NewClaudeCode()
+
+	args := backend.buildArgs(&ExecuteRequest{Mode: ModeOneshot, SkipSetup: true, Model: "sonnet"})
+
+	assert.True(t, argPair(args, "--model", "sonnet"))
+}
+
+// TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON verifies that an
+// ordinary oneshot (e.g. `ctxloom run --print`) keeps streaming text output and
+// does not switch to the JSON envelope.
+func TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON(t *testing.T) {
+	backend := NewClaudeCode()
+
+	req := &ExecuteRequest{
+		Mode: ModeOneshot,
+	}
+	args := backend.buildArgs(req)
+
+	assert.Contains(t, args, "--print")
+	assert.NotContains(t, args, "--output-format")
+}
+
 // TestClaudeCode_BuildArgs_InteractiveMode verifies that interactive mode
 // does not add the --print flag.
 func TestClaudeCode_BuildArgs_InteractiveMode(t *testing.T) {
@@ -226,7 +279,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 
 	req := &ExecuteRequest{
 		AutoApprove: true,
-		Model:       "claude-3-opus",
+		Model:       "opus",
 		Mode:        ModeOneshot,
 		Prompt:      &Fragment{Content: "Test prompt"},
 	}
@@ -236,4 +289,52 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	assert.Contains(t, args, "--dangerously-skip-permissions")
 	assert.Contains(t, args, "--print")
 	assert.Contains(t, args, "Test prompt")
+}
+
+// =============================================================================
+// JSON Envelope Parsing
+//
+// In minimal oneshot mode the Claude CLI is invoked with --output-format json.
+// parseClaudeJSONResult extracts the assistant text and the resolved model id
+// (claude reports actual ids under modelUsage) so distilled_by records the real
+// model rather than a hardcoded guess.
+// =============================================================================
+
+// TestParseClaudeJSONResult_ExtractsResultAndModel verifies that a well-formed
+// envelope yields both the result text and the resolved model id.
+func TestParseClaudeJSONResult_ExtractsResultAndModel(t *testing.T) {
+	envelope := `{"type":"result","subtype":"success","is_error":false,` +
+		`"result":"# Distilled\n- point one","session_id":"abc",` +
+		`"modelUsage":{"claude-haiku-4-5":{"inputTokens":500,"outputTokens":16}}}`
+
+	text, model, err := parseClaudeJSONResult([]byte(envelope))
+
+	assert.NoError(t, err)
+	assert.Equal(t, "# Distilled\n- point one", text)
+	assert.Equal(t, "claude-haiku-4-5", model)
+}
+
+// TestParseClaudeJSONResult_PicksWorkingModel verifies that when the CLI reports
+// several models (a helper model alongside the one doing the work), provenance
+// records the model that read the content — the one with the most input
+// tokens — not a helper the CLI touches with near-zero input. Mirrors observed
+// distill envelopes where haiku reads the payload and opus only frames.
+func TestParseClaudeJSONResult_PicksWorkingModel(t *testing.T) {
+	envelope := `{"result":"ok","modelUsage":{` +
+		`"claude-haiku-4-5":{"inputTokens":500,"outputTokens":16},` +
+		`"claude-opus-4-8":{"inputTokens":1,"outputTokens":54}}}`
+
+	_, model, err := parseClaudeJSONResult([]byte(envelope))
+
+	assert.NoError(t, err)
+	assert.Equal(t, "claude-haiku-4-5", model)
+}
+
+// TestParseClaudeJSONResult_InvalidJSON verifies that malformed output is
+// reported as an error so callers can fall back to the raw bytes rather than
+// fabricating a result.
+func TestParseClaudeJSONResult_InvalidJSON(t *testing.T) {
+	_, _, err := parseClaudeJSONResult([]byte("not json at all"))
+
+	assert.Error(t, err)
 }

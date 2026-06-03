@@ -1,28 +1,45 @@
 # ctxloom Configuration
 # See https://github.com/ctxloom/ctxloom for documentation
+version: 3
 
-# Large language model configuration
-llm:
-  default: claude-code
-  # Optional global default model (per-LLM overrides go under `configs`):
-  # model: opus
-  # Per-LLM overrides (only needed to change a model, point at an external
-  # binary, or pass args/env):
-  # configs:
-  #   claude-code: { binary_path: /custom/claude }
-  #   gemini:      { model: gemini-2.5-pro }
-  # Session-compaction LLM (defaults to the default LLM + "haiku"):
-  # compaction: { llm: claude-code, model: haiku, chunks: 8000 }
+# Large language model configuration.
+#
+# `llm.configs` is a registry of arbitrarily-labeled, fully-specified backend
+# configs. A label is an arbitrary string with zero semantics — the backend is
+# determined ONLY by each entry's `type` field. `llm.defaults` maps a role to
+# the label that plays it.
+#
+# Out of the box ctxloom ships a built-in primary (claude-code) and a fast
+# compression config (claude-code on haiku), so you do not need this block at
+# all unless you want to change a model, point at a custom binary, or pair
+# different backends per role.
+#
+# llm:
+#   configs:
+#     big:   { type: claude-code, model: opus }      # label is arbitrary...
+#     quick: { type: claude-code, model: haiku }      # ...two claude-code backends
+#     g:     { type: gemini, model: gemini-2.5-pro, trust_workspace: true }
+#   defaults:
+#     primary: big     # coding/interactive role → label
+#     fast:    quick    # compression role (distill, compaction) → label
 
-# Default settings
-defaults:
-  use_distilled: true
-  # Uncomment to set default profiles from ctxloom-default:
-  # profiles:
-  #   - ctxloom-default/go-developer
-  #   - ctxloom-default/python-developer
-  #   - ctxloom-default/rust-developer
-  #   - ctxloom-default/typescript-web-developer
+# Behavioral settings.
+# config:
+#   use_distilled: true       # prefer .distilled.md versions (default true)
+#   compaction_chunks: 8000   # target tokens per compaction chunk
+
+# Profiles: default list to load, plus custom definitions.
+# profiles:
+#   defaults:
+#     - ctxloom-default/go-developer
+#     - ctxloom-default/python-developer
+#   definitions:
+#     my-profile:
+#       description: "My custom profile"
+#       parents:
+#         - ctxloom-default/go-developer
+#       bundles:
+#         - my-custom-bundle
 
 # Uncomment to configure your preferred editor:
 # editor:
@@ -30,19 +47,10 @@ defaults:
 #   args: []
 
 # Available profiles from ctxloom-default:
-#   - ctxloom-default/go-developer           (Go backend development)
-#   - ctxloom-default/go-code-reviewer       (Go code review)
-#   - ctxloom-default/python-developer       (Python development)
-#   - ctxloom-default/python-code-reviewer   (Python code review)
-#   - ctxloom-default/rust-developer         (Rust systems development)
-#   - ctxloom-default/rust-code-reviewer     (Rust code review)
+#   - ctxloom-default/go-developer             (Go backend development)
+#   - ctxloom-default/go-code-reviewer         (Go code review)
+#   - ctxloom-default/python-developer         (Python development)
+#   - ctxloom-default/python-code-reviewer     (Python code review)
+#   - ctxloom-default/rust-developer           (Rust systems development)
+#   - ctxloom-default/rust-code-reviewer       (Rust code review)
 #   - ctxloom-default/typescript-web-developer (TypeScript/React web development)
-
-# Define custom profiles:
-# profiles:
-#   my-profile:
-#     description: "My custom profile"
-#     parents:
-#       - ctxloom-default/go-developer
-#     bundles:
-#       - my-custom-bundle

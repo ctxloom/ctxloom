@@ -356,7 +356,7 @@ func TestListProfiles_SortByDefault(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Defaults: config.Defaults{Profiles: []string{"base"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -376,7 +376,7 @@ func TestListProfiles_SortByDefaultDescending(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Defaults: config.Defaults{Profiles: []string{"base"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
 	}
 
 	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{
@@ -550,7 +550,7 @@ func TestCreateProfile_SetDefault(t *testing.T) {
 		assert.Equal(t, "created", result.Status)
 	}
 	// Default should be set in memory (stored in Profiles array)
-	assert.Contains(t, cfg.Defaults.Profiles, "default-profile")
+	assert.Contains(t, cfg.Profiles.Defaults, "default-profile")
 }
 
 func TestUpdateProfile_AddTags(t *testing.T) {
@@ -748,14 +748,14 @@ tags:
 	// The error is expected since there's no config file to save to
 	if err != nil {
 		// Verify the config was updated before the save error
-		assert.Contains(t, cfg.Defaults.Profiles, "base")
+		assert.Contains(t, cfg.Profiles.Defaults, "base")
 		assert.Contains(t, err.Error(), "failed to save config")
 		return
 	}
 
 	assert.Equal(t, "updated", result.Status)
 	assert.Contains(t, result.Changes, "set as default")
-	assert.Contains(t, cfg.Defaults.Profiles, "base")
+	assert.Contains(t, cfg.Profiles.Defaults, "base")
 }
 
 func TestUpdateProfile_UnsetDefault(t *testing.T) {
@@ -775,7 +775,7 @@ tags:
 	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{
 		AppPaths: []string{appDir},
-		Defaults: config.Defaults{Profiles: []string{"base"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"base"}},
 	}
 
 	unsetDefault := false
@@ -788,14 +788,14 @@ tags:
 	// Should fail at cfg.Save() but we've verified the logic works
 	if err != nil {
 		// Verify the config was updated before the save error
-		assert.NotContains(t, cfg.Defaults.Profiles, "base")
+		assert.NotContains(t, cfg.Profiles.Defaults, "base")
 		assert.Contains(t, err.Error(), "failed to save config")
 		return
 	}
 
 	assert.Equal(t, "updated", result.Status)
 	assert.Contains(t, result.Changes, "unset default")
-	assert.NotContains(t, cfg.Defaults.Profiles, "base")
+	assert.NotContains(t, cfg.Profiles.Defaults, "base")
 }
 
 func TestUpdateProfile_AddExcludeFragments(t *testing.T) {
@@ -899,7 +899,7 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Defaults: config.Defaults{Profiles: []string{"frontend"}}, // Set as default
+		Profiles: config.ProfilesConfig{Defaults: []string{"frontend"}},
 	}
 
 	result, err := DeleteProfile(context.Background(), cfg, DeleteProfileRequest{
@@ -916,7 +916,7 @@ func TestDeleteProfile_ClearsDefaultProfile(t *testing.T) {
 		assert.Equal(t, "deleted", result.Status)
 	}
 	// Default profile should be cleared in memory regardless
-	assert.NotContains(t, cfg.Defaults.Profiles, "frontend")
+	assert.NotContains(t, cfg.Profiles.Defaults, "frontend")
 }
 
 func TestCreateProfile_AutoPromotesWhenNoDefault(t *testing.T) {
@@ -940,7 +940,7 @@ func TestCreateProfile_AutoPromotesWhenNoDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "created", result.Status)
 
-	assert.Contains(t, cfg.Defaults.Profiles, "first-profile",
+	assert.Contains(t, cfg.Profiles.Defaults, "first-profile",
 		"first-ever profile should be auto-promoted to default")
 }
 
@@ -959,7 +959,7 @@ func TestCreateProfile_DoesNotPromoteWhenDefaultAlreadySet(t *testing.T) {
 	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{
 		AppPaths: []string{appDir},
-		Defaults: config.Defaults{Profiles: []string{"existing"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"existing"}},
 	}
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
@@ -968,7 +968,7 @@ func TestCreateProfile_DoesNotPromoteWhenDefaultAlreadySet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"existing"}, cfg.Defaults.Profiles,
+	assert.Equal(t, []string{"existing"}, cfg.Profiles.Defaults,
 		"existing default should be preserved when creating a non-default profile")
 }
 
@@ -1027,15 +1027,15 @@ func TestPromoteToDefaultIfFirst_NoExistingDefault(t *testing.T) {
 
 	promoted := PromoteToDefaultIfFirst(cfg, "my-profile")
 	assert.True(t, promoted)
-	assert.Contains(t, cfg.Defaults.Profiles, "my-profile")
+	assert.Contains(t, cfg.Profiles.Defaults, "my-profile")
 }
 
 func TestPromoteToDefaultIfFirst_ExistingDefault(t *testing.T) {
 	cfg := &config.Config{
-		Defaults: config.Defaults{Profiles: []string{"already-default"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"already-default"}},
 	}
 
 	promoted := PromoteToDefaultIfFirst(cfg, "new-profile")
 	assert.False(t, promoted)
-	assert.Equal(t, []string{"already-default"}, cfg.Defaults.Profiles)
+	assert.Equal(t, []string{"already-default"}, cfg.Profiles.Defaults)
 }

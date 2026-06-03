@@ -55,11 +55,15 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	llmName := bundleDistillLLM
-	if llmName == "" {
-		llmName = cfg.GetDefaultLLM()
+	// Distillation runs on its own labeled config, independent of the primary
+	// role, so a project can pair (say) a gemini-fast label for distill with a
+	// claude-opus label for coding. The --llm flag names a config label;
+	// otherwise the fast role's label is used.
+	label := bundleDistillLLM
+	if label == "" {
+		label = cfg.FastLabel()
 	}
-	distiller := newLLMDistillerForLLM(cfg, llmName)
+	distiller := newLLMDistillerForLabel(cfg, label)
 
 	var totalFiles, totalItems, totalSkipped int
 	for _, filePath := range files {
@@ -275,7 +279,7 @@ var compressionRouter = compression.NewRouter()
 // distillWithModel sends content through compression and returns distilled content and model ID.
 // It first tries AST-based compression for code and JSON structure compression for JSON content.
 // For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
-func distillWithModel(llmName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithModel(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	ctx := context.Background()
 
 	// Detect content type and try AST/JSON compression first
@@ -292,7 +296,7 @@ func distillWithModel(llmName string, env map[string]string, name, content, dist
 	}
 
 	// For text content or when AST compression isn't effective, use LLM
-	return distillWithLLM(llmName, env, name, content, distillPrompt, siblingCtx)
+	return distillWithLLM(llmName, model, env, name, content, distillPrompt, siblingCtx)
 }
 
 // isStructuredContent returns true for content types that can be compressed structurally.
@@ -307,7 +311,7 @@ func isStructuredContent(ct compression.ContentType) bool {
 }
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(llmName string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithLLM(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	// Build content to distill
 	var builder strings.Builder
 
@@ -345,7 +349,9 @@ func distillWithLLM(llmName string, env map[string]string, name, content, distil
 		Options: &pb.RunOptions{
 			AutoApprove: true,
 			Mode:        pb.ExecutionMode_ONESHOT,
+			Model:       model, // explicit override; empty → backend's lightweight model
 			Env:         env,
+			SkipSetup:   true, // Headless distill: no hooks/skills/context writes
 		},
 	}
 

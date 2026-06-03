@@ -165,7 +165,7 @@ func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
 // description, then tag (first match wins, recorded in Match).
 func searchProfiles(cfg *config.Config, query string) []SearchResult {
 	var results []SearchResult
-	for name, profile := range cfg.Profiles {
+	for name, profile := range cfg.Profiles.Definitions {
 		matchType := ""
 		switch {
 		case strings.Contains(strings.ToLower(name), query):

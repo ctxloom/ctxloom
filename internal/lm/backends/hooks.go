@@ -1173,7 +1173,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *conf
 	mergeHooksConfig(hooks, &cfg.Hooks)
 	// Default-profile-shipped hooks.
 	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
+		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
 			continue
 		}

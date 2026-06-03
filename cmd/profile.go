@@ -216,7 +216,7 @@ var profileShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-		return renderProfileShow(cmd.OutOrStdout(), res, cfg.Defaults.IsDefaultProfile(res.Name))
+		return renderProfileShow(cmd.OutOrStdout(), res, cfg.Profiles.IsDefaultProfile(res.Name))
 	},
 }
 

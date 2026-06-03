@@ -13,66 +13,26 @@
     },
     "llm": {
       "type": "object",
-      "description": "Large language model configuration",
+      "description": "Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map",
       "properties": {
-        "default": {
-          "type": "string",
-          "description": "Default LLM name",
-          "examples": ["claude-code", "gemini", "codex"]
-        },
-        "model": {
-          "type": "string",
-          "description": "Default model (per-LLM overrides go under configs)",
-          "examples": ["opus", "sonnet"]
-        },
         "configs": {
           "type": "object",
-          "description": "Per-LLM overrides keyed by name",
+          "description": "Labeled backend configs. The map key is an arbitrary user label with zero semantics; the backend is determined solely by each entry's `type` field.",
           "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "model": {
-                "type": "string",
-                "description": "Default model to use with this LLM",
-                "examples": ["opus", "sonnet", "gpt-4"]
-              },
-              "binary_path": {
-                "type": "string",
-                "description": "Path to the LLM binary (optional, uses PATH if empty)"
-              },
-              "args": {
-                "type": "array",
-                "description": "Command line arguments to pass to the LLM",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "env": {
-                "type": "object",
-                "description": "Environment variables to set for the LLM",
-                "additionalProperties": {
-                  "type": "string"
-                }
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/$defs/llmConfig"
           }
         },
-        "compaction": {
+        "defaults": {
           "type": "object",
-          "description": "Session-compaction LLM settings",
+          "description": "Role → config-label map. Roles select which labeled config plays which part.",
           "properties": {
-            "llm": {
+            "primary": {
               "type": "string",
-              "description": "LLM for compaction (default: the default LLM)"
+              "description": "Label of the config for the coding/interactive role"
             },
-            "model": {
+            "fast": {
               "type": "string",
-              "description": "Model for compaction (default: haiku)"
-            },
-            "chunks": {
-              "type": "integer",
-              "description": "Target tokens per chunk (default: 8000)"
+              "description": "Label of the config for the compression role (distill, compaction)"
             }
           },
           "additionalProperties": false
@@ -99,22 +59,17 @@
       },
       "additionalProperties": false
     },
-    "defaults": {
+    "config": {
       "type": "object",
-      "description": "Default settings",
+      "description": "Behavioral settings",
       "properties": {
-        "profiles": {
-          "type": "array",
-          "description": "Default profiles to load when no profile is specified",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "uniqueItems": true
-        },
         "use_distilled": {
           "type": "boolean",
           "description": "Whether to prefer distilled versions of fragments/prompts (default: true)"
+        },
+        "compaction_chunks": {
+          "type": "integer",
+          "description": "Target tokens per compaction chunk (default: 8000)"
         }
       },
       "additionalProperties": false
@@ -229,11 +184,21 @@
     },
     "profiles": {
       "type": "object",
-      "description": "Named collections of context fragments and variables",
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "description": {
+      "description": "Profile defaults and named definitions",
+      "properties": {
+        "defaults": {
+          "type": "array",
+          "description": "Default profiles to load when none is specified",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "definitions": {
+          "type": "object",
+          "description": "Named collections of context fragments and variables",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "description": {
             "type": "string",
             "description": "Human-readable description of this profile"
           },
@@ -262,6 +227,20 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "bundles": {
+            "type": "array",
+            "description": "Bundle references (e.g. remote/bundle-name)",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "bundle_items": {
+            "type": "array",
+            "description": "Cherry-picked bundle items (e.g. remote/bundle:fragments/name)",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "mcp": {
+            "type": "object",
+            "description": "MCP servers for this profile (inherited)"
           },
           "variables": {
             "type": "object",
@@ -301,12 +280,57 @@
             },
             "uniqueItems": true
           }
-        },
-        "additionalProperties": false
-      }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {
+    "llmConfig": {
+      "type": "object",
+      "description": "One labeled backend config. `type` is the discriminator; the remaining fields are that backend's own config.",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "title": "claude-code",
+          "properties": {
+            "type": { "const": "claude-code" },
+            "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "gemini",
+          "properties": {
+            "type": { "const": "gemini" },
+            "model": { "type": "string", "examples": ["gemini-2.5-pro", "gemini-2.5-flash"] },
+            "trust_workspace": { "type": "boolean" },
+            "approval_mode": { "type": "string" },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "codex",
+          "properties": {
+            "type": { "const": "codex" },
+            "model": { "type": "string" },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "mcpServer": {
       "type": "object",
       "description": "MCP server configuration",

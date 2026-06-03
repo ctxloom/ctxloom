@@ -155,7 +155,7 @@ func LoadPrompts() []*bundles.LoadedContent {
 	// SeededBundleLoader is the only loader that picks up remote bundles
 	// from the lockfile clone cache (see docs/bundle-review-plan.md). Empty
 	// fs dirs are fine — remote-only setups still produce slash commands.
-	loader := cfg.SeededBundleLoader(cfg.Defaults.ShouldUseDistilled())
+	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled())
 	infos, err := loader.ListAllPrompts()
 	if err != nil {
 		return nil

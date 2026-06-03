@@ -59,7 +59,7 @@ func relockTestProject(t *testing.T, repoURL string) (string, *remote.Registry, 
 
 	cfg := &config.Config{
 		AppPaths: []string{baseDir},
-		Defaults: config.Defaults{Profiles: []string{"alice/dev"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"alice/dev"}},
 	}
 	return baseDir, reg, cfg
 }
@@ -145,7 +145,7 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 
 	cfg := &config.Config{
 		AppPaths: []string{baseDir},
-		Defaults: config.Defaults{Profiles: []string{"alice/dev"}},
+		Profiles: config.ProfilesConfig{Defaults: []string{"alice/dev"}},
 	}
 
 	const wantSHA = "deadbeefcafe1234567890123456789012345678"

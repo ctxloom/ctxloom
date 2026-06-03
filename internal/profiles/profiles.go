@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
 // Profile represents a named collection of fragments, bundles, and configuration.
@@ -55,6 +56,13 @@ type Profile struct {
 type Loader struct {
 	dirs []string
 	fs   afero.Fs
+	// remoteResolver maps a profile load name to the short remote name it was
+	// installed from, used to qualify bare bundle refs on load (see upgrade.go).
+	// Nil means no qualification — the loader behaves as a plain reader.
+	remoteResolver func(profileName string) string
+	// pending accumulates in-memory schema upgrades applied during Load that an
+	// interactive caller may persist with consent (see PendingUpgrades).
+	pending []*upgrade.Pending
 }
 
 // LoaderOption is a functional option for configuring a Loader.
@@ -65,6 +73,43 @@ func WithFS(fs afero.Fs) LoaderOption {
 	return func(l *Loader) {
 		l.fs = fs
 	}
+}
+
+// WithRemoteResolver sets the function that maps a profile load name to the
+// short remote name it was installed from. The loader uses it to qualify bare
+// bundle refs in legacy profiles on load. Without it, profiles load verbatim.
+func WithRemoteResolver(resolve func(profileName string) string) LoaderOption {
+	return func(l *Loader) {
+		l.remoteResolver = resolve
+	}
+}
+
+// PendingUpgrades returns the in-memory schema upgrades Load applied to older
+// profile files this loader has not persisted. An interactive caller prompts the
+// user and calls CommitUpgrade to make a rewrite permanent (see cmd/run.go).
+// Empty when every loaded profile was already current.
+func (l *Loader) PendingUpgrades() []*upgrade.Pending {
+	return l.pending
+}
+
+// CommitUpgrade persists a pending profile upgrade, writing the upgraded bytes
+// verbatim so comments and key order preserved by the node rewrite survive, and
+// drops it from the pending set. Callers prompt the user before invoking this
+// (see cmd/run.go); ctxloom never rewrites a profile without consent.
+func (l *Loader) CommitUpgrade(p *upgrade.Pending) error {
+	if p == nil {
+		return nil
+	}
+	if err := afero.WriteFile(l.fs, p.Path, p.Data, 0o644); err != nil {
+		return fmt.Errorf("write upgraded profile %s: %w", p.Path, err)
+	}
+	for i, pending := range l.pending {
+		if pending == p {
+			l.pending = append(l.pending[:i], l.pending[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 // NewLoader creates a new profile loader.
@@ -113,7 +158,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			}
 			seen[profileName] = true
 
-			profile, err := l.loadFile(path)
+			profile, err := l.loadFile(path, l.remoteFor(profileName))
 			if err != nil {
 				return nil // Skip profiles that fail to load
 			}
@@ -143,7 +188,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		for _, ext := range []string{".yaml", ".yml"} {
 			path := filepath.Join(dir, osName+ext)
 			if _, err := l.fs.Stat(path); err == nil {
-				profile, err := l.loadFile(path)
+				profile, err := l.loadFile(path, l.remoteFor(name))
 				if err != nil {
 					return nil, err
 				}
@@ -161,10 +206,27 @@ func (l *Loader) Exists(name string) bool {
 	return err == nil
 }
 
-func (l *Loader) loadFile(path string) (*Profile, error) {
+// remoteFor returns the short remote name a profile was installed from, or ""
+// when no resolver is configured or the profile is local.
+func (l *Loader) remoteFor(name string) string {
+	if l.remoteResolver == nil {
+		return ""
+	}
+	return l.remoteResolver(name)
+}
+
+func (l *Loader) loadFile(path, remote string) (*Profile, error) {
 	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, err
+	}
+
+	// Upgrade older on-disk schema (e.g. bare bundle refs) to the current form in
+	// memory before unmarshaling. Applied upgrades are recorded as pending so an
+	// interactive caller may persist the rewrite with consent (see upgrade.go).
+	if upgraded, applied := profileUpgrades(remote).Run(data); len(applied) > 0 {
+		data = upgraded
+		l.pending = append(l.pending, &upgrade.Pending{Path: path, Data: upgraded, Applied: applied})
 	}
 
 	var profile Profile

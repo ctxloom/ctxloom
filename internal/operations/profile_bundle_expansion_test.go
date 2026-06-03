@@ -71,9 +71,7 @@ fragments:
 func fixtureConfig(root string) *config.Config {
 	return &config.Config{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},
-		Defaults: config.Defaults{
-			Profiles: []string{"test"},
-		},
+		Profiles: config.ProfilesConfig{Defaults: []string{"test"}},
 	}
 }
 

@@ -26,10 +26,10 @@ func SetDefaultLLM(_ context.Context, cfg *config.Config, req SetDefaultLLMReque
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if cfg.GetDefaultLLM() == req.Name {
+	if cfg.PrimaryLabel() == req.Name {
 		return &SetDefaultLLMResult{Status: "unchanged", Name: req.Name}, nil
 	}
-	cfg.SetDefaultLLM(req.Name)
+	cfg.SetPrimaryLabel(req.Name)
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}

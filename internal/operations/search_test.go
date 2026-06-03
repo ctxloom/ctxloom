@@ -355,7 +355,7 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 func TestSearchContent_SearchProfiles(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-developer": {
 				Description: "Go development profile",
 				Tags:        []string{"go", "backend"},
@@ -364,7 +364,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 				Description: "Frontend development",
 				Tags:        []string{"react", "javascript"},
 			},
-		},
+		}},
 	}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -417,12 +417,12 @@ func TestSearchContent_MultipleTypes(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"react-developer": {
 				Description: "React development profile",
 				Tags:        []string{"react", "frontend"},
 			},
-		},
+		}},
 	}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -523,9 +523,9 @@ func TestSearchContent_SearchAllTypesWhenEmpty(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test-profile": {Description: "Test"},
-		},
+		}},
 	}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -543,9 +543,9 @@ func TestSearchContent_SortByType(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test-profile": {Description: "Test profile"},
-		},
+		}},
 	}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -588,12 +588,12 @@ func TestSearchContent_SortDescending(t *testing.T) {
 func TestSearchContent_ProfileByDescription(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"my-profile": {
 				Description: "This is a unique description for searching",
 				Tags:        []string{"go"},
 			},
-		},
+		}},
 	}
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{

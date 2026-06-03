@@ -15,11 +15,40 @@ import (
 	"github.com/spf13/afero"
 )
 
+// CodexConfig is codex's typed LLM config. The backend owns this struct; the
+// config package only carries the raw body that decodes into it.
+type CodexConfig struct {
+	Model      string            `mapstructure:"model"`
+	BinaryPath string            `mapstructure:"binary_path"`
+	Args       []string          `mapstructure:"args"`
+	Env        map[string]string `mapstructure:"env"`
+}
+
+// BackendType identifies the backend this config drives.
+func (CodexConfig) BackendType() string { return "codex" }
+
 // Codex implements the Backend interface for OpenAI Codex CLI.
 type Codex struct {
 	BaseBackend
 	context *CLIContextProvider
 	history *CodexSessionHistory
+}
+
+// Configure applies a decoded codex config to this backend.
+func (b *Codex) Configure(cfg BackendConfig) {
+	c, ok := cfg.(*CodexConfig)
+	if !ok {
+		return
+	}
+	if c.BinaryPath != "" {
+		b.BinaryPath = c.BinaryPath
+	}
+	if len(c.Args) > 0 {
+		b.Args = c.Args
+	}
+	for k, v := range c.Env {
+		b.Env[k] = v
+	}
 }
 
 // NewCodex creates a new Codex backend with default settings.

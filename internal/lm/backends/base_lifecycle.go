@@ -97,7 +97,7 @@ func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, con
 	// MCP: config-level + default-profile servers.
 	config.MergeMCPConfig(l.mcp, &cfg.MCP)
 	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles, profileName)
+		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
 			continue
 		}

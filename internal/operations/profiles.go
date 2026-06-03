@@ -29,7 +29,7 @@ func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
 	if len(cfg.ExplicitDefaultProfiles()) > 0 {
 		return false
 	}
-	if !cfg.Defaults.AddDefaultProfile(profileName) {
+	if !cfg.Profiles.AddDefaultProfile(profileName) {
 		return false
 	}
 	if err := cfg.Save(); err != nil {
@@ -69,7 +69,7 @@ func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, boo
 //   - If the project config already lists explicit defaults.profiles, do
 //     nothing — the user has made their choice.
 //   - Otherwise load the HOME config and, if it has defaults.profiles, copy
-//     them into the in-memory cfg.Defaults.Profiles for this run only. Nothing
+//     them into the in-memory cfg.Profiles.Defaults for this run only. Nothing
 //     is written to disk and no synthetic profile is created.
 //   - If home has none either, surface the choice: print a clear stderr
 //     instruction telling the user to set defaults.profiles (or run discovery).
@@ -87,7 +87,7 @@ func EnsureDefaultProfiles(cfg *config.Config) {
 
 	// Inherit from the home config if it defines defaults.profiles.
 	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
-		cfg.Defaults.Profiles = append([]string(nil), homeProfiles...)
+		cfg.Profiles.Defaults = append([]string(nil), homeProfiles...)
 		return
 	}
 
@@ -169,7 +169,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
-			Default:     cfg.Defaults.IsDefaultProfile(p.Name),
+			Default:     cfg.Profiles.IsDefaultProfile(p.Name),
 			Path:        p.Path,
 		})
 	}
@@ -318,7 +318,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 
 	// Set as default if requested
 	if req.Default {
-		cfg.Defaults.AddDefaultProfile(req.Name)
+		cfg.Profiles.AddDefaultProfile(req.Name)
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save default setting: %w", err)
 		}
@@ -461,13 +461,13 @@ func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
 		return nil
 	}
 	if *want {
-		if cfg.Defaults.AddDefaultProfile(name) {
+		if cfg.Profiles.AddDefaultProfile(name) {
 			return []string{"set as default"}
 		}
 		return nil
 	}
-	if cfg.Defaults.IsDefaultProfile(name) {
-		cfg.Defaults.RemoveDefaultProfile(name)
+	if cfg.Profiles.IsDefaultProfile(name) {
+		cfg.Profiles.RemoveDefaultProfile(name)
 		return []string{"unset default"}
 	}
 	return nil
@@ -515,8 +515,8 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	}
 
 	// Clear default if deleting the default profile
-	if cfg.Defaults.IsDefaultProfile(req.Name) {
-		cfg.Defaults.RemoveDefaultProfile(req.Name)
+	if cfg.Profiles.IsDefaultProfile(req.Name) {
+		cfg.Profiles.RemoveDefaultProfile(req.Name)
 		if err := cfg.Save(); err != nil {
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
@@ -528,12 +528,18 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	}, nil
 }
 
-// profileLoader creates a profile loader using the config.
+// profileLoader creates a profile loader using the config. It wires the remote
+// resolver so read paths (show/list) qualify legacy bare bundle refs the same
+// way assembly does.
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
 		// Create profiles directory in first ctxloom path
 		profileDirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
-	return profiles.NewLoader(profileDirs)
+	var opts []profiles.LoaderOption
+	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
+		opts = append(opts, profiles.WithRemoteResolver(resolve))
+	}
+	return profiles.NewLoader(profileDirs, opts...)
 }

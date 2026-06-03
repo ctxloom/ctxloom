@@ -44,11 +44,15 @@ func TestRun_ValidConfig(t *testing.T) {
 	// Create .ctxloom directory with valid config
 	require.NoError(t, os.MkdirAll(paths.AppDirName, 0755))
 	validConfig := `
-defaults:
-  profiles:
+version: 3
+profiles:
+  defaults:
     - default
 llm:
-  default: mock
+  configs:
+    primary: { type: claude-code }
+  defaults:
+    primary: primary
 `
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(validConfig), 0644))
 
@@ -147,21 +151,18 @@ func TestRun_ComplexValidConfig(t *testing.T) {
 	require.NoError(t, os.MkdirAll(paths.BundlesPath(paths.AppDirName), 0755))
 
 	complexConfig := `
-version: 1
+version: 3
 
-defaults:
-  profiles:
-    - development
-    - testing
+config:
   use_distilled: true
 
 llm:
-  default: claudecode
   configs:
-    claudecode:
-      model: opus
-    gemini:
-      model: gemini-pro
+    big:    { type: claude-code, model: opus }
+    g:      { type: gemini, model: gemini-pro }
+  defaults:
+    primary: big
+    fast: big
 
 editor:
   command: vim
@@ -169,18 +170,22 @@ editor:
     - -n
 
 profiles:
-  development:
-    description: Development profile with common tools
-    fragments:
-      - go-development
-    tags:
-      - dev
-  testing:
-    description: Testing profile
-    parents:
-      - development
-    fragments:
-      - test-helpers
+  defaults:
+    - development
+    - testing
+  definitions:
+    development:
+      description: Development profile with common tools
+      fragments:
+        - go-development
+      tags:
+        - dev
+    testing:
+      description: Testing profile
+      parents:
+        - development
+      fragments:
+        - test-helpers
 `
 	require.NoError(t, os.WriteFile(paths.ConfigPath(paths.AppDirName), []byte(complexConfig), 0644))
 

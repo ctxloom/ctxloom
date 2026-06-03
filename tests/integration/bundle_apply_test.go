@@ -50,7 +50,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 
 	projectDir := t.TempDir()
 	cfg := &config.Config{
-		Defaults: config.Defaults{Profiles: []string{defaultProfile}},
+		Profiles: config.ProfilesConfig{Defaults: []string{defaultProfile}},
 		AppPaths: []string{appDir},
 	}
 

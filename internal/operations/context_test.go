@@ -230,13 +230,13 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
 				Description: "Go developer profile",
 				Tags:        []string{"go"},
 				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
 			},
-		},
+		}},
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -254,7 +254,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"project": {
 				Description: "Project profile",
 				Fragments:   []config.FragmentRef{{Name: "dev#fragments/variable-content"}},
@@ -263,7 +263,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 					"version":      "1.0.0",
 				},
 			},
-		},
+		}},
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -451,7 +451,7 @@ func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{}, // Empty config profiles
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
 	}
 
 	mockLoader := &mockProfileLoader{
@@ -486,12 +486,12 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"config-profile": {
 				Description: "Profile from config",
 				Tags:        []string{"go"},
 			},
-		},
+		}},
 	}
 
 	mockLoader := &mockProfileLoader{
@@ -518,7 +518,7 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{}, // Empty
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
 	}
 
 	mockLoader := &mockProfileLoader{
@@ -543,7 +543,7 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{}, // Empty
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty
 	}
 
 	mockLoader := &mockProfileLoader{

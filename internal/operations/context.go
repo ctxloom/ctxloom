@@ -247,7 +247,7 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 	var profile *config.Profile
 
 	// First try config-based resolution (inline `profiles:` map in config.yaml).
-	if p, err := config.ResolveProfile(cfg.Profiles, name); err == nil {
+	if p, err := config.ResolveProfile(cfg.Profiles.Definitions, name); err == nil {
 		profile = p
 	} else {
 		// Fall back to directory-based resolution (.ctxloom/profiles/<name>.yaml).

@@ -247,7 +247,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 	profilesToProcess := profileNames
 	if len(profilesToProcess) == 0 {
 		// Process all profiles from config
-		for name := range cfg.Profiles {
+		for name := range cfg.Profiles.Definitions {
 			profilesToProcess = append(profilesToProcess, name)
 		}
 
@@ -285,7 +285,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 // collectProfileReferences collects bundle and parent profile references from a profile.
 func collectProfileReferences(cfg *config.Config, profileName string) (bundles []string, profiles []string) {
 	// Try config-based profile first
-	if profile, ok := cfg.Profiles[profileName]; ok {
+	if profile, ok := cfg.Profiles.Definitions[profileName]; ok {
 		bundles = append(bundles, profile.Bundles...)
 		profiles = append(profiles, profile.Parents...)
 		return
@@ -486,7 +486,7 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 		return requested
 	}
 	var names []string
-	for name := range cfg.Profiles {
+	for name := range cfg.Profiles.Definitions {
 		names = append(names, name)
 	}
 	loader := cfg.GetProfileLoader()

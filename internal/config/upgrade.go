@@ -9,4 +9,5 @@ import "github.com/ctxloom/ctxloom/internal/upgrade"
 // are only persisted after the user confirms (see Config.CommitUpgrade).
 var configUpgrades = upgrade.Pipeline{
 	llmRenameUpgrade{},
+	labeledConfigUpgrade{},
 }

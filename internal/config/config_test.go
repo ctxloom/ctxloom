@@ -44,25 +44,62 @@ import (
 // explicitly specified. Falls back to claude-code for backwards compatibility.
 
 func TestGetDefaultLLM(t *testing.T) {
-	t.Run("returns configured llm", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{
-				Default: "gemini",
+	t.Run("resolves the primary label's backend type", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{
+			Configs: map[string]LLMConfig{
+				"big": {Type: "gemini", Body: map[string]interface{}{"model": "pro"}},
 			},
-		}
+			Defaults: RoleDefaults{Primary: "big"},
+		}}
 		assert.Equal(t, "gemini", cfg.GetDefaultLLM())
 	})
 
-	t.Run("returns claude-code as fallback", func(t *testing.T) {
+	t.Run("returns claude-code as fallback when no label resolves", func(t *testing.T) {
 		cfg := &Config{}
 		assert.Equal(t, "claude-code", cfg.GetDefaultLLM())
 	})
 }
 
-func TestSetDefaultLLM(t *testing.T) {
+func TestSetPrimaryLabel(t *testing.T) {
 	cfg := &Config{}
-	cfg.SetDefaultLLM("gemini")
-	assert.Equal(t, "gemini", cfg.LM.Default)
+	cfg.SetPrimaryLabel("quick")
+	assert.Equal(t, "quick", cfg.LM.Defaults.Primary)
+}
+
+// PrimaryLabel falls back to the sole configured label when no role default is
+// set, so a single-config project resolves without naming a role.
+func TestPrimaryLabel_SingleConfigFallback(t *testing.T) {
+	cfg := &Config{LM: LMConfig{Configs: map[string]LLMConfig{
+		"only": {Type: "codex"},
+	}}}
+	assert.Equal(t, "only", cfg.PrimaryLabel())
+}
+
+// FastLabel falls back to the primary label when no fast role is set.
+func TestFastLabel_FallsBackToPrimary(t *testing.T) {
+	cfg := &Config{LM: LMConfig{Defaults: RoleDefaults{Primary: "big"}}}
+	assert.Equal(t, "big", cfg.FastLabel())
+}
+
+// ResolveLLM reads backend type + model straight from the labeled entry; an
+// unknown label degrades to the built-in default backend with no model.
+func TestResolveLLM(t *testing.T) {
+	cfg := &Config{LM: LMConfig{Configs: map[string]LLMConfig{
+		"g":    {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-pro"}},
+		"bare": {Type: "claude-code"},
+	}}}
+
+	backend, model := cfg.ResolveLLM("g")
+	assert.Equal(t, "gemini", backend)
+	assert.Equal(t, "gemini-2.5-pro", model)
+
+	backend, model = cfg.ResolveLLM("bare")
+	assert.Equal(t, "claude-code", backend)
+	assert.Empty(t, model)
+
+	backend, model = cfg.ResolveLLM("missing")
+	assert.Equal(t, "claude-code", backend, "unknown label degrades to default backend")
+	assert.Empty(t, model)
 }
 
 // =============================================================================
@@ -560,47 +597,33 @@ func TestMCPConfig_ShouldAutoRegisterCtxloom(t *testing.T) {
 // LMConfig Tests
 // =============================================================================
 
-func TestLMConfig_GetDefaultLLM(t *testing.T) {
-	// GetDefaultLLM always returns "claude-code" as the fallback
-	// The actual default is configured via Config.LM.Default
-	lm := LMConfig{}
-	assert.Equal(t, "claude-code", lm.GetDefaultLLM())
-}
-
-func TestLMConfig_GetDefaultModel(t *testing.T) {
-	config := LMConfig{
-		Configs: map[string]LLMConfig{
-			"claude-code": {Model: "claude-3-opus"},
-			"gemini":      {Model: ""},
-		},
-	}
-
-	assert.Equal(t, "claude-3-opus", config.GetDefaultModel("claude-code"))
-	assert.Equal(t, "", config.GetDefaultModel("gemini"))
-	assert.Equal(t, "", config.GetDefaultModel("nonexistent"))
+func TestLMConfig_hasAny(t *testing.T) {
+	assert.False(t, LMConfig{}.hasAny())
+	assert.True(t, LMConfig{Configs: map[string]LLMConfig{"x": {}}}.hasAny())
+	assert.True(t, LMConfig{Defaults: RoleDefaults{Primary: "x"}}.hasAny())
 }
 
 // =============================================================================
-// Defaults Tests
+// Settings Tests
 // =============================================================================
 
-func TestDefaults_ShouldUseDistilled(t *testing.T) {
+func TestSettings_ShouldUseDistilled(t *testing.T) {
 	trueVal := true
 	falseVal := false
 
 	tests := []struct {
 		name     string
-		defaults Defaults
+		settings SettingsConfig
 		want     bool
 	}{
-		{"nil defaults true", Defaults{}, true},
-		{"explicit true", Defaults{UseDistilled: &trueVal}, true},
-		{"explicit false", Defaults{UseDistilled: &falseVal}, false},
+		{"nil defaults true", SettingsConfig{}, true},
+		{"explicit true", SettingsConfig{UseDistilled: &trueVal}, true},
+		{"explicit false", SettingsConfig{UseDistilled: &falseVal}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.defaults.ShouldUseDistilled())
+			assert.Equal(t, tt.want, tt.settings.ShouldUseDistilled())
 		})
 	}
 }
@@ -777,16 +800,16 @@ func TestConfig_Save(t *testing.T) {
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Default: "claude-code",
+			Defaults: RoleDefaults{Primary: "claude-code"},
 			Configs: map[string]LLMConfig{
-				"claude-code": {},
+				"claude-code": {Type: "claude-code"},
 			},
 		},
-		Defaults: Defaults{
-			Profiles: []string{"dev"},
-		},
-		Profiles: map[string]Profile{
-			"dev": {Description: "development"},
+		Profiles: ProfilesConfig{
+			Defaults: []string{"dev"},
+			Definitions: map[string]Profile{
+				"dev": {Description: "development"},
+			},
 		},
 	}
 
@@ -807,29 +830,35 @@ func TestConfig_Save_NoAppPaths(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Regression: Save dropped the whole `defaults` block unless one of three
-// fields was set. Compaction now lives under `llm` (always written), and this
-// also covers the editor round-trip, which Save never wrote.
-func TestConfig_Save_PreservesCompactionAndEditor(t *testing.T) {
+// Regression: Save round-trips the labeled-config registry, the role map, the
+// config (settings) block, and the editor block. The fast role's labeled
+// config carries the compression model; compaction_chunks lives under config.
+func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Configs:    map[string]LLMConfig{"claude-code": {}},
-			Compaction: CompactionConfig{LLM: "gemini", Model: "haiku", Chunks: 4096},
+			Configs: map[string]LLMConfig{
+				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
+				"fast": {Type: "gemini", Body: map[string]interface{}{"model": "haiku"}},
+			},
+			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
-		Editor: EditorConfig{Command: "vim", Args: []string{"-p"}},
+		Settings: SettingsConfig{CompactionChunks: 4096},
+		Editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
 	}
 	require.NoError(t, cfg.Save())
 
 	// Round-trip through Load to confirm the values survived.
 	loaded, err := Load(WithAppDir(tmpDir))
 	require.NoError(t, err)
-	assert.Equal(t, "gemini", loaded.LM.Compaction.LLM)
-	assert.Equal(t, "haiku", loaded.LM.Compaction.Model)
-	assert.Equal(t, 4096, loaded.LM.Compaction.Chunks)
+	assert.Equal(t, "big", loaded.LM.Defaults.Primary)
+	assert.Equal(t, "fast", loaded.LM.Defaults.Fast)
+	assert.Equal(t, "gemini", loaded.GetCompactionLLM())
+	assert.Equal(t, "haiku", loaded.GetCompactionModel())
+	assert.Equal(t, 4096, loaded.GetCompactionChunkSize())
 	assert.Equal(t, "vim", loaded.Editor.Command)
 	assert.Equal(t, []string{"-p"}, loaded.Editor.Args)
 }
@@ -864,14 +893,16 @@ func TestLoad_WithOptions(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	// Create a valid config file in persistent directory
+	// Create a valid v3 config file in persistent directory
 	configContent := `
+version: 3
 llm:
-  default: claude-code
   configs:
-    claude-code: {}
-defaults:
-  profiles:
+    claude-code: { type: claude-code }
+  defaults:
+    primary: claude-code
+profiles:
+  defaults:
     - test
 `
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
@@ -879,8 +910,8 @@ defaults:
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	assert.Contains(t, cfg.Defaults.Profiles, "test")
-	assert.Equal(t, "claude-code", cfg.LM.Default)
+	assert.Contains(t, cfg.Profiles.Defaults, "test")
+	assert.Equal(t, "claude-code", cfg.LM.Defaults.Primary)
 	assert.Equal(t, []string{appDir}, cfg.AppPaths)
 	assert.Equal(t, appDir, cfg.AppDir)
 	assert.Equal(t, SourceProject, cfg.Source)
@@ -900,11 +931,12 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	// In-memory config reflects the upgrade.
-	assert.Equal(t, "gemini", cfg.LM.Default, "llm_plugin should become llm.default")
-	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins should become llm.configs")
-	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Model)
-	assert.Contains(t, cfg.Defaults.Profiles, "test")
+	// In-memory config reflects the full v1→v2→v3 upgrade chain.
+	assert.Equal(t, "gemini", cfg.LM.Defaults.Primary, "llm_plugin → llm.defaults.primary")
+	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins → llm.configs")
+	assert.Equal(t, "claude-code", cfg.LM.Configs["claude-code"].Type, "v3 adds the type discriminator")
+	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Body["model"])
+	assert.Contains(t, cfg.Profiles.Defaults, "test", "defaults.profiles → profiles.defaults")
 	assert.Empty(t, cfg.Warnings, "upgraded config should not produce validation warnings")
 
 	// Load is non-destructive: the file on disk is untouched (no silent rewrite).
@@ -925,7 +957,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(committed), "llm_plugin")
 	assert.NotContains(t, string(committed), "plugins:")
-	assert.Contains(t, string(committed), "version: 2", "upgrade stamps the schema version")
+	assert.Contains(t, string(committed), "version: 3", "upgrade stamps the current schema version")
 	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
 }
 
@@ -934,14 +966,14 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 2\nllm:\n  default: claude-code\n"
+	current := "version: 3\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Nil(t, cfg.PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, 2, cfg.Version)
+	assert.Equal(t, 3, cfg.Version)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -1013,8 +1045,10 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"dev"}},
-			Profiles: map[string]Profile{},
+			Profiles: ProfilesConfig{
+				Defaults:    []string{"dev"},
+				Definitions: map[string]Profile{},
+			},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1029,8 +1063,10 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"prod", "prod"}},
-			Profiles: map[string]Profile{},
+			Profiles: ProfilesConfig{
+				Defaults:    []string{"prod", "prod"},
+				Definitions: map[string]Profile{},
+			},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1051,7 +1087,7 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Profiles: map[string]Profile{},
+			Profiles: ProfilesConfig{Definitions: map[string]Profile{}},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1066,8 +1102,10 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 		cfg := &Config{
-			Defaults: Defaults{Profiles: []string{"profile1", "profile2", "profile3"}},
-			Profiles: map[string]Profile{},
+			Profiles: ProfilesConfig{
+				Defaults:    []string{"profile1", "profile2", "profile3"},
+				Definitions: map[string]Profile{},
+			},
 			AppPaths: []string{appDir},
 			fs:       fs,
 		}
@@ -1086,54 +1124,54 @@ func TestConfig_GetDefaultProfiles(t *testing.T) {
 
 func TestDefaults_AddDefaultProfile(t *testing.T) {
 	t.Run("adds profile to empty profiles", func(t *testing.T) {
-		d := &Defaults{}
+		d := &ProfilesConfig{}
 		added := d.AddDefaultProfile("new-profile")
 
 		assert.True(t, added)
-		assert.Contains(t, d.Profiles, "new-profile")
+		assert.Contains(t, d.Defaults, "new-profile")
 	})
 
 	t.Run("adds profile to existing profiles", func(t *testing.T) {
-		d := &Defaults{Profiles: []string{"existing"}}
+		d := &ProfilesConfig{Defaults: []string{"existing"}}
 		added := d.AddDefaultProfile("new-profile")
 
 		assert.True(t, added)
-		assert.Contains(t, d.Profiles, "existing")
-		assert.Contains(t, d.Profiles, "new-profile")
+		assert.Contains(t, d.Defaults, "existing")
+		assert.Contains(t, d.Defaults, "new-profile")
 	})
 
 	t.Run("does not add duplicate", func(t *testing.T) {
-		d := &Defaults{Profiles: []string{"existing"}}
+		d := &ProfilesConfig{Defaults: []string{"existing"}}
 		added := d.AddDefaultProfile("existing")
 
 		assert.False(t, added)
-		assert.Len(t, d.Profiles, 1)
+		assert.Len(t, d.Defaults, 1)
 	})
 }
 
 func TestDefaults_RemoveDefaultProfile(t *testing.T) {
 	t.Run("removes profile from profiles array", func(t *testing.T) {
-		d := &Defaults{Profiles: []string{"keep", "remove", "also-keep"}}
+		d := &ProfilesConfig{Defaults: []string{"keep", "remove", "also-keep"}}
 		removed := d.RemoveDefaultProfile("remove")
 
 		assert.True(t, removed)
-		assert.NotContains(t, d.Profiles, "remove")
-		assert.Contains(t, d.Profiles, "keep")
-		assert.Contains(t, d.Profiles, "also-keep")
+		assert.NotContains(t, d.Defaults, "remove")
+		assert.Contains(t, d.Defaults, "keep")
+		assert.Contains(t, d.Defaults, "also-keep")
 	})
 
 	t.Run("returns false for non-existent profile", func(t *testing.T) {
-		d := &Defaults{Profiles: []string{"existing"}}
+		d := &ProfilesConfig{Defaults: []string{"existing"}}
 		removed := d.RemoveDefaultProfile("not-found")
 
 		assert.False(t, removed)
-		assert.Len(t, d.Profiles, 1)
+		assert.Len(t, d.Defaults, 1)
 	})
 }
 
 func TestDefaults_IsDefaultProfile(t *testing.T) {
 	t.Run("finds profile in profiles array", func(t *testing.T) {
-		d := &Defaults{Profiles: []string{"profile1", "profile2"}}
+		d := &ProfilesConfig{Defaults: []string{"profile1", "profile2"}}
 
 		assert.True(t, d.IsDefaultProfile("profile1"))
 		assert.True(t, d.IsDefaultProfile("profile2"))
@@ -1274,7 +1312,6 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 
 func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 	cfg := &Config{
-		Defaults: Defaults{},
 		AppPaths: []string{"/project/.ctxloom"},
 	}
 
@@ -1284,7 +1321,7 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 	cfg := &Config{
-		Defaults: Defaults{Profiles: []string{"test"}},
+		Profiles: ProfilesConfig{Defaults: []string{"test"}},
 		AppPaths: []string{},
 	}
 
@@ -1298,7 +1335,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 	cfg := &Config{
-		Defaults: Defaults{Profiles: []string{"nonexistent"}},
+		Profiles: ProfilesConfig{Defaults: []string{"nonexistent"}},
 		AppPaths: []string{appDir},
 		fs:       fs,
 	}
@@ -1328,7 +1365,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		[]byte("name: seq-bundle\nversion: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
 
 	cfg := &Config{
-		Defaults: Defaults{Profiles: []string{"child"}},
+		Profiles: ProfilesConfig{Defaults: []string{"child"}},
 		AppPaths: []string{appDir},
 	}
 
@@ -1583,9 +1620,9 @@ llm:
 	cfg := &Config{
 		AppPaths: []string{tmpDir},
 		LM: LMConfig{
-			Default: "claude-code",
+			Defaults: RoleDefaults{Primary: "claude-code"},
 			Configs: map[string]LLMConfig{
-				"claude-code": {},
+				"claude-code": {Type: "claude-code"},
 			},
 		},
 	}
@@ -1769,7 +1806,7 @@ defaults:
 	// Loading should succeed
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Contains(t, cfg.Defaults.Profiles, "nonexistent-profile")
+	assert.Contains(t, cfg.Profiles.Defaults, "nonexistent-profile")
 
 	// GetDefaultProfiles should return the name even if profile doesn't exist
 	defaults := cfg.GetDefaultProfiles()
@@ -1814,7 +1851,7 @@ profiles:
 
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Contains(t, cfg.Profiles, "valid-profile")
+	assert.Contains(t, cfg.Profiles.Definitions, "valid-profile")
 }
 
 func TestResilientStartup_WarningsAreCollected(t *testing.T) {
@@ -1844,31 +1881,34 @@ llm:
 // Compaction settings control how session logs are compressed for memory.
 
 func TestGetDefaultLLMModel(t *testing.T) {
-	t.Run("returns configured model", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{Model: "sonnet"},
-		}
+	t.Run("returns the primary label's model", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{
+			Configs:  map[string]LLMConfig{"big": {Type: "claude-code", Body: map[string]interface{}{"model": "sonnet"}}},
+			Defaults: RoleDefaults{Primary: "big"},
+		}}
 		assert.Equal(t, "sonnet", cfg.GetDefaultLLMModel())
 	})
 
-	t.Run("returns empty when not configured", func(t *testing.T) {
+	t.Run("returns empty when the primary label has no model", func(t *testing.T) {
 		cfg := &Config{}
 		assert.Empty(t, cfg.GetDefaultLLMModel())
 	})
 }
 
 func TestGetCompactionLLM(t *testing.T) {
-	t.Run("returns configured compaction llm", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{Compaction: CompactionConfig{LLM: "gemini"}},
-		}
+	t.Run("returns the fast role's backend", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{
+			Configs:  map[string]LLMConfig{"f": {Type: "gemini"}},
+			Defaults: RoleDefaults{Fast: "f"},
+		}}
 		assert.Equal(t, "gemini", cfg.GetCompactionLLM())
 	})
 
-	t.Run("falls back to default llm", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{Default: "codex"},
-		}
+	t.Run("falls back to the primary role when no fast role", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{
+			Configs:  map[string]LLMConfig{"p": {Type: "codex"}},
+			Defaults: RoleDefaults{Primary: "p"},
+		}}
 		assert.Equal(t, "codex", cfg.GetCompactionLLM())
 	})
 
@@ -1879,68 +1919,33 @@ func TestGetCompactionLLM(t *testing.T) {
 }
 
 func TestGetCompactionModel(t *testing.T) {
-	t.Run("returns configured model", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{Compaction: CompactionConfig{Model: "opus"}},
-		}
-		assert.Equal(t, "opus", cfg.GetCompactionModel())
-	})
-
-	t.Run("defaults to haiku for Claude", func(t *testing.T) {
-		cfg := &Config{}
+	t.Run("returns the fast role's model", func(t *testing.T) {
+		cfg := &Config{LM: LMConfig{
+			Configs:  map[string]LLMConfig{"f": {Type: "claude-code", Body: map[string]interface{}{"model": "haiku"}}},
+			Defaults: RoleDefaults{Fast: "f"},
+		}}
 		assert.Equal(t, "haiku", cfg.GetCompactionModel())
 	})
 
-	t.Run("empty for non-Claude compaction LLM", func(t *testing.T) {
-		// haiku is Claude-specific; a Gemini compaction LLM must not be handed it.
-		cfg := &Config{LM: LMConfig{Default: "gemini"}}
-		assert.Equal(t, "", cfg.GetCompactionModel(),
-			"non-Claude backend should resolve its own default model")
-	})
-
-	t.Run("configured model wins regardless of backend", func(t *testing.T) {
-		cfg := &Config{LM: LMConfig{Default: "gemini", Compaction: CompactionConfig{Model: "gemini-2.5-pro"}}}
-		assert.Equal(t, "gemini-2.5-pro", cfg.GetCompactionModel())
+	t.Run("empty when the fast label has no model", func(t *testing.T) {
+		// No model named on the fast label → empty, so the backend supplies its own.
+		cfg := &Config{LM: LMConfig{
+			Configs:  map[string]LLMConfig{"f": {Type: "claude-code"}},
+			Defaults: RoleDefaults{Fast: "f"},
+		}}
+		assert.Equal(t, "", cfg.GetCompactionModel())
 	})
 }
 
 func TestGetCompactionChunkSize(t *testing.T) {
 	t.Run("returns configured size", func(t *testing.T) {
-		cfg := &Config{
-			LM: LMConfig{Compaction: CompactionConfig{Chunks: 4000}},
-		}
+		cfg := &Config{Settings: SettingsConfig{CompactionChunks: 4000}}
 		assert.Equal(t, 4000, cfg.GetCompactionChunkSize())
 	})
 
 	t.Run("defaults to 8000", func(t *testing.T) {
 		cfg := &Config{}
 		assert.Equal(t, 8000, cfg.GetCompactionChunkSize())
-	})
-}
-
-// =============================================================================
-// LMConfig per-LLM settings tests
-// =============================================================================
-
-func TestLMConfig_GetConfiguredLLMs(t *testing.T) {
-	t.Run("returns configured llms", func(t *testing.T) {
-		lmCfg := &LMConfig{
-			Configs: map[string]LLMConfig{
-				"claude": {},
-				"gemini": {},
-			},
-		}
-		llms := lmCfg.GetConfiguredLLMs()
-		assert.Len(t, llms, 2)
-		assert.Contains(t, llms, "claude")
-		assert.Contains(t, llms, "gemini")
-	})
-
-	t.Run("returns default when no llms configured", func(t *testing.T) {
-		lmCfg := &LMConfig{}
-		llms := lmCfg.GetConfiguredLLMs()
-		// Falls back to the default LLM when none configured
-		assert.Equal(t, []string{"claude-code"}, llms)
 	})
 }
 

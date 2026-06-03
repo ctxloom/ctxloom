@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // =============================================================================
@@ -157,15 +156,18 @@ func TestGemini_BuildArgs_Combined(t *testing.T) {
 func TestGemini_Configure(t *testing.T) {
 	backend := NewGemini()
 
-	backend.Configure(&config.LLMConfig{
-		BinaryPath: "/opt/gemini/bin/gemini",
-		Args:       []string{"--flag"},
-		Env:        map[string]string{"FOO": "bar"},
+	trust := true
+	backend.Configure(&GeminiConfig{
+		BinaryPath:     "/opt/gemini/bin/gemini",
+		Args:           []string{"--flag"},
+		Env:            map[string]string{"FOO": "bar"},
+		TrustWorkspace: &trust,
 	})
 
 	assert.Equal(t, "/opt/gemini/bin/gemini", backend.BinaryPath)
 	assert.Equal(t, []string{"--flag"}, backend.Args)
 	assert.Equal(t, "bar", backend.Env["FOO"])
+	assert.Equal(t, "true", backend.Env[geminiTrustWorkspaceEnv], "trust_workspace sets the env override")
 }
 
 // =============================================================================

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -83,19 +83,45 @@ func TestIsAvailable(t *testing.T) {
 	})
 }
 
-func TestApplyLLMConfig(t *testing.T) {
-	t.Run("with nil config", func(t *testing.T) {
-		backend := Get("mock")
-		// Should not panic with nil config
-		ApplyLLMConfig(backend, nil)
-		assert.NotNil(t, backend)
+// TestDecodeLLMConfig verifies the backend config registry decodes a raw body
+// into the backend's own typed struct, keyed solely by the type discriminator.
+func TestDecodeLLMConfig(t *testing.T) {
+	t.Run("claude-code decodes its fields", func(t *testing.T) {
+		bc, err := DecodeLLMConfig("claude-code", map[string]interface{}{
+			"model":       "haiku",
+			"binary_path": "/custom/claude",
+		})
+		require.NoError(t, err)
+		cc, ok := bc.(*ClaudeConfig)
+		require.True(t, ok, "decoder must yield *ClaudeConfig")
+		assert.Equal(t, "haiku", cc.Model)
+		assert.Equal(t, "/custom/claude", cc.BinaryPath)
 	})
 
-	t.Run("with configurable backend", func(t *testing.T) {
-		backend := Get("mock")
-		// Mock might be configurable, just verify it doesn't panic
-		config := &config.LLMConfig{}
-		ApplyLLMConfig(backend, config)
-		assert.NotNil(t, backend)
+	t.Run("gemini decodes trust_workspace", func(t *testing.T) {
+		bc, err := DecodeLLMConfig("gemini", map[string]interface{}{
+			"model":           "gemini-2.5-pro",
+			"trust_workspace": true,
+		})
+		require.NoError(t, err)
+		gc, ok := bc.(*GeminiConfig)
+		require.True(t, ok)
+		assert.Equal(t, "gemini-2.5-pro", gc.Model)
+		require.NotNil(t, gc.TrustWorkspace)
+		assert.True(t, *gc.TrustWorkspace)
 	})
+
+	t.Run("unknown type errors", func(t *testing.T) {
+		_, err := DecodeLLMConfig("nope", nil)
+		assert.Error(t, err)
+	})
+}
+
+// TestConfiguredBackend builds a backend from a typed config and applies it.
+func TestConfiguredBackend(t *testing.T) {
+	b := ConfiguredBackend(&ClaudeConfig{BinaryPath: "/custom/claude"})
+	require.NotNil(t, b)
+	bp, ok := b.(BinaryPathProvider)
+	require.True(t, ok)
+	assert.Equal(t, "/custom/claude", bp.GetBinaryPath())
 }

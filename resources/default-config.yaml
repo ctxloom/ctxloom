@@ -1,0 +1,17 @@
+# Default config overlaid on every loaded user config. It defines the built-in
+# primary + fast LLM roles so an empty user config still resolves a backend and
+# a lightweight model for compression. User config always wins: these entries
+# only fill gaps the user left empty. Model names live here, in data — never in
+# Go code.
+version: 3
+
+llm:
+  configs:
+    claude-code:
+      type: claude-code
+    claude-fast:
+      type: claude-code
+      model: haiku
+  defaults:
+    primary: claude-code
+    fast: claude-fast

@@ -38,10 +38,10 @@ var configGetCmd = &cobra.Command{
 	Long: `Get a specific configuration section.
 
 Available sections:
-  defaults    Default settings (LLM plugin, use_distilled, etc.)
-  llm         Language model plugin configuration
+  config      Behavioral settings (use_distilled, compaction_chunks)
+  llm         Language model configuration (labeled configs + role map)
   mcp         MCP server configuration
-  profiles    Profile configurations`,
+  profiles    Profile defaults and definitions`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -70,8 +70,8 @@ func renderConfigYAML(cfg *config.Config, out io.Writer) error {
 // the `config get <section>` CLI surface changes.
 func resolveConfigSection(cfg *config.Config, name string) (any, error) {
 	switch name {
-	case "defaults":
-		return cfg.Defaults, nil
+	case "config":
+		return cfg.Settings, nil
 	case "llm":
 		return cfg.LM, nil
 	case "mcp":
@@ -79,7 +79,7 @@ func resolveConfigSection(cfg *config.Config, name string) (any, error) {
 	case "profiles":
 		return cfg.Profiles, nil
 	default:
-		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: defaults, llm, mcp, profiles", name)
+		return nil, fmt.Errorf("unknown section: %s\n\nAvailable: config, llm, mcp, profiles", name)
 	}
 }
 

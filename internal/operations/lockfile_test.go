@@ -361,11 +361,11 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
 			},
-		},
+		}},
 	}
 
 	// With SkipSync: false (default), sync runs first but finds no remote refs

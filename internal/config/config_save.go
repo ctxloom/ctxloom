@@ -10,13 +10,13 @@ import (
 
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
-	Version  int                `yaml:"version"`
-	LM       LMConfig           `yaml:"llm"`
-	Editor   EditorConfig       `yaml:"editor,omitempty"`
-	Defaults Defaults           `yaml:"defaults,omitempty"`
-	Sync     SyncConfig         `yaml:"sync,omitempty"`
-	Hooks    HooksConfig        `yaml:"hooks,omitempty"`
-	Profiles map[string]Profile `yaml:"profiles,omitempty"`
+	Version  int            `yaml:"version"`
+	LM       LMConfig       `yaml:"llm"`
+	Editor   EditorConfig   `yaml:"editor,omitempty"`
+	Settings SettingsConfig `yaml:"config,omitempty"`
+	Sync     SyncConfig     `yaml:"sync,omitempty"`
+	Hooks    HooksConfig    `yaml:"hooks,omitempty"`
+	Profiles ProfilesConfig `yaml:"profiles,omitempty"`
 }
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
@@ -100,9 +100,10 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported
 
-	setOrDelete(existing, "defaults", c.Defaults.hasAny(), c.Defaults)
+	setOrDelete(existing, "config", c.Settings.hasAny(), c.Settings)
 	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
-	setOrDelete(existing, "profiles", len(c.Profiles) > 0, c.Profiles)
+	setOrDelete(existing, "profiles", c.Profiles.hasAny(), c.Profiles)
+	delete(existing, "defaults") // superseded by config + profiles blocks
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.hasAny(), c.Hooks)

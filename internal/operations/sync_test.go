@@ -83,7 +83,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
 					"github/go-tools", // Remote
@@ -99,7 +99,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 					"my-local-bundle",
 				},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -168,11 +168,11 @@ func TestSyncDependencies_NoRemotes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"local": {
 				Bundles: []string{"local-bundle"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -195,11 +195,11 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -251,11 +251,11 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -304,11 +304,11 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -353,11 +353,11 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -409,11 +409,11 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -459,14 +459,14 @@ func TestCheckMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
 					"github/go-tools", // Missing
 					"github/security", // Installed
 				},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -501,11 +501,11 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -543,11 +543,11 @@ func TestSyncOnStartup(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"local-only"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -570,11 +570,11 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{"github/go-tools"},
 			},
-		},
+		}},
 		AppPaths: []string{testBaseDir},
 	}
 
@@ -603,12 +603,12 @@ remotes:
 // TestCollectProfileReferences_ConfigProfile tests collecting refs from config-based profile.
 func TestCollectProfileReferences_ConfigProfile(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"dev": {
 				Bundles: []string{"golang", "python"},
 				Parents: []string{"base-config"},
 			},
-		},
+		}},
 	}
 
 	bundles, profiles := collectProfileReferences(cfg, "dev")
@@ -622,7 +622,7 @@ func TestCollectProfileReferences_ConfigProfile(t *testing.T) {
 
 func TestCollectProfileReferences_NotFound(t *testing.T) {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	}
 	// No profile loader configured
 
@@ -643,7 +643,7 @@ func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
 
 	cfg := &config.Config{
 		AppPaths: []string{"/nonexistent"},
-		Profiles: map[string]config.Profile{},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	}
 
 	// This should call GetProfileLoader and try to load from directory
@@ -731,7 +731,7 @@ func TestAddSyncItem_FailedStatus(t *testing.T) {
 func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 	// Test that remote dependencies in nested local profile parents are discovered
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			// Top-level profile with local parent
 			"driftway": {
 				Bundles: []string{"local-bundle"},
@@ -742,7 +742,7 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 				Bundles: []string{"https://github.com/owner/repo@v1/bundles/core"},
 				Parents: []string{"https://github.com/owner/repo@v1/profiles/base"},
 			},
-		},
+		}},
 	}
 
 	bundleSet := collections.NewSet[string]()
@@ -767,14 +767,14 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 	// Test that "profile:" prefix is properly stripped when following local parents
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"top": {
 				Parents: []string{"profile:nested/profile"},
 			},
 			"nested/profile": {
 				Bundles: []string{"github/remote-bundle"},
 			},
-		},
+		}},
 	}
 
 	bundleSet := collections.NewSet[string]()
@@ -791,7 +791,7 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 	// Test that circular dependencies don't cause infinite loops
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"profile-a": {
 				Parents: []string{"profile:profile-b"},
 			},
@@ -799,7 +799,7 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 				Parents: []string{"profile:profile-a"},
 				Bundles: []string{"github/bundle"},
 			},
-		},
+		}},
 	}
 
 	bundleSet := collections.NewSet[string]()

@@ -580,19 +580,19 @@ func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
 	cfg := &config.Config{
 		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
 		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
-		Defaults: config.Defaults{
-			Profiles: []string{"test-profile"},
-		},
-		Profiles: map[string]config.Profile{
-			"test-profile": {
-				Hooks: config.HooksConfig{
-					Unified: config.UnifiedHooks{
-						PreTool: []config.Hook{{Command: "profile-hook"}},
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{"test-profile"},
+			Definitions: map[string]config.Profile{
+				"test-profile": {
+					Hooks: config.HooksConfig{
+						Unified: config.UnifiedHooks{
+							PreTool: []config.Hook{{Command: "profile-hook"}},
+						},
 					},
-				},
-				MCP: config.MCPConfig{
-					Servers: map[string]config.MCPServer{
-						"profile-mcp": {Command: "profile-mcp-cmd"},
+					MCP: config.MCPConfig{
+						Servers: map[string]config.MCPServer{
+							"profile-mcp": {Command: "profile-mcp-cmd"},
+						},
 					},
 				},
 			},
@@ -618,10 +618,10 @@ func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
 	cfg := &config.Config{
 		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
 		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
-		Defaults: config.Defaults{
-			Profiles: []string{"non-existent-profile"},
+		Profiles: config.ProfilesConfig{
+			Defaults:    []string{"non-existent-profile"},
+			Definitions: map[string]config.Profile{}, // No profiles defined
 		},
-		Profiles: map[string]config.Profile{}, // No profiles defined
 	}
 
 	// Should not panic with invalid profile reference
@@ -650,12 +650,14 @@ func sessionStartCommands(h config.UnifiedHooks) []string {
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := &config.Config{
-		Hooks:    config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		Defaults: config.Defaults{Profiles: []string{"p"}},
-		Profiles: map[string]config.Profile{
-			"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
-				SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
-			}}},
+		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{"p"},
+			Definitions: map[string]config.Profile{
+				"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
+					SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+				}}},
+			},
 		},
 	}
 
@@ -679,12 +681,14 @@ func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
 				},
 				Plugins: make(map[string]config.BackendHooks),
 			},
-			MCP:      config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
-			Defaults: config.Defaults{Profiles: []string{"p"}},
-			Profiles: map[string]config.Profile{
-				"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
-				}}},
+			MCP: config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+			Profiles: config.ProfilesConfig{
+				Defaults: []string{"p"},
+				Definitions: map[string]config.Profile{
+					"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
+						SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+					}}},
+				},
 			},
 		}
 	}

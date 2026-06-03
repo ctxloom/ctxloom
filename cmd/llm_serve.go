@@ -27,11 +27,16 @@ var llmServeCmd = &cobra.Command{
 			return fmt.Errorf("unknown backend: %s", backendName)
 		}
 
-		// Load config to get plugin settings
-		cfg, _ := config.Load()
-		if cfg != nil {
-			if llmCfg, ok := cfg.LM.Configs[backendName]; ok {
-				backends.ApplyLLMConfig(backend, &llmCfg)
+		// Load config and apply the first labeled entry whose type matches this
+		// backend. serve receives only the backend type (the self-invoked
+		// transport names backends, not labels), so binary/args/env come from
+		// any matching entry; the model + env for a specific run are carried on
+		// the request itself.
+		if cfg, _ := config.Load(); cfg != nil {
+			if bc := decodeBackendConfigForType(cfg, backendName); bc != nil {
+				if c, ok := backend.(backends.Configurable); ok {
+					c.Configure(bc)
+				}
 			}
 		}
 

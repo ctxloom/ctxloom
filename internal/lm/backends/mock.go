@@ -23,6 +23,14 @@ type Mock struct {
 	fragments []*Fragment
 }
 
+// MockConfig is the test backend's typed LLM config.
+type MockConfig struct {
+	Model string `mapstructure:"model"`
+}
+
+// BackendType identifies the backend this config drives.
+func (MockConfig) BackendType() string { return "mock" }
+
 // NewMock creates a new Mock backend.
 func NewMock() *Mock {
 	return &Mock{

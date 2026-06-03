@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// newLLMDistiller builds an operations.Distiller backed by the configured LLM
+// newLLMDistiller builds an operations.Distiller backed by the fast-role LLM
 // and distill prompt. It is the single construction point shared by every CLI
 // frontend (bundle/fragment/prompt distill and item edits) so distillation
 // wiring lives in one place. Returns nil when no LLM or distill prompt is
@@ -16,22 +16,29 @@ func newLLMDistiller(cfg *config.Config) operations.Distiller {
 	if cfg == nil {
 		return nil
 	}
-	return newLLMDistillerForLLM(cfg, cfg.GetDefaultLLM())
+	return newLLMDistillerForLabel(cfg, cfg.FastLabel())
 }
 
-// newLLMDistillerForLLM is newLLMDistiller with an explicit LLM override
-// (e.g. `bundle distill --llm`). Returns nil when no LLM/prompt resolves.
-func newLLMDistillerForLLM(cfg *config.Config, llmName string) operations.Distiller {
-	if cfg == nil || llmName == "" {
+// newLLMDistillerForLabel is newLLMDistiller for an explicit config label
+// (e.g. `bundle distill --llm <label>`). The label resolves to its backend +
+// model via the registry; env comes from the same labeled entry. Returns nil
+// when no backend/prompt resolves.
+func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distiller {
+	if cfg == nil || label == "" {
 		return nil
 	}
 	prompt, err := loadDistillPrompt()
 	if err != nil {
 		return nil
 	}
+	backend, model := cfg.ResolveLLM(label)
+	if backend == "" {
+		return nil
+	}
 	return &mcpLLMDistillerSDK{
-		llmName: llmName,
-		llmEnv:  cfg.LM.Configs[llmName].Env,
+		llmName: backend,
+		llmEnv:  llmEnvFor(cfg, label),
+		model:   model,
 		prompt:  prompt,
 	}
 }
@@ -42,6 +49,7 @@ func newLLMDistillerForLLM(cfg *config.Config, llmName string) operations.Distil
 type mcpLLMDistillerSDK struct {
 	llmName string
 	llmEnv  map[string]string
+	model   string // cheap compression model (e.g. "haiku"); empty = backend default
 	prompt  string
 }
 
@@ -57,7 +65,7 @@ func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRe
 	if req.Bundle != nil {
 		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
 	}
-	distilled, modelID, err := distillWithModel(d.llmName, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	distilled, modelID, err := distillWithModel(d.llmName, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
 	if err != nil {
 		return operations.DistillResult{}, err
 	}

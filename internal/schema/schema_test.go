@@ -22,10 +22,23 @@ func TestConfigValidator_ValidateBytes(t *testing.T) {
 
 	t.Run("valid config", func(t *testing.T) {
 		yaml := `
+version: 3
 llm:
-  default: claude-code
   configs:
-    claude-code: {}
+    big: { type: claude-code, model: opus }
+    g:   { type: gemini, model: gemini-2.5-pro, trust_workspace: true }
+  defaults:
+    primary: big
+    fast: big
+profiles:
+  defaults:
+    - proj/dev
+  definitions:
+    proj/dev:
+      tags: [go]
+config:
+  use_distilled: true
+  compaction_chunks: 8000
 `
 		err := v.ValidateBytes([]byte(yaml))
 		assert.NoError(t, err)

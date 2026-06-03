@@ -324,16 +324,26 @@ Examples:
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.PendingUpgrade, cfg.CommitUpgrade)
+		// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
+		// persist those rewrites the same way.
+		confirmProfileUpgrades(cfg)
 
-		// Determine which LLM to use. An explicit --llm override is validated
-		// up front (friction); no override uses the configured default.
-		llmName, err := resolveRunLLM(cfg, runLLM)
+		// Determine which LLM config to use. An explicit --llm override names a
+		// config label, validated up front (friction); no override uses the
+		// primary role's label. The label resolves to a backend type + model;
+		// the backend name (not the label) drives session naming and transport.
+		label, err := resolveRunLLM(cfg, runLLM)
 		if err != nil {
 			return err
 		}
-
-		// Get per-LLM configuration from config
-		llmCfg := cfg.LM.Configs[llmName]
+		backendName, labelModel := cfg.ResolveLLM(label)
+		// An ad-hoc --llm naming a backend type (not a configured label)
+		// resolves to that backend directly rather than the built-in default.
+		if _, configured := cfg.LM.Configs[label]; !configured && backends.Exists(label) {
+			backendName, labelModel = label, ""
+		}
+		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
+		llmEnv := llmEnvFor(cfg, label)
 
 		// Build the prompt - from saved prompt, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
@@ -406,11 +416,9 @@ Examples:
 			mode = pb.ExecutionMode_ONESHOT
 		}
 
-		// Determine model to use: plugin config > global default
-		model := llmCfg.Model
-		if model == "" {
-			model = cfg.GetDefaultLLMModel()
-		}
+		// The model comes from the resolved label's config; empty lets the
+		// backend pick its own default.
+		model := labelModel
 
 		// Build prompt fragment
 		var promptFragment *pb.Fragment
@@ -431,10 +439,10 @@ Examples:
 		// Phase 3 session resolution: optional pre-launch resume picker,
 		// followed by a fresh harp assignment for the new session.
 		runEnv := map[string]string{}
-		for k, v := range llmCfg.Env {
+		for k, v := range llmEnv {
 			runEnv[k] = v
 		}
-		resume, err := resolveResumeIntent(workDir, llmName)
+		resume, err := resolveResumeIntent(workDir, backendName)
 		if err != nil {
 			return fmt.Errorf("resume intent: %w", err)
 		}
@@ -451,7 +459,7 @@ Examples:
 			confirmUpgrade(pending, commit)
 		}
 		var activeHarp string
-		if entry, err := operations.AssignSession(workDir, llmName); err != nil {
+		if entry, err := operations.AssignSession(workDir, backendName); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
 		} else {
 			activeHarp = entry.HarpName
@@ -537,7 +545,7 @@ Examples:
 		// Dry run mode - show the assembled context and prompt
 		if runDryRun {
 			fmt.Println("=== LLM ===")
-			fmt.Println(llmName)
+			fmt.Printf("%s (%s)\n", label, backendName)
 			fmt.Println("\n=== Profiles ===")
 			if len(ctxResult.Profiles) > 0 {
 				for _, p := range ctxResult.Profiles {
@@ -574,12 +582,12 @@ Examples:
 
 		// Create plugin client
 		var client *pb.LLMRunner
-		if llmCfg.BinaryPath != "" {
+		if llmBinary != "" {
 			// Use external plugin binary
-			client, err = pb.NewLLMRunner(llmCfg.BinaryPath, llmCfg.Args, runVerbosity)
+			client, err = pb.NewLLMRunner(llmBinary, llmArgs, runVerbosity)
 		} else {
 			// Use built-in plugin via self-invocation
-			client, err = pb.NewSelfInvokingClient(llmName, runVerbosity)
+			client, err = pb.NewSelfInvokingClient(backendName, runVerbosity)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to start plugin: %w", err)
@@ -600,37 +608,38 @@ Examples:
 	},
 }
 
-// resolveRunLLM picks the LLM for this run. An explicit override (--llm) is
-// validated up front (friction-up-front): it must be a registered backend that
-// is either configured for this project or has its binary installed, otherwise
-// we fail fast rather than silently falling back. With no override, the
-// configured default is used as-is (the graceful path).
+// resolveRunLLM picks the config label for this run. An explicit override
+// (--llm) names a label and is validated up front (friction-up-front): it must
+// be a configured label, or — as a convenience — a registered backend type
+// whose binary is installed (treated as an ad-hoc label resolving to that
+// backend). With no override, the primary role's label is used (the graceful
+// path).
 func resolveRunLLM(cfg *config.Config, override string) (string, error) {
 	if override == "" {
-		return cfg.GetDefaultLLM(), nil
+		return cfg.PrimaryLabel(), nil
 	}
-	if !backends.Exists(override) {
-		return "", fmt.Errorf("unknown LLM %q; usable now: %s", override, strings.Join(usableLLMs(cfg), ", "))
-	}
-	// A configured LLM is trusted (the user set up its binary/args/env).
+	// A configured label is trusted (the user set up its backend/binary/args).
 	if _, configured := cfg.LM.Configs[override]; configured {
 		return override, nil
 	}
-	// Otherwise the backend's binary must actually be installed.
-	if !backends.IsAvailable(override) {
-		return "", fmt.Errorf("LLM %q is registered but not configured and its binary is not installed; usable now: %s",
+	// Otherwise allow naming a registered backend type whose binary is present.
+	if backends.Exists(override) && backends.IsAvailable(override) {
+		return override, nil
+	}
+	if backends.Exists(override) {
+		return "", fmt.Errorf("LLM %q is a known backend but not configured and its binary is not installed; usable now: %s",
 			override, strings.Join(usableLLMs(cfg), ", "))
 	}
-	return override, nil
+	return "", fmt.Errorf("unknown LLM %q; usable now: %s", override, strings.Join(usableLLMs(cfg), ", "))
 }
 
-// usableLLMs returns the LLMs that can be launched right now: every configured
-// LLM, plus any registered backend whose binary is installed. "mock" (test-only)
-// is excluded.
+// usableLLMs returns what can be launched right now: every configured label,
+// plus any registered backend type whose binary is installed. "mock"
+// (test-only) is excluded.
 func usableLLMs(cfg *config.Config) []string {
 	set := map[string]bool{}
-	for name := range cfg.LM.Configs {
-		set[name] = true
+	for label := range cfg.LM.Configs {
+		set[label] = true
 	}
 	for _, name := range backends.List() {
 		if name == "mock" {
@@ -718,6 +727,21 @@ func confirmUpgrade(p *upgrade.Pending, commit func() error) {
 	}
 	if answer := strings.ToLower(strings.TrimSpace(line)); answer == "y" || answer == "yes" {
 		commitUpgrade(p, commit)
+	}
+}
+
+// confirmProfileUpgrades offers to persist any older-schema rewrites that loading
+// the configured profiles applied in memory (e.g. bare bundle refs qualified with
+// their remote). It resolves each default profile through one loader — which
+// loads parents too — so every pending rewrite is surfaced, then prompts per file
+// via the shared confirmUpgrade path. No pending means every profile was current.
+func confirmProfileUpgrades(cfg *config.Config) {
+	loader := cfg.GetProfileLoader()
+	for _, name := range cfg.Profiles.Defaults {
+		_, _ = loader.ResolveProfile(name, nil)
+	}
+	for _, p := range loader.PendingUpgrades() {
+		confirmUpgrade(p, func() error { return loader.CommitUpgrade(p) })
 	}
 }
 

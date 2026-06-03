@@ -5,7 +5,7 @@ import (
 	"embed"
 )
 
-//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-remotes.yaml
+//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetConfigSchema returns the embedded JSON schema for config validation.
@@ -16,6 +16,13 @@ func GetConfigSchema() ([]byte, error) {
 // GetExampleConfig returns the embedded example config file.
 func GetExampleConfig() ([]byte, error) {
 	return resourcesFS.ReadFile("example-config.yaml")
+}
+
+// GetDefaultConfig returns the embedded default config overlaid on every
+// loaded user config, defining the built-in primary + fast LLM roles so an
+// empty user config still resolves a backend and model.
+func GetDefaultConfig() ([]byte, error) {
+	return resourcesFS.ReadFile("default-config.yaml")
 }
 
 // GetDefaultRemotes returns the embedded default remotes file.

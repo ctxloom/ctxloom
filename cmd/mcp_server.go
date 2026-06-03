@@ -144,7 +144,7 @@ func loadStartupConfig() *config.Config {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
 		cfg = &config.Config{
 			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
-			Profiles: make(map[string]config.Profile),
+			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
 			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
 		}
 	}

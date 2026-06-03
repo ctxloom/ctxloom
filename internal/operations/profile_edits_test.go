@@ -90,14 +90,14 @@ func TestApplyDefaultFlag(t *testing.T) {
 		if want := []string{"set as default"}; !slices.Equal(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
-		if !cfg.Defaults.IsDefaultProfile("p") {
+		if !cfg.Profiles.IsDefaultProfile("p") {
 			t.Fatal("p should be a default profile")
 		}
 	})
 
 	t.Run("set when already default records nothing", func(t *testing.T) {
 		cfg := &config.Config{}
-		cfg.Defaults.AddDefaultProfile("p")
+		cfg.Profiles.AddDefaultProfile("p")
 		yes := true
 		if got := applyDefaultFlag(cfg, "p", &yes); got != nil {
 			t.Fatalf("got %v, want nil", got)
@@ -106,13 +106,13 @@ func TestApplyDefaultFlag(t *testing.T) {
 
 	t.Run("unset removes the default and records it", func(t *testing.T) {
 		cfg := &config.Config{}
-		cfg.Defaults.AddDefaultProfile("p")
+		cfg.Profiles.AddDefaultProfile("p")
 		no := false
 		got := applyDefaultFlag(cfg, "p", &no)
 		if want := []string{"unset default"}; !slices.Equal(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
-		if cfg.Defaults.IsDefaultProfile("p") {
+		if cfg.Profiles.IsDefaultProfile("p") {
 			t.Fatal("p should no longer be a default profile")
 		}
 	})

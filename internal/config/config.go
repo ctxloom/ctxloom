@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/collections"
@@ -19,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 // Re-export path constants for backwards compatibility
@@ -40,19 +42,19 @@ const (
 
 // Config holds the ctxloom configuration.
 type Config struct {
-	Version  int                `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
-	LM       LMConfig           `mapstructure:"llm" yaml:"llm"`
-	Editor   EditorConfig       `mapstructure:"editor"`
-	Defaults Defaults           `mapstructure:"defaults"`
-	Sync     SyncConfig         `mapstructure:"sync"`
-	Hooks    HooksConfig        `mapstructure:"hooks"`
-	MCP      MCPConfig          `mapstructure:"mcp"`
-	Profiles map[string]Profile `mapstructure:"profiles"`
-	AppPaths []string           // Resolved .ctxloom directory (at most one)
-	AppRoot  string             // Project root (parent of .ctxloom directory)
-	AppDir   string             // Full path to the .ctxloom directory
-	Source   ConfigSource       // Where the configuration was loaded from
-	Warnings []string           // Non-fatal warnings collected during load
+	Version  int            `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
+	LM       LMConfig       `mapstructure:"llm" yaml:"llm"`
+	Editor   EditorConfig   `mapstructure:"editor" yaml:"editor,omitempty"`
+	Settings SettingsConfig `mapstructure:"config" yaml:"config,omitempty"`
+	Sync     SyncConfig     `mapstructure:"sync" yaml:"sync,omitempty"`
+	Hooks    HooksConfig    `mapstructure:"hooks" yaml:"hooks,omitempty"`
+	MCP      MCPConfig      `mapstructure:"mcp" yaml:"mcp,omitempty"`
+	Profiles ProfilesConfig `mapstructure:"profiles" yaml:"profiles,omitempty"`
+	AppPaths []string       // Resolved .ctxloom directory (at most one)
+	AppRoot  string         // Project root (parent of .ctxloom directory)
+	AppDir   string         // Full path to the .ctxloom directory
+	Source   ConfigSource   // Where the configuration was loaded from
+	Warnings []string       // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
@@ -121,13 +123,26 @@ func (c *Config) GetEditorCommand() (string, []string) {
 func (c *Config) ExplicitDefaultProfiles() []string {
 	seen := collections.NewSet[string]()
 	var defaults []string
-	for _, name := range c.Defaults.Profiles {
+	for _, name := range c.Profiles.Defaults {
 		if name != "" && !seen.Has(name) {
 			seen.Add(name)
 			defaults = append(defaults, name)
 		}
 	}
 	return defaults
+}
+
+// EffectiveDefaultProfiles returns the configured default profile labels
+// verbatim (profiles.defaults). Unlike GetDefaultProfiles it applies no
+// single-profile fallback.
+func (c *Config) EffectiveDefaultProfiles() []string {
+	return c.Profiles.Defaults
+}
+
+// ProfileDefinition returns the named profile definition and whether it exists.
+func (c *Config) ProfileDefinition(name string) (Profile, bool) {
+	p, ok := c.Profiles.Definitions[name]
+	return p, ok
 }
 
 // GetDefaultProfiles returns the default profiles to load for `ctxloom run`.
@@ -148,65 +163,131 @@ func (c *Config) GetDefaultProfiles() []string {
 	return nil
 }
 
-// GetDefaultLLM returns the default LLM name.
-// Returns "claude-code" as fallback if not configured.
-func (c *Config) GetDefaultLLM() string {
-	return c.LM.GetDefaultLLM()
-}
-
-// GetDefaultLLMModel returns the default LLM model name.
-// Returns empty string if not configured (backend will use its own default).
-func (c *Config) GetDefaultLLMModel() string {
-	return c.LM.Model
-}
-
-// SetDefaultLLM sets the default LLM name.
-func (c *Config) SetDefaultLLM(name string) {
-	c.LM.Default = name
-}
-
-// GetCompactionLLM returns the LLM to use for session compaction.
-// Defaults to the default LLM if not set.
-func (c *Config) GetCompactionLLM() string {
-	if c.LM.Compaction.LLM != "" {
-		return c.LM.Compaction.LLM
+// PrimaryLabel returns the config label playing the primary (coding/
+// interactive) role. Fallback chain: the configured defaults.primary, else
+// the sole configured label if exactly one exists, else "" — callers then
+// resolve to the built-in default backend.
+func (c *Config) PrimaryLabel() string {
+	if c.LM.Defaults.Primary != "" {
+		return c.LM.Defaults.Primary
 	}
-	return c.LM.GetDefaultLLM()
-}
-
-// GetCompactionModel returns the model to use for session compaction.
-// "haiku" is a Claude-specific model name, so it is only a safe default when the
-// compaction LLM is Claude. For any other backend, return empty and let that
-// backend resolve its own default model (e.g. Gemini → gemini-2.5-flash) rather
-// than handing it a model name it doesn't recognize (which fails with
-// ModelNotFoundError). An explicitly configured model always wins.
-func (c *Config) GetCompactionModel() string {
-	if c.LM.Compaction.Model != "" {
-		return c.LM.Compaction.Model
-	}
-	if c.GetCompactionLLM() == "claude-code" {
-		return "haiku"
+	if len(c.LM.Configs) == 1 {
+		for label := range c.LM.Configs {
+			return label
+		}
 	}
 	return ""
+}
+
+// FastLabel returns the config label playing the fast (compression) role.
+// Fallback chain: defaults.fast → defaults.primary (via PrimaryLabel).
+func (c *Config) FastLabel() string {
+	if c.LM.Defaults.Fast != "" {
+		return c.LM.Defaults.Fast
+	}
+	return c.PrimaryLabel()
+}
+
+// ResolveLLM looks a config label up in the registry and returns the backend
+// type and model it specifies. A missing label or empty type degrades to the
+// built-in default backend with no model (backend default). The model is read
+// only from the entry's own body — never by branching on the backend name.
+func (c *Config) ResolveLLM(label string) (backend, model string) {
+	entry, ok := c.LM.Configs[label]
+	if !ok {
+		return DefaultLLM, ""
+	}
+	backend = entry.Type
+	if backend == "" {
+		backend = DefaultLLM
+	}
+	if m, ok := entry.Body["model"].(string); ok {
+		model = m
+	}
+	return backend, model
+}
+
+// GetDefaultLLM returns the backend type for the primary role's label.
+func (c *Config) GetDefaultLLM() string {
+	backend, _ := c.ResolveLLM(c.PrimaryLabel())
+	return backend
+}
+
+// GetDefaultLLMModel returns the model for the primary role's label.
+// Empty means the backend uses its own default.
+func (c *Config) GetDefaultLLMModel() string {
+	_, model := c.ResolveLLM(c.PrimaryLabel())
+	return model
+}
+
+// SetPrimaryLabel points the primary role at the given config label.
+func (c *Config) SetPrimaryLabel(label string) {
+	c.LM.Defaults.Primary = label
+}
+
+// GetCompactionLLM returns the backend type for the fast (compression) role.
+func (c *Config) GetCompactionLLM() string {
+	backend, _ := c.ResolveLLM(c.FastLabel())
+	return backend
+}
+
+// GetCompactionModel returns the model for the fast (compression) role.
+// Empty means the backend substitutes its own lightweight model.
+func (c *Config) GetCompactionModel() string {
+	_, model := c.ResolveLLM(c.FastLabel())
+	return model
 }
 
 // GetCompactionChunkSize returns the target chunk size for compaction.
 // Defaults to 8000 tokens.
 func (c *Config) GetCompactionChunkSize() int {
-	if c.LM.Compaction.Chunks > 0 {
-		return c.LM.Compaction.Chunks
+	if c.Settings.CompactionChunks > 0 {
+		return c.Settings.CompactionChunks
 	}
 	return 8000
 }
 
+// ShouldUseDistilled reports whether to prefer distilled fragment/prompt
+// versions. Defaults to true.
+func (c *Config) ShouldUseDistilled() bool {
+	return c.Settings.ShouldUseDistilled()
+}
+
 // GetProfileLoader returns a profiles.Loader for this config's ctxloom paths.
+// It wires a remote resolver from the remotes registry so the loader can qualify
+// legacy bare bundle refs with the remote each profile was installed from.
 func (c *Config) GetProfileLoader() *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(c.AppPaths)
 	var opts []profiles.LoaderOption
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
 	}
+	if resolve := c.ProfileRemoteResolver(); resolve != nil {
+		opts = append(opts, profiles.WithRemoteResolver(resolve))
+	}
 	return profiles.NewLoader(profileDirs, opts...)
+}
+
+// ProfileRemoteResolver returns a function mapping a profile's local name to the
+// short remote it was installed from, backed by the remotes registry. Nil when no
+// registry is available (the loader then reads profiles verbatim). Exposed so
+// other profile-loader factories (e.g. operations) wire the same qualification.
+func (c *Config) ProfileRemoteResolver() func(string) string {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	var ropts []remote.RegistryOption
+	if c.fs != nil {
+		ropts = append(ropts, remote.WithRegistryFS(c.fs))
+	}
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	if err != nil {
+		return nil
+	}
+	return func(name string) string {
+		short, _ := registry.ResolveItemRemote(name)
+		return short
+	}
 }
 
 // Load finds and loads configuration from a single source.
@@ -230,7 +311,7 @@ func Load(opts ...LoadOption) (*Config, error) {
 		LM: LMConfig{
 			Configs: make(map[string]LLMConfig),
 		},
-		Profiles: make(map[string]Profile),
+		Profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
 		fs:       fs,
 	}
 
@@ -260,7 +341,43 @@ func Load(opts ...LoadOption) (*Config, error) {
 		return nil, err
 	}
 
+	// Overlay the shipped default config so an empty user config still resolves
+	// a primary + fast role (and so model names live in DATA, not Go). User keys
+	// always win; defaults only fill gaps the user left empty.
+	mergeDefaultConfig(cfg)
+
 	return cfg, nil
+}
+
+// mergeDefaultConfig fills any LLM-role gaps from the embedded default config.
+// Per CLAUDE.md fault tolerance a malformed/unreadable default never blocks
+// startup — the merge is skipped silently. User config always wins: a default
+// label is added only when absent, and a role default only when the user set
+// none.
+func mergeDefaultConfig(cfg *Config) {
+	data, err := resources.GetDefaultConfig()
+	if err != nil {
+		return
+	}
+	var def Config
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		zap.L().Warn("default_config_parse_failed", zap.Error(err))
+		return
+	}
+	// The embedded default is a whole-registry fallback for users who configured
+	// no LLMs — not a per-key overlay. Injecting default labels into a non-empty
+	// user registry would defeat the single-entry selection rule (one configured
+	// entry is the one used), so a non-empty user registry is left untouched.
+	if len(cfg.LM.Configs) > 0 {
+		return
+	}
+	cfg.LM.Configs = def.LM.Configs
+	if cfg.LM.Defaults.Primary == "" {
+		cfg.LM.Defaults.Primary = def.LM.Defaults.Primary
+	}
+	if cfg.LM.Defaults.Fast == "" {
+		cfg.LM.Defaults.Fast = def.LM.Defaults.Fast
+	}
 }
 
 // loadConfigFile loads a config file into the provided Config struct.

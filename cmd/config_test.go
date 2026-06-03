@@ -20,14 +20,17 @@ import (
 // be distinguished in the marshaled YAML.
 func fixtureConfig() *config.Config {
 	cfg := &config.Config{
-		Profiles: map[string]config.Profile{
-			"developer": {Bundles: []string{"alice/coding"}},
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{"default-profile"},
+			Definitions: map[string]config.Profile{
+				"developer": {Bundles: []string{"alice/coding"}},
+			},
 		},
 	}
-	cfg.Defaults.Profiles = []string{"default-profile"}
-	cfg.LM.Default = "claude-code"
+	cfg.Settings.CompactionChunks = 8000
+	cfg.LM.Defaults.Primary = "big"
 	cfg.LM.Configs = map[string]config.LLMConfig{
-		"gemini": {Model: "gemini-2.5-pro"},
+		"big": {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-pro"}},
 	}
 	cfg.MCP.Servers = map[string]config.MCPServer{
 		"fs": {Command: "mcp-fs"},
@@ -43,7 +46,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 		section  string
 		contains string // substring expected in the marshaled YAML
 	}{
-		{"defaults", "defaults", "default-profile"},
+		{"config", "config", "compaction_chunks"},
 		{"llm", "llm", "gemini-2.5-pro"},
 		{"mcp", "mcp", "mcp-fs"},
 		{"profiles", "profiles", "developer"},
@@ -70,7 +73,7 @@ func TestResolveConfigSection_UnknownSection(t *testing.T) {
 	// The error message has to list valid sections so the CLI user
 	// can recover without reading docs. All four must appear.
 	msg := err.Error()
-	for _, want := range []string{"defaults", "llm", "mcp", "profiles"} {
+	for _, want := range []string{"config", "llm", "mcp", "profiles"} {
 		assert.Contains(t, msg, want, "error must list section %q", want)
 	}
 	assert.Contains(t, msg, "nope", "error must echo the bad section name")
@@ -87,14 +90,14 @@ func TestRenderConfigSection_UnknownSurfacesError(t *testing.T) {
 
 func TestRenderConfigYAML_RoundTripsTopLevelKeys(t *testing.T) {
 	// renderConfigYAML serializes the whole config; we verify only that
-	// the top-level keys we expect ("llm", "defaults", "mcp", "profiles")
+	// the top-level keys we expect ("llm", "config", "mcp", "profiles")
 	// are present in the output. Full struct equivalence is yaml.Marshal's
 	// problem, not ours.
 	var buf bytes.Buffer
 	require.NoError(t, renderConfigYAML(fixtureConfig(), &buf))
 
 	out := buf.String()
-	for _, key := range []string{"llm:", "defaults:", "mcp:", "profiles:"} {
+	for _, key := range []string{"llm:", "config:", "mcp:", "profiles:"} {
 		assert.True(t, strings.Contains(out, key),
 			"full-config YAML should contain top-level %q (got: %q)", key, out)
 	}

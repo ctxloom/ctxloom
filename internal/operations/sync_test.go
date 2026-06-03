@@ -812,3 +812,54 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 	// Should still find the bundle
 	assert.True(t, bundleSet.Has("github/bundle"))
 }
+
+// TestRunSyncPostSteps_Guards pins the two guard conditions in runSyncPostSteps
+// (sync.go:160/168) via recording seams: the lockfile step fires only when
+// req.Lock AND there was at least one install/update; the hooks step fires only
+// when req.ApplyHooks AND there was at least one remote reference (Total > 0).
+// The table covers each flag off, each boundary at zero, and that Installed and
+// Updated each independently satisfy the lock guard.
+func TestRunSyncPostSteps_Guards(t *testing.T) {
+	origLock, origHooks := syncLockStep, syncHooksStep
+	t.Cleanup(func() { syncLockStep, syncHooksStep = origLock, origHooks })
+
+	var lockCalls, hookCalls int
+	syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {
+		lockCalls++
+		return &LockDependenciesResult{}, nil
+	}
+	syncHooksStep = func(context.Context, *config.Config, ApplyHooksRequest) (*ApplyHooksResult, error) {
+		hookCalls++
+		return &ApplyHooksResult{}, nil
+	}
+
+	tests := []struct {
+		name                      string
+		lock, applyHooks          bool
+		installed, updated, total int
+		wantLock, wantHooks       bool
+	}{
+		{name: "all_off", total: 1},
+		{name: "lock_off_with_installs", installed: 1, total: 1},
+		{name: "lock_on_no_changes", lock: true, total: 1, wantLock: false},
+		{name: "lock_on_installed", lock: true, installed: 1, total: 1, wantLock: true},
+		{name: "lock_on_updated_only", lock: true, updated: 1, total: 1, wantLock: true},
+		{name: "hooks_off_with_total", total: 1},
+		{name: "hooks_on_zero_total", applyHooks: true, total: 0, wantHooks: false},
+		{name: "hooks_on_with_total", applyHooks: true, total: 1, wantHooks: true},
+		{name: "both_on_full", lock: true, applyHooks: true, installed: 2, total: 2, wantLock: true, wantHooks: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lockCalls, hookCalls = 0, 0
+			result := &SyncDependenciesResult{Installed: tt.installed, Updated: tt.updated, Total: tt.total}
+			req := SyncDependenciesRequest{Lock: tt.lock, ApplyHooks: tt.applyHooks}
+
+			runSyncPostSteps(context.Background(), &config.Config{}, req, result, afero.NewMemMapFs())
+
+			assert.Equal(t, tt.wantLock, lockCalls == 1, "lockfile step fired=%v, want %v", lockCalls == 1, tt.wantLock)
+			assert.Equal(t, tt.wantHooks, hookCalls == 1, "hooks step fired=%v, want %v", hookCalls == 1, tt.wantHooks)
+		})
+	}
+}

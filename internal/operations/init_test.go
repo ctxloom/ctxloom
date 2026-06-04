@@ -58,8 +58,8 @@ func TestBuildInitialConfig(t *testing.T) {
 	}{
 		{
 			name: "claude-code wires opus + haiku", engine: "claude-code",
-			wantPrimary: "claude-code", wantBackend: "claude-code", wantModel: "opus",
-			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "haiku",
+			wantPrimary: "claude-code", wantBackend: "claude-code", wantModel: "claude-opus-4-8",
+			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "claude-haiku-4-5-20251001",
 		},
 		{
 			name: "gemini wires pro + flash", engine: "gemini",

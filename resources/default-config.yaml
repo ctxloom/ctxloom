@@ -14,11 +14,11 @@ llm:
   configs:
     claude-code:
       type: claude-code
-      model: opus
+      model: claude-opus-4-8
       role: primary
     claude-fast:
       type: claude-code
-      model: haiku
+      model: claude-haiku-4-5-20251001
       role: fast
     gemini-code:
       type: gemini

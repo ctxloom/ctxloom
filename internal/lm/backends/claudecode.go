@@ -195,19 +195,20 @@ type claudeJSONResult struct {
 	ModelUsage map[string]claudeModelUsage `json:"modelUsage"`
 }
 
-// claudeModelUsage is the per-model usage block; InputTokens identifies which
-// model actually processed the request (read the content to distill) versus
-// ancillary helper models the CLI invokes for background tasks with near-zero
-// input.
+// claudeModelUsage is the per-model usage block. OutputTokens identifies the
+// model that generated the result: the CLI may route a large read through an
+// ancillary fast model (high input, tiny output) while the requested model does
+// the actual generation, so output — not input — marks the working model.
 type claudeModelUsage struct {
-	InputTokens int `json:"inputTokens"`
+	InputTokens  int `json:"inputTokens"`
+	OutputTokens int `json:"outputTokens"`
 }
 
 // parseClaudeJSONResult extracts the result text and the resolved model id from
 // a Claude CLI JSON envelope. The model is the modelUsage key with the most
-// input tokens — the one that read the content and produced the result — so
-// provenance records the working model rather than helper models the CLI also
-// touched. Ties break on sorted id for determinism.
+// output tokens — the one that produced the result — so provenance records the
+// generating model rather than a helper the CLI routed a read through. Ties
+// break on sorted id for determinism.
 func parseClaudeJSONResult(data []byte) (text, model string, err error) {
 	var env claudeJSONResult
 	if err := json.Unmarshal(data, &env); err != nil {
@@ -221,8 +222,8 @@ func parseClaudeJSONResult(data []byte) (text, model string, err error) {
 	best := ""
 	bestTokens := -1
 	for _, id := range ids {
-		if env.ModelUsage[id].InputTokens > bestTokens {
-			best, bestTokens = id, env.ModelUsage[id].InputTokens
+		if env.ModelUsage[id].OutputTokens > bestTokens {
+			best, bestTokens = id, env.ModelUsage[id].OutputTokens
 		}
 	}
 	return env.Result, best, nil
@@ -263,7 +264,14 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 			"--tools", "", // Disable all tools
 			"--disable-slash-commands", // No slash commands
 			"--no-session-persistence", // Don't save session
-			"--setting-sources", "",    // Skip settings files
+			"--strict-mcp-config",      // ignore .mcp.json / external MCP servers
+			"--system-prompt", "",      // drop CLAUDE.md/memory/identity so they don't pollute the result
+			// Isolate via in-line overrides rather than `--setting-sources ""`:
+			// an empty source list also drops the model config, so the CLI routes
+			// generation to its built-in fast model regardless of --model. These
+			// overrides disable hooks/MCP/attribution while leaving the requested
+			// model in force.
+			"--settings", minimalSettings(req.Model),
 		)
 	}
 
@@ -272,4 +280,29 @@ func (b *ClaudeCode) buildArgs(req *ExecuteRequest) []string {
 	}
 
 	return args
+}
+
+// minimalSettings builds the JSON passed to `claude --settings` for headless
+// distill/compaction. It overrides the loaded settings to an isolated baseline —
+// no hooks, no project MCP, no attribution/cleanup, permissions bypassed — while
+// keeping the requested model in force (an empty `--setting-sources` would drop
+// the model config and route generation to the CLI's fast model). model is
+// omitted when empty so the CLI default applies.
+func minimalSettings(model string) string {
+	s := map[string]any{
+		"hooks":                      map[string]any{},
+		"enableAllProjectMcpServers": false,
+		"enabledMcpjsonServers":      []string{},
+		"includeCoAuthoredBy":        false,
+		"cleanupPeriodDays":          0,
+		"permissions":                map[string]any{"defaultMode": "bypassPermissions"},
+	}
+	if model != "" {
+		s["model"] = model
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }

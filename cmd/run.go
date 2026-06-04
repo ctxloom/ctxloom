@@ -614,6 +614,15 @@ func resolveRunLLM(cfg *config.Config, override string) (string, error) {
 	if override == "" {
 		return cfg.PrimaryLabel(), nil
 	}
+	return validateExplicitLLM(cfg, override)
+}
+
+// validateExplicitLLM validates a non-empty --llm override (friction-up-front):
+// it must be a configured label, or a registered backend type whose binary is
+// installed (treated as an ad-hoc label). Returns the validated label or an
+// error naming what is usable now. Shared by `run` and `bundle distill` so an
+// unknown --llm is reported rather than silently swallowed.
+func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 	// A configured label is trusted (the user set up its backend/binary/args).
 	if _, configured := cfg.LM.Configs[override]; configured {
 		return override, nil

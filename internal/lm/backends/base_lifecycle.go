@@ -7,9 +7,16 @@ import (
 // BaseLifecycle provides shared lifecycle handler logic for backends.
 // It manages hooks and MCP configuration that are written to backend settings files.
 type BaseLifecycle struct {
-	backendName string
-	hooks       *config.HooksConfig
-	mcp         *config.MCPConfig
+	backendName        string
+	hooks              *config.HooksConfig
+	mcp                *config.MCPConfig
+	statusLineDisabled bool
+}
+
+// settingsOpts returns the write options reflecting accumulated lifecycle state
+// (currently the statusline opt-out).
+func (l *BaseLifecycle) settingsOpts() []SettingsOption {
+	return []SettingsOption{WithStatusLineDisabled(l.statusLineDisabled)}
 }
 
 // NewBaseLifecycle creates a new lifecycle handler for the given backend.
@@ -69,7 +76,7 @@ func (l *BaseLifecycle) Clear(workDir string) error {
 		Servers: make(map[string]config.MCPServer),
 		Plugins: make(map[string]map[string]config.MCPServer),
 	}
-	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir)
+	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
 
 // Flush writes accumulated hooks and MCP config to the settings file.
@@ -77,13 +84,14 @@ func (l *BaseLifecycle) Flush(workDir string) error {
 	if l.hooks == nil && l.mcp == nil {
 		return nil
 	}
-	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir)
+	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
 
 // MergeConfigHooks merges hooks and MCP config from the configuration into this lifecycle.
 func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, contextHash string) {
 	l.ensureHooks()
 	l.ensureMCP()
+	l.statusLineDisabled = !cfg.Settings.ShouldManageStatusline()
 
 	// Hooks: the complete managed set (config-level + default-profile +
 	// bundle-shipped + context-injection) is assembled by the shared

@@ -5,6 +5,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cucumber/godog"
 )
@@ -15,6 +16,22 @@ import (
 // fixtures exercise real create paths rather than hand-written YAML. The editor
 // is pinned to a no-op so `edit` commands run non-interactively.
 const minimalConfig = "version: 3\neditor:\n  command: \"true\"\nprofiles:\n  defaults: []\n"
+
+// markerEditorConfig pins the editor to a command that appends a fixed marker to
+// the file it is given, so `edit` round-trips produce an observable change. sh
+// receives `-c <script> editor <tmpfile>`, so "$1" is the temp file editInEditor
+// writes the content to. The marker is free text, fine for fragment/prompt
+// content (it would corrupt profile YAML, so those edits use other paths).
+const markerEditorConfig = `version: 3
+editor:
+  command: sh
+  args:
+    - "-c"
+    - 'printf "\nEDITED-BY-TEST\n" >> "$1"'
+    - editor
+profiles:
+  defaults: []
+`
 
 func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^an initialized ctxloom project$`, func(c context.Context) error {
@@ -29,6 +46,29 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// starting point for `init`.
 	ctx.Step(`^an empty project directory$`, func(c context.Context) error {
 		return worldFrom(c).env.InitGitRepo()
+	})
+
+	// A project whose editor appends a fixed marker, so an `edit` round-trip is
+	// observable (the change lands in the bundle file and across MCP).
+	ctx.Step(`^a ctxloom project with a marker editor$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := w.env.InitGitRepo(); err != nil {
+			return err
+		}
+		return w.env.WriteFile(".ctxloom/config.yaml", markerEditorConfig)
+	})
+
+	// A malformed config exercises fault tolerance: ctxloom must warn and fall
+	// back to defaults rather than crash.
+	ctx.Step(`^a malformed ctxloom config$`, func(c context.Context) error {
+		return worldFrom(c).env.WriteFile(".ctxloom/config.yaml", "::: not: [valid yaml\n\tbroken")
+	})
+
+	// A profile whose bundle does not exist, written directly so creation-time
+	// validation doesn't reject it — the point is that USING it degrades.
+	ctx.Step(`^a profile "([^"]*)" referencing a missing bundle$`, func(c context.Context, name string) error {
+		body := "description: references a missing bundle\nbundles:\n  - does-not-exist\n"
+		return worldFrom(c).env.WriteFile(".ctxloom/profiles/"+name+".yaml", body)
 	})
 
 	ctx.Step(`^a bundle "([^"]*)" exists$`, func(c context.Context, name string) error {
@@ -91,11 +131,31 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("seed remote: %w", err)
 		}
+		if w.remoteBare == nil {
+			w.remoteBare = map[string]string{}
+		}
+		w.remoteBare[name] = strings.TrimPrefix(url, "file://")
 		_ = w.env.Run("remote", "add", name, url, "--forge", "git")
 		if w.env.LastExitCode() != 0 {
 			return fmt.Errorf("remote add failed: %s", w.env.LastOutput())
 		}
 		return nil
+	})
+
+	// Advance a seeded remote with a second commit that changes the demo bundle,
+	// so the next `remote sync` detects the change and stages it for review.
+	ctx.Step(`^the remote "([^"]*)" advances its bundle$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		return w.env.AdvanceRemote(bare, map[string]string{
+			"ctxloom/bundles/demo.yaml": "version: 2.0.0\n" +
+				"author: test\n" +
+				"description: Demo bundle v2\n" +
+				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content, version two.\n",
+		})
 	})
 
 	ctx.Step(`^the mock LLM responds "([^"]*)"$`, func(c context.Context, response string) error {

@@ -886,7 +886,7 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 func TestConfig_Show(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("config", "show")
+	_ = env.Run("manage", "config", "show")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }
@@ -894,7 +894,7 @@ func TestConfig_Show(t *testing.T) {
 func TestConfig_Get(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("config", "get", "defaults")
+	_ = env.Run("manage", "config", "get", "defaults")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }

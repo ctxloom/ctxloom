@@ -39,7 +39,7 @@ Feature: MCP resources
 
   Scenario: The mcp-servers resource reflects configured servers
     Given an initialized ctxloom project
-    And I run "ctxloom mcp add tools -c echo"
+    And I run "ctxloom manage mcp servers add tools -c echo"
     When the agent reads resource "ctxloom://mcp-servers"
     Then the resource MIME type is "application/yaml"
     And the resource contains "tools"

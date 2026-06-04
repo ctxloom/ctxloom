@@ -348,7 +348,7 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 // TestClaudeCodeHookWriter_DedupsBundleShippedHooks is the regression
 // guard for the apply-hooks deduplication bug fixed in 3b6a7bf:
 // isCtxloomManagedHook previously matched only inject-context, so
-// bundle-shipped hooks (`ctxloom session bind`, `ctxloom tasks
+// bundle-shipped hooks (`ctxloom hook session-bind`, `ctxloom hook
 // stamp-plan`) accumulated duplicates on every WriteHooks call.
 //
 // The fix broadened the recognition to "any command whose executable
@@ -362,7 +362,7 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
 			PostFileEdit: []config.Hook{
-				{Command: "ctxloom tasks stamp-plan", Type: "command"},
+				{Command: "ctxloom hook stamp-plan", Type: "command"},
 			},
 		},
 	}
@@ -395,13 +395,13 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 		hooksList := m["hooks"].([]any)
 		for _, h := range hooksList {
 			cmd := h.(map[string]any)["command"].(string)
-			if strings.Contains(cmd, "tasks stamp-plan") {
+			if strings.Contains(cmd, "hook stamp-plan") {
 				stampCount++
 			}
 		}
 	}
 	if stampCount != 1 {
-		t.Errorf("expected exactly 1 `tasks stamp-plan` hook after 3 applies, got %d", stampCount)
+		t.Errorf("expected exactly 1 `hook stamp-plan` hook after 3 applies, got %d", stampCount)
 	}
 }
 
@@ -425,7 +425,7 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	cfg := &config.HooksConfig{Unified: config.UnifiedHooks{
 		SessionStart: []config.Hook{NewContextInjectionHook("abc123", tmpDir)},
 		PostFileEdit: []config.Hook{
-			{Command: "ctxloom tasks stamp-plan", Type: "command"},
+			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
 	}}
 	require.NoError(t, writer.WriteHooks(cfg, tmpDir))
@@ -436,7 +436,7 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	require.NoError(t, json.Unmarshal(settingsData, &settings))
 
 	statusLine := settings["statusLine"].(map[string]any)
-	assert.Equal(t, "ctxloom meta hud", statusLine["command"],
+	assert.Equal(t, "ctxloom hook hud", statusLine["command"],
 		"statusLine must be bare; got %q", statusLine["command"])
 
 	hooks := settings["hooks"].(map[string]any)
@@ -450,7 +450,7 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	post := hooks["PostToolUse"].([]any)
 	require.NotEmpty(t, post)
 	bundleCmd := post[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
-	assert.Equal(t, "ctxloom tasks stamp-plan", bundleCmd,
+	assert.Equal(t, "ctxloom hook stamp-plan", bundleCmd,
 		"bundle-shipped hook must stay bare; got %q", bundleCmd)
 
 	// .mcp.json: auto-registered ctxloom MCP server command is bare too.
@@ -536,15 +536,15 @@ func TestIsCtxloomManagedHook(t *testing.T) {
 	cases := map[string]bool{
 		// All ctxloom invocations are managed.
 		"ctxloom hook inject-context --project /p hash": true,
-		"ctxloom session bind":                          true,
-		"ctxloom tasks stamp-plan":                      true,
-		`"/usr/bin/ctxloom" meta hud`:                   true,
-		"/home/me/go/bin/ctxloom session bind":          true,
-		`"C:\Tools\ctxloom.exe" tasks stamp-plan`:       true,
+		"ctxloom hook session-bind":                     true,
+		"ctxloom hook stamp-plan":                       true,
+		`"/usr/bin/ctxloom" hook hud`:                   true,
+		"/home/me/go/bin/ctxloom hook session-bind":     true,
+		`"C:\Tools\ctxloom.exe" hook stamp-plan`:        true,
 		// Quoted executable path containing spaces — strings.Fields used to
 		// split this mid-path and miss it, leaving dup hooks to accumulate.
-		`"/Apps/My Tools/ctxloom" mcp`:              true,
-		`'/Apps/My Tools/ctxloom' tasks stamp-plan`: true,
+		`"/Apps/My Tools/ctxloom" mcp`:             true,
+		`'/Apps/My Tools/ctxloom' hook stamp-plan`: true,
 		// Not ctxloom.
 		"echo 'user hook'":                   false,
 		"node /opt/somewhere/script.js":      false,
@@ -986,7 +986,7 @@ func TestGeminiHookWriter_NestedSchema(t *testing.T) {
 
 	cfg := &config.HooksConfig{
 		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "ctxloom session bind", Timeout: 60}},
+			SessionStart: []config.Hook{{Command: "ctxloom hook session-bind", Timeout: 60}},
 		},
 	}
 	require.NoError(t, writer.WriteHooks(cfg, "/project"))
@@ -1012,7 +1012,7 @@ func TestGeminiHookWriter_NestedSchema(t *testing.T) {
 	require.Len(t, groups[0].Hooks, 1)
 	entry := groups[0].Hooks[0]
 	assert.Equal(t, "command", entry.Type, "Gemini requires type:command")
-	assert.Equal(t, "ctxloom session bind", entry.Command)
+	assert.Equal(t, "ctxloom hook session-bind", entry.Command)
 	assert.Equal(t, "ctxloom-managed", entry.Name, "durable ctxloom marker")
 	assert.Equal(t, 60000, entry.Timeout, "timeout must be milliseconds (60s → 60000ms)")
 }
@@ -1032,7 +1032,7 @@ func TestGeminiHookWriter_RemovesManagedHooks(t *testing.T) {
 
 	writer := &GeminiHookWriter{FS: fs}
 	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "ctxloom session bind"}}},
+		Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "ctxloom hook session-bind"}}},
 	}
 	require.NoError(t, writer.WriteHooks(cfg, "/project"))
 
@@ -1053,7 +1053,7 @@ func TestGeminiHookWriter_RemovesManagedHooks(t *testing.T) {
 		}
 	}
 	assert.Contains(t, commands, "user-hook.sh", "user hook preserved")
-	assert.Contains(t, commands, "ctxloom session bind", "fresh ctxloom hook present")
+	assert.Contains(t, commands, "ctxloom hook session-bind", "fresh ctxloom hook present")
 	assert.NotContains(t, commands, "ctxloom hook inject-context old", "stale ctxloom hook removed")
 }
 

@@ -12,9 +12,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-var metaHudCmd = &cobra.Command{
-	Use:   "hud",
-	Short: "Output formatted statusline for Claude Code HUD",
+var hookHudCmd = &cobra.Command{
+	Use:    "hud",
+	Hidden: true, // Machine callback (statusline command) - not for direct use
+	Short:  "Output formatted statusline for Claude Code HUD",
 	Long: `Reads Claude Code session JSON from stdin and outputs a formatted statusline
 combining Claude session info with ctxloom project status.
 
@@ -23,11 +24,11 @@ settings.json. It runs after each assistant message and displays context usage,
 model info, and active ctxloom profile/bundle counts.
 
 The output uses ANSI escape codes for color in supported terminals.`,
-	RunE: runMetaHud,
+	RunE: runHookHud,
 }
 
 func init() {
-	metaCmd.AddCommand(metaHudCmd)
+	hookCmd.AddCommand(hookHudCmd)
 }
 
 // claudeSessionJSON represents the relevant fields from Claude Code's statusline JSON.
@@ -55,7 +56,7 @@ type ctxloomHudInfo struct {
 	BundleCount int
 }
 
-func runMetaHud(cmd *cobra.Command, args []string) error {
+func runHookHud(cmd *cobra.Command, args []string) error {
 	// Read Claude's JSON from stdin
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {

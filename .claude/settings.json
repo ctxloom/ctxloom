@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ctxloom tasks stamp-plan"
+            "command": "ctxloom hook stamp-plan"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ctxloom session bind"
+            "command": "ctxloom hook session-bind"
           }
         ]
       }
@@ -24,6 +24,6 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "ctxloom meta hud"
+    "command": "ctxloom hook hud"
   }
 }

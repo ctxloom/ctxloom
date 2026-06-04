@@ -19,27 +19,19 @@ import (
 // scenario, each with the reason. Printed on every run so the exclusion is never
 // silent (see plan §7.5 / "no silent caps").
 var excludedLeaves = map[string]string{
-	"ctxloom hook inject-context": "internal SessionStart hook target; exercised indirectly via backends",
-	"ctxloom session bind":        "internal SessionStart bind target",
-	"ctxloom tasks stamp-plan":    "internal PostFileEdit hook target",
-	"ctxloom meta hud":            "internal status HUD, not user-facing",
-	"ctxloom mcp serve":           "the MCP server itself; exercised by every @mcp scenario",
-	"ctxloom llm serve":           "internal gRPC plugin server",
-	"ctxloom remote discover":     "network discovery search; no deterministic fixture (excluded)",
-	"ctxloom bundle mcp edit":     "edits an MCP server embedded in a bundle; requires a bundle-embedded MCP fixture (niche)",
+	// Machine callbacks (ctxloom hook inject-context|hud|session-bind|stamp-plan)
+	// are all hidden, so leafCommands never surfaces them — no exclusion needed.
+	"ctxloom manage config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
+	"ctxloom mcp serve":          "the MCP server itself; exercised by every @mcp scenario",
+	"ctxloom llm serve":          "internal gRPC plugin server",
+	"ctxloom remote discover":    "network discovery search; no deterministic fixture (excluded)",
+	"ctxloom bundle mcp edit":    "edits an MCP server embedded in a bundle; requires a bundle-embedded MCP fixture (niche)",
 	// Remote ops needing richer state than a single-commit fixture provides. The
 	// core clone/fetch/install/sync path is covered hermetically by the @remote
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
-	"ctxloom remote update":  "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
-	"ctxloom remote upgrade": "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
-	"ctxloom remote vendor":  "vendors remote bundles locally; core fetch covered by @remote install/sync scenarios",
-	// Pending-change review acts on auto-applied updates from a trusted remote
-	// awaiting review — a trust+update cycle. Covered at the operations layer in
-	// tests/integration bundle_apply.
-	"ctxloom bundle review":         "reviews pending changes from a trusted remote; covered in tests/integration bundle_apply",
-	"ctxloom bundle approve":        "approves pending changes from a trusted remote; covered in tests/integration bundle_apply",
-	"ctxloom bundle decline":        "declines pending changes from a trusted remote; covered in tests/integration bundle_apply",
-	"ctxloom bundle show-pending":   "shows pending changes from a trusted remote; covered in tests/integration bundle_apply",
+	"ctxloom remote update":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
+	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
+	"ctxloom remote vendor":         "vendors remote bundles locally; core fetch covered by @remote install/sync scenarios",
 	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/prompt/bundle distill paths cover the distiller",
 	"ctxloom tasks run":             "TTY-only interactive picker; only scriptable paths are covered",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",

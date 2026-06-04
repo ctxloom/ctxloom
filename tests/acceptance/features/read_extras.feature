@@ -29,12 +29,23 @@ Feature: Additional read and configuration commands
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a profile "dev" with bundle "demo"
-    When I run "ctxloom profile modify dev -d updated"
+    When I run "ctxloom profile modify dev -d updated-desc"
     Then the command succeeds
+    When I run "ctxloom profile show dev"
+    Then the output contains "updated-desc"
 
-  Scenario: Toggle MCP auto-registration
+  Scenario: Disabling MCP auto-registration removes the server on re-apply
     Given an initialized ctxloom project
-    When I run "ctxloom mcp auto-register --disable"
+    When I run "ctxloom manage hooks install"
     Then the command succeeds
-    When I run "ctxloom mcp auto-register"
+    And the file ".mcp.json" contains "ctxloom"
+    When I run "ctxloom manage mcp uninstall"
     Then the command succeeds
+    When I run "ctxloom manage hooks install"
+    Then the command succeeds
+    And the file ".mcp.json" does not contain "ctxloom"
+    When I run "ctxloom manage mcp install"
+    Then the command succeeds
+    When I run "ctxloom manage hooks install"
+    Then the command succeeds
+    And the file ".mcp.json" contains "ctxloom"

@@ -22,12 +22,12 @@ description: |
 notes: |
   This bundle ships two hooks:
 
-    1. SessionStart → ctxloom session bind
+    1. SessionStart → ctxloom hook session-bind
        Records the backend session_id ↔ harp mapping in
        ~/.ctxloom/sessions/index.yaml so resume and `session distill`
        can find the session.
 
-    2. PostFileEdit matcher=plan files → ctxloom tasks stamp-plan
+    2. PostFileEdit matcher=plan files → ctxloom hook stamp-plan
        Records the active session's harp name in the file's YAML
        frontmatter `sessions:` list. Plans and sessions cross-reference
        automatically.
@@ -37,29 +37,29 @@ notes: |
   TodoWrite auto-capture.
 
 installation: |
-  After install, run `ctxloom apply-hooks` (or restart your backend) so
-  the hooks are written into the backend's settings.json. The hooks are
-  safe to install before session harp-naming is active (stamp-plan no-ops
-  when CTXLOOM_SESSION_HARP is unset).
+  After install, run `ctxloom manage hooks install` (or restart your
+  backend) so the hooks are written into the backend's settings.json. The
+  hooks are safe to install before session harp-naming is active (stamp-plan
+  no-ops when CTXLOOM_SESSION_HARP is unset).
 
 hooks:
   session_start:
     # Fires once per backend session with the session_id and
-    # transcript_path in the JSON payload. ctxloom session bind reads
+    # transcript_path in the JSON payload. ctxloom hook session-bind reads
     # those, looks up CTXLOOM_SESSION_HARP from env, and records the
     # mapping in ~/.ctxloom/sessions/index.yaml. This is the primary
     # bind path — `ctxloom session distill` and the resume picker rely
     # on the resulting index entry. The MCP-side bind middleware and
     # the time-window fallback in `session distill` remain as defense
     # in depth.
-    - command: ctxloom session bind
+    - command: ctxloom hook session-bind
       type: command
   post_file_edit:
     # Matcher intentionally omitted — defaults to Edit|Write per
     # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file
     # filtering happens inside stamp-plan via memory.IsPlanFile so the
     # hook is cheap to install on every Edit/Write call.
-    - command: ctxloom tasks stamp-plan
+    - command: ctxloom hook stamp-plan
       type: command
 
 fragments:

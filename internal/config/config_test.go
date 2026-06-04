@@ -1453,7 +1453,7 @@ hooks:
       type: command
   post_file_edit:
     - matcher: ".*-plan\\.md$"
-      command: ctxloom tasks stamp-plan
+      command: ctxloom hook stamp-plan
       type: command
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
@@ -1524,7 +1524,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	require.NotEmpty(t, hooks.PostFileEdit, "tasks bundle must contribute a PostFileEdit hook (stamp-plan)")
 	foundStamp := false
 	for _, h := range hooks.PostFileEdit {
-		if strings.Contains(h.Command, "tasks stamp-plan") {
+		if strings.Contains(h.Command, "hook stamp-plan") {
 			foundStamp = true
 			assert.Equal(t, "bundle:builtin:tasks", h.SCM)
 		}

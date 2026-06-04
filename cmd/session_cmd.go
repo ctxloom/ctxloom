@@ -139,7 +139,7 @@ var sessionForgetCmd = &cobra.Command{
 // the documented hook payload. The compactor also forward-binds at
 // compact time as a backstop.
 var sessionBindCmd = &cobra.Command{
-	Use:    "bind",
+	Use:    "session-bind",
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -220,8 +220,12 @@ under the harp directory. Errors if the harp has no session_id bound
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd, sessionBindCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
+
+	// session-bind is a machine callback (SessionStart hook target), so it lives
+	// under the hidden `hook` namespace, not the user-facing `session` one.
+	hookCmd.AddCommand(sessionBindCmd)
 }
 
 // runSessionDistill is the cobra RunE for `ctxloom session distill <harp>`.
@@ -259,7 +263,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		backendName = cfg.GetDefaultLLM()
 	}
 
-	// session_id is recorded forward by the `ctxloom session bind`
+	// session_id is recorded forward by the `ctxloom hook session-bind`
 	// SessionStart hook (see sessionBindCmd), which reads it straight from
 	// the backend's documented hook payload. A harp with no bound ID never
 	// started a backend session under that hook — there is nothing to

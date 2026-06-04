@@ -66,6 +66,49 @@ func (e *TestEnvironment) SeedRemote(files map[string]string) (string, error) {
 	return "file://" + bare, nil
 }
 
+// AdvanceRemote pushes a second commit to a bare repo previously seeded by
+// SeedRemote, rewriting the given files. It is the error-returning analogue of
+// GitRepo.CommitFile for godog steps — it produces the multi-commit state that
+// `remote sync` detects and stages for review. bareDir is the bare repository
+// path (the SeedRemote URL with the file:// prefix stripped).
+func (e *TestEnvironment) AdvanceRemote(bareDir string, files map[string]string) error {
+	work, err := os.MkdirTemp(e.Root, "advance-*")
+	if err != nil {
+		return err
+	}
+	if err := runGitE("", "clone", bareDir, work); err != nil {
+		return err
+	}
+	for _, s := range [][]string{
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test User"},
+		{"config", "commit.gpgsign", "false"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	for rel, content := range files {
+		full := filepath.Join(work, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	for _, s := range [][]string{
+		{"add", "-A"},
+		{"commit", "-m", "advance"},
+		{"push", "origin", "main"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func runGitE(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	if dir != "" {

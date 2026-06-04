@@ -34,6 +34,30 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		return fileContains(c, false, rel, want)
 	})
 
+	ctx.Step(`^the file "([^"]*)" does not contain "([^"]*)"$`, func(c context.Context, rel, unwanted string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read file %q: %w", rel, err)
+		}
+		if strings.Contains(body, unwanted) {
+			return fmt.Errorf("file %q unexpectedly contains %q; content:\n%s", rel, unwanted, body)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the file "([^"]*)" contains "([^"]*)" exactly (\d+) times$`, func(c context.Context, rel, want string, n int) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read file %q: %w", rel, err)
+		}
+		if got := strings.Count(body, want); got != n {
+			return fmt.Errorf("file %q contains %q %d times, want %d; content:\n%s", rel, want, got, n, body)
+		}
+		return nil
+	})
+
 	ctx.Step(`^the file "([^"]*)" is valid YAML$`, func(c context.Context, rel string) error {
 		w := worldFrom(c)
 		body, err := w.env.ReadFile(rel)

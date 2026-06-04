@@ -351,8 +351,12 @@ func init() {
 
 	tasksRunCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Leave the task's status unchanged instead of marking it In Progress")
 
-	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksEditCmd, tasksSummaryCmd, tasksRunCmd, tasksStampPlanCmd)
+	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksEditCmd, tasksSummaryCmd, tasksRunCmd)
 	rootCmd.AddCommand(tasksCmd)
+
+	// stamp-plan is a machine callback (PostFileEdit hook target), so it lives
+	// under the hidden `hook` namespace, not the user-facing `tasks` one.
+	hookCmd.AddCommand(tasksStampPlanCmd)
 }
 
 // parseEditPayload extracts tool_input.file_path from a Claude Code hook

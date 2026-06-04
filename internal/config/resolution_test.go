@@ -56,7 +56,7 @@ func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 }
 
 // TestResolveBundleHooks_BuiltinsUnconditional pins the always-on path: even a
-// bare config with no profiles surfaces the built-in bundle hooks (session bind
+// bare config with no profiles surfaces the built-in bundle hooks (session-bind
 // + plan stamping) shipped embedded in the binary.
 func TestResolveBundleHooks_BuiltinsUnconditional(t *testing.T) {
 	hooks := (&Config{}).ResolveBundleHooks()

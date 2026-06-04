@@ -41,8 +41,9 @@ var injectContextPart int
 var injectContextTotal int
 
 var hookInjectContextCmd = &cobra.Command{
-	Use:   "inject-context <hash>",
-	Short: "Inject session context for AI tool hooks",
+	Use:    "inject-context <hash>",
+	Hidden: true, // Machine callback (SessionStart hook) - not for direct use
+	Short:  "Inject session context for AI tool hooks",
 	Long: `Reads the context file (.ctxloom/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
@@ -186,7 +187,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"instructions._" +
 				"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
 				"bundles, profiles, fragments, and prompts; `ctxloom remote sync`, `ctxloom remote " +
-				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom hook apply`. The ctxloom " +
+				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
 				"MCP tools are only for retrieving context during the session — searching and loading " +
 				"fragments, prompts (skills), and prior session history — plus task tracking._"
 			if total > 1 {

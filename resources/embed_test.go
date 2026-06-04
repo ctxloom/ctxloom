@@ -117,7 +117,7 @@ func TestGetBuiltinBundle(t *testing.T) {
 	}
 	// It ships the stamp-plan hook; it must NOT ship a TodoWrite capture
 	// hook (auto-capture was removed — tasks go through the MCP tools/CLI).
-	if !strings.Contains(string(data), "tasks stamp-plan") {
+	if !strings.Contains(string(data), "hook stamp-plan") {
 		t.Error("tasks bundle should ship the stamp-plan hook")
 	}
 	if strings.Contains(string(data), "tasks capture") {

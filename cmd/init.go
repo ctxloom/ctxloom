@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -55,69 +56,24 @@ var (
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
-	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
-	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
-	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
+	bindInitFlags(initCmd)
+}
+
+// bindInitFlags binds the init flag set to cmd. Shared by the top-level `init`
+// alias and `manage init` so both surfaces accept the same options against the
+// same package-level flag vars (a cobra command has exactly one parent, so the
+// alias must be a distinct command sharing the operation, not the *cobra.Command).
+func bindInitFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
+	cmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
+	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
+	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
+	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
 func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
-}
-
-// ensureGitignoreEntry adds ctxloom's private working-state paths to .gitignore
-// if not already present: the ephemeral cache dir (synced bundles, session and
-// context data) and the project-id marker (ADR 0025 — private identity must
-// never ride a distributable tree). Idempotent: only the missing entries are
-// appended.
-func ensureGitignoreEntry(projectDir string) error {
-	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	comment := "# ctxloom private working state (synced bundles, session/context, project id)"
-	wanted := []string{".ctxloom/ephemeral/", ".ctxloom/project-id"}
-
-	// Read existing .gitignore if it exists.
-	content, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	present := make(map[string]bool)
-	for _, line := range strings.Split(string(content), "\n") {
-		present[strings.TrimSpace(line)] = true
-	}
-	var missing []string
-	for _, e := range wanted {
-		if !present[e] {
-			missing = append(missing, e)
-		}
-	}
-	if len(missing) == 0 {
-		return nil // all present
-	}
-
-	// Append the missing entries under a single comment.
-	f, err := os.OpenFile(gitignorePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	// Add newline if file doesn't end with one.
-	if len(content) > 0 && content[len(content)-1] != '\n' {
-		if _, err := f.WriteString("\n"); err != nil {
-			return err
-		}
-	}
-	if _, err := fmt.Fprintf(f, "\n%s\n", comment); err != nil {
-		return err
-	}
-	for _, e := range missing {
-		if _, err := fmt.Fprintf(f, "%s\n", e); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // initPrompts handles interactive user prompts during init.
@@ -532,8 +488,8 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	cloneConfiguredRemotes(cmd)
 	applyInitHooks(cmd)
 
-	// Update .gitignore to exclude .ctxloom/ephemeral/ (synced bundles, session data).
-	if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
+	// Exclude ctxloom's private working state from version control.
+	if err := gitignore.Ensure(filepath.Dir(appDir), gitignore.Comment, gitignore.PrivateStatePatterns...); err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
 	}
 

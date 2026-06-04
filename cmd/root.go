@@ -44,8 +44,9 @@ CONTENT COMMANDS
   profile       Manage profiles (list, show, create, delete, edit, install)
 
 INFRASTRUCTURE
+  manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
   remote        Manage remotes (add, remove, list, sync, lock, update)
-  mcp           Manage MCP server configs (list, add, remove, show)
+  mcp           Run ctxloom as an MCP server
 
 WORKFLOW
   run           Assemble context and run AI

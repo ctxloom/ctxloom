@@ -154,11 +154,61 @@ test-integration-run PATTERN: build
 test-acceptance: build
     go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
-# Acceptance suite including @live scenarios, which exercise the real Claude agent
-# for distillation/compaction with loose, invariant-based assertions. @live
-# scenarios self-skip when no ANTHROPIC_API_KEY or ~/.claude credentials exist.
-test-acceptance-live: build
-    ACCEPTANCE_TAGS="" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+# Build the acceptance image (devcontainer toolchain + Node + the Claude Code
+# agent), run as a non-root `ctxloom` user. The ctxloom binary is NOT baked in;
+# it is built at runtime from the mounted workspace by test-acceptance-live-container.
+container-build-acceptance: dev-image
+    {{container_cmd}} build -t {{registry}}/ctxloom-acceptance:latest \
+        --build-arg BASE_IMAGE={{devcontainer_image}}:latest \
+        -f .devcontainer/acceptance.Dockerfile .
+
+# Run the full acceptance suite (incl. @live real-agent scenarios) inside the
+# acceptance container as the non-root `ctxloom` user, on THIS machine. Builds
+# the image first. Your ~/.claude is copied to a world-readable staging dir and
+# mounted read-only — under rootless docker the non-root user maps to a subuid
+# that cannot read your 0600 credentials directly. ctxloom is built at runtime
+# from the read-only workspace mount; all writes go to the container HOME / tmp.
+test-acceptance-live-container: container-build-acceptance
+    #!/usr/bin/env bash
+    set -euo pipefail
+    staging="$(mktemp -d)"
+    trap 'chmod -R u+w "$staging" 2>/dev/null; rm -rf "$staging"' EXIT
+
+    # Credentials: copy only the files the live steps read (copyClaudeCredentials),
+    # not the whole ~/.claude — it holds large logs and dangling symlinks.
+    mkdir -p "$staging/.claude"
+    for f in .credentials.json settings.json config.json; do
+        if [ -f "$HOME/.claude/$f" ]; then cp "$HOME/.claude/$f" "$staging/.claude/$f"; fi
+    done
+    if [ -f "$HOME/.claude.json" ]; then cp "$HOME/.claude.json" "$staging/.claude.json"; fi
+
+    # Source: stage a copy of the working tree (minus .git) so the non-root user
+    # can read it. Rootless docker maps that user to a subuid, and the working
+    # tree has mixed perms (some 0600 files) it could not otherwise read; staging
+    # + a+rX avoids mutating your tree.
+    mkdir -p "$staging/src"
+    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
+    chmod -R a+rX "$staging"
+
+    mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/src:/workspace:ro")
+    if [ -f "$staging/.claude.json" ]; then mounts+=(-v "$staging/.claude.json:/home/ctxloom/.claude.json:ro"); fi
+    # Reuse the host module cache read-only so the runtime build doesn't re-download.
+    if [ -d "$HOME/go/pkg/mod" ]; then mounts+=(-v "$HOME/go/pkg/mod:/home/ctxloom/go/pkg/mod:ro"); fi
+
+    {{container_cmd}} run --rm \
+        "${mounts[@]}" \
+        -e HOME=/home/ctxloom \
+        -e CTXLOOM_ACCEPTANCE_LIVE=1 \
+        -e ACCEPTANCE_TAGS="~@network" \
+        -e GOCACHE=/home/ctxloom/.cache/go-build \
+        -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
+        -e GOPATH=/home/ctxloom/go \
+        -e GOFLAGS=-mod=readonly \
+        -w /workspace \
+        {{registry}}/ctxloom-acceptance:latest \
+        bash -c 'set -e; \
+            go build -o /home/ctxloom/ctxloom . && \
+            CTXLOOM_BINARY=/home/ctxloom/ctxloom go test -tags "acceptance integration" -count=1 ./tests/acceptance/...'
 
 # Run a single package's tests under -race (fast local iteration)
 test-pkg PKG *ARGS:

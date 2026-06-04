@@ -19,17 +19,20 @@ Feature: Bundles
     Then the command succeeds
     And the output contains "demo"
 
-  Scenario: View a bundle
+  Scenario: View a bundle shows its fragment
     Given an initialized ctxloom project
     And a bundle "demo" exists
+    And a fragment "testing" in bundle "demo" exists
     When I run "ctxloom bundle view demo"
     Then the command succeeds
+    And the output contains "testing"
 
-  Scenario: Pin and unpin a bundle
+  Scenario: Pinning a local bundle reports it is not lockfile-tracked
     Given an initialized ctxloom project
     And a bundle "demo" exists
     When I run "ctxloom bundle pin demo"
     Then the command succeeds
+    And the output contains "nothing to pin"
     When I run "ctxloom bundle unpin demo"
     Then the command succeeds
 

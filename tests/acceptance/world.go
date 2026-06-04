@@ -26,6 +26,8 @@ type World struct {
 	lastRes      string             // last resources/read text
 	lastMime     string             // last resources/read MIME type
 	lastTaskHarp string             // harp_id of the most recent task tool result
+
+	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
 }
 
 type worldKey struct{}

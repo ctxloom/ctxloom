@@ -137,10 +137,6 @@ test-integration: build
 test-acceptance: build
     go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
-# Acceptance suite including @live (real Claude agent) scenarios.
-test-acceptance-live: build
-    ACCEPTANCE_TAGS="" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
-
 # ===== Validation =====
 
 # Validate fragment YAML files

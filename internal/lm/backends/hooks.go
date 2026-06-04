@@ -20,6 +20,15 @@ type SettingsWriter interface {
 	// bundleMCP contains MCP servers resolved from profile bundles.
 	WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error
 
+	// RemoveSettings strips every ctxloom-managed hook, statusline, and MCP
+	// server from the backend's config files, preserving user-defined entries.
+	// Absent config files are left absent (uninstall never creates files).
+	RemoveSettings(projectDir string) error
+
+	// Status reports which ctxloom-managed artifacts are currently wired into
+	// the backend's config files.
+	Status(projectDir string) (SettingsStatus, error)
+
 	// WriteHooks writes hooks to the backend's config file (backwards compatible).
 	WriteHooks(cfg *config.HooksConfig, projectDir string) error
 
@@ -35,7 +44,8 @@ type HookWriter = SettingsWriter
 
 // settingsOptions holds configuration for settings operations.
 type settingsOptions struct {
-	fs afero.Fs
+	fs                 afero.Fs
+	statusLineDisabled bool
 }
 
 // SettingsOption is a functional option for settings operations.
@@ -49,6 +59,15 @@ func WithSettingsFS(fs afero.Fs) SettingsOption {
 	}
 }
 
+// WithStatusLineDisabled controls whether the ctxloom HUD statusline is managed.
+// When disabled, the writer installs no statusline and clears any it previously
+// managed, so the user's own (or no) statusline stands.
+func WithStatusLineDisabled(disabled bool) SettingsOption {
+	return func(o *settingsOptions) {
+		o.statusLineDisabled = disabled
+	}
+}
+
 // WriteSettings writes hooks and MCP servers for the specified backend.
 // If the backend doesn't support settings, this is a no-op.
 // bundleMCP contains MCP servers resolved from profile bundles.
@@ -59,27 +78,34 @@ func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MC
 		opt(options)
 	}
 
-	writer := GetSettingsWriter(backendName, options.fs)
+	writer := newSettingsWriter(backendName, options)
 	if writer == nil {
 		return nil // Backend doesn't support settings
 	}
 	return writer.WriteSettings(hooks, mcp, bundleMCP, projectDir)
 }
 
-// WriteHooks writes hooks for the specified backend (backwards compatible).
 // settingsWriterRegistry maps backend names to their settings writer constructors.
-var settingsWriterRegistry = map[string]func(afero.Fs) SettingsWriter{
-	"claude-code": func(fs afero.Fs) SettingsWriter { return &ClaudeCodeHookWriter{FS: fs} },
-	"gemini":      func(fs afero.Fs) SettingsWriter { return &GeminiHookWriter{FS: fs} },
+var settingsWriterRegistry = map[string]func(*settingsOptions) SettingsWriter{
+	"claude-code": func(o *settingsOptions) SettingsWriter {
+		return &ClaudeCodeHookWriter{FS: o.fs, statusLineDisabled: o.statusLineDisabled}
+	},
+	"gemini": func(o *settingsOptions) SettingsWriter { return &GeminiHookWriter{FS: o.fs} },
+}
+
+// newSettingsWriter constructs the named backend's writer from the resolved
+// options, or nil if the backend doesn't support settings.
+func newSettingsWriter(name string, o *settingsOptions) SettingsWriter {
+	if constructor, ok := settingsWriterRegistry[name]; ok {
+		return constructor(o)
+	}
+	return nil
 }
 
 // GetSettingsWriter returns a SettingsWriter for the named backend, or nil if not supported.
 // If fs is provided, it will be used for filesystem operations; otherwise the OS filesystem is used.
 func GetSettingsWriter(name string, fs afero.Fs) SettingsWriter {
-	if constructor, ok := settingsWriterRegistry[name]; ok {
-		return constructor(fs)
-	}
-	return nil
+	return newSettingsWriter(name, &settingsOptions{fs: fs})
 }
 
 // BackendsWithSettings returns the names of all backends that support settings.
@@ -160,6 +186,8 @@ func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
+	statusLineDisabled bool
 }
 
 // getFS returns the filesystem to use, defaulting to the OS filesystem.
@@ -220,8 +248,10 @@ type claudeCodeHookMatcher struct {
 // Note: The SCM field is intentionally NOT serialized to JSON (json:"-").
 // Claude Code uses Zod schema validation with .strict() mode when validating
 // edits to settings.json, which rejects unknown fields. Instead of relying on
-// a marker field, we identify ctxloom-managed hooks by their command pattern
-// (contains "ctxloom" AND "inject-context") via isCtxloomManagedHook().
+// a marker field, we identify ctxloom-managed hooks by their executable token
+// (the command's first word resolves to `ctxloom`) via isCtxloomManagedHook().
+// This is path-agnostic: any `ctxloom <subcommand>` hook is recognized, so the
+// callback subcommand can move without breaking detection or cleanup.
 // See: claude-code-src/src/utils/settings/validation.ts:193
 type claudeCodeHook struct {
 	Type    string `json:"type,omitempty"`
@@ -455,12 +485,19 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
-// isCtxloomManagedStatusLine returns true if the statusLine command appears to be ctxloom-managed.
+// isCtxloomManagedStatusLine returns true if the statusLine command appears to
+// be ctxloom-managed. It matches both the current `hook hud` path and the legacy
+// `meta hud` one so a statusline written before the callback consolidation is
+// still recognized and replaced (not mistaken for a user-owned statusline) on
+// the next apply.
 func isCtxloomManagedStatusLine(sl *claudeCodeStatusLine) bool {
 	if sl == nil {
 		return false
 	}
-	return strings.Contains(sl.Command, "ctxloom") && strings.Contains(sl.Command, "meta hud")
+	if !strings.Contains(sl.Command, "ctxloom") {
+		return false
+	}
+	return strings.Contains(sl.Command, "hook hud") || strings.Contains(sl.Command, "meta hud")
 }
 
 // ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
@@ -471,12 +508,19 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 		return
 	}
 
+	// Opt-out: don't manage a statusline. Clear any previously ctxloom-managed
+	// one so the user ends up with their own choice (or none).
+	if w.statusLineDisabled {
+		settings.StatusLine = nil
+		return
+	}
+
 	// Set or update ctxloom-managed statusLine. Bare `ctxloom` resolves
 	// via PATH at fire time — see GetExecutablePath for the rationale
 	// behind not baking an absolute path into the file.
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
-		Command: ctxloomBinary + " meta hud",
+		Command: ctxloomBinary + " hook hud",
 	}
 }
 
@@ -899,13 +943,13 @@ var ctxloomMCPArgs = []string{"mcp"}
 // (bare, absolute path, or quoted) as ctxloom-managed. Examples:
 //
 //	ctxloom hook inject-context …
-//	ctxloom tasks stamp-plan
-//	"/usr/bin/ctxloom" meta hud
-//	/home/me/go/bin/ctxloom session bind
+//	ctxloom hook stamp-plan
+//	"/usr/bin/ctxloom" hook hud
+//	/home/me/go/bin/ctxloom hook session-bind
 //
 // Without this broad recognition, removeCtxloomHooks only catches the
-// legacy inject-context entry and bundle-shipped hooks (session bind,
-// stamp-plan) accumulate duplicates on every apply-hooks run.
+// inject-context entry and bundle-shipped hooks (session-bind, stamp-plan)
+// accumulate duplicates on every apply-hooks run.
 func isCtxloomManagedHook(command string) bool {
 	exe := firstShellToken(command)
 	if exe == "" {

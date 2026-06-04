@@ -349,7 +349,7 @@ cat .claude/settings.json | jq '.mcpServers'
 
 **Ensure ctxloom is registered:**
 ```bash
-ctxloom mcp auto-register --enable
+ctxloom manage mcp install
 ctxloom init
 ```
 
@@ -423,7 +423,7 @@ cat ~/.ctxloom/config.yaml
 yamllint .ctxloom/config.yaml
 
 # Or test by showing config
-ctxloom config show
+ctxloom manage config show
 ```
 
 ### Environment Variables Not Working

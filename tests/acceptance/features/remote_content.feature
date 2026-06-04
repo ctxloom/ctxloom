@@ -51,3 +51,33 @@ Feature: Remote content
     And a git remote "origin" serving a ctxloom bundle
     When the agent reads resource "ctxloom://remotes/origin/contents"
     Then the resource contains "demo"
+
+  Scenario: A remote change is staged for review and approved
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote sync"
+    And the remote "origin" advances its bundle
+    When I run "ctxloom remote sync"
+    Then the command succeeds
+    When I run "ctxloom bundle review"
+    Then the command succeeds
+    And the output contains "pending review"
+    When I run "ctxloom bundle show-pending origin/demo"
+    Then the command succeeds
+    When I run "ctxloom bundle approve"
+    Then the command succeeds
+    When I run "ctxloom bundle review"
+    Then the output contains "No bundle changes pending review"
+
+  Scenario: A staged remote change can be declined
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote sync"
+    And the remote "origin" advances its bundle
+    And I run "ctxloom remote sync"
+    When I run "ctxloom bundle decline"
+    Then the command succeeds
+    When I run "ctxloom bundle review"
+    Then the output contains "No bundle changes pending review"

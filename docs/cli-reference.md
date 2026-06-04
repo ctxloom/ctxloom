@@ -256,43 +256,50 @@ ctxloom bundle export my-bundle ./exported/
 
 ### Infrastructure Commands
 
-#### `ctxloom mcp`
+#### `ctxloom manage`
 
-Run as MCP server or manage MCP configurations.
+Install, inspect, and remove ctxloom's project harness. Everything that mutates
+the harness (`.ctxloom`, hooks, statusline, MCP registration, command files,
+`.gitignore`, config) lives here.
 
 | Subcommand | Description |
 |------------|-------------|
-| `serve` | Run as MCP server over stdio |
-| `list` | List configured MCP servers |
-| `add <name>` | Add MCP server |
-| `remove <name>` | Remove MCP server |
-| `show <name>` | Show MCP server details |
-| `auto-register` | Configure auto-registration |
+| `init` | Scaffold a new `.ctxloom` directory (top-level `ctxloom init` is an alias) |
+| `install [--print]` | One-shot non-interactive setup: scaffold + gitignore + hooks/MCP/statusline |
+| `uninstall` | Remove ctxloom hooks, statusline, MCP entry, and command files |
+| `status` | Show what ctxloom has wired into the project |
+| `hooks [install\|uninstall\|status]` | Manage ctxloom backend hooks |
+| `mcp [install\|uninstall]` | Toggle auto-registration of ctxloom's own MCP server |
+| `mcp servers [add\|remove\|list\|show]` | Manage configured MCP servers |
+| `statusline [install\|uninstall]` | Toggle ctxloom's HUD statusline (disable to keep your own) |
+| `config [show\|get\|edit\|init]` | Show or modify configuration |
+| `gitignore install` | Add ctxloom's private-state and transient-artifact ignores |
+
+**Examples:**
+```bash
+ctxloom manage install                      # Wire ctxloom into this project
+ctxloom manage status                       # What's wired in?
+ctxloom manage hooks install                # Re-apply hooks after editing bundles
+ctxloom manage mcp servers add my-server -c npx -a my-mcp
+ctxloom manage mcp uninstall                # Stop auto-registering ctxloom's server
+ctxloom manage statusline uninstall         # Keep your own statusline, not ctxloom's HUD
+ctxloom manage config show
+ctxloom manage config get llm
+ctxloom manage uninstall                    # Remove integration (keeps .ctxloom)
+```
+
+#### `ctxloom mcp`
+
+Run ctxloom as an MCP server over stdio (the runtime entrypoint referenced by
+generated `.mcp.json`). Server-config management lives under `ctxloom manage mcp`.
+
+| Subcommand | Description |
+|------------|-------------|
+| `serve` | Run as MCP server over stdio (same as bare `ctxloom mcp`) |
 
 **Examples:**
 ```bash
 ctxloom mcp serve                           # Run MCP server
-ctxloom mcp list
-ctxloom mcp add my-server -c npx -a my-mcp
-ctxloom mcp auto-register --enable
-```
-
-#### `ctxloom config`
-
-Show or modify configuration.
-
-| Subcommand | Description |
-|------------|-------------|
-| `show` | Show full configuration |
-| `get <section>` | Get specific section |
-
-**Sections:** `defaults`, `llm`, `mcp`, `profiles`
-
-**Examples:**
-```bash
-ctxloom config show
-ctxloom config get defaults
-ctxloom config get llm
 ```
 
 ---

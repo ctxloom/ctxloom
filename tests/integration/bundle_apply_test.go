@@ -114,7 +114,7 @@ func TestBundleApply_InheritedProfile(t *testing.T) {
 // required nested shape (event → [{hooks:[{type:"command", command}]}]). A flat
 // {command} object — the shape ctxloom emitted before — is silently ignored by
 // Gemini, so this is the contract that makes Gemini hooks actually fire. The
-// built-in `session bind` hook (the recovery producer) must also be present.
+// built-in `hook session-bind` hook (the recovery producer) must also be present.
 func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
 	_, geminiJSON, _ := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
@@ -142,11 +142,11 @@ func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
 			if strings.Contains(e.Command, "demo-hook") {
 				sawBundleHook = true
 			}
-			if strings.Contains(e.Command, "session bind") {
+			if strings.Contains(e.Command, "session-bind") {
 				sawSessionBind = true
 			}
 		}
 	}
 	assert.True(t, sawBundleHook, "bundle session_start hook must reach .gemini in nested form")
-	assert.True(t, sawSessionBind, "built-in `session bind` (recovery producer) must reach .gemini")
+	assert.True(t, sawSessionBind, "built-in `hook session-bind` (recovery producer) must reach .gemini")
 }

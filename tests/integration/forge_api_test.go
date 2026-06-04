@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests drive the go-github / gitlab-client fetchers through a real HTTP
-// layer (the in-process ForgeStub) to pin the forge-error-shape detection from
-// mushy-unvented-cake: a 404 must surface as errs.ErrRemoteContentNotFound and a
-// 200 must round-trip content. Gitea can't exercise the GitHub/GitLab API error
-// envelopes, so the stub stands in for them.
+// These tests drive the go-github fetcher through a real HTTP layer (the
+// in-process ForgeStub) to pin forge-error-shape detection: a 404 must surface
+// as errs.ErrRemoteContentNotFound and a 200 must round-trip content. Non-GitHub
+// hosts use the generic git-clone fetcher (covered in remote_transport_test.go),
+// so only the GitHub API envelope is exercised here.
 
 func newGitHubFetcher(t *testing.T, stub *testenv.ForgeStub) *remote.GitHubFetcher {
 	t.Helper()
@@ -25,13 +25,6 @@ func newGitHubFetcher(t *testing.T, stub *testenv.ForgeStub) *remote.GitHubFetch
 	// and (per the constructor) no auth fallback is created, so a stub 4xx is
 	// returned verbatim rather than retried.
 	return remote.NewGitHubFetcher("test-token", remote.WithHTTPClient(stub.GitHubHTTPClient()))
-}
-
-func newGitLabFetcher(t *testing.T, stub *testenv.ForgeStub) *remote.GitLabFetcher {
-	t.Helper()
-	f, err := remote.NewGitLabFetcher(stub.BaseURL(), "test-token")
-	require.NoError(t, err)
-	return f
 }
 
 func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
@@ -75,28 +68,8 @@ func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	})
 }
 
-func TestForgeAPI_GitLab_NotFoundMapsToSentinel(t *testing.T) {
-	stub := testenv.NewForgeStub(t)
-	stub.AddFile("ctxloom/bundles/present.yaml", []byte("version: 1.0.0\n"))
-	f := newGitLabFetcher(t, stub)
-	ctx := context.Background()
-
-	t.Run("FetchFile happy path round-trips content", func(t *testing.T) {
-		data, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/present.yaml", "main")
-		require.NoError(t, err)
-		assert.Equal(t, "version: 1.0.0\n", string(data))
-	})
-
-	t.Run("FetchFile 404 -> ErrRemoteContentNotFound", func(t *testing.T) {
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/missing.yaml", "main")
-		require.Error(t, err)
-		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
-	})
-}
-
 // TestForgeAPI_Unauthorized confirms a 401 envelope is surfaced as an error
-// (not silently treated as "not found"). The GitHub helper is is401Error; the
-// GitLab path checks resp.StatusCode == 401 inline.
+// (not silently treated as "not found"). The GitHub helper is is401Error.
 func TestForgeAPI_Unauthorized(t *testing.T) {
 	ctx := context.Background()
 
@@ -107,15 +80,6 @@ func TestForgeAPI_Unauthorized(t *testing.T) {
 		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/x.yaml", "main")
 		require.Error(t, err)
 		// A 401 is not a 404 — it must NOT be mistaken for missing content.
-		assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound)
-	})
-
-	t.Run("gitlab", func(t *testing.T) {
-		stub := testenv.NewForgeStub(t)
-		stub.Unauthorized = true
-		f := newGitLabFetcher(t, stub)
-		_, err := f.FetchFile(ctx, "owner", "repo", "ctxloom/bundles/x.yaml", "main")
-		require.Error(t, err)
 		assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
 }

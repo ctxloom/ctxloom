@@ -148,6 +148,18 @@ test-integration: build
 test-integration-run PATTERN: build
     go test -v -tags integration -run '{{PATTERN}}' ./tests/integration/...
 
+# Run the full-stack acceptance suite (godog): asserts each change across files,
+# CLI, and mock-agent MCP traffic. Hermetic by default (@live scenarios skipped).
+# Build runs in the devcontainer; the suite runs on the host like integration.
+test-acceptance: build
+    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
+# Acceptance suite including @live scenarios, which exercise the real Claude agent
+# for distillation/compaction with loose, invariant-based assertions. @live
+# scenarios self-skip when no ANTHROPIC_API_KEY or ~/.claude credentials exist.
+test-acceptance-live: build
+    ACCEPTANCE_TAGS="" go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # Run a single package's tests under -race (fast local iteration)
 test-pkg PKG *ARGS:
     go test -race {{ARGS}} {{PKG}}

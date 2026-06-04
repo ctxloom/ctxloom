@@ -133,30 +133,35 @@ func ParseRepoURL(repoURL string) (owner, repo string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// NormalizeURL ensures a URL has a scheme and removes trailing .git.
+// NormalizeURL ensures a URL has a scheme and removes the trailing .git for
+// HTTP(S) remotes. A URL that already carries an explicit non-HTTP scheme
+// (file://, ssh://, git://) is preserved verbatim: those transports clone the
+// path as given, and a local bare repository is literally named "<name>.git",
+// so stripping the suffix or forcing https:// would break the clone.
 func NormalizeURL(repoURL string) string {
-	// Handle shorthand
+	// Shorthand owner/repo -> github.
 	if !strings.Contains(repoURL, "://") && !strings.Contains(repoURL, "@") {
 		if strings.Contains(repoURL, "/") {
-			return "https://github.com/" + repoURL
+			return "https://github.com/" + strings.TrimSuffix(repoURL, ".git")
 		}
 	}
 
-	// Handle SSH URLs - convert to HTTPS
+	// SSH scp-like syntax (git@host:owner/repo[.git]) -> https.
 	if strings.HasPrefix(repoURL, "git@") {
-		// git@github.com:owner/repo.git -> https://github.com/owner/repo
 		repoURL = strings.TrimPrefix(repoURL, "git@")
 		repoURL = strings.Replace(repoURL, ":", "/", 1)
-		repoURL = "https://" + repoURL
+		return "https://" + strings.TrimSuffix(repoURL, ".git")
 	}
 
-	// Remove .git suffix
-	repoURL = strings.TrimSuffix(repoURL, ".git")
-
-	// Ensure scheme
-	if !strings.HasPrefix(repoURL, "http://") && !strings.HasPrefix(repoURL, "https://") {
-		repoURL = "https://" + repoURL
+	// Already carries an explicit scheme. Only HTTP(S) gets the cosmetic .git
+	// trim (a GitHub convention); every other transport keeps its path intact.
+	if strings.Contains(repoURL, "://") {
+		if strings.HasPrefix(repoURL, "http://") || strings.HasPrefix(repoURL, "https://") {
+			return strings.TrimSuffix(repoURL, ".git")
+		}
+		return repoURL
 	}
 
-	return repoURL
+	// No scheme, not shorthand, not scp-like: assume an HTTPS host.
+	return "https://" + strings.TrimSuffix(repoURL, ".git")
 }

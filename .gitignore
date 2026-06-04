@@ -60,3 +60,7 @@ coverage.raw.out
 
 # ctxloom ephemeral data (synced bundles, session data, context files)
 .ctxloom/ephemeral/
+
+# ctxloom private working state (synced bundles, session/context, project id)
+*.ctxloom.bak
+.gemini/

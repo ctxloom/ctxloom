@@ -454,6 +454,30 @@ remotes:
 // CheckMissingDependencies is a read-only operation that identifies what's
 // missing without downloading anything. Useful for status reporting.
 
+// fakeBundleSource is a test BundleByteSource whose accessibility is driven by
+// a fixed set of "readable" bundle names. A bundle is installed only when its
+// content reads back without error, mirroring the production rule that a
+// lockfile entry alone is not enough — the content must be retrievable at the
+// locked address.
+type fakeBundleSource struct {
+	readable map[string]bool
+}
+
+func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
+	if f.readable[name] {
+		return []byte("version: 1"), nil
+	}
+	return nil, fmt.Errorf("%w: %s", remote.ErrBundleNotInLockfile, name)
+}
+
+func (f fakeBundleSource) LockEntryFor(string) (remote.LockEntry, bool) {
+	return remote.LockEntry{}, false
+}
+
+func (f fakeBundleSource) ListBundleNames() []string { return nil }
+
+func (f fakeBundleSource) HasBundle(name string) bool { return f.readable[name] }
+
 // TestCheckMissingDependencies verifies detection of missing vs installed bundles.
 func TestCheckMissingDependencies(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -470,15 +494,15 @@ func TestCheckMissingDependencies(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 	}
 
-	// Create directories
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
 
-	// Install one bundle
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/security.yaml", []byte("version: 1"), 0644)
+	// One bundle's content is retrievable at its locked address, the other's
+	// is not.
+	reader := fakeBundleSource{readable: map[string]bool{"github/security": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
-		FS: fs,
+		FS:           fs,
+		BundleReader: reader,
 	})
 	if err != nil {
 		t.Fatalf("CheckMissingDependencies failed: %v", err)
@@ -509,13 +533,13 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 	}
 
-	// Create directories and install bundle
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
+
+	reader := fakeBundleSource{readable: map[string]bool{"github/go-tools": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
-		FS: fs,
+		FS:           fs,
+		BundleReader: reader,
 	})
 	if err != nil {
 		t.Fatalf("CheckMissingDependencies failed: %v", err)
@@ -527,6 +551,45 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 
 	if result.Count != 0 {
 		t.Errorf("expected 0 missing, got %d", result.Count)
+	}
+}
+
+// TestCheckMissingDependencies_DanglingLockEntry is the regression guard for the
+// re-prompt-on-every-startup bug: a bundle recorded in the lockfile but whose
+// content is not retrievable at the locked address must report as missing, not
+// installed. The fake source returns an error for the bundle name, standing in
+// for a SHA that is absent from the clone cache.
+func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"github/go-tools"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	// Empty readable set: the entry exists conceptually but content cannot be
+	// read back.
+	reader := fakeBundleSource{readable: map[string]bool{}}
+
+	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
+		FS:           fs,
+		BundleReader: reader,
+	})
+	if err != nil {
+		t.Fatalf("CheckMissingDependencies failed: %v", err)
+	}
+
+	if result.Status != "missing" {
+		t.Errorf("expected status 'missing', got %q", result.Status)
+	}
+	if result.Count != 1 || len(result.Missing) != 1 || result.Missing[0].Reference != "github/go-tools" {
+		t.Errorf("expected github/go-tools missing, got %v", result.Missing)
 	}
 }
 

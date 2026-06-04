@@ -347,7 +347,7 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 
 // TestClaudeCodeHookWriter_DedupsBundleShippedHooks is the regression
 // guard for the apply-hooks deduplication bug fixed in 3b6a7bf:
-// isCtxloomManagedHook previously matched only inject-context, so
+// isCtxloomManaged previously matched only inject-context, so
 // bundle-shipped hooks (`ctxloom session bind`, `ctxloom tasks
 // stamp-plan`) accumulated duplicates on every WriteHooks call.
 //
@@ -523,24 +523,31 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		for k, h := range hooks {
 			assert.Containsf(t, h.Command, fmt.Sprintf("--part %d --of %d", k+1, n),
 				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
-			assert.Truef(t, isCtxloomManagedHook(h.Command),
+			assert.Truef(t, isCtxloomManaged(h.Command),
 				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
 			assert.Equal(t, ContextInjectionTimeout, h.Timeout)
 		}
 	})
 }
 
-// TestIsCtxloomManagedHook covers the predicate that drives the dedup
-// pass. Pre-3b6a7bf this only matched inject-context.
-func TestIsCtxloomManagedHook(t *testing.T) {
+// TestIsCtxloomManaged covers the single predicate driving cleanup across
+// hooks, the statusLine, and the MCP server. Any command whose executable
+// is `ctxloom` is ours, regardless of verb — so a slot whose verb drifted
+// (the legacy `ctxloom hook hud` statusLine) still migrates forward instead
+// of being mistaken for user-authored.
+func TestIsCtxloomManaged(t *testing.T) {
 	cases := map[string]bool{
-		// All ctxloom invocations are managed.
+		// All ctxloom invocations are managed — hooks, statusLine, MCP.
 		"ctxloom hook inject-context --project /p hash": true,
 		"ctxloom session bind":                          true,
 		"ctxloom tasks stamp-plan":                      true,
-		`"/usr/bin/ctxloom" meta hud`:                   true,
-		"/home/me/go/bin/ctxloom session bind":          true,
-		`"C:\Tools\ctxloom.exe" tasks stamp-plan`:       true,
+		"ctxloom meta hud":                              true,
+		"ctxloom mcp":                                   true,
+		// Legacy statusLine verb that must still migrate forward.
+		"ctxloom hook hud":                        true,
+		`"/usr/bin/ctxloom" meta hud`:             true,
+		"/home/me/go/bin/ctxloom session bind":    true,
+		`"C:\Tools\ctxloom.exe" tasks stamp-plan`: true,
 		// Quoted executable path containing spaces — strings.Fields used to
 		// split this mid-path and miss it, leaving dup hooks to accumulate.
 		`"/Apps/My Tools/ctxloom" mcp`:              true,
@@ -549,11 +556,12 @@ func TestIsCtxloomManagedHook(t *testing.T) {
 		"echo 'user hook'":                   false,
 		"node /opt/somewhere/script.js":      false,
 		"/usr/local/bin/ctxloomctl whatever": false,
+		"starship prompt":                    false,
 		"":                                   false,
 	}
 	for cmd, want := range cases {
-		if got := isCtxloomManagedHook(cmd); got != want {
-			t.Errorf("isCtxloomManagedHook(%q) = %v; want %v", cmd, got, want)
+		if got := isCtxloomManaged(cmd); got != want {
+			t.Errorf("isCtxloomManaged(%q) = %v; want %v", cmd, got, want)
 		}
 	}
 }

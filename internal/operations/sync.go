@@ -432,6 +432,9 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 type CheckMissingDependenciesRequest struct {
 	Profiles []string `json:"profiles,omitempty"`
 	FS       afero.Fs `json:"-"`
+	// BundleReader probes whether a bundle's content is retrievable at its
+	// locked address. Nil in production (built from cfg); injected in tests.
+	BundleReader remote.BundleByteSource `json:"-"`
 }
 
 // MissingDependency represents a dependency that is not installed locally.
@@ -454,13 +457,20 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
+	// Bundles live in the git clone cache, not on disk, so their installed
+	// state is probed through the read path rather than a file check.
+	reader := req.BundleReader
+	if reader == nil {
+		reader = NewBundleReaderForConfig(cfg)
+	}
+
 	var missing []MissingDependency
 	seen := collections.NewSet[string]()
 
 	for _, profileName := range resolveProfilesToCheck(cfg, req.Profiles) {
 		bundles, parentProfiles := collectProfileReferences(cfg, profileName)
-		missing = append(missing, collectMissingRefs(bundles, remote.ItemTypeBundle, "bundle", profileName, baseDir, fs, seen)...)
-		missing = append(missing, collectMissingRefs(parentProfiles, remote.ItemTypeProfile, "profile", profileName, baseDir, fs, seen)...)
+		missing = append(missing, collectMissingRefs(ctx, bundles, remote.ItemTypeBundle, "bundle", profileName, baseDir, fs, reader, seen)...)
+		missing = append(missing, collectMissingRefs(ctx, parentProfiles, remote.ItemTypeProfile, "profile", profileName, baseDir, fs, reader, seen)...)
 	}
 
 	if len(missing) == 0 {
@@ -499,14 +509,14 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 
 // collectMissingRefs returns the not-yet-installed remote refs among refs,
 // skipping local refs and any ref already in seen (marking the rest seen).
-func collectMissingRefs(refs []string, itemType remote.ItemType, typeName, profileName, baseDir string, fs afero.Fs, seen collections.Set[string]) []MissingDependency {
+func collectMissingRefs(ctx context.Context, refs []string, itemType remote.ItemType, typeName, profileName, baseDir string, fs afero.Fs, reader remote.BundleByteSource, seen collections.Set[string]) []MissingDependency {
 	var missing []MissingDependency
 	for _, ref := range refs {
 		if !isRemoteReference(ref) || seen.Has(ref) {
 			continue
 		}
 		seen.Add(ref)
-		if !isInstalled(ref, itemType, baseDir, fs) {
+		if !isInstalled(ctx, ref, itemType, baseDir, fs, reader) {
 			missing = append(missing, MissingDependency{
 				Reference: ref,
 				Type:      typeName,
@@ -517,8 +527,23 @@ func collectMissingRefs(refs []string, itemType remote.ItemType, typeName, profi
 	return missing
 }
 
-// isInstalled checks if a reference is installed locally.
-func isInstalled(ref string, itemType remote.ItemType, baseDir string, fs afero.Fs) bool {
+// isInstalled reports whether a reference is installed locally.
+//
+// A bundle is installed only when the active lockfile holds an entry AND the
+// content is retrievable at that entry's address (URL + SHA): bundles are not
+// written to disk, so a file check can never see them. ReadBundleBytes proves
+// both — it returns ErrBundleNotInLockfile with no entry and a fetch error when
+// the locked SHA is absent from the clone cache. Profiles are written to disk,
+// so a file check remains the right accessibility probe for them.
+func isInstalled(ctx context.Context, ref string, itemType remote.ItemType, baseDir string, fs afero.Fs, reader remote.BundleByteSource) bool {
+	if itemType == remote.ItemTypeBundle {
+		if reader == nil {
+			return false
+		}
+		_, err := reader.ReadBundleBytes(ctx, ref)
+		return err == nil
+	}
+
 	parsedRef, err := remote.ParseReference(ref)
 	if err != nil {
 		return false

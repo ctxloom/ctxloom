@@ -220,8 +220,8 @@ type claudeCodeHookMatcher struct {
 // Note: The SCM field is intentionally NOT serialized to JSON (json:"-").
 // Claude Code uses Zod schema validation with .strict() mode when validating
 // edits to settings.json, which rejects unknown fields. Instead of relying on
-// a marker field, we identify ctxloom-managed hooks by their command pattern
-// (contains "ctxloom" AND "inject-context") via isCtxloomManagedHook().
+// a marker field, we identify ctxloom-managed hooks by their command
+// pattern (executable token is "ctxloom") via isCtxloomManaged().
 // See: claude-code-src/src/utils/settings/validation.ts:193
 type claudeCodeHook struct {
 	Type    string `json:"type,omitempty"`
@@ -441,9 +441,12 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 		return fmt.Errorf("failed to load existing .mcp.json: %w", err)
 	}
 
-	// Remove old ctxloom-managed MCP servers
+	// Remove old ctxloom-managed MCP servers. We match the same way as
+	// hooks: the SCM marker covers bundle/unified servers (arbitrary
+	// commands like `npx …`), and isCtxloomManaged covers ctxloom's own
+	// auto-registered server even if its marker ever drifts.
 	for name, server := range mcpConfig.MCPServers {
-		if server.SCM != "" {
+		if server.SCM != "" || isCtxloomManaged(server.Command) {
 			delete(mcpConfig.MCPServers, name)
 		}
 	}
@@ -455,19 +458,19 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCP
 	return w.saveMCPConfig(mcpPath, mcpConfig)
 }
 
-// isCtxloomManagedStatusLine returns true if the statusLine command appears to be ctxloom-managed.
-func isCtxloomManagedStatusLine(sl *claudeCodeStatusLine) bool {
-	if sl == nil {
-		return false
-	}
-	return strings.Contains(sl.Command, "ctxloom") && strings.Contains(sl.Command, "meta hud")
-}
-
 // ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
 // If the user has configured their own statusLine (not ctxloom-managed), it is preserved.
+//
+// The statusLine is a single dedicated slot, so we recognize ours by the
+// executable alone (isCtxloomManaged) — not the verb. Keying on the exact
+// `meta hud` path orphaned installs whenever the verb moved (the legacy
+// `ctxloom hook hud` form): this saw an unrecognized command, assumed it
+// was user-authored, and preserved it. The dead `hook hud` then dumped the
+// `hook` help into the status bar on every render. Matching any
+// ctxloom-emitted command lets apply migrate it forward.
 func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 	// If statusLine is set and NOT ctxloom-managed, respect the user's config
-	if settings.StatusLine != nil && !isCtxloomManagedStatusLine(settings.StatusLine) {
+	if settings.StatusLine != nil && !isCtxloomManaged(settings.StatusLine.Command) {
 		return
 	}
 
@@ -491,7 +494,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) 
 			var filteredHooks []claudeCodeHook
 			for _, hook := range matcher.Hooks {
 				// Keep hooks that are NOT ctxloom-managed
-				if hook.SCM == "" && !isCtxloomManagedHook(hook.Command) {
+				if hook.SCM == "" && !isCtxloomManaged(hook.Command) {
 					filteredHooks = append(filteredHooks, hook)
 				}
 			}
@@ -861,7 +864,7 @@ func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 		for _, g := range groups {
 			var keptEntries []geminiHookEntry
 			for _, e := range g.Hooks {
-				if e.Name == geminiCtxloomHookName || isCtxloomManagedHook(e.Command) {
+				if e.Name == geminiCtxloomHookName || isCtxloomManaged(e.Command) {
 					continue // ctxloom-managed — drop
 				}
 				keptEntries = append(keptEntries, e)
@@ -894,19 +897,23 @@ const ctxloomBinary = "ctxloom"
 // is auto-registered as an MCP server.
 var ctxloomMCPArgs = []string{"mcp"}
 
-// isCtxloomManagedHook reports whether a hook command was installed by
-// ctxloom. We treat ANY command whose executable token is `ctxloom`
-// (bare, absolute path, or quoted) as ctxloom-managed. Examples:
+// isCtxloomManaged reports whether a command was installed by ctxloom. We
+// treat ANY command whose executable token is `ctxloom` (bare, absolute
+// path, or quoted) as ctxloom-managed. It drives recognition across every
+// slot ctxloom writes — hooks, the statusLine, and the auto-registered MCP
+// server. Examples:
 //
 //	ctxloom hook inject-context …
 //	ctxloom tasks stamp-plan
 //	"/usr/bin/ctxloom" meta hud
 //	/home/me/go/bin/ctxloom session bind
 //
-// Without this broad recognition, removeCtxloomHooks only catches the
-// legacy inject-context entry and bundle-shipped hooks (session bind,
-// stamp-plan) accumulate duplicates on every apply-hooks run.
-func isCtxloomManagedHook(command string) bool {
+// Without this broad recognition, cleanup only catches the entry bearing
+// the current marker: bundle-shipped hooks accumulate duplicates on every
+// apply-hooks run, and a statusLine/MCP entry whose verb or marker drifted
+// (e.g. the legacy `ctxloom hook hud`) is mistaken for user-authored and
+// orphaned.
+func isCtxloomManaged(command string) bool {
 	exe := firstShellToken(command)
 	if exe == "" {
 		return false

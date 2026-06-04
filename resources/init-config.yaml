@@ -9,6 +9,13 @@ version: 3
 config:
   use_distilled: true
 
+# Default profiles loaded for context assembly. The seeded `default` profile
+# pairs the baseline conduct/practice bundle with the sequential-thinking MCP
+# server; replace or extend it with a language/stack profile via discovery.
+profiles:
+  defaults:
+    - https://github.com/ctxloom/ctxloom-default@profiles/default
+
 # MCP server configuration.
 mcp:
   auto_register_ctxloom: true

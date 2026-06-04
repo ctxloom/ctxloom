@@ -191,4 +191,3 @@ func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 		t.Fatalf("repair not idempotent, got %d tasks", len(got))
 	}
 }
-

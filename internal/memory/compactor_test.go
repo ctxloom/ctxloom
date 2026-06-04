@@ -237,7 +237,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 
 	c := &Compactor{
 		config: CompactionConfig{
-			LLM:    "test-plugin",
+			LLM:       "test-plugin",
 			OutputDir: tmpDir,
 		},
 		clientFactory: pb.MockClientFactory(mockClient),

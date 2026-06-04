@@ -30,7 +30,7 @@ const (
 
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
-	LLM          string           // LLM plugin to use for distillation (default: claude-code)
+	LLM             string           // LLM plugin to use for distillation (default: claude-code)
 	Model           string           // Model to use within the plugin (e.g., "haiku", "sonnet")
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
 	ChunkSize       int              // Target tokens per chunk

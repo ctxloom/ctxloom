@@ -244,4 +244,3 @@ func stdinConfirmer(in io.Reader) confirmFn {
 		return answer == "y" || answer == "Y"
 	}
 }
-

@@ -23,11 +23,11 @@ func TestResolveForgeForURLWith(t *testing.T) {
 	customGit := ForgeConfig{Type: string(ForgeGitGeneric)} // no base_url
 
 	tests := []struct {
-		name      string
-		url       string
-		label     string
-		forges    map[string]ForgeConfig
-		want      ResolvedForge
+		name   string
+		url    string
+		label  string
+		forges map[string]ForgeConfig
+		want   ResolvedForge
 	}{
 		{
 			name:   "github_url_builtin_defaults",

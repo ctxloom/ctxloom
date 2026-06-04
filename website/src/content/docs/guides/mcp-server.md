@@ -34,8 +34,8 @@ Replace `/path/to/ctxloom` with your actual binary location (e.g., `~/go/bin/ctx
 By default, ctxloom auto-registers itself as an MCP server. Control this with:
 
 ```bash
-ctxloom mcp auto-register --disable
-ctxloom mcp auto-register --enable
+ctxloom manage mcp uninstall
+ctxloom manage mcp install
 ```
 
 Or in config:
@@ -215,11 +215,11 @@ Within an AI assistant conversation:
 ctxloom can manage MCP server configurations:
 
 ```bash
-ctxloom mcp list
-ctxloom mcp add tree-sitter -c "npx" -a "tree-sitter-mcp"
-ctxloom mcp add my-server -c "/path/to/server" -b claude-code
-ctxloom mcp remove tree-sitter
-ctxloom mcp show tree-sitter
+ctxloom manage mcp servers list
+ctxloom manage mcp servers add tree-sitter -c "npx" -a "tree-sitter-mcp"
+ctxloom manage mcp servers add my-server -c "/path/to/server" -b claude-code
+ctxloom manage mcp servers remove tree-sitter
+ctxloom manage mcp servers show tree-sitter
 ```
 
 ## Bundle MCP Definitions

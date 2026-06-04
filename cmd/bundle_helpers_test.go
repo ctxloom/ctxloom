@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/compression"
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // =============================================================================
@@ -210,4 +211,62 @@ func TestBuildSiblingContext_SkipsSiblingSectionsWhenAlone(t *testing.T) {
 	}
 	got := buildSiblingContext(b, "fragments/only-one")
 	assert.NotContains(t, got, "Sibling fragments:", "lone fragment with itself excluded yields no list")
+}
+
+// =============================================================================
+// cleanDistilledOutput — runtime banner stripping
+// =============================================================================
+
+func TestCleanDistilledOutput_StripsLeakedMCPBanner(t *testing.T) {
+	// A runtime status banner can glue itself to the captured stdout; it must
+	// not survive into distilled content.
+	in := "MCP issues detected. Run /mcp list for status.# Real Content\n- a point"
+	got := cleanDistilledOutput(in)
+	assert.Equal(t, "# Real Content\n- a point", got)
+}
+
+// =============================================================================
+// looksConversational — reject role-play replies
+// =============================================================================
+
+func TestLooksConversational(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"role_play_i_see", "I see the bundle context about ltk. What would you like me to do?", true},
+		{"role_play_i_understand", "I understand ltk is active. What would you like help with?", true},
+		{"offers_help", "Sure, I can help with that.", true},
+		{"asks_for_task", "Let me know what the task is and I'll help.", true},
+		{"real_compression_heading", "# ltk\n\nA pre-tool hook that redirects commands. Prefer `just`.", false},
+		{"real_compression_bullets", "- Error handling: wrap with %w\n- Never panic", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, looksConversational(tc.in))
+		})
+	}
+}
+
+// =============================================================================
+// validateExplicitLLM — --llm is validated, not silently swallowed
+// =============================================================================
+
+func TestValidateExplicitLLM(t *testing.T) {
+	cfg := &config.Config{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
+		"claude-fast": {Type: "claude-code"},
+	}}}
+
+	t.Run("configured label passes", func(t *testing.T) {
+		got, err := validateExplicitLLM(cfg, "claude-fast")
+		assert.NoError(t, err)
+		assert.Equal(t, "claude-fast", got)
+	})
+
+	t.Run("unknown label errors instead of falling back", func(t *testing.T) {
+		_, err := validateExplicitLLM(cfg, "no-such-label")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no-such-label")
+	})
 }

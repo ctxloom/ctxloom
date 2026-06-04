@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestFormatHud_HarpDisplay covers the Phase 3.5.1 harp visibility
@@ -11,6 +13,10 @@ import (
 // include the harp name in the statusline. Three cases — set, unset,
 // empty — to pin the contract.
 func TestFormatHud_HarpDisplay(t *testing.T) {
+	// Isolate first so the ambient session's CTXLOOM_SESSION_HARP can't leak
+	// in; each subtest then sets the value it exercises.
+	testsupport.Isolate(t)
+
 	t.Run("included_when_set", func(t *testing.T) {
 		t.Setenv("CTXLOOM_SESSION_HARP", "swift-amber-falcon")
 		out := formatHud(claudeSessionJSON{}, ctxloomHudInfo{})

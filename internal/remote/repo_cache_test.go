@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,10 +147,10 @@ func TestRepoCache_UpdateRepo_NotYetCloned(t *testing.T) {
 	assert.DirExists(t, repoDir)
 }
 
-// TestRepoCache_EnsureRef_UnshallowsForOlderRef verifies that requesting a ref
-// not present in the initial shallow (depth=1) clone triggers an unshallow so
-// the ref becomes locally resolvable.
-func TestRepoCache_EnsureRef_UnshallowsForOlderRef(t *testing.T) {
+// TestRepoCache_EnsureRef_ResolvesOlderRef verifies that a full clone makes an
+// older ref (a tag behind HEAD) locally resolvable without any extra fetch —
+// the clone carries complete history and all tags.
+func TestRepoCache_EnsureRef_ResolvesOlderRef(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceDir := filepath.Join(tmpDir, "source")
 
@@ -181,16 +183,21 @@ func TestRepoCache_EnsureRef_UnshallowsForOlderRef(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 	cache := NewRepoCache(cacheDir, AuthConfig{})
 
-	// EnsureRef with empty ref should be enough for HEAD.
+	// EnsureRef with empty ref clones the full history.
 	repoDir, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "")
 	require.NoError(t, err)
 	assert.DirExists(t, repoDir)
 
-	// Asking for the tag (which points at the older commit) should trigger
-	// the unshallow path and succeed.
+	// The tag points at the older commit; the full clone already carries it, so
+	// it is locally resolvable.
 	repoDir2, err := cache.EnsureRef(context.Background(), "file://"+sourceDir, ForgeGitHub, "v0.1.0")
 	require.NoError(t, err)
 	assert.Equal(t, repoDir, repoDir2)
+
+	clone, err := git.PlainOpen(repoDir2)
+	require.NoError(t, err)
+	_, err = clone.ResolveRevision(plumbing.Revision("refs/tags/v0.1.0"))
+	require.NoError(t, err, "tag v0.1.0 must be locally resolvable in the full clone")
 }
 
 func TestRepoCache_repoDirForURL(t *testing.T) {
@@ -226,29 +233,25 @@ func TestRepoCache_repoDirForURL(t *testing.T) {
 	}
 }
 
-func TestRepoCache_authMethod(t *testing.T) {
-	t.Run("github with token", func(t *testing.T) {
+func TestRepoCache_authArgs(t *testing.T) {
+	t.Run("github with token injects extraheader", func(t *testing.T) {
 		cache := NewRepoCache("", AuthConfig{GitHub: "test-token"})
-		auth := cache.authMethod(ForgeGitHub)
-		assert.NotNil(t, auth)
+		args := cache.authArgs("https://github.com/owner/repo", ForgeGitHub)
+		require.Len(t, args, 2)
+		assert.Equal(t, "-c", args[0])
+		assert.Contains(t, args[1], "http.https://github.com/.extraheader=AUTHORIZATION: basic ")
+		want := base64.StdEncoding.EncodeToString([]byte("x-access-token:test-token"))
+		assert.Contains(t, args[1], want)
 	})
 
-	t.Run("github without token", func(t *testing.T) {
+	t.Run("github without token injects nothing", func(t *testing.T) {
 		cache := NewRepoCache("", AuthConfig{})
-		auth := cache.authMethod(ForgeGitHub)
-		assert.Nil(t, auth)
+		assert.Nil(t, cache.authArgs("https://github.com/owner/repo", ForgeGitHub))
 	})
 
-	t.Run("gitlab with token", func(t *testing.T) {
-		cache := NewRepoCache("", AuthConfig{GitLab: "test-token"})
-		auth := cache.authMethod(ForgeGitLab)
-		assert.NotNil(t, auth)
-	})
-
-	t.Run("gitlab without token", func(t *testing.T) {
-		cache := NewRepoCache("", AuthConfig{})
-		auth := cache.authMethod(ForgeGitLab)
-		assert.Nil(t, auth)
+	t.Run("generic git uses ambient auth, no injection", func(t *testing.T) {
+		cache := NewRepoCache("", AuthConfig{GitHub: "test-token"})
+		assert.Nil(t, cache.authArgs("https://gitlab.com/owner/repo", ForgeGitGeneric))
 	})
 }
 

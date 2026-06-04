@@ -95,6 +95,12 @@ type AddRemoteRequest struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
 
+	// Forge optionally binds the remote to a named forge instance (a forges:
+	// label or a built-in: "github" / "git"). Empty lets the forge resolve from
+	// the URL host (configured base_url match → built-in github for github.com →
+	// generic git).
+	Forge string `json:"forge,omitempty"`
+
 	// Trust, when true, marks the remote as trusted on add (bundle changes from
 	// it auto-apply without review). Used for the user's own personal repos
 	// registered during `ctxloom init`.
@@ -139,6 +145,15 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 
 	if err := registry.Add(req.Name, req.URL); err != nil {
 		return nil, err
+	}
+
+	// Bind the forge before verifying/cloning so both resolve against the chosen
+	// adapter. An unknown label rolls the registration back.
+	if req.Forge != "" {
+		if err := registry.SetForge(req.Name, req.Forge); err != nil {
+			_ = registry.Remove(req.Name)
+			return nil, err
+		}
 	}
 
 	// Verify the remote
@@ -413,14 +428,12 @@ func UpdateRemote(ctx context.Context, cfg *config.Config, req UpdateRemoteReque
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {
 	Query    string `json:"query"`
-	Source   string `json:"source"` // "github", "gitlab", or "all"
+	Source   string `json:"source"` // "github" or "all" (only GitHub offers repo search)
 	MinStars int    `json:"min_stars"`
 	Limit    int    `json:"limit"`
 
 	// GitHubFetcher is an optional pre-configured GitHub fetcher (for testing).
 	GitHubFetcher remote.Fetcher `json:"-"`
-	// GitLabFetcher is an optional pre-configured GitLab fetcher (for testing).
-	GitLabFetcher remote.Fetcher `json:"-"`
 }
 
 // RepoEntry represents a discovered repository.
@@ -450,86 +463,40 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 		req.Limit = 30
 	}
 
+	// Repository search is a GitHub-only capability — the generic git adapter
+	// clones a known URL and cannot enumerate a host. "all" therefore means
+	// GitHub; any other explicit source is rejected.
+	switch req.Source {
+	case "all", "github":
+	default:
+		return nil, fmt.Errorf("unsupported discovery source %q: only \"github\" is searchable", req.Source)
+	}
+
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 
-	var forges []remote.ForgeType
-	switch req.Source {
-	case "github":
-		forges = []remote.ForgeType{remote.ForgeGitHub}
-	case "gitlab":
-		forges = []remote.ForgeType{remote.ForgeGitLab}
-	default:
-		forges = []remote.ForgeType{remote.ForgeGitHub, remote.ForgeGitLab}
+	fetcher := req.GitHubFetcher
+	if fetcher == nil {
+		fetcher = remote.NewGitHubFetcher(auth.GitHub)
 	}
-
-	var wg sync.WaitGroup
-	resultsCh := make(chan []remote.RepoInfo, len(forges))
-	errorsCh := make(chan error, len(forges))
-
-	for _, forge := range forges {
-		wg.Add(1)
-		go func(f remote.ForgeType) {
-			defer wg.Done()
-
-			var fetcher remote.Fetcher
-			var err error
-
-			switch f {
-			case remote.ForgeGitHub:
-				if req.GitHubFetcher != nil {
-					fetcher = req.GitHubFetcher
-				} else {
-					// SearchRepos needs API; the cached wrapper delegates SearchRepos to API automatically
-					fetcher = remote.NewGitHubFetcher(auth.GitHub)
-				}
-			case remote.ForgeGitLab:
-				if req.GitLabFetcher != nil {
-					fetcher = req.GitLabFetcher
-				} else {
-					fetcher, err = remote.NewGitLabFetcher("", auth.GitLab)
-					if err != nil {
-						errorsCh <- fmt.Errorf("GitLab: %w", err)
-						return
-					}
-				}
-			}
-
-			repos, err := fetcher.SearchRepos(ctx, req.Query, req.Limit)
-			if err != nil {
-				errorsCh <- fmt.Errorf("%s: %w", f, err)
-				return
-			}
-
-			filtered := make([]remote.RepoInfo, 0, len(repos))
-			for _, r := range repos {
-				if r.Stars >= req.MinStars {
-					filtered = append(filtered, r)
-				}
-			}
-
-			resultsCh <- filtered
-		}(forge)
-	}
-
-	wg.Wait()
-	close(resultsCh)
-	close(errorsCh)
 
 	var allRepos []remote.RepoInfo
-	for repos := range resultsCh {
-		allRepos = append(allRepos, repos...)
-	}
-
-	var errors []string
-	for err := range errorsCh {
-		errors = append(errors, err.Error())
+	var errs []string
+	repos, err := fetcher.SearchRepos(ctx, req.Query, req.Limit)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("%s: %v", remote.ForgeGitHub, err))
+	} else {
+		for _, r := range repos {
+			if r.Stars >= req.MinStars {
+				allRepos = append(allRepos, r)
+			}
+		}
 	}
 
 	result := &DiscoverRemotesResult{
 		Repositories: make([]RepoEntry, 0, len(allRepos)),
 		Count:        len(allRepos),
-		Errors:       errors,
+		Errors:       errs,
 	}
 
 	for _, r := range allRepos {

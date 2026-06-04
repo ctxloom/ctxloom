@@ -21,8 +21,8 @@ var (
 
 var remoteDiscoverCmd = &cobra.Command{
 	Use:   "discover [query]",
-	Short: "Search GitHub/GitLab for ctxloom repositories",
-	Long: `Discover ctxloom repositories on GitHub and GitLab.
+	Short: "Search GitHub for ctxloom repositories",
+	Long: `Discover ctxloom repositories on GitHub.
 
 Searches for repositories named 'ctxloom' or starting with 'ctxloom-'.
 Only repositories with valid ctxloom/ structure are shown.
@@ -30,7 +30,6 @@ Only repositories with valid ctxloom/ structure are shown.
 Examples:
   ctxloom remote discover                      # Find all ctxloom repos
   ctxloom remote discover golang               # Filter by 'golang' in description
-  ctxloom remote discover --source github      # Search GitHub only
   ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -87,13 +86,8 @@ Examples:
 				repoName = repoName[:16] + "..."
 			}
 
-			forgeDisplay := "GitHub"
-			if r.Forge == "gitlab" {
-				forgeDisplay = "GitLab"
-			}
-
 			fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",
-				i+1, forgeDisplay, repoName, r.Stars, desc)
+				i+1, "GitHub", repoName, r.Stars, desc)
 		}
 
 		fmt.Println()
@@ -184,9 +178,9 @@ func init() {
 	remoteCmd.AddCommand(remoteDiscoverCmd)
 
 	remoteDiscoverCmd.Flags().StringVarP(&discoverSource, "source", "s", "all",
-		"Search specific forge: github, gitlab, or all")
+		"Search source: github or all (only GitHub is searchable)")
 	remoteDiscoverCmd.Flags().IntVarP(&discoverLimit, "limit", "n", 30,
-		"Maximum results per forge")
+		"Maximum results")
 	remoteDiscoverCmd.Flags().IntVar(&discoverStars, "stars", 0,
 		"Minimum star count")
 }

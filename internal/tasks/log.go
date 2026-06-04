@@ -22,6 +22,7 @@ type Event struct {
 	Task     string    `json:"task,omitempty"`      // task harp (identity)
 	Text     string    `json:"text,omitempty"`      // add: task text
 	Status   string    `json:"status,omitempty"`    // add/status: section name
+	Trigger  string    `json:"trigger,omitempty"`   // add/status: revive condition for a Deferred task
 	Session  string    `json:"session,omitempty"`   // origin (add) / acting (status,remove) session harp
 	RepairOf string    `json:"repair_of,omitempty"` // add: anomaly key this re-add resolves
 	Ts       time.Time `json:"ts"`
@@ -30,6 +31,7 @@ type Event struct {
 const (
 	opAdd    = "add"
 	opStatus = "status"
+	opText   = "text"
 	opRemove = "remove"
 )
 
@@ -106,6 +108,7 @@ func (f *folded) apply(ev Event) {
 			HarpID:        ev.Task,
 			Text:          strings.TrimSpace(ev.Text),
 			Status:        defaultStatus(ev.Status),
+			Trigger:       strings.TrimSpace(ev.Trigger),
 			OriginSession: ev.Session,
 		}
 		t.Checked = statusIsDone(t.Status)
@@ -116,6 +119,16 @@ func (f *folded) apply(ev Event) {
 		if t := f.byID[ev.Task]; t != nil {
 			t.Status = ev.Status
 			t.Checked = statusIsDone(ev.Status)
+			// A status event only carries a trigger when one was (re)set; an
+			// empty trigger never clears an existing condition.
+			if tr := strings.TrimSpace(ev.Trigger); tr != "" {
+				t.Trigger = tr
+			}
+		}
+	case opText:
+		if t := f.byID[ev.Task]; t != nil {
+			t.Text = strings.TrimSpace(ev.Text)
+			t.TextHash = hashText(t.Text)
 		}
 	case opRemove:
 		delete(f.byID, ev.Task)
@@ -172,13 +185,17 @@ func (l *eventLog) lock() (func(), error) {
 	}, nil
 }
 
-func (l *eventLog) add(text, status string) (Task, error) {
+func (l *eventLog) add(text, status, trigger string) (Task, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Task{}, fmt.Errorf("text required")
 	}
 	if status == "" {
 		status = StatusToDo
+	}
+	trigger = strings.TrimSpace(trigger)
+	if err := ValidateStatusTrigger(status, trigger); err != nil {
+		return Task{}, err
 	}
 	release, err := l.lock()
 	if err != nil {
@@ -191,7 +208,7 @@ func (l *eventLog) add(text, status string) (Task, error) {
 		return Task{}, err
 	}
 	id := uniqueHarpIDFromSet(f.issued)
-	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Session: l.session}); err != nil {
+	if err := l.append(Event{Op: opAdd, Task: id, Text: text, Status: status, Trigger: trigger, Session: l.session}); err != nil {
 		return Task{}, err
 	}
 	return Task{
@@ -200,11 +217,12 @@ func (l *eventLog) add(text, status string) (Task, error) {
 		Status:        status,
 		Checked:       statusIsDone(status),
 		TextHash:      hashText(text),
+		Trigger:       trigger,
 		OriginSession: l.session,
 	}, nil
 }
 
-func (l *eventLog) setStatus(harpID, status string) (Task, error) {
+func (l *eventLog) setStatus(harpID, status, trigger string) (Task, error) {
 	if status == "" {
 		return Task{}, fmt.Errorf("status required")
 	}
@@ -222,12 +240,53 @@ func (l *eventLog) setStatus(harpID, status string) (Task, error) {
 	if t == nil {
 		return Task{}, fmt.Errorf("task not found: %s", harpID)
 	}
-	if err := l.append(Event{Op: opStatus, Task: harpID, Status: status, Session: l.session}); err != nil {
+	// A non-empty trigger updates the condition; otherwise the task keeps the
+	// one it already had, so re-deferring needs no re-typing.
+	effective := effectiveTrigger(trigger, t.Trigger)
+	if err := ValidateStatusTrigger(status, effective); err != nil {
+		return Task{}, err
+	}
+	// Persist the trigger on the event only when it changed, so a plain status
+	// move stays a minimal record and apply's empty-trigger rule is preserved.
+	evTrigger := ""
+	if effective != t.Trigger {
+		evTrigger = effective
+	}
+	if err := l.append(Event{Op: opStatus, Task: harpID, Status: status, Trigger: evTrigger, Session: l.session}); err != nil {
 		return Task{}, err
 	}
 	out := *t
 	out.Status = status
 	out.Checked = statusIsDone(status)
+	out.Trigger = effective
+	return out, nil
+}
+
+func (l *eventLog) setText(harpID, text string) (Task, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return Task{}, fmt.Errorf("text required")
+	}
+	release, err := l.lock()
+	if err != nil {
+		return Task{}, err
+	}
+	defer release()
+
+	f, err := l.fold()
+	if err != nil {
+		return Task{}, err
+	}
+	t := f.byID[harpID]
+	if t == nil {
+		return Task{}, fmt.Errorf("task not found: %s", harpID)
+	}
+	if err := l.append(Event{Op: opText, Task: harpID, Text: text, Session: l.session}); err != nil {
+		return Task{}, err
+	}
+	out := *t
+	out.Text = text
+	out.TextHash = hashText(text)
 	return out, nil
 }
 
@@ -343,6 +402,7 @@ func (l *eventLog) importTasks(in []Task) error {
 			Task:    t.HarpID,
 			Text:    strings.TrimSpace(t.Text),
 			Status:  defaultStatus(t.Status),
+			Trigger: strings.TrimSpace(t.Trigger),
 			Session: t.OriginSession,
 		}
 		if err := l.append(ev); err != nil {

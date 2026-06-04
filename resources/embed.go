@@ -3,10 +3,36 @@ package resources
 
 import (
 	"embed"
+	"fmt"
+	"strings"
 )
 
-//go:embed all:schema all:commands all:builtin_bundles example-config.yaml default-config.yaml default-remotes.yaml
+//go:embed all:schema all:commands all:builtin_bundles all:prompts example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
+
+// GetPromptText returns an embedded prompt/instruction template by name
+// (resources/prompts/<name>.md). These hold file-sized prompt content — LLM
+// system prompts and MCP instructions — that would otherwise live as
+// hand-escaped Go string literals. The trailing newline is trimmed so callers
+// get the same shape regardless of the file's final newline.
+func GetPromptText(name string) (string, error) {
+	b, err := resourcesFS.ReadFile("prompts/" + name + ".md")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(b), "\n"), nil
+}
+
+// MustGetPromptText is GetPromptText for package-level initialization, where a
+// missing embedded prompt is a build-time bug (the file is compiled in), not a
+// runtime condition. It panics rather than shipping an empty prompt.
+func MustGetPromptText(name string) string {
+	s, err := GetPromptText(name)
+	if err != nil {
+		panic(fmt.Sprintf("resources: embedded prompt %q: %v", name, err))
+	}
+	return s
+}
 
 // GetConfigSchema returns the embedded JSON schema for config validation.
 func GetConfigSchema() ([]byte, error) {
@@ -23,6 +49,13 @@ func GetExampleConfig() ([]byte, error) {
 // empty user config still resolves a backend and model.
 func GetDefaultConfig() ([]byte, error) {
 	return resourcesFS.ReadFile("default-config.yaml")
+}
+
+// GetInitConfig returns the embedded scaffolding config `ctxloom init` starts
+// from: static defaults (version, settings, mcp) with no llm block — init fills
+// the llm registry from the selected engine before writing.
+func GetInitConfig() ([]byte, error) {
+	return resourcesFS.ReadFile("init-config.yaml")
 }
 
 // GetDefaultRemotes returns the embedded default remotes file.

@@ -132,6 +132,11 @@ test-pkg PKG *ARGS:
 test-integration: build
     go test -v -tags integration ./tests/integration/...
 
+# Run the full-stack acceptance suite (godog) inside the container. Hermetic by
+# default; @live scenarios are opt-in and self-skip without credentials.
+test-acceptance: build
+    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # ===== Validation =====
 
 # Validate fragment YAML files

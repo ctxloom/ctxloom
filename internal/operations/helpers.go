@@ -52,10 +52,22 @@ func loadFreshConfig(fs afero.Fs, appDir string, testConfig *config.Config) (*co
 }
 
 // newRepoCache creates a RepoCache rooted at the standard cache path for cfg.
+// The cache carries a forge resolver derived from the remotes registry so the
+// github clone token-injection reads the per-forge token_env; resolver setup is
+// best-effort and a missing/unreadable registry simply falls back to ambient
+// auth.
 func newRepoCache(cfg *config.Config) *remote.RepoCache {
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
-	return remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+
+	var opts []remote.RepoCacheOption
+	if registry, err := remote.NewRegistry(paths.RemotesPath(baseDir)); err == nil {
+		forges := registry.Forges()
+		opts = append(opts, remote.WithForgeResolver(func(repoURL string) remote.ResolvedForge {
+			return remote.ResolveForgeForURLWith(repoURL, "", forges)
+		}))
+	}
+	return remote.NewRepoCache(paths.ReposCachePath(baseDir), auth, opts...)
 }
 
 // newCachedFetcherFactory returns a FetcherFactory backed by the local clone

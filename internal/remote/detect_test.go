@@ -24,14 +24,12 @@ func TestDetectForge(t *testing.T) {
 		{"www.github.com https", "https://www.github.com/owner/repo", ForgeGitHub, "https://github.com", false},
 		{"github.com http", "http://github.com/owner/repo", ForgeGitHub, "https://github.com", false},
 
-		// GitLab URLs
-		{"gitlab.com https", "https://gitlab.com/owner/repo", ForgeGitLab, "https://gitlab.com", false},
-		{"www.gitlab.com https", "https://www.gitlab.com/owner/repo", ForgeGitLab, "https://gitlab.com", false},
-		{"self-hosted gitlab", "https://gitlab.company.com/owner/repo", ForgeGitLab, "https://gitlab.company.com", false},
-		{"self-hosted my-gitlab", "https://my-gitlab.internal.org/group/project", ForgeGitLab, "https://my-gitlab.internal.org", false},
-
-		// Unknown hosts default to GitHub
-		{"unknown host", "https://unknown.host.com/owner/repo", ForgeGitHub, "https://github.com", false},
+		// Any non-github host resolves to the generic git adapter at its own endpoint
+		{"gitlab.com https", "https://gitlab.com/owner/repo", ForgeGitGeneric, "https://gitlab.com", false},
+		{"www.gitlab.com https", "https://www.gitlab.com/owner/repo", ForgeGitGeneric, "https://www.gitlab.com", false},
+		{"self-hosted gitlab", "https://gitlab.company.com/owner/repo", ForgeGitGeneric, "https://gitlab.company.com", false},
+		{"self-hosted my-gitlab", "https://my-gitlab.internal.org/group/project", ForgeGitGeneric, "https://my-gitlab.internal.org", false},
+		{"unknown host", "https://unknown.host.com/owner/repo", ForgeGitGeneric, "https://unknown.host.com", false},
 	}
 
 	for _, tt := range tests {
@@ -139,30 +137,21 @@ func TestNewFetcher(t *testing.T) {
 		assert.Equal(t, ForgeGitHub, fetcher.Forge())
 	})
 
-	t.Run("creates GitLab fetcher for GitLab URL", func(t *testing.T) {
-		fetcher, err := NewFetcher("https://gitlab.com/owner/repo", AuthConfig{})
-		require.NoError(t, err)
-		assert.Equal(t, ForgeGitLab, fetcher.Forge())
+	t.Run("rejects generic git host (no API fetcher)", func(t *testing.T) {
+		_, err := NewFetcher("https://gitlab.com/owner/repo", AuthConfig{})
+		require.Error(t, err)
 	})
 
-	t.Run("creates GitLab fetcher for self-hosted GitLab", func(t *testing.T) {
-		fetcher, err := NewFetcher("https://gitlab.company.com/owner/repo", AuthConfig{})
-		require.NoError(t, err)
-		assert.Equal(t, ForgeGitLab, fetcher.Forge())
+	t.Run("rejects self-hosted generic git host", func(t *testing.T) {
+		_, err := NewFetcher("https://git.company.com/owner/repo", AuthConfig{})
+		require.Error(t, err)
 	})
 
-	t.Run("uses auth tokens", func(t *testing.T) {
-		auth := AuthConfig{
-			GitHub: "gh-token",
-			GitLab: "gl-token",
-		}
+	t.Run("uses auth token", func(t *testing.T) {
+		auth := AuthConfig{GitHub: "gh-token"}
 
 		ghFetcher, err := NewFetcher("https://github.com/owner/repo", auth)
 		require.NoError(t, err)
 		assert.Equal(t, ForgeGitHub, ghFetcher.Forge())
-
-		glFetcher, err := NewFetcher("https://gitlab.com/owner/repo", auth)
-		require.NoError(t, err)
-		assert.Equal(t, ForgeGitLab, glFetcher.Forge())
 	})
 }

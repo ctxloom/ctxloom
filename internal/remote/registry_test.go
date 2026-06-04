@@ -9,14 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestNewRegistry(t *testing.T) {
 	t.Run("creates registry with default path", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		oldDir, _ := os.Getwd()
-		_ = os.Chdir(tmpDir)
-		defer func() { _ = os.Chdir(oldDir) }()
+		testsupport.ProjectDir(t)
 
 		registry, err := NewRegistry("")
 		require.NoError(t, err)

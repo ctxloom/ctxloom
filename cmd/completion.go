@@ -109,10 +109,20 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
-// completeLLMNames returns a completion function for LLM names.
+// completeLLMNames completes the --llm flag with config labels (the keys under
+// llm.configs). If the config can't be loaded, it falls back to registered
+// backend names.
 func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	plugins := backends.List()
-	return filterPrefix(plugins, toComplete), cobra.ShellCompDirectiveNoFileComp
+	cfg, err := config.Load()
+	if err != nil {
+		return filterPrefix(backends.List(), toComplete), cobra.ShellCompDirectiveNoFileComp
+	}
+	labels := make([]string, 0, len(cfg.LM.Configs))
+	for label := range cfg.LM.Configs {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	return filterPrefix(labels, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // completeTagNames returns a completion function for tag names.

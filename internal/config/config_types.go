@@ -136,7 +136,12 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 // imports backend structs. The map label that keys this entry is an arbitrary
 // user string with zero semantics; the backend is determined ONLY by Type.
 type LLMConfig struct {
-	Type string                 `mapstructure:"type" yaml:"type,omitempty"`
+	Type string `mapstructure:"type" yaml:"type,omitempty"`
+	// Role marks an entry as its backend type's default primary or fast pick in
+	// the shipped registry. It is registry-only metadata: init reads it to wire a
+	// freshly-selected engine, and the persist path strips it so user configs
+	// stay plain {type, model}. It never affects runtime label resolution.
+	Role string                 `mapstructure:"role" yaml:"role,omitempty"`
 	Body map[string]interface{} `mapstructure:",remain" yaml:",inline"`
 }
 
@@ -230,13 +235,14 @@ type ProfilesConfig struct {
 type SettingsConfig struct {
 	UseDistilled     *bool `mapstructure:"use_distilled" yaml:"use_distilled,omitempty"`         // Prefer .distilled.md versions (default true)
 	CompactionChunks int   `mapstructure:"compaction_chunks" yaml:"compaction_chunks,omitempty"` // Target tokens per compaction chunk (default 8000)
+	Statusline       *bool `mapstructure:"statusline" yaml:"statusline,omitempty"`               // Manage the ctxloom HUD statusline (default true)
 }
 
 // hasAny reports whether any setting is set, so Save can prune the block when
 // empty. It MUST cover every field, or setting only an uncovered field would
 // silently drop the whole block on the next Save.
 func (s SettingsConfig) hasAny() bool {
-	return s.UseDistilled != nil || s.CompactionChunks > 0
+	return s.UseDistilled != nil || s.CompactionChunks > 0 || s.Statusline != nil
 }
 
 // ShouldUseDistilled returns whether to prefer distilled versions of
@@ -246,6 +252,16 @@ func (s *SettingsConfig) ShouldUseDistilled() bool {
 		return true
 	}
 	return *s.UseDistilled
+}
+
+// ShouldManageStatusline reports whether ctxloom should install and maintain its
+// HUD statusline. Defaults to true; set statusline:false in config to opt out and
+// keep your own (or no) statusline.
+func (s *SettingsConfig) ShouldManageStatusline() bool {
+	if s == nil || s.Statusline == nil {
+		return true
+	}
+	return *s.Statusline
 }
 
 // hasAny reports whether any profile config is set, so Save can prune the block.

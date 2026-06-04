@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // writeHomeConfig points $HOME at a temp dir and writes ~/.ctxloom/config.yaml
 // with the given defaults.profiles (none when nil). Returns the home dir.
 func writeHomeConfig(t *testing.T, profiles []string) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := testsupport.Isolate(t)
 
 	ctxDir := filepath.Join(home, ".ctxloom")
 	if err := os.MkdirAll(ctxDir, 0o755); err != nil {

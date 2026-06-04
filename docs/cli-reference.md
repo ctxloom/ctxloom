@@ -31,7 +31,7 @@ ctxloom run [flags] [prompt...]
 | `--tag` | `-t` | Include fragments with tag (repeatable) |
 | `--prompt` | | Custom prompt text |
 | `--saved-prompt` | | Load saved prompt template |
-| `--llm` | `-l` | LLM to use for this run only (overrides the default; not persisted) |
+| `--llm` | `-l` | Config label to use (e.g. claude-code, claude-fast, gemini-code, gemini-fast); overrides the configured default |
 | `--dry-run` | `-n` | Preview context without running |
 | `--print` | | Print assembled context |
 | `--verbose` | `-v` | Increase verbosity (-v, -vv, -vvv) |
@@ -171,7 +171,7 @@ Manage remote repositories.
 | Subcommand | Description |
 |------------|-------------|
 | `list` | List configured remotes |
-| `add <name> <url>` | Add remote source |
+| `add <name> <url>` | Add remote source (optionally `--forge <label>`) |
 | `remove <name>` | Remove remote |
 | `default [name]` | Get/set default remote |
 | `sync` | Sync dependencies from profiles |
@@ -184,14 +184,36 @@ Manage remote repositories.
 | `replace` | Manage local overrides for development |
 
 **URL formats:**
-- `user/repo` - GitHub shorthand
-- `https://github.com/user/repo` - Full URL
-- `https://gitlab.com/corp/repo` - GitLab
+- `user/repo` - GitHub shorthand (expands to `https://github.com/user/repo`)
+- `https://github.com/user/repo` - Full GitHub URL
+- `https://git.example.com/corp/repo` - Any other git host (GitLab, Gitea, Bitbucket, self-hosted)
+- `git@github.com:user/repo.git` - SSH URL (converted to HTTPS)
+
+**Forges:**
+
+A remote binds to a *forge* — the adapter ctxloom uses to read and publish:
+
+- `github` — rich adapter over the GitHub REST API (file/dir reads, ref
+  resolution, repo search, PR publish). Serves github.com and GitHub Enterprise
+  (the host comes from the remote URL; the API endpoint is derived from it).
+  Token: the env var named by the forge's `token_env`, default `GITHUB_TOKEN`.
+- `git` — generic adapter that clones over HTTPS/SSH and reads the working copy.
+  Works against any git host for consumption (no API search or PR publish). Auth
+  is ambient git (credential helper, ssh-agent, `~/.ssh/config`, per-host
+  `.gitconfig`).
+
+Without `--forge`, the forge resolves from the URL host: github.com (and the
+`owner/repo` shorthand) use `github`; every other host uses `git`. Pass
+`--forge <label>` to override with `github`, `git`, or a `forges:` label
+configured in `remotes.yaml` (for example a GitHub Enterprise instance with its
+own `base_url`/`token_env`).
 
 **Examples:**
 ```bash
 ctxloom remote list
 ctxloom remote add personal myuser/ctxloom-profiles
+ctxloom remote add corp https://git.example.com/corp/repo --forge git
+ctxloom remote add work https://github.mycorp.com/me/ctxloom --forge work-ghe
 ctxloom remote default personal
 ctxloom remote sync --force
 ctxloom remote search golang
@@ -234,43 +256,50 @@ ctxloom bundle export my-bundle ./exported/
 
 ### Infrastructure Commands
 
-#### `ctxloom mcp`
+#### `ctxloom manage`
 
-Run as MCP server or manage MCP configurations.
+Install, inspect, and remove ctxloom's project harness. Everything that mutates
+the harness (`.ctxloom`, hooks, statusline, MCP registration, command files,
+`.gitignore`, config) lives here.
 
 | Subcommand | Description |
 |------------|-------------|
-| `serve` | Run as MCP server over stdio |
-| `list` | List configured MCP servers |
-| `add <name>` | Add MCP server |
-| `remove <name>` | Remove MCP server |
-| `show <name>` | Show MCP server details |
-| `auto-register` | Configure auto-registration |
+| `init` | Scaffold a new `.ctxloom` directory (top-level `ctxloom init` is an alias) |
+| `install [--print]` | One-shot non-interactive setup: scaffold + gitignore + hooks/MCP/statusline |
+| `uninstall` | Remove ctxloom hooks, statusline, MCP entry, and command files |
+| `status` | Show what ctxloom has wired into the project |
+| `hooks [install\|uninstall\|status]` | Manage ctxloom backend hooks |
+| `mcp [install\|uninstall]` | Toggle auto-registration of ctxloom's own MCP server |
+| `mcp servers [add\|remove\|list\|show]` | Manage configured MCP servers |
+| `statusline [install\|uninstall]` | Toggle ctxloom's HUD statusline (disable to keep your own) |
+| `config [show\|get\|edit\|init]` | Show or modify configuration |
+| `gitignore install` | Add ctxloom's private-state and transient-artifact ignores |
+
+**Examples:**
+```bash
+ctxloom manage install                      # Wire ctxloom into this project
+ctxloom manage status                       # What's wired in?
+ctxloom manage hooks install                # Re-apply hooks after editing bundles
+ctxloom manage mcp servers add my-server -c npx -a my-mcp
+ctxloom manage mcp uninstall                # Stop auto-registering ctxloom's server
+ctxloom manage statusline uninstall         # Keep your own statusline, not ctxloom's HUD
+ctxloom manage config show
+ctxloom manage config get llm
+ctxloom manage uninstall                    # Remove integration (keeps .ctxloom)
+```
+
+#### `ctxloom mcp`
+
+Run ctxloom as an MCP server over stdio (the runtime entrypoint referenced by
+generated `.mcp.json`). Server-config management lives under `ctxloom manage mcp`.
+
+| Subcommand | Description |
+|------------|-------------|
+| `serve` | Run as MCP server over stdio (same as bare `ctxloom mcp`) |
 
 **Examples:**
 ```bash
 ctxloom mcp serve                           # Run MCP server
-ctxloom mcp list
-ctxloom mcp add my-server -c npx -a my-mcp
-ctxloom mcp auto-register --enable
-```
-
-#### `ctxloom config`
-
-Show or modify configuration.
-
-| Subcommand | Description |
-|------------|-------------|
-| `show` | Show full configuration |
-| `get <section>` | Get specific section |
-
-**Sections:** `defaults`, `llm`, `mcp`, `profiles`
-
-**Examples:**
-```bash
-ctxloom config show
-ctxloom config get defaults
-ctxloom config get llm
 ```
 
 ---
@@ -355,7 +384,7 @@ user/repo                 # GitHub shorthand
 |----------|-------------|
 | `CTXLOOM_HOME` | Override default config directory |
 | `EDITOR` | Editor for edit commands |
-| `GITHUB_TOKEN` | GitHub API authentication |
+| `GITHUB_TOKEN` | Default token for the `github` forge (override per forge via `token_env`) |
 
 ---
 

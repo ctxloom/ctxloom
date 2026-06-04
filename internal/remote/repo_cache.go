@@ -2,132 +2,200 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 // RepoCache manages local git clone caches of remote repositories.
 // Instead of making per-file API calls, repos are cloned locally and
-// read from the filesystem. Updates are explicit via UpdateRepo.
+// read from the filesystem. Network operations (clone, fetch) shell out to
+// the system git binary; local reads stay on go-git (git_clone_fetcher.go).
 type RepoCache struct {
-	baseDir string
-	auth    AuthConfig
+	baseDir  string
+	auth     AuthConfig
+	resolver func(repoURL string) ResolvedForge
+}
+
+// RepoCacheOption configures a RepoCache.
+type RepoCacheOption func(*RepoCache)
+
+// WithForgeResolver supplies the per-URL forge resolution used to pick the
+// token for github clone auth-injection. When set, the configured forge's
+// token_env names the env var read for the clone token (falling back to the
+// ambient GITHUB_TOKEN); when unset, the ambient token is used.
+func WithForgeResolver(resolve func(repoURL string) ResolvedForge) RepoCacheOption {
+	return func(c *RepoCache) {
+		c.resolver = resolve
+	}
 }
 
 // NewRepoCache creates a new RepoCache.
-func NewRepoCache(baseDir string, auth AuthConfig) *RepoCache {
-	return &RepoCache{
+func NewRepoCache(baseDir string, auth AuthConfig, opts ...RepoCacheOption) *RepoCache {
+	c := &RepoCache{
 		baseDir: baseDir,
 		auth:    auth,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
-// EnsureRepo clones a repo if it doesn't exist locally, returning the local path.
-// If the repo is already cloned, it returns immediately without fetching updates.
-// Use UpdateRepo to explicitly fetch updates, or EnsureRef to make a specific ref
-// available locally (unshallowing if necessary).
+// EnsureRepo ensures a full clone of the repo exists locally, returning the
+// local path. If the clone is missing or corrupt it is (re)cloned with complete
+// history; an existing clone is returned without fetching.
 func (c *RepoCache) EnsureRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	return c.EnsureRef(ctx, repoURL, forgeType, "")
+	return c.ensureClone(ctx, repoURL, forgeType)
 }
 
-// EnsureRef ensures the clone exists and the given ref is locally resolvable.
-// For empty ref (default branch), a fresh shallow clone is enough.
-// For a tag or non-HEAD SHA, the clone is unshallowed on miss so all history is
-// available. No-op if the clone already contains the ref.
+// EnsureRef ensures a full clone exists. Because the clone carries complete
+// history (all branches and tags), every ref is locally resolvable as soon as
+// the clone is present, so ref is informational only.
 func (c *RepoCache) EnsureRef(ctx context.Context, repoURL string, forgeType ForgeType, ref string) (string, error) {
-	repoDir := c.repoDirForURL(repoURL)
+	return c.ensureClone(ctx, repoURL, forgeType)
+}
 
-	repo, err := git.PlainOpen(repoDir)
-	if err != nil {
-		// No existing clone or corrupt — clean up and clone fresh (shallow).
-		if rmErr := os.RemoveAll(repoDir); rmErr != nil && !os.IsNotExist(rmErr) {
-			return "", fmt.Errorf("failed to clean corrupt cache: %w", rmErr)
-		}
-		if mkErr := os.MkdirAll(filepath.Dir(repoDir), 0755); mkErr != nil {
-			return "", fmt.Errorf("failed to create cache directory: %w", mkErr)
-		}
-
-		auth := c.authMethod(forgeType)
-		cloneURL := normalizeCloneURL(repoURL)
-		repo, err = git.PlainCloneContext(ctx, repoDir, false, &git.CloneOptions{
-			URL:   cloneURL,
-			Depth: 1,
-			Tags:  git.AllTags,
-			Auth:  auth,
-		})
-		if err != nil {
-			_ = os.RemoveAll(repoDir)
-			return "", fmt.Errorf("git clone failed: %w", err)
-		}
-	}
-
-	// Empty ref → default branch only, shallow clone covers it.
-	if ref == "" {
-		return repoDir, nil
-	}
-
-	// Ref is already locally resolvable.
-	if refExistsLocally(repo, ref) {
-		return repoDir, nil
-	}
-
-	// Unshallow to make all branches/tags available, then re-check.
-	if err := c.unshallowRepo(ctx, repo, forgeType); err != nil {
-		return repoDir, fmt.Errorf("git fetch (unshallow) failed: %w", err)
-	}
-	return repoDir, nil
+// EnsureFullRepo ensures a full clone exists. Identical to EnsureRepo now that
+// every clone is complete; retained as the explicit entry point for the eager
+// clone at `remote add` and the init-time clone of all remotes.
+func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
+	return c.ensureClone(ctx, repoURL, forgeType)
 }
 
 // UpdateRepo fetches the latest changes for a cached repo, advancing the
-// remote-tracking refs (refs/remotes/origin/*) to the live remote HEAD.
+// remote-tracking refs (refs/remotes/origin/*) and tags to the live remote.
 // If the repo is not yet cloned, it clones it.
 func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
 	repoDir := c.repoDirForURL(repoURL)
 
-	// Try to open existing clone
-	repo, err := git.PlainOpen(repoDir)
-	if err == nil {
-		// Existing clone — fetch updates. A shallow clone's Depth:1 refetch does
-		// NOT advance origin/* past the original shallow boundary, so updates on
-		// a shallow clone would silently no-op (the bug). Always do the full,
-		// unshallowing fetch (Depth:0) so refs/remotes/origin/main tracks the
-		// live remote HEAD — which is what `remote update`, `remote upgrade`, and
-		// the lockfile outdated check all rely on.
-		if fetchErr := c.unshallowRepo(ctx, repo, forgeType); fetchErr != nil {
-			return repoDir, fmt.Errorf("git fetch failed: %w", fetchErr)
-		}
+	if !isGitRepo(repoDir) {
+		return c.ensureClone(ctx, repoURL, forgeType)
+	}
+
+	if err := c.fetch(ctx, repoDir, repoURL, forgeType); err != nil {
+		return repoDir, fmt.Errorf("git fetch failed: %w", err)
+	}
+	return repoDir, nil
+}
+
+// ensureClone guarantees a usable full clone at the cache path. A missing or
+// corrupt directory is removed and freshly cloned; an existing clone is left
+// as-is (callers refresh explicitly via UpdateRepo).
+func (c *RepoCache) ensureClone(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
+	repoDir := c.repoDirForURL(repoURL)
+
+	if isGitRepo(repoDir) {
 		return repoDir, nil
 	}
 
-	// Not cloned yet — do a fresh clone
-	return c.EnsureRepo(ctx, repoURL, forgeType)
-}
+	// No usable clone — clear any stale/corrupt dir and clone fresh.
+	if rmErr := os.RemoveAll(repoDir); rmErr != nil && !os.IsNotExist(rmErr) {
+		return "", fmt.Errorf("failed to clean corrupt cache: %w", rmErr)
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(repoDir), 0755); mkErr != nil {
+		return "", fmt.Errorf("failed to create cache directory: %w", mkErr)
+	}
 
-// EnsureFullRepo clones a repo with complete history if it is missing, or
-// deepens an existing shallow clone to full history, returning the local path.
-//
-// Unlike EnsureRepo — which leaves a fresh clone shallow (Depth:1, HEAD only) —
-// this guarantees every commit is locally readable. That is required to read a
-// bundle pinned at an arbitrary historical SHA straight out of the clone, so the
-// eager clone at `remote add` (and the init-time clone of all remotes) use it.
-// A shallow clone would only carry HEAD and silently fail any pin off the tip.
-func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
-	// EnsureRepo clones shallow if missing (or no-ops if present); UpdateRepo
-	// then does the full, unshallowing fetch (Depth:0) that deepens it to
-	// complete history.
-	if _, err := c.EnsureRepo(ctx, repoURL, forgeType); err != nil {
+	if err := c.clone(ctx, repoURL, repoDir, forgeType); err != nil {
+		_ = os.RemoveAll(repoDir)
 		return "", err
 	}
-	return c.UpdateRepo(ctx, repoURL, forgeType)
+	return repoDir, nil
+}
+
+// clone performs a full-depth clone (complete history, all branches and tags)
+// via the system git binary, so the result is fully readable by go-git.
+func (c *RepoCache) clone(ctx context.Context, repoURL, repoDir string, forgeType ForgeType) error {
+	cloneURL := normalizeCloneURL(repoURL)
+	args := append(c.authArgs(cloneURL, forgeType), "clone", cloneURL, repoDir)
+	if err := runGit(ctx, "", args...); err != nil {
+		return fmt.Errorf("git clone failed: %w", err)
+	}
+	return nil
+}
+
+// fetch advances all remote-tracking branches and tags to the live remote.
+func (c *RepoCache) fetch(ctx context.Context, repoDir, repoURL string, forgeType ForgeType) error {
+	args := append(c.authArgs(normalizeCloneURL(repoURL), forgeType),
+		"fetch", "--all", "--tags", "--prune", "--force")
+	return runGit(ctx, repoDir, args...)
+}
+
+// authArgs returns leading `git -c …` arguments that inject credentials for the
+// github forge: the resolved token as an HTTP Authorization header scoped to
+// the clone host. The token comes from the resolved forge's token_env (default
+// GITHUB_TOKEN); the generic git forge gets nothing — auth is fully ambient
+// (credential helper, ssh-agent, ~/.ssh/config, per-host .gitconfig).
+func (c *RepoCache) authArgs(cloneURL string, forgeType ForgeType) []string {
+	if forgeType != ForgeGitHub {
+		return nil
+	}
+	token := c.cloneToken(cloneURL)
+	if token == "" {
+		return nil
+	}
+	host := cloneHost(cloneURL)
+	if host == "" {
+		return nil
+	}
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	header := fmt.Sprintf("http.https://%s/.extraheader=AUTHORIZATION: basic %s", host, basic)
+	return []string{"-c", header}
+}
+
+// cloneToken resolves the github token for a clone URL: the resolved forge's
+// token_env value when a forge resolver is configured, else the ambient token.
+func (c *RepoCache) cloneToken(cloneURL string) string {
+	if c.resolver != nil {
+		return c.resolver(cloneURL).Token(c.auth)
+	}
+	return c.auth.GitHub
+}
+
+// runGit invokes the system git binary, capturing stderr into any error and
+// respecting ctx cancellation. dir is the working directory (empty for clone).
+func runGit(ctx context.Context, dir string, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("git binary not found on PATH (required for remote clone/fetch): %w", err)
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("git %s: %w", args[0], ctx.Err())
+		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("git %s: %s: %w", args[0], msg, err)
+		}
+		return fmt.Errorf("git %s: %w", args[0], err)
+	}
+	return nil
+}
+
+// isGitRepo reports whether dir is an existing git working tree.
+func isGitRepo(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.IsDir()
+}
+
+// cloneHost returns the lowercased host of an HTTPS clone URL, or "" if the URL
+// is not HTTPS (token injection only applies to HTTPS GitHub clones).
+func cloneHost(cloneURL string) string {
+	u, err := url.Parse(cloneURL)
+	if err != nil || u.Scheme != "https" {
+		return ""
+	}
+	return strings.ToLower(u.Host)
 }
 
 // RepoDirForURL returns the local cache path for a repo URL (exported for operations).
@@ -176,71 +244,6 @@ func (c *RepoCache) safeRepoPath(parts ...string) string {
 	return joined
 }
 
-// unshallowRepo deepens a shallow clone so all branches and tags are locally
-// resolvable, and advances refs/remotes/origin/* to the live remote HEAD.
-// Used on the first miss for a non-HEAD ref and by UpdateRepo.
-func (c *RepoCache) unshallowRepo(ctx context.Context, repo *git.Repository, forgeType ForgeType) error {
-	auth := c.authMethod(forgeType)
-	err := repo.FetchContext(ctx, &git.FetchOptions{
-		Auth:  auth,
-		Depth: 0,
-		Tags:  git.AllTags,
-		Force: true,
-		RefSpecs: []config.RefSpec{
-			"+refs/heads/*:refs/remotes/origin/*",
-			"+refs/tags/*:refs/tags/*",
-		},
-	})
-	if err == git.NoErrAlreadyUpToDate {
-		return nil
-	}
-	return err
-}
-
-// refExistsLocally returns true if the given ref string can be resolved to a
-// commit hash from local refs alone. Mirrors the resolution chain in
-// GitCloneFetcher.resolveToCommitHash so callers stay consistent.
-func refExistsLocally(repo *git.Repository, ref string) bool {
-	if ref == "" {
-		return true
-	}
-	candidates := []string{
-		ref,
-		"refs/remotes/origin/" + ref,
-		"refs/tags/" + ref,
-	}
-	for _, c := range candidates {
-		if _, err := repo.ResolveRevision(plumbing.Revision(c)); err == nil {
-			return true
-		}
-	}
-	if tagRef, err := repo.Tag(ref); err == nil && tagRef != nil {
-		return true
-	}
-	return false
-}
-
-// authMethod returns the go-git auth method for the given forge type.
-func (c *RepoCache) authMethod(forgeType ForgeType) transport.AuthMethod {
-	switch forgeType {
-	case ForgeGitHub:
-		if c.auth.GitHub != "" {
-			return &http.BasicAuth{
-				Username: "x-access-token",
-				Password: c.auth.GitHub,
-			}
-		}
-	case ForgeGitLab:
-		if c.auth.GitLab != "" {
-			return &http.BasicAuth{
-				Username: "oauth2",
-				Password: c.auth.GitLab,
-			}
-		}
-	}
-	return nil
-}
-
 // normalizeCloneURL ensures a URL is suitable for git clone.
 func normalizeCloneURL(repoURL string) string {
 	// Handle shorthand (owner/repo → https://github.com/owner/repo)
@@ -250,7 +253,7 @@ func normalizeCloneURL(repoURL string) string {
 		}
 	}
 
-	// Remove .git suffix for consistency, we'll let go-git handle it
+	// Remove .git suffix for consistency, we'll let git handle it
 	repoURL = strings.TrimSuffix(repoURL, ".git")
 
 	return repoURL

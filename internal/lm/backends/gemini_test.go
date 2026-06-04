@@ -68,6 +68,17 @@ func argPair(args []string, flag, value string) bool {
 	return false
 }
 
+// argValue returns the value following flag in args, or "" if the flag is
+// absent or has no following element.
+func argValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 // TestGemini_BuildArgs_AutoApprove verifies that auto-approve mode adds
 // the --yolo flag.
 func TestGemini_BuildArgs_AutoApprove(t *testing.T) {

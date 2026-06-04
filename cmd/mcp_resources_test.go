@@ -6,6 +6,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestExtractURIName covers the helper that powers every templated
@@ -101,9 +103,9 @@ func TestHandleResourceTasksSummary(t *testing.T) {
 // gracefully serves an empty list when no harp-named sessions exist
 // (fresh-machine first-run case).
 func TestHandleResourceSessionsRecent_EmptyIndex(t *testing.T) {
-	// Point HOME at a temp dir so the user-global index doesn't pick up
-	// the real user's history during tests.
-	t.Setenv("HOME", t.TempDir())
+	// Isolate HOME so the user-global index doesn't pick up the real user's
+	// history during tests.
+	testsupport.Isolate(t)
 	s := &ctxServer{}
 	req := &mcp.ReadResourceRequest{Params: &mcp.ReadResourceParams{URI: resourceSessionsRecentURI}}
 	res, err := s.handleResourceSessionsRecent(t.Context(), req)

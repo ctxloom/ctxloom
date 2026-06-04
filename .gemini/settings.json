@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ctxloom session bind",
+            "command": "ctxloom hook session-bind",
             "name": "ctxloom-managed"
           }
         ]

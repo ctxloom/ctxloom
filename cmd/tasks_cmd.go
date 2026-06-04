@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
@@ -53,7 +53,10 @@ var tasksListCmd = &cobra.Command{
 	},
 }
 
-var tasksAddStatus string
+var (
+	tasksAddStatus  string
+	tasksAddTrigger string
+)
 
 var tasksAddCmd = &cobra.Command{
 	Use:   "add <text>",
@@ -61,7 +64,7 @@ var tasksAddCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		res, err := operations.AddTask(taskContext(), text, tasksAddStatus)
+		res, err := operations.AddTask(taskContext(), text, tasksAddStatus, tasksAddTrigger)
 		if err != nil {
 			return err
 		}
@@ -73,12 +76,41 @@ var tasksAddCmd = &cobra.Command{
 	},
 }
 
+var tasksStatusTrigger string
+
 var tasksStatusCmd = &cobra.Command{
 	Use:   "status <harp-id> <status>",
 	Short: "Change the status of a task",
-	Args:  cobra.ExactArgs(2),
+	Long: `Change the status of a task.
+
+Use "Deferred" with --trigger to park a task on a named revive condition; the
+task then hides from the default list until the trigger fires. A task already
+carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1])
+		res, err := operations.SetTaskStatus(taskContext(), args[0], args[1], tasksStatusTrigger)
+		if err != nil {
+			return err
+		}
+		warnTask(res.Warning)
+		task := res.Task
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	},
+}
+
+var tasksEditCmd = &cobra.Command{
+	Use:   "edit <harp-id> <text>",
+	Short: "Replace a task's text in place (full new text)",
+	Long: `Replace a task's text, keyed by its harp ID.
+
+The entire text is replaced with what you pass (not patched); the task's
+status and any Deferred trigger are left unchanged.`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		text := strings.Join(args[1:], " ")
+		res, err := operations.EditTask(taskContext(), args[0], text)
 		if err != nil {
 			return err
 		}
@@ -168,15 +200,10 @@ directly. In a non-interactive shell a task harp id is required.`,
 }
 
 // taskRunWorkDir resolves the project root the same way `ctxloom run` does:
-// the git root when in a repo, otherwise the current directory.
+// the CTXLOOM_ROOT override when valid, else the git root when in a repo,
+// otherwise the current directory.
 func taskRunWorkDir() string {
-	if root, err := gitutil.FindRoot("."); err == nil {
-		return root
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
+	return projectroot.WorkDir()
 }
 
 // findLocated returns the task with the given harp id, searching all statuses.
@@ -318,11 +345,18 @@ func init() {
 	tasksListCmd.Flags().BoolVar(&tasksListAll, "all", false, "include completed (Done/Archived) tasks, hidden by default")
 
 	tasksAddCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
+	tasksAddCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")
+
+	tasksStatusCmd.Flags().StringVar(&tasksStatusTrigger, "trigger", "", "revive condition when setting status to Deferred")
 
 	tasksRunCmd.Flags().BoolVar(&tasksRunNoStart, "no-start", false, "Leave the task's status unchanged instead of marking it In Progress")
 
-	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksSummaryCmd, tasksRunCmd, tasksStampPlanCmd)
+	tasksCmd.AddCommand(tasksListCmd, tasksAddCmd, tasksStatusCmd, tasksEditCmd, tasksSummaryCmd, tasksRunCmd)
 	rootCmd.AddCommand(tasksCmd)
+
+	// stamp-plan is a machine callback (PostFileEdit hook target), so it lives
+	// under the hidden `hook` namespace, not the user-facing `tasks` one.
+	hookCmd.AddCommand(tasksStampPlanCmd)
 }
 
 // parseEditPayload extracts tool_input.file_path from a Claude Code hook
@@ -393,7 +427,11 @@ func renderTaskTable(out io.Writer, list []tasks.Task) error {
 		if t.Checked {
 			check = "x"
 		}
-		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, t.Text)
+		text := t.Text
+		if t.Trigger != "" {
+			text = fmt.Sprintf("%s  (trigger: %s)", text, t.Trigger)
+		}
+		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, text)
 	}
 	return w.Err()
 }

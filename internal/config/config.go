@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
@@ -349,6 +350,25 @@ func Load(opts ...LoadOption) (*Config, error) {
 	return cfg, nil
 }
 
+// ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded
+// default registry. Unlike Load it does not read from disk, validate, upgrade,
+// or merge defaults — callers that need the raw registry entries (e.g. init
+// reading the shipped default-config) use this so the role markers and exact
+// entries survive untouched.
+func ParseConfig(data []byte) (*Config, error) {
+	cfg := &Config{
+		LM:       LMConfig{Configs: make(map[string]LLMConfig)},
+		Profiles: ProfilesConfig{Definitions: make(map[string]Profile)},
+	}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if cfg.LM.Configs == nil {
+		cfg.LM.Configs = make(map[string]LLMConfig)
+	}
+	return cfg, nil
+}
+
 // mergeDefaultConfig fills any LLM-role gaps from the embedded default config.
 // Per CLAUDE.md fault tolerance a malformed/unreadable default never blocks
 // startup — the merge is skipped silently. User config always wins: a default
@@ -437,11 +457,24 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 
 // findAppDir locates the .ctxloom directory.
 // Priority:
-//  1. Walk up from cwd looking for .ctxloom directory
-//  2. Fall back to user home ~/.ctxloom directory
+//  1. CTXLOOM_ROOT override (when set and a valid directory)
+//  2. Walk up from cwd looking for .ctxloom directory
+//  3. Fall back to user home ~/.ctxloom directory
 //
 // Always returns a path (creates user home .ctxloom if needed).
 func findAppDir(fs afero.Fs) (string, ConfigSource) {
+	// CTXLOOM_ROOT is authoritative when valid: the user named the root
+	// explicitly, so resolve config at $CTXLOOM_ROOT/.ctxloom and create it if
+	// absent, mirroring the home fallback below. A failed MkdirAll warns and
+	// continues — the path is still returned so the run isn't blocked.
+	if root, ok := projectroot.FromEnv(fs); ok {
+		appPath := filepath.Join(root, AppDirName)
+		if err := fs.MkdirAll(appPath, 0755); err != nil {
+			zap.L().Warn("failed to create CTXLOOM_ROOT .ctxloom directory", zap.String("path", appPath), zap.Error(err))
+		}
+		return appPath, SourceProject
+	}
+
 	// Try to find project .ctxloom by walking up from cwd
 	pwd, err := os.Getwd()
 	if err == nil {

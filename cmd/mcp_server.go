@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler.
@@ -29,7 +30,7 @@ type ctxServer struct {
 // ctxloom keeps only the agent's runtime context tools here; all management is
 // CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
 // guidance injected at session start).
-const mcpServerInstructions = `ctxloom exposes a small set of tools for retrieving context during a session: search and load fragments, prompts (skills), and prior session history, plus task tracking. All ctxloom management — creating or editing bundles/profiles/fragments/prompts, syncing remotes, reviewing/approving/trusting remote bundle changes, pinning bundles, applying hooks — is done with the ctxloom CLI via your shell (e.g. ` + "`ctxloom bundle review`, `ctxloom remote trust <name>`, `ctxloom remote sync`" + `), not through tools here.`
+var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
 
 // runMCPServerSDK is the cobra RunE for `ctxloom mcp serve`. The SDK's
 // Server.Run handles its own stdin EOF and ctx-cancellation cleanup — we

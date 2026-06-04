@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
@@ -266,7 +266,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		WorkDir:     workDir,
 		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
 		SessionHarp: activeHarp,
-	}, harpID, status)
+	}, harpID, status, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: seed task %s: %v\n", harpID, err)
 		return
@@ -428,13 +428,9 @@ Examples:
 			}
 		}
 
-		// Determine work directory: git root if in repo, current directory otherwise
-		workDir := ""
-		if root, err := gitutil.FindRoot("."); err == nil {
-			workDir = root
-		} else if cwd, err := os.Getwd(); err == nil {
-			workDir = cwd
-		}
+		// Determine work directory: CTXLOOM_ROOT override, else git root if in
+		// repo, else current directory.
+		workDir := projectroot.WorkDir()
 
 		// Phase 3 session resolution: optional pre-launch resume picker,
 		// followed by a fresh harp assignment for the new session.
@@ -618,6 +614,15 @@ func resolveRunLLM(cfg *config.Config, override string) (string, error) {
 	if override == "" {
 		return cfg.PrimaryLabel(), nil
 	}
+	return validateExplicitLLM(cfg, override)
+}
+
+// validateExplicitLLM validates a non-empty --llm override (friction-up-front):
+// it must be a configured label, or a registered backend type whose binary is
+// installed (treated as an ad-hoc label). Returns the validated label or an
+// error naming what is usable now. Shared by `run` and `bundle distill` so an
+// unknown --llm is reported rather than silently swallowed.
+func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 	// A configured label is trusted (the user set up its backend/binary/args).
 	if _, configured := cfg.LM.Configs[override]; configured {
 		return override, nil
@@ -660,7 +665,7 @@ func usableLLMs(cfg *config.Config) []string {
 func init() {
 	rootCmd.AddCommand(runCmd)
 
-	runCmd.Flags().StringVarP(&runLLM, "llm", "l", "", "LLM to use for this run only (overrides the configured default; not persisted)")
+	runCmd.Flags().StringVarP(&runLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, gemini-code, gemini-fast); overrides the configured default")
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
 	runCmd.Flags().StringVarP(&runSavedPrompt, "run-prompt", "r", "", "Run a saved prompt by name")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")

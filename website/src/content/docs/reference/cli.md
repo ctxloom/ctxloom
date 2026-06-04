@@ -202,11 +202,11 @@ Manage MCP server configuration.
 
 ```bash
 ctxloom mcp serve                    # Run as MCP server
-ctxloom mcp list
-ctxloom mcp add tree-sitter -c "npx" -a "tree-sitter-mcp" -a "--stdio"
-ctxloom mcp add my-server -c "/path/to/server" -b claude-code
-ctxloom mcp remove tree-sitter
-ctxloom mcp auto-register --disable
+ctxloom manage mcp servers list
+ctxloom manage mcp servers add tree-sitter -c "npx" -a "tree-sitter-mcp" -a "--stdio"
+ctxloom manage mcp servers add my-server -c "/path/to/server" -b claude-code
+ctxloom manage mcp servers remove tree-sitter
+ctxloom manage mcp uninstall
 ```
 
 ## ctxloom memory

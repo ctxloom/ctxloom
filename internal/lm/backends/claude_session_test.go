@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,6 +263,7 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 // PID-registry lookup, which assumed /clear did not fork the session — it does,
 // so the registry never accumulated a second session and recovery returned nil.
 func TestClaudeSessionHistory_GetPreviousSession_ReadTime(t *testing.T) {
+	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()
 	homeDir := "/test/home"
@@ -323,6 +325,7 @@ func TestClaudeSessionHistory_harpFromTranscript(t *testing.T) {
 // With the harp marker present, resolution scopes to this harp's own
 // transcripts and returns its true previous session.
 func TestClaudeSessionHistory_GetPreviousSession_HarpScoped(t *testing.T) {
+	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()
 	homeDir := "/test/home"
@@ -356,6 +359,7 @@ func TestClaudeSessionHistory_GetPreviousSession_HarpScoped(t *testing.T) {
 // floor: with no harp marker resolvable (pre-marker history), resolution falls
 // back to positional [1] — the datetime-ordered previous transcript.
 func TestClaudeSessionHistory_GetPreviousSession_FallsBackPositional(t *testing.T) {
+	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode()
 	homeDir := "/test/home"

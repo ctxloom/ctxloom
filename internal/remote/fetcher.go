@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// Fetcher abstracts git forge operations (GitHub, GitLab, etc.).
+// Fetcher abstracts git forge operations (GitHub API, generic git clone).
 // Each forge implementation handles authentication, rate limiting, and API specifics.
 type Fetcher interface {
 	// FetchFile retrieves raw file content from a repository.

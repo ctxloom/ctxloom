@@ -68,11 +68,13 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 	// shows only live work. An explicit status filter is itself the opt-in (it
 	// is honored verbatim by store.List), so only filter here when none was
 	// given. The summary below still folds every task, so completed counts stay
-	// visible.
+	// visible. Deferred tasks are parked on a trigger and are likewise hidden
+	// from the active view — surface them with `--status Deferred` (or the
+	// check-triggers skill), or with includeDone.
 	if !includeDone && len(statuses) == 0 {
 		active := make([]tasks.Task, 0, len(list))
 		for _, t := range list {
-			if !t.Checked { // Checked == status is Done/Archived
+			if !t.Checked && t.Status != tasks.StatusDeferred {
 				active = append(active, t)
 			}
 		}
@@ -90,12 +92,14 @@ func ListTasks(tc TaskContext, statuses []string, term string, includeDone, incl
 }
 
 // AddTask appends a task to the project log, stamping the session as origin.
-func AddTask(tc TaskContext, text, status string) (*TaskResult, error) {
+// A non-empty trigger parks the task on a revive condition; required when
+// status is Deferred (the store enforces the invariant for both CLI and MCP).
+func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) {
 	store, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
 	}
-	task, err := store.Add(text, status)
+	task, err := store.AddWithTrigger(text, status, trigger)
 	if err != nil {
 		return nil, fmt.Errorf("add task: %w", err)
 	}
@@ -103,15 +107,31 @@ func AddTask(tc TaskContext, text, status string) (*TaskResult, error) {
 }
 
 // SetTaskStatus moves a task to a different status, attributing the change to
-// the acting session.
-func SetTaskStatus(tc TaskContext, harpID, status string) (*TaskResult, error) {
+// the acting session. A non-empty trigger (re)sets the revive condition;
+// moving to Deferred requires one (supplied here or already on the task).
+func SetTaskStatus(tc TaskContext, harpID, status, trigger string) (*TaskResult, error) {
 	store, warning, err := resolveTaskStore(tc)
 	if err != nil {
 		return nil, err
 	}
-	task, err := store.SetStatus(harpID, status)
+	task, err := store.SetStatusWithTrigger(harpID, status, trigger)
 	if err != nil {
 		return nil, fmt.Errorf("set status: %w", err)
+	}
+	return &TaskResult{Path: store.Path(), Task: task, Warning: warning}, nil
+}
+
+// EditTask replaces a task's text in place, keyed by harp ID, attributing the
+// edit to the acting session. The whole text is replaced; status and trigger
+// are untouched.
+func EditTask(tc TaskContext, harpID, text string) (*TaskResult, error) {
+	store, warning, err := resolveTaskStore(tc)
+	if err != nil {
+		return nil, err
+	}
+	task, err := store.SetText(harpID, text)
+	if err != nil {
+		return nil, fmt.Errorf("edit task: %w", err)
 	}
 	return &TaskResult{Path: store.Path(), Task: task, Warning: warning}, nil
 }

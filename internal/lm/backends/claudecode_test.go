@@ -214,6 +214,40 @@ func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
 	assert.True(t, argPair(args, "--model", "sonnet"))
 }
 
+// TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings verifies the headless
+// distill path isolates from CLAUDE.md/memory/MCP via --system-prompt "",
+// --strict-mcp-config, and an inline --settings override — NOT --setting-sources
+// "" (an empty source list drops the model config and routes generation to the
+// CLI's fast model regardless of --model).
+func TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings(t *testing.T) {
+	backend := NewClaudeCode()
+
+	args := backend.buildArgs(&ExecuteRequest{Mode: ModeOneshot, SkipSetup: true, Model: "claude-opus-4-8"})
+
+	assert.NotContains(t, args, "--setting-sources",
+		"empty --setting-sources drops model routing; isolate via --settings instead")
+	assert.True(t, argPair(args, "--system-prompt", ""),
+		"minimal mode drops the built-in system prompt (CLAUDE.md/memory)")
+	assert.Contains(t, args, "--strict-mcp-config")
+	assert.True(t, argPair(args, "--model", "claude-opus-4-8"))
+	// The --settings payload carries the requested model and disables hooks.
+	settings := argValue(args, "--settings")
+	assert.Contains(t, settings, "claude-opus-4-8")
+	assert.Contains(t, settings, "\"hooks\":{}")
+}
+
+// TestMinimalSettings verifies the isolation JSON: hooks disabled, model present
+// only when supplied.
+func TestMinimalSettings(t *testing.T) {
+	withModel := minimalSettings("claude-opus-4-8")
+	assert.Contains(t, withModel, "\"model\":\"claude-opus-4-8\"")
+	assert.Contains(t, withModel, "\"hooks\":{}")
+
+	noModel := minimalSettings("")
+	assert.NotContains(t, noModel, "\"model\"", "empty model is omitted so the CLI default applies")
+	assert.Contains(t, noModel, "\"hooks\":{}")
+}
+
 // TestClaudeCode_BuildArgs_OneshotWithoutSkipSetupNoJSON verifies that an
 // ordinary oneshot (e.g. `ctxloom run --print`) keeps streaming text output and
 // does not switch to the JSON envelope.
@@ -315,10 +349,10 @@ func TestParseClaudeJSONResult_ExtractsResultAndModel(t *testing.T) {
 }
 
 // TestParseClaudeJSONResult_PicksWorkingModel verifies that when the CLI reports
-// several models (a helper model alongside the one doing the work), provenance
-// records the model that read the content — the one with the most input
-// tokens — not a helper the CLI touches with near-zero input. Mirrors observed
-// distill envelopes where haiku reads the payload and opus only frames.
+// several models, provenance records the model that GENERATED the result — the
+// one with the most output tokens — not a fast helper the CLI routes a large
+// read through (high input, tiny output). Mirrors observed distill envelopes
+// where a helper reads the payload and the requested model does the generation.
 func TestParseClaudeJSONResult_PicksWorkingModel(t *testing.T) {
 	envelope := `{"result":"ok","modelUsage":{` +
 		`"claude-haiku-4-5":{"inputTokens":500,"outputTokens":16},` +
@@ -327,7 +361,7 @@ func TestParseClaudeJSONResult_PicksWorkingModel(t *testing.T) {
 	_, model, err := parseClaudeJSONResult([]byte(envelope))
 
 	assert.NoError(t, err)
-	assert.Equal(t, "claude-haiku-4-5", model)
+	assert.Equal(t, "claude-opus-4-8", model)
 }
 
 // TestParseClaudeJSONResult_InvalidJSON verifies that malformed output is

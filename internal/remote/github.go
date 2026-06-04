@@ -27,12 +27,22 @@ type GitHubFetcherOption func(*gitHubFetcherConfig)
 
 type gitHubFetcherConfig struct {
 	httpClient *http.Client
+	apiURL     string
 }
 
 // WithHTTPClient sets a custom HTTP client (for testing).
 func WithHTTPClient(client *http.Client) GitHubFetcherOption {
 	return func(c *gitHubFetcherConfig) {
 		c.httpClient = client
+	}
+}
+
+// WithGitHubAPIURL points the fetcher at a GitHub Enterprise REST API base
+// (e.g. https://github.mycorp.com/api/v3). Empty uses the public github.com
+// endpoint.
+func WithGitHubAPIURL(apiURL string) GitHubFetcherOption {
+	return func(c *gitHubFetcherConfig) {
+		c.apiURL = apiURL
 	}
 }
 
@@ -66,7 +76,7 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 	}
 
 	fetcher := &GitHubFetcher{
-		client:   newRealGitHubClient(httpClient),
+		client:   newRealGitHubClient(httpClient, cfg.apiURL),
 		token:    token,
 		hasToken: hasToken,
 	}
@@ -75,7 +85,7 @@ func NewGitHubFetcher(token string, opts ...GitHubFetcherOption) *GitHubFetcher 
 	if hasToken {
 		fetcher.fallback = newRealGitHubClient(&http.Client{
 			Transport: &loggingTransport{},
-		})
+		}, cfg.apiURL)
 	}
 
 	return fetcher
@@ -90,6 +100,10 @@ func NewGitHubFetcherWithClient(client GitHubClient) *GitHubFetcher {
 // Quiet by default; set CTXLOOM_DEBUG_HTTP=1 to enable. The cached-clone path
 // has eliminated most API traffic, so unconditional logging became noise on
 // every legitimate operation (discover, publish).
+//
+// CTXLOOM_DEBUG_HTTP is the canonical switch for all HTTP debugging in ctxloom.
+// It only instruments the GitHub client today, but any HTTP transport added
+// later should honor this same variable rather than introduce a parallel one.
 type loggingTransport struct {
 	base http.RoundTripper
 }
@@ -416,7 +430,7 @@ func NewGitHubPublisher(token string) *GitHubPublisher {
 	}
 
 	return &GitHubPublisher{
-		client: newRealGitHubClient(httpClient),
+		client: newRealGitHubClient(httpClient, ""),
 	}
 }
 

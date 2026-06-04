@@ -7,10 +7,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 )
 
 // HookInput represents the JSON input from AI tool hooks.
@@ -39,8 +41,9 @@ var injectContextPart int
 var injectContextTotal int
 
 var hookInjectContextCmd = &cobra.Command{
-	Use:   "inject-context <hash>",
-	Short: "Inject session context for AI tool hooks",
+	Use:    "inject-context <hash>",
+	Hidden: true, // Machine callback (SessionStart hook) - not for direct use
+	Short:  "Inject session context for AI tool hooks",
 	Long: `Reads the context file (.ctxloom/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
@@ -184,7 +187,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"instructions._" +
 				"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
 				"bundles, profiles, fragments, and prompts; `ctxloom remote sync`, `ctxloom remote " +
-				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom hook apply`. The ctxloom " +
+				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
 				"MCP tools are only for retrieving context during the session — searching and loading " +
 				"fragments, prompts (skills), and prior session history — plus task tracking._"
 			if total > 1 {
@@ -258,8 +261,9 @@ func resumePartsIncludeSession(parts string) bool {
 // as the project root for an inject-context call. Precedence:
 //
 //  1. Explicit --project flag value, if non-empty.
-//  2. Git repository root containing the current directory.
-//  3. Fall back to ".".
+//  2. CTXLOOM_ROOT override, when set and a valid directory.
+//  3. Git repository root containing the current directory.
+//  4. Fall back to ".".
 //
 // findRoot is the injectable git-root finder; production uses
 // gitutil.FindRoot, tests pass a stub that returns a known value or
@@ -267,6 +271,9 @@ func resumePartsIncludeSession(parts string) bool {
 func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, error)) string {
 	if flagVal != "" {
 		return flagVal
+	}
+	if root, ok := projectroot.FromEnv(afero.NewOsFs()); ok {
+		return root
 	}
 	if findRoot != nil {
 		if root, err := findRoot("."); err == nil {

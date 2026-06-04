@@ -3,15 +3,31 @@
 # a lightweight model for compression. User config always wins: these entries
 # only fill gaps the user left empty. Model names live here, in data — never in
 # Go code.
+#
+# This file doubles as the shipped registry init reads: each entry's `role`
+# marks it as its backend type's default primary or fast pick, so selecting an
+# engine resolves its pair (primary + fast) by scanning for matching type+role.
+# `role` is registry-only metadata, stripped from any persisted user config.
 version: 3
 
 llm:
   configs:
     claude-code:
       type: claude-code
+      model: claude-opus-4-8
+      role: primary
     claude-fast:
       type: claude-code
-      model: haiku
+      model: claude-haiku-4-5-20251001
+      role: fast
+    gemini-code:
+      type: gemini
+      model: gemini-2.5-pro
+      role: primary
+    gemini-fast:
+      type: gemini
+      model: gemini-2.5-flash
+      role: fast
   defaults:
     primary: claude-code
     fast: claude-fast

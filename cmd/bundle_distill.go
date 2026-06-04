@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 var bundleDistillForce bool
@@ -62,6 +63,10 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	label := bundleDistillLLM
 	if label == "" {
 		label = cfg.FastLabel()
+	} else if validated, verr := validateExplicitLLM(cfg, label); verr != nil {
+		return verr
+	} else {
+		label = validated
 	}
 	distiller := newLLMDistillerForLabel(cfg, label)
 
@@ -156,30 +161,7 @@ func printDistillSummary(totalItems, totalFiles, totalSkipped int) {
 }
 
 // defaultDistillPrompt is used when no distill prompt is found in bundles.
-const defaultDistillPrompt = `You are a context compression assistant for AI coding assistants.
-
-TASK: Compress the content by removing unimportant words while preserving meaning.
-
-PRESERVE (never remove):
-- Code syntax and exact patterns
-- Function/file/variable names (breadcrumbs for navigation)
-- Error handling rules and edge cases
-- Actionable instructions ("DO X", "NEVER do Y")
-- Technical constraints and requirements
-
-COMPRESS AGGRESSIVELY:
-- Verbose explanations of "why"
-- Redundant examples (keep 1 best example per concept)
-- Motivational/philosophical content
-- Historical context unless directly actionable
-
-RULES:
-- Use bullet points and abbreviations where clear
-- Do NOT add new information or rephrase semantics
-- Output format: same structure, fewer words
-- Target: 30-50% of original size
-
-Output only the compressed content.`
+var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 
 // loadDistillPrompt loads the distillation prompt from bundles.
 func loadDistillPrompt() (string, error) {
@@ -312,8 +294,16 @@ func isStructuredContent(ct compression.ContentType) bool {
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
 func distillWithLLM(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	// Build content to distill
+	// Build content to distill. The distill prompt leads the message so the
+	// model is framed as a compressor even in headless minimal mode, where the
+	// fragment/context-file channel is not loaded (without it weaker models
+	// answer the instruction-shaped content instead of compressing it).
 	var builder strings.Builder
+
+	if distillPrompt != "" {
+		builder.WriteString(distillPrompt)
+		builder.WriteString("\n\n")
+	}
 
 	if siblingCtx != "" {
 		builder.WriteString("<bundle_context>\n")
@@ -380,6 +370,13 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 	// Clean up distilled content
 	distilled := cleanDistilledOutput(strings.TrimSpace(stdout.String()))
 
+	// Reject a chat reply: the model followed the (instruction-shaped) content
+	// instead of compressing it. Erroring leaves the item raw rather than
+	// saving garbage (the operations layer warns and continues).
+	if distilled == "" || looksConversational(distilled) {
+		return "", "", fmt.Errorf("distill produced a non-compression response (model %s answered the content instead of compressing it)", modelID)
+	}
+
 	return distilled, modelID, nil
 }
 
@@ -399,12 +396,49 @@ var conversationalStarts = []string{
 // cleanDistilledOutput removes LLM preamble artifacts.
 func cleanDistilledOutput(content string) string {
 	content = strings.TrimSpace(content)
+	content = strings.TrimSpace(runtimeNoiseRe.ReplaceAllString(content, ""))
 
 	content, foundPreamble := stripConversationalPreamble(content)
 	if foundPreamble {
 		content = stripPreambleSeparator(content)
 	}
 	return stripCodeFence(content)
+}
+
+// runtimeNoiseRe matches stray CLI status banners that can leak into captured
+// stdout (e.g. an MCP health notice) so they never land in distilled content.
+var runtimeNoiseRe = regexp.MustCompile(`MCP issues detected\. Run /mcp list for status\.\s*`)
+
+// conversationalLeads are sentence starts that mean the model answered the
+// content as a prompt instead of compressing it.
+var conversationalLeads = []string{
+	"i see ", "i understand", "i'll ", "i will ", "i can help", "i'd be happy",
+	"sure,", "sure!", "okay,", "of course", "let me know",
+}
+
+// conversationalPhrases are anywhere-in-output tells of a chat reply.
+var conversationalPhrases = []string{
+	"what would you like", "would you like me to", "how can i help",
+	"let me know what", "what's the task", "what can i do for you",
+}
+
+// looksConversational reports whether output reads as a chat reply to the
+// content (the model followed instruction-shaped input) rather than a
+// compression of it. Such output is rejected so the item is left raw instead of
+// being saved as garbage.
+func looksConversational(content string) bool {
+	lower := strings.ToLower(strings.TrimSpace(content))
+	for _, lead := range conversationalLeads {
+		if strings.HasPrefix(lower, lead) {
+			return true
+		}
+	}
+	for _, phrase := range conversationalPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripConversationalPreamble drops a leading conversational line (e.g. "Sure,

@@ -25,10 +25,10 @@ func TestBuildPickerEntries_DedupMergeSort(t *testing.T) {
 		{HarpName: "quiet-silver-meadow", TranscriptPath: "/t/sid-B.jsonl", StartedAt: base.Add(-2 * time.Hour)},
 	}
 	raw := []backends.SessionMeta{
-		{ID: "sid-A", Path: "/t/sid-A.jsonl", StartTime: base},                       // dup by path+id → dropped
-		{ID: "sid-B", Path: "/t/sid-B.jsonl", StartTime: base},                       // dup by path → dropped
-		{ID: "sid-C", Path: "/t/sid-C.jsonl", StartTime: base.Add(-1 * time.Hour)},   // new → kept as raw
-		{ID: "", Path: "", StartTime: base},                                          // empty → skipped
+		{ID: "sid-A", Path: "/t/sid-A.jsonl", StartTime: base},                     // dup by path+id → dropped
+		{ID: "sid-B", Path: "/t/sid-B.jsonl", StartTime: base},                     // dup by path → dropped
+		{ID: "sid-C", Path: "/t/sid-C.jsonl", StartTime: base.Add(-1 * time.Hour)}, // new → kept as raw
+		{ID: "", Path: "", StartTime: base},                                        // empty → skipped
 	}
 
 	got := buildPickerEntries(indexed, raw, "claude-code")

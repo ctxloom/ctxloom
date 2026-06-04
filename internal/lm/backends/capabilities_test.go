@@ -561,16 +561,16 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 		assert.NotContains(t, h.Command, "inject-context",
 			"context-injection hook must not be added when contextHash is empty")
 	}
-	// ...but the bundle-shipped SessionStart hooks (e.g. `session bind`) are
+	// ...but the bundle-shipped SessionStart hooks (e.g. `hook session-bind`) are
 	// still assembled. Setup omitting these is what left every `ctxloom run`
 	// session launching without forward-bind.
 	var hasBind bool
 	for _, h := range hooks.Unified.SessionStart {
-		if strings.Contains(h.Command, "session bind") {
+		if strings.Contains(h.Command, "session-bind") {
 			hasBind = true
 		}
 	}
-	assert.True(t, hasBind, "bundle `session bind` hook should be present even without a context hash")
+	assert.True(t, hasBind, "bundle `hook session-bind` hook should be present even without a context hash")
 }
 
 func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {

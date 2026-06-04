@@ -32,6 +32,7 @@ type taskOut struct {
 	Text    string `json:"text"`
 	Status  string `json:"status"`
 	Checked bool   `json:"checked"`
+	Trigger string `json:"trigger,omitempty"`
 }
 
 type summaryOut struct {
@@ -40,8 +41,9 @@ type summaryOut struct {
 }
 
 type taskAddInput struct {
-	Text   string `json:"text" jsonschema:"Task text. Required, trimmed."`
-	Status string `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Done\", \"Archived\"."`
+	Text    string `json:"text" jsonschema:"Task text. Required, trimmed."`
+	Status  string `json:"status,omitempty" jsonschema:"Initial status (default: \"To Do\"). Free-form; standard values are \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
+	Trigger string `json:"trigger,omitempty" jsonschema:"The revive condition for a Deferred task: a concrete description of what should bring it back (e.g. \"the v2 API ships\"). REQUIRED when status is \"Deferred\"; ignored otherwise."`
 }
 
 type taskAddResult struct {
@@ -50,11 +52,22 @@ type taskAddResult struct {
 }
 
 type taskSetStatusInput struct {
-	HarpID string `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
-	Status string `json:"status" jsonschema:"Target status. Standard values: \"In Progress\", \"To Do\", \"Done\", \"Archived\"."`
+	HarpID  string `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
+	Status  string `json:"status" jsonschema:"Target status. Standard values: \"In Progress\", \"To Do\", \"Deferred\", \"Done\", \"Archived\"."`
+	Trigger string `json:"trigger,omitempty" jsonschema:"The revive condition when moving to \"Deferred\": what should bring the task back. REQUIRED for \"Deferred\" unless the task already carries a trigger (then it is preserved). Ignored for other statuses."`
 }
 
 type taskSetStatusResult struct {
+	Path string  `json:"path"`
+	Task taskOut `json:"task"`
+}
+
+type taskEditInput struct {
+	HarpID string `json:"harp_id" jsonschema:"The task's harp ID (e.g. \"swift-amber-falcon\") as returned by task_list or task_add."`
+	Text   string `json:"text" jsonschema:"The full replacement text for the task. The entire text is replaced (not patched); status and trigger are left unchanged."`
+}
+
+type taskEditResult struct {
 	Path string  `json:"path"`
 	Task taskOut `json:"task"`
 }
@@ -77,9 +90,16 @@ func (s *ctxServer) registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server,
 		&mcp.Tool{
 			Name:        "task_set_status",
-			Description: "Move a task to a different status section. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history.",
+			Description: "Move a task to a different status section. Use \"Done\" to complete a task or \"Archived\" to drop it from the active list without losing history. Use \"Deferred\" with a `trigger` to park a task on a named revive condition (it then hides from the active list until the condition fires — see the check-triggers skill).",
 		},
 		s.handleTaskSetStatus)
+
+	mcp.AddTool(server,
+		&mcp.Tool{
+			Name:        "task_edit",
+			Description: "Replace a task's text in place, keyed by its harp ID. Pass the full new text (the whole text is replaced, not patched); status and any Deferred trigger are left unchanged.",
+		},
+		s.handleTaskEdit)
 }
 
 func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, *taskListResult, error) {
@@ -99,7 +119,7 @@ func (s *ctxServer) handleTaskList(_ context.Context, _ *mcp.CallToolRequest, in
 }
 
 func (s *ctxServer) handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in taskAddInput) (*mcp.CallToolResult, *taskAddResult, error) {
-	res, err := operations.AddTask(taskContext(), in.Text, in.Status)
+	res, err := operations.AddTask(taskContext(), in.Text, in.Status, in.Trigger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -108,7 +128,7 @@ func (s *ctxServer) handleTaskAdd(_ context.Context, _ *mcp.CallToolRequest, in 
 }
 
 func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolRequest, in taskSetStatusInput) (*mcp.CallToolResult, *taskSetStatusResult, error) {
-	res, err := operations.SetTaskStatus(taskContext(), in.HarpID, in.Status)
+	res, err := operations.SetTaskStatus(taskContext(), in.HarpID, in.Status, in.Trigger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -116,8 +136,17 @@ func (s *ctxServer) handleTaskSetStatus(_ context.Context, _ *mcp.CallToolReques
 	return nil, &taskSetStatusResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
 }
 
+func (s *ctxServer) handleTaskEdit(_ context.Context, _ *mcp.CallToolRequest, in taskEditInput) (*mcp.CallToolResult, *taskEditResult, error) {
+	res, err := operations.EditTask(taskContext(), in.HarpID, in.Text)
+	if err != nil {
+		return nil, nil, err
+	}
+	warnTask(res.Warning)
+	return nil, &taskEditResult{Path: res.Path, Task: toTaskOut(res.Task)}, nil
+}
+
 func toTaskOut(t tasks.Task) taskOut {
-	return taskOut{HarpID: t.HarpID, Text: t.Text, Status: t.Status, Checked: t.Checked}
+	return taskOut{HarpID: t.HarpID, Text: t.Text, Status: t.Status, Checked: t.Checked, Trigger: t.Trigger}
 }
 
 func toTaskOuts(list []tasks.Task) []taskOut {

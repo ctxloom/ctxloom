@@ -11,11 +11,11 @@ import (
 
 // goVerbatim lists Go top-level node kinds kept verbatim (text + suffix).
 var goVerbatim = map[string]verbatimEmit{
-	"package_clause":    {"\n\n", "package clause"},
+	"package_clause":     {"\n\n", "package clause"},
 	"import_declaration": {"\n", "imports"},
-	"type_declaration":  {"\n\n", "type declaration"},
-	"const_declaration": {"\n", "const/var declaration"},
-	"var_declaration":   {"\n", "const/var declaration"},
+	"type_declaration":   {"\n\n", "type declaration"},
+	"const_declaration":  {"\n", "const/var declaration"},
+	"var_declaration":    {"\n", "const/var declaration"},
 }
 
 // extractGo handles Go-specific AST extraction: one verbatim/handler branch

@@ -2,29 +2,25 @@ package cmd
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// withProjectDir cd's into a fresh tempdir for the duration of the test and
-// clears the session env vars so openSessionTaskStore falls back to the
-// legacy cwd-based store under the tempdir. Without clearing the harp env,
-// a test run inside a real ctxloom session would resolve to that session's
-// shared harp store and leak state across tests.
+// withProjectDir isolates the per-project task log for the duration of the test.
+// The log is home-rooted (~/.ctxloom/tasks/<project-id>.jsonl) and the project-id
+// comes from the CTXLOOM_PROJECT_ID env the host ctxloom process exports, so a
+// run inside a real session would otherwise resolve to that project's live log
+// and leak ~hundreds of tasks into these assertions. testsupport.ProjectDir roots
+// HOME at a fresh tempdir, clears the session/project env so resolution mints a
+// tempdir-scoped project-id, and switches the working directory. Nothing touches
+// the real ~/.ctxloom.
 func withProjectDir(t *testing.T) string {
 	t.Helper()
-	t.Setenv("CTXLOOM_SESSION_HARP", "")
-	t.Setenv("CTXLOOM_RESUMED_FROM", "")
-	t.Setenv("CTXLOOM_RESUMED_PARTS", "")
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(orig) })
-	return dir
+	return testsupport.ProjectDir(t)
 }
 
 func TestHandleTaskAdd_AssignsHarpIDAndPersists(t *testing.T) {

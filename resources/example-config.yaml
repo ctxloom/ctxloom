@@ -16,8 +16,8 @@ version: 3
 #
 # llm:
 #   configs:
-#     big:   { type: claude-code, model: opus }      # label is arbitrary...
-#     quick: { type: claude-code, model: haiku }      # ...two claude-code backends
+#     big:   { type: claude-code, model: claude-opus-4-8 }         # label is arbitrary...
+#     quick: { type: claude-code, model: claude-haiku-4-5-20251001 } # ...two claude-code backends
 #     g:     { type: gemini, model: gemini-2.5-pro, trust_workspace: true }
 #   defaults:
 #     primary: big     # coding/interactive role → label

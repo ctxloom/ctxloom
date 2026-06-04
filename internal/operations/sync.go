@@ -153,12 +153,27 @@ func syncRefs(ctx context.Context, cfg *config.Config, puller Puller, registry *
 	return nil
 }
 
+// syncLockStep and syncHooksStep are seams over the two post-sync side effects
+// so tests can pin the guard conditions in runSyncPostSteps without driving the
+// full lockfile/hook machinery. Production wires them to the real operations.
+var (
+	syncLockStep  func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
+	syncHooksStep func(context.Context, *config.Config, ApplyHooksRequest) (*ApplyHooksResult, error)
+)
+
+// Bound in init (not at declaration) to avoid an initialization cycle: the real
+// steps transitively reference runSyncPostSteps, which reads these vars.
+func init() {
+	syncLockStep = LockDependencies
+	syncHooksStep = ApplyHooks
+}
+
 // runSyncPostSteps runs the optional lockfile + hooks regeneration after a sync.
 // Each step warns and continues on failure — partial success is success and a
 // post-step failure must not fail the sync the user just completed (CLAUDE.md).
 func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
 	if req.Lock && result.Installed+result.Updated > 0 {
-		if _, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
@@ -166,7 +181,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// Apply hooks whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
 	if req.ApplyHooks && result.Total > 0 {
-		if _, err := ApplyHooks(ctx, cfg, ApplyHooksRequest{
+		if _, err := syncHooksStep(ctx, cfg, ApplyHooksRequest{
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {

@@ -8,8 +8,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/spf13/afero"
 )
@@ -57,6 +58,9 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		return nil, err
 	}
 
+	// Honor the statusline opt-out (config: settings.statusline: false).
+	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
+
 	workDir := resolveHookWorkDir(req)
 	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
@@ -77,6 +81,15 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Self-heal the transient-artifact ignores (settings backups, generated
+	// .gemini/) so they stay covered after any hook apply, not just at init.
+	// Skipped when a test FS is injected — the os-based writer would miss it.
+	if req.FS == nil {
+		if gitErr := gitignore.Ensure(workDir, gitignore.Comment, gitignore.TransientArtifactPatterns...); gitErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", gitErr)
+		}
 	}
 
 	// Partial success is success: report which backends took and which
@@ -117,15 +130,13 @@ func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	return freshCfg, nil
 }
 
-// resolveHookWorkDir returns the injected work dir, else the git root, else ".".
+// resolveHookWorkDir returns the injected work dir, else the CTXLOOM_ROOT
+// override / git root / cwd as resolved by projectroot.WorkDir.
 func resolveHookWorkDir(req ApplyHooksRequest) string {
 	if req.WorkDir != "" {
 		return req.WorkDir
 	}
-	if root, err := gitutil.FindRoot("."); err == nil {
-		return root
-	}
-	return "."
+	return projectroot.WorkDir()
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,

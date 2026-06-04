@@ -74,9 +74,9 @@ func TestForgeType_Values(t *testing.T) {
 			want:  "github",
 		},
 		{
-			name:  "gitlab",
-			forge: ForgeGitLab,
-			want:  "gitlab",
+			name:  "generic git",
+			forge: ForgeGitGeneric,
+			want:  "git",
 		},
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestEmitHarpMarker covers the SessionStart producer side: the bind hook emits
@@ -43,7 +44,7 @@ func TestEmitHarpMarker(t *testing.T) {
 // now goes through operations.
 func seedHomeSession(t *testing.T) (*sessions.Manager, sessions.Entry) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	mgr, err := sessions.Open("")
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
@@ -70,7 +71,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 	})
 
 	t.Run("empty_harp_is_noop", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testsupport.Isolate(t)
 		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "")
 		assert.NoError(t, err, "no harp means we're not in a ctxloom session — silently succeed")
 	})
@@ -90,7 +91,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 	})
 
 	t.Run("unknown_harp_is_noop", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testsupport.Isolate(t)
 		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"x"}`), "no-such-harp")
 		assert.NoError(t, err, "stale CTXLOOM_SESSION_HARP env shouldn't crash the hook")
 	})

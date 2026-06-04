@@ -7,6 +7,19 @@
 version: "2"
 
 linters:
+  enable:
+    - forbidigo
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: 'os\.Setenv'
+          msg: 'use t.Setenv (auto-restores) or testsupport.Isolate/ProjectDir'
+        - pattern: 'os\.Chdir'
+          msg: 'use testsupport.ProjectDir'
   exclusions:
     presets:
       - std-error-handling
+    rules:
+      - path-except: '_test\.go'
+        linters:
+          - forbidigo

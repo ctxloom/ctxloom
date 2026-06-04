@@ -68,8 +68,8 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom prompt` | Manage prompts |
 | `ctxloom profile` | Manage profiles |
 | `ctxloom remote` | Manage remotes (add, sync, search, browse) |
-| `ctxloom mcp` | Run MCP server or manage MCP configs |
-| `ctxloom config` | Show or modify configuration |
+| `ctxloom mcp` | Run ctxloom as an MCP server |
+| `ctxloom manage` | Install/manage the project harness (init, hooks, mcp, config, gitignore) |
 
 See [CLI Reference](docs/cli-reference.md) for complete documentation.
 
@@ -80,6 +80,7 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 - [Configuration Guide](https://ctxloom.dev/guides/configuration)
 - [MCP Server Setup](https://ctxloom.dev/guides/mcp-server)
 - [CLI Reference](https://ctxloom.dev/reference/cli)
+- [Environment Variables](docs/environment.md)
 - [Contributing](https://ctxloom.dev/contributing)
 
 ## Related projects

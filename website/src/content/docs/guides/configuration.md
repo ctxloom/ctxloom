@@ -135,6 +135,7 @@ llm:
 | `auto_sync` | `true` | Sync remotes on startup |
 | `llm_plugin` | `claude-code` | Default AI backend |
 | `auto_register_ctxloom` | `true` | Register ctxloom MCP server |
+| `statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
 
 ## Hooks
 

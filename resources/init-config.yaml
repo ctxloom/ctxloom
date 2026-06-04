@@ -1,0 +1,21 @@
+# Base config.yaml written by `ctxloom init`. It carries the static defaults a
+# fresh project starts with; init loads this into memory, sets the chosen LLM
+# backend (and optional model) on the in-memory config, and writes the result
+# before launching the engine. The `llm` block is intentionally absent here —
+# init fills it from the user's selection.
+version: 3
+
+# Behavioral settings.
+config:
+  use_distilled: true
+
+# Default profiles loaded for context assembly. The seeded `default` profile
+# pairs the baseline conduct/practice bundle with the sequential-thinking MCP
+# server; replace or extend it with a language/stack profile via discovery.
+profiles:
+  defaults:
+    - https://github.com/ctxloom/ctxloom-default@profiles/default
+
+# MCP server configuration.
+mcp:
+  auto_register_ctxloom: true

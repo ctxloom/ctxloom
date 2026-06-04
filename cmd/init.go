@@ -15,9 +15,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 var initCmd = &cobra.Command{
@@ -49,72 +51,29 @@ var (
 	initNonInteractive bool
 	initSkipLaunch     bool
 	initEngine         string
+	initRemotes        []string
 )
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
-	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults)")
-	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
+	bindInitFlags(initCmd)
+}
+
+// bindInitFlags binds the init flag set to cmd. Shared by the top-level `init`
+// alias and `manage init` so both surfaces accept the same options against the
+// same package-level flag vars (a cobra command has exactly one parent, so the
+// alias must be a distinct command sharing the operation, not the *cobra.Command).
+func bindInitFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
+	cmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
+	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
+	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
+	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
 func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
-}
-
-// ensureGitignoreEntry adds ctxloom's private working-state paths to .gitignore
-// if not already present: the ephemeral cache dir (synced bundles, session and
-// context data) and the project-id marker (ADR 0025 — private identity must
-// never ride a distributable tree). Idempotent: only the missing entries are
-// appended.
-func ensureGitignoreEntry(projectDir string) error {
-	gitignorePath := filepath.Join(projectDir, ".gitignore")
-	comment := "# ctxloom private working state (synced bundles, session/context, project id)"
-	wanted := []string{".ctxloom/ephemeral/", ".ctxloom/project-id"}
-
-	// Read existing .gitignore if it exists.
-	content, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	present := make(map[string]bool)
-	for _, line := range strings.Split(string(content), "\n") {
-		present[strings.TrimSpace(line)] = true
-	}
-	var missing []string
-	for _, e := range wanted {
-		if !present[e] {
-			missing = append(missing, e)
-		}
-	}
-	if len(missing) == 0 {
-		return nil // all present
-	}
-
-	// Append the missing entries under a single comment.
-	f, err := os.OpenFile(gitignorePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	// Add newline if file doesn't end with one.
-	if len(content) > 0 && content[len(content)-1] != '\n' {
-		if _, err := f.WriteString("\n"); err != nil {
-			return err
-		}
-	}
-	if _, err := fmt.Fprintf(f, "\n%s\n", comment); err != nil {
-		return err
-	}
-	for _, e := range missing {
-		if _, err := fmt.Fprintf(f, "%s\n", e); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // initPrompts handles interactive user prompts during init.
@@ -368,54 +327,7 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // reads the local clones init just made), the ctxloom://remotes resource, and
 // CLI install commands. Do not reference list_remotes / browse_remote /
 // list_profiles / create_profile / update_profile — those are not MCP tools.
-const profileDiscoveryPrompt = `Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
-
-**First, scan the current directory** for project indicators like:
-- go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
-- Dockerfile, docker-compose.yml, Makefile, justfile
-- .github/, .gitlab-ci.yml, and other CI/CD configs
-- Framework-specific files (next.config.js, vite.config.ts, etc.)
-
-**Surface (read this first):**
-- The configured remotes have already been cloned locally during init. Read the
-  ` + "`ctxloom://remotes`" + ` MCP resource to see them.
-- Use the **search_library** MCP tool to find matching bundles/profiles across
-  ALL remotes. It reads the local clones (no network).
-  - Search by tag: ` + "`tag:golang`" + `, ` + "`tag:react`" + `, ` + "`tag:docker`" + `
-  - Search by text: ` + "`security`" + `, ` + "`testing`" + `, ` + "`ci-cd`" + `
-  - Optionally pass item_type ("bundle" or "profile") to narrow.
-  - Each result carries a ` + "`pull_ref`" + ` (e.g. ` + "`ctxloom-default/go-developer`" + `) — that is what you install.
-- ` + "`search_content`" + ` is for content ALREADY installed in this project; it does
-  NOT reach remotes. Use search_library for discovery.
-
-**After scanning**, present your findings:
-1. What project type/stack you detected
-2. Matching content (grouped by remote):
-   - **Profiles**: Development workflow configurations
-   - **Bundles**: Collections of fragments (context) and prompts (reusable commands)
-3. Ask the user which items to install
-
-**Example workflow:**
-1. Detect go.mod → search_library with query "tag:golang"
-2. Detect Dockerfile → search_library with "tag:docker" and "tag:container"
-3. Present matches grouped by remote, let the user choose
-
-**Install selected items** with the CLI, then sync:
-- Profile:  ` + "`ctxloom profile install <pull_ref>`" + ` (e.g. ` + "`ctxloom profile install ctxloom-default/go-developer`" + `)
-- Bundle/fragment/prompt:  ` + "`ctxloom install <pull_ref>`" + `
-- Then run ` + "`ctxloom remote sync`" + ` so every bundle a profile depends
-  on is fetched into the cache.
-- To pin a content version, append ` + "`@<git-tag-or-sha>`" + ` to the ref
-  (e.g. ` + "`ctxloom-default/go-developer@v1.2.0`" + `). Unpinned installs track the
-  remote's default branch.
-
-**Defaults:** the first profile you install is promoted into ` + "`defaults.profiles`" + `
-in ` + "`.ctxloom/config.yaml`" + ` so ` + "`ctxloom run`" + ` loads it automatically. To make a
-different profile the default later, edit ` + "`defaults.profiles`" + ` in that file (or use
-the ` + "`ctxloom profile`" + ` subcommands). Confirm the final ` + "`defaults.profiles`" + ` list
-with the user before exiting.
-
-If you'd prefer to skip this setup, just say "skip" and configure manually later.`
+var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
@@ -570,12 +482,14 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
 
-	addPersonalRemotes(cmd, personalRepos)
+	// Remotes from --remote flags are added alongside any the interactive prompt
+	// collected, so a fully non-interactive run can still register personal repos.
+	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...))
 	cloneConfiguredRemotes(cmd)
 	applyInitHooks(cmd)
 
-	// Update .gitignore to exclude .ctxloom/ephemeral/ (synced bundles, session data).
-	if err := ensureGitignoreEntry(filepath.Dir(appDir)); err != nil {
+	// Exclude ctxloom's private working state from version control.
+	if err := gitignore.Ensure(filepath.Dir(appDir), gitignore.Comment, gitignore.PrivateStatePatterns...); err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
 	}
 

@@ -11,7 +11,7 @@ End-to-end flow once the bundle is active:
 1. `ctxloom run` mints a harp name (e.g. `swift-amber-falcon`), shows the resume picker if prior sessions exist for the cwd, exports the harp via `CTXLOOM_SESSION_HARP`, and emits the OSC2 escape so the terminal title carries it.
 2. The launched LLM sees its own name in `ServerOptions.Instructions`.
 3. Claude's `TodoWrite` calls are intercepted by a PostTool hook (`ctxloom tasks capture --stdin`) that mirror-snapshots the current todo list into `.ctxloom/tasks.md`, keyed by harp IDs.
-4. Edits to plan-shaped markdown files (`CURRENT_PLAN.md`, `*-plan.md`, `docs/*-plan.md`) trigger a PostFileEdit hook (`ctxloom tasks stamp-plan`) that stamps the active harp into the file's YAML frontmatter `sessions:` list.
+4. Edits to plan-shaped markdown files (`CURRENT_PLAN.md`, `*-plan.md`, `docs/*-plan.md`) trigger a PostFileEdit hook (`ctxloom hook stamp-plan`) that stamps the active harp into the file's YAML frontmatter `sessions:` list.
 5. `compact_session` distills the transcript, writes `~/.ctxloom/sessions/<harp>/{essence,tasks,plans}.md`, forward-binds the backend `session.ID` into the index, and stamps a one-line summary into both the essence frontmatter and the index entry.
 6. The next `ctxloom run` shows that summary in the picker; `load_session` can pull the essence back into a fresh session.
 
@@ -43,7 +43,7 @@ End-to-end flow once the bundle is active:
 - **Reconciliation**: harp-id-in-text primary, `sha256(text)[:12]` fallback. Mirror-snapshot — items absent from a TodoWrite move to Archived, not deleted.
 - **Auto-capture channel**: `PostToolUse(TodoWrite)` hook shipped by the embedded `tasks` bundle (resources/builtin_bundles/tasks.yaml).
 - **Session naming**: harp minted by `ctxloom run` pre-LLM-launch. `session.ID` bound forward via two layered paths, primary first:
-  1. **SessionStart hook** (`ctxloom session bind`, shipped by the embedded tasks bundle). Fires once at session creation with `session_id` + `transcript_path` in the JSON payload — the direct, designed-for-this path. Idempotent (`bindSessionFromPayload`, `cmd/session_cmd.go`). For this hook to fire at all it must be in the backend's `settings.json` *before* launch: both writers of that file — the `ctxloom run` Setup path (`BaseLifecycle.MergeConfigHooks`) and `operations.ApplyHooks` — assemble the identical managed hook set via `backends.AssembleManagedHooks`. (Earlier, Setup never resolved bundle hooks, so every `ctxloom run` launched without `session bind` and forward-bind never fired; the MCP-startup apply-hooks added it too late, after the backend had already loaded its SessionStart hooks.)
+  1. **SessionStart hook** (`ctxloom hook session-bind`, shipped by the embedded tasks bundle). Fires once at session creation with `session_id` + `transcript_path` in the JSON payload — the direct, designed-for-this path. Idempotent (`bindSessionFromPayload`, `cmd/session_cmd.go`). For this hook to fire at all it must be in the backend's `settings.json` *before* launch: both writers of that file — the `ctxloom run` Setup path (`BaseLifecycle.MergeConfigHooks`) and `operations.ApplyHooks` — assemble the identical managed hook set via `backends.AssembleManagedHooks`. (Earlier, Setup never resolved bundle hooks, so every `ctxloom run` launched without `hook session-bind` and forward-bind never fired; the MCP-startup apply-hooks added it too late, after the backend had already loaded its SessionStart hooks.)
   2. **Compact-time bind** in the compactor for sessions that somehow reached compact without the SessionStart hook firing.
   - **No transcript-scan fallback.** The earlier last-resort transcript scan + scoped-instructions marker was removed (see ADR 0014): it guessed at a binding from jsonl content, which was fragile and is unnecessary once the SessionStart hook reliably fires. `ctxloom session distill <harp>` now errors clearly when the harp has no bound `session_id` rather than scanning.
 - **No-harp sessions** (no harp at all — pre-this-release, or sessions spawned outside `ctxloom run`): out of scope. They stay un-named.
@@ -51,7 +51,7 @@ End-to-end flow once the bundle is active:
 - **One-line summary**: produced as part of the long-essence distillation in a single LLM call (compactor prompt requires it as YAML frontmatter). Picker reads only the frontmatter; task-snapshot summaries are derived deterministically.
 - **MCP footprint**: ~46 tools naïve → 18 tools shipped. Listings became resources (`ctxloom://fragments`, `…/profiles`, `…/prompts`, `…/remotes`, `…/mcp-servers`, `…/sessions`, `…/sessions/recent`, `…/tasks/summary`, `…/help`, plus templated `…/{name}` for fragments/profiles/prompts and `…/remotes/{name}/contents`). Writes moved to existing cobra CLI commands.
 - **Bundles ship hooks declaratively**: `BundleHooks` field on the schema; built-in bundles + remote bundles both contribute hooks via `ResolveBundleHooks` with SCM markers like `bundle:builtin:tasks` or `bundle:alice/security`.
-- **Status visibility**: harp name surfaces in three places — LLM Instructions, `meta hud` statusline, OSC2 terminal title.
+- **Status visibility**: harp name surfaces in three places — LLM Instructions, `hook hud` statusline, OSC2 terminal title.
 
 ## Surviving MCP tools (18)
 

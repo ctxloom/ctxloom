@@ -117,7 +117,7 @@ func TestGetBuiltinBundle(t *testing.T) {
 	}
 	// It ships the stamp-plan hook; it must NOT ship a TodoWrite capture
 	// hook (auto-capture was removed — tasks go through the MCP tools/CLI).
-	if !strings.Contains(string(data), "tasks stamp-plan") {
+	if !strings.Contains(string(data), "hook stamp-plan") {
 		t.Error("tasks bundle should ship the stamp-plan hook")
 	}
 	if strings.Contains(string(data), "tasks capture") {
@@ -149,5 +149,34 @@ func TestListBuiltinBundles(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected 'tasks' bundle in list, got %v", names)
+	}
+}
+
+// TestGetPromptText verifies every embedded prompt template loads non-empty,
+// trims its trailing newline, and that a missing name errors. These prompts
+// back package-level vars via MustGetPromptText, so a renamed or unembedded
+// file would otherwise only surface as an init-time panic at runtime.
+func TestGetPromptText(t *testing.T) {
+	for _, name := range []string{
+		"profile-discovery",
+		"distill-default",
+		"mcp-server-instructions",
+		"session-distill",
+	} {
+		got, err := GetPromptText(name)
+		if err != nil {
+			t.Errorf("GetPromptText(%q): %v", name, err)
+			continue
+		}
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("GetPromptText(%q) is empty", name)
+		}
+		if strings.HasSuffix(got, "\n") {
+			t.Errorf("GetPromptText(%q) has a trailing newline; want it trimmed", name)
+		}
+	}
+
+	if _, err := GetPromptText("does-not-exist"); err == nil {
+		t.Error("GetPromptText(missing) returned nil error")
 	}
 }

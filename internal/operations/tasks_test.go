@@ -6,16 +6,17 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectid"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestAddAndListTasks_LogPathAndOrigin covers the in-session path: a supplied
 // project-id keys the per-project log, the session harp is stamped as origin,
 // and a later list folds the same log.
 func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "test-project", SessionHarp: "swift-amber-falcon"}
 
-	add, err := AddTask(tc, "write the docs", "")
+	add, err := AddTask(tc, "write the docs", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -46,11 +47,11 @@ func TestAddAndListTasks_LogPathAndOrigin(t *testing.T) {
 // TestResolveLiveMintsIdentity covers the bare-CLI path: with no project-id,
 // the store resolves identity live and mints/marks the project on first sight.
 func TestResolveLiveMintsIdentity(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	proj := t.TempDir()
 	tc := TaskContext{WorkDir: proj} // no ProjectID → live resolve
 
-	if _, err := AddTask(tc, "a task", ""); err != nil {
+	if _, err := AddTask(tc, "a task", "", ""); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	id, err := projectid.ReadMarker(proj)
@@ -60,7 +61,7 @@ func TestResolveLiveMintsIdentity(t *testing.T) {
 }
 
 func TestResolveProjectIdentity(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	proj := t.TempDir()
 
 	pid, _, err := ResolveProjectIdentity(proj)
@@ -73,14 +74,14 @@ func TestResolveProjectIdentity(t *testing.T) {
 }
 
 func TestSetTaskStatusThroughOperations(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testsupport.Isolate(t)
 	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess"}
 
-	add, err := AddTask(tc, "ship it", "")
+	add, err := AddTask(tc, "ship it", "", "")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	res, err := SetTaskStatus(tc, add.Task.HarpID, "Done")
+	res, err := SetTaskStatus(tc, add.Task.HarpID, "Done", "")
 	if err != nil {
 		t.Fatalf("set status: %v", err)
 	}

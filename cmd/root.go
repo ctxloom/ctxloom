@@ -44,8 +44,9 @@ CONTENT COMMANDS
   profile       Manage profiles (list, show, create, delete, edit, install)
 
 INFRASTRUCTURE
+  manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
   remote        Manage remotes (add, remove, list, sync, lock, update)
-  mcp           Manage MCP server configs (list, add, remove, show)
+  mcp           Run ctxloom as an MCP server
 
 WORKFLOW
   run           Assemble context and run AI
@@ -55,7 +56,7 @@ KEY CONCEPTS
   Prompts     Saved prompts for common tasks
   Profiles    Named configurations combining bundles and variables
   Bundles     YAML files containing fragments/prompts (internal format)
-  Remotes     Git repositories for sharing content (GitHub/GitLab)
+  Remotes     Git repositories for sharing content (GitHub or generic git)
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle

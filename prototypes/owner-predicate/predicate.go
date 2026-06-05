@@ -16,7 +16,7 @@ import "strings"
 // ("ctxloom meta hud" -> "ctxloom hook hud") without orphaning the old form.
 //
 // Exec-token identity suffices because in the decoupled design each tool owns
-// its own executable namespace (ctxloom / ltk / harp) and never writes a
+// its own executable namespace (ctxloom / ltk / ctxtask) and never writes a
 // foreign command: MCP servers live in .mcp.json, which is not strict-schema'd
 // and carries a real marker, so they never need this predicate.
 type Owner struct {

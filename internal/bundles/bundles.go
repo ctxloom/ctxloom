@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/shared/collections"
 )
 
 // gitHostPattern matches paths that start with a git hosting domain.

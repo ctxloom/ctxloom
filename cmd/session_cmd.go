@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/harpmarker"
+	"github.com/ctxloom/shared/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"

@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/shared/collections"
 )
 
 const (

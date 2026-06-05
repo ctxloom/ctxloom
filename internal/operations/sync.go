@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
 
-	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )

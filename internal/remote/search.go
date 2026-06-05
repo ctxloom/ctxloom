@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/collections"
+	"github.com/ctxloom/shared/collections"
 )
 
 // ParseSearchQuery parses a search query string into structured filters.

@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/harpmarker"
+	"github.com/ctxloom/shared/harpmarker"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.

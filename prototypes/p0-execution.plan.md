@@ -28,9 +28,21 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
    take the settings facet without launch. Full suite green. (NOTE: the interface
    still uses `config.*` types; those normalized types move to `agent` at
    extraction time — step 6.)
-4. **Per-agent shape** — refactor `internal/lm/backends` into `internal/agent/claude`
-   + `internal/agent/gemini` implementing the core interfaces; ctxloom selects via
-   a registry. `feat/gemini-parity` work folds in as the gemini agent.
+4. **Per-agent shape** (multi-part — the heavy refactor):
+   - 4a ✅ Move the launch `Backend` contract (`interfaces.go`) into `internal/agent`,
+     aliased in `backends`. Both facet contracts (`SettingsWriter` + `Backend`) now
+     live in the core. Cycle-free (interfaces.go was stdlib-only, self-contained).
+   - 4b ⬜ Decouple the settings-writer registry (static map → registration) + the
+     shared infra (`settingsOptions`, `atomicWriteFile`, `getFS`) into the core, so
+     the concrete writers can move without an agent→backends cycle. The public
+     `backends.WriteSettings/RemoveSettings/BackendStatus` wrappers (≈6 `operations`
+     call sites) stay as the stable API.
+   - 4c ⬜ Move `ClaudeCodeHookWriter` (+ claude settings types) → `internal/agent/claude`;
+     register "claude-code".
+   - 4d ⬜ Move `GeminiHookWriter` → `internal/agent/gemini`; register "gemini".
+   - 4e ⬜ Move the launch impls (`claudecode.go`/`gemini.go` + `*_capabilities.go`)
+     into the agent packages; reconcile graduates here. `feat/gemini-parity` folds in
+     as the gemini agent.
 5. **Cross-tool gate** — point ltk at the shared writer (via the published module
    or a `go.work`); assert ctxloom + ltk coexist + idempotent re-apply in one
    settings.json.

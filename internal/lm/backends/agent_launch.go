@@ -45,6 +45,10 @@ var (
 	GetExecutablePath           = agent.GetExecutablePath
 	SetExecutablePathForTesting = agent.SetExecutablePathForTesting
 	WarnOnCtxloomPathSkew       = agent.WarnOnCtxloomPathSkew
+
+	// previousSessionByListing is the engine-agnostic "session before current"
+	// resolver, used by the still-resident gemini session history.
+	previousSessionByListing = agent.PreviousSessionByListing
 )
 
 const (

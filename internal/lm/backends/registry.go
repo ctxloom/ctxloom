@@ -2,6 +2,8 @@ package backends
 
 import (
 	"os/exec"
+
+	"github.com/ctxloom/ctxloom/internal/agent/claude"
 )
 
 // Configurable is implemented by backends that accept their own typed config.
@@ -74,7 +76,7 @@ func IsAvailable(name string) bool {
 func init() {
 	// Register all built-in backends along with their config decoders. The
 	// decoder turns a labeled entry's raw body into the backend's typed config.
-	Register("claude-code", func() Backend { return NewClaudeCode(WriteSettings) })
+	Register("claude-code", func() Backend { return claude.NewClaudeCode(WriteSettings) })
 	RegisterConfig("claude-code", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &ClaudeConfig{})
 	})

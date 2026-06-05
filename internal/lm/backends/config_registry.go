@@ -3,17 +3,14 @@ package backends
 import (
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/go-viper/mapstructure/v2"
 )
 
 // BackendConfig is the decoded, typed configuration for one labeled LLM entry.
-// Each backend owns a concrete struct implementing it; shared code carries the
-// interface and never type-switches on the backend.
-type BackendConfig interface {
-	// BackendType returns the discriminator (claude-code / gemini / codex)
-	// naming the backend this config drives.
-	BackendType() string
-}
+// The canonical definition is the engine-agnostic agent.BackendConfig; this
+// alias keeps the wiring layer's references unchanged.
+type BackendConfig = agent.BackendConfig
 
 // configDecoder turns an LLM entry's raw body into a backend's typed config.
 type configDecoder func(body map[string]interface{}) (BackendConfig, error)

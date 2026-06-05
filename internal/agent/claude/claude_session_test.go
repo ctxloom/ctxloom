@@ -1,4 +1,4 @@
-package backends
+package claude
 
 import (
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 // =============================================================================
 
 func TestClaudeSessionHistory_New(t *testing.T) {
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	history := NewClaudeSessionHistory(backend)
 
 	assert.NotNil(t, history)
@@ -25,7 +25,7 @@ func TestClaudeSessionHistory_New(t *testing.T) {
 }
 
 func TestClaudeSessionHistory_WithOptions(t *testing.T) {
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	fs := afero.NewMemMapFs()
 
 	history := NewClaudeSessionHistory(backend,
@@ -40,7 +40,7 @@ func TestClaudeSessionHistory_WithOptions(t *testing.T) {
 
 func TestClaudeSessionHistory_ListSessions(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	// Setup test directory structure
 	// Claude uses: ~/.claude/projects/-<path-with-dashes>/
@@ -81,7 +81,7 @@ func TestClaudeSessionHistory_ListSessions(t *testing.T) {
 
 func TestClaudeSessionHistory_ListSessions_Empty(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -102,7 +102,7 @@ func TestClaudeSessionHistory_ListSessions_Empty(t *testing.T) {
 
 func TestClaudeSessionHistory_ListSessions_ProjectNotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	history := NewClaudeSessionHistory(backend,
 		WithClaudeSessionFS(fs),
@@ -116,7 +116,7 @@ func TestClaudeSessionHistory_ListSessions_ProjectNotFound(t *testing.T) {
 
 func TestClaudeSessionHistory_GetSession(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -163,7 +163,7 @@ func TestClaudeSessionHistory_GetSession(t *testing.T) {
 
 func TestClaudeSessionHistory_GetSession_NotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -183,7 +183,7 @@ func TestClaudeSessionHistory_GetSession_NotFound(t *testing.T) {
 
 func TestClaudeSessionHistory_GetSessionByPath(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	sessionPath := "/some/path/session.jsonl"
 	sessionContent := `{"type":"user","timestamp":"2024-01-15T10:00:00Z","message":{"content":"Test"}}`
@@ -212,7 +212,7 @@ func TestClaudeSessionHistory_GetSessionByPath(t *testing.T) {
 // ~99% under-read behind the broken /recover distillation.
 func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	// One JSONL line per entry. Mirrors real shapes sampled from a live
 	// transcript: assistant content = [thinking, text, tool_use]; the tool
@@ -265,7 +265,7 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 func TestClaudeSessionHistory_GetPreviousSession_ReadTime(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	homeDir := "/test/home"
 	workDir := "/test/project"
 	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
@@ -305,7 +305,7 @@ func markedTranscriptLine(harp, work, ts string) []byte {
 
 func TestClaudeSessionHistory_harpFromTranscript(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	require.NoError(t, fs.MkdirAll("/p", 0755))
 	marked := "/p/marked.jsonl"
 	bare := "/p/bare.jsonl"
@@ -327,7 +327,7 @@ func TestClaudeSessionHistory_harpFromTranscript(t *testing.T) {
 func TestClaudeSessionHistory_GetPreviousSession_HarpScoped(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	homeDir := "/test/home"
 	workDir := "/test/project"
 	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
@@ -361,7 +361,7 @@ func TestClaudeSessionHistory_GetPreviousSession_HarpScoped(t *testing.T) {
 func TestClaudeSessionHistory_GetPreviousSession_FallsBackPositional(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	homeDir := "/test/home"
 	workDir := "/test/project"
 	projectDir := filepath.Join(homeDir, ".claude", "projects", "-test-project")
@@ -389,7 +389,7 @@ func TestClaudeSessionHistory_GetPreviousSession_FallsBackPositional(t *testing.
 
 func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -414,7 +414,7 @@ func TestClaudeSessionHistory_GetCurrentSession(t *testing.T) {
 
 func TestClaudeSessionHistory_GetCurrentSession_NoSessions(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -435,7 +435,7 @@ func TestClaudeSessionHistory_GetCurrentSession_NoSessions(t *testing.T) {
 
 func TestClaudeSessionHistory_ParseEntry_UserMessage(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
 
 	tests := []struct {
@@ -489,7 +489,7 @@ func TestClaudeSessionHistory_ParseEntry_UserMessage(t *testing.T) {
 
 func TestClaudeSessionHistory_ParseEntry_MalformedJSON(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
 
 	_, err := history.parseEntries([]byte("not json"))
@@ -498,7 +498,7 @@ func TestClaudeSessionHistory_ParseEntry_MalformedJSON(t *testing.T) {
 
 func TestClaudeSessionHistory_ParseSession_SkipsMalformed(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	sessionPath := "/test/session.jsonl"
 	// Mix of valid and invalid lines
@@ -523,7 +523,7 @@ not valid json
 
 func TestClaudeSessionHistory_FindProjectDir(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -544,7 +544,7 @@ func TestClaudeSessionHistory_FindProjectDir(t *testing.T) {
 
 func TestClaudeSessionHistory_FindSessionFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"
@@ -567,7 +567,7 @@ func TestClaudeSessionHistory_FindSessionFile(t *testing.T) {
 
 func TestClaudeSessionHistory_FindSessionFile_NotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	backend := NewClaudeCode(WriteSettings)
+	backend := NewClaudeCode(writeClaudeSettings)
 
 	homeDir := "/test/home"
 	workDir := "/test/project"

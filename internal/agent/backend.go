@@ -13,6 +13,16 @@ import (
 // (claude/gemini) implements both facets; ltk implements/consumes only
 // SettingsWriter.
 
+// BackendConfig is the decoded, typed configuration for one labeled LLM entry.
+// Each agent owns a concrete struct implementing it; shared code carries the
+// interface and never type-switches on the backend. It is part of the
+// engine-agnostic contract alongside Backend.
+type BackendConfig interface {
+	// BackendType returns the discriminator (claude-code / gemini / codex)
+	// naming the backend this config drives.
+	BackendType() string
+}
+
 // ExecutionMode defines how the backend should execute.
 type ExecutionMode int32
 

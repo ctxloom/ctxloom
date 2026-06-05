@@ -50,14 +50,8 @@ func TestNewCodex(t *testing.T) {
 	assert.NotNil(t, backend.History()) // Supports session history
 }
 
-func TestNewClaudeCode(t *testing.T) {
-	backend := NewClaudeCode(WriteSettings)
-	assert.Equal(t, "claude-code", backend.Name())
-	assert.NotNil(t, backend.Lifecycle())
-	assert.NotNil(t, backend.Skills())
-	assert.NotNil(t, backend.Context())
-	assert.NotNil(t, backend.MCP())
-}
+// Claude Code construction/capability wiring is covered in the claude package
+// (claudecode_test.go) now that the launch backend lives there.
 
 func TestNewGemini(t *testing.T) {
 	backend := NewGemini(WriteSettings)

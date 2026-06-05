@@ -15,10 +15,12 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
    points (claude settings, claude `.mcp.json`, gemini settings) in
    `internal/lm/backends/hooks.go`. Kills the ltk↔ctxloom key-order churn at the
    source. Full suite green; no golden-byte test broke.
-2. **Graduate the owner predicate + reconcile** from `prototypes/owner-predicate`
-   into `internal/agent`; replace the ad-hoc `isCtxloomManaged` in
-   hooks.go/uninstall.go with `agent.Owner{Bin: "ctxloom"}`. One engine-agnostic
-   identity for every tool.
+2. **Graduate the owner predicate** — ✅ done. `agent.Owner`/`Owns`/`execToken` in
+   `internal/agent`; `isCtxloomManaged` now delegates to
+   `agent.Owner{Bin: "ctxloom"}`, retiring the duplicate
+   `firstShellToken`/exec-token logic. (Reconcile graduation folded into step 4 —
+   it's engine-specific and lands with the writer refactor.) `TestIsCtxloomManaged`
+   + full suite green.
 3. **Split the facets** — define `SettingsWriter` (settings) separate from
    `Backend` (launch) in `internal/agent`, so a consumer (ltk) can take settings
    without launch. Move the interface definitions out of `internal/lm/backends`.

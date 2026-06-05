@@ -952,42 +952,7 @@ var ctxloomMCPArgs = []string{"mcp"}
 // (e.g. the legacy `ctxloom hook hud`) is mistaken for user-authored and
 // orphaned.
 func isCtxloomManaged(command string) bool {
-	exe := firstShellToken(command)
-	if exe == "" {
-		return false
-	}
-	// Strip any directory prefix and any .exe suffix.
-	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
-		exe = exe[i+1:]
-	}
-	exe = strings.TrimSuffix(exe, ".exe")
-	// Defensive: drop any stray surrounding quote chars left by a
-	// malformed (unbalanced) quoting in the source command.
-	exe = strings.Trim(exe, `"'`)
-	return exe == "ctxloom"
-}
-
-// firstShellToken returns the leading executable token of a /bin/sh-style
-// command string, honoring a single- or double-quoted path that may
-// contain spaces (e.g. `"/Apps/My Tools/ctxloom" mcp` → `/Apps/My
-// Tools/ctxloom`). An unquoted token ends at the first whitespace. This
-// is intentionally minimal — just enough to identify the executable, not
-// a full shell-word parser.
-func firstShellToken(command string) string {
-	command = strings.TrimLeft(command, " \t")
-	if command == "" {
-		return ""
-	}
-	if q := command[0]; q == '"' || q == '\'' {
-		if end := strings.IndexByte(command[1:], q); end >= 0 {
-			return command[1 : 1+end]
-		}
-		return command[1:] // unterminated quote: take the remainder
-	}
-	if i := strings.IndexAny(command, " \t"); i >= 0 {
-		return command[:i]
-	}
-	return command
+	return agent.Owner{Bin: "ctxloom"}.Owns(command)
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.

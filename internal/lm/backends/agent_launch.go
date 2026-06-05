@@ -2,28 +2,21 @@ package backends
 
 import "github.com/ctxloom/ctxloom/internal/agent"
 
-// The shared launch substrate — BaseBackend and the capability bases, the
-// context file/chunk/rendezvous machinery, and the context-injection hook web —
-// lives in internal/agent (the engine-agnostic core). These aliases keep the
-// wiring layer (registry, codex/mock) and existing caller references working
-// unchanged while the canonical definitions live in the core.
+// The shared launch substrate lives in internal/agent (the engine-agnostic
+// core). These aliases cover only what the wiring layer (codex/mock, the
+// command-file dispatcher) and external callers (cmd, operations) still
+// reference by the backends path — the per-agent capability bases moved out
+// with the claude/gemini packages and are no longer aliased here.
 type (
-	BaseBackend         = agent.BaseBackend
-	BaseContextProvider = agent.BaseContextProvider
-	BaseLifecycle       = agent.BaseLifecycle
-	BaseMCPManager      = agent.BaseMCPManager
-	ContextFileOption   = agent.ContextFileOption
-	CommandFileOption   = agent.CommandFileOption
+	BaseBackend       = agent.BaseBackend
+	ContextFileOption = agent.ContextFileOption
+	CommandFileOption = agent.CommandFileOption
 )
 
 var (
-	NewBaseBackend         = agent.NewBaseBackend
-	NewBaseContextProvider = agent.NewBaseContextProvider
-	NewBaseLifecycle       = agent.NewBaseLifecycle
-	NewBaseMCPManager      = agent.NewBaseMCPManager
-	AssembleContext        = agent.AssembleContext
-	GetPromptContent       = agent.GetPromptContent
-	LoadPrompts            = agent.LoadPrompts
+	NewBaseBackend   = agent.NewBaseBackend
+	AssembleContext  = agent.AssembleContext
+	GetPromptContent = agent.GetPromptContent
 
 	WriteContextFile  = agent.WriteContextFile
 	ReadContextFile   = agent.ReadContextFile
@@ -32,29 +25,19 @@ var (
 	ChunkContext      = agent.ChunkContext
 	AwaitTurn         = agent.AwaitTurn
 
-	NewContextInjectionHook      = agent.NewContextInjectionHook
-	NewContextInjectionChunkHook = agent.NewContextInjectionChunkHook
-	NewContextInjectionHooks     = agent.NewContextInjectionHooks
-	AppendManagedDynamicHooks    = agent.AppendManagedDynamicHooks
-	AssembleManagedHooks         = agent.AssembleManagedHooks
+	NewContextInjectionHook  = agent.NewContextInjectionHook
+	NewContextInjectionHooks = agent.NewContextInjectionHooks
+	AssembleManagedHooks     = agent.AssembleManagedHooks
 
 	WriteCommandFiles           = agent.WriteCommandFiles
 	WithCommandFS               = agent.WithCommandFS
-	ResolveCommandFS            = agent.ResolveCommandFS
-	TransformToClaudeCommand    = agent.TransformToClaudeCommand
-	GetExecutablePath           = agent.GetExecutablePath
 	SetExecutablePathForTesting = agent.SetExecutablePathForTesting
 	WarnOnCtxloomPathSkew       = agent.WarnOnCtxloomPathSkew
 )
 
 const (
-	SCMContextDir             = agent.SCMContextDir
 	SCMContextSubdir          = agent.SCMContextSubdir
-	SCMContextFileEnv         = agent.SCMContextFileEnv
 	MaxRecommendedContextSize = agent.MaxRecommendedContextSize
-	WarnContextSizeExceeded   = agent.WarnContextSizeExceeded
 	WarnContextEffectiveness  = agent.WarnContextEffectiveness
-	ContextChunkMaxChars      = agent.ContextChunkMaxChars
-	ContextRendezvousTimeout  = agent.ContextRendezvousTimeout
 	ContextInjectionTimeout   = agent.ContextInjectionTimeout
 )

@@ -56,9 +56,15 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
      + context-injection still use them). 8 gemini tests → `gemini_test.go` (no backends
      deps). Removed the now-dead `AppMCPServerName`/`computeMCPServerHash` from backends.
      Full suite green.
-   - 4e ⬜ Move the launch impls (`claudecode.go`/`gemini.go` + `*_capabilities.go`)
-     into the agent packages; reconcile graduates here. `feat/gemini-parity` folds in
-     as the gemini agent.
+   - 4e ✅ Move the launch impls (`claudecode.go`/`gemini.go` + `*_capabilities.go`)
+     into the agent packages. Done in 5 sub-steps (see `./p0-4e.plan.md`): 4e-i broke
+     the registry cycle via injected `agent.WriteSettingsFunc`; 4e-ii lifted the shared
+     launch substrate (BaseBackend, capability bases, context file/chunk/rendezvous,
+     context-injection web) to `agent`; 4e-iii/iv moved the claude/gemini launch
+     backends + capabilities into their packages (with `PreviousSessionByListing` and
+     the `BackendConfig` contract graduating to the core); 4e-v slimmed backends to the
+     registry + codex/mock + cross-agent dispatch and pruned 23 orphaned aliases.
+     `internal/agent/{claude,gemini}` are now full agents (settings + launch).
 5. **Cross-tool gate** — point ltk at the shared writer (via the published module
    or a `go.work`); assert ctxloom + ltk coexist + idempotent re-apply in one
    settings.json.

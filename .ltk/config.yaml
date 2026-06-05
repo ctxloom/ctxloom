@@ -1,0 +1,22 @@
+# llm-tool-killer rules for ctxloom — build/test/install go through `just` so
+# they match CI (devcontainer, build tags, ldflags, test isolation).
+# Rule model: https://github.com/ctxloom/llm-tool-killer/blob/main/docs/RULES.md
+version: 1
+
+defaults:
+  # Fault-tolerant: an unparseable command is allowed, never blocked.
+  on_parse_error: allow
+
+rules:
+  - id: test-via-just
+    match: { command: [go, test] }
+    message: "Run tests through the task runner, not `go test` directly, so the suite matches CI (devcontainer, tags, isolation)."
+    suggest: "just test   # or `just test-verbose` for an offline host run"
+  - id: build-via-just
+    match: { command: [go, build] }
+    message: "Build through the task runner, not `go build` directly, so flags/ldflags match a real build."
+    suggest: "just build   # or `just build-verbose` locally"
+  - id: install-via-just
+    match: { command: [go, install] }
+    message: "Install through the task runner, not `go install` directly."
+    suggest: "just install"

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/spf13/afero"
 )
@@ -411,7 +412,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 
 	// Note: mcpServers are NOT written here - they go to .mcp.json
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	data, err := agent.CanonicalJSON(output)
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
@@ -452,7 +453,7 @@ func (w *ClaudeCodeHookWriter) loadMCPConfig(path string) (*claudeCodeMCPConfig,
 // saveMCPConfig writes MCP config to .mcp.json.
 // Uses backup and atomic write for safety (see saveSettings).
 func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeMCPConfig) error {
-	data, err := json.MarshalIndent(mcpConfig, "", "  ")
+	data, err := agent.CanonicalJSON(mcpConfig)
 	if err != nil {
 		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
 	}
@@ -880,7 +881,7 @@ func (w *GeminiHookWriter) saveSettings(path string, settings *geminiSettings) e
 		output["mcpServers"] = settings.MCPServers
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
+	data, err := agent.CanonicalJSON(output)
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}

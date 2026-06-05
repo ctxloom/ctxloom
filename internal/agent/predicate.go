@@ -2,20 +2,16 @@ package agent
 
 import "strings"
 
-// Owner identifies the settings entries written by one tool, by the tool's
-// executable basename. An entry is owned if its command's executable token
-// resolves to Bin — path-, quote-, and verb-agnostic, so a callback's
-// subcommand can drift ("ctxloom meta hud" -> "ctxloom hook hud") without
-// orphaning the old form. Each tool (ctxloom / ltk / ctxtask) owns its own
-// executable namespace, which is why exec-token identity suffices without an
-// in-file marker (Claude Code's strict schema forbids one).
-type Owner struct {
-	Bin string
-}
-
-// Owns reports whether command is one this tool writes.
-func (o Owner) Owns(command string) bool {
-	return o.Bin != "" && execToken(command) == o.Bin
+// IsManaged reports whether command was written by the tool whose executable
+// basename is bin. Identity is the command's executable token — path-, quote-,
+// and verb-agnostic, so a callback's subcommand can drift ("ctxloom meta hud"
+// -> "ctxloom hook hud") without orphaning the old form. Each tool (ctxloom /
+// ltk / ctxtask) owns its own executable namespace, which is why exec-token
+// identity suffices without an in-file marker (Claude Code's strict schema
+// forbids one). bin is required — a tool reconciles only its OWN entries, never
+// "any ctxloom-family tool's", so it must not touch a sibling's hooks.
+func IsManaged(command, bin string) bool {
+	return bin != "" && execToken(command) == bin
 }
 
 // execToken returns the basename of a command's leading executable token,

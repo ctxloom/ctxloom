@@ -952,7 +952,7 @@ var ctxloomMCPArgs = []string{"mcp"}
 // (e.g. the legacy `ctxloom hook hud`) is mistaken for user-authored and
 // orphaned.
 func isCtxloomManaged(command string) bool {
-	return agent.Owner{Bin: "ctxloom"}.Owns(command)
+	return agent.IsManaged(command, "ctxloom")
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.

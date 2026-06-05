@@ -20,19 +20,25 @@ func TestExecToken(t *testing.T) {
 	}
 }
 
-func TestOwner_Owns(t *testing.T) {
-	o := Owner{Bin: "ctxloom"}
+func TestIsManaged(t *testing.T) {
 	for _, c := range []string{"ctxloom hook hud", `"/usr/bin/ctxloom" mcp`, "ctxloom session bind"} {
-		if !o.Owns(c) {
-			t.Errorf("ctxloom should own %q", c)
+		if !IsManaged(c, "ctxloom") {
+			t.Errorf("ctxloom should manage %q", c)
 		}
 	}
 	for _, c := range []string{"ltk evaluate", "npx -y some-mcp", "/usr/local/bin/ctxloomctl x", ""} {
-		if o.Owns(c) {
-			t.Errorf("ctxloom must not own %q", c)
+		if IsManaged(c, "ctxloom") {
+			t.Errorf("ctxloom must not manage %q", c)
 		}
 	}
-	if (Owner{}).Owns("ctxloom x") {
-		t.Error("an empty Bin owns nothing")
+	if IsManaged("ctxloom x", "") {
+		t.Error("an empty bin manages nothing")
+	}
+	// Cross-tool: each bin manages only its own namespace.
+	if !IsManaged("ltk evaluate --config x", "ltk") {
+		t.Error("ltk should manage its own command")
+	}
+	if IsManaged("ctxloom hook hud", "ltk") {
+		t.Error("ltk must not manage ctxloom's command")
 	}
 }

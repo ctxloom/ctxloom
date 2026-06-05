@@ -1,7 +1,7 @@
 # Decoupling ctxloom / ltk / ctxtask over a shared `ctxloom/*` substrate
 
 Status: draft · 2026-06-05 · session `tiny-loud-lark`
-Prototype: `./owner-predicate/` (5 tests passing via `just test`)
+Graduated into `internal/agent` (P0 steps 1–3 shipped): `CanonicalJSON`, `IsManaged`, `SettingsWriter`/`SettingsStatus`. (The owner-predicate prototype has been deleted as superseded.)
 
 ## Goal
 
@@ -88,9 +88,8 @@ every entry the owner owns, append desired, prune emptied groups. Idempotency an
 verb-drift migration (`ctxloom meta hud` → `ctxloom hook hud`) fall out of
 exec-token identity — no bookkeeping, no sidecar.
 
-Prototype `predicate.go` + `reconcile.go` (~145 LOC), tests passing: exec-token
-edge cases (quoted/absolute/Windows/.exe), verb-drift migration, idempotency,
-cross-tool + user isolation, no false positives.
+Graduated to `internal/agent.IsManaged(command, bin)` (P0 step 2), tested for
+exec-token edge cases (quoted/absolute/Windows/.exe) + cross-tool isolation.
 
 Deferred (only if a real case appears): owning a hook that runs a **foreign**
 binary — a declared-command set + a sidecar manifest + a conflict check. Not

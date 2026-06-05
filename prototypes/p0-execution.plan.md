@@ -21,9 +21,13 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
    `firstShellToken`/exec-token logic. (Reconcile graduation folded into step 4 —
    it's engine-specific and lands with the writer refactor.) `TestIsCtxloomManaged`
    + full suite green.
-3. **Split the facets** — define `SettingsWriter` (settings) separate from
-   `Backend` (launch) in `internal/agent`, so a consumer (ltk) can take settings
-   without launch. Move the interface definitions out of `internal/lm/backends`.
+3. **Split the facets** — ✅ done. `SettingsWriter` + `SettingsStatus` moved into
+   `internal/agent` (the settings facet), separate from `Backend` (launch, still
+   in `backends`). `backends` keeps type aliases so existing sites are untouched;
+   the concrete writers implement `agent.SettingsWriter`. A consumer (ltk) can now
+   take the settings facet without launch. Full suite green. (NOTE: the interface
+   still uses `config.*` types; those normalized types move to `agent` at
+   extraction time — step 6.)
 4. **Per-agent shape** — refactor `internal/lm/backends` into `internal/agent/claude`
    + `internal/agent/gemini` implementing the core interfaces; ctxloom selects via
    a registry. `feat/gemini-parity` work folds in as the gemini agent.

@@ -4,9 +4,9 @@
       {
         "hooks": [
           {
-            "type": "command",
             "command": "ctxloom hook session-bind",
-            "name": "ctxloom-managed"
+            "name": "ctxloom-managed",
+            "type": "command"
           }
         ]
       }
@@ -14,17 +14,17 @@
   },
   "mcpServers": {
     "ctxloom": {
-      "command": "ctxloom",
       "args": [
         "mcp"
-      ]
+      ],
+      "command": "ctxloom"
     },
     "sequential-thinking": {
-      "command": "npx",
       "args": [
         "-y",
         "@anthropics/mcp-server-sequential-thinking"
-      ]
+      ],
+      "command": "npx"
     }
   }
 }

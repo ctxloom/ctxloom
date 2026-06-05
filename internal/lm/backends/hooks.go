@@ -14,31 +14,10 @@ import (
 	"github.com/spf13/afero"
 )
 
-// SettingsWriter writes hooks and MCP servers to backend-specific configuration files.
-type SettingsWriter interface {
-	// WriteSettings writes hooks and MCP servers to the backend's config file.
-	// It preserves user-defined settings and adds/updates ctxloom-managed ones.
-	// bundleMCP contains MCP servers resolved from profile bundles.
-	WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error
-
-	// RemoveSettings strips every ctxloom-managed hook, statusline, and MCP
-	// server from the backend's config files, preserving user-defined entries.
-	// Absent config files are left absent (uninstall never creates files).
-	RemoveSettings(projectDir string) error
-
-	// Status reports which ctxloom-managed artifacts are currently wired into
-	// the backend's config files.
-	Status(projectDir string) (SettingsStatus, error)
-
-	// WriteHooks writes hooks to the backend's config file (backwards compatible).
-	WriteHooks(cfg *config.HooksConfig, projectDir string) error
-
-	// SettingsPath returns the path to the settings configuration file.
-	SettingsPath(projectDir string) string
-
-	// HooksPath returns the path to the hooks configuration file (alias for SettingsPath).
-	HooksPath(projectDir string) string
-}
+// SettingsWriter is the agent settings-writing contract. It lives in
+// internal/agent (the engine-agnostic core) so a consumer can take the settings
+// facet without the launch facet (Backend); aliased here for existing sites.
+type SettingsWriter = agent.SettingsWriter
 
 // HookWriter is kept for backwards compatibility.
 type HookWriter = SettingsWriter

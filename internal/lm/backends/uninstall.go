@@ -3,22 +3,14 @@ package backends
 import (
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/spf13/afero"
 )
 
 // SettingsStatus reports which ctxloom-managed artifacts a backend has wired
-// into its config files.
-type SettingsStatus struct {
-	SettingsExists bool // the backend's settings file is present
-	HooksPresent   bool // at least one ctxloom-managed hook is configured
-	StatusLine     bool // a ctxloom-managed statusline is configured
-	MCPPresent     bool // at least one ctxloom-managed MCP server is configured
-}
-
-// Wired reports whether any ctxloom-managed artifact is present.
-func (s SettingsStatus) Wired() bool {
-	return s.HooksPresent || s.StatusLine || s.MCPPresent
-}
+// into its config files. Defined in internal/agent; aliased here for existing
+// call sites (and its Wired method).
+type SettingsStatus = agent.SettingsStatus
 
 // RemoveSettings strips ctxloom-managed artifacts from the named backend's
 // config files. Unsupported backends are a no-op. Use WithSettingsFS for tests.

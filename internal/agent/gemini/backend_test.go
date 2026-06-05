@@ -8,6 +8,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
@@ -226,20 +227,16 @@ func TestGeminiConfigIsEnabled(t *testing.T) {
 func TestTransformToGeminiCommand(t *testing.T) {
 	tests := []struct {
 		name     string
-		content  *bundles.LoadedContent
+		cmd      agent.CommandExport
 		contains []string
 		excludes []string
 	}{
 		{
 			name: "with description",
-			content: &bundles.LoadedContent{
-				Name:    "review",
-				Content: "Review {{args}} for issues",
-				LLM: bundles.LLMExports{
-					Gemini: bundles.GeminiConfig{
-						Description: "Code review command",
-					},
-				},
+			cmd: agent.CommandExport{
+				Name:        "review",
+				Content:     "Review {{args}} for issues",
+				Description: "Code review command",
 			},
 			contains: []string{
 				"description =",
@@ -250,10 +247,7 @@ func TestTransformToGeminiCommand(t *testing.T) {
 		},
 		{
 			name: "no description",
-			content: &bundles.LoadedContent{
-				Name:    "simple",
-				Content: "Just do the thing",
-			},
+			cmd:  agent.CommandExport{Name: "simple", Content: "Just do the thing"},
 			contains: []string{
 				"prompt =",
 				"Just do the thing",
@@ -261,34 +255,20 @@ func TestTransformToGeminiCommand(t *testing.T) {
 			excludes: []string{"description ="},
 		},
 		{
-			name: "multiline content",
-			content: &bundles.LoadedContent{
-				Name:    "multi",
-				Content: "Line one\nLine two\nLine three",
-			},
-			contains: []string{
-				"prompt =",
-				"Line one",
-				"Line two",
-				"Line three",
-			},
+			name:     "multiline content",
+			cmd:      agent.CommandExport{Name: "multi", Content: "Line one\nLine two\nLine three"},
+			contains: []string{"prompt =", "Line one", "Line two", "Line three"},
 		},
 		{
-			name: "special characters",
-			content: &bundles.LoadedContent{
-				Name:    "special",
-				Content: `Review "this" code with 'quotes' and \backslashes`,
-			},
-			contains: []string{
-				"prompt =",
-				"Review",
-			},
+			name:     "special characters",
+			cmd:      agent.CommandExport{Name: "special", Content: `Review "this" code with 'quotes' and \backslashes`},
+			contains: []string{"prompt =", "Review"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := TransformToGeminiCommand(tt.content)
+			result, err := TransformToGeminiCommand(tt.cmd)
 			assert.NoError(t, err)
 
 			resultStr := string(result)
@@ -305,35 +285,15 @@ func TestTransformToGeminiCommand(t *testing.T) {
 
 // TestWriteGeminiCommandFiles verifies command file writing.
 func TestWriteGeminiCommandFiles(t *testing.T) {
-	boolPtr := func(b bool) *bool { return &b }
 	tmpDir := t.TempDir()
 
-	prompts := []*bundles.LoadedContent{
-		{
-			Name:    "review",
-			Content: "Review {{args}}",
-			LLM: bundles.LLMExports{
-				Gemini: bundles.GeminiConfig{
-					Description: "Code review",
-				},
-			},
-		},
-		{
-			Name:    "disabled",
-			Content: "This should not be exported",
-			LLM: bundles.LLMExports{
-				Gemini: bundles.GeminiConfig{
-					Enabled: boolPtr(false),
-				},
-			},
-		},
-		{
-			Name:    "simple",
-			Content: "Simple command",
-		},
+	cmds := []agent.CommandExport{
+		{Name: "review", Content: "Review {{args}}", Enabled: true, Description: "Code review"},
+		{Name: "disabled", Content: "This should not be exported", Enabled: false},
+		{Name: "simple", Content: "Simple command", Enabled: true},
 	}
 
-	err := WriteGeminiCommandFiles(tmpDir, prompts)
+	err := WriteCommandFiles(tmpDir, cmds)
 	assert.NoError(t, err)
 
 	// Check that enabled prompts are exported
@@ -372,14 +332,7 @@ func TestWriteGeminiCommandFilesCleanup(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Write new commands
-	prompts := []*bundles.LoadedContent{
-		{
-			Name:    "new",
-			Content: "New content",
-		},
-	}
-
-	err = WriteGeminiCommandFiles(tmpDir, prompts)
+	err = WriteCommandFiles(tmpDir, []agent.CommandExport{{Name: "new", Content: "New content", Enabled: true}})
 	assert.NoError(t, err)
 
 	// Stale file should be gone
@@ -404,7 +357,7 @@ func TestWriteGeminiCommandFilesEmptyPrompts(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Write with no prompts
-	err = WriteGeminiCommandFiles(tmpDir, nil)
+	err = WriteCommandFiles(tmpDir, nil)
 	assert.NoError(t, err)
 
 	// Stale file should be removed
@@ -413,17 +366,13 @@ func TestWriteGeminiCommandFilesEmptyPrompts(t *testing.T) {
 
 // TestTransformToGeminiCommand_RoundTrip verifies TOML output is valid and parseable.
 func TestTransformToGeminiCommand_RoundTrip(t *testing.T) {
-	content := &bundles.LoadedContent{
-		Name:    "test",
-		Content: "Review {{args}} for issues\nMultiple lines\nWith special chars: \"quotes\" and 'apostrophes'",
-		LLM: bundles.LLMExports{
-			Gemini: bundles.GeminiConfig{
-				Description: "Test command with special chars: \"quotes\"",
-			},
-		},
+	cmd := agent.CommandExport{
+		Name:        "test",
+		Content:     "Review {{args}} for issues\nMultiple lines\nWith special chars: \"quotes\" and 'apostrophes'",
+		Description: "Test command with special chars: \"quotes\"",
 	}
 
-	tomlData, err := TransformToGeminiCommand(content)
+	tomlData, err := TransformToGeminiCommand(cmd)
 	assert.NoError(t, err)
 
 	// Parse it back
@@ -432,8 +381,8 @@ func TestTransformToGeminiCommand_RoundTrip(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify round-trip
-	assert.Equal(t, content.LLM.Gemini.Description, parsed.Description)
-	assert.Equal(t, content.Content, parsed.Prompt)
+	assert.Equal(t, cmd.Description, parsed.Description)
+	assert.Equal(t, cmd.Content, parsed.Prompt)
 }
 
 // TestGeminiSkills_List verifies skill listing functionality.

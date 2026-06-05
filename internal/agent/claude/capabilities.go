@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/shared/harpmarker"
 )
@@ -53,35 +54,45 @@ type ClaudeSkills struct {
 
 // Register adds a skill as a Claude Code slash command.
 func (s *ClaudeSkills) Register(workDir string, skill Skill) error {
-	enabled := true
-	content := &bundles.LoadedContent{
-		Name:    skill.Name,
-		Content: skill.Content,
-	}
-	content.LLM.ClaudeCode.Enabled = &enabled
-	content.LLM.ClaudeCode.Description = skill.Description
-	return WriteCommandFiles(workDir, []*bundles.LoadedContent{content})
+	return WriteCommandFiles(workDir, []agent.CommandExport{skillExport(skill)})
 }
 
 // RegisterAll adds multiple skills as Claude Code slash commands.
 func (s *ClaudeSkills) RegisterAll(workDir string, skills []Skill) error {
-	var contents []*bundles.LoadedContent
-	enabled := true
+	cmds := make([]agent.CommandExport, 0, len(skills))
 	for _, skill := range skills {
-		content := &bundles.LoadedContent{
-			Name:    skill.Name,
-			Content: skill.Content,
-		}
-		content.LLM.ClaudeCode.Enabled = &enabled
-		content.LLM.ClaudeCode.Description = skill.Description
-		contents = append(contents, content)
+		cmds = append(cmds, skillExport(skill))
 	}
-	return WriteCommandFiles(workDir, contents)
+	return WriteCommandFiles(workDir, cmds)
 }
 
-// RegisterFromContent registers skills from LoadedContent objects.
+// RegisterFromContent registers skills from loaded bundle content, mapping each
+// to its claude-code command export.
 func (s *ClaudeSkills) RegisterFromContent(workDir string, contents []*bundles.LoadedContent) error {
-	return WriteCommandFiles(workDir, contents)
+	cmds := make([]agent.CommandExport, 0, len(contents))
+	for _, p := range contents {
+		cc := p.LLM.ClaudeCode
+		cmds = append(cmds, agent.CommandExport{
+			Name:         p.Name,
+			Content:      p.Content,
+			Enabled:      cc.IsEnabled(),
+			Description:  cc.Description,
+			ArgumentHint: cc.ArgumentHint,
+			AllowedTools: cc.AllowedTools,
+			Model:        cc.Model,
+		})
+	}
+	return WriteCommandFiles(workDir, cmds)
+}
+
+// skillExport maps a Skill to an enabled command export.
+func skillExport(skill Skill) agent.CommandExport {
+	return agent.CommandExport{
+		Name:        skill.Name,
+		Content:     skill.Content,
+		Enabled:     true,
+		Description: skill.Description,
+	}
 }
 
 // Clear removes all ctxloom-managed skills using the manifest.

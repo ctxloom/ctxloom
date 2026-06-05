@@ -60,7 +60,6 @@ var (
 
 	GetPromptContent     = agent.GetPromptContent
 	LoadPrompts          = agent.LoadPrompts
-	WriteCommandFiles    = agent.WriteCommandFiles
 	AssembleManagedHooks = agent.AssembleManagedHooks
 
 	previousSessionByListing = agent.PreviousSessionByListing

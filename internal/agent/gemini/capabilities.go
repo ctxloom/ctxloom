@@ -16,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
@@ -81,35 +82,41 @@ type GeminiSkills struct {
 
 // Register adds a skill as a Gemini CLI slash command.
 func (s *GeminiSkills) Register(workDir string, skill Skill) error {
-	enabled := true
-	content := &bundles.LoadedContent{
-		Name:    skill.Name,
-		Content: skill.Content,
-	}
-	content.LLM.Gemini.Enabled = &enabled
-	content.LLM.Gemini.Description = skill.Description
-	return WriteGeminiCommandFiles(workDir, []*bundles.LoadedContent{content})
+	return WriteCommandFiles(workDir, []agent.CommandExport{skillExport(skill)})
 }
 
 // RegisterAll adds multiple skills as Gemini CLI slash commands.
 func (s *GeminiSkills) RegisterAll(workDir string, skills []Skill) error {
-	var contents []*bundles.LoadedContent
-	enabled := true
+	cmds := make([]agent.CommandExport, 0, len(skills))
 	for _, skill := range skills {
-		content := &bundles.LoadedContent{
-			Name:    skill.Name,
-			Content: skill.Content,
-		}
-		content.LLM.Gemini.Enabled = &enabled
-		content.LLM.Gemini.Description = skill.Description
-		contents = append(contents, content)
+		cmds = append(cmds, skillExport(skill))
 	}
-	return WriteGeminiCommandFiles(workDir, contents)
+	return WriteCommandFiles(workDir, cmds)
 }
 
-// RegisterFromContent registers skills from LoadedContent objects.
+// RegisterFromContent registers skills from loaded bundle content, mapping each
+// to its gemini command export.
 func (s *GeminiSkills) RegisterFromContent(workDir string, contents []*bundles.LoadedContent) error {
-	return WriteGeminiCommandFiles(workDir, contents)
+	cmds := make([]agent.CommandExport, 0, len(contents))
+	for _, p := range contents {
+		cmds = append(cmds, agent.CommandExport{
+			Name:        p.Name,
+			Content:     p.Content,
+			Enabled:     p.LLM.Gemini.IsEnabled(),
+			Description: p.LLM.Gemini.Description,
+		})
+	}
+	return WriteCommandFiles(workDir, cmds)
+}
+
+// skillExport maps a Skill to an enabled command export.
+func skillExport(skill Skill) agent.CommandExport {
+	return agent.CommandExport{
+		Name:        skill.Name,
+		Content:     skill.Content,
+		Enabled:     true,
+		Description: skill.Description,
+	}
 }
 
 // Clear removes all ctxloom-managed skills.
@@ -139,11 +146,12 @@ func (s *GeminiSkills) List(workDir string) ([]string, error) {
 	return names, nil
 }
 
-// WriteGeminiCommandFiles generates Gemini CLI slash command files from prompts.
-// It deletes the .gemini/commands/ctxloom/ directory and regenerates it fresh.
-// Only prompts with Gemini.IsEnabled() == true are exported.
-func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
-	fs := ResolveCommandFS(opts...)
+// WriteCommandFiles generates Gemini CLI slash command files from command
+// exports. It deletes the .gemini/commands/ctxloom/ directory and regenerates
+// it fresh (the directory is ctxloom-owned, so a wipe is safe). Only exports
+// with Enabled == true are written.
+func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
+	fs := agent.ResolveCommandFS(opts...)
 
 	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
 
@@ -152,8 +160,8 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 		return fmt.Errorf("remove ctxloom commands dir: %w", err)
 	}
 
-	// Only create the directory if there are prompts to export.
-	if !hasExportableGeminiPrompts(prompts) {
+	// Only create the directory if there are exports to write.
+	if !hasExportableCommands(cmds) {
 		return nil
 	}
 
@@ -161,11 +169,11 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 		return fmt.Errorf("create ctxloom commands dir: %w", err)
 	}
 
-	for _, p := range prompts {
-		if !p.LLM.Gemini.IsEnabled() {
-			continue // Explicitly disabled
+	for _, c := range cmds {
+		if !c.Enabled {
+			continue
 		}
-		if err := writeGeminiCommand(fs, appDir, p); err != nil {
+		if err := writeGeminiCommand(fs, appDir, c); err != nil {
 			return err
 		}
 	}
@@ -173,25 +181,25 @@ func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, o
 	return nil
 }
 
-// hasExportableGeminiPrompts reports whether any prompt is enabled for Gemini.
-func hasExportableGeminiPrompts(prompts []*bundles.LoadedContent) bool {
-	for _, p := range prompts {
-		if p.LLM.Gemini.IsEnabled() {
+// hasExportableCommands reports whether any export is enabled.
+func hasExportableCommands(cmds []agent.CommandExport) bool {
+	for _, c := range cmds {
+		if c.Enabled {
 			return true
 		}
 	}
 	return false
 }
 
-// writeGeminiCommand writes one prompt as a Gemini .toml command, creating any
-// parent directory needed for a nested prompt name.
-func writeGeminiCommand(fs afero.Fs, appDir string, p *bundles.LoadedContent) error {
-	tomlData, err := TransformToGeminiCommand(p)
+// writeGeminiCommand writes one export as a Gemini .toml command, creating any
+// parent directory needed for a nested name.
+func writeGeminiCommand(fs afero.Fs, appDir string, c agent.CommandExport) error {
+	tomlData, err := TransformToGeminiCommand(c)
 	if err != nil {
-		return fmt.Errorf("transform command %s: %w", p.Name, err)
+		return fmt.Errorf("transform command %s: %w", c.Name, err)
 	}
 
-	path := filepath.Join(appDir, p.Name+".toml")
+	path := filepath.Join(appDir, c.Name+".toml")
 	if dir := filepath.Dir(path); dir != appDir {
 		if err := fs.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("create command subdir %s: %w", dir, err)
@@ -199,18 +207,18 @@ func writeGeminiCommand(fs afero.Fs, appDir string, p *bundles.LoadedContent) er
 	}
 
 	if err := afero.WriteFile(fs, path, tomlData, 0644); err != nil {
-		return fmt.Errorf("write command %s: %w", p.Name, err)
+		return fmt.Errorf("write command %s: %w", c.Name, err)
 	}
 	return nil
 }
 
-// TransformToGeminiCommand converts a ctxloom prompt to Gemini CLI command format.
-// It generates a TOML file with prompt and description fields.
-// Gemini uses {{args}} for argument injection natively.
-func TransformToGeminiCommand(p *bundles.LoadedContent) ([]byte, error) {
+// TransformToGeminiCommand converts a command export to Gemini CLI command
+// format: a TOML file with prompt and description fields. Gemini uses {{args}}
+// for argument injection natively.
+func TransformToGeminiCommand(c agent.CommandExport) ([]byte, error) {
 	cmd := GeminiCommand{
-		Description: p.LLM.Gemini.Description,
-		Prompt:      p.Content,
+		Description: c.Description,
+		Prompt:      c.Content,
 	}
 
 	var buf bytes.Buffer

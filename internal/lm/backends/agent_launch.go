@@ -29,7 +29,6 @@ var (
 	NewContextInjectionHooks = agent.NewContextInjectionHooks
 	AssembleManagedHooks     = agent.AssembleManagedHooks
 
-	WriteCommandFiles           = agent.WriteCommandFiles
 	WithCommandFS               = agent.WithCommandFS
 	SetExecutablePathForTesting = agent.SetExecutablePathForTesting
 	WarnOnCtxloomPathSkew       = agent.WarnOnCtxloomPathSkew

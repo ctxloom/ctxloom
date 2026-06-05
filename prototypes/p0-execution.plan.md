@@ -48,7 +48,14 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
        **test split** — 13 claude writer tests → `internal/agent/claude/claude_test.go`; the one
        test needing backends helpers (`SetExecutablePathForTesting`/`NewContextInjectionHook`)
        stays in backends as `claude.ClaudeCodeHookWriter`; shared/gemini tests stay. Full suite green.
-   - 4d ⬜ Move `GeminiHookWriter` → `internal/agent/gemini`; register "gemini".
+   - 4d ✅ Move `GeminiHookWriter` → `internal/agent/gemini`; registry calls
+     `gemini.NewWriter`. Same recipe as 4c (verbatim move + shims). Wrinkle: gemini
+     code was interspersed with shared symbols (`ctxloomBinary`/`ctxloomMCPArgs`/
+     `isCtxloomManaged` + the whole context-injection subsystem) — those came out with
+     the block as gemini's shims, and fresh copies were re-added to backends (symlink
+     + context-injection still use them). 8 gemini tests → `gemini_test.go` (no backends
+     deps). Removed the now-dead `AppMCPServerName`/`computeMCPServerHash` from backends.
+     Full suite green.
    - 4e ⬜ Move the launch impls (`claudecode.go`/`gemini.go` + `*_capabilities.go`)
      into the agent packages; reconcile graduates here. `feat/gemini-parity` folds in
      as the gemini agent.

@@ -1376,6 +1376,109 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		"MCP server from a parent-inherited bundle should resolve")
 }
 
+// hookBundleYAML is a bundle that ships one hook per several event types, used
+// to assert the profile-gated ResolveBundleHooks path surfaces bundle hooks
+// tagged with the bundle's SCM marker.
+const hookBundleYAML = `name: hook-bundle
+version: "1.0"
+hooks:
+  pre_tool:
+    - matcher: Bash
+      command: echo pre-tool
+      type: command
+  session_start:
+    - command: echo session-start
+      type: command
+  post_file_edit:
+    - matcher: '.*\.md$'
+      command: echo post-edit
+      type: command
+`
+
+func hasHookCommand(hooks []Hook, command, wantSCM string) bool {
+	for _, h := range hooks {
+		if h.Command == command && h.SCM == wantSCM {
+			return true
+		}
+	}
+	return false
+}
+
+// TestConfig_ResolveBundleHooks_ProfileGated covers the profile-gated branch of
+// ResolveBundleHooks: a default profile (directly or via inheritance) that
+// references a hook-shipping bundle must contribute that bundle's hooks, tagged
+// SCM "bundle:<ref>"; unresolvable profiles and bundle refs are skipped without
+// affecting the always-present builtin hooks.
+func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
+	const bundleSCM = "bundle:hook-bundle"
+
+	newProject := func(t *testing.T) (appDir, profilesDir, bundlesDir string) {
+		t.Helper()
+		appDir = filepath.Join(t.TempDir(), ".ctxloom")
+		profilesDir = filepath.Join(appDir, "profiles")
+		bundlesDir = filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+		require.NoError(t, os.MkdirAll(profilesDir, 0755))
+		require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+		return appDir, profilesDir, bundlesDir
+	}
+
+	t.Run("direct profile reference surfaces bundle hooks", func(t *testing.T) {
+		appDir, profilesDir, bundlesDir := newProject(t)
+		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"), []byte(hookBundleYAML), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
+			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
+
+		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+		result := cfg.ResolveBundleHooks()
+
+		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
+			"profile bundle's pre_tool hook must resolve with its SCM marker")
+		assert.True(t, hasHookCommand(result.SessionStart, "echo session-start", bundleSCM),
+			"profile bundle's session_start hook must resolve")
+		assert.True(t, hasHookCommand(result.PostFileEdit, "echo post-edit", bundleSCM),
+			"profile bundle's post_file_edit hook must resolve")
+	})
+
+	t.Run("parent-inherited bundle hooks resolve recursively", func(t *testing.T) {
+		appDir, profilesDir, bundlesDir := newProject(t)
+		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"), []byte(hookBundleYAML), 0644))
+		// Parent ships the bundle; the child (the default) only inherits it.
+		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "parent.yaml"),
+			[]byte("name: parent\nbundles:\n  - hook-bundle\n"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
+			[]byte("name: child\nparents:\n  - parent\n"), 0644))
+
+		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"child"}}, AppPaths: []string{appDir}}
+		result := cfg.ResolveBundleHooks()
+
+		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
+			"a hook from a parent-inherited bundle must resolve (recursive ResolveProfile)")
+	})
+
+	t.Run("unresolvable profile and bundle ref are skipped, builtins remain", func(t *testing.T) {
+		appDir, profilesDir, _ := newProject(t)
+		// A default profile that does not exist (ResolveProfile errors → skip) and
+		// a profile referencing a bundle that is not on disk (Load errors → skip).
+		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "real.yaml"),
+			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
+
+		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"missing", "real"}}, AppPaths: []string{appDir}}
+		result := cfg.ResolveBundleHooks()
+
+		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
+			"a ghost bundle ref contributes no hooks")
+		// The builtin tasks bundle always contributes its stamp-plan hook.
+		foundBuiltin := false
+		for _, h := range result.PostFileEdit {
+			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:builtin:tasks" {
+				foundBuiltin = true
+			}
+		}
+		assert.True(t, foundBuiltin,
+			"builtin hooks survive when profile-gated resolution skips everything")
+	})
+}
+
 // =============================================================================
 // loadMCPFromBundleRef Tests
 // =============================================================================

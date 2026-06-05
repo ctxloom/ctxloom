@@ -50,14 +50,6 @@ func TestNewCodex(t *testing.T) {
 	assert.NotNil(t, backend.History()) // Supports session history
 }
 
-// Claude Code construction/capability wiring is covered in the claude package
-// (claudecode_test.go) now that the launch backend lives there.
-
-func TestNewGemini(t *testing.T) {
-	backend := NewGemini(WriteSettings)
-	assert.Equal(t, "gemini", backend.Name())
-	assert.NotNil(t, backend.Lifecycle())
-	assert.NotNil(t, backend.Skills()) // Gemini now supports skills via TOML commands
-	assert.NotNil(t, backend.Context())
-	assert.NotNil(t, backend.MCP())
-}
+// Claude Code and Gemini construction/capability wiring are covered in their
+// own packages (agent/claude, agent/gemini) now that the launch backends live
+// there. Codex and mock remain here as the wiring-layer backends.

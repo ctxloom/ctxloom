@@ -1,4 +1,4 @@
-package backends
+package gemini
 
 import (
 	"os"
@@ -21,7 +21,7 @@ import (
 // TestNewGemini_DefaultValues verifies that a new Gemini backend is created
 // with sensible defaults for binary path and capabilities.
 func TestNewGemini_DefaultValues(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	assert.Equal(t, "gemini", backend.Name())
 	assert.Equal(t, "1.0.0", backend.Version())
@@ -32,7 +32,7 @@ func TestNewGemini_DefaultValues(t *testing.T) {
 // TestNewGemini_CapabilitiesCorrect verifies that Gemini has the expected
 // capabilities - it supports lifecycle, context, MCP, skills, and history.
 func TestNewGemini_CapabilitiesCorrect(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	assert.NotNil(t, backend.Lifecycle(), "Gemini should support lifecycle hooks")
 	assert.NotNil(t, backend.Skills(), "Gemini should support skills/slash commands")
@@ -44,7 +44,7 @@ func TestNewGemini_CapabilitiesCorrect(t *testing.T) {
 // TestNewGemini_SupportedModes verifies that Gemini supports both interactive
 // and oneshot execution modes.
 func TestNewGemini_SupportedModes(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 	modes := backend.SupportedModes()
 
 	assert.Len(t, modes, 2)
@@ -82,7 +82,7 @@ func argValue(args []string, flag string) string {
 // TestGemini_BuildArgs_AutoApprove verifies that auto-approve mode adds
 // the --yolo flag.
 func TestGemini_BuildArgs_AutoApprove(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	args := backend.buildArgs(&ExecuteRequest{AutoApprove: true}, "")
 
@@ -91,7 +91,7 @@ func TestGemini_BuildArgs_AutoApprove(t *testing.T) {
 
 // TestGemini_BuildArgs_Model verifies the resolved model is passed via -m.
 func TestGemini_BuildArgs_Model(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	args := backend.buildArgs(&ExecuteRequest{}, "gemini-2.5-pro")
 
@@ -101,7 +101,7 @@ func TestGemini_BuildArgs_Model(t *testing.T) {
 // TestGemini_BuildArgs_InteractivePrompt verifies an interactive prompt uses -i
 // (run then stay in the session).
 func TestGemini_BuildArgs_InteractivePrompt(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	req := &ExecuteRequest{Mode: ModeInteractive, Prompt: &Fragment{Content: "Review this code"}}
 	args := backend.buildArgs(req, "")
@@ -112,7 +112,7 @@ func TestGemini_BuildArgs_InteractivePrompt(t *testing.T) {
 // TestGemini_BuildArgs_OneshotPrompt verifies a oneshot prompt uses -p (headless
 // and exits) rather than -i (which would hang in interactive mode).
 func TestGemini_BuildArgs_OneshotPrompt(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	req := &ExecuteRequest{Mode: ModeOneshot, Prompt: &Fragment{Content: "distill this"}}
 	args := backend.buildArgs(req, "")
@@ -124,7 +124,7 @@ func TestGemini_BuildArgs_OneshotPrompt(t *testing.T) {
 // TestGemini_BuildArgs_SkipSetup verifies the minimal/distillation path runs
 // read-only (--approval-mode plan) and does not auto-approve.
 func TestGemini_BuildArgs_SkipSetup(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	req := &ExecuteRequest{SkipSetup: true, AutoApprove: true}
 	args := backend.buildArgs(req, "")
@@ -136,7 +136,7 @@ func TestGemini_BuildArgs_SkipSetup(t *testing.T) {
 // TestGemini_BuildArgs_NoPrompt verifies that a missing prompt adds neither
 // -i nor -p.
 func TestGemini_BuildArgs_NoPrompt(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	args := backend.buildArgs(&ExecuteRequest{Prompt: nil}, "")
 
@@ -147,7 +147,7 @@ func TestGemini_BuildArgs_NoPrompt(t *testing.T) {
 // TestGemini_BuildArgs_Combined verifies that multiple options are combined
 // correctly.
 func TestGemini_BuildArgs_Combined(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 	backend.Args = []string{"--existing-flag"}
 
 	req := &ExecuteRequest{
@@ -165,7 +165,7 @@ func TestGemini_BuildArgs_Combined(t *testing.T) {
 
 // TestGemini_Configure verifies per-LLM config (binary/args/env) is applied.
 func TestGemini_Configure(t *testing.T) {
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	trust := true
 	backend.Configure(&GeminiConfig{
@@ -439,7 +439,7 @@ func TestTransformToGeminiCommand_RoundTrip(t *testing.T) {
 // TestGeminiSkills_List verifies skill listing functionality.
 func TestGeminiSkills_List(t *testing.T) {
 	tmpDir := t.TempDir()
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	// Initially empty
 	names, err := backend.skills.List(tmpDir)
@@ -467,7 +467,7 @@ func TestGeminiSkills_List(t *testing.T) {
 // TestGeminiSkills_Clear verifies skill clearing functionality.
 func TestGeminiSkills_Clear(t *testing.T) {
 	tmpDir := t.TempDir()
-	backend := NewGemini(WriteSettings)
+	backend := NewGemini(writeGeminiSettings)
 
 	// Create some command files
 	ctxloomDir := filepath.Join(tmpDir, ".gemini", "commands", "ctxloom")

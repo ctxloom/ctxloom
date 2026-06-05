@@ -4,6 +4,7 @@ import (
 	"os/exec"
 
 	"github.com/ctxloom/ctxloom/internal/agent/claude"
+	"github.com/ctxloom/ctxloom/internal/agent/gemini"
 )
 
 // Configurable is implemented by backends that accept their own typed config.
@@ -81,7 +82,7 @@ func init() {
 		return decodeBody(body, &ClaudeConfig{})
 	})
 
-	Register("gemini", func() Backend { return NewGemini(WriteSettings) })
+	Register("gemini", func() Backend { return gemini.NewGemini(WriteSettings) })
 	RegisterConfig("gemini", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &GeminiConfig{})
 	})

@@ -38,8 +38,16 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
      the name→writer **registry is wiring, not core** — it stays in `backends` and
      simply imports the agent packages in 4c/4d, so no registration-inversion / no
      `init()` is needed. Full suite green.
-   - 4c ⬜ Move `ClaudeCodeHookWriter` (+ claude settings types) → `internal/agent/claude`;
-     register "claude-code".
+   - 4c ✅ Move `ClaudeCodeHookWriter` (+ claude types/methods) → `internal/agent/claude`;
+     registry calls `claude.NewWriter`. Done in two commits:
+     - (1/2) shared-symbol lift: `ComputeMCPServerHash`, `CtxloomBinary`, `MCPServerName`,
+       `CtxloomMCPArgs` → `agent`; backends references via aliases.
+     - (2/2) verbatim writer move + shims (`getFS`/`atomicWriteFile`/`warn`/`computeHookHash`/
+       `computeMCPServerHash`/`isCtxloomManaged` + `SettingsStatus`/`ctxloomBinary`/
+       `ctxloomMCPArgs` aliases; constructor `NewWriter(agent.SettingsOptions)`), plus the
+       **test split** — 13 claude writer tests → `internal/agent/claude/claude_test.go`; the one
+       test needing backends helpers (`SetExecutablePathForTesting`/`NewContextInjectionHook`)
+       stays in backends as `claude.ClaudeCodeHookWriter`; shared/gemini tests stay. Full suite green.
    - 4d ⬜ Move `GeminiHookWriter` → `internal/agent/gemini`; register "gemini".
    - 4e ⬜ Move the launch impls (`claudecode.go`/`gemini.go` + `*_capabilities.go`)
      into the agent packages; reconcile graduates here. `feat/gemini-parity` folds in

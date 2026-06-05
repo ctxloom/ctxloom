@@ -32,11 +32,12 @@ Approach: **in-repo first.** Build the agent core inside the ctxloom repo
    - 4a ✅ Move the launch `Backend` contract (`interfaces.go`) into `internal/agent`,
      aliased in `backends`. Both facet contracts (`SettingsWriter` + `Backend`) now
      live in the core. Cycle-free (interfaces.go was stdlib-only, self-contained).
-   - 4b ⬜ Decouple the settings-writer registry (static map → registration) + the
-     shared infra (`settingsOptions`, `atomicWriteFile`, `getFS`) into the core, so
-     the concrete writers can move without an agent→backends cycle. The public
-     `backends.WriteSettings/RemoveSettings/BackendStatus` wrappers (≈6 `operations`
-     call sites) stay as the stable API.
+   - 4b ✅ Lift the engine-agnostic settings infra (`SettingsOptions`,
+     `AtomicWriteFile`, `GetFS`, `Warn`, `ComputeHookHash`) into `internal/agent`;
+     `backends` aliases the options and delegates the package helpers. Realization:
+     the name→writer **registry is wiring, not core** — it stays in `backends` and
+     simply imports the agent packages in 4c/4d, so no registration-inversion / no
+     `init()` is needed. Full suite green.
    - 4c ⬜ Move `ClaudeCodeHookWriter` (+ claude settings types) → `internal/agent/claude`;
      register "claude-code".
    - 4d ⬜ Move `GeminiHookWriter` → `internal/agent/gemini`; register "gemini".

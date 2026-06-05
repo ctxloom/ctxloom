@@ -19,7 +19,7 @@ func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) erro
 	for _, opt := range opts {
 		opt(options)
 	}
-	writer := GetSettingsWriter(backendName, options.fs)
+	writer := GetSettingsWriter(backendName, options.FS)
 	if writer == nil {
 		return nil
 	}
@@ -33,7 +33,7 @@ func BackendStatus(backendName, projectDir string, opts ...SettingsOption) (Sett
 	for _, opt := range opts {
 		opt(options)
 	}
-	writer := GetSettingsWriter(backendName, options.fs)
+	writer := GetSettingsWriter(backendName, options.FS)
 	if writer == nil {
 		return SettingsStatus{}, nil
 	}

@@ -22,31 +22,19 @@ type SettingsWriter = agent.SettingsWriter
 // HookWriter is kept for backwards compatibility.
 type HookWriter = SettingsWriter
 
-// settingsOptions holds configuration for settings operations.
-type settingsOptions struct {
-	fs                 afero.Fs
-	statusLineDisabled bool
-}
+// Settings options + shared write helpers live in internal/agent (the
+// engine-agnostic core) so the per-agent writers can use them without importing
+// backends. settingsOptions is the unexported alias the local registry keeps
+// using; SettingsOption and the With* funcs are re-exported for external callers
+// (internal/operations).
+type settingsOptions = agent.SettingsOptions
 
-// SettingsOption is a functional option for settings operations.
-type SettingsOption func(*settingsOptions)
+type SettingsOption = agent.SettingsOption
 
-// WithSettingsFS sets the filesystem to use for settings operations.
-// If not provided, the real OS filesystem is used.
-func WithSettingsFS(fs afero.Fs) SettingsOption {
-	return func(o *settingsOptions) {
-		o.fs = fs
-	}
-}
-
-// WithStatusLineDisabled controls whether the ctxloom HUD statusline is managed.
-// When disabled, the writer installs no statusline and clears any it previously
-// managed, so the user's own (or no) statusline stands.
-func WithStatusLineDisabled(disabled bool) SettingsOption {
-	return func(o *settingsOptions) {
-		o.statusLineDisabled = disabled
-	}
-}
+var (
+	WithSettingsFS         = agent.WithSettingsFS
+	WithStatusLineDisabled = agent.WithStatusLineDisabled
+)
 
 // WriteSettings writes hooks and MCP servers for the specified backend.
 // If the backend doesn't support settings, this is a no-op.
@@ -68,9 +56,9 @@ func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MC
 // settingsWriterRegistry maps backend names to their settings writer constructors.
 var settingsWriterRegistry = map[string]func(*settingsOptions) SettingsWriter{
 	"claude-code": func(o *settingsOptions) SettingsWriter {
-		return &ClaudeCodeHookWriter{FS: o.fs, statusLineDisabled: o.statusLineDisabled}
+		return &ClaudeCodeHookWriter{FS: o.FS, statusLineDisabled: o.StatusLineDisabled}
 	},
-	"gemini": func(o *settingsOptions) SettingsWriter { return &GeminiHookWriter{FS: o.fs} },
+	"gemini": func(o *settingsOptions) SettingsWriter { return &GeminiHookWriter{FS: o.FS} },
 }
 
 // newSettingsWriter constructs the named backend's writer from the resolved
@@ -85,7 +73,7 @@ func newSettingsWriter(name string, o *settingsOptions) SettingsWriter {
 // GetSettingsWriter returns a SettingsWriter for the named backend, or nil if not supported.
 // If fs is provided, it will be used for filesystem operations; otherwise the OS filesystem is used.
 func GetSettingsWriter(name string, fs afero.Fs) SettingsWriter {
-	return newSettingsWriter(name, &settingsOptions{fs: fs})
+	return newSettingsWriter(name, &settingsOptions{FS: fs})
 }
 
 // BackendsWithSettings returns the names of all backends that support settings.
@@ -97,21 +85,9 @@ func BackendsWithSettings() []string {
 	return names
 }
 
-// computeHookHash computes a hash from the hook's defining fields.
-func computeHookHash(h config.Hook) string {
-	// Create a stable representation for hashing
-	parts := []string{
-		h.Command,
-		h.Matcher,
-		h.Type,
-		h.Prompt,
-		fmt.Sprintf("%d", h.Timeout),
-		fmt.Sprintf("%t", h.Async),
-	}
-	data := strings.Join(parts, "|")
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:8]) // Use first 8 bytes for brevity
-}
+// computeHookHash delegates to agent.ComputeHookHash (transitional wrapper —
+// removed when the writers move to the per-agent packages).
+func computeHookHash(h config.Hook) string { return agent.ComputeHookHash(h) }
 
 // =============================================================================
 // Shared Helper Functions
@@ -119,47 +95,12 @@ func computeHookHash(h config.Hook) string {
 // These helpers reduce code duplication between ClaudeCodeHookWriter and
 // GeminiHookWriter implementations.
 
-// getFS returns the provided filesystem or a default OS filesystem if nil.
-func getFS(fs afero.Fs) afero.Fs {
-	if fs == nil {
-		return afero.NewOsFs()
-	}
-	return fs
-}
+func getFS(fs afero.Fs) afero.Fs { return agent.GetFS(fs) }
 
-// warn outputs a warning message to stderr with ctxloom prefix.
-func warn(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: "+format+"\n", args...)
-}
+func warn(format string, args ...any) { agent.Warn(format, args...) }
 
-// atomicWriteFile writes data to a file atomically with backup.
-// It creates a backup of existing files before modifying and uses a temp file
-// for atomic writes to prevent corruption if interrupted.
 func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
-	// Create backup of existing file before modifying
-	if exists, _ := afero.Exists(fs, path); exists {
-		backupPath := path + ".ctxloom.bak"
-		if origData, err := afero.ReadFile(fs, path); err == nil {
-			_ = afero.WriteFile(fs, backupPath, origData, 0644)
-		}
-	}
-
-	// Atomic write: write to temp file first, then rename
-	tmpPath := path + ".ctxloom.tmp"
-	if err := afero.WriteFile(fs, tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", desc, err)
-	}
-
-	// Rename temp file to final path (atomic on most filesystems)
-	if err := fs.Rename(tmpPath, path); err != nil {
-		// If rename fails (e.g., cross-device), fall back to direct write
-		if writeErr := afero.WriteFile(fs, path, data, 0644); writeErr != nil {
-			return fmt.Errorf("failed to write %s: %w", desc, writeErr)
-		}
-		_ = fs.Remove(tmpPath)
-	}
-
-	return nil
+	return agent.AtomicWriteFile(fs, path, data, desc)
 }
 
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.

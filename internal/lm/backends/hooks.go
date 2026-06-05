@@ -1,8 +1,6 @@
 package backends
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -560,7 +558,7 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 }
 
 // AppMCPServerName is the name used for the ctxloom MCP server in settings.
-const AppMCPServerName = "ctxloom"
+const AppMCPServerName = agent.MCPServerName
 
 // addMCPServersToConfig adds MCP servers from config to .mcp.json config.
 func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer) {
@@ -612,14 +610,9 @@ func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPCon
 	}
 }
 
-// computeMCPServerHash computes a hash from the MCP server's defining fields.
-func computeMCPServerHash(s config.MCPServer) string {
-	parts := []string{s.Command}
-	parts = append(parts, s.Args...)
-	data := strings.Join(parts, "|")
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:8])
-}
+// computeMCPServerHash delegates to agent.ComputeMCPServerHash (shared by the
+// claude + gemini writers).
+func computeMCPServerHash(s config.MCPServer) string { return agent.ComputeMCPServerHash(s) }
 
 // GeminiHookWriter writes hooks to Gemini CLI's settings.json format.
 type GeminiHookWriter struct {
@@ -849,11 +842,11 @@ func (w *GeminiHookWriter) removeCtxloomHooks(settings *geminiSettings) {
 // available in-process via GetExecutablePath — used by WarnOnCtxloomPathSkew
 // to flag the one case bare can't handle (a different ctxloom earlier on
 // PATH), and by relaunch code that must re-exec itself.
-const ctxloomBinary = "ctxloom"
+const ctxloomBinary = agent.CtxloomBinary
 
 // ctxloomMCPArgs is the arg list passed to the ctxloom binary when it
 // is auto-registered as an MCP server.
-var ctxloomMCPArgs = []string{"mcp"}
+var ctxloomMCPArgs = agent.CtxloomMCPArgs
 
 // isCtxloomManaged reports whether a command was installed by ctxloom. We
 // treat ANY command whose executable token is `ctxloom` (bare, absolute

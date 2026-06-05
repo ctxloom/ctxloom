@@ -12,6 +12,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
+// CtxloomBinary is the bare executable name written into managed hook/MCP
+// commands so it re-resolves via PATH at fire time. MCPServerName is the key for
+// the auto-registered ctxloom MCP server, and CtxloomMCPArgs its args.
+const (
+	CtxloomBinary = "ctxloom"
+	MCPServerName = "ctxloom"
+)
+
+// CtxloomMCPArgs is the arg list for the auto-registered MCP server.
+var CtxloomMCPArgs = []string{"mcp"}
+
 // SettingsOptions configures a settings-writing operation.
 type SettingsOptions struct {
 	FS                 afero.Fs // filesystem to use; nil means the real OS filesystem
@@ -59,6 +70,14 @@ func ComputeHookHash(h config.Hook) string {
 	}
 	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(hash[:8]) // first 8 bytes for brevity
+}
+
+// ComputeMCPServerHash returns a short, stable hash of an MCP server's defining
+// fields, used as the `_ctxloom` marker on managed servers.
+func ComputeMCPServerHash(s config.MCPServer) string {
+	parts := append([]string{s.Command}, s.Args...)
+	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(hash[:8])
 }
 
 // AtomicWriteFile writes data to path atomically: it backs up any existing file

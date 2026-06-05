@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/shared/wire"
 )
 
 // profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
@@ -17,8 +18,8 @@ type profileBuilder struct {
 	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
 	Variables   map[string]string
-	Hooks       HooksConfig
-	MCP         MCPConfig
+	Hooks       wire.HooksConfig
+	MCP         wire.MCPConfig
 	// Track insertion order for stable output
 	tagsOrder        []string
 	bundlesOrder     []string
@@ -41,12 +42,12 @@ func newProfileBuilder() *profileBuilder {
 		Fragments:          collections.NewSet[string](),
 		Variables:          make(map[string]string),
 		fragmentPriorities: make(map[string]int),
-		Hooks: HooksConfig{
-			Plugins: make(map[string]BackendHooks),
+		Hooks: wire.HooksConfig{
+			Plugins: make(map[string]wire.BackendHooks),
 		},
-		MCP: MCPConfig{
-			Servers: make(map[string]MCPServer),
-			Plugins: make(map[string]map[string]MCPServer),
+		MCP: wire.MCPConfig{
+			Servers: make(map[string]wire.MCPServer),
+			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
 		seenHooks:        collections.NewSet[string](),
 		ExcludeFragments: collections.NewSet[string](),
@@ -94,12 +95,12 @@ func (b *profileBuilder) addFragment(frag FragmentRef) {
 }
 
 // hookKey returns a unique key for deduplication based on command and matcher.
-func hookKey(h Hook) string {
+func hookKey(h wire.Hook) string {
 	return h.Command + "|" + h.Matcher
 }
 
 // addHook adds a hook if not already present (by command+matcher key).
-func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
+func (b *profileBuilder) addHook(hooks *[]wire.Hook, h wire.Hook) {
 	key := hookKey(h)
 	if !b.seenHooks.Has(key) {
 		b.seenHooks.Add(key)
@@ -109,19 +110,19 @@ func (b *profileBuilder) addHook(hooks *[]Hook, h Hook) {
 
 // mergeMCP merges MCP config from source into the builder.
 // Later sources override earlier ones for the same server name.
-func (b *profileBuilder) mergeMCP(source MCPConfig) {
-	MergeMCPConfig(&b.MCP, &source)
+func (b *profileBuilder) mergeMCP(source wire.MCPConfig) {
+	wire.MergeMCPConfig(&b.MCP, &source)
 }
 
 // mergeHookSlice merges source hooks into dest.
-func (b *profileBuilder) mergeHookSlice(source []Hook, dest *[]Hook) {
+func (b *profileBuilder) mergeHookSlice(source []wire.Hook, dest *[]wire.Hook) {
 	for _, h := range source {
 		b.addHook(dest, h)
 	}
 }
 
 // mergeHooks merges hooks from source into the builder.
-func (b *profileBuilder) mergeHooks(source HooksConfig) {
+func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 	// Merge unified hooks
 	b.mergeHookSlice(source.Unified.PreTool, &b.Hooks.Unified.PreTool)
 	b.mergeHookSlice(source.Unified.PostTool, &b.Hooks.Unified.PostTool)
@@ -133,7 +134,7 @@ func (b *profileBuilder) mergeHooks(source HooksConfig) {
 	// Merge plugin-specific hooks
 	for pluginName, backendHooks := range source.Plugins {
 		if b.Hooks.Plugins[pluginName] == nil {
-			b.Hooks.Plugins[pluginName] = make(BackendHooks)
+			b.Hooks.Plugins[pluginName] = make(wire.BackendHooks)
 		}
 		for eventName, hooks := range backendHooks {
 			for _, h := range hooks {
@@ -159,7 +160,7 @@ func (b *profileBuilder) toProfile() *Profile {
 	// Filter excluded MCP servers
 	filteredMCP := b.MCP
 	if len(b.ExcludeMCP.Items()) > 0 && filteredMCP.Servers != nil {
-		filteredServers := make(map[string]MCPServer)
+		filteredServers := make(map[string]wire.MCPServer)
 		for name, server := range filteredMCP.Servers {
 			if !b.ExcludeMCP.Has(name) {
 				filteredServers[name] = server

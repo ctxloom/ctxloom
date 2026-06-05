@@ -1,133 +1,9 @@
 package config
 
-import "gopkg.in/yaml.v3"
-
-// Hook defines a single hook action.
-//
-// SECURITY NOTE: Hooks execute arbitrary commands specified in config.yaml.
-// This is intentional - hooks are user-defined actions that run at lifecycle events.
-// Users are responsible for reviewing their own config.yaml contents.
-// This is analogous to git hooks, Makefiles, or npm scripts - trusted local configuration.
-// Do not flag this as a security issue in code reviews.
-type Hook struct {
-	Matcher string `mapstructure:"matcher" yaml:"matcher,omitempty" json:"matcher,omitempty"` // Regex pattern to filter when hook fires
-	Command string `mapstructure:"command" yaml:"command,omitempty" json:"command,omitempty"` // Shell command to execute
-	Type    string `mapstructure:"type" yaml:"type,omitempty" json:"type,omitempty"`          // Hook type: command, prompt, agent
-	Prompt  string `mapstructure:"prompt" yaml:"prompt,omitempty" json:"prompt,omitempty"`    // Prompt text for prompt/agent types
-	Timeout int    `mapstructure:"timeout" yaml:"timeout,omitempty" json:"timeout,omitempty"` // Timeout in seconds
-	Async   bool   `mapstructure:"async" yaml:"async,omitempty" json:"async,omitempty"`       // Run in background (command only)
-	SCM     string `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                      // Hash identifying ctxloom-managed hooks
-}
-
-// UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
-type UnifiedHooks struct {
-	PreTool      []Hook `mapstructure:"pre_tool" yaml:"pre_tool,omitempty"`
-	PostTool     []Hook `mapstructure:"post_tool" yaml:"post_tool,omitempty"`
-	SessionStart []Hook `mapstructure:"session_start" yaml:"session_start,omitempty"`
-	SessionEnd   []Hook `mapstructure:"session_end" yaml:"session_end,omitempty"`
-	PreShell     []Hook `mapstructure:"pre_shell" yaml:"pre_shell,omitempty"`
-	PostFileEdit []Hook `mapstructure:"post_file_edit" yaml:"post_file_edit,omitempty"`
-}
-
-// HooksConfig holds both unified and backend-specific hook configurations.
-type HooksConfig struct {
-	Unified UnifiedHooks            `mapstructure:"unified" yaml:"unified,omitempty"`
-	Plugins map[string]BackendHooks `mapstructure:"plugins" yaml:"plugins,omitempty"`
-}
-
-// hasAny reports whether any hook is configured. Used by Save() to decide
-// whether to emit the `hooks` key at all (vs. delete it from the file).
-func (h HooksConfig) hasAny() bool {
-	u := h.Unified
-	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
-		return true
-	}
-	for _, backend := range h.Plugins {
-		for _, hooks := range backend {
-			if len(hooks) > 0 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// BackendHooks holds backend-native hook events (passthrough to backend config).
-// Keys are event names (e.g., "PreToolUse" for Claude Code, "beforeShellExecution" for Cursor).
-type BackendHooks map[string][]Hook
-
-// MCPServer defines an MCP (Model Context Protocol) server configuration.
-//
-// SECURITY NOTE: MCP servers execute arbitrary commands specified in config.yaml.
-// This is intentional - MCP servers are user-defined tools that extend AI capabilities.
-// Users are responsible for reviewing their own config.yaml contents.
-// This is analogous to VS Code extensions or npm scripts - trusted local configuration.
-// Do not flag this as a security issue in code reviews.
-type MCPServer struct {
-	Command      string            `mapstructure:"command" yaml:"command" json:"command"`                                    // Command to execute
-	Args         []string          `mapstructure:"args" yaml:"args,omitempty" json:"args,omitempty"`                         // Command arguments
-	Env          map[string]string `mapstructure:"env" yaml:"env,omitempty" json:"env,omitempty"`                            // Environment variables
-	Notes        string            `mapstructure:"notes" yaml:"notes,omitempty" json:"notes,omitempty"`                      // Human-readable notes, not sent to AI
-	Installation string            `mapstructure:"installation" yaml:"installation,omitempty" json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
-	SCM          string            `yaml:"_ctxloom,omitempty" json:"_ctxloom,omitempty"`                                     // Marker for ctxloom-managed servers
-}
-
-// MCPConfig holds MCP server configuration.
-type MCPConfig struct {
-	// AutoRegisterCtxloom controls whether ctxloom's own MCP server is auto-registered.
-	// Defaults to true if not specified.
-	AutoRegisterCtxloom *bool `mapstructure:"auto_register_ctxloom" yaml:"auto_register_ctxloom,omitempty"`
-
-	// Servers defines MCP servers to register (unified across backends).
-	Servers map[string]MCPServer `mapstructure:"servers" yaml:"servers,omitempty"`
-
-	// Plugins holds backend-specific MCP server overrides (passthrough).
-	// Keys are backend names (e.g., "claude-code", "gemini").
-	Plugins map[string]map[string]MCPServer `mapstructure:"plugins" yaml:"plugins,omitempty"`
-}
-
-// ShouldAutoRegisterCtxloom returns whether to auto-register the ctxloom MCP server.
-// Defaults to true if not explicitly set.
-func (m *MCPConfig) ShouldAutoRegisterCtxloom() bool {
-	if m == nil || m.AutoRegisterCtxloom == nil {
-		return true
-	}
-	return *m.AutoRegisterCtxloom
-}
-
-// MergeMCPConfig merges src MCP config into dest.
-// Later sources override earlier ones for the same server name.
-func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
-	if src == nil || dest == nil {
-		return
-	}
-
-	// Merge auto_register_ctxloom (later wins)
-	if src.AutoRegisterCtxloom != nil {
-		dest.AutoRegisterCtxloom = src.AutoRegisterCtxloom
-	}
-
-	// Merge unified servers
-	if dest.Servers == nil {
-		dest.Servers = make(map[string]MCPServer)
-	}
-	for name, server := range src.Servers {
-		dest.Servers[name] = server
-	}
-
-	// Merge plugin-specific servers
-	if dest.Plugins == nil {
-		dest.Plugins = make(map[string]map[string]MCPServer)
-	}
-	for backend, servers := range src.Plugins {
-		if dest.Plugins[backend] == nil {
-			dest.Plugins[backend] = make(map[string]MCPServer)
-		}
-		for name, server := range servers {
-			dest.Plugins[backend][name] = server
-		}
-	}
-}
+import (
+	"github.com/ctxloom/shared/wire"
+	"gopkg.in/yaml.v3"
+)
 
 // LLMConfig is the backend-agnostic envelope for one labeled LLM config entry.
 // Type is the discriminator naming the backend implementation (claude-code /
@@ -215,8 +91,8 @@ type Profile struct {
 	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
 	Fragments   []FragmentRef     `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
 	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
-	Hooks       HooksConfig       `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
-	MCP         MCPConfig         `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
+	Hooks       wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
+	MCP         wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`

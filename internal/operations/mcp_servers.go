@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // MCPServerEntry represents an MCP server in operation results.
@@ -80,7 +81,7 @@ func mcpServerMatches(query, name, command string) bool {
 }
 
 // mcpEntry builds an MCPServerEntry for the given backend label.
-func mcpEntry(name string, srv config.MCPServer, backend string) MCPServerEntry {
+func mcpEntry(name string, srv wire.MCPServer, backend string) MCPServerEntry {
 	return MCPServerEntry{
 		Name:         name,
 		Command:      srv.Command,
@@ -174,7 +175,7 @@ func AddMCPServer(ctx context.Context, cfg *config.Config, req AddMCPServerReque
 		return nil, err
 	}
 
-	server := config.MCPServer{
+	server := wire.MCPServer{
 		Command:      req.Command,
 		Args:         req.Args,
 		Notes:        req.Notes,
@@ -216,9 +217,9 @@ func isUnifiedBackend(backend string) bool {
 }
 
 // addUnifiedServer inserts server into the unified map, erroring if name exists.
-func addUnifiedServer(cfg *config.Config, name string, server config.MCPServer) error {
+func addUnifiedServer(cfg *config.Config, name string, server wire.MCPServer) error {
 	if cfg.MCP.Servers == nil {
-		cfg.MCP.Servers = make(map[string]config.MCPServer)
+		cfg.MCP.Servers = make(map[string]wire.MCPServer)
 	}
 	if _, exists := cfg.MCP.Servers[name]; exists {
 		return fmt.Errorf("MCP server %q already exists", name)
@@ -229,12 +230,12 @@ func addUnifiedServer(cfg *config.Config, name string, server config.MCPServer) 
 
 // addBackendServer inserts server into a backend's plugin map, erroring if name
 // already exists for that backend.
-func addBackendServer(cfg *config.Config, backend, name string, server config.MCPServer) error {
+func addBackendServer(cfg *config.Config, backend, name string, server wire.MCPServer) error {
 	if cfg.MCP.Plugins == nil {
-		cfg.MCP.Plugins = make(map[string]map[string]config.MCPServer)
+		cfg.MCP.Plugins = make(map[string]map[string]wire.MCPServer)
 	}
 	if cfg.MCP.Plugins[backend] == nil {
-		cfg.MCP.Plugins[backend] = make(map[string]config.MCPServer)
+		cfg.MCP.Plugins[backend] = make(map[string]wire.MCPServer)
 	}
 	if _, exists := cfg.MCP.Plugins[backend][name]; exists {
 		return fmt.Errorf("MCP server %q already exists for backend %s", name, backend)

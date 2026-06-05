@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // fixtureConfig returns a Config populated with a sentinel value in every
@@ -32,7 +33,7 @@ func fixtureConfig() *config.Config {
 	cfg.LM.Configs = map[string]config.LLMConfig{
 		"big": {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-pro"}},
 	}
-	cfg.MCP.Servers = map[string]config.MCPServer{
+	cfg.MCP.Servers = map[string]wire.MCPServer{
 		"fs": {Command: "mcp-fs"},
 	}
 	return cfg

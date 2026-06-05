@@ -10,15 +10,16 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/shared/wire"
 )
 
 // wireClaudeHarness writes a ctxloom-managed hook set into dir's claude-code
 // settings so removal/status have something to act on.
 func wireClaudeHarness(t *testing.T, fs afero.Fs, dir string) {
 	t.Helper()
-	hooks := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "ctxloom hook inject-context"}},
+	hooks := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 		},
 	}
 	require.NoError(t, backends.WriteSettings("claude-code", hooks, nil, nil, dir, backends.WithSettingsFS(fs)))
@@ -104,9 +105,9 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 	loader := func() (*config.Config, error) {
 		return &config.Config{
 			Settings: config.SettingsConfig{Statusline: &off},
-			Hooks: config.HooksConfig{
-				Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
 				},
 			},
 		}, nil

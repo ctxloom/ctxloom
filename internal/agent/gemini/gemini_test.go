@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,12 +26,12 @@ func TestGeminiHookWriter_WriteHooks(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &GeminiHookWriter{FS: fs}
 
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{
 				{Command: "./pre-tool.sh", Matcher: "Bash"},
 			},
-			PostTool: []config.Hook{
+			PostTool: []wire.Hook{
 				{Command: "./post-tool.sh", Matcher: "Edit"},
 			},
 		},
@@ -71,9 +71,9 @@ func TestGeminiHookWriter_PreservesUserSettings(t *testing.T) {
 	_ = afero.WriteFile(fs, "/project/.gemini/settings.json", data, 0644)
 
 	// Write ctxloom hooks
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "./start.sh"}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "./start.sh"}},
 		},
 	}
 
@@ -92,9 +92,9 @@ func TestGeminiHookWriter_WriteSettings_WithMCP(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &GeminiHookWriter{FS: fs}
 
-	hooks := &config.HooksConfig{}
-	mcp := &config.MCPConfig{
-		Servers: map[string]config.MCPServer{
+	hooks := &wire.HooksConfig{}
+	mcp := &wire.MCPConfig{
+		Servers: map[string]wire.MCPServer{
 			"custom-server": {
 				Command: "custom-mcp",
 				Args:    []string{"--port", "3000"},
@@ -126,9 +126,9 @@ func TestGeminiHookWriter_NestedSchema(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &GeminiHookWriter{FS: fs}
 
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "ctxloom hook session-bind", Timeout: 60}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Timeout: 60}},
 		},
 	}
 	require.NoError(t, writer.WriteHooks(cfg, "/project"))
@@ -169,8 +169,8 @@ func TestGeminiHookWriter_RemovesManagedHooks(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/project/.gemini/settings.json", []byte(existing), 0644))
 
 	writer := &GeminiHookWriter{FS: fs}
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "ctxloom hook session-bind"}}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind"}}},
 	}
 	require.NoError(t, writer.WriteHooks(cfg, "/project"))
 
@@ -199,7 +199,7 @@ func TestGeminiHookWriter_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &GeminiHookWriter{FS: fs}
 
-	cfg := &config.HooksConfig{}
+	cfg := &wire.HooksConfig{}
 	err := writer.WriteHooks(cfg, "/project")
 	require.NoError(t, err)
 

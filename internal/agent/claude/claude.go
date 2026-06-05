@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // NewWriter constructs the Claude Code settings writer.
@@ -32,10 +32,10 @@ var (
 	atomicWriteFile = agent.AtomicWriteFile
 )
 
-func warn(format string, args ...any)                { agent.Warn(format, args...) }
-func computeHookHash(h config.Hook) string           { return agent.ComputeHookHash(h) }
-func computeMCPServerHash(s config.MCPServer) string { return agent.ComputeMCPServerHash(s) }
-func isCtxloomManaged(command string) bool           { return agent.IsManaged(command, "ctxloom") }
+func warn(format string, args ...any)              { agent.Warn(format, args...) }
+func computeHookHash(h wire.Hook) string           { return agent.ComputeHookHash(h) }
+func computeMCPServerHash(s wire.MCPServer) string { return agent.ComputeMCPServerHash(s) }
+func isCtxloomManaged(command string) bool         { return agent.IsManaged(command, "ctxloom") }
 
 // ----- moved verbatim from internal/lm/backends (hooks.go + uninstall.go) -----
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
@@ -121,9 +121,9 @@ type claudeCodeHook struct {
 // WriteSettings implements SettingsWriter for Claude Code.
 // Hooks are written to .claude/settings.json
 // MCP servers are written to .mcp.json (where variable expansion works)
-func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error {
+func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	if hooks == nil {
-		hooks = &config.HooksConfig{}
+		hooks = &wire.HooksConfig{}
 	}
 
 	fs := w.getFS()
@@ -165,7 +165,7 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *con
 }
 
 // WriteHooks implements HookWriter for Claude Code (backwards compatible).
-func (w *ClaudeCodeHookWriter) WriteHooks(cfg *config.HooksConfig, projectDir string) error {
+func (w *ClaudeCodeHookWriter) WriteHooks(cfg *wire.HooksConfig, projectDir string) error {
 	return w.WriteSettings(cfg, nil, nil, projectDir)
 }
 
@@ -318,7 +318,7 @@ func (w *ClaudeCodeHookWriter) saveMCPConfig(path string, mcpConfig *claudeCodeM
 
 // writeMCPConfig writes MCP servers to .mcp.json.
 // This file supports ${CLAUDE_PROJECT_DIR} variable expansion.
-func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer) error {
+func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
 	mcpPath := w.MCPConfigPath(projectDir)
 
 	// Load existing MCP config
@@ -405,7 +405,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) 
 }
 
 // addUnifiedHooks translates unified hooks to Claude Code format and adds them.
-func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified config.UnifiedHooks) {
+func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
 	// PreTool -> PreToolUse
 	for _, h := range unified.PreTool {
 		w.addHook(settings, "PreToolUse", h)
@@ -446,7 +446,7 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 }
 
 // addBackendHooks adds backend-specific passthrough hooks.
-func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, backendHooks config.BackendHooks) {
+func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, backendHooks wire.BackendHooks) {
 	for eventName, hooks := range backendHooks {
 		for _, h := range hooks {
 			w.addHook(settings, eventName, h)
@@ -455,7 +455,7 @@ func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, bac
 }
 
 // addHook adds a single hook to the settings for the given event.
-func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName string, h config.Hook) {
+func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName string, h wire.Hook) {
 	ccHook := claudeCodeHook{
 		Type:    h.Type,
 		Command: h.Command,
@@ -498,7 +498,7 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 const AppMCPServerName = agent.MCPServerName
 
 // addMCPServersToConfig adds MCP servers from config to .mcp.json config.
-func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer) {
+func (w *ClaudeCodeHookWriter) addMCPServersToConfig(mcpConfig *claudeCodeMCPConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) {
 	if mcpConfig.MCPServers == nil {
 		mcpConfig.MCPServers = make(map[string]claudeCodeMCPServer)
 	}

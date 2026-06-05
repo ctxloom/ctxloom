@@ -7,9 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
-
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // CtxloomBinary is the bare executable name written into managed hook/MCP
@@ -37,7 +36,7 @@ type SettingsOption func(*SettingsOptions)
 // (lifecycle/MCP) so they don't import the registry — which would cycle, since
 // the registry imports the agent packages. The wiring layer (backends registry)
 // supplies the concrete implementation.
-type WriteSettingsFunc func(backendName string, hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string, opts ...SettingsOption) error
+type WriteSettingsFunc func(backendName string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...SettingsOption) error
 
 // WithSettingsFS sets the filesystem used for settings operations. If not
 // provided, the real OS filesystem is used.
@@ -66,7 +65,7 @@ func Warn(format string, args ...any) {
 }
 
 // ComputeHookHash returns a short, stable hash of a hook's defining fields.
-func ComputeHookHash(h config.Hook) string {
+func ComputeHookHash(h wire.Hook) string {
 	parts := []string{
 		h.Command,
 		h.Matcher,
@@ -81,7 +80,7 @@ func ComputeHookHash(h config.Hook) string {
 
 // ComputeMCPServerHash returns a short, stable hash of an MCP server's defining
 // fields, used as the `_ctxloom` marker on managed servers.
-func ComputeMCPServerHash(s config.MCPServer) string {
+func ComputeMCPServerHash(s wire.MCPServer) string {
 	parts := append([]string{s.Command}, s.Args...)
 	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(hash[:8])

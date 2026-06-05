@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agent/claude"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,9 +27,9 @@ import (
 // user-defined hooks, allowing clean updates without losing user customization.
 
 func TestComputeHookHash(t *testing.T) {
-	h1 := config.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h2 := config.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h3 := config.Hook{Command: "./other.sh", Matcher: "Bash"}
+	h1 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
+	h2 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
+	h3 := wire.Hook{Command: "./other.sh", Matcher: "Bash"}
 
 	hash1 := computeHookHash(h1)
 	hash2 := computeHookHash(h2)
@@ -196,9 +196,9 @@ func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 func TestWriteSettings_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	hooks := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "./test.sh"}},
+	hooks := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
 
@@ -215,132 +215,6 @@ func TestWriteSettings_WithFS(t *testing.T) {
 // =============================================================================
 // These tests verify that ctxloom gracefully handles malformed or incompatible
 // settings.json files, as Claude Code's schema is undocumented and may change.
-
-// =============================================================================
-// MergeMCPConfig Tests
-// =============================================================================
-// Tests for merging MCP server configurations from multiple profiles/sources.
-
-func TestMergeMCPConfig_NilInputs(t *testing.T) {
-	t.Run("nil dest does nothing", func(t *testing.T) {
-		src := &config.MCPConfig{
-			Servers: map[string]config.MCPServer{
-				"test": {Command: "test-cmd"},
-			},
-		}
-		config.MergeMCPConfig(nil, src)
-	})
-
-	t.Run("nil src does nothing", func(t *testing.T) {
-		dest := &config.MCPConfig{}
-		config.MergeMCPConfig(dest, nil)
-		assert.Nil(t, dest.Servers)
-	})
-
-	t.Run("both nil does nothing", func(t *testing.T) {
-		config.MergeMCPConfig(nil, nil)
-	})
-}
-
-func TestMergeMCPConfig_AutoRegisterCtxloom(t *testing.T) {
-	t.Run("src overrides dest", func(t *testing.T) {
-		trueVal := true
-		falseVal := false
-		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
-		src := &config.MCPConfig{AutoRegisterCtxloom: &falseVal}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.False(t, *dest.AutoRegisterCtxloom)
-	})
-
-	t.Run("nil src preserves dest", func(t *testing.T) {
-		trueVal := true
-		dest := &config.MCPConfig{AutoRegisterCtxloom: &trueVal}
-		src := &config.MCPConfig{}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.True(t, *dest.AutoRegisterCtxloom)
-	})
-}
-
-func TestMergeMCPConfig_UnifiedServers(t *testing.T) {
-	t.Run("creates servers map if nil", func(t *testing.T) {
-		dest := &config.MCPConfig{}
-		src := &config.MCPConfig{
-			Servers: map[string]config.MCPServer{
-				"test-server": {Command: "test-cmd", Args: []string{"arg1"}},
-			},
-		}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.NotNil(t, dest.Servers)
-		assert.Equal(t, "test-cmd", dest.Servers["test-server"].Command)
-	})
-
-	t.Run("src overrides dest for same name", func(t *testing.T) {
-		dest := &config.MCPConfig{
-			Servers: map[string]config.MCPServer{
-				"server": {Command: "old-cmd"},
-			},
-		}
-		src := &config.MCPConfig{
-			Servers: map[string]config.MCPServer{
-				"server": {Command: "new-cmd"},
-			},
-		}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.Equal(t, "new-cmd", dest.Servers["server"].Command)
-	})
-}
-
-func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
-	t.Run("creates plugin map if nil", func(t *testing.T) {
-		dest := &config.MCPConfig{}
-		src := &config.MCPConfig{
-			Plugins: map[string]map[string]config.MCPServer{
-				"claude-code": {
-					"my-server": {Command: "my-cmd"},
-				},
-			},
-		}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.NotNil(t, dest.Plugins)
-		assert.Equal(t, "my-cmd", dest.Plugins["claude-code"]["my-server"].Command)
-	})
-
-	t.Run("merges multiple backends", func(t *testing.T) {
-		dest := &config.MCPConfig{
-			Plugins: map[string]map[string]config.MCPServer{
-				"claude-code": {
-					"existing": {Command: "existing-cmd"},
-				},
-			},
-		}
-		src := &config.MCPConfig{
-			Plugins: map[string]map[string]config.MCPServer{
-				"claude-code": {
-					"new": {Command: "new-cmd"},
-				},
-				"gemini": {
-					"gemini-server": {Command: "gemini-cmd"},
-				},
-			},
-		}
-
-		config.MergeMCPConfig(dest, src)
-
-		assert.Equal(t, "existing-cmd", dest.Plugins["claude-code"]["existing"].Command)
-		assert.Equal(t, "new-cmd", dest.Plugins["claude-code"]["new"].Command)
-		assert.Equal(t, "gemini-cmd", dest.Plugins["gemini"]["gemini-server"].Command)
-	})
-}
 
 // =============================================================================
 // Helper Function Tests
@@ -430,9 +304,9 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	writer := &claude.ClaudeCodeHookWriter{}
 	// Inject-context hook is constructed exactly the way the lifecycle
 	// constructs it — through the public constructor.
-	cfg := &config.HooksConfig{Unified: config.UnifiedHooks{
-		SessionStart: []config.Hook{NewContextInjectionHook("abc123", tmpDir)},
-		PostFileEdit: []config.Hook{
+	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
+		SessionStart: []wire.Hook{NewContextInjectionHook("abc123", tmpDir)},
+		PostFileEdit: []wire.Hook{
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
 	}}

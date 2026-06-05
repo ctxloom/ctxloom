@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/wire"
 )
 
 var mcpCmd = &cobra.Command{
@@ -201,7 +201,7 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 }
 
 // printMCPServerDetails prints an MCP server's scope, command, args, and env.
-func printMCPServerDetails(name, scope string, srv config.MCPServer) {
+func printMCPServerDetails(name, scope string, srv wire.MCPServer) {
 	fmt.Printf("MCP Server: %s\n", name)
 	fmt.Printf("Scope: %s\n", scope)
 	fmt.Printf("Command: %s\n", srv.Command)

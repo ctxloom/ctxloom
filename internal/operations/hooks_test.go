@@ -44,6 +44,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/wire"
 )
 
 // ==========================================================================
@@ -142,9 +143,9 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 func TestWriteSettings_ClaudeCode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	hooks := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{
+	hooks := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{
 				{Command: "echo hello", Type: "command"},
 			},
 		},
@@ -175,9 +176,9 @@ func TestWriteSettings_ClaudeCode(t *testing.T) {
 func TestWriteSettings_Gemini(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	hooks := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{
+	hooks := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{
 				{Command: "echo hello", Type: "command"},
 			},
 		},
@@ -228,9 +229,9 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 }`
 	require.NoError(t, afero.WriteFile(fs, "/project/.claude/settings.json", []byte(existingContent), 0644))
 
-	hooks := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{
+	hooks := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{
 				{Command: "echo hello", Type: "command"},
 			},
 		},
@@ -318,9 +319,9 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	// Create a mock config loader
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			Hooks: config.HooksConfig{
-				Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{
 						{Command: "echo test", Type: "command"},
 					},
 				},
@@ -362,9 +363,9 @@ func TestApplyHooks_GeminiOnly(t *testing.T) {
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			Hooks: config.HooksConfig{
-				Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{
 						{Command: "echo test", Type: "command"},
 					},
 				},
@@ -398,9 +399,9 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			Hooks: config.HooksConfig{
-				Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{
 						{Command: "echo hello", Type: "command"},
 					},
 				},
@@ -480,8 +481,8 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			MCP: config.MCPConfig{
-				Servers: map[string]config.MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"test-server": {
 						Command: "test-cmd",
 						Args:    []string{"arg1", "arg2"},

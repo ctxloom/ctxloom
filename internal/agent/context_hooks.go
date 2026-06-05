@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // ContextInjectionTimeout is the timeout for the context injection hook in seconds.
@@ -19,8 +20,8 @@ const ContextInjectionTimeout = 60
 // workDir is the project directory where the context file lives.
 // Resolved to an absolute path because Claude Code can launch the
 // hook from a different cwd.
-func NewContextInjectionHook(hash, workDir string) config.Hook {
-	return config.Hook{
+func NewContextInjectionHook(hash, workDir string) wire.Hook {
+	return wire.Hook{
 		Command: fmt.Sprintf("ctxloom hook inject-context --project %s %s", shellSingleQuote(absOrSelf(workDir)), hash),
 		Type:    "command",
 		Timeout: ContextInjectionTimeout,
@@ -32,8 +33,8 @@ func NewContextInjectionHook(hash, workDir string) config.Hook {
 // flock rendezvous (AwaitTurn) to complete in order, so the harness — which
 // injects parallel hook output in completion order — sees the chunks in
 // sequence. See NewContextInjectionHooks for when chunking kicks in.
-func NewContextInjectionChunkHook(hash, workDir string, part, total int) config.Hook {
-	return config.Hook{
+func NewContextInjectionChunkHook(hash, workDir string, part, total int) wire.Hook {
+	return wire.Hook{
 		Command: fmt.Sprintf("ctxloom hook inject-context --project %s --part %d --of %d %s",
 			shellSingleQuote(absOrSelf(workDir)), part, total, hash),
 		Type:    "command",
@@ -58,13 +59,13 @@ func absOrSelf(workDir string) string {
 // hook with the same ChunkContext guarantees write-time and run-time agree on
 // N. Best-effort by design: any read error falls back to the single hook (the
 // runtime hook then emits nothing if the file is truly empty).
-func NewContextInjectionHooks(hash, workDir string) []config.Hook {
+func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
 	content, _ := ReadContextFile(workDir, hash)
 	chunks := ChunkContext(content)
 	if len(chunks) <= 1 {
-		return []config.Hook{NewContextInjectionHook(hash, workDir)}
+		return []wire.Hook{NewContextInjectionHook(hash, workDir)}
 	}
-	hooks := make([]config.Hook, 0, len(chunks))
+	hooks := make([]wire.Hook, 0, len(chunks))
 	for k := 1; k <= len(chunks); k++ {
 		hooks = append(hooks, NewContextInjectionChunkHook(hash, workDir, k, len(chunks)))
 	}
@@ -86,7 +87,7 @@ func NewContextInjectionHooks(hash, workDir string) []config.Hook {
 // missing `session bind`; apply-hooks could likewise drop inject-context.
 // Keeping the assembly in one place guarantees every writer produces an
 // identical, complete managed set.
-func AppendManagedDynamicHooks(unified *config.UnifiedHooks, cfg *config.Config, workDir, contextHash string) {
+func AppendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string) {
 	if unified == nil || cfg == nil {
 		return
 	}
@@ -114,8 +115,8 @@ func AppendManagedDynamicHooks(unified *config.UnifiedHooks, cfg *config.Config,
 // Returns a fresh HooksConfig each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
-func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *config.HooksConfig {
-	hooks := &config.HooksConfig{Plugins: make(map[string]config.BackendHooks)}
+func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire.HooksConfig {
+	hooks := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
 	if cfg == nil {
 		return hooks
 	}
@@ -136,7 +137,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *conf
 
 // shellSingleQuote wraps s in single quotes for safe interpolation into a
 // /bin/sh command string, escaping embedded single quotes as the standard
-// '\'' idiom. Unlike double-quoting, single quotes neutralize spaces, $,
+// '\” idiom. Unlike double-quoting, single quotes neutralize spaces, $,
 // backticks, and backslashes — so a project path containing any of those
 // can't break the command split or inject shell behavior.
 func shellSingleQuote(s string) string {
@@ -144,7 +145,7 @@ func shellSingleQuote(s string) string {
 }
 
 // mergeHooksConfig merges source hooks into dest hooks.
-func mergeHooksConfig(dest *config.HooksConfig, src *config.HooksConfig) {
+func mergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
 	if src == nil || dest == nil {
 		return
 	}
@@ -159,11 +160,11 @@ func mergeHooksConfig(dest *config.HooksConfig, src *config.HooksConfig) {
 
 	// Merge plugin-specific hooks
 	if dest.Plugins == nil {
-		dest.Plugins = make(map[string]config.BackendHooks)
+		dest.Plugins = make(map[string]wire.BackendHooks)
 	}
 	for name, hooks := range src.Plugins {
 		if dest.Plugins[name] == nil {
-			dest.Plugins[name] = make(config.BackendHooks)
+			dest.Plugins[name] = make(wire.BackendHooks)
 		}
 		for event, eventHooks := range hooks {
 			dest.Plugins[name][event] = append(dest.Plugins[name][event], eventHooks...)

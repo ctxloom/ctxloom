@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,9 +116,9 @@ func TestResolveLLM(t *testing.T) {
 func TestResolveProfile_HooksInheritance(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					PreTool: []Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					PreTool: []wire.Hook{
 						{Command: "./base-hook.sh", Matcher: "Bash"},
 					},
 				},
@@ -125,9 +126,9 @@ func TestResolveProfile_HooksInheritance(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					PostTool: []Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					PostTool: []wire.Hook{
 						{Command: "./child-hook.sh", Matcher: "Edit"},
 					},
 				},
@@ -161,9 +162,9 @@ func TestResolveProfile_HooksInheritance(t *testing.T) {
 func TestResolveProfile_HooksDeduplication(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					PreTool: []Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					PreTool: []wire.Hook{
 						{Command: "./shared-hook.sh", Matcher: "Bash"},
 					},
 				},
@@ -171,9 +172,9 @@ func TestResolveProfile_HooksDeduplication(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					PreTool: []Hook{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					PreTool: []wire.Hook{
 						{Command: "./shared-hook.sh", Matcher: "Bash"}, // Duplicate
 						{Command: "./unique-hook.sh", Matcher: "Edit"},
 					},
@@ -196,10 +197,10 @@ func TestResolveProfile_HooksDeduplication(t *testing.T) {
 func TestResolveProfile_BackendHooksInheritance(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Hooks: HooksConfig{
-				Plugins: map[string]BackendHooks{
+			Hooks: wire.HooksConfig{
+				Plugins: map[string]wire.BackendHooks{
 					"claude-code": {
-						"PreToolUse": []Hook{
+						"PreToolUse": []wire.Hook{
 							{Command: "./base-claude.sh"},
 						},
 					},
@@ -208,10 +209,10 @@ func TestResolveProfile_BackendHooksInheritance(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			Hooks: HooksConfig{
-				Plugins: map[string]BackendHooks{
+			Hooks: wire.HooksConfig{
+				Plugins: map[string]wire.BackendHooks{
 					"claude-code": {
-						"PostToolUse": []Hook{
+						"PostToolUse": []wire.Hook{
 							{Command: "./child-claude.sh"},
 						},
 					},
@@ -239,8 +240,8 @@ func TestResolveProfile_BackendHooksInheritance(t *testing.T) {
 func TestResolveProfile_MCPInheritance(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			MCP: MCPConfig{
-				Servers: map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"base-server": {
 						Command: "base-server-cmd",
 						Args:    []string{"--base"},
@@ -250,8 +251,8 @@ func TestResolveProfile_MCPInheritance(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			MCP: MCPConfig{
-				Servers: map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"child-server": {
 						Command: "child-server-cmd",
 					},
@@ -282,8 +283,8 @@ func TestResolveProfile_MCPInheritance(t *testing.T) {
 func TestResolveProfile_MCPOverride(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			MCP: MCPConfig{
-				Servers: map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"shared-server": {
 						Command: "base-cmd",
 						Args:    []string{"--base"},
@@ -293,8 +294,8 @@ func TestResolveProfile_MCPOverride(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			MCP: MCPConfig{
-				Servers: map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"shared-server": {
 						Command: "child-cmd",
 						Args:    []string{"--child"},
@@ -324,13 +325,13 @@ func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
 
 	profiles := map[string]Profile{
 		"base": {
-			MCP: MCPConfig{
+			MCP: wire.MCPConfig{
 				AutoRegisterCtxloom: &trueVal,
 			},
 		},
 		"child": {
 			Parents: []string{"base"},
-			MCP: MCPConfig{
+			MCP: wire.MCPConfig{
 				AutoRegisterCtxloom: &falseVal,
 			},
 		},
@@ -353,8 +354,8 @@ func TestResolveProfile_MCPAutoRegisterOverride(t *testing.T) {
 func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			MCP: MCPConfig{
-				Plugins: map[string]map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Plugins: map[string]map[string]wire.MCPServer{
 					"claude-code": {
 						"base-claude-server": {
 							Command: "base-claude-cmd",
@@ -365,8 +366,8 @@ func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
 		},
 		"child": {
 			Parents: []string{"base"},
-			MCP: MCPConfig{
-				Plugins: map[string]map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Plugins: map[string]map[string]wire.MCPServer{
 					"claude-code": {
 						"child-claude-server": {
 							Command: "child-claude-cmd",
@@ -440,8 +441,8 @@ func TestResolveProfile_ExcludeFragments(t *testing.T) {
 func TestResolveProfile_ExcludeMCP(t *testing.T) {
 	profiles := map[string]Profile{
 		"parent": {
-			MCP: MCPConfig{
-				Servers: map[string]MCPServer{
+			MCP: wire.MCPConfig{
+				Servers: map[string]wire.MCPServer{
 					"server-a": {Command: "cmd-a"},
 					"server-b": {Command: "cmd-b"},
 					"server-c": {Command: "cmd-c"},
@@ -565,32 +566,6 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			cmd, args := tt.config.GetEditorCommand()
 			assert.Equal(t, tt.wantCmd, cmd)
 			assert.Equal(t, tt.wantArgs, args)
-		})
-	}
-}
-
-// =============================================================================
-// MCPConfig Tests
-// =============================================================================
-
-func TestMCPConfig_ShouldAutoRegisterCtxloom(t *testing.T) {
-	trueVal := true
-	falseVal := false
-
-	tests := []struct {
-		name   string
-		config *MCPConfig
-		want   bool
-	}{
-		{"nil config", nil, true},
-		{"nil value defaults true", &MCPConfig{}, true},
-		{"explicit true", &MCPConfig{AutoRegisterCtxloom: &trueVal}, true},
-		{"explicit false", &MCPConfig{AutoRegisterCtxloom: &falseVal}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.config.ShouldAutoRegisterCtxloom())
 		})
 	}
 }
@@ -1233,10 +1208,10 @@ func TestResolveProfile_FragmentsAndBundleItems(t *testing.T) {
 func TestResolveProfile_AllUnifiedHooks(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					PreShell:     []Hook{{Command: "./pre-shell.sh"}},
-					PostFileEdit: []Hook{{Command: "./post-edit.sh"}},
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					PreShell:     []wire.Hook{{Command: "./pre-shell.sh"}},
+					PostFileEdit: []wire.Hook{{Command: "./post-edit.sh"}},
 				},
 			},
 		},
@@ -1395,7 +1370,7 @@ hooks:
       type: command
 `
 
-func hasHookCommand(hooks []Hook, command, wantSCM string) bool {
+func hasHookCommand(hooks []wire.Hook, command, wantSCM string) bool {
 	for _, h := range hooks {
 		if h.Command == command && h.SCM == wantSCM {
 			return true
@@ -1596,20 +1571,6 @@ mcp:
 	assert.Empty(t, result.PostFileEdit)
 }
 
-func TestUnifiedHooks_Append(t *testing.T) {
-	dst := UnifiedHooks{
-		PostTool: []Hook{{Matcher: "X", Command: "x"}},
-	}
-	src := UnifiedHooks{
-		PostTool:     []Hook{{Matcher: "Y", Command: "y"}},
-		PostFileEdit: []Hook{{Matcher: "Z", Command: "z"}},
-	}
-	dst.Append(src)
-	assert.Len(t, dst.PostTool, 2)
-	assert.Equal(t, "Y", dst.PostTool[1].Matcher)
-	assert.Len(t, dst.PostFileEdit, 1)
-}
-
 // TestResolveBuiltinBundleHooks asserts the embedded tasks bundle is
 // parseable and its hooks ride through to UnifiedHooks tagged with the
 // builtin SCM marker. This is the regression guard for the "ctxloom
@@ -1666,13 +1627,13 @@ func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 }
 
 func TestHooksConfig_HasAny(t *testing.T) {
-	assert.False(t, HooksConfig{}.hasAny())
-	withUnified := HooksConfig{Unified: UnifiedHooks{PostTool: []Hook{{Command: "x"}}}}
-	assert.True(t, withUnified.hasAny())
-	withPlugin := HooksConfig{Plugins: map[string]BackendHooks{
-		"claude-code": {"PostToolUse": []Hook{{Command: "x"}}},
+	assert.False(t, wire.HooksConfig{}.HasAny())
+	withUnified := wire.HooksConfig{Unified: wire.UnifiedHooks{PostTool: []wire.Hook{{Command: "x"}}}}
+	assert.True(t, withUnified.HasAny())
+	withPlugin := wire.HooksConfig{Plugins: map[string]wire.BackendHooks{
+		"claude-code": {"PostToolUse": []wire.Hook{{Command: "x"}}},
 	}}
-	assert.True(t, withPlugin.hasAny())
+	assert.True(t, withPlugin.HasAny())
 }
 
 // =============================================================================
@@ -1691,9 +1652,9 @@ func TestConfig_Save_WithMCP(t *testing.T) {
 		LM: LMConfig{
 			Configs: map[string]LLMConfig{},
 		},
-		MCP: MCPConfig{
+		MCP: wire.MCPConfig{
 			AutoRegisterCtxloom: &trueVal,
-			Servers: map[string]MCPServer{
+			Servers: map[string]wire.MCPServer{
 				"test": {Command: "test-cmd"},
 			},
 		},
@@ -1826,9 +1787,9 @@ llm:
 func TestResolveProfile_SessionEndHooks(t *testing.T) {
 	profiles := map[string]Profile{
 		"base": {
-			Hooks: HooksConfig{
-				Unified: UnifiedHooks{
-					SessionEnd: []Hook{{Command: "./session-end.sh"}},
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionEnd: []wire.Hook{{Command: "./session-end.sh"}},
 				},
 			},
 		},

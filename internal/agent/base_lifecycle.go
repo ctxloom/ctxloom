@@ -2,14 +2,15 @@ package agent
 
 import (
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // BaseLifecycle provides shared lifecycle handler logic for backends.
 // It manages hooks and MCP configuration that are written to backend settings files.
 type BaseLifecycle struct {
 	backendName        string
-	hooks              *config.HooksConfig
-	mcp                *config.MCPConfig
+	hooks              *wire.HooksConfig
+	mcp                *wire.MCPConfig
 	statusLineDisabled bool
 	writeSettings      WriteSettingsFunc
 }
@@ -32,7 +33,7 @@ func NewBaseLifecycle(backendName string, writeSettings WriteSettingsFunc) *Base
 // OnSessionStart registers a handler for session start events.
 func (l *BaseLifecycle) OnSessionStart(workDir string, handler EventHandler) error {
 	l.ensureHooks()
-	hook := config.Hook{
+	hook := wire.Hook{
 		Command: handler.Command,
 		Type:    "command",
 		Timeout: handler.Timeout,
@@ -44,7 +45,7 @@ func (l *BaseLifecycle) OnSessionStart(workDir string, handler EventHandler) err
 // OnSessionEnd registers a handler for session end events.
 func (l *BaseLifecycle) OnSessionEnd(workDir string, handler EventHandler) error {
 	l.ensureHooks()
-	hook := config.Hook{
+	hook := wire.Hook{
 		Command: handler.Command,
 		Type:    "command",
 		Timeout: handler.Timeout,
@@ -56,7 +57,7 @@ func (l *BaseLifecycle) OnSessionEnd(workDir string, handler EventHandler) error
 // OnToolUse registers a handler for tool use events.
 func (l *BaseLifecycle) OnToolUse(workDir string, event ToolEvent, handler EventHandler) error {
 	l.ensureHooks()
-	hook := config.Hook{
+	hook := wire.Hook{
 		Command: handler.Command,
 		Type:    "command",
 		Timeout: handler.Timeout,
@@ -72,12 +73,12 @@ func (l *BaseLifecycle) OnToolUse(workDir string, event ToolEvent, handler Event
 
 // Clear removes all ctxloom-managed lifecycle handlers.
 func (l *BaseLifecycle) Clear(workDir string) error {
-	l.hooks = &config.HooksConfig{
-		Plugins: make(map[string]config.BackendHooks),
+	l.hooks = &wire.HooksConfig{
+		Plugins: make(map[string]wire.BackendHooks),
 	}
-	l.mcp = &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
-		Plugins: make(map[string]map[string]config.MCPServer),
+	l.mcp = &wire.MCPConfig{
+		Servers: make(map[string]wire.MCPServer),
+		Plugins: make(map[string]map[string]wire.MCPServer),
 	}
 	return l.writeSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
@@ -106,21 +107,21 @@ func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, con
 	mergeHooksConfig(l.hooks, AssembleManagedHooks(cfg, workDir, contextHash))
 
 	// MCP: config-level + default-profile servers.
-	config.MergeMCPConfig(l.mcp, &cfg.MCP)
+	wire.MergeMCPConfig(l.mcp, &cfg.MCP)
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
 			continue
 		}
-		config.MergeMCPConfig(l.mcp, &resolved.MCP)
+		wire.MergeMCPConfig(l.mcp, &resolved.MCP)
 	}
 }
 
 // ensureHooks initializes hooks config if nil.
 func (l *BaseLifecycle) ensureHooks() {
 	if l.hooks == nil {
-		l.hooks = &config.HooksConfig{
-			Plugins: make(map[string]config.BackendHooks),
+		l.hooks = &wire.HooksConfig{
+			Plugins: make(map[string]wire.BackendHooks),
 		}
 	}
 }
@@ -128,19 +129,19 @@ func (l *BaseLifecycle) ensureHooks() {
 // ensureMCP initializes MCP config if nil.
 func (l *BaseLifecycle) ensureMCP() {
 	if l.mcp == nil {
-		l.mcp = &config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
-			Plugins: make(map[string]map[string]config.MCPServer),
+		l.mcp = &wire.MCPConfig{
+			Servers: make(map[string]wire.MCPServer),
+			Plugins: make(map[string]map[string]wire.MCPServer),
 		}
 	}
 }
 
 // GetHooks returns the current hooks configuration.
-func (l *BaseLifecycle) GetHooks() *config.HooksConfig {
+func (l *BaseLifecycle) GetHooks() *wire.HooksConfig {
 	return l.hooks
 }
 
 // GetMCP returns the current MCP configuration.
-func (l *BaseLifecycle) GetMCP() *config.MCPConfig {
+func (l *BaseLifecycle) GetMCP() *wire.MCPConfig {
 	return l.mcp
 }

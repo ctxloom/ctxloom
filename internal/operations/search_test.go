@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/wire"
 )
 
 // =============================================================================
@@ -388,8 +389,8 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 func TestSearchContent_SearchMCPServers(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"filesystem": {
 					Command: "npx",
 					Args:    []string{"-y", "@modelcontextprotocol/server-filesystem"},

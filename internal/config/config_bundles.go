@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/wire"
 )
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
@@ -15,8 +16,8 @@ import (
 // the binary (resources/builtin_bundles). Mirrors ResolveBundleHooks: any
 // future built-in that ships an MCP server is picked up automatically,
 // tagged with SCM="builtin:<name>" so reconciliation can identify it.
-func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
-	result := make(map[string]MCPServer)
+func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
+	result := make(map[string]wire.MCPServer)
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality and aren't gated on profile membership. Run them
@@ -72,8 +73,8 @@ func (c *Config) ResolveBundleMCPServers() map[string]MCPServer {
 // is tagged with SCM="builtin:<name>" so apply-* reconciliation can
 // identify built-in entries. Failures on individual bundles are logged
 // to stderr and skipped — built-in bundles must never block startup.
-func resolveBuiltinBundleMCPServers() map[string]MCPServer {
-	out := make(map[string]MCPServer)
+func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
+	out := make(map[string]wire.MCPServer)
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
@@ -102,7 +103,7 @@ func resolveBuiltinBundleMCPServers() map[string]MCPServer {
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader) map[string]MCPServer {
+func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader) map[string]wire.MCPServer {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
 		return nil
@@ -116,8 +117,8 @@ func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader) map[string]M
 // Mirrors ResolveBundleMCPServers. Each emitted hook carries SCM source
 // info so apply-hooks can identify ctxloom-managed entries when
 // reconciling the backend's settings.json.
-func (c *Config) ResolveBundleHooks() UnifiedHooks {
-	var result UnifiedHooks
+func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
+	var result wire.UnifiedHooks
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
@@ -153,8 +154,8 @@ func (c *Config) ResolveBundleHooks() UnifiedHooks {
 // apply-hooks reconciliation can identify built-in entries. Failures on
 // individual bundles are logged to stderr and skipped — built-in bundles
 // must never block startup.
-func resolveBuiltinBundleHooks() UnifiedHooks {
-	var out UnifiedHooks
+func resolveBuiltinBundleHooks() wire.UnifiedHooks {
+	var out wire.UnifiedHooks
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
@@ -176,39 +177,29 @@ func resolveBuiltinBundleHooks() UnifiedHooks {
 	return out
 }
 
-// Append concatenates each per-event slice from other onto u.
-func (u *UnifiedHooks) Append(other UnifiedHooks) {
-	u.PreTool = append(u.PreTool, other.PreTool...)
-	u.PostTool = append(u.PostTool, other.PostTool...)
-	u.SessionStart = append(u.SessionStart, other.SessionStart...)
-	u.SessionEnd = append(u.SessionEnd, other.SessionEnd...)
-	u.PreShell = append(u.PreShell, other.PreShell...)
-	u.PostFileEdit = append(u.PostFileEdit, other.PostFileEdit...)
-}
-
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader) UnifiedHooks {
+func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader) wire.UnifiedHooks {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
-		return UnifiedHooks{}
+		return wire.UnifiedHooks{}
 	}
 	return extractHooksFromBundle(bundle, bundleRef)
 }
 
-func extractHooksFromBundle(bundle *bundles.Bundle, source string) UnifiedHooks {
+func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedHooks {
 	if !bundle.Hooks.HasAny() {
-		return UnifiedHooks{}
+		return wire.UnifiedHooks{}
 	}
 	marker := "bundle:" + source
-	convert := func(in []bundles.BundleHook) []Hook {
+	convert := func(in []bundles.BundleHook) []wire.Hook {
 		if len(in) == 0 {
 			return nil
 		}
-		out := make([]Hook, len(in))
+		out := make([]wire.Hook, len(in))
 		for i, h := range in {
-			out[i] = Hook{
+			out[i] = wire.Hook{
 				Matcher: h.Matcher,
 				Command: h.Command,
 				Type:    h.Type,
@@ -220,7 +211,7 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string) UnifiedHooks 
 		}
 		return out
 	}
-	return UnifiedHooks{
+	return wire.UnifiedHooks{
 		PreTool:      convert(bundle.Hooks.PreTool),
 		PostTool:     convert(bundle.Hooks.PostTool),
 		SessionStart: convert(bundle.Hooks.SessionStart),
@@ -231,11 +222,11 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string) UnifiedHooks 
 }
 
 // extractMCPFromBundle extracts MCP servers from a loaded bundle.
-func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]MCPServer {
-	result := make(map[string]MCPServer)
+func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]wire.MCPServer {
+	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
-		result[name] = MCPServer{
+		result[name] = wire.MCPServer{
 			Command:      mcp.Command,
 			Args:         mcp.Args,
 			Env:          mcp.Env,

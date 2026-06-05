@@ -147,9 +147,9 @@ func TestAwaitTurn(t *testing.T) {
 	t.Run("no_op_on_guard_conditions", func(t *testing.T) {
 		isolateTempDir(t)
 		cases := []struct {
-			name              string
-			sessionID         string
-			part, total       int
+			name        string
+			sessionID   string
+			part, total int
 		}{
 			{"empty_session", "", 1, 3},
 			{"single_total", "s", 1, 1},

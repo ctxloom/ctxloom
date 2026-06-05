@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/ctxloom/ctxloom/internal/config"
+import "github.com/ctxloom/shared/wire"
 
 // SettingsWriter writes hooks and MCP servers to an agent's settings files. It
 // is the SETTINGS facet of an agent, deliberately separate from the launch
@@ -15,7 +15,7 @@ type SettingsWriter interface {
 	// WriteSettings writes hooks and MCP servers to the agent's config file,
 	// preserving user-defined settings and adding/updating managed ones.
 	// bundleMCP carries MCP servers resolved from profile bundles.
-	WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error
+	WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error
 
 	// RemoveSettings strips every managed hook, statusline, and MCP server from
 	// the agent's config files, preserving user-defined entries. Absent files
@@ -26,7 +26,7 @@ type SettingsWriter interface {
 	Status(projectDir string) (SettingsStatus, error)
 
 	// WriteHooks writes hooks only (backwards compatible).
-	WriteHooks(cfg *config.HooksConfig, projectDir string) error
+	WriteHooks(cfg *wire.HooksConfig, projectDir string) error
 
 	// SettingsPath returns the path to the settings file.
 	SettingsPath(projectDir string) string

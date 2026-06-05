@@ -3,15 +3,15 @@ package agent
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMergeHooksConfig_NilInputs(t *testing.T) {
 	t.Run("nil dest does nothing", func(t *testing.T) {
-		src := &config.HooksConfig{
-			Unified: config.UnifiedHooks{
-				PreTool: []config.Hook{{Command: "test"}},
+		src := &wire.HooksConfig{
+			Unified: wire.UnifiedHooks{
+				PreTool: []wire.Hook{{Command: "test"}},
 			},
 		}
 		// Should not panic
@@ -19,7 +19,7 @@ func TestMergeHooksConfig_NilInputs(t *testing.T) {
 	})
 
 	t.Run("nil src does nothing", func(t *testing.T) {
-		dest := &config.HooksConfig{}
+		dest := &wire.HooksConfig{}
 		mergeHooksConfig(dest, nil)
 		assert.Empty(t, dest.Unified.PreTool)
 	})
@@ -30,19 +30,19 @@ func TestMergeHooksConfig_NilInputs(t *testing.T) {
 }
 
 func TestMergeHooksConfig_UnifiedHooks(t *testing.T) {
-	dest := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool: []config.Hook{{Command: "existing-pre"}},
+	dest := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "existing-pre"}},
 		},
 	}
-	src := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool:      []config.Hook{{Command: "new-pre"}},
-			PostTool:     []config.Hook{{Command: "new-post"}},
-			SessionStart: []config.Hook{{Command: "session-start"}},
-			SessionEnd:   []config.Hook{{Command: "session-end"}},
-			PreShell:     []config.Hook{{Command: "pre-shell"}},
-			PostFileEdit: []config.Hook{{Command: "post-edit"}},
+	src := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool:      []wire.Hook{{Command: "new-pre"}},
+			PostTool:     []wire.Hook{{Command: "new-post"}},
+			SessionStart: []wire.Hook{{Command: "session-start"}},
+			SessionEnd:   []wire.Hook{{Command: "session-end"}},
+			PreShell:     []wire.Hook{{Command: "pre-shell"}},
+			PostFileEdit: []wire.Hook{{Command: "post-edit"}},
 		},
 	}
 
@@ -60,11 +60,11 @@ func TestMergeHooksConfig_UnifiedHooks(t *testing.T) {
 
 func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 	t.Run("creates plugin map if nil", func(t *testing.T) {
-		dest := &config.HooksConfig{}
-		src := &config.HooksConfig{
-			Plugins: map[string]config.BackendHooks{
+		dest := &wire.HooksConfig{}
+		src := &wire.HooksConfig{
+			Plugins: map[string]wire.BackendHooks{
 				"claude-code": {
-					"PreTool": []config.Hook{{Command: "claude-hook"}},
+					"PreTool": []wire.Hook{{Command: "claude-hook"}},
 				},
 			},
 		}
@@ -76,21 +76,21 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 	})
 
 	t.Run("merges into existing plugins", func(t *testing.T) {
-		dest := &config.HooksConfig{
-			Plugins: map[string]config.BackendHooks{
+		dest := &wire.HooksConfig{
+			Plugins: map[string]wire.BackendHooks{
 				"claude-code": {
-					"PreTool": []config.Hook{{Command: "existing"}},
+					"PreTool": []wire.Hook{{Command: "existing"}},
 				},
 			},
 		}
-		src := &config.HooksConfig{
-			Plugins: map[string]config.BackendHooks{
+		src := &wire.HooksConfig{
+			Plugins: map[string]wire.BackendHooks{
 				"claude-code": {
-					"PreTool":  []config.Hook{{Command: "new"}},
-					"PostTool": []config.Hook{{Command: "post"}},
+					"PreTool":  []wire.Hook{{Command: "new"}},
+					"PostTool": []wire.Hook{{Command: "post"}},
 				},
 				"gemini": {
-					"PreTool": []config.Hook{{Command: "gemini-hook"}},
+					"PreTool": []wire.Hook{{Command: "gemini-hook"}},
 				},
 			},
 		}

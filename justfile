@@ -186,8 +186,12 @@ test-acceptance-live-container: container-build-acceptance
     # can read it. Rootless docker maps that user to a subuid, and the working
     # tree has mixed perms (some 0600 files) it could not otherwise read; staging
     # + a+rX avoids mutating your tree.
-    mkdir -p "$staging/src"
-    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
+    # Stage the org-mirror layout (go.work + ctxloom + shared) so the runtime
+    # build resolves github.com/ctxloom/shared from local source via go.work.
+    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main"
+    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src/ctxloom/main"
+    ( cd ../../shared/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/shared/main"
+    cp go.work.container "$staging/src/go.work"
     chmod -R a+rX "$staging"
 
     mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/src:/workspace:ro")
@@ -204,7 +208,7 @@ test-acceptance-live-container: container-build-acceptance
         -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
         -e GOPATH=/home/ctxloom/go \
         -e GOFLAGS=-mod=readonly \
-        -w /workspace \
+        -w /workspace/ctxloom/main \
         {{registry}}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
@@ -572,11 +576,28 @@ _run +ARGS:
         if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
             user_flag=()
         fi
+        # Mount the org-mirror layout so go.work resolves sibling modules
+        # (shared) from local source. ctxloom is the writable build target;
+        # shared is read-only. go.work.container is overlaid as the root go.work,
+        # and the toolchain finds it by walking up from the ctxloom module.
+        shared_dir="$(cd ../../shared/main && pwd)"
+        # Reuse the host module cache (read-only) and keep Go's writable caches
+        # in the container tmpdir. Without this, HOME/GOCACHE resolve under the
+        # cwd and the build spills a .cache/ into the source tree (and re-downloads
+        # every run).
+        cache_mount=()
+        if [ -d "$HOME/go/pkg/mod" ]; then cache_mount=(-v "$HOME/go/pkg/mod:/tmp/gomodcache:ro"); fi
         {{container_cmd}} run --rm \
             "${user_flag[@]}" \
-            -v "$(pwd):/workspace" \
-            -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
-            -w /workspace \
+            "${cache_mount[@]}" \
+            -e HOME=/tmp \
+            -e GOMODCACHE=/tmp/gomodcache \
+            -e GOCACHE=/tmp/.gocache \
+            -v "$(pwd):/workspace/ctxloom/main" \
+            -v "$shared_dir:/workspace/shared/main:ro" \
+            -v "$(pwd)/go.work.container:/workspace/go.work:ro" \
+            -v "$(pwd)/justfile.container:/workspace/ctxloom/main/justfile:ro" \
+            -w /workspace/ctxloom/main \
             {{devcontainer_image}}:latest \
             just {{ARGS}}
     fi

@@ -1,0 +1,13 @@
+// Container-only workspace: mounted as go.work at the container root so the
+// ctxloom build resolves github.com/ctxloom/shared from the local source tree
+// instead of fetching it. Slim by design — only the modules the ctxloom build
+// needs (ltk is a sibling tool, not a build dependency). Its use paths are
+// relative to the mount root, not this file's on-disk location, mirroring the
+// justfile.container overlay. Named .container so the host's go tooling never
+// auto-discovers it (auto-discovery only loads "go.work").
+go 1.25.0
+
+use (
+	./ctxloom/main
+	./shared/main
+)

@@ -39,6 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/wire"
 )
 
 // TestMCPServerEntry_Fields verifies the MCPServerEntry struct stores all
@@ -248,8 +249,8 @@ func TestMCPBackendValues(t *testing.T) {
 func createTestMCPConfig() *config.Config {
 	return &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"filesystem": {
 					Command: "npx",
 					Args:    []string{"-y", "@modelcontextprotocol/server-filesystem"},
@@ -259,7 +260,7 @@ func createTestMCPConfig() *config.Config {
 					Args:    []string{"-y", "@modelcontextprotocol/server-github"},
 				},
 			},
-			Plugins: map[string]map[string]config.MCPServer{
+			Plugins: map[string]map[string]wire.MCPServer{
 				"claude-code": {
 					"custom-server": {
 						Command: "python",
@@ -399,8 +400,8 @@ func TestListMCPServers_QueryBackendServerByName(t *testing.T) {
 func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
+		MCP: wire.MCPConfig{
+			Servers: make(map[string]wire.MCPServer),
 		},
 	}
 
@@ -424,9 +425,9 @@ func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 func TestAddMCPServer_SpecificBackend(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
-			Plugins: make(map[string]map[string]config.MCPServer),
+		MCP: wire.MCPConfig{
+			Servers: make(map[string]wire.MCPServer),
+			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
 	}
 
@@ -494,8 +495,8 @@ func TestAddMCPServer_ValidationErrors(t *testing.T) {
 func TestAddMCPServer_AlreadyExists(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"existing": {Command: "npx"},
 			},
 		},
@@ -514,8 +515,8 @@ func TestAddMCPServer_AlreadyExists(t *testing.T) {
 func TestAddMCPServer_BackendAlreadyExists(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Plugins: map[string]map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Plugins: map[string]map[string]wire.MCPServer{
 				"claude-code": {
 					"existing": {Command: "npx"},
 				},
@@ -545,7 +546,7 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	// Test that nil Plugins map is initialized
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP:      config.MCPConfig{}, // No Plugins map
+		MCP:      wire.MCPConfig{},
 	}
 
 	result, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
@@ -566,8 +567,8 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 func TestRemoveMCPServer_FromUnified(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"to-remove": {Command: "npx"},
 				"keep":      {Command: "node"},
 			},
@@ -591,8 +592,8 @@ func TestRemoveMCPServer_FromUnified(t *testing.T) {
 func TestRemoveMCPServer_FromSpecificBackend(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Plugins: map[string]map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Plugins: map[string]map[string]wire.MCPServer{
 				"claude-code": {
 					"to-remove": {Command: "python"},
 					"keep":      {Command: "node"},
@@ -631,8 +632,8 @@ func TestRemoveMCPServer_ValidationError(t *testing.T) {
 func TestRemoveMCPServer_NotFound(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: make(map[string]config.MCPServer),
+		MCP: wire.MCPConfig{
+			Servers: make(map[string]wire.MCPServer),
 		},
 	}
 
@@ -656,12 +657,12 @@ func TestRemoveMCPServer_NotFound(t *testing.T) {
 func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"multi-server": {Command: "unified-cmd"},
 				"keep":         {Command: "keep-cmd"},
 			},
-			Plugins: map[string]map[string]config.MCPServer{
+			Plugins: map[string]map[string]wire.MCPServer{
 				"claude-code": {
 					"multi-server": {Command: "claude-cmd"}, // Same name in backend
 					"other":        {Command: "other-cmd"},
@@ -701,7 +702,7 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 func TestSetMCPAutoRegister_Enable(t *testing.T) {
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP:      config.MCPConfig{},
+		MCP:      wire.MCPConfig{},
 	}
 
 	result, err := SetMCPAutoRegister(context.Background(), cfg, SetMCPAutoRegisterRequest{
@@ -720,7 +721,7 @@ func TestSetMCPAutoRegister_Disable(t *testing.T) {
 	enabled := true
 	cfg := &config.Config{
 		AppPaths: []string{testBaseDir},
-		MCP: config.MCPConfig{
+		MCP: wire.MCPConfig{
 			AutoRegisterCtxloom: &enabled,
 		},
 	}

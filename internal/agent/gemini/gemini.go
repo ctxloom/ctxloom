@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // NewWriter constructs the Gemini CLI settings writer.
@@ -32,9 +32,9 @@ var (
 	atomicWriteFile = agent.AtomicWriteFile
 )
 
-func warn(format string, args ...any)                { agent.Warn(format, args...) }
-func computeHookHash(h config.Hook) string           { return agent.ComputeHookHash(h) }
-func computeMCPServerHash(s config.MCPServer) string { return agent.ComputeMCPServerHash(s) }
+func warn(format string, args ...any)              { agent.Warn(format, args...) }
+func computeHookHash(h wire.Hook) string           { return agent.ComputeHookHash(h) }
+func computeMCPServerHash(s wire.MCPServer) string { return agent.ComputeMCPServerHash(s) }
 
 // ----- moved verbatim from internal/lm/backends (hooks.go + uninstall.go) -----
 // GeminiHookWriter writes hooks to Gemini CLI's settings.json format.
@@ -98,9 +98,9 @@ func (w *GeminiHookWriter) SettingsPath(projectDir string) string {
 }
 
 // WriteSettings implements SettingsWriter for Gemini CLI.
-func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string) error {
+func (w *GeminiHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
 	if hooks == nil {
-		hooks = &config.HooksConfig{}
+		hooks = &wire.HooksConfig{}
 	}
 
 	fs := w.getFS()
@@ -140,7 +140,7 @@ func (w *GeminiHookWriter) WriteSettings(hooks *config.HooksConfig, mcp *config.
 }
 
 // WriteHooks implements HookWriter for Gemini CLI (backwards compatible).
-func (w *GeminiHookWriter) WriteHooks(cfg *config.HooksConfig, projectDir string) error {
+func (w *GeminiHookWriter) WriteHooks(cfg *wire.HooksConfig, projectDir string) error {
 	return w.WriteSettings(cfg, nil, nil, projectDir)
 }
 
@@ -292,7 +292,7 @@ func isCtxloomManaged(command string) bool {
 }
 
 // addUnifiedHooks translates unified hooks to Gemini CLI format and adds them.
-func (w *GeminiHookWriter) addUnifiedHooks(settings *geminiSettings, unified config.UnifiedHooks) {
+func (w *GeminiHookWriter) addUnifiedHooks(settings *geminiSettings, unified wire.UnifiedHooks) {
 	// SessionStart -> SessionStart
 	for _, h := range unified.SessionStart {
 		w.addHook(settings, "SessionStart", h)
@@ -315,7 +315,7 @@ func (w *GeminiHookWriter) addUnifiedHooks(settings *geminiSettings, unified con
 }
 
 // addBackendHooks adds backend-specific passthrough hooks.
-func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHooks config.BackendHooks) {
+func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHooks wire.BackendHooks) {
 	for eventName, hooks := range backendHooks {
 		for _, h := range hooks {
 			w.addHook(settings, eventName, h)
@@ -326,7 +326,7 @@ func (w *GeminiHookWriter) addBackendHooks(settings *geminiSettings, backendHook
 // addHook adds a single hook to the settings for the given event, emitting
 // Gemini's nested group→hooks[] shape with type:"command", the ctxloom name
 // marker, and the timeout converted from seconds to Gemini's milliseconds.
-func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h config.Hook) {
+func (w *GeminiHookWriter) addHook(settings *geminiSettings, eventName string, h wire.Hook) {
 	entry := geminiHookEntry{
 		Type:    "command",
 		Command: h.Command,
@@ -356,7 +356,7 @@ func (w *GeminiHookWriter) removeCtxloomMCPServers(settings *geminiSettings) {
 }
 
 // addMCPServers adds MCP servers from config to settings.
-func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer) {
+func (w *GeminiHookWriter) addMCPServers(settings *geminiSettings, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) {
 	if settings.MCPServers == nil {
 		settings.MCPServers = make(map[string]geminiMCPServer)
 	}

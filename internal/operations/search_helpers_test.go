@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // searchProfiles matches profiles by name, then description, then tag (in that
@@ -60,7 +61,7 @@ func TestSearchProfiles(t *testing.T) {
 // searchMCPServers matches servers by name or command substring.
 func TestSearchMCPServers(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.MCP.Servers = map[string]config.MCPServer{
+	cfg.MCP.Servers = map[string]wire.MCPServer{
 		"spotify": {Command: "spotify-mcp"},
 		"github":  {Command: "gh-mcp-server"},
 	}

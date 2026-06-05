@@ -4,19 +4,20 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
 // ConfigFile represents the structure for saving config.yaml
 type ConfigFile struct {
-	Version  int            `yaml:"version"`
-	LM       LMConfig       `yaml:"llm"`
-	Editor   EditorConfig   `yaml:"editor,omitempty"`
-	Settings SettingsConfig `yaml:"config,omitempty"`
-	Sync     SyncConfig     `yaml:"sync,omitempty"`
-	Hooks    HooksConfig    `yaml:"hooks,omitempty"`
-	Profiles ProfilesConfig `yaml:"profiles,omitempty"`
+	Version  int              `yaml:"version"`
+	LM       LMConfig         `yaml:"llm"`
+	Editor   EditorConfig     `yaml:"editor,omitempty"`
+	Settings SettingsConfig   `yaml:"config,omitempty"`
+	Sync     SyncConfig       `yaml:"sync,omitempty"`
+	Hooks    wire.HooksConfig `yaml:"hooks,omitempty"`
+	Profiles ProfilesConfig   `yaml:"profiles,omitempty"`
 }
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
@@ -136,5 +137,5 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	delete(existing, "defaults") // superseded by config + profiles blocks
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
-	setOrDelete(existing, "hooks", c.Hooks.hasAny(), c.Hooks)
+	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)
 }

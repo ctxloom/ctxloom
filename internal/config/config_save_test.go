@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/wire"
 )
 
 func ptrBool(b bool) *bool { return &b }
@@ -44,20 +45,20 @@ func TestApplyConfigSections_EditorAndMCPPresence(t *testing.T) {
 		},
 		{
 			name:        "mcp_servers_only",
-			mutate:      func(c *Config) { c.MCP = MCPConfig{Servers: map[string]MCPServer{"srv": {Command: "x"}}} },
+			mutate:      func(c *Config) { c.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "x"}}} },
 			wantMCP:     true,
 			wantSrvName: "srv",
 		},
 		{
 			name: "mcp_plugins_only",
 			mutate: func(c *Config) {
-				c.MCP = MCPConfig{Plugins: map[string]map[string]MCPServer{"claude": {"p": {Command: "x"}}}}
+				c.MCP = wire.MCPConfig{Plugins: map[string]map[string]wire.MCPServer{"claude": {"p": {Command: "x"}}}}
 			},
 			wantMCP: true,
 		},
 		{
 			name:    "mcp_auto_register_only", // only the AutoRegisterCtxloom != nil disjunct holds
-			mutate:  func(c *Config) { c.MCP = MCPConfig{AutoRegisterCtxloom: ptrBool(false)} },
+			mutate:  func(c *Config) { c.MCP = wire.MCPConfig{AutoRegisterCtxloom: ptrBool(false)} },
 			wantMCP: true,
 		},
 		{

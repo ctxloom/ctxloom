@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 )
 
@@ -169,7 +170,7 @@ type hookApplyParams struct {
 	freshCfg     *config.Config
 	workDir      string
 	contextHash  string
-	bundleMCP    map[string]config.MCPServer
+	bundleMCP    map[string]wire.MCPServer
 	prompts      []*bundles.LoadedContent
 	fs           afero.Fs
 	settingsOpts []backends.SettingsOption

@@ -1,8 +1,6 @@
 package agent
 
-import (
-	"github.com/ctxloom/ctxloom/internal/config"
-)
+import "github.com/ctxloom/shared/wire"
 
 // BaseMCPManager provides shared MCP server management logic for backends.
 type BaseMCPManager struct {
@@ -64,12 +62,12 @@ func (m *BaseMCPManager) Clear(workDir string) error {
 func (m *BaseMCPManager) Flush(workDir string) error {
 	m.ensureServers()
 
-	// Convert to config.MCPConfig
-	mcpCfg := &config.MCPConfig{
-		Servers: make(map[string]config.MCPServer),
+	// Convert to wire.MCPConfig
+	mcpCfg := &wire.MCPConfig{
+		Servers: make(map[string]wire.MCPServer),
 	}
 	for name, srv := range m.servers {
-		mcpCfg.Servers[name] = config.MCPServer{
+		mcpCfg.Servers[name] = wire.MCPServer{
 			Command: srv.Command,
 			Args:    srv.Args,
 			Env:     srv.Env,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -428,8 +429,8 @@ func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 	}
 
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "abc123hash")
@@ -444,8 +445,8 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 	}
 
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
@@ -473,19 +474,19 @@ func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 		Profiles: config.ProfilesConfig{
 			Defaults: []string{"test-profile"},
 			Definitions: map[string]config.Profile{
 				"test-profile": {
-					Hooks: config.HooksConfig{
-						Unified: config.UnifiedHooks{
-							PreTool: []config.Hook{{Command: "profile-hook"}},
+					Hooks: wire.HooksConfig{
+						Unified: wire.UnifiedHooks{
+							PreTool: []wire.Hook{{Command: "profile-hook"}},
 						},
 					},
-					MCP: config.MCPConfig{
-						Servers: map[string]config.MCPServer{
+					MCP: wire.MCPConfig{
+						Servers: map[string]wire.MCPServer{
 							"profile-mcp": {Command: "profile-mcp-cmd"},
 						},
 					},
@@ -511,8 +512,8 @@ func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP:   config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 		Profiles: config.ProfilesConfig{
 			Defaults:    []string{"non-existent-profile"},
 			Definitions: map[string]config.Profile{}, // No profiles defined
@@ -528,7 +529,7 @@ func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
 }
 
 // sessionStartCommands returns the SessionStart hook commands in order.
-func sessionStartCommands(h config.UnifiedHooks) []string {
+func sessionStartCommands(h wire.UnifiedHooks) []string {
 	cmds := make([]string, 0, len(h.SessionStart))
 	for _, hook := range h.SessionStart {
 		cmds = append(cmds, hook.Command)
@@ -545,12 +546,12 @@ func sessionStartCommands(h config.UnifiedHooks) []string {
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
 		Profiles: config.ProfilesConfig{
 			Defaults: []string{"p"},
 			Definitions: map[string]config.Profile{
-				"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
 				}}},
 			},
 		},
@@ -570,18 +571,18 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
 	newCfg := func() *config.Config {
 		return &config.Config{
-			Hooks: config.HooksConfig{
-				Unified: config.UnifiedHooks{
-					SessionStart: []config.Hook{{Command: "config-session-start", Type: "command"}},
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "config-session-start", Type: "command"}},
 				},
-				Plugins: make(map[string]config.BackendHooks),
+				Plugins: make(map[string]wire.BackendHooks),
 			},
-			MCP: config.MCPConfig{Servers: make(map[string]config.MCPServer), Plugins: make(map[string]map[string]config.MCPServer)},
+			MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
 			Profiles: config.ProfilesConfig{
 				Defaults: []string{"p"},
 				Definitions: map[string]config.Profile{
-					"p": {Hooks: config.HooksConfig{Unified: config.UnifiedHooks{
-						SessionStart: []config.Hook{{Command: "profile-session-start", Type: "command"}},
+					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
 					}}},
 				},
 			},
@@ -608,9 +609,9 @@ func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
 // Asserting two calls return identical-length sets proves it builds fresh.
 func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{
-			Unified: config.UnifiedHooks{SessionStart: []config.Hook{{Command: "config-session-start"}}},
-			Plugins: make(map[string]config.BackendHooks),
+		Hooks: wire.HooksConfig{
+			Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "config-session-start"}}},
+			Plugins: make(map[string]wire.BackendHooks),
 		},
 	}
 
@@ -633,12 +634,12 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 
 	// After adding a server, MCP config should exist
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"test-server": {Command: "test"},
 			},
-			Plugins: make(map[string]map[string]config.MCPServer),
+			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
 	}
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "")

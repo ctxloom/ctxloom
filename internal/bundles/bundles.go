@@ -80,9 +80,10 @@ type Bundle struct {
 	Path string `yaml:"-"` // File path for saving
 }
 
-// BundleHook mirrors the shape of config.Hook without importing internal/config
-// (would create a cycle: config already imports bundles). The conversion to
-// config.Hook lives at the operations boundary in config.ResolveBundleHooks.
+// BundleHook is the bundle-authoring shape of a hook: the wire.Hook fields a
+// bundle may declare, minus the SCM marker (bundle hooks are stamped at the
+// operations boundary, not hand-authored). The conversion to wire.Hook lives in
+// config.ResolveBundleHooks.
 type BundleHook struct {
 	Matcher string `yaml:"matcher,omitempty"`
 	Command string `yaml:"command,omitempty"`
@@ -92,7 +93,7 @@ type BundleHook struct {
 	Async   bool   `yaml:"async,omitempty"`
 }
 
-// BundleHooks mirrors config.UnifiedHooks. Same lifecycle events; backend-
+// BundleHooks mirrors wire.UnifiedHooks. Same lifecycle events; backend-
 // specific hooks are deliberately not supported in bundles (would couple
 // authoring to a particular backend's tool naming).
 type BundleHooks struct {

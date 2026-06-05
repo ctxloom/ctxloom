@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,12 +104,12 @@ func TestGeminiLifecycle_GetMCP(t *testing.T) {
 
 	// After merging config with MCP servers
 	cfg := &config.Config{
-		Hooks: config.HooksConfig{Plugins: make(map[string]config.BackendHooks)},
-		MCP: config.MCPConfig{
-			Servers: map[string]config.MCPServer{
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{
 				"test-server": {Command: "test"},
 			},
-			Plugins: make(map[string]map[string]config.MCPServer),
+			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
 	}
 	lifecycle.MergeConfigHooks(cfg, "/tmp", "")

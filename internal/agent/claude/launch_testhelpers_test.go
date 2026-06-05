@@ -2,7 +2,7 @@ package claude
 
 import (
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 )
 
 // argPair reports whether args contains flag immediately followed by value.
@@ -30,7 +30,7 @@ func argValue(args []string, flag string) string {
 // It routes through the package's own settings writer, mirroring the registry
 // dispatch the launch backend is injected with in production — so a test that
 // exercises Setup/Flush/Clear writes real claude settings.
-func writeClaudeSettings(_ string, hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string, opts ...agent.SettingsOption) error {
+func writeClaudeSettings(_ string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...agent.SettingsOption) error {
 	o := agent.SettingsOptions{}
 	for _, opt := range opts {
 		opt(&o)

@@ -4,19 +4,18 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // ctxloomManagedHooks is a hook set whose command is recognized as
 // ctxloom-managed (executable token "ctxloom").
-func ctxloomManagedHooks() *config.HooksConfig {
-	return &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "ctxloom hook inject-context"}},
+func ctxloomManagedHooks() *wire.HooksConfig {
+	return &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
 		},
 	}
 }

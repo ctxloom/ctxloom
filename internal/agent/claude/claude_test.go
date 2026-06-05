@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,12 +17,12 @@ func TestClaudeCodeHookWriter_WriteHooks(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{
 				{Command: "./pre-tool.sh", Matcher: "Bash"},
 			},
-			PostTool: []config.Hook{
+			PostTool: []wire.Hook{
 				{Command: "./post-tool.sh", Matcher: "Edit"},
 			},
 		},
@@ -91,9 +91,9 @@ func TestClaudeCodeHookWriter_PreservesUserHooks(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
 	// Write ctxloom hooks
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{
 				{Command: "./ctxloom-hook.sh", Matcher: "Bash"},
 			},
 		},
@@ -161,9 +161,9 @@ func TestClaudeCodeHookWriter_RemovesOldScmHooks(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
 	// Write new ctxloom hooks
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreTool: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{
 				{Command: "./new-ctxloom-hook.sh", Matcher: "Edit"},
 			},
 		},
@@ -241,9 +241,9 @@ func TestClaudeCodeHookWriter_RemovesHooksWithoutMarkerByCommand(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0644)
 
 	// Write new ctxloom hooks
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{
 				{Command: "\"/new/ctxloom\" hook inject-context --project \"/new/path\" newhash", Timeout: 60},
 			},
 		},
@@ -305,9 +305,9 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 
 	writer := &ClaudeCodeHookWriter{}
 
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PostFileEdit: []config.Hook{
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PostFileEdit: []wire.Hook{
 				{Command: "ctxloom hook stamp-plan", Type: "command"},
 			},
 		},
@@ -354,12 +354,12 @@ func TestClaudeCodeHookWriter_UnifiedToBackendMapping(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			PreShell:     []config.Hook{{Command: "./pre-shell.sh"}},
-			PostFileEdit: []config.Hook{{Command: "./post-edit.sh"}},
-			SessionStart: []config.Hook{{Command: "./start.sh"}},
-			SessionEnd:   []config.Hook{{Command: "./end.sh"}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			PreShell:     []wire.Hook{{Command: "./pre-shell.sh"}},
+			PostFileEdit: []wire.Hook{{Command: "./post-edit.sh"}},
+			SessionStart: []wire.Hook{{Command: "./start.sh"}},
+			SessionEnd:   []wire.Hook{{Command: "./end.sh"}},
 		},
 	}
 
@@ -414,13 +414,13 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	tmpDir := t.TempDir()
 	writer := &ClaudeCodeHookWriter{}
 
-	cfg := &config.HooksConfig{
-		Plugins: map[string]config.BackendHooks{
+	cfg := &wire.HooksConfig{
+		Plugins: map[string]wire.BackendHooks{
 			"claude-code": {
-				"Notification": []config.Hook{
+				"Notification": []wire.Hook{
 					{Command: "./notify.sh", Type: "command"},
 				},
-				"PreCompact": []config.Hook{
+				"PreCompact": []wire.Hook{
 					{Command: "./compact.sh"},
 				},
 			},
@@ -452,7 +452,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	writer := &ClaudeCodeHookWriter{}
 
 	// Empty config should still add MCP server
-	cfg := &config.HooksConfig{}
+	cfg := &wire.HooksConfig{}
 
 	err := writer.WriteHooks(cfg, tmpDir)
 	if err != nil {
@@ -522,7 +522,7 @@ func TestClaudeCodeHookWriter_PreservesUserMCPServers(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
 	// Write hooks with ctxloom config
-	cfg := &config.HooksConfig{}
+	cfg := &wire.HooksConfig{}
 	err := writer.WriteHooks(cfg, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -576,7 +576,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, ".mcp.json"), data, 0644)
 
 	// Write hooks - should update ctxloom server
-	cfg := &config.HooksConfig{}
+	cfg := &wire.HooksConfig{}
 	err := writer.WriteHooks(cfg, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -620,9 +620,9 @@ func TestClaudeCodeHookWriter_ResilienceToMalformedJSON(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte("{ invalid json }"), 0644))
 
 	// WriteHooks should NOT fail - it should warn and continue
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "./test.sh"}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
 	err := writer.WriteHooks(cfg, "/project")
@@ -647,9 +647,9 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(originalContent), 0644))
 
 	// Write hooks
-	cfg := &config.HooksConfig{
-		Unified: config.UnifiedHooks{
-			SessionStart: []config.Hook{{Command: "./test.sh"}},
+	cfg := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{
+			SessionStart: []wire.Hook{{Command: "./test.sh"}},
 		},
 	}
 	err := writer.WriteHooks(cfg, "/project")
@@ -675,7 +675,7 @@ func TestClaudeCodeHookWriter_MCPConfigResilience(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, mcpPath, []byte("not valid json"), 0644))
 
 	// WriteHooks should NOT fail - it should warn and continue
-	cfg := &config.HooksConfig{}
+	cfg := &wire.HooksConfig{}
 	err := writer.WriteHooks(cfg, "/project")
 	require.NoError(t, err, "should not fail on malformed .mcp.json")
 

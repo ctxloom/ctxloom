@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/wire"
 )
 
 // Re-export path constants for backwards compatibility
@@ -43,19 +44,19 @@ const (
 
 // Config holds the ctxloom configuration.
 type Config struct {
-	Version  int            `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
-	LM       LMConfig       `mapstructure:"llm" yaml:"llm"`
-	Editor   EditorConfig   `mapstructure:"editor" yaml:"editor,omitempty"`
-	Settings SettingsConfig `mapstructure:"config" yaml:"config,omitempty"`
-	Sync     SyncConfig     `mapstructure:"sync" yaml:"sync,omitempty"`
-	Hooks    HooksConfig    `mapstructure:"hooks" yaml:"hooks,omitempty"`
-	MCP      MCPConfig      `mapstructure:"mcp" yaml:"mcp,omitempty"`
-	Profiles ProfilesConfig `mapstructure:"profiles" yaml:"profiles,omitempty"`
-	AppPaths []string       // Resolved .ctxloom directory (at most one)
-	AppRoot  string         // Project root (parent of .ctxloom directory)
-	AppDir   string         // Full path to the .ctxloom directory
-	Source   ConfigSource   // Where the configuration was loaded from
-	Warnings []string       // Non-fatal warnings collected during load
+	Version  int              `mapstructure:"version" yaml:"version"` // config schema version (integer; distinct from app version)
+	LM       LMConfig         `mapstructure:"llm" yaml:"llm"`
+	Editor   EditorConfig     `mapstructure:"editor" yaml:"editor,omitempty"`
+	Settings SettingsConfig   `mapstructure:"config" yaml:"config,omitempty"`
+	Sync     SyncConfig       `mapstructure:"sync" yaml:"sync,omitempty"`
+	Hooks    wire.HooksConfig `mapstructure:"hooks" yaml:"hooks,omitempty"`
+	MCP      wire.MCPConfig   `mapstructure:"mcp" yaml:"mcp,omitempty"`
+	Profiles ProfilesConfig   `mapstructure:"profiles" yaml:"profiles,omitempty"`
+	AppPaths []string         // Resolved .ctxloom directory (at most one)
+	AppRoot  string           // Project root (parent of .ctxloom directory)
+	AppDir   string           // Full path to the .ctxloom directory
+	Source   ConfigSource     // Where the configuration was loaded from
+	Warnings []string         // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;

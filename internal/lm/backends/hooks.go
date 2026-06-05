@@ -4,7 +4,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/agent/claude"
 	"github.com/ctxloom/ctxloom/internal/agent/gemini"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 )
 
@@ -34,7 +34,7 @@ var (
 // If the backend doesn't support settings, this is a no-op.
 // bundleMCP contains MCP servers resolved from profile bundles.
 // Use WithSettingsFS to provide a custom filesystem for testing.
-func WriteSettings(backendName string, hooks *config.HooksConfig, mcp *config.MCPConfig, bundleMCP map[string]config.MCPServer, projectDir string, opts ...SettingsOption) error {
+func WriteSettings(backendName string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...SettingsOption) error {
 	options := &settingsOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -81,7 +81,7 @@ func BackendsWithSettings() []string {
 
 // computeHookHash delegates to agent.ComputeHookHash (transitional wrapper —
 // removed when the writers move to the per-agent packages).
-func computeHookHash(h config.Hook) string { return agent.ComputeHookHash(h) }
+func computeHookHash(h wire.Hook) string { return agent.ComputeHookHash(h) }
 
 // =============================================================================
 // Shared Helper Functions
@@ -103,4 +103,3 @@ const ctxloomBinary = agent.CtxloomBinary
 var ctxloomMCPArgs = agent.CtxloomMCPArgs
 
 func isCtxloomManaged(command string) bool { return agent.IsManaged(command, "ctxloom") }
-

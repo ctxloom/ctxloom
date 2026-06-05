@@ -43,14 +43,10 @@ func Exists(name string) bool {
 }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
+// agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so every
+// backend embedding it is a provider.
 type BinaryPathProvider interface {
 	GetBinaryPath() string
-}
-
-// GetBinaryPath returns the binary path from BaseBackend.
-// This implements BinaryPathProvider.
-func (b *BaseBackend) GetBinaryPath() string {
-	return b.BinaryPath
 }
 
 // GetDefaultBinary returns the default binary name for a backend by instantiating it.

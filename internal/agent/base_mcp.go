@@ -1,7 +1,6 @@
-package backends
+package agent
 
 import (
-	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -9,12 +8,12 @@ import (
 type BaseMCPManager struct {
 	backendName   string
 	servers       map[string]MCPServer
-	writeSettings agent.WriteSettingsFunc
+	writeSettings WriteSettingsFunc
 }
 
 // NewBaseMCPManager creates a new MCP manager for the given backend. The
 // writeSettings dispatch is injected so the base does not import the registry.
-func NewBaseMCPManager(backendName string, writeSettings agent.WriteSettingsFunc) *BaseMCPManager {
+func NewBaseMCPManager(backendName string, writeSettings WriteSettingsFunc) *BaseMCPManager {
 	return &BaseMCPManager{
 		backendName:   backendName,
 		servers:       make(map[string]MCPServer),

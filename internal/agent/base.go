@@ -1,4 +1,4 @@
-package backends
+package agent
 
 import (
 	"context"
@@ -42,6 +42,13 @@ func (b *BaseBackend) Name() string {
 // Version returns the backend version.
 func (b *BaseBackend) Version() string {
 	return b.version
+}
+
+// GetBinaryPath returns the configured binary path. It satisfies the
+// BinaryPathProvider contract the registry uses to resolve a backend's default
+// binary without launching it.
+func (b *BaseBackend) GetBinaryPath() string {
+	return b.BinaryPath
 }
 
 // SupportedModes returns the default supported modes (both interactive and oneshot).

@@ -1,7 +1,6 @@
-package backends
+package agent
 
 import (
-	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -12,7 +11,7 @@ type BaseLifecycle struct {
 	hooks              *config.HooksConfig
 	mcp                *config.MCPConfig
 	statusLineDisabled bool
-	writeSettings      agent.WriteSettingsFunc
+	writeSettings      WriteSettingsFunc
 }
 
 // settingsOpts returns the write options reflecting accumulated lifecycle state
@@ -23,7 +22,7 @@ func (l *BaseLifecycle) settingsOpts() []SettingsOption {
 
 // NewBaseLifecycle creates a new lifecycle handler for the given backend. The
 // writeSettings dispatch is injected so the base does not import the registry.
-func NewBaseLifecycle(backendName string, writeSettings agent.WriteSettingsFunc) *BaseLifecycle {
+func NewBaseLifecycle(backendName string, writeSettings WriteSettingsFunc) *BaseLifecycle {
 	return &BaseLifecycle{
 		backendName:   backendName,
 		writeSettings: writeSettings,

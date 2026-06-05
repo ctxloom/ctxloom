@@ -40,3 +40,34 @@ func TestGenerateConfig_DefaultsBlock(t *testing.T) {
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")
 }
+
+// TestPersonalRemoteRequests covers the pure request builder behind
+// `ctxloom init`'s personal-repo registration: the first repo is named
+// "personal" and the rest "personal-N", every request is trusted, and the
+// --forge label (when set) binds every personal remote to that forge.
+func TestPersonalRemoteRequests(t *testing.T) {
+	t.Run("names, trust, and empty forge", func(t *testing.T) {
+		reqs := personalRemoteRequests([]string{"me/a", "me/b", "me/c"}, "")
+		require.Len(t, reqs, 3)
+		assert.Equal(t, "personal", reqs[0].Name)
+		assert.Equal(t, "personal-2", reqs[1].Name)
+		assert.Equal(t, "personal-3", reqs[2].Name)
+		for _, r := range reqs {
+			assert.True(t, r.Trust, "personal repos are trusted by default")
+			assert.Empty(t, r.Forge, "no --forge means resolution falls back to host-match")
+		}
+		assert.Equal(t, "me/a", reqs[0].URL)
+	})
+
+	t.Run("forge binds every personal remote", func(t *testing.T) {
+		reqs := personalRemoteRequests([]string{"me/a", "me/b"}, "work-ghe")
+		require.Len(t, reqs, 2)
+		for _, r := range reqs {
+			assert.Equal(t, "work-ghe", r.Forge, "--forge must bind each personal remote")
+		}
+	})
+
+	t.Run("no repos yields no requests", func(t *testing.T) {
+		assert.Empty(t, personalRemoteRequests(nil, "github"))
+	})
+}

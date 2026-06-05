@@ -52,6 +52,7 @@ var (
 	initSkipLaunch     bool
 	initEngine         string
 	initRemotes        []string
+	initForge          string
 )
 
 func init() {
@@ -69,6 +70,7 @@ func bindInitFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
 	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
 	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
+	cmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 }
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
@@ -484,7 +486,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
-	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...))
+	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...), initForge)
 	cloneConfiguredRemotes(cmd)
 	applyInitHooks(cmd)
 
@@ -568,10 +570,28 @@ func writeInitialConfig(appDir, engine string) error {
 	return err
 }
 
-// addPersonalRemotes registers the user's personal repos. The first is named
-// "personal"; subsequent ones get "personal-2", "personal-3", … so each is a
-// distinct, addressable remote. Failures warn and continue.
-func addPersonalRemotes(cmd *cobra.Command, repos []string) {
+// personalRemoteRequests builds the AddRemote requests for the user's personal
+// repos. The first is named "personal"; subsequent ones get "personal-2",
+// "personal-3", … so each is a distinct, addressable remote. Personal repos are
+// the user's own, so they are trusted by default. A non-empty forge binds every
+// remote to that forge (github, git, or a configured label) instead of letting
+// resolution fall back to URL-host matching.
+func personalRemoteRequests(repos []string, forge string) []operations.AddRemoteRequest {
+	reqs := make([]operations.AddRemoteRequest, 0, len(repos))
+	for i, repo := range repos {
+		name := "personal"
+		if i > 0 {
+			name = fmt.Sprintf("personal-%d", i+1)
+		}
+		reqs = append(reqs, operations.AddRemoteRequest{Name: name, URL: repo, Trust: true, Forge: forge})
+	}
+	return reqs
+}
+
+// addPersonalRemotes registers the user's personal repos. Failures warn and
+// continue (an unknown --forge label rolls that single remote back). Trust is
+// visible in the output and revokable via `ctxloom remote untrust`.
+func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 	if len(repos) == 0 {
 		return
 	}
@@ -580,18 +600,11 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string) {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
 		return
 	}
-	for i, repo := range repos {
-		name := "personal"
-		if i > 0 {
-			name = fmt.Sprintf("personal-%d", i+1)
-		}
-		// Personal repos are the user's own, so trust them by default: their
-		// bundle changes auto-apply without review. The trust is visible here and
-		// revokable via `ctxloom remote untrust`.
-		if _, addErr := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{Name: name, URL: repo, Trust: true}); addErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", name, repo, addErr)
+	for _, req := range personalRemoteRequests(repos, forge) {
+		if _, addErr := operations.AddRemote(cmd.Context(), cfg, req); addErr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", req.Name, req.URL, addErr)
 		} else {
-			fmt.Printf("Added remote %q: %s (trusted — revoke with: ctxloom remote untrust %s)\n", name, repo, name)
+			fmt.Printf("Added remote %q: %s (trusted — revoke with: ctxloom remote untrust %s)\n", req.Name, req.URL, req.Name)
 		}
 	}
 }

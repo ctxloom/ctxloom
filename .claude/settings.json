@@ -2,39 +2,39 @@
   "hooks": {
     "PostToolUse": [
       {
+        "matcher": "Edit|Write",
         "hooks": [
           {
-            "command": "ctxloom hook stamp-plan",
-            "type": "command"
+            "type": "command",
+            "command": "ctxloom hook stamp-plan"
           }
-        ],
-        "matcher": "Edit|Write"
+        ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
-            "command": "ltk evaluate --config .ltk/config.yaml",
-            "type": "command"
+            "type": "command",
+            "command": "ltk evaluate --config .ltk/config.yaml"
           }
-        ],
-        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+        ]
       }
     ],
     "SessionStart": [
       {
         "hooks": [
           {
-            "command": "ctxloom hook session-bind",
-            "type": "command"
+            "type": "command",
+            "command": "ctxloom hook session-bind"
           }
         ]
       }
     ]
   },
   "statusLine": {
-    "command": "ctxloom hook hud",
-    "type": "command"
+    "type": "command",
+    "command": "ctxloom hook hud"
   }
 }

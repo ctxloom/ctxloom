@@ -1,5 +1,5 @@
 // Symlink tests verify the executable path resolution.
-package backends
+package agent
 
 import (
 	"testing"

@@ -143,11 +143,7 @@ func (s *GeminiSkills) List(workDir string) ([]string, error) {
 // It deletes the .gemini/commands/ctxloom/ directory and regenerates it fresh.
 // Only prompts with Gemini.IsEnabled() == true are exported.
 func WriteGeminiCommandFiles(workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
-	options := &commandFileOptions{fs: afero.NewOsFs()}
-	for _, opt := range opts {
-		opt(options)
-	}
-	fs := options.fs
+	fs := ResolveCommandFS(opts...)
 
 	appDir := filepath.Join(workDir, ".gemini", "commands", geminiAppCommandsDir)
 

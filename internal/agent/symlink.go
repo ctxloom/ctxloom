@@ -1,4 +1,4 @@
-package backends
+package agent
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ var cachedExecPath string
 //
 // This is the only place that touches os.Executable. We resolve the path
 // live, in-process, rather than persisting it: hook commands and the MCP
-// server entry are written as the bare name `ctxloom` (see ctxloomBinary),
+// server entry are written as the bare name `ctxloom` (see CtxloomBinary),
 // which re-resolves against PATH every time and so never goes stale when
 // the binary moves. The one thing a bare name can't catch — a *different*
 // ctxloom earlier on PATH than the one that's running — is surfaced by
@@ -62,7 +62,7 @@ func WarnOnCtxloomPathSkew() {
 	if err != nil {
 		return
 	}
-	onPath, err := exec.LookPath(ctxloomBinary)
+	onPath, err := exec.LookPath(CtxloomBinary)
 	if err != nil {
 		// ctxloom isn't on PATH at all. Bare hooks would fail, but the
 		// MCP server we're running inside was clearly launchable, so a
@@ -74,7 +74,7 @@ func WarnOnCtxloomPathSkew() {
 		onPath = resolved
 	}
 	if ctxloomPathSkewed(running, onPath) {
-		warn("PATH ctxloom (%s) differs from the running binary (%s) — "+
+		Warn("PATH ctxloom (%s) differs from the running binary (%s) — "+
 			"bundle hooks and the statusline run via PATH and may use a "+
 			"different version", onPath, running)
 	}

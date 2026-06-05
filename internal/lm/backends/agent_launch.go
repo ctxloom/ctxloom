@@ -13,6 +13,7 @@ type (
 	BaseLifecycle       = agent.BaseLifecycle
 	BaseMCPManager      = agent.BaseMCPManager
 	ContextFileOption   = agent.ContextFileOption
+	CommandFileOption   = agent.CommandFileOption
 )
 
 var (
@@ -36,6 +37,14 @@ var (
 	NewContextInjectionHooks     = agent.NewContextInjectionHooks
 	AppendManagedDynamicHooks    = agent.AppendManagedDynamicHooks
 	AssembleManagedHooks         = agent.AssembleManagedHooks
+
+	WriteCommandFiles           = agent.WriteCommandFiles
+	WithCommandFS               = agent.WithCommandFS
+	ResolveCommandFS            = agent.ResolveCommandFS
+	TransformToClaudeCommand    = agent.TransformToClaudeCommand
+	GetExecutablePath           = agent.GetExecutablePath
+	SetExecutablePathForTesting = agent.SetExecutablePathForTesting
+	WarnOnCtxloomPathSkew       = agent.WarnOnCtxloomPathSkew
 )
 
 const (

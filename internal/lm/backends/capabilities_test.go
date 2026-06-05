@@ -18,7 +18,7 @@ import (
 
 // TestClaudeLifecycle_New verifies proper initialization
 func TestClaudeLifecycle_New(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	assert.NotNil(t, lifecycle)
@@ -28,7 +28,7 @@ func TestClaudeLifecycle_New(t *testing.T) {
 
 // TestClaudeLifecycle_OnSessionStart verifies session start handler registration
 func TestClaudeLifecycle_OnSessionStart(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
@@ -47,7 +47,7 @@ func TestClaudeLifecycle_OnSessionStart(t *testing.T) {
 
 // TestClaudeLifecycle_OnSessionEnd verifies session end handler registration
 func TestClaudeLifecycle_OnSessionEnd(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
@@ -65,7 +65,7 @@ func TestClaudeLifecycle_OnSessionEnd(t *testing.T) {
 
 // TestClaudeLifecycle_OnToolUse verifies tool use handler registration
 func TestClaudeLifecycle_OnToolUse(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	handler := EventHandler{
@@ -92,7 +92,7 @@ func TestClaudeLifecycle_OnToolUse(t *testing.T) {
 
 // TestClaudeLifecycle_Clear verifies handlers can be cleared
 func TestClaudeLifecycle_Clear(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	// Add some hooks first
@@ -107,7 +107,7 @@ func TestClaudeLifecycle_Clear(t *testing.T) {
 
 // TestClaudeLifecycle_Flush verifies hooks and MCP are flushed
 func TestClaudeLifecycle_Flush(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	// Add some hooks
@@ -123,7 +123,7 @@ func TestClaudeLifecycle_Flush(t *testing.T) {
 
 // TestGeminiLifecycle_New verifies proper initialization
 func TestGeminiLifecycle_New(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	lifecycle := NewGeminiLifecycle(backend)
 
 	assert.NotNil(t, lifecycle)
@@ -133,7 +133,7 @@ func TestGeminiLifecycle_New(t *testing.T) {
 
 // TestGeminiLifecycle_OnSessionStart verifies session start handler registration
 func TestGeminiLifecycle_OnSessionStart(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
@@ -151,7 +151,7 @@ func TestGeminiLifecycle_OnSessionStart(t *testing.T) {
 
 // TestGeminiLifecycle_OnSessionEnd verifies session end handler registration
 func TestGeminiLifecycle_OnSessionEnd(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
@@ -169,7 +169,7 @@ func TestGeminiLifecycle_OnSessionEnd(t *testing.T) {
 
 // TestGeminiLifecycle_OnToolUse verifies tool use handler registration
 func TestGeminiLifecycle_OnToolUse(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	lifecycle := NewGeminiLifecycle(backend)
 
 	handler := EventHandler{
@@ -209,7 +209,7 @@ func TestGeminiCommand_Structure(t *testing.T) {
 // =============================================================================
 
 func TestClaudeMCPManager_RegisterServer(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	server := MCPServer{
@@ -227,7 +227,7 @@ func TestClaudeMCPManager_RegisterServer(t *testing.T) {
 }
 
 func TestClaudeMCPManager_UnregisterServer(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	// Register first
@@ -245,7 +245,7 @@ func TestClaudeMCPManager_UnregisterServer(t *testing.T) {
 }
 
 func TestClaudeMCPManager_ListServers(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	_ = manager.RegisterServer("/tmp", MCPServer{Name: "server1"})
@@ -259,7 +259,7 @@ func TestClaudeMCPManager_ListServers(t *testing.T) {
 }
 
 func TestClaudeMCPManager_GetServer(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	server := MCPServer{
@@ -277,7 +277,7 @@ func TestClaudeMCPManager_GetServer(t *testing.T) {
 }
 
 func TestClaudeMCPManager_GetServer_NotFound(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	result, err := manager.GetServer("/tmp", "nonexistent")
@@ -286,7 +286,7 @@ func TestClaudeMCPManager_GetServer_NotFound(t *testing.T) {
 }
 
 func TestClaudeMCPManager_Clear(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	manager := NewClaudeMCPManager(backend)
 
 	_ = manager.RegisterServer("/tmp", MCPServer{Name: "server1"})
@@ -302,7 +302,7 @@ func TestClaudeMCPManager_Clear(t *testing.T) {
 // =============================================================================
 
 func TestClaudeSkills_Register(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	skills := &ClaudeSkills{
 		backend: backend,
 	}
@@ -320,7 +320,7 @@ func TestClaudeSkills_Register(t *testing.T) {
 }
 
 func TestClaudeSkills_RegisterAll(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	skills := &ClaudeSkills{
 		backend: backend,
 	}
@@ -350,7 +350,7 @@ func TestClaudeSkills_RegisterAll(t *testing.T) {
 // existing "doesn't panic" smoke test.
 func TestClaudeSkills_Register_WritesToWorkdir(t *testing.T) {
 	workDir := t.TempDir()
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 	require.NoError(t, skills.Register(workDir, Skill{
 		Name:        "test-skill",
 		Description: "Test skill",
@@ -378,7 +378,7 @@ func TestClaudeSkills_Register_WritesToWorkdir(t *testing.T) {
 // (used by apply-hooks when a bundle ships prompts).
 func TestClaudeSkills_RegisterFromContent(t *testing.T) {
 	workDir := t.TempDir()
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 
 	enabled := true
 	content := &bundles.LoadedContent{Name: "from-bundle", Content: "body"}
@@ -395,7 +395,7 @@ func TestClaudeSkills_RegisterFromContent(t *testing.T) {
 // TestClaudeSkills_List_NoManifest returns empty + nil when nothing
 // has been registered yet.
 func TestClaudeSkills_List_NoManifest(t *testing.T) {
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 	names, err := skills.List(t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, names)
@@ -405,7 +405,7 @@ func TestClaudeSkills_List_NoManifest(t *testing.T) {
 // and confirms the .md suffix is gone from the returned names.
 func TestClaudeSkills_List_StripsExtension(t *testing.T) {
 	workDir := t.TempDir()
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 	require.NoError(t, skills.RegisterAll(workDir, []Skill{
 		{Name: "a", Content: "x"},
 		{Name: "b", Content: "y"},
@@ -439,7 +439,7 @@ func TestClaudeSkills_List_StripsExtension(t *testing.T) {
 // Clear, List returns empty again.
 func TestClaudeSkills_Clear(t *testing.T) {
 	workDir := t.TempDir()
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 	require.NoError(t, skills.Register(workDir, Skill{
 		Name: "doomed", Content: "x", Description: "to be cleared",
 	}))
@@ -462,7 +462,7 @@ func TestClaudeSkills_Clear(t *testing.T) {
 // TestClaudeSkills_Clear_NoManifest is a no-op when no manifest exists
 // (fresh workdir).
 func TestClaudeSkills_Clear_NoManifest(t *testing.T) {
-	skills := &ClaudeSkills{backend: NewClaudeCode()}
+	skills := &ClaudeSkills{backend: NewClaudeCode(WriteSettings)}
 	require.NoError(t, skills.Clear(t.TempDir()), "Clear without manifest must succeed")
 }
 
@@ -471,7 +471,7 @@ func TestClaudeSkills_Clear_NoManifest(t *testing.T) {
 // =============================================================================
 
 func TestClaudeContext_GetContextHash(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	context := NewClaudeContext(backend)
 
 	// Write context to set hash
@@ -483,7 +483,7 @@ func TestClaudeContext_GetContextHash(t *testing.T) {
 }
 
 func TestClaudeContext_GetContextHash_Empty(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	context := NewClaudeContext(backend)
 
 	hash := context.GetContextHash()
@@ -491,7 +491,7 @@ func TestClaudeContext_GetContextHash_Empty(t *testing.T) {
 }
 
 func TestClaudeContext_GetContextFilePath_Empty(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	context := NewClaudeContext(backend)
 
 	path := context.GetContextFilePath()
@@ -499,7 +499,7 @@ func TestClaudeContext_GetContextFilePath_Empty(t *testing.T) {
 }
 
 func TestClaudeContext_GetContextFilePath_WithHash(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	context := NewClaudeContext(backend)
 
 	// Provide context to generate a hash
@@ -513,7 +513,7 @@ func TestClaudeContext_GetContextFilePath_WithHash(t *testing.T) {
 }
 
 func TestClaudeContext_Clear(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	context := NewClaudeContext(backend)
 
 	// Provide some context first
@@ -529,7 +529,7 @@ func TestClaudeContext_Clear(t *testing.T) {
 // =============================================================================
 
 func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
@@ -545,7 +545,7 @@ func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
 }
 
 func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
@@ -574,7 +574,7 @@ func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
 }
 
 func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
@@ -612,7 +612,7 @@ func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
 }
 
 func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	cfg := &config.Config{
@@ -694,7 +694,7 @@ func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
 	}
 
 	// Setup path.
-	lifecycle := NewClaudeLifecycle(NewClaudeCode())
+	lifecycle := NewClaudeLifecycle(NewClaudeCode(WriteSettings))
 	lifecycle.MergeConfigHooks(newCfg(), "/tmp", "hash123")
 	setupCmds := sessionStartCommands(lifecycle.GetHooks().Unified)
 
@@ -733,7 +733,7 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 // =============================================================================
 
 func TestClaudeLifecycle_GetMCP(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	lifecycle := NewClaudeLifecycle(backend)
 
 	// Initially nil
@@ -757,7 +757,7 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 }
 
 func TestGeminiLifecycle_GetMCP(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	lifecycle := NewGeminiLifecycle(backend)
 
 	// Initially nil
@@ -785,13 +785,13 @@ func TestGeminiLifecycle_GetMCP(t *testing.T) {
 // =============================================================================
 
 func TestClaudeCode_History(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	history := backend.History()
 	assert.NotNil(t, history)
 }
 
 func TestGemini_History(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	history := backend.History()
 	assert.NotNil(t, history)
 }

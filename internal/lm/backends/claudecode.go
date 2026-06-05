@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -28,17 +29,21 @@ func (ClaudeConfig) BackendType() string { return "claude-code" }
 // ClaudeCode implements the Backend interface for Claude Code CLI.
 type ClaudeCode struct {
 	BaseBackend
-	lifecycle *ClaudeLifecycle
-	skills    *ClaudeSkills
-	context   *ClaudeContext
-	mcp       *ClaudeMCPManager
-	history   *ClaudeSessionHistory
+	writeSettings agent.WriteSettingsFunc
+	lifecycle     *ClaudeLifecycle
+	skills        *ClaudeSkills
+	context       *ClaudeContext
+	mcp           *ClaudeMCPManager
+	history       *ClaudeSessionHistory
 }
 
-// NewClaudeCode creates a new Claude Code backend with default settings.
-func NewClaudeCode() *ClaudeCode {
+// NewClaudeCode creates a new Claude Code backend with default settings. The
+// writeSettings dispatch is injected (the registry supplies it) so the launch
+// bases can write settings without importing the registry.
+func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
 	b := &ClaudeCode{
-		BaseBackend: NewBaseBackend("claude-code", "1.0.0"),
+		BaseBackend:   NewBaseBackend("claude-code", "1.0.0"),
+		writeSettings: writeSettings,
 	}
 	b.BinaryPath = "claude"
 	b.lifecycle = NewClaudeLifecycle(b)

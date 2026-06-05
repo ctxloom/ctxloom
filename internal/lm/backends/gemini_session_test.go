@@ -19,7 +19,7 @@ import (
 // =============================================================================
 
 func TestGeminiSessionHistory_New(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	history := NewGeminiSessionHistory(backend)
 
 	assert.NotNil(t, history)
@@ -28,7 +28,7 @@ func TestGeminiSessionHistory_New(t *testing.T) {
 }
 
 func TestGeminiSessionHistory_WithOptions(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	fs := afero.NewMemMapFs()
 
 	history := NewGeminiSessionHistory(backend,
@@ -77,7 +77,7 @@ const realGeminiJSONL = `{"sessionId":"abc-123","projectHash":"deadbeef","startT
 
 func TestGeminiSessionHistory_ParseRealJSONL(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	history := NewGeminiSessionHistory(NewGemini(), WithGeminiSessionFS(fs))
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings), WithGeminiSessionFS(fs))
 
 	path := "/x/session-2026-06-02T05-03-abc.jsonl"
 	require.NoError(t, fs.MkdirAll(filepath.Dir(path), 0755))
@@ -104,7 +104,7 @@ func TestGeminiSessionHistory_ResolveViaProjectRoot(t *testing.T) {
 	chatsDir := writeGeminiSlugProject(t, fs, homeDir, "proj", workDir)
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(chatsDir, "session-1.jsonl"), []byte(realGeminiJSONL), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	dir, err := history.findProjectDir(workDir)
@@ -130,7 +130,7 @@ func TestGeminiSessionHistory_ListSessions(t *testing.T) {
 	// Non-session file that should be ignored.
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(chatsDir, "config.txt"), []byte("{}"), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	sessions, err := history.ListSessions(workDir)
@@ -147,7 +147,7 @@ func TestGeminiSessionHistory_ListSessions_Empty(t *testing.T) {
 	workDir := "/test/project"
 	writeGeminiSlugProject(t, fs, homeDir, "project", workDir)
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	sessions, err := history.ListSessions(workDir)
@@ -157,7 +157,7 @@ func TestGeminiSessionHistory_ListSessions_Empty(t *testing.T) {
 
 func TestGeminiSessionHistory_ListSessions_ProjectNotFound(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir("/test/home"))
 
 	_, err := history.ListSessions("/test/project")
@@ -185,7 +185,7 @@ func TestGeminiSessionHistory_GetSession_Legacy(t *testing.T) {
 	}`
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(chatsDir, "test-session.json"), []byte(sessionContent), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	session, err := history.GetSession(workDir, "test-session")
@@ -212,7 +212,7 @@ func TestGeminiSessionHistory_GetSession_ByHeaderUUID(t *testing.T) {
 	// Filename stem (...deadbe) differs from the header sessionId ("abc-123").
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(chatsDir, "session-2026-06-02T05-03-deadbe.jsonl"), []byte(realGeminiJSONL), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	s, err := history.GetSession(workDir, "abc-123")
@@ -227,7 +227,7 @@ func TestGeminiSessionHistory_GetSession_NotFound(t *testing.T) {
 	workDir := "/test/project"
 	writeGeminiSlugProject(t, fs, homeDir, "project", workDir)
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	_, err := history.GetSession(workDir, "nonexistent")
@@ -240,7 +240,7 @@ func TestGeminiSessionHistory_GetSessionByPath(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(sessionPath), 0755))
 	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte(realGeminiJSONL), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir("/test/home"))
 
 	session, err := history.GetSessionByPath(sessionPath)
@@ -256,7 +256,7 @@ func TestGeminiSessionHistory_GetCurrentSession_NoSessions(t *testing.T) {
 	workDir := "/test/project"
 	writeGeminiSlugProject(t, fs, homeDir, "project", workDir)
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	_, err := history.GetCurrentSession(workDir)
@@ -265,7 +265,7 @@ func TestGeminiSessionHistory_GetCurrentSession_NoSessions(t *testing.T) {
 }
 
 func TestGeminiSessionHistory_ConvertEntry(t *testing.T) {
-	history := NewGeminiSessionHistory(NewGemini())
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings))
 
 	tests := []struct {
 		name     string
@@ -338,7 +338,7 @@ func TestGeminiSessionHistory_ParseSession_Garbage(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(sessionPath), 0755))
 	require.NoError(t, afero.WriteFile(fs, sessionPath, []byte("not json\nstill not json"), 0644))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir("/test/home"))
 
 	session, err := history.GetSessionByPath(sessionPath)
@@ -354,7 +354,7 @@ func TestGeminiSessionHistory_FindProjectDir_LegacyFallback(t *testing.T) {
 	projectDir := geminiLegacyProjectDir(homeDir, workDir)
 	require.NoError(t, fs.MkdirAll(projectDir, 0755))
 
-	history := NewGeminiSessionHistory(NewGemini(),
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings),
 		WithGeminiSessionFS(fs), WithGeminiSessionHomeDir(homeDir))
 
 	result, err := history.findProjectDir(workDir)
@@ -404,7 +404,7 @@ func TestPreviousSessionByIndex(t *testing.T) {
 }
 
 func TestGeminiSessionHistory_TranscriptPathFromHook(t *testing.T) {
-	history := NewGeminiSessionHistory(NewGemini())
+	history := NewGeminiSessionHistory(NewGemini(WriteSettings))
 
 	// Gemini returns the path directly.
 	path := history.TranscriptPathFromHook("/work", "session-id", "/path/to/transcript")

@@ -1,20 +1,24 @@
 package backends
 
 import (
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // BaseMCPManager provides shared MCP server management logic for backends.
 type BaseMCPManager struct {
-	backendName string
-	servers     map[string]MCPServer
+	backendName   string
+	servers       map[string]MCPServer
+	writeSettings agent.WriteSettingsFunc
 }
 
-// NewBaseMCPManager creates a new MCP manager for the given backend.
-func NewBaseMCPManager(backendName string) *BaseMCPManager {
+// NewBaseMCPManager creates a new MCP manager for the given backend. The
+// writeSettings dispatch is injected so the base does not import the registry.
+func NewBaseMCPManager(backendName string, writeSettings agent.WriteSettingsFunc) *BaseMCPManager {
 	return &BaseMCPManager{
-		backendName: backendName,
-		servers:     make(map[string]MCPServer),
+		backendName:   backendName,
+		servers:       make(map[string]MCPServer),
+		writeSettings: writeSettings,
 	}
 }
 
@@ -74,7 +78,7 @@ func (m *BaseMCPManager) Flush(workDir string) error {
 	}
 
 	// Write settings (hooks are nil, just MCP)
-	return WriteSettings(m.backendName, nil, mcpCfg, nil, workDir)
+	return m.writeSettings(m.backendName, nil, mcpCfg, nil, workDir)
 }
 
 func (m *BaseMCPManager) ensureServers() {

@@ -51,7 +51,7 @@ func TestNewCodex(t *testing.T) {
 }
 
 func TestNewClaudeCode(t *testing.T) {
-	backend := NewClaudeCode()
+	backend := NewClaudeCode(WriteSettings)
 	assert.Equal(t, "claude-code", backend.Name())
 	assert.NotNil(t, backend.Lifecycle())
 	assert.NotNil(t, backend.Skills())
@@ -60,7 +60,7 @@ func TestNewClaudeCode(t *testing.T) {
 }
 
 func TestNewGemini(t *testing.T) {
-	backend := NewGemini()
+	backend := NewGemini(WriteSettings)
 	assert.Equal(t, "gemini", backend.Name())
 	assert.NotNil(t, backend.Lifecycle())
 	assert.NotNil(t, backend.Skills()) // Gemini now supports skills via TOML commands

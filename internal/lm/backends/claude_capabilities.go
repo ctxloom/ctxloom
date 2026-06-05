@@ -26,7 +26,7 @@ type ClaudeLifecycle struct {
 // NewClaudeLifecycle creates a new Claude lifecycle handler.
 func NewClaudeLifecycle(backend *ClaudeCode) *ClaudeLifecycle {
 	return &ClaudeLifecycle{
-		BaseLifecycle: NewBaseLifecycle("claude-code"),
+		BaseLifecycle: NewBaseLifecycle("claude-code", backend.writeSettings),
 		backend:       backend,
 	}
 }
@@ -41,7 +41,7 @@ type ClaudeMCPManager struct {
 // NewClaudeMCPManager creates a new Claude MCP manager.
 func NewClaudeMCPManager(backend *ClaudeCode) *ClaudeMCPManager {
 	return &ClaudeMCPManager{
-		BaseMCPManager: NewBaseMCPManager("claude-code"),
+		BaseMCPManager: NewBaseMCPManager("claude-code", backend.writeSettings),
 		backend:        backend,
 	}
 }

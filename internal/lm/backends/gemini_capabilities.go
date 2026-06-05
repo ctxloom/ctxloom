@@ -39,7 +39,7 @@ type GeminiLifecycle struct {
 // NewGeminiLifecycle creates a new Gemini lifecycle handler.
 func NewGeminiLifecycle(backend *Gemini) *GeminiLifecycle {
 	return &GeminiLifecycle{
-		BaseLifecycle: NewBaseLifecycle("gemini"),
+		BaseLifecycle: NewBaseLifecycle("gemini", backend.writeSettings),
 		backend:       backend,
 	}
 }
@@ -54,7 +54,7 @@ type GeminiMCPManager struct {
 // NewGeminiMCPManager creates a new Gemini MCP manager.
 func NewGeminiMCPManager(backend *Gemini) *GeminiMCPManager {
 	return &GeminiMCPManager{
-		BaseMCPManager: NewBaseMCPManager("gemini"),
+		BaseMCPManager: NewBaseMCPManager("gemini", backend.writeSettings),
 		backend:        backend,
 	}
 }

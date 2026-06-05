@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -11,6 +12,7 @@ type BaseLifecycle struct {
 	hooks              *config.HooksConfig
 	mcp                *config.MCPConfig
 	statusLineDisabled bool
+	writeSettings      agent.WriteSettingsFunc
 }
 
 // settingsOpts returns the write options reflecting accumulated lifecycle state
@@ -19,10 +21,12 @@ func (l *BaseLifecycle) settingsOpts() []SettingsOption {
 	return []SettingsOption{WithStatusLineDisabled(l.statusLineDisabled)}
 }
 
-// NewBaseLifecycle creates a new lifecycle handler for the given backend.
-func NewBaseLifecycle(backendName string) *BaseLifecycle {
+// NewBaseLifecycle creates a new lifecycle handler for the given backend. The
+// writeSettings dispatch is injected so the base does not import the registry.
+func NewBaseLifecycle(backendName string, writeSettings agent.WriteSettingsFunc) *BaseLifecycle {
 	return &BaseLifecycle{
-		backendName: backendName,
+		backendName:   backendName,
+		writeSettings: writeSettings,
 	}
 }
 
@@ -76,7 +80,7 @@ func (l *BaseLifecycle) Clear(workDir string) error {
 		Servers: make(map[string]config.MCPServer),
 		Plugins: make(map[string]map[string]config.MCPServer),
 	}
-	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
+	return l.writeSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
 
 // Flush writes accumulated hooks and MCP config to the settings file.
@@ -84,7 +88,7 @@ func (l *BaseLifecycle) Flush(workDir string) error {
 	if l.hooks == nil && l.mcp == nil {
 		return nil
 	}
-	return WriteSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
+	return l.writeSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
 
 // MergeConfigHooks merges hooks and MCP config from the configuration into this lifecycle.

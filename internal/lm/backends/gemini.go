@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -31,17 +32,20 @@ func (GeminiConfig) BackendType() string { return "gemini" }
 // Gemini implements the Backend interface for Gemini CLI.
 type Gemini struct {
 	BaseBackend
-	lifecycle *GeminiLifecycle
-	skills    *GeminiSkills
-	context   *GeminiContext
-	mcp       *GeminiMCPManager
-	history   *GeminiSessionHistory
+	writeSettings agent.WriteSettingsFunc
+	lifecycle     *GeminiLifecycle
+	skills        *GeminiSkills
+	context       *GeminiContext
+	mcp           *GeminiMCPManager
+	history       *GeminiSessionHistory
 }
 
-// NewGemini creates a new Gemini backend with default settings.
-func NewGemini() *Gemini {
+// NewGemini creates a new Gemini backend with default settings. The
+// writeSettings dispatch is injected (the registry supplies it).
+func NewGemini(writeSettings agent.WriteSettingsFunc) *Gemini {
 	b := &Gemini{
-		BaseBackend: NewBaseBackend("gemini", "1.0.0"),
+		BaseBackend:   NewBaseBackend("gemini", "1.0.0"),
+		writeSettings: writeSettings,
 	}
 	b.BinaryPath = "gemini"
 	b.lifecycle = NewGeminiLifecycle(b)

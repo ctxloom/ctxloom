@@ -78,12 +78,12 @@ func IsAvailable(name string) bool {
 func init() {
 	// Register all built-in backends along with their config decoders. The
 	// decoder turns a labeled entry's raw body into the backend's typed config.
-	Register("claude-code", func() Backend { return NewClaudeCode() })
+	Register("claude-code", func() Backend { return NewClaudeCode(WriteSettings) })
 	RegisterConfig("claude-code", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &ClaudeConfig{})
 	})
 
-	Register("gemini", func() Backend { return NewGemini() })
+	Register("gemini", func() Backend { return NewGemini(WriteSettings) })
 	RegisterConfig("gemini", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &GeminiConfig{})
 	})

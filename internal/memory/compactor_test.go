@@ -371,7 +371,7 @@ func TestNewCompactor_WithBackendOverride(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, compactor)
-	assert.Equal(t, mockBe, compactor.backend)
+	assert.NotNil(t, compactor.source, "BackendOverride history must be adapted to a SessionSource")
 }
 
 func TestNewCompactor_SetsDefaults(t *testing.T) {

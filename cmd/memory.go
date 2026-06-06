@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
@@ -90,17 +91,12 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	history, backendName, err := resolveHistoryBackend(cfg, listBackend)
+	source, backendName, err := resolveSessionSource(cfg, listBackend)
 	if err != nil {
 		return err
 	}
 
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
-	}
-
-	sessions, err := history.ListSessions(workDir)
+	sessions, err := source.ListSessions(context.Background())
 	if err != nil {
 		return fmt.Errorf("list sessions: %w", err)
 	}
@@ -115,22 +111,19 @@ func runMemoryList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveHistoryBackend resolves the backend (defaulting when empty) and its
-// session history, returning the resolved backend name for display. Shared by
-// the memory list and load tools.
-func resolveHistoryBackend(cfg *config.Config, backendName string) (backends.SessionHistory, string, error) {
+// resolveSessionSource resolves the backend (defaulting when empty) and a gRPC
+// transcript reader for it, returning the resolved backend name for display.
+// Shared by the memory list and load tools. Transcript reads go to the agent
+// server (self-situated), so ctxloom passes no workspace and the path works for
+// a remote agent.
+func resolveSessionSource(cfg *config.Config, backendName string) (pb.SessionSource, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
-	backend := backends.Get(backendName)
-	if backend == nil {
+	if !backends.Exists(backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	history := backend.History()
-	if history == nil {
-		return nil, backendName, fmt.Errorf("backend %q does not support session history", backendName)
-	}
-	return history, backendName, nil
+	return pb.NewSessionReader(backendName, 0), backendName, nil
 }
 
 // loadDistilledSet returns the set of session IDs already distilled (best
@@ -183,24 +176,13 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 		backendName = cfg.GetDefaultLLM()
 	}
 
-	backend := backends.Get(backendName)
-	if backend == nil {
+	if !backends.Exists(backendName) {
 		return fmt.Errorf("unknown backend: %s", backendName)
 	}
 
-	history := backend.History()
-	if history == nil {
-		return fmt.Errorf("backend %q does not support session history", backendName)
-	}
-
-	// Get working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
-	}
-
-	// Load session
-	session, err := history.GetSession(workDir, sessionID)
+	// Load session over the agent server (self-situated; no workspace passed).
+	source := pb.NewSessionReader(backendName, 0)
+	session, err := source.GetSession(context.Background(), sessionID)
 	if err != nil {
 		return fmt.Errorf("load session: %w", err)
 	}

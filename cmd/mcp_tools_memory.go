@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -226,23 +227,13 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	if backendName == "" {
 		backendName = s.cfg.GetDefaultLLM()
 	}
-	backend := backends.Get(backendName)
-	if backend == nil {
+	if !backends.Exists(backendName) {
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
-	}
-	history := backend.History()
-	if history == nil {
-		return nil, nil, fmt.Errorf("backend %q does not support session history", backendName)
-	}
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
 
 	targetSessionID := in.SessionID
 	if targetSessionID == "" {
-		sessions, err := history.ListSessions(workDir)
+		sessions, err := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("list sessions: %w", err)
 		}
@@ -298,21 +289,16 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // the response can carry it back; for the other callers it's zero and the
 // PID field stays omitted.
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int) (*mcp.CallToolResult, *loadSessionResult, error) {
-	history, backendName, err := resolveHistoryBackend(s.cfg, backendName)
+	source, backendName, err := resolveSessionSource(s.cfg, backendName)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	workDir, err := os.Getwd()
-	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
 
 	if sessionID == "" {
 		return nil, nil, fmt.Errorf("session_id is required; list sessions via the ctxloom://sessions/recent resource to find one")
 	}
 
-	session, err := history.GetSession(workDir, sessionID)
+	session, err := source.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get session %s: %w", sessionID, err)
 	}
@@ -331,6 +317,9 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		return nil, cached, nil
 	}
 
+	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read
+	// is self-situated and ignores it.
+	workDir, _ := os.Getwd()
 	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, pid)
 	return nil, result, err
 }

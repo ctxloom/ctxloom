@@ -23,6 +23,19 @@ type SessionReader struct {
 	factory     ClientFactory
 }
 
+// SessionSource is the host's read view of an agent's transcripts: materialize a
+// session by id, list the store, or fetch the most-recent. Consumers (memory
+// CLI, MCP load, compactor, resume picker) depend on this rather than an
+// in-process SessionHistory, so the same code path serves a remote agent.
+// *SessionReader is the production implementation (over gRPC).
+type SessionSource interface {
+	GetSession(ctx context.Context, sessionID string) (*agent.Session, error)
+	ListSessions(ctx context.Context) ([]agent.SessionMeta, error)
+	CurrentSession(ctx context.Context) (*agent.Session, error)
+}
+
+var _ SessionSource = (*SessionReader)(nil)
+
 // NewSessionReader returns a reader for the named backend using the default
 // self-invoking plugin client.
 func NewSessionReader(backendName string, verbosity int) *SessionReader {

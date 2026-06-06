@@ -56,8 +56,26 @@ type CompactionResult struct {
 // Compactor handles session log compaction.
 type Compactor struct {
 	config        CompactionConfig
-	backend       backends.Backend
+	source        pb.SessionSource
 	clientFactory pb.ClientFactory
+}
+
+// memoryHistorySource adapts an in-process SessionHistory to pb.SessionSource.
+// It backs the BackendOverride test seam (unit-testing compaction logic against
+// a fake transcript store); production reads go over gRPC via pb.SessionReader.
+type memoryHistorySource struct {
+	history backends.SessionHistory
+	workDir string
+}
+
+func (s memoryHistorySource) GetSession(_ context.Context, id string) (*backends.Session, error) {
+	return s.history.GetSession(s.workDir, id)
+}
+func (s memoryHistorySource) ListSessions(_ context.Context) ([]backends.SessionMeta, error) {
+	return s.history.ListSessions(s.workDir)
+}
+func (s memoryHistorySource) CurrentSession(_ context.Context) (*backends.Session, error) {
+	return s.history.GetCurrentSession(s.workDir)
 }
 
 // NewCompactor creates a new compactor with the given config.
@@ -75,18 +93,23 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		config.ClientFactory = pb.DefaultClientFactory()
 	}
 
-	// Use injected backend if provided (for testing), otherwise use registry
-	backend := config.BackendOverride
-	if backend == nil {
-		backend = backends.Get(config.Backend)
-		if backend == nil {
-			return nil, fmt.Errorf("unknown backend: %s", config.Backend)
+	// Resolve the transcript source. Production reads go over gRPC via the
+	// agent server (pb.SessionReader) so the same path serves a remote agent and
+	// ctxloom never parses backend files in-process. Tests inject a backend whose
+	// in-process SessionHistory is adapted to the same SessionSource contract.
+	var source pb.SessionSource
+	if config.BackendOverride != nil {
+		if h := config.BackendOverride.History(); h != nil {
+			source = memoryHistorySource{history: h, workDir: config.WorkDir}
 		}
+		// h == nil leaves source nil → loadSessionToCompact reports "no history".
+	} else {
+		source = pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
 	}
 
 	return &Compactor{
 		config:        config,
-		backend:       backend,
+		source:        source,
 		clientFactory: config.ClientFactory,
 	}, nil
 }
@@ -96,7 +119,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	start := time.Now()
 	result := &CompactionResult{}
 
-	session, err := c.loadSessionToCompact()
+	session, err := c.loadSessionToCompact(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -163,21 +186,20 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // loadSessionToCompact resolves the session to compact — the configured
 // SessionID if set, else the current session — and rejects the
 // nothing-to-do cases (no backend history support, no session, empty session).
-func (c *Compactor) loadSessionToCompact() (*backends.Session, error) {
-	history := c.backend.History()
-	if history == nil {
+func (c *Compactor) loadSessionToCompact(ctx context.Context) (*backends.Session, error) {
+	if c.source == nil {
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
 	}
 
 	var session *backends.Session
 	var err error
 	if c.config.SessionID != "" {
-		session, err = history.GetSession(c.config.WorkDir, c.config.SessionID)
+		session, err = c.source.GetSession(ctx, c.config.SessionID)
 		if err != nil {
 			return nil, fmt.Errorf("get session %s: %w", c.config.SessionID, err)
 		}
 	} else {
-		session, err = history.GetCurrentSession(c.config.WorkDir)
+		session, err = c.source.CurrentSession(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("get current session: %w", err)
 		}

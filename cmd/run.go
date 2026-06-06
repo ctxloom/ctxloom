@@ -68,7 +68,7 @@ func resolveResumeIntent(workDir, backend string) (sessions.Decision, error) {
 	// narrows the picker, never blocks launch (CLAUDE.md fault tolerance).
 	indexed, _ := operations.ListSessionsForProject(workDir)
 	return resolveResumeIntentWith(flags, indexed, workDir, isInteractiveTerminal(),
-		backend, historyForBackend(backend), newAdoptFunc(workDir, backend))
+		backend, sessionSourceForBackend(backend), newAdoptFunc(workDir, backend))
 }
 
 // resolveResumeIntentWith is the IoC seam: takes the resume flags, the project's
@@ -78,7 +78,7 @@ func resolveResumeIntent(workDir, backend string) (sessions.Decision, error) {
 // the flag matrix. indexed may be empty and adopt may be nil (e.g. unknown
 // backend); the picker then simply shows no rows / refuses adoption.
 func resolveResumeIntentWith(flags resumeFlags, indexed []sessions.Entry, workDir string, isTTY bool,
-	backend string, hist backends.SessionHistory, adopt sessions.AdoptFunc) (sessions.Decision, error) {
+	backend string, source pb.SessionSource, adopt sessions.AdoptFunc) (sessions.Decision, error) {
 	switch {
 	case flags.Session != "":
 		return sessions.Decision{
@@ -103,7 +103,7 @@ func resolveResumeIntentWith(flags resumeFlags, indexed []sessions.Entry, workDi
 	// Combine indexed harp sessions with raw, not-yet-adopted backend
 	// transcripts (e.g. sessions started outside `ctxloom run`). The raw read is
 	// best-effort: a failure just narrows the picker, never blocks launch.
-	entries := buildPickerEntries(indexed, rawTranscripts(hist, workDir), backend)
+	entries := buildPickerEntries(indexed, rawTranscripts(source), backend)
 	if len(entries) == 0 {
 		return sessions.Decision{Action: sessions.NewAction}, nil
 	}
@@ -117,26 +117,25 @@ func resolveResumeIntentWith(flags resumeFlags, indexed []sessions.Entry, workDi
 	return p.Run()
 }
 
-// historyForBackend returns the named backend's session history, or nil when
-// the backend is unknown — so raw-transcript scanning degrades to "no raw rows"
-// rather than failing the picker.
-func historyForBackend(name string) backends.SessionHistory {
+// sessionSourceForBackend returns a gRPC transcript reader for the named
+// backend, or nil when the backend is unknown — so raw-transcript scanning
+// degrades to "no raw rows" rather than failing the picker. The reader fetches
+// over the agent server (self-situated), not the host filesystem, so the picker
+// works the same for a remote agent.
+func sessionSourceForBackend(name string) pb.SessionSource {
 	if name == "" || !backends.Exists(name) {
 		return nil
 	}
-	b := backends.Get(name)
-	if b == nil {
-		return nil
-	}
-	return b.History()
+	return pb.NewSessionReader(name, runVerbosity)
 }
 
-// rawTranscripts lists the backend's raw transcripts for workDir, best-effort.
-func rawTranscripts(hist backends.SessionHistory, workDir string) []backends.SessionMeta {
-	if hist == nil {
+// rawTranscripts lists the backend's raw transcripts via the agent server,
+// best-effort. The agent self-situates its workspace; no dir is passed.
+func rawTranscripts(source pb.SessionSource) []backends.SessionMeta {
+	if source == nil {
 		return nil
 	}
-	metas, err := hist.ListSessions(workDir)
+	metas, err := source.ListSessions(context.Background())
 	if err != nil {
 		return nil
 	}

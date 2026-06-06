@@ -3,6 +3,7 @@ package claude
 import (
 	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/shared/wire"
+	"github.com/spf13/afero"
 )
 
 // argPair reports whether args contains flag immediately followed by value.
@@ -36,4 +37,18 @@ func writeClaudeSettings(_ string, hooks *wire.HooksConfig, mcp *wire.MCPConfig,
 		opt(&o)
 	}
 	return NewWriter(o).WriteSettings(hooks, mcp, bundleMCP, projectDir)
+}
+
+// memWriteClaudeSettings is writeClaudeSettings backed by an in-memory afero fs
+// so settings-writing tests stay hermetic (no real disk). The lifecycle's own
+// opts (e.g. statusline opt-out) are applied after WithSettingsFS so both take
+// effect.
+func memWriteClaudeSettings(fs afero.Fs) agent.WriteSettingsFunc {
+	return func(_ string, hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir string, opts ...agent.SettingsOption) error {
+		o := agent.SettingsOptions{}
+		for _, opt := range append([]agent.SettingsOption{agent.WithSettingsFS(fs)}, opts...) {
+			opt(&o)
+		}
+		return NewWriter(o).WriteSettings(hooks, mcp, bundleMCP, projectDir)
+	}
 }

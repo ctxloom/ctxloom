@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/shared/harpmarker"
 )
 
@@ -66,22 +65,10 @@ func (s *ClaudeSkills) RegisterAll(workDir string, skills []Skill) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 
-// RegisterFromContent registers skills from loaded bundle content, mapping each
-// to its claude-code command export.
-func (s *ClaudeSkills) RegisterFromContent(workDir string, contents []*bundles.LoadedContent) error {
-	cmds := make([]agent.CommandExport, 0, len(contents))
-	for _, p := range contents {
-		cc := p.LLM.ClaudeCode
-		cmds = append(cmds, agent.CommandExport{
-			Name:         p.Name,
-			Content:      p.Content,
-			Enabled:      cc.IsEnabled(),
-			Description:  cc.Description,
-			ArgumentHint: cc.ArgumentHint,
-			AllowedTools: cc.AllowedTools,
-			Model:        cc.Model,
-		})
-	}
+// RegisterFromContent writes slash commands from host-resolved command exports.
+// The host maps bundle content (with claude-code enablement + metadata) to these
+// agent-agnostic exports, so this stays config/bundle-free.
+func (s *ClaudeSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

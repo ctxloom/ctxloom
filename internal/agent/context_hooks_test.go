@@ -15,17 +15,17 @@ func TestMergeHooksConfig_NilInputs(t *testing.T) {
 			},
 		}
 		// Should not panic
-		mergeHooksConfig(nil, src)
+		MergeHooksConfig(nil, src)
 	})
 
 	t.Run("nil src does nothing", func(t *testing.T) {
 		dest := &wire.HooksConfig{}
-		mergeHooksConfig(dest, nil)
+		MergeHooksConfig(dest, nil)
 		assert.Empty(t, dest.Unified.PreTool)
 	})
 
 	t.Run("both nil does nothing", func(t *testing.T) {
-		mergeHooksConfig(nil, nil)
+		MergeHooksConfig(nil, nil)
 	})
 }
 
@@ -46,7 +46,7 @@ func TestMergeHooksConfig_UnifiedHooks(t *testing.T) {
 		},
 	}
 
-	mergeHooksConfig(dest, src)
+	MergeHooksConfig(dest, src)
 
 	assert.Len(t, dest.Unified.PreTool, 2)
 	assert.Equal(t, "existing-pre", dest.Unified.PreTool[0].Command)
@@ -69,7 +69,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 			},
 		}
 
-		mergeHooksConfig(dest, src)
+		MergeHooksConfig(dest, src)
 
 		assert.NotNil(t, dest.Plugins)
 		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 1)
@@ -95,7 +95,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 			},
 		}
 
-		mergeHooksConfig(dest, src)
+		MergeHooksConfig(dest, src)
 
 		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 2)
 		assert.Len(t, dest.Plugins["claude-code"]["PostTool"], 1)

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code
@@ -96,7 +95,11 @@ func (b *ClaudeCode) History() SessionHistory {
 	return b.history
 }
 
-// Setup prepares the backend for execution.
+// Setup prepares the backend for execution. The host resolves ctxloom
+// config/bundles and ships the result in req.Managed, so this Setup consumes
+// only the wire-typed payload — it never imports config/bundles. It still owns
+// the one piece only the plugin knows: the context hash, from which it appends
+// the SessionStart context-injection hook (via MergeManaged).
 func (b *ClaudeCode) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 
@@ -105,17 +108,16 @@ func (b *ClaudeCode) Setup(ctx context.Context, req *SetupRequest) error {
 		return fmt.Errorf("failed to provide context: %w", err)
 	}
 
-	// Write skills from prompts
-	if prompts := LoadPrompts(); len(prompts) > 0 {
-		if err := b.skills.RegisterFromContent(b.WorkDir(), prompts); err != nil {
-			return fmt.Errorf("failed to register skills: %w", err)
+	if req.Managed != nil {
+		// Write slash commands from the host-resolved exports.
+		if len(req.Managed.Prompts) > 0 {
+			if err := b.skills.RegisterFromContent(b.WorkDir(), req.Managed.Prompts); err != nil {
+				return fmt.Errorf("failed to register skills: %w", err)
+			}
 		}
-	}
-
-	// Load and merge hooks from config
-	cfg, err := config.Load()
-	if err == nil {
-		b.lifecycle.MergeConfigHooks(cfg, b.WorkDir(), b.context.GetContextHash())
+		// Fold the host-assembled hooks + MCP into the lifecycle and append the
+		// agent's own context-injection hook from the plugin-side context hash.
+		b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), b.context.GetContextHash())
 	}
 
 	// Flush hooks to settings file

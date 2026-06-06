@@ -524,7 +524,10 @@ Examples:
 			seedTaskIntoSession(workDir, activeHarp, runSeedTask, runSeedStatus)
 		}
 
-		// Build request
+		// Build request. The host now assembles the config/bundle setup payload
+		// (slash commands, hooks, MCP, statusline) and ships it in ManagedConfig
+		// so the backend plugin never self-loads ctxloom config/bundles. The
+		// exports are resolved for this backend's enablement + metadata.
 		req := &pb.RunRequest{
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
@@ -536,6 +539,7 @@ Examples:
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},
+			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir)),
 		}
 
 		// Dry run mode - show the assembled context and prompt

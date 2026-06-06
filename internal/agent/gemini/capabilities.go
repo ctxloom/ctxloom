@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
@@ -94,18 +93,10 @@ func (s *GeminiSkills) RegisterAll(workDir string, skills []Skill) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 
-// RegisterFromContent registers skills from loaded bundle content, mapping each
-// to its gemini command export.
-func (s *GeminiSkills) RegisterFromContent(workDir string, contents []*bundles.LoadedContent) error {
-	cmds := make([]agent.CommandExport, 0, len(contents))
-	for _, p := range contents {
-		cmds = append(cmds, agent.CommandExport{
-			Name:        p.Name,
-			Content:     p.Content,
-			Enabled:     p.LLM.Gemini.IsEnabled(),
-			Description: p.LLM.Gemini.Description,
-		})
-	}
+// RegisterFromContent writes slash commands from host-resolved command exports.
+// The host maps bundle content (with gemini enablement + metadata) to these
+// agent-agnostic exports, so this stays config/bundle-free.
+func (s *GeminiSkills) RegisterFromContent(workDir string, cmds []agent.CommandExport) error {
 	return WriteCommandFiles(workDir, cmds)
 }
 

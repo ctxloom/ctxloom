@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -91,29 +90,37 @@ func (l *BaseLifecycle) Flush(workDir string) error {
 	return l.writeSettings(l.backendName, l.hooks, l.mcp, nil, workDir, l.settingsOpts()...)
 }
 
-// MergeConfigHooks merges hooks and MCP config from the configuration into this lifecycle.
-func (l *BaseLifecycle) MergeConfigHooks(cfg *config.Config, workDir string, contextHash string) {
+// MergeManaged folds the host-assembled ManagedConfig into this lifecycle and
+// appends the agent's own context-injection hook. It is the wire-only successor
+// to MergeConfigHooks: the host now resolves config/profile/bundle hooks and MCP
+// servers (backends.AssembleManagedConfig) and ships them over the wire, so the
+// agent never touches ctxloom config.
+//
+// m.Hooks is the config+default-profile+bundle set WITHOUT context-injection,
+// kept identical to the operations.ApplyHooks write (which also assembles via
+// backends.AssembleManagedHooks) so WriteSettings' remove-all-then-re-add
+// reconcile can't drop a hook one writer assembled but the other didn't — the
+// failure class that once broke forward-bind. The context-injection hook is
+// appended here from the plugin-side contextHash, the one piece only the agent
+// knows.
+func (l *BaseLifecycle) MergeManaged(m *ManagedConfig, workDir string, contextHash string) {
+	if m == nil {
+		return
+	}
 	l.ensureHooks()
 	l.ensureMCP()
-	l.statusLineDisabled = !cfg.Settings.ShouldManageStatusline()
+	l.statusLineDisabled = !m.ManageStatusline
 
-	// Hooks: the complete managed set (config-level + default-profile +
-	// bundle-shipped + context-injection) is assembled by the shared
-	// AssembleManagedHooks so this Setup-time write and the later
-	// operations.ApplyHooks write produce an identical set. Assembling a
-	// partial set here is what left every `ctxloom run` session without
-	// forward-bind; diverging from apply-hooks would resurface the same
-	// drop-on-clobber class for any profile-shipped hook.
-	mergeHooksConfig(l.hooks, AssembleManagedHooks(cfg, workDir, contextHash))
+	if m.Hooks != nil {
+		MergeHooksConfig(l.hooks, m.Hooks)
+	}
+	if contextHash != "" {
+		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart,
+			NewContextInjectionHooks(contextHash, workDir)...)
+	}
 
-	// MCP: config-level + default-profile servers.
-	wire.MergeMCPConfig(l.mcp, &cfg.MCP)
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
-		if err != nil {
-			continue
-		}
-		wire.MergeMCPConfig(l.mcp, &resolved.MCP)
+	if m.MCP != nil {
+		wire.MergeMCPConfig(l.mcp, m.MCP)
 	}
 }
 

@@ -5,7 +5,7 @@ package gemini
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,17 +102,12 @@ func TestGeminiLifecycle_GetMCP(t *testing.T) {
 	mcp := lifecycle.GetMCP()
 	assert.Nil(t, mcp)
 
-	// After merging config with MCP servers
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"test-server": {Command: "test"},
-			},
-			Plugins: make(map[string]map[string]wire.MCPServer),
+	// After merging a managed config carrying MCP servers.
+	lifecycle.MergeManaged(&agent.ManagedConfig{
+		MCP: &wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{"test-server": {Command: "test"}},
 		},
-	}
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
+	}, "/tmp", "")
 
 	mcp = lifecycle.GetMCP()
 	assert.NotNil(t, mcp)

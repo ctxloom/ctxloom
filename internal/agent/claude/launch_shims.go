@@ -58,9 +58,7 @@ var (
 	NewBaseMCPManager      = agent.NewBaseMCPManager
 	NewBaseContextProvider = agent.NewBaseContextProvider
 
-	GetPromptContent     = agent.GetPromptContent
-	LoadPrompts          = agent.LoadPrompts
-	AssembleManagedHooks = agent.AssembleManagedHooks
+	GetPromptContent = agent.GetPromptContent
 
 	previousSessionByListing = agent.PreviousSessionByListing
 )

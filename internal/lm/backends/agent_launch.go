@@ -27,7 +27,8 @@ var (
 
 	NewContextInjectionHook  = agent.NewContextInjectionHook
 	NewContextInjectionHooks = agent.NewContextInjectionHooks
-	AssembleManagedHooks     = agent.AssembleManagedHooks
+	// AssembleManagedHooks is now a real backends-package function (managed.go),
+	// not an agent alias — the config-coupled hook assembly lives host-side.
 
 	WithCommandFS               = agent.WithCommandFS
 	SetExecutablePathForTesting = agent.SetExecutablePathForTesting

@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/ptyrunner"
 )
 
@@ -164,31 +162,3 @@ func GetPromptContent(prompt *Fragment) string {
 	return ""
 }
 
-// LoadPrompts loads all prompts from bundles for slash command export.
-// This is shared logic used by multiple backends.
-func LoadPrompts() []*bundles.LoadedContent {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil
-	}
-
-	// SeededBundleLoader is the only loader that picks up remote bundles
-	// from the lockfile clone cache (see docs/bundle-review-plan.md). Empty
-	// fs dirs are fine — remote-only setups still produce slash commands.
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled())
-	infos, err := loader.ListAllPrompts()
-	if err != nil {
-		return nil
-	}
-
-	var prompts []*bundles.LoadedContent
-	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
-		if err != nil {
-			continue
-		}
-		prompts = append(prompts, content)
-	}
-
-	return prompts
-}

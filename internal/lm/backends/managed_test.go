@@ -1,0 +1,179 @@
+package backends
+
+import (
+	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/wire"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// These cover the HOST side of the setup seam (config/profile/bundle resolution
+// into the wire-typed ManagedConfig). The agent-side fold (MergeManaged) is
+// covered in the per-agent capabilities tests.
+
+// sessionStartCommands returns the SessionStart hook commands in order.
+func sessionStartCommands(h wire.UnifiedHooks) []string {
+	cmds := make([]string, 0, len(h.SessionStart))
+	for _, hook := range h.SessionStart {
+		cmds = append(cmds, hook.Command)
+	}
+	return cmds
+}
+
+// TestAssembleManagedHooks_IncludesProfileSessionStartHook locks in the
+// writer-parity contract: a profile-shipped SessionStart hook must appear in the
+// set AssembleManagedHooks produces (the operations.ApplyHooks path and the
+// `ctxloom run` setup payload both build from it). Before this, Setup merged
+// default-profile hooks and apply-hooks did not, so the next apply-hooks
+// reconcile dropped the profile hook — the drop-on-clobber class that broke
+// forward-bind.
+func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
+	cfg := &config.Config{
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{"p"},
+			Definitions: map[string]config.Profile{
+				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
+				}}},
+			},
+		},
+	}
+
+	assembled := AssembleManagedHooks(cfg, "/tmp", "")
+
+	assert.Contains(t, sessionStartCommands(assembled.Unified), "profile-session-start",
+		"profile-shipped SessionStart hook must be in the assembled set")
+}
+
+// TestAssembleManagedHooks_MatchesSetupSeam is the regression guard against the
+// two writers diverging across the new host/agent seam: the SessionStart set the
+// agent ends up with — host-assembled hooks (no context-injection) plus the
+// context-injection hook the agent appends itself — must equal the set
+// apply-hooks writes via AssembleManagedHooks(cfg, wd, hash). Divergence here is
+// what lets WriteSettings' remove-then-add reconcile drop a managed hook.
+func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
+	newCfg := func() *config.Config {
+		return &config.Config{
+			Hooks: wire.HooksConfig{
+				Unified: wire.UnifiedHooks{
+					SessionStart: []wire.Hook{{Command: "config-session-start", Type: "command"}},
+				},
+				Plugins: make(map[string]wire.BackendHooks),
+			},
+			MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+			Profiles: config.ProfilesConfig{
+				Defaults: []string{"p"},
+				Definitions: map[string]config.Profile{
+					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
+					}}},
+				},
+			},
+		}
+	}
+
+	const hash, wd = "hash123", "/tmp"
+
+	// Setup payload path: host assembles WITHOUT context-injection, the agent
+	// appends it from the plugin-side hash (exactly what MergeManaged does).
+	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "").Unified)
+	for _, h := range agent.NewContextInjectionHooks(hash, wd) {
+		setupCmds = append(setupCmds, h.Command)
+	}
+
+	// apply-hooks path: AssembleManagedHooks resolves the hash inline.
+	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash).Unified)
+
+	assert.Equal(t, applyCmds, setupCmds,
+		"agent (host hooks + appended injection) and apply-hooks must produce an identical SessionStart set")
+}
+
+// TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
+// apply-hooks calls AssembleManagedHooks once per backend in a loop. If it
+// aliased and appended to cfg.Hooks, the second backend would accumulate
+// duplicate bundle/inject hooks.
+func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
+	cfg := &config.Config{
+		Hooks: wire.HooksConfig{
+			Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "config-session-start"}}},
+			Plugins: make(map[string]wire.BackendHooks),
+		},
+	}
+
+	first := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	second := AssembleManagedHooks(cfg, "/tmp", "hash123")
+
+	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
+		"repeated calls must not accumulate hooks via shared config state")
+	assert.Len(t, cfg.Hooks.Unified.SessionStart, 1,
+		"AssembleManagedHooks must not mutate the caller's config.Hooks")
+}
+
+// TestAssembleManagedHooks_WithInvalidProfile must not panic on a default
+// profile reference that has no definition.
+func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
+	cfg := &config.Config{
+		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Profiles: config.ProfilesConfig{
+			Defaults:    []string{"non-existent-profile"},
+			Definitions: map[string]config.Profile{},
+		},
+	}
+
+	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	assert.NotEmpty(t, assembled.Unified.SessionStart, "context-injection hook should still be assembled")
+}
+
+// TestAssembleManagedMCP_MergesProfileServers folds config-level then
+// default-profile MCP servers (the MCP half of the old MergeConfigHooks, now
+// host-side).
+func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
+	cfg := &config.Config{
+		MCP: wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{"config-mcp": {Command: "config-mcp-cmd"}},
+			Plugins: make(map[string]map[string]wire.MCPServer),
+		},
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{"p"},
+			Definitions: map[string]config.Profile{
+				"p": {MCP: wire.MCPConfig{
+					Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
+				}},
+			},
+		},
+	}
+
+	mcp := assembleManagedMCP(cfg)
+	assert.Contains(t, mcp.Servers, "config-mcp")
+	assert.Contains(t, mcp.Servers, "profile-mcp")
+}
+
+// TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
+// from the same bundle content, and returns nil for an unknown backend.
+func TestCommandExportsFor(t *testing.T) {
+	enabled := true
+	c := &bundles.LoadedContent{Name: "x", Content: "body"}
+	c.LLM.ClaudeCode.Enabled = &enabled
+	c.LLM.ClaudeCode.Description = "claude desc"
+	c.LLM.ClaudeCode.ArgumentHint = "hint"
+	c.LLM.Gemini.Enabled = &enabled
+	c.LLM.Gemini.Description = "gemini desc"
+	prompts := []*bundles.LoadedContent{c}
+
+	claudeEx := commandExportsFor("claude-code", prompts)
+	require.Len(t, claudeEx, 1)
+	assert.Equal(t, "claude desc", claudeEx[0].Description)
+	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
+	assert.True(t, claudeEx[0].Enabled)
+
+	geminiEx := commandExportsFor("gemini", prompts)
+	require.Len(t, geminiEx, 1)
+	assert.Equal(t, "gemini desc", geminiEx[0].Description)
+
+	assert.Nil(t, commandExportsFor("unknown-backend", prompts))
+}

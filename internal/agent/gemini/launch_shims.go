@@ -58,7 +58,6 @@ var (
 	NewBaseContextProvider = agent.NewBaseContextProvider
 
 	GetPromptContent = agent.GetPromptContent
-	LoadPrompts      = agent.LoadPrompts
 	ResolveCommandFS = agent.ResolveCommandFS
 
 	previousSessionByListing = agent.PreviousSessionByListing

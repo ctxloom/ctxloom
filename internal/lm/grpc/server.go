@@ -76,6 +76,10 @@ func (s *GRPCServer) Run(req *RunRequest, stream LLM_RunServer) error {
 			Fragments: convertFragments(req.Fragments),
 			Env:       env,
 			Verbosity: verbosity,
+			// Host-assembled config/bundle setup payload (nil when the host
+			// sent none, e.g. skip_setup). Converted from proto back to the
+			// wire-typed Go form the agent's Setup consumes.
+			Managed: managedConfigFromProto(req.GetManagedConfig()),
 		}
 		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
 			return err

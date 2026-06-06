@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/agent"
 	"github.com/ctxloom/shared/wire"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -278,18 +278,16 @@ func TestClaudeSkills_Register_WritesToWorkdir(t *testing.T) {
 	assert.Contains(t, string(manifest), "test-skill")
 }
 
-// TestClaudeSkills_RegisterFromContent covers the bundle-driven path
-// (used by apply-hooks when a bundle ships prompts).
+// TestClaudeSkills_RegisterFromContent covers the host-resolved export path: the
+// host maps bundle content to agent.CommandExport (enablement + metadata already
+// resolved) and the skill writer just emits the command files.
 func TestClaudeSkills_RegisterFromContent(t *testing.T) {
 	workDir := t.TempDir()
 	skills := &ClaudeSkills{backend: NewClaudeCode(writeClaudeSettings)}
 
-	enabled := true
-	content := &bundles.LoadedContent{Name: "from-bundle", Content: "body"}
-	content.LLM.ClaudeCode.Enabled = &enabled
-	content.LLM.ClaudeCode.Description = "From a bundle"
-
-	require.NoError(t, skills.RegisterFromContent(workDir, []*bundles.LoadedContent{content}))
+	require.NoError(t, skills.RegisterFromContent(workDir, []agent.CommandExport{
+		{Name: "from-bundle", Content: "body", Enabled: true, Description: "From a bundle"},
+	}))
 	// Check the manifest tracks it.
 	manifest, err := os.ReadFile(filepath.Join(workDir, ".claude", "commands", ".ctxloom-manifest"))
 	require.NoError(t, err)
@@ -424,228 +422,125 @@ func TestClaudeContext_Clear(t *testing.T) {
 	assert.Equal(t, "", context.GetContextHash())
 }
 
-func TestClaudeLifecycle_MergeConfigHooks_WithContextHash(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
-	lifecycle := NewClaudeLifecycle(backend)
+// The agent-side seam: MergeManaged folds the host-assembled (wire-typed)
+// ManagedConfig into the lifecycle and appends the agent's own context-injection
+// hook. The config/profile/bundle resolution that produces ManagedConfig is
+// covered host-side in internal/lm/backends (managed_test.go).
 
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-	}
+func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
+	lifecycle := NewClaudeLifecycle(NewClaudeCode(writeClaudeSettings))
 
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "abc123hash")
+	lifecycle.MergeManaged(&agent.ManagedConfig{
+		Hooks: &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{}},
+	}, "/tmp", "abc123hash")
 
-	// Verify context injection hook was added
 	hooks := lifecycle.GetHooks()
-	assert.NotEmpty(t, hooks.Unified.SessionStart)
+	var hasInject bool
+	for _, h := range hooks.Unified.SessionStart {
+		if strings.Contains(h.Command, "inject-context") {
+			hasInject = true
+		}
+	}
+	assert.True(t, hasInject, "context-injection hook must be appended when contextHash is set")
 }
 
-func TestClaudeLifecycle_MergeConfigHooks_NoContextHash(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
-	lifecycle := NewClaudeLifecycle(backend)
+func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
+	lifecycle := NewClaudeLifecycle(NewClaudeCode(writeClaudeSettings))
 
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-	}
-
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
+	// Host-assembled SessionStart hooks (e.g. bundle `hook session-bind`) ride in
+	// via ManagedConfig.Hooks; the agent appends only the context-injection hook,
+	// and only when a hash is present.
+	lifecycle.MergeManaged(&agent.ManagedConfig{
+		Hooks: &wire.HooksConfig{
+			Unified: wire.UnifiedHooks{
+				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind"}},
+			},
+			Plugins: map[string]wire.BackendHooks{},
+		},
+	}, "/tmp", "")
 
 	hooks := lifecycle.GetHooks()
-	// Without a context hash, the context-injection hook is omitted...
 	for _, h := range hooks.Unified.SessionStart {
 		assert.NotContains(t, h.Command, "inject-context",
 			"context-injection hook must not be added when contextHash is empty")
 	}
-	// ...but the bundle-shipped SessionStart hooks (e.g. `hook session-bind`) are
-	// still assembled. Setup omitting these is what left every `ctxloom run`
-	// session launching without forward-bind.
 	var hasBind bool
 	for _, h := range hooks.Unified.SessionStart {
 		if strings.Contains(h.Command, "session-bind") {
 			hasBind = true
 		}
 	}
-	assert.True(t, hasBind, "bundle `hook session-bind` hook should be present even without a context hash")
+	assert.True(t, hasBind, "host-assembled SessionStart hooks must be preserved")
 }
 
-func TestBaseLifecycle_MergeConfigHooks_WithDefaultProfiles(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
-	lifecycle := NewClaudeLifecycle(backend)
+func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
+	lifecycle := NewClaudeLifecycle(NewClaudeCode(writeClaudeSettings))
 
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-		Profiles: config.ProfilesConfig{
-			Defaults: []string{"test-profile"},
-			Definitions: map[string]config.Profile{
-				"test-profile": {
-					Hooks: wire.HooksConfig{
-						Unified: wire.UnifiedHooks{
-							PreTool: []wire.Hook{{Command: "profile-hook"}},
-						},
-					},
-					MCP: wire.MCPConfig{
-						Servers: map[string]wire.MCPServer{
-							"profile-mcp": {Command: "profile-mcp-cmd"},
-						},
-					},
-				},
-			},
+	lifecycle.MergeManaged(&agent.ManagedConfig{
+		Hooks: &wire.HooksConfig{
+			Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "profile-hook"}}},
+			Plugins: map[string]wire.BackendHooks{},
 		},
-	}
+		MCP: &wire.MCPConfig{
+			Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
+		},
+	}, "/tmp", "hash123")
 
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "hash123")
-
-	// Hooks from profile should be merged
 	hooks := lifecycle.GetHooks()
 	assert.Len(t, hooks.Unified.PreTool, 1)
 	assert.Equal(t, "profile-hook", hooks.Unified.PreTool[0].Command)
 
-	// MCP from profile should be merged
 	mcp := lifecycle.GetMCP()
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }
 
-func TestBaseLifecycle_MergeConfigHooks_WithInvalidProfile(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
-	lifecycle := NewClaudeLifecycle(backend)
+// TestClaudeLifecycle_MergeManaged_Statusline verifies the manage_statusline
+// payload bit drives the writer end-to-end through the real settings.json write:
+// ManageStatusline=true installs the ctxloom statusline, false omits it. This is
+// the statusline's full path now that the host (not the plugin reading config)
+// decides whether to manage it.
+func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
+	t.Run("managed installs statusline", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		lifecycle := NewClaudeLifecycle(NewClaudeCode(memWriteClaudeSettings(fs)))
+		lifecycle.MergeManaged(&agent.ManagedConfig{ManageStatusline: true}, "/proj", "")
+		require.NoError(t, lifecycle.Flush("/proj"))
 
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP:   wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"non-existent-profile"},
-			Definitions: map[string]config.Profile{}, // No profiles defined
-		},
-	}
+		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "statusLine", "ManageStatusline=true must write a ctxloom statusline")
+	})
 
-	// Should not panic with invalid profile reference
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "hash123")
+	t.Run("opt-out omits statusline", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		lifecycle := NewClaudeLifecycle(NewClaudeCode(memWriteClaudeSettings(fs)))
+		lifecycle.MergeManaged(&agent.ManagedConfig{ManageStatusline: false}, "/proj", "")
+		require.NoError(t, lifecycle.Flush("/proj"))
 
-	// Should still have context injection hook
-	hooks := lifecycle.GetHooks()
-	assert.NotEmpty(t, hooks.Unified.SessionStart)
+		data, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", "settings.json"))
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "statusLine", "ManageStatusline=false must not write a statusline")
+	})
 }
 
-// sessionStartCommands returns the SessionStart hook commands in order.
-func sessionStartCommands(h wire.UnifiedHooks) []string {
-	cmds := make([]string, 0, len(h.SessionStart))
-	for _, hook := range h.SessionStart {
-		cmds = append(cmds, hook.Command)
-	}
-	return cmds
-}
-
-// TestAssembleManagedHooks_IncludesProfileSessionStartHook locks in the
-// writer-parity contract: a profile-shipped SessionStart hook must appear in
-// the set assembled by AssembleManagedHooks (the operations.ApplyHooks path),
-// not only the `ctxloom run` Setup path. Before this, Setup merged default-
-// profile hooks and apply-hooks did not, so the next apply-hooks reconcile
-// dropped the profile hook — the same drop-on-clobber class that broke
-// forward-bind.
-func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		Profiles: config.ProfilesConfig{
-			Defaults: []string{"p"},
-			Definitions: map[string]config.Profile{
-				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
-				}}},
-			},
-		},
-	}
-
-	assembled := AssembleManagedHooks(cfg, "/tmp", "")
-
-	assert.Contains(t, sessionStartCommands(assembled.Unified), "profile-session-start",
-		"profile-shipped SessionStart hook must be in the assembled set used by apply-hooks")
-}
-
-// TestAssembleManagedHooks_MatchesSetup is the core regression guard against the
-// two writers diverging: the set MergeConfigHooks (Setup) writes must equal the
-// set AssembleManagedHooks (apply-hooks) writes, for a config exercising both
-// config-level and profile-level SessionStart hooks. Divergence here is exactly
-// what lets WriteSettings' remove-then-add reconcile drop a managed hook.
-func TestAssembleManagedHooks_MatchesSetup(t *testing.T) {
-	newCfg := func() *config.Config {
-		return &config.Config{
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{{Command: "config-session-start", Type: "command"}},
-				},
-				Plugins: make(map[string]wire.BackendHooks),
-			},
-			MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
-			Profiles: config.ProfilesConfig{
-				Defaults: []string{"p"},
-				Definitions: map[string]config.Profile{
-					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
-						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
-					}}},
-				},
-			},
-		}
-	}
-
-	// Setup path.
+func TestClaudeLifecycle_MergeManaged_NilIsNoOp(t *testing.T) {
 	lifecycle := NewClaudeLifecycle(NewClaudeCode(writeClaudeSettings))
-	lifecycle.MergeConfigHooks(newCfg(), "/tmp", "hash123")
-	setupCmds := sessionStartCommands(lifecycle.GetHooks().Unified)
-
-	// apply-hooks path.
-	assembled := AssembleManagedHooks(newCfg(), "/tmp", "hash123")
-	applyCmds := sessionStartCommands(assembled.Unified)
-
-	assert.Equal(t, setupCmds, applyCmds,
-		"Setup (MergeConfigHooks) and apply-hooks (AssembleManagedHooks) must produce an identical SessionStart set")
-}
-
-// TestAssembleManagedHooks_DoesNotMutateConfig guards the duplication fix:
-// apply-hooks calls AssembleManagedHooks once per backend in a loop. If it
-// aliased and appended to cfg.Hooks (the old `hooksCfg := &freshCfg.Hooks`
-// pattern), the second backend would accumulate duplicate bundle/inject hooks.
-// Asserting two calls return identical-length sets proves it builds fresh.
-func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{
-			Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "config-session-start"}}},
-			Plugins: make(map[string]wire.BackendHooks),
-		},
-	}
-
-	first := AssembleManagedHooks(cfg, "/tmp", "hash123")
-	second := AssembleManagedHooks(cfg, "/tmp", "hash123")
-
-	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
-		"repeated calls must not accumulate hooks via shared config state")
-	assert.Len(t, cfg.Hooks.Unified.SessionStart, 1,
-		"AssembleManagedHooks must not mutate the caller's config.Hooks")
+	lifecycle.MergeManaged(nil, "/tmp", "hash123") // must not panic
+	assert.Nil(t, lifecycle.GetHooks(), "nil managed config must not initialize hook state")
 }
 
 func TestClaudeLifecycle_GetMCP(t *testing.T) {
-	backend := NewClaudeCode(writeClaudeSettings)
-	lifecycle := NewClaudeLifecycle(backend)
+	lifecycle := NewClaudeLifecycle(NewClaudeCode(writeClaudeSettings))
 
 	// Initially nil
-	mcp := lifecycle.GetMCP()
-	assert.Nil(t, mcp)
+	assert.Nil(t, lifecycle.GetMCP())
 
-	// After adding a server, MCP config should exist
-	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
-		MCP: wire.MCPConfig{
-			Servers: map[string]wire.MCPServer{
-				"test-server": {Command: "test"},
-			},
-			Plugins: make(map[string]map[string]wire.MCPServer),
-		},
-	}
-	lifecycle.MergeConfigHooks(cfg, "/tmp", "")
+	// After merging a managed config carrying MCP servers.
+	lifecycle.MergeManaged(&agent.ManagedConfig{
+		MCP: &wire.MCPConfig{Servers: map[string]wire.MCPServer{"test-server": {Command: "test"}}},
+	}, "/tmp", "")
 
-	mcp = lifecycle.GetMCP()
-	assert.NotNil(t, mcp)
+	assert.NotNil(t, lifecycle.GetMCP())
 }
 
 func TestClaudeCode_History(t *testing.T) {

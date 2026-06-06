@@ -77,17 +77,31 @@ func IsAvailable(name string) bool {
 func init() {
 	// Register all built-in backends along with their config decoders. The
 	// decoder turns a labeled entry's raw body into the backend's typed config.
-	Register("claude-code", func() Backend { return claude.NewClaudeCode(WriteSettings) })
+	// Each local-CLI backend gets ctxloom's pty-backed launcher injected — the
+	// substrate no longer execs processes itself.
+	Register("claude-code", func() Backend {
+		b := claude.NewClaudeCode(WriteSettings)
+		b.SetLauncher(RunLaunchSpec)
+		return b
+	})
 	RegisterConfig("claude-code", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &ClaudeConfig{})
 	})
 
-	Register("gemini", func() Backend { return gemini.NewGemini(WriteSettings) })
+	Register("gemini", func() Backend {
+		b := gemini.NewGemini(WriteSettings)
+		b.SetLauncher(RunLaunchSpec)
+		return b
+	})
 	RegisterConfig("gemini", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &GeminiConfig{})
 	})
 
-	Register("codex", func() Backend { return NewCodex() })
+	Register("codex", func() Backend {
+		b := NewCodex()
+		b.SetLauncher(RunLaunchSpec)
+		return b
+	})
 	RegisterConfig("codex", func(body map[string]interface{}) (BackendConfig, error) {
 		return decodeBody(body, &CodexConfig{})
 	})

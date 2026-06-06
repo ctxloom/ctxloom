@@ -5,11 +5,33 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/ptyrunner"
 )
+
+// LaunchSpec describes a process for the runtime to execute: the agent declares
+// what to run (binary/args/merged-env/workdir and whether it needs a terminal),
+// and ctxloom's injected Launcher runs it. Process execution is the runtime's
+// concern, so it carries no os/exec or pty dependency into this engine-agnostic
+// substrate.
+type LaunchSpec struct {
+	BinaryPath  string
+	Args        []string
+	Env         []string // full environment (already merged via BuildEnv)
+	WorkDir     string
+	Interactive bool // true → allocate a pty so the child sees a terminal
+}
+
+// Launcher runs a LaunchSpec, streaming the child's stdout/stderr to the given
+// writers, and returns the process exit code. ctxloom injects a pty-backed
+// implementation (SetLauncher); see internal/lm/backends.RunLaunchSpec.
+//
+// Launch is owned by ctxloom (the runtime), not the agent: a single home for the
+// pty owns terminal allocation, resize, and stdio wiring, shared by every agent.
+//
+// TODO: generalize "launch" to a broader "open/connect a session" operation.
+// Spawning a local CLI in a pty is only ONE realization; a cloud/remote agent
+// would connect to an already-running session instead — no process, no pty.
+type Launcher func(ctx context.Context, spec LaunchSpec, stdout, stderr io.Writer) (int32, error)
 
 // BaseBackend provides common functionality for all AI backends.
 // Embed this struct in concrete backend implementations.
@@ -20,6 +42,13 @@ type BaseBackend struct {
 	Args       []string
 	Env        map[string]string
 	workDir    string
+	launcher   Launcher
+}
+
+// SetLauncher injects the process launcher. ctxloom sets a pty-backed launcher at
+// registry construction; a backend with no launcher cannot run a local process.
+func (b *BaseBackend) SetLauncher(l Launcher) {
+	b.launcher = l
 }
 
 // NewBaseBackend creates a new BaseBackend with the given name and version.
@@ -79,63 +108,31 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	return env
 }
 
-// RunInteractive runs a command in interactive mode using a PTY.
-// The PTY ensures the child process sees a terminal, enabling interactive CLI tools
-// to work correctly even when stdin is a pipe (e.g., from go-plugin gRPC).
-//
-// Launch is owned by ctxloom (the runtime), not the agent: the agent declares
-// what to run (binary/args/env via the spec it returns); ctxloom allocates the
-// pty and execs it. The motivation is a single home for the pty — one place that
-// owns terminal allocation, resize, and stdio wiring — shared by every agent.
-//
-// TODO: generalize "launch" to a broader "open/connect a session" operation.
-// Spawning a local CLI in a pty is only ONE realization; a cloud/remote agent
-// would connect to an already-running session instead — no process, no pty. The
-// agent contract should expose an open/connect step whose local-CLI
-// implementation is this pty launch, rather than baking process-spawn into every
-// backend. Revisit whether even this belongs on the agent or only on a
-// "locally-launched" capability cloud backends don't implement.
-func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr interface{ Write([]byte) (int, error) }) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
-	cmd.Dir = b.WorkDir()
-	cmd.Env = b.BuildEnv(env)
-
-	result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
-	if err != nil {
-		return 1, fmt.Errorf("failed to run %s: %w", b.name, err)
-	}
-
-	return int32(result.ExitCode), nil
+// RunInteractive runs the backend's command in interactive mode (the injected
+// launcher allocates a pty so the child sees a terminal even when stdin is a pipe
+// from go-plugin gRPC).
+func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr io.Writer) (int32, error) {
+	return b.run(ctx, args, env, true, stdout, stderr)
 }
 
-// RunNonInteractive runs a command in non-interactive mode.
-func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr interface{ Write([]byte) (int, error) }) (int32, error) {
-	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
-	cmd.Dir = b.WorkDir()
-	cmd.Env = b.BuildEnv(env)
+// RunNonInteractive runs the backend's command without a pty.
+func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr io.Writer) (int32, error) {
+	return b.run(ctx, args, env, false, stdout, stderr)
+}
 
-	// Don't attach stdin - non-interactive mode should not wait for input
-	cmd.Stdin = nil
-	if stdout != nil {
-		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
-	} else {
-		cmd.Stdout = os.Stdout
+// run builds the LaunchSpec from the backend's state and hands it to the injected
+// launcher. The substrate never execs a process itself.
+func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdout, stderr io.Writer) (int32, error) {
+	if b.launcher == nil {
+		return 1, fmt.Errorf("no launcher configured for %s", b.name)
 	}
-	if stderr != nil {
-		cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
-	} else {
-		cmd.Stderr = os.Stderr
-	}
-
-	err := cmd.Run()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return int32(exitErr.ExitCode()), nil
-		}
-		return 1, fmt.Errorf("failed to run %s: %w", b.name, err)
-	}
-
-	return 0, nil
+	return b.launcher(ctx, LaunchSpec{
+		BinaryPath:  b.BinaryPath,
+		Args:        args,
+		Env:         b.BuildEnv(env),
+		WorkDir:     b.WorkDir(),
+		Interactive: interactive,
+	}, stdout, stderr)
 }
 
 // AssembleContext combines fragments into a single context string.

@@ -209,6 +209,15 @@ type SessionMeta struct {
 	Path string
 }
 
+// PlanFile is one plan document from a session's ctxloom session directory
+// (`~/.ctxloom/sessions/<harp>/<name>.plan.md`), served by the agent server so
+// ctxloom can fold a session's plans into its distilled output (and carry them
+// across a cross-agent handoff). A plain value DTO that crosses the wire.
+type PlanFile struct {
+	Name    string // descriptive base name (no .plan.md extension)
+	Content string // the plan document's verbatim markdown
+}
+
 // SessionEntry represents a single turn in the conversation.
 type SessionEntry struct {
 	Timestamp  time.Time

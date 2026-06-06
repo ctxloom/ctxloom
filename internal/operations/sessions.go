@@ -80,6 +80,26 @@ func selectPreviousEntry(entries []sessions.Entry, activeHarp string) *PreviousS
 	return nil
 }
 
+// HarpForSession returns the harp that owns the given backend session id, or ""
+// if the index has no bound entry for it. Used to key a distilled session's plan
+// files (stored under ~/.ctxloom/sessions/<harp>/) when distilling a session by
+// id — e.g. a previous or cross-agent session, where the active harp is wrong.
+func HarpForSession(sessionID string) (string, error) {
+	if sessionID == "" {
+		return "", nil
+	}
+	entries, err := ListSessions()
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.SessionID == sessionID {
+			return e.HarpName, nil
+		}
+	}
+	return "", nil
+}
+
 // GetSession returns the entry for harp, or nil if absent.
 func GetSession(harp string) (*sessions.Entry, error) {
 	mgr, err := openSessions()

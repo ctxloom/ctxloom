@@ -24,6 +24,29 @@ service LLM {
   // ListSessions returns metadata for the backend's transcripts (its raw store
   // view), used by ctxloom to adopt sessions its index has not bound.
   rpc ListSessions(ListSessionsRequest) returns (SessionList);
+
+  // GetPlans returns the plan documents (*.plan.md) the agent wrote to a
+  // session's ctxloom session directory, keyed by harp. The agent server is
+  // co-located with the session files and is self-situated (it resolves its own
+  // ctxloom home), so it serves these for distill / cross-agent handoff; ctxloom
+  // passes only the location-independent harp.
+  rpc GetPlans(GetPlansRequest) returns (PlansData);
+}
+
+// GetPlansRequest locates a session's plan files by harp (the ctxloom session
+// id), not a path — the agent resolves its own session directory.
+message GetPlansRequest {
+  string harp = 1;
+}
+
+message PlansData {
+  repeated PlanFile plans = 1;
+}
+
+// PlanFile mirrors agent.PlanFile: one plan document.
+message PlanFile {
+  string name = 1;    // descriptive base name (no .plan.md extension)
+  string content = 2; // verbatim plan markdown
 }
 
 // GetSessionRequest locates a single transcript by its agent-agnostic session id.

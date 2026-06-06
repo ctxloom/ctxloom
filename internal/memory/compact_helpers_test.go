@@ -77,10 +77,8 @@ func TestResolveHarpName(t *testing.T) {
 	})
 }
 
-// updateSessionIndex and writePlansAux are no-ops without a harp name; verify
-// they don't panic or touch anything in that case (the common non-harp path).
-func TestSessionIndexAndPlansAux_NoHarpAreNoops(t *testing.T) {
+// updateSessionIndex is a no-op without a harp name; verify it doesn't panic or
+// touch the index in that case (the common non-harp path).
+func TestSessionIndexNoHarpIsNoop(t *testing.T) {
 	updateSessionIndex("", "sess-id", "summary") // must not panic / open index
-	writePlansAux("", []PlanBlock{{Content: "x"}})
-	writePlansAux("some-harp", nil) // no plans → no-op
 }

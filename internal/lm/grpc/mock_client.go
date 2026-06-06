@@ -25,6 +25,9 @@ type MockClient struct {
 	// ListSessionsFunc is called when ListSessions is invoked.
 	ListSessionsFunc func(ctx context.Context) ([]agent.SessionMeta, error)
 
+	// GetPlansFunc is called when GetPlans is invoked.
+	GetPlansFunc func(ctx context.Context, harp string) ([]agent.PlanFile, error)
+
 	// KillFunc is called when Kill is invoked.
 	KillFunc func()
 
@@ -81,6 +84,14 @@ func (m *MockClient) ListSessions(ctx context.Context) ([]agent.SessionMeta, err
 	m.ListSessionsCalls++
 	if m.ListSessionsFunc != nil {
 		return m.ListSessionsFunc(ctx)
+	}
+	return nil, nil
+}
+
+// GetPlans returns a session's plan documents, defaulting to none.
+func (m *MockClient) GetPlans(ctx context.Context, harp string) ([]agent.PlanFile, error) {
+	if m.GetPlansFunc != nil {
+		return m.GetPlansFunc(ctx, harp)
 	}
 	return nil, nil
 }

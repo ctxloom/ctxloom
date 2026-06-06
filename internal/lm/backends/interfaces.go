@@ -20,6 +20,7 @@ type (
 	Session          = agent.Session
 	SessionMeta      = agent.SessionMeta
 	SessionEntry     = agent.SessionEntry
+	PlanFile         = agent.PlanFile
 	SetupRequest     = agent.SetupRequest
 	ExecuteRequest   = agent.ExecuteRequest
 	ExecuteResult    = agent.ExecuteResult

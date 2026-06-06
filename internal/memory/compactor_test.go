@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -51,7 +50,7 @@ func TestCompactor_SessionToText(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session, nil)
+	text := c.sessionToText(session)
 
 	assert.Contains(t, text, "## User\nHello")
 	assert.Contains(t, text, "## Assistant\nHi there!")
@@ -76,7 +75,7 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session, nil)
+	text := c.sessionToText(session)
 
 	// Should be truncated with "..."
 	assert.Contains(t, text, "...")
@@ -91,7 +90,7 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 		},
 	}
 
-	text := c.sessionToText(session, nil)
+	text := c.sessionToText(session)
 
 	assert.Contains(t, text, "[ERROR]")
 }
@@ -473,36 +472,35 @@ func TestCompact_WithMockClient(t *testing.T) {
 }
 
 func TestCompact_PreservesPlansVerbatim(t *testing.T) {
-	testsupport.Isolate(t)
+	home := testsupport.Isolate(t)
 	tmpDir := t.TempDir()
+	t.Setenv("CTXLOOM_SESSION_HARP", "plan-harp") // after Isolate, which clears it
 
+	// Seed a plan document in the harp's ctxloom session dir — what the agent
+	// would have written during the session. Compaction reads it from there (via
+	// the agent server in production; directly here), not from the transcript.
 	planBody := "1. design the schema\n2. migrate data with backfill\n3. verify with smoke tests"
-	toolInput, err := json.Marshal(map[string]string{"plan": planBody})
-	require.NoError(t, err)
+	planDir := filepath.Join(home, ".ctxloom", "sessions", "plan-harp")
+	require.NoError(t, os.MkdirAll(planDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(planDir, "schema.plan.md"), []byte(planBody), 0o644))
 
-	mockHistory := &mockSessionHistory{
+	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &backends.Session{
 			ID: "plan-survival",
 			Entries: []backends.SessionEntry{
 				{Type: backends.EntryTypeUser, Content: "make a plan"},
-				{
-					Type:      backends.EntryTypeToolUse,
-					ToolName:  "ExitPlanMode",
-					ToolInput: toolInput,
-				},
 				{Type: backends.EntryTypeAssistant, Content: "plan ready"},
 			},
 		},
-	}
-	mockBe := &mockBackend{history: mockHistory}
+	}}
 
-	// Capture the prompt the LLM sees so we can assert plan content was
-	// excised in favor of a placeholder.
+	// Capture the prompt the LLM sees: plans live in files, so the transcript
+	// the LLM summarizes never carries the plan body.
 	var sawLLMInput string
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
 			sawLLMInput = req.Prompt.Content
-			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan; see plan-block #1."))
+			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan."))
 			return 0, nil
 		},
 	}
@@ -517,15 +515,14 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	_, err = compactor.Compact(context.Background())
 	require.NoError(t, err)
 
-	// The LLM should have seen the placeholder, never the plan body.
-	assert.Contains(t, sawLLMInput, "[plan-block #1 — ExitPlanMode, preserved below]")
-	assert.NotContains(t, sawLLMInput, planBody)
+	assert.NotContains(t, sawLLMInput, planBody, "plan files are not fed to the summary LLM")
 
 	loaded, err := LoadDistilledSession(tmpDir, "plan-survival")
 	require.NoError(t, err)
 	assert.Equal(t, 1, loaded.PlanBlocks)
 	assert.Contains(t, loaded.Body, "## Preserved plans")
-	assert.Contains(t, loaded.Body, planBody)
+	assert.Contains(t, loaded.Body, planBody, "the plan file is re-attached verbatim")
+	assert.Contains(t, loaded.Body, "schema", "the plan file's name labels its block")
 }
 
 func TestCompact_BySessionID(t *testing.T) {

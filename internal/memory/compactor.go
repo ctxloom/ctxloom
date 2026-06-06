@@ -57,6 +57,7 @@ type CompactionResult struct {
 type Compactor struct {
 	config        CompactionConfig
 	source        pb.SessionSource
+	plans         func(context.Context, string) ([]backends.PlanFile, error)
 	clientFactory pb.ClientFactory
 }
 
@@ -97,19 +98,29 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	// agent server (pb.SessionReader) so the same path serves a remote agent and
 	// ctxloom never parses backend files in-process. Tests inject a backend whose
 	// in-process SessionHistory is adapted to the same SessionSource contract.
-	var source pb.SessionSource
+	var (
+		source pb.SessionSource
+		plans  func(context.Context, string) ([]backends.PlanFile, error)
+	)
 	if config.BackendOverride != nil {
 		if h := config.BackendOverride.History(); h != nil {
 			source = memoryHistorySource{history: h, workDir: config.WorkDir}
 		}
 		// h == nil leaves source nil → loadSessionToCompact reports "no history".
+		// Tests read plan files directly from the (isolated) session dir.
+		plans = func(_ context.Context, harp string) ([]backends.PlanFile, error) {
+			return pb.ReadPlanFiles(harp), nil
+		}
 	} else {
-		source = pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
+		reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
+		source = reader
+		plans = reader.GetPlans
 	}
 
 	return &Compactor{
 		config:        config,
 		source:        source,
+		plans:         plans,
 		clientFactory: config.ClientFactory,
 	}, nil
 }
@@ -124,14 +135,18 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		return nil, err
 	}
 	result.SessionID = session.ID
+	harpName := c.resolveHarpName()
 
-	// Extract plan blocks up front so they bypass the LLM compression pass
-	// and are re-attached verbatim to the final output.
-	plans := ExtractPlans(session)
+	// Plans are the session's own .plan.md documents, read from its ctxloom
+	// session directory and served by the agent server — not mined from the
+	// transcript. They bypass the LLM compression pass and are re-attached
+	// verbatim. Best-effort: a retrieval failure just omits them.
+	planFiles, _ := c.plans(ctx, harpName)
+	plans := planFilesToBlocks(planFiles)
 
-	// Convert entries to text for chunking, with placeholders replacing
-	// plan-bearing entries so the model doesn't try to summarize them.
-	logText := c.sessionToText(session, indexBlocksByEntry(plans))
+	// Convert entries to text for chunking. Plans live in separate files now, so
+	// there are no in-transcript plan blocks to placeholder out.
+	logText := c.sessionToText(session)
 	result.TotalTokensIn = estimateTokens(logText)
 
 	// Chunk the log, distill each chunk, then optionally re-compress.
@@ -160,7 +175,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	summary = deriveSummary(summary, cleanedBody)
 
 	body := assembleBody(cleanedBody, plans)
-	harpName := c.resolveHarpName()
 
 	// Save distilled output
 	distilledPath, err := c.saveDistilled(session.ID, body, distilledMeta{
@@ -177,7 +191,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.DistilledPath = distilledPath
 
 	updateSessionIndex(harpName, session.ID, summary)
-	writePlansAux(harpName, plans)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -292,37 +305,14 @@ func updateSessionIndex(harpName, sessionID, summary string) {
 	}
 }
 
-// writePlansAux writes plans.md under the harp dir (Phase 3.6) as a grep-able
-// redundant copy of the plans already embedded in essence.md. No-op without a
-// harp name or plans; best-effort (errors ignored).
-func writePlansAux(harpName string, plans []PlanBlock) {
-	if harpName == "" || len(plans) == 0 {
-		return
-	}
-	dir, err := harpSessionDir(harpName)
-	if err != nil {
-		return
-	}
-	if err := os.MkdirAll(dir, 0o755); err == nil {
-		_ = os.WriteFile(filepath.Join(dir, "plans.md"), []byte(RenderPlans(plans)), 0o644)
-	}
-}
-
-// sessionToText converts a session to readable text for distillation.
-// Entries that hold plan content are replaced with placeholders so the
-// summary LLM doesn't try to paraphrase them; the verbatim plan blocks
-// are appended to the final output separately.
-func (c *Compactor) sessionToText(session *backends.Session, plansByEntry map[int]PlanBlock) string {
+// sessionToText converts a session to readable text for distillation. Plans
+// live in separate .plan.md files (re-attached verbatim from RenderPlans), so
+// the transcript text is rendered straight through.
+func (c *Compactor) sessionToText(session *backends.Session) string {
 	var builder strings.Builder
-
-	for i, entry := range session.Entries {
-		if block, ok := plansByEntry[i]; ok {
-			_, _ = fmt.Fprintf(&builder, "## Tool Call: %s\n%s\n\n", entry.ToolName, PlaceholderForBlock(block))
-			continue
-		}
+	for _, entry := range session.Entries {
 		appendEntryText(&builder, entry)
 	}
-
 	return builder.String()
 }
 

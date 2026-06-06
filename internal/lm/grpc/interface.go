@@ -29,6 +29,9 @@ type Client interface {
 	// workspace.
 	ListSessions(ctx context.Context) ([]agent.SessionMeta, error)
 
+	// GetPlans returns a session's plan documents, keyed by harp.
+	GetPlans(ctx context.Context, harp string) ([]agent.PlanFile, error)
+
 	// Kill terminates the plugin process.
 	Kill()
 }

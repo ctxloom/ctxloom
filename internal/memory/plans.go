@@ -1,10 +1,7 @@
 package memory
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -21,21 +18,16 @@ const (
 	PlanKindPlanFile     PlanKind = "plan_file"
 )
 
-// PlanBlock is a chunk of plan content lifted verbatim from a session
-// transcript. The distiller emits a placeholder where the block appeared
-// and re-attaches the full content as a trailing section so the summary
-// LLM never has to paraphrase it.
+// PlanBlock is a plan document preserved verbatim in the distilled output. The
+// distiller re-attaches the full content as a trailing section so the summary
+// LLM never has to paraphrase it. Plans come from the session's .plan.md files
+// (served by the agent server), not from the transcript.
 type PlanBlock struct {
-	Index     int       // 1-based position within the session
-	Kind      PlanKind  // Detection source
-	Timestamp time.Time // Entry timestamp (zero if not parseable)
-	Label     string    // Short handle: tool name, file basename, etc.
-	Content   string    // Verbatim plan text
-
-	// entryIdx is the index into session.Entries where this block lives,
-	// used to drive placeholder insertion. Unexported because callers
-	// outside this package have no business with it.
-	entryIdx int
+	Index     int       // 1-based position
+	Kind      PlanKind  // source kind (plan_file for session-dir documents)
+	Timestamp time.Time // optional; zero for file plans
+	Label     string    // short handle: the plan file's base name
+	Content   string    // verbatim plan markdown
 }
 
 // planFileRegex matches paths that look like project plan documents.
@@ -50,153 +42,19 @@ func IsPlanFile(path string) bool {
 	return planFileRegex.MatchString(path)
 }
 
-// IsPlanEntry reports whether an entry should be preserved verbatim.
-func IsPlanEntry(entry backends.SessionEntry) bool {
-	if entry.Type != backends.EntryTypeToolUse {
-		return false
-	}
-	switch entry.ToolName {
-	case "ExitPlanMode", "TodoWrite", "TaskCreate", "TaskUpdate":
-		return true
-	case "Write", "Edit":
-		return inputMatchesPlanFile(entry.ToolInput)
-	}
-	return false
-}
-
-func inputMatchesPlanFile(input json.RawMessage) bool {
-	if len(input) == 0 {
-		return false
-	}
-	var parsed struct {
-		FilePath string `json:"file_path"`
-	}
-	if err := json.Unmarshal(input, &parsed); err != nil || parsed.FilePath == "" {
-		return false
-	}
-	return planFileRegex.MatchString(parsed.FilePath)
-}
-
-// ExtractPlans returns each plan block found in the session, in order.
-func ExtractPlans(session *backends.Session) []PlanBlock {
-	if session == nil {
-		return nil
-	}
-	var blocks []PlanBlock
-	for i, entry := range session.Entries {
-		if !IsPlanEntry(entry) {
-			continue
-		}
-		block, ok := planFromEntry(entry, len(blocks)+1)
-		if !ok {
-			continue
-		}
-		block.entryIdx = i
-		blocks = append(blocks, block)
+// planFilesToBlocks converts a session's plan documents (read from its ctxloom
+// session directory) into ordered PlanBlocks for verbatim re-attachment.
+func planFilesToBlocks(files []backends.PlanFile) []PlanBlock {
+	blocks := make([]PlanBlock, 0, len(files))
+	for i, f := range files {
+		blocks = append(blocks, PlanBlock{
+			Index:   i + 1,
+			Kind:    PlanKindPlanFile,
+			Label:   f.Name,
+			Content: f.Content,
+		})
 	}
 	return blocks
-}
-
-func planFromEntry(entry backends.SessionEntry, index int) (PlanBlock, bool) {
-	block := PlanBlock{Index: index, Timestamp: entry.Timestamp}
-
-	switch entry.ToolName {
-	case "ExitPlanMode":
-		return planFromExitPlanMode(entry, block)
-	case "TodoWrite", "TaskCreate", "TaskUpdate":
-		return planFromTaskWrite(entry, block)
-	case "Write":
-		return planFromWriteTool(entry, block)
-	case "Edit":
-		return planFromEditTool(entry, block)
-	}
-
-	return block, false
-}
-
-// planFromExitPlanMode captures the plan text from an ExitPlanMode call.
-func planFromExitPlanMode(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
-	var parsed struct {
-		Plan string `json:"plan"`
-	}
-	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Plan == "" {
-		return block, false
-	}
-	block.Kind = PlanKindExitPlanMode
-	block.Label = "ExitPlanMode"
-	block.Content = parsed.Plan
-	return block, true
-}
-
-// planFromTaskWrite captures the pretty-printed input of a TodoWrite/Task* call.
-func planFromTaskWrite(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
-	pretty, err := prettyJSON(entry.ToolInput)
-	if err != nil || pretty == "" {
-		return block, false
-	}
-	block.Kind = PlanKindTodoWrite
-	block.Label = entry.ToolName
-	block.Content = pretty
-	return block, true
-}
-
-// planFromWriteTool captures a written plan file's content.
-func planFromWriteTool(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
-	var parsed struct {
-		FilePath string `json:"file_path"`
-		Content  string `json:"content"`
-	}
-	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.Content == "" {
-		return block, false
-	}
-	block.Kind = PlanKindPlanFile
-	block.Label = filepath.Base(parsed.FilePath)
-	block.Content = parsed.Content
-	return block, true
-}
-
-// planFromEditTool records an Edit's patch verbatim. We don't have the full
-// post-edit file from a JSONL entry, so the patch beats letting the summary
-// paraphrase it.
-func planFromEditTool(entry backends.SessionEntry, block PlanBlock) (PlanBlock, bool) {
-	var parsed struct {
-		FilePath  string `json:"file_path"`
-		NewString string `json:"new_string"`
-		OldString string `json:"old_string"`
-	}
-	if err := json.Unmarshal(entry.ToolInput, &parsed); err != nil || parsed.NewString == "" {
-		return block, false
-	}
-	block.Kind = PlanKindPlanFile
-	block.Label = filepath.Base(parsed.FilePath) + " (edit)"
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "**Edit applied to %s**\n\n", parsed.FilePath)
-	b.WriteString("Replaced:\n```\n")
-	b.WriteString(parsed.OldString)
-	b.WriteString("\n```\n\nWith:\n```\n")
-	b.WriteString(parsed.NewString)
-	b.WriteString("\n```")
-	block.Content = b.String()
-	return block, true
-}
-
-func prettyJSON(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
-		return "", nil
-	}
-	var buf bytes.Buffer
-	if err := json.Indent(&buf, raw, "", "  "); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
-// PlaceholderForBlock returns the marker that takes the block's place in the
-// chunked text sent to the LLM. The distiller prompt instructs the model to
-// reference these by number rather than paraphrase them.
-func PlaceholderForBlock(block PlanBlock) string {
-	return fmt.Sprintf("[plan-block #%d — %s, preserved below]", block.Index, block.Label)
 }
 
 // RenderPlans formats the collected blocks as the trailing section of the
@@ -217,14 +75,4 @@ func RenderPlans(blocks []PlanBlock) string {
 		b.WriteString("\n\n")
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n"
-}
-
-// indexBlocksByEntry returns a map from session-entry index to the
-// corresponding plan block, for placeholder insertion in sessionToText.
-func indexBlocksByEntry(blocks []PlanBlock) map[int]PlanBlock {
-	m := make(map[int]PlanBlock, len(blocks))
-	for _, b := range blocks {
-		m[b.entryIdx] = b
-	}
-	return m
 }

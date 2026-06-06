@@ -29,6 +29,8 @@ type fakeLLMClient struct {
 	sessionErr  error
 	listResp    *SessionList
 	listErr     error
+	plansResp   *PlansData
+	plansErr    error
 
 	gotInfoCalls int
 	gotRunCalls  int
@@ -55,6 +57,10 @@ func (f *fakeLLMClient) GetSession(ctx context.Context, in *GetSessionRequest, o
 
 func (f *fakeLLMClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...googlegrpc.CallOption) (*SessionList, error) {
 	return f.listResp, f.listErr
+}
+
+func (f *fakeLLMClient) GetPlans(ctx context.Context, in *GetPlansRequest, opts ...googlegrpc.CallOption) (*PlansData, error) {
+	return f.plansResp, f.plansErr
 }
 
 // fakeStream is a server-streaming client stub that returns canned

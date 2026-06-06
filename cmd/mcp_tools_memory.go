@@ -336,7 +336,11 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read
 	// is self-situated and ignores it.
 	workDir, _ := os.Getwd()
-	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, pid)
+	// Resolve the harp that owns this session so its plan files
+	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
+	// active one — when distilling a previous or cross-agent session.
+	harp, _ := operations.HarpForSession(sessionID)
+	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp, pid)
 	return nil, result, err
 }
 
@@ -359,7 +363,8 @@ func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) *loadSes
 }
 
 // distillSession compacts a session and returns the freshly-distilled result.
-func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir string, pid int) (*loadSessionResult, error) {
+// harp keys the session's plan files; pass "" to fall back to the active harp.
+func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string, pid int) (*loadSessionResult, error) {
 	fmt.Fprintf(os.Stderr, "ctxloom: distilling session %s (this may take a moment)...\n", sessionID)
 
 	if model == "" {
@@ -374,6 +379,7 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 		SessionID: sessionID,
 		WorkDir:   workDir,
 		OutputDir: sessionsDir,
+		HarpName:  harp,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create compactor: %w", err)

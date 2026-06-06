@@ -34,7 +34,17 @@ type SessionSource interface {
 	CurrentSession(ctx context.Context) (*agent.Session, error)
 }
 
-var _ SessionSource = (*SessionReader)(nil)
+// PlansSource fetches a session's plan documents by harp. Separate from
+// SessionSource (transcript reads) so consumers that only need plans — the
+// compactor — depend on just this. *SessionReader implements both.
+type PlansSource interface {
+	GetPlans(ctx context.Context, harp string) ([]agent.PlanFile, error)
+}
+
+var (
+	_ SessionSource = (*SessionReader)(nil)
+	_ PlansSource   = (*SessionReader)(nil)
+)
 
 // NewSessionReader returns a reader for the named backend using the default
 // self-invoking plugin client.
@@ -81,6 +91,17 @@ func (r *SessionReader) ListSessions(ctx context.Context) ([]agent.SessionMeta, 
 	err := r.withClient(func(c Client) error {
 		m, e := c.ListSessions(ctx)
 		out = m
+		return e
+	})
+	return out, err
+}
+
+// GetPlans fetches a harp's plan documents from the agent server.
+func (r *SessionReader) GetPlans(ctx context.Context, harp string) ([]agent.PlanFile, error) {
+	var out []agent.PlanFile
+	err := r.withClient(func(c Client) error {
+		p, e := c.GetPlans(ctx, harp)
+		out = p
 		return e
 	})
 	return out, err

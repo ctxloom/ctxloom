@@ -3,7 +3,7 @@ package backends
 import (
 	"os/exec"
 
-	"github.com/ctxloom/ctxloom/internal/agent/claude"
+	"github.com/ctxloom/claude"
 	"github.com/ctxloom/ctxloom/internal/agent/gemini"
 )
 

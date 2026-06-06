@@ -3,6 +3,8 @@ package grpc
 import (
 	"context"
 	"io"
+
+	"github.com/ctxloom/ctxloom/internal/agent"
 )
 
 // Client is the interface for interacting with an AI plugin.
@@ -17,6 +19,15 @@ type Client interface {
 
 	// RunWithModelInfo executes the plugin and returns both exit code and model info.
 	RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error)
+
+	// GetSession asks the plugin to materialize a transcript (by agent-agnostic
+	// session id) into the normalized session form. No workspace is passed — the
+	// agent server is self-situated.
+	GetSession(ctx context.Context, sessionID string) (*agent.Session, error)
+
+	// ListSessions returns the plugin's transcript-store metadata for its own
+	// workspace.
+	ListSessions(ctx context.Context) ([]agent.SessionMeta, error)
 
 	// Kill terminates the plugin process.
 	Kill()

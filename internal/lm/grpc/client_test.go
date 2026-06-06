@@ -25,6 +25,11 @@ type fakeLLMClient struct {
 	runStream LLM_RunClient
 	runErr    error
 
+	sessionResp *SessionData
+	sessionErr  error
+	listResp    *SessionList
+	listErr     error
+
 	gotInfoCalls int
 	gotRunCalls  int
 	lastRunReq   *RunRequest
@@ -42,6 +47,14 @@ func (f *fakeLLMClient) Run(ctx context.Context, in *RunRequest, opts ...googleg
 		return nil, f.runErr
 	}
 	return f.runStream, nil
+}
+
+func (f *fakeLLMClient) GetSession(ctx context.Context, in *GetSessionRequest, opts ...googlegrpc.CallOption) (*SessionData, error) {
+	return f.sessionResp, f.sessionErr
+}
+
+func (f *fakeLLMClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...googlegrpc.CallOption) (*SessionList, error) {
+	return f.listResp, f.listErr
 }
 
 // fakeStream is a server-streaming client stub that returns canned

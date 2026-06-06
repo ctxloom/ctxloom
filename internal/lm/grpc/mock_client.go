@@ -3,6 +3,8 @@ package grpc
 import (
 	"context"
 	"io"
+
+	"github.com/ctxloom/ctxloom/internal/agent"
 )
 
 // MockClient is a test double for the Client interface.
@@ -17,6 +19,12 @@ type MockClient struct {
 	// RunWithModelInfoFunc is called when RunWithModelInfo is invoked.
 	RunWithModelInfoFunc func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error)
 
+	// GetSessionFunc is called when GetSession is invoked.
+	GetSessionFunc func(ctx context.Context, sessionID string) (*agent.Session, error)
+
+	// ListSessionsFunc is called when ListSessions is invoked.
+	ListSessionsFunc func(ctx context.Context) ([]agent.SessionMeta, error)
+
 	// KillFunc is called when Kill is invoked.
 	KillFunc func()
 
@@ -24,6 +32,8 @@ type MockClient struct {
 	InfoCalls             int
 	RunCalls              int
 	RunWithModelInfoCalls int
+	GetSessionCalls       int
+	ListSessionsCalls     int
 	KillCalls             int
 }
 
@@ -55,6 +65,24 @@ func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdo
 		return m.RunWithModelInfoFunc(ctx, req, stdout, stderr)
 	}
 	return &RunResult{ExitCode: 0}, nil
+}
+
+// GetSession returns a normalized session, defaulting to an empty one.
+func (m *MockClient) GetSession(ctx context.Context, sessionID string) (*agent.Session, error) {
+	m.GetSessionCalls++
+	if m.GetSessionFunc != nil {
+		return m.GetSessionFunc(ctx, sessionID)
+	}
+	return &agent.Session{}, nil
+}
+
+// ListSessions returns transcript metadata, defaulting to none.
+func (m *MockClient) ListSessions(ctx context.Context) ([]agent.SessionMeta, error) {
+	m.ListSessionsCalls++
+	if m.ListSessionsFunc != nil {
+		return m.ListSessionsFunc(ctx)
+	}
+	return nil, nil
 }
 
 // Kill terminates the plugin process.

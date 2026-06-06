@@ -12,6 +12,65 @@ service LLM {
   // Run executes the LLM backend with the given prompt and context.
   // Streams output back to the caller for real-time display.
   rpc Run(RunRequest) returns (stream RunResponse);
+
+  // GetSession reassembles and translates one of the backend's transcripts into
+  // the normalized session form. The locator is the agent-agnostic session id
+  // under a work dir; the backend DERIVES the agent-specific transcript path
+  // itself (claude from sessionID+workDir, gemini from its store) — ctxloom
+  // never computes or passes a filesystem path. The backend is authoritative for
+  // locating, reassembling, and translating its own native transcript format.
+  rpc GetSession(GetSessionRequest) returns (SessionData);
+
+  // ListSessions returns metadata for the backend's transcripts (its raw store
+  // view), used by ctxloom to adopt sessions its index has not bound.
+  rpc ListSessions(ListSessionsRequest) returns (SessionList);
+}
+
+// GetSessionRequest locates a single transcript by its agent-agnostic session id.
+// No work dir crosses the wire: the agent server is self-situated — it resolves
+// its own workspace and derives the agent-specific transcript path itself. This
+// keeps the contract valid for a remote agent, where a host filesystem path is
+// meaningless.
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+// SessionData is the normalized form of one transcript. Times are unix seconds
+// (0 = unknown) since proto has no native timestamp here.
+message SessionData {
+  string id = 1;
+  int64 start_unix = 2;
+  int64 end_unix = 3;
+  repeated SessionEntry entries = 4;
+}
+
+// SessionEntry mirrors agent.SessionEntry: one normalized turn.
+message SessionEntry {
+  string type = 1;          // user | assistant | tool_use | tool_result | system
+  string content = 2;       // text for user/assistant/system
+  string tool_name = 3;     // for tool_use/tool_result
+  bytes tool_input = 4;     // raw JSON for tool_use
+  string tool_output = 5;   // for tool_result
+  bool is_error = 6;        // for tool_result
+  int64 timestamp_unix = 7;
+}
+
+// ListSessionsRequest is empty: the self-situated agent server lists its own
+// workspace's transcripts. Kept as a named message for forward-compatible fields.
+message ListSessionsRequest {
+}
+
+message SessionList {
+  repeated SessionMeta sessions = 1;
+}
+
+// SessionMeta mirrors agent.SessionMeta: transcript metadata without content.
+message SessionMeta {
+  string id = 1;
+  int64 start_unix = 2;
+  int64 end_unix = 3;
+  int32 entry_count = 4;
+  string path = 5; // absolute path to the backend's raw transcript, when file-backed
 }
 
 message Empty {}

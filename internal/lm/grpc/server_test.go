@@ -116,6 +116,7 @@ type fakeBackend struct {
 	cleanupErr    error
 	captureStdout string
 	captureStderr string
+	history       backends.SessionHistory
 }
 
 func (f *fakeBackend) Name() string                             { return f.name }
@@ -125,7 +126,7 @@ func (f *fakeBackend) Skills() backends.SkillRegistry           { return nil }
 func (f *fakeBackend) MCP() backends.MCPManager                 { return nil }
 func (f *fakeBackend) Context() backends.ContextProvider        { return nil }
 func (f *fakeBackend) Lifecycle() backends.LifecycleHandler     { return nil }
-func (f *fakeBackend) History() backends.SessionHistory         { return nil }
+func (f *fakeBackend) History() backends.SessionHistory         { return f.history }
 
 func (f *fakeBackend) Setup(ctx context.Context, req *backends.SetupRequest) error {
 	f.setupCalled = true

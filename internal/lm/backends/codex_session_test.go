@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,9 +131,9 @@ func TestCodexSessionHistory_GetSession_ParsesUserAndAssistant(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Entries, 2)
 
-	assert.Equal(t, EntryTypeUser, got.Entries[0].Type)
+	assert.Equal(t, agent.EntryTypeUser, got.Entries[0].Type)
 	assert.Equal(t, "hi", got.Entries[0].Content)
-	assert.Equal(t, EntryTypeAssistant, got.Entries[1].Type)
+	assert.Equal(t, agent.EntryTypeAssistant, got.Entries[1].Type)
 	assert.Equal(t, "hello back", got.Entries[1].Content)
 
 	// Start/end times derived from first/last entry timestamps.
@@ -160,19 +161,19 @@ func TestCodexSessionHistory_GetSession_ParsesToolUseAndResult(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got.Entries, 4)
 
-	assert.Equal(t, EntryTypeToolUse, got.Entries[0].Type)
+	assert.Equal(t, agent.EntryTypeToolUse, got.Entries[0].Type)
 	assert.Equal(t, "Bash", got.Entries[0].ToolName)
 
-	assert.Equal(t, EntryTypeToolResult, got.Entries[1].Type)
+	assert.Equal(t, agent.EntryTypeToolResult, got.Entries[1].Type)
 	assert.Equal(t, "file1\nfile2", got.Entries[1].ToolOutput)
 	assert.False(t, got.Entries[1].IsError)
 
 	// codex.tool_decision aliases to ToolUse.
-	assert.Equal(t, EntryTypeToolUse, got.Entries[2].Type)
+	assert.Equal(t, agent.EntryTypeToolUse, got.Entries[2].Type)
 	assert.Equal(t, "Edit", got.Entries[2].ToolName)
 
 	// codex.tool_result with is_error=true.
-	assert.Equal(t, EntryTypeToolResult, got.Entries[3].Type)
+	assert.Equal(t, agent.EntryTypeToolResult, got.Entries[3].Type)
 	assert.True(t, got.Entries[3].IsError)
 }
 
@@ -261,7 +262,7 @@ func TestCodexSessionHistory_GetSessionByPath(t *testing.T) {
 	got, err := h.GetSessionByPath(path)
 	require.NoError(t, err)
 	require.Len(t, got.Entries, 1)
-	assert.Equal(t, EntryTypeAssistant, got.Entries[0].Type)
+	assert.Equal(t, agent.EntryTypeAssistant, got.Entries[0].Type)
 }
 
 // =============================================================================

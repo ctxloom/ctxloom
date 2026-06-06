@@ -1,10 +1,10 @@
 package backends
 
 import (
-	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/claude"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/gemini"
+	"github.com/ctxloom/shared/agent"
 )
 
 // WriteCommandFilesFor writes slash-command files for the named backend,
@@ -14,7 +14,7 @@ import (
 // resolving that backend's enablement + metadata — so the per-agent writers
 // (claude.WriteCommandFiles, gemini.WriteCommandFiles) never import bundles.
 // Unsupported backends silently succeed.
-func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...CommandFileOption) error {
+func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...agent.CommandFileOption) error {
 	switch backendName {
 	case "claude-code":
 		return claude.WriteCommandFiles(workDir, claudeExports(prompts), opts...)

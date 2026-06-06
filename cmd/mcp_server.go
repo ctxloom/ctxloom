@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/agent"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler.
@@ -105,7 +105,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
 	// resolve via PATH at fire time. Flag the one case that can't catch:
 	// a different ctxloom shadowing the running binary on PATH.
-	backends.WarnOnCtxloomPathSkew()
+	agent.WarnOnCtxloomPathSkew()
 
 	purgeLegacyBundles(cfg)
 

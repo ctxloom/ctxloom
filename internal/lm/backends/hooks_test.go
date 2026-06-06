@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/claude"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -51,11 +52,11 @@ func TestComputeHookHash(t *testing.T) {
 // metacharacters must not break the command split or inject behavior when
 // /bin/sh runs the hook.
 func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
-	h := NewContextInjectionHook("hash1", "/tmp/My Project")
+	h := agent.NewContextInjectionHook("hash1", "/tmp/My Project")
 	assert.Contains(t, h.Command, `--project '/tmp/My Project' hash1`,
 		"path with spaces must be single-quoted; got %q", h.Command)
 
-	h = NewContextInjectionHook("hash2", "/tmp/it's mine")
+	h = agent.NewContextInjectionHook("hash2", "/tmp/it's mine")
 	assert.Contains(t, h.Command, `--project '/tmp/it'\''s mine' hash2`,
 		"embedded single quote must use the '\\'' idiom; got %q", h.Command)
 
@@ -70,7 +71,7 @@ func TestNewContextInjectionHook_ShellQuotesProjectPath(t *testing.T) {
 func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 	writeCtxFile := func(t *testing.T, workDir, hash, content string) {
 		t.Helper()
-		dir := filepath.Join(workDir, SCMContextSubdir)
+		dir := filepath.Join(workDir, agent.SCMContextSubdir)
 		require.NoError(t, os.MkdirAll(dir, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, hash+".md"), []byte(content), 0o644))
 	}
@@ -78,7 +79,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 	t.Run("small_content_single_hook", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		writeCtxFile(t, tmpDir, "smallhash", "# tiny\nbody")
-		hooks := NewContextInjectionHooks("smallhash", tmpDir)
+		hooks := agent.NewContextInjectionHooks("smallhash", tmpDir)
 		require.Len(t, hooks, 1)
 		assert.NotContains(t, hooks[0].Command, "--part",
 			"single chunk must use the legacy whole-content form")
@@ -86,7 +87,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 
 	t.Run("missing_file_single_hook", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		hooks := NewContextInjectionHooks("nofile", tmpDir)
+		hooks := agent.NewContextInjectionHooks("nofile", tmpDir)
 		require.Len(t, hooks, 1)
 		assert.NotContains(t, hooks[0].Command, "--part",
 			"missing file degrades to a single whole-content hook")
@@ -100,7 +101,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		}
 		writeCtxFile(t, tmpDir, "bighash", strings.Join(sections, "\n\n---\n\n"))
 
-		hooks := NewContextInjectionHooks("bighash", tmpDir)
+		hooks := agent.NewContextInjectionHooks("bighash", tmpDir)
 		n := len(hooks)
 		require.Greater(t, n, 1, "large content must split into multiple chunk hooks")
 		for k, h := range hooks {
@@ -108,7 +109,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
 			assert.Truef(t, isCtxloomManaged(h.Command),
 				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
-			assert.Equal(t, ContextInjectionTimeout, h.Timeout)
+			assert.Equal(t, agent.ContextInjectionTimeout, h.Timeout)
 		}
 	})
 }
@@ -298,14 +299,14 @@ func TestGetFS(t *testing.T) {
 }
 func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	tmpDir := t.TempDir()
-	SetExecutablePathForTesting("/install/now/ctxloom")
-	t.Cleanup(func() { SetExecutablePathForTesting("") })
+	agent.SetExecutablePathForTesting("/install/now/ctxloom")
+	t.Cleanup(func() { agent.SetExecutablePathForTesting("") })
 
 	writer := &claude.ClaudeCodeHookWriter{}
 	// Inject-context hook is constructed exactly the way the lifecycle
 	// constructs it — through the public constructor.
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
-		SessionStart: []wire.Hook{NewContextInjectionHook("abc123", tmpDir)},
+		SessionStart: []wire.Hook{agent.NewContextInjectionHook("abc123", tmpDir)},
 		PostFileEdit: []wire.Hook{
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},

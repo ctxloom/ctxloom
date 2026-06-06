@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/gitutil"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/agent"
 )
 
 // HookInput represents the JSON input from AI tool hooks.
@@ -88,7 +88,7 @@ Output format (JSON to stdout):
 		workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
 
 		// Read context file by hash
-		content, err := backends.ReadContextFile(workDir, hash)
+		content, err := agent.ReadContextFile(workDir, hash)
 		if err != nil {
 			// Log to stderr, output empty JSON to stdout
 			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to read context file: %v\n", err)
@@ -102,7 +102,7 @@ Output format (JSON to stdout):
 		// thus inject — in order (see backends.AwaitTurn).
 		content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
 		if total > 1 {
-			backends.AwaitTurn(hookInput.SessionID, part, total)
+			agent.AwaitTurn(hookInput.SessionID, part, total)
 		}
 
 		// On the initial launch of a resumed session, inject the resumed
@@ -139,7 +139,7 @@ func selectChunk(content string, part, total int) (chunk string, outPart, outTot
 	if total < 1 {
 		return content, 1, 1
 	}
-	chunks := backends.ChunkContext(content)
+	chunks := agent.ChunkContext(content)
 	if part >= 1 && part <= len(chunks) {
 		return chunks[part-1], part, total
 	}

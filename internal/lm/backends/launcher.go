@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/ptyrunner"
+	"github.com/ctxloom/shared/agent"
 )
 
 // RunLaunchSpec is ctxloom's process launcher — the pty-backed agent.Launcher

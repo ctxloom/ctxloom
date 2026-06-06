@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/shared/agent"
 )
 
 // PlanKind identifies what surface produced a preserved plan block.
@@ -44,7 +44,7 @@ func IsPlanFile(path string) bool {
 
 // planFilesToBlocks converts a session's plan documents (read from its ctxloom
 // session directory) into ordered PlanBlocks for verbatim re-attachment.
-func planFilesToBlocks(files []backends.PlanFile) []PlanBlock {
+func planFilesToBlocks(files []agent.PlanFile) []PlanBlock {
 	blocks := make([]PlanBlock, 0, len(files))
 	for i, f := range files {
 		blocks = append(blocks, PlanBlock{

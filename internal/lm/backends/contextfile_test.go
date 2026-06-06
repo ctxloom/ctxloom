@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,18 +25,18 @@ func TestWriteContextFile(t *testing.T) {
 	t.Run("writes content and returns hash", func(t *testing.T) {
 		// Hash enables content-addressable lookup by the injection hook
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{
+		fragments := []*agent.Fragment{
 			{Content: "First fragment"},
 			{Content: "Second fragment"},
 		}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 		assert.NotEmpty(t, hash)
 		assert.Len(t, hash, 16) // 8 bytes = 16 hex chars
 
 		// Verify file exists
-		contextPath := filepath.Join(tmpDir, SCMContextSubdir, hash+".md")
+		contextPath := filepath.Join(tmpDir, agent.SCMContextSubdir, hash+".md")
 		content, err := os.ReadFile(contextPath)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "First fragment")
@@ -46,16 +47,16 @@ func TestWriteContextFile(t *testing.T) {
 		// Empty content should not create files - avoids polluting the context dir
 		tmpDir := t.TempDir()
 
-		hash, err := WriteContextFile(tmpDir, nil)
+		hash, err := agent.WriteContextFile(tmpDir, nil)
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 
-		hash, err = WriteContextFile(tmpDir, []*Fragment{})
+		hash, err = agent.WriteContextFile(tmpDir, []*agent.Fragment{})
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 
 		// Empty content fragments also produce no file
-		hash, err = WriteContextFile(tmpDir, []*Fragment{{Content: ""}, {Content: ""}})
+		hash, err = agent.WriteContextFile(tmpDir, []*agent.Fragment{{Content: ""}, {Content: ""}})
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 	})
@@ -63,17 +64,17 @@ func TestWriteContextFile(t *testing.T) {
 	t.Run("skips empty fragments", func(t *testing.T) {
 		// Empty fragments are filtered out to avoid noise in context
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{
+		fragments := []*agent.Fragment{
 			{Content: "Valid content"},
 			{Content: ""},
 			{Content: "Another valid"},
 		}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 		assert.NotEmpty(t, hash)
 
-		content, err := ReadContextFile(tmpDir, hash)
+		content, err := agent.ReadContextFile(tmpDir, hash)
 		require.NoError(t, err)
 		assert.Contains(t, content, "Valid content")
 		assert.Contains(t, content, "Another valid")
@@ -82,14 +83,14 @@ func TestWriteContextFile(t *testing.T) {
 	t.Run("creates directory if not exists", func(t *testing.T) {
 		// Auto-create context directory for first-time setup
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{{Content: "Test content"}}
+		fragments := []*agent.Fragment{{Content: "Test content"}}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 		assert.NotEmpty(t, hash)
 
 		// Verify directory was created
-		contextDir := filepath.Join(tmpDir, SCMContextSubdir)
+		contextDir := filepath.Join(tmpDir, agent.SCMContextSubdir)
 		info, err := os.Stat(contextDir)
 		require.NoError(t, err)
 		assert.True(t, info.IsDir())
@@ -99,12 +100,12 @@ func TestWriteContextFile(t *testing.T) {
 		// Content-addressable storage means same input = same hash
 		// This enables caching and avoids redundant file writes
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{{Content: "Consistent content"}}
+		fragments := []*agent.Fragment{{Content: "Consistent content"}}
 
-		hash1, err := WriteContextFile(tmpDir, fragments)
+		hash1, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		hash2, err := WriteContextFile(tmpDir, fragments)
+		hash2, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
 		assert.Equal(t, hash1, hash2)
@@ -116,16 +117,16 @@ func TestWriteContextFile(t *testing.T) {
 		// This is critical for avoiding wasted tokens from duplicate context.
 		tmpDir := t.TempDir()
 		duplicateContent := "# Go Testing\n\nThis is testing content."
-		fragments := []*Fragment{
+		fragments := []*agent.Fragment{
 			{Name: "testing", Content: duplicateContent},
 			{Name: "other/testing", Content: duplicateContent}, // Same content, different name
 			{Name: "unique", Content: "Unique content here"},
 		}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := ReadContextFile(tmpDir, hash)
+		content, err := agent.ReadContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
 		// Count occurrences - duplicate content should only appear once
@@ -139,16 +140,16 @@ func TestWriteContextFile(t *testing.T) {
 	t.Run("preserves fragments with different content", func(t *testing.T) {
 		// Different content should all be preserved even if names are similar
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{
+		fragments := []*agent.Fragment{
 			{Name: "frag1", Content: "Content A"},
 			{Name: "frag2", Content: "Content B"},
 			{Name: "frag3", Content: "Content C"},
 		}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := ReadContextFile(tmpDir, hash)
+		content, err := agent.ReadContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
 		assert.Contains(t, content, "Content A")
@@ -191,15 +192,15 @@ func TestWriteContextFile_SizeWarnings(t *testing.T) {
 		var stderr bytes.Buffer
 
 		// Create content larger than MaxRecommendedContextSize
-		largeContent := strings.Repeat("x", MaxRecommendedContextSize+1024)
-		fragments := []*Fragment{{Content: largeContent}}
+		largeContent := strings.Repeat("x", agent.MaxRecommendedContextSize+1024)
+		fragments := []*agent.Fragment{{Content: largeContent}}
 
-		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		_, err := agent.WriteContextFile(tmpDir, fragments, agent.WithContextStderr(&stderr))
 		require.NoError(t, err)
 
 		warnings := stderr.String()
 		assert.Contains(t, warnings, "ctxloom: warning: assembled context is")
-		assert.Contains(t, warnings, WarnContextEffectiveness)
+		assert.Contains(t, warnings, agent.WarnContextEffectiveness)
 	})
 
 	t.Run("no warning when content is under max size", func(t *testing.T) {
@@ -207,10 +208,10 @@ func TestWriteContextFile_SizeWarnings(t *testing.T) {
 		var stderr bytes.Buffer
 
 		// Create content under MaxRecommendedContextSize
-		smallContent := strings.Repeat("x", MaxRecommendedContextSize-1024)
-		fragments := []*Fragment{{Content: smallContent}}
+		smallContent := strings.Repeat("x", agent.MaxRecommendedContextSize-1024)
+		fragments := []*agent.Fragment{{Content: smallContent}}
 
-		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		_, err := agent.WriteContextFile(tmpDir, fragments, agent.WithContextStderr(&stderr))
 		require.NoError(t, err)
 
 		assert.Empty(t, stderr.String())
@@ -221,10 +222,10 @@ func TestWriteContextFile_SizeWarnings(t *testing.T) {
 		var stderr bytes.Buffer
 
 		// Create content exactly at MaxRecommendedContextSize
-		boundaryContent := strings.Repeat("x", MaxRecommendedContextSize)
-		fragments := []*Fragment{{Content: boundaryContent}}
+		boundaryContent := strings.Repeat("x", agent.MaxRecommendedContextSize)
+		fragments := []*agent.Fragment{{Content: boundaryContent}}
 
-		_, err := WriteContextFile(tmpDir, fragments, WithContextStderr(&stderr))
+		_, err := agent.WriteContextFile(tmpDir, fragments, agent.WithContextStderr(&stderr))
 		require.NoError(t, err)
 
 		assert.Empty(t, stderr.String())
@@ -239,12 +240,12 @@ func TestWriteContextFile_SizeWarnings(t *testing.T) {
 func TestReadContextFile(t *testing.T) {
 	t.Run("reads existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		fragments := []*Fragment{{Content: "Test content"}}
+		fragments := []*agent.Fragment{{Content: "Test content"}}
 
-		hash, err := WriteContextFile(tmpDir, fragments)
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
 		require.NoError(t, err)
 
-		content, err := ReadContextFile(tmpDir, hash)
+		content, err := agent.ReadContextFile(tmpDir, hash)
 		require.NoError(t, err)
 		assert.Equal(t, "Test content", content)
 	})
@@ -253,7 +254,7 @@ func TestReadContextFile(t *testing.T) {
 		// Missing file is not an error - context may have been cleaned up
 		tmpDir := t.TempDir()
 
-		content, err := ReadContextFile(tmpDir, "nonexistent")
+		content, err := agent.ReadContextFile(tmpDir, "nonexistent")
 		require.NoError(t, err)
 		assert.Empty(t, content)
 	})

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/ctxloom/shared/agent"
 )
 
 // Mock implements the Backend interface for testing purposes.
@@ -19,8 +21,8 @@ import (
 //   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
 //   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
 type Mock struct {
-	BaseBackend
-	fragments []*Fragment
+	agent.BaseBackend
+	fragments []*agent.Fragment
 }
 
 // MockConfig is the test backend's typed LLM config. Env carries the
@@ -37,27 +39,27 @@ func (MockConfig) BackendType() string { return "mock" }
 // NewMock creates a new Mock backend.
 func NewMock() *Mock {
 	return &Mock{
-		BaseBackend: NewBaseBackend("mock", "1.0.0"),
+		BaseBackend: agent.NewBaseBackend("mock", "1.0.0"),
 	}
 }
 
 // Lifecycle returns nil - Mock doesn't support lifecycle hooks.
-func (b *Mock) Lifecycle() LifecycleHandler { return nil }
+func (b *Mock) Lifecycle() agent.LifecycleHandler { return nil }
 
 // Skills returns nil - Mock doesn't support skills.
-func (b *Mock) Skills() SkillRegistry { return nil }
+func (b *Mock) Skills() agent.SkillRegistry { return nil }
 
 // Context returns nil - Mock doesn't need a context provider.
-func (b *Mock) Context() ContextProvider { return nil }
+func (b *Mock) Context() agent.ContextProvider { return nil }
 
 // MCP returns nil - Mock doesn't support MCP servers.
-func (b *Mock) MCP() MCPManager { return nil }
+func (b *Mock) MCP() agent.MCPManager { return nil }
 
 // History returns nil - Mock doesn't support session history.
-func (b *Mock) History() SessionHistory { return &NilSessionHistory{} }
+func (b *Mock) History() agent.SessionHistory { return &NilSessionHistory{} }
 
 // Setup prepares the backend for execution.
-func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {
+func (b *Mock) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 	b.fragments = req.Fragments
 	return nil
@@ -65,16 +67,16 @@ func (b *Mock) Setup(ctx context.Context, req *SetupRequest) error {
 
 // Execute runs the mock backend with the given request.
 // It echoes back information about the request for testing purposes.
-func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
+func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	// Build model info
-	modelInfo := &ModelInfo{
+	modelInfo := &agent.ModelInfo{
 		ModelName: "mock-model",
 		Provider:  "mock",
 	}
 
 	// Assemble context from fragments
-	contextStr := AssembleContext(b.fragments)
-	promptContent := GetPromptContent(req.Prompt)
+	contextStr := agent.AssembleContext(b.fragments)
+	promptContent := agent.GetPromptContent(req.Prompt)
 
 	recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, contextStr, promptContent, len(b.fragments), stderr)
 
@@ -82,15 +84,15 @@ func (b *Mock) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr 
 	response := buildMockResponse(customResponse, contextStr, promptContent, req.Mode, len(b.fragments))
 
 	if _, err := stdout.Write([]byte(response)); err != nil {
-		return &ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
+		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, fmt.Errorf("failed to write response: %w", err)
 	}
 
-	return &ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
+	return &agent.ExecuteResult{ExitCode: mockExitCode(req), ModelInfo: modelInfo}, nil
 }
 
 // recordMockInput writes the assembled request to recordFile when one is set
 // (via CTXLOOM_MOCK_RECORD_FILE), warning to stderr on failure.
-func recordMockInput(recordFile string, req *ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
+func recordMockInput(recordFile string, req *agent.ExecuteRequest, contextStr, promptContent string, fragmentCount int, stderr io.Writer) {
 	if recordFile == "" {
 		return
 	}
@@ -110,7 +112,7 @@ func recordMockInput(recordFile string, req *ExecuteRequest, contextStr, promptC
 }
 
 // mockExitCode returns the exit code from CTXLOOM_MOCK_EXIT_CODE, or 0.
-func mockExitCode(req *ExecuteRequest) int32 {
+func mockExitCode(req *agent.ExecuteRequest) int32 {
 	exitCodeStr := getEnvFromMap(req.Env, "CTXLOOM_MOCK_EXIT_CODE")
 	if exitCodeStr == "" {
 		return 0
@@ -124,7 +126,7 @@ func mockExitCode(req *ExecuteRequest) int32 {
 // buildMockResponse returns the custom response when provided, else the default
 // echo of mode/fragments/context/prompt (plus a distilled marker for distill or
 // compress contexts).
-func buildMockResponse(customResponse, contextStr, promptContent string, mode ExecutionMode, fragmentCount int) string {
+func buildMockResponse(customResponse, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int) string {
 	if customResponse != "" {
 		return customResponse
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/agent"
 )
 
 var (
@@ -132,7 +133,7 @@ func sessionSourceForBackend(name string) pb.SessionSource {
 
 // rawTranscripts lists the backend's raw transcripts via the agent server,
 // best-effort. The agent self-situates its workspace; no dir is passed.
-func rawTranscripts(source pb.SessionSource) []backends.SessionMeta {
+func rawTranscripts(source pb.SessionSource) []agent.SessionMeta {
 	if source == nil {
 		return nil
 	}
@@ -160,7 +161,7 @@ func newAdoptFunc(workDir, backend string) sessions.AdoptFunc {
 // session id — is dropped so a session never appears twice. Surviving raw
 // transcripts become Entry values with an empty HarpName (the picker's "raw"
 // sentinel), carrying the session id / path the adopt step needs.
-func buildPickerEntries(indexed []sessions.Entry, raw []backends.SessionMeta, backend string) []sessions.Entry {
+func buildPickerEntries(indexed []sessions.Entry, raw []agent.SessionMeta, backend string) []sessions.Entry {
 	known := make(map[string]struct{}, len(indexed)*2)
 	for _, e := range indexed {
 		if e.TranscriptPath != "" {
@@ -576,7 +577,7 @@ Examples:
 			}
 			// Show context file that would be written
 			fmt.Println("\n=== Context File ===")
-			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, backends.SCMContextSubdir))
+			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, agent.SCMContextSubdir))
 			return nil
 		}
 

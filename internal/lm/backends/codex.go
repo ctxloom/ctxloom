@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/spf13/afero"
 )
 
@@ -29,13 +30,13 @@ func (CodexConfig) BackendType() string { return "codex" }
 
 // Codex implements the Backend interface for OpenAI Codex CLI.
 type Codex struct {
-	BaseBackend
+	agent.BaseBackend
 	context *CLIContextProvider
 	history *CodexSessionHistory
 }
 
 // Configure applies a decoded codex config to this backend.
-func (b *Codex) Configure(cfg BackendConfig) {
+func (b *Codex) Configure(cfg agent.BackendConfig) {
 	c, ok := cfg.(*CodexConfig)
 	if !ok {
 		return
@@ -54,7 +55,7 @@ func (b *Codex) Configure(cfg BackendConfig) {
 // NewCodex creates a new Codex backend with default settings.
 func NewCodex() *Codex {
 	b := &Codex{
-		BaseBackend: NewBaseBackend("codex", "1.0.0"),
+		BaseBackend: agent.NewBaseBackend("codex", "1.0.0"),
 		context:     &CLIContextProvider{},
 	}
 	b.BinaryPath = "codex"
@@ -63,42 +64,42 @@ func NewCodex() *Codex {
 }
 
 // Lifecycle returns nil - Codex doesn't support lifecycle hooks.
-func (b *Codex) Lifecycle() LifecycleHandler { return nil }
+func (b *Codex) Lifecycle() agent.LifecycleHandler { return nil }
 
 // Skills returns nil - Codex doesn't support skills.
-func (b *Codex) Skills() SkillRegistry { return nil }
+func (b *Codex) Skills() agent.SkillRegistry { return nil }
 
 // Context returns the context provider (CLI arg injection).
-func (b *Codex) Context() ContextProvider { return b.context }
+func (b *Codex) Context() agent.ContextProvider { return b.context }
 
 // MCP returns nil - Codex doesn't support MCP servers.
-func (b *Codex) MCP() MCPManager { return nil }
+func (b *Codex) MCP() agent.MCPManager { return nil }
 
 // History returns the session history accessor.
-func (b *Codex) History() SessionHistory { return b.history }
+func (b *Codex) History() agent.SessionHistory { return b.history }
 
 // Setup prepares the backend for execution.
-func (b *Codex) Setup(ctx context.Context, req *SetupRequest) error {
+func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
-	if _, err := WriteContextFile(b.WorkDir(), req.Fragments); err != nil {
+	if _, err := agent.WriteContextFile(b.WorkDir(), req.Fragments); err != nil {
 		return fmt.Errorf("failed to write context file: %w", err)
 	}
 	return b.context.Provide(b.WorkDir(), req.Fragments)
 }
 
 // Execute runs the backend with the given request.
-func (b *Codex) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error) {
+func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	modelName := req.Model
 	if modelName == "" {
 		modelName = "o3-mini"
 	}
-	modelInfo := &ModelInfo{ModelName: modelName, Provider: "openai"}
+	modelInfo := &agent.ModelInfo{ModelName: modelName, Provider: "openai"}
 
 	if req.DryRun {
-		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
 
-	quiet := req.Mode == ModeOneshot
+	quiet := req.Mode == agent.ModeOneshot
 	args := b.buildArgs(req, quiet)
 	if req.Verbosity >= 16 {
 		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
@@ -106,19 +107,19 @@ func (b *Codex) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr
 
 	var exitCode int32
 	var err error
-	if req.Mode == ModeInteractive {
+	if req.Mode == agent.ModeInteractive {
 		exitCode, err = b.RunInteractive(ctx, args, req.Env, req.Stdin, stdout, stderr, req.Resize)
 	} else {
 		exitCode, err = b.RunNonInteractive(ctx, args, req.Env, stdout, stderr)
 	}
 
-	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 }
 
 // Cleanup releases resources after execution.
 func (b *Codex) Cleanup(ctx context.Context) error { return nil }
 
-func (b *Codex) buildArgs(req *ExecuteRequest, quiet bool) []string {
+func (b *Codex) buildArgs(req *agent.ExecuteRequest, quiet bool) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
@@ -130,7 +131,7 @@ func (b *Codex) buildArgs(req *ExecuteRequest, quiet bool) []string {
 	}
 
 	context := b.context.GetAssembled()
-	prompt := GetPromptContent(req.Prompt)
+	prompt := agent.GetPromptContent(req.Prompt)
 	if prompt != "" {
 		var message string
 		if context != "" {
@@ -187,7 +188,7 @@ func NewCodexSessionHistory(backend *Codex, opts ...CodexSessionHistoryOption) *
 }
 
 // GetCurrentSession returns the current/most recent session transcript.
-func (h *CodexSessionHistory) GetCurrentSession(workDir string) (*Session, error) {
+func (h *CodexSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
 	sessions, err := h.ListSessions(workDir)
 	if err != nil {
 		return nil, err
@@ -202,13 +203,13 @@ func (h *CodexSessionHistory) GetCurrentSession(workDir string) (*Session, error
 }
 
 // ListSessions returns available session metadata.
-func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error) {
+func (h *CodexSessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
 	sessionsDir, err := h.getSessionsDir()
 	if err != nil {
 		return nil, err
 	}
 
-	var sessions []SessionMeta
+	var sessions []agent.SessionMeta
 
 	// Walk through YYYY/MM/DD structure
 	err = afero.Walk(h.fs, sessionsDir, func(path string, info os.FileInfo, err error) error {
@@ -224,7 +225,7 @@ func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error
 
 		// Use relative path from sessions dir as ID
 		relPath, _ := filepath.Rel(sessionsDir, path)
-		sessions = append(sessions, SessionMeta{
+		sessions = append(sessions, agent.SessionMeta{
 			ID:        relPath,
 			StartTime: info.ModTime(),
 			Path:      path,
@@ -245,7 +246,7 @@ func (h *CodexSessionHistory) ListSessions(workDir string) ([]SessionMeta, error
 }
 
 // GetSession returns a specific session by ID.
-func (h *CodexSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
+func (h *CodexSessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
 	sessionsDir, err := h.getSessionsDir()
 	if err != nil {
 		return nil, err
@@ -285,16 +286,16 @@ func (h *CodexSessionHistory) getSessionsDir() (string, error) {
 }
 
 // parseSessionFile reads and parses a Codex session JSONL file.
-func (h *CodexSessionHistory) parseSessionFile(path string) (*Session, error) {
+func (h *CodexSessionHistory) parseSessionFile(path string) (*agent.Session, error) {
 	file, err := h.fs.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 
-	session := &Session{
+	session := &agent.Session{
 		ID:      filepath.Base(path),
-		Entries: []SessionEntry{},
+		Entries: []agent.SessionEntry{},
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -342,13 +343,13 @@ type codexEntry struct {
 }
 
 // parseEntry converts a Codex JSONL entry to a normalized SessionEntry.
-func (h *CodexSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
+func (h *CodexSessionHistory) parseEntry(line []byte) (*agent.SessionEntry, error) {
 	var raw codexEntry
 	if err := json.Unmarshal(line, &raw); err != nil {
 		return nil, err
 	}
 
-	entry := &SessionEntry{}
+	entry := &agent.SessionEntry{}
 
 	// Parse timestamp
 	if raw.Timestamp != "" {
@@ -362,22 +363,22 @@ func (h *CodexSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 	case "message":
 		switch raw.Role {
 		case "user":
-			entry.Type = EntryTypeUser
+			entry.Type = agent.EntryTypeUser
 			entry.Content = raw.Content
 		case "assistant":
-			entry.Type = EntryTypeAssistant
+			entry.Type = agent.EntryTypeAssistant
 			entry.Content = raw.Content
 		default:
 			return nil, nil
 		}
 
 	case "tool_use", "codex.tool_decision":
-		entry.Type = EntryTypeToolUse
+		entry.Type = agent.EntryTypeToolUse
 		entry.ToolName = raw.ToolName
 		entry.ToolInput = raw.ToolInput
 
 	case "tool_result", "codex.tool_result":
-		entry.Type = EntryTypeToolResult
+		entry.Type = agent.EntryTypeToolResult
 		entry.ToolName = raw.ToolName
 		entry.ToolOutput = raw.Output
 		entry.IsError = raw.IsError
@@ -391,7 +392,7 @@ func (h *CodexSessionHistory) parseEntry(line []byte) (*SessionEntry, error) {
 }
 
 // GetSessionByPath returns a session by its full file path.
-func (h *CodexSessionHistory) GetSessionByPath(path string) (*Session, error) {
+func (h *CodexSessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
 	return h.parseSessionFile(path)
 }
 
@@ -399,4 +400,3 @@ func (h *CodexSessionHistory) GetSessionByPath(path string) (*Session, error) {
 func (h *CodexSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string {
 	return ""
 }
-

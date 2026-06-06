@@ -7,13 +7,8 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 )
 
-// BackendConfig is the decoded, typed configuration for one labeled LLM entry.
-// The canonical definition is the engine-agnostic agent.BackendConfig; this
-// alias keeps the wiring layer's references unchanged.
-type BackendConfig = agent.BackendConfig
-
 // configDecoder turns an LLM entry's raw body into a backend's typed config.
-type configDecoder func(body map[string]interface{}) (BackendConfig, error)
+type configDecoder func(body map[string]interface{}) (agent.BackendConfig, error)
 
 // configRegistry holds the per-backend decoders keyed by type discriminator.
 var configRegistry = make(map[string]configDecoder)
@@ -28,7 +23,7 @@ func RegisterConfig(backendType string, decode configDecoder) {
 // the named backend type. An unknown type is an error the caller degrades
 // (fault tolerance). The label that keyed the entry is NOT consulted — only the
 // explicit type drives which decoder runs.
-func DecodeLLMConfig(backendType string, body map[string]interface{}) (BackendConfig, error) {
+func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.BackendConfig, error) {
 	decode, ok := configRegistry[backendType]
 	if !ok {
 		return nil, fmt.Errorf("unknown LLM backend type %q", backendType)
@@ -39,7 +34,7 @@ func DecodeLLMConfig(backendType string, body map[string]interface{}) (BackendCo
 // decodeBody is the shared mapstructure pass each backend's decoder uses to
 // fill its struct from the raw YAML body. The "model" key (and any other
 // fields) map straight onto the target's mapstructure tags.
-func decodeBody(body map[string]interface{}, target BackendConfig) (BackendConfig, error) {
+func decodeBody(body map[string]interface{}, target agent.BackendConfig) (agent.BackendConfig, error) {
 	if err := mapstructure.Decode(body, target); err != nil {
 		return nil, err
 	}
@@ -48,7 +43,7 @@ func decodeBody(body map[string]interface{}, target BackendConfig) (BackendConfi
 
 // ConfiguredBackend instantiates the backend named by cfg's type and applies
 // cfg to it. Returns nil when the type is unregistered.
-func ConfiguredBackend(cfg BackendConfig) Backend {
+func ConfiguredBackend(cfg agent.BackendConfig) agent.Backend {
 	if cfg == nil {
 		return nil
 	}

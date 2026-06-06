@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/agent"
 )
 
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from
@@ -35,7 +36,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
-	cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(fs)}
+	cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
 
 	removed := []string{}
 	var errs []string
@@ -60,7 +61,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 
 // removeBackendHarness strips one backend's settings and clears the command
 // files it generated (writing an empty prompt set triggers manifest cleanup).
-func removeBackendHarness(name, workDir string, settingsOpts []backends.SettingsOption, cmdOpts []backends.CommandFileOption) error {
+func removeBackendHarness(name, workDir string, settingsOpts []backends.SettingsOption, cmdOpts []agent.CommandFileOption) error {
 	if err := backends.RemoveSettings(name, workDir, settingsOpts...); err != nil {
 		return fmt.Errorf("failed to remove %s settings: %w", name, err)
 	}

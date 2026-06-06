@@ -44,6 +44,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -261,13 +262,13 @@ func TestWriteSettings_PreservesExistingSettings(t *testing.T) {
 func TestWriteContextFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	fragments := []*backends.Fragment{
+	fragments := []*agent.Fragment{
 		{Name: "frag1", Content: "First fragment content"},
 		{Name: "frag2", Content: "Second fragment content"},
 	}
 
-	hash, err := backends.WriteContextFile("/project", fragments,
-		backends.WithContextFS(fs))
+	hash, err := agent.WriteContextFile("/project", fragments,
+		agent.WithContextFS(fs))
 	require.NoError(t, err)
 	assert.NotEmpty(t, hash)
 
@@ -288,17 +289,17 @@ func TestWriteContextFile(t *testing.T) {
 func TestWriteContextFile_Empty(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	hash, err := backends.WriteContextFile("/project", nil,
-		backends.WithContextFS(fs))
+	hash, err := agent.WriteContextFile("/project", nil,
+		agent.WithContextFS(fs))
 	require.NoError(t, err)
 	assert.Empty(t, hash)
 
 	// Also test with empty content fragments
-	fragments := []*backends.Fragment{
+	fragments := []*agent.Fragment{
 		{Name: "empty", Content: ""},
 	}
-	hash, err = backends.WriteContextFile("/project", fragments,
-		backends.WithContextFS(fs))
+	hash, err = agent.WriteContextFile("/project", fragments,
+		agent.WithContextFS(fs))
 	require.NoError(t, err)
 	assert.Empty(t, hash)
 }

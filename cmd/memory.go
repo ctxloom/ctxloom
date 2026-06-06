@@ -14,6 +14,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/agent"
 )
 
 var memoryCmd = &cobra.Command{
@@ -141,7 +142,7 @@ func loadDistilledSet(cfg *config.Config) map[string]bool {
 }
 
 // printSessionTable renders the session list as an aligned table.
-func printSessionTable(sessions []backends.SessionMeta, distilledSet map[string]bool) {
+func printSessionTable(sessions []agent.SessionMeta, distilledSet map[string]bool) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SESSION ID\tSTARTED\tENTRIES\tSTATUS")
 	_, _ = fmt.Fprintln(w, "----------\t-------\t-------\t------")

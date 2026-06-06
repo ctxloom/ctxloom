@@ -1,6 +1,10 @@
 package backends
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ctxloom/shared/agent"
+)
 
 // CLIContextProvider implements ContextProvider for backends that inject context via CLI arguments.
 // Context is stored in memory and retrieved during command building.
@@ -12,22 +16,22 @@ type CLIContextProvider struct {
 type NilSessionHistory struct{}
 
 // GetCurrentSession returns an error indicating history is not supported.
-func (h *NilSessionHistory) GetCurrentSession(workDir string) (*Session, error) {
+func (h *NilSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
 	return nil, fmt.Errorf("session history not supported by this backend")
 }
 
 // ListSessions returns an empty list.
-func (h *NilSessionHistory) ListSessions(workDir string) ([]SessionMeta, error) {
+func (h *NilSessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
 	return nil, nil
 }
 
 // GetSession returns an error indicating history is not supported.
-func (h *NilSessionHistory) GetSession(workDir string, sessionID string) (*Session, error) {
+func (h *NilSessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
 	return nil, fmt.Errorf("session history not supported by this backend")
 }
 
 // GetSessionByPath returns an error indicating history is not supported.
-func (h *NilSessionHistory) GetSessionByPath(path string) (*Session, error) {
+func (h *NilSessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
 	return nil, fmt.Errorf("session history not supported by this backend")
 }
 
@@ -37,7 +41,7 @@ func (h *NilSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcrip
 }
 
 // Provide assembles context fragments and stores them for later retrieval.
-func (c *CLIContextProvider) Provide(workDir string, fragments []*Fragment) error {
+func (c *CLIContextProvider) Provide(workDir string, fragments []*agent.Fragment) error {
 	c.assembledContext = assembleFragments(fragments)
 	return nil
 }
@@ -54,7 +58,7 @@ func (c *CLIContextProvider) GetAssembled() string {
 }
 
 // assembleFragments joins fragments with separators.
-func assembleFragments(fragments []*Fragment) string {
+func assembleFragments(fragments []*agent.Fragment) string {
 	if len(fragments) == 0 {
 		return ""
 	}

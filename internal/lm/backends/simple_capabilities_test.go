@@ -3,13 +3,14 @@ package backends
 import (
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCLIContextProvider_Provide(t *testing.T) {
 	provider := &CLIContextProvider{}
 
-	fragments := []*Fragment{
+	fragments := []*agent.Fragment{
 		{Content: "Fragment one"},
 		{Content: "Fragment two"},
 	}
@@ -41,7 +42,7 @@ func TestCLIContextProvider_GetAssembled(t *testing.T) {
 
 func TestAssembleFragments(t *testing.T) {
 	t.Run("empty slice", func(t *testing.T) {
-		result := assembleFragments([]*Fragment{})
+		result := assembleFragments([]*agent.Fragment{})
 		assert.Empty(t, result)
 	})
 
@@ -51,14 +52,14 @@ func TestAssembleFragments(t *testing.T) {
 	})
 
 	t.Run("single fragment", func(t *testing.T) {
-		result := assembleFragments([]*Fragment{
+		result := assembleFragments([]*agent.Fragment{
 			{Content: "Single content"},
 		})
 		assert.Equal(t, "Single content", result)
 	})
 
 	t.Run("multiple fragments", func(t *testing.T) {
-		result := assembleFragments([]*Fragment{
+		result := assembleFragments([]*agent.Fragment{
 			{Content: "First"},
 			{Content: "Second"},
 			{Content: "Third"},
@@ -70,7 +71,7 @@ func TestAssembleFragments(t *testing.T) {
 	})
 
 	t.Run("skips empty content", func(t *testing.T) {
-		result := assembleFragments([]*Fragment{
+		result := assembleFragments([]*agent.Fragment{
 			{Content: ""},
 			{Content: "Actual content"},
 		})
@@ -78,7 +79,7 @@ func TestAssembleFragments(t *testing.T) {
 	})
 
 	t.Run("all empty returns empty", func(t *testing.T) {
-		result := assembleFragments([]*Fragment{
+		result := assembleFragments([]*agent.Fragment{
 			{Content: ""},
 			{Content: ""},
 		})

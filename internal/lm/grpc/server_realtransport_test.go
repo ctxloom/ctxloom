@@ -7,14 +7,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
-
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // concurrentWriteBackend writes to stdout and stderr from many goroutines
@@ -26,20 +25,20 @@ type concurrentWriteBackend struct {
 	chunks int // chunks written to EACH of stdout and stderr
 }
 
-func (b *concurrentWriteBackend) Name() string                             { return "concurrent" }
-func (b *concurrentWriteBackend) Version() string                          { return "test" }
-func (b *concurrentWriteBackend) SupportedModes() []backends.ExecutionMode { return nil }
-func (b *concurrentWriteBackend) Skills() backends.SkillRegistry           { return nil }
-func (b *concurrentWriteBackend) MCP() backends.MCPManager                 { return nil }
-func (b *concurrentWriteBackend) Context() backends.ContextProvider        { return nil }
-func (b *concurrentWriteBackend) Lifecycle() backends.LifecycleHandler     { return nil }
-func (b *concurrentWriteBackend) History() backends.SessionHistory         { return nil }
-func (b *concurrentWriteBackend) Setup(context.Context, *backends.SetupRequest) error {
+func (b *concurrentWriteBackend) Name() string                          { return "concurrent" }
+func (b *concurrentWriteBackend) Version() string                       { return "test" }
+func (b *concurrentWriteBackend) SupportedModes() []agent.ExecutionMode { return nil }
+func (b *concurrentWriteBackend) Skills() agent.SkillRegistry           { return nil }
+func (b *concurrentWriteBackend) MCP() agent.MCPManager                 { return nil }
+func (b *concurrentWriteBackend) Context() agent.ContextProvider        { return nil }
+func (b *concurrentWriteBackend) Lifecycle() agent.LifecycleHandler     { return nil }
+func (b *concurrentWriteBackend) History() agent.SessionHistory         { return nil }
+func (b *concurrentWriteBackend) Setup(context.Context, *agent.SetupRequest) error {
 	return nil
 }
 func (b *concurrentWriteBackend) Cleanup(context.Context) error { return nil }
 
-func (b *concurrentWriteBackend) Execute(_ context.Context, _ *backends.ExecuteRequest, stdout, stderr io.Writer) (*backends.ExecuteResult, error) {
+func (b *concurrentWriteBackend) Execute(_ context.Context, _ *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -55,7 +54,7 @@ func (b *concurrentWriteBackend) Execute(_ context.Context, _ *backends.ExecuteR
 		}
 	}()
 	wg.Wait()
-	return &backends.ExecuteResult{ExitCode: 0}, nil
+	return &agent.ExecuteResult{ExitCode: 0}, nil
 }
 
 // TestGRPCServer_Run_RealTransport_ConcurrentSends drives GRPCServer.Run over a

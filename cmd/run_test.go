@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/shared/agent"
 )
 
 // TestBuildPickerEntries_DedupMergeSort covers the merge of indexed harp
@@ -24,7 +24,7 @@ func TestBuildPickerEntries_DedupMergeSort(t *testing.T) {
 		{HarpName: "swift-amber-falcon", SessionID: "sid-A", TranscriptPath: "/t/sid-A.jsonl", StartedAt: base},
 		{HarpName: "quiet-silver-meadow", TranscriptPath: "/t/sid-B.jsonl", StartedAt: base.Add(-2 * time.Hour)},
 	}
-	raw := []backends.SessionMeta{
+	raw := []agent.SessionMeta{
 		{ID: "sid-A", Path: "/t/sid-A.jsonl", StartTime: base},                     // dup by path+id → dropped
 		{ID: "sid-B", Path: "/t/sid-B.jsonl", StartTime: base},                     // dup by path → dropped
 		{ID: "sid-C", Path: "/t/sid-C.jsonl", StartTime: base.Add(-1 * time.Hour)}, // new → kept as raw
@@ -47,7 +47,7 @@ func TestBuildPickerEntries_DedupMergeSort(t *testing.T) {
 // transcript path (the bind hook hadn't supplied one).
 func TestBuildPickerEntries_DedupBySessionID(t *testing.T) {
 	indexed := []sessions.Entry{{HarpName: "h", SessionID: "sid-X"}}
-	raw := []backends.SessionMeta{{ID: "sid-X", Path: "/t/sid-X.jsonl"}}
+	raw := []agent.SessionMeta{{ID: "sid-X", Path: "/t/sid-X.jsonl"}}
 	got := buildPickerEntries(indexed, raw, "claude-code")
 	require.Len(t, got, 1, "raw matched by session id is deduped despite empty index transcript path")
 	assert.Equal(t, "h", got[0].HarpName)

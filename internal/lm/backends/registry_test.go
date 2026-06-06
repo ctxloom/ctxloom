@@ -7,6 +7,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/ctxloom/claude"
+	"github.com/ctxloom/gemini"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,7 +94,7 @@ func TestDecodeLLMConfig(t *testing.T) {
 			"binary_path": "/custom/claude",
 		})
 		require.NoError(t, err)
-		cc, ok := bc.(*ClaudeConfig)
+		cc, ok := bc.(*claude.ClaudeConfig)
 		require.True(t, ok, "decoder must yield *ClaudeConfig")
 		assert.Equal(t, "haiku", cc.Model)
 		assert.Equal(t, "/custom/claude", cc.BinaryPath)
@@ -104,7 +106,7 @@ func TestDecodeLLMConfig(t *testing.T) {
 			"trust_workspace": true,
 		})
 		require.NoError(t, err)
-		gc, ok := bc.(*GeminiConfig)
+		gc, ok := bc.(*gemini.GeminiConfig)
 		require.True(t, ok)
 		assert.Equal(t, "gemini-2.5-pro", gc.Model)
 		require.NotNil(t, gc.TrustWorkspace)
@@ -119,7 +121,7 @@ func TestDecodeLLMConfig(t *testing.T) {
 
 // TestConfiguredBackend builds a backend from a typed config and applies it.
 func TestConfiguredBackend(t *testing.T) {
-	b := ConfiguredBackend(&ClaudeConfig{BinaryPath: "/custom/claude"})
+	b := ConfiguredBackend(&claude.ClaudeConfig{BinaryPath: "/custom/claude"})
 	require.NotNil(t, b)
 	bp, ok := b.(BinaryPathProvider)
 	require.True(t, ok)

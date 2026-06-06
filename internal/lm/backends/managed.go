@@ -1,9 +1,9 @@
 package backends
 
 import (
-	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -144,6 +144,6 @@ func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, w
 	}
 	unified.Append(cfg.ResolveBundleHooks())
 	if contextHash != "" {
-		unified.SessionStart = append(unified.SessionStart, NewContextInjectionHooks(contextHash, workDir)...)
+		unified.SessionStart = append(unified.SessionStart, agent.NewContextInjectionHooks(contextHash, workDir)...)
 	}
 }

@@ -6,6 +6,7 @@ package backends
 import (
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,8 +47,8 @@ func TestCodex_buildArgs_Basic(t *testing.T) {
 	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: "test prompt"},
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: "test prompt"},
 	}
 
 	args := codex.buildArgs(req, false)
@@ -62,9 +63,9 @@ func TestCodex_buildArgs_Basic(t *testing.T) {
 func TestCodex_buildArgs_AutoApprove(t *testing.T) {
 	codex := NewCodex()
 
-	req := &ExecuteRequest{
+	req := &agent.ExecuteRequest{
 		AutoApprove: true,
-		Prompt:      &Fragment{Content: "test"},
+		Prompt:      &agent.Fragment{Content: "test"},
 	}
 
 	args := codex.buildArgs(req, false)
@@ -75,8 +76,8 @@ func TestCodex_buildArgs_AutoApprove(t *testing.T) {
 func TestCodex_buildArgs_Quiet(t *testing.T) {
 	codex := NewCodex()
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: "test"},
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: "test"},
 	}
 
 	args := codex.buildArgs(req, true)
@@ -88,12 +89,12 @@ func TestCodex_buildArgs_WithContext(t *testing.T) {
 	codex := NewCodex()
 
 	// Provide context via the context provider
-	_ = codex.context.Provide("/tmp", []*Fragment{
+	_ = codex.context.Provide("/tmp", []*agent.Fragment{
 		{Content: "Test context content"},
 	})
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: "user task"},
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: "user task"},
 	}
 
 	args := codex.buildArgs(req, false)
@@ -109,8 +110,8 @@ func TestCodex_buildArgs_EmptyPrompt(t *testing.T) {
 	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: ""},
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: ""},
 	}
 
 	args := codex.buildArgs(req, false)
@@ -123,7 +124,7 @@ func TestCodex_buildArgs_NilPrompt(t *testing.T) {
 	codex := NewCodex()
 	codex.Args = []string{"--model", "gpt-4"}
 
-	req := &ExecuteRequest{
+	req := &agent.ExecuteRequest{
 		Prompt: nil,
 	}
 
@@ -137,8 +138,8 @@ func TestCodex_buildArgs_PreservesBaseArgs(t *testing.T) {
 	codex := NewCodex()
 	codex.Args = []string{"--arg1", "--arg2"}
 
-	req := &ExecuteRequest{
-		Prompt: &Fragment{Content: "test"},
+	req := &agent.ExecuteRequest{
+		Prompt: &agent.Fragment{Content: "test"},
 	}
 
 	// Build args multiple times to ensure base args aren't modified
@@ -158,13 +159,13 @@ func TestCodex_buildArgs_AllFlags(t *testing.T) {
 	codex.Args = []string{"--base"}
 
 	// Provide context
-	_ = codex.context.Provide("/tmp", []*Fragment{
+	_ = codex.context.Provide("/tmp", []*agent.Fragment{
 		{Content: "context content"},
 	})
 
-	req := &ExecuteRequest{
+	req := &agent.ExecuteRequest{
 		AutoApprove: true,
-		Prompt:      &Fragment{Content: "do something"},
+		Prompt:      &agent.Fragment{Content: "do something"},
 	}
 
 	args := codex.buildArgs(req, true)

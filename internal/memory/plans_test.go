@@ -5,10 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // IsPlanFile matches project plan documents (the stamp-plan hook's regex:
@@ -24,7 +23,7 @@ func TestIsPlanFile(t *testing.T) {
 }
 
 func TestPlanFilesToBlocks(t *testing.T) {
-	blocks := planFilesToBlocks([]backends.PlanFile{
+	blocks := planFilesToBlocks([]agent.PlanFile{
 		{Name: "arch", Content: "# arch"},
 		{Name: "v1", Content: "# v1"},
 	})

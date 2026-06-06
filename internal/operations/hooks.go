@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 )
@@ -47,11 +48,11 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	fs := getFS(req.FS)
 	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
-	contextOpts := []backends.ContextFileOption{backends.WithContextFS(fs)}
+	contextOpts := []agent.ContextFileOption{agent.WithContextFS(fs)}
 
 	// Set executable path for testing if provided
 	if req.ExecPath != "" {
-		backends.SetExecutablePathForTesting(req.ExecPath)
+		agent.SetExecutablePathForTesting(req.ExecPath)
 	}
 
 	freshCfg, err := resolveHookConfig(req)
@@ -144,7 +145,7 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // returning its hash. Fault tolerance: a regen failure must not block hook
 // application — warn and return an empty hash so the SessionStart injection
 // hook is simply omitted this round.
-func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []backends.ContextFileOption) string {
+func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) string {
 	if !req.RegenerateContext {
 		return ""
 	}
@@ -208,7 +209,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	}
 
 	if len(p.prompts) > 0 {
-		cmdOpts := []backends.CommandFileOption{backends.WithCommandFS(p.fs)}
+		cmdOpts := []agent.CommandFileOption{agent.WithCommandFS(p.fs)}
 		if err := backends.WriteCommandFilesFor(backendName, p.workDir, p.prompts, cmdOpts...); err != nil {
 			return fmt.Errorf("failed to write %s commands: %w", backendName, err)
 		}
@@ -310,7 +311,7 @@ func parseMarkdownFrontmatter(content string) (description, body string) {
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.
-func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...backends.ContextFileOption) (string, error) {
+func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...agent.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles
 	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
 	var allFragments []config.FragmentRef
@@ -348,13 +349,13 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		return "", nil
 	}
 
-	var backendFrags []*backends.Fragment
+	var backendFrags []*agent.Fragment
 	for _, name := range allFragmentNames {
 		content, err := loader.GetFragment(name)
 		if err != nil {
 			continue
 		}
-		backendFrags = append(backendFrags, &backends.Fragment{
+		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:         content.Name,
 			Content:      content.Content,
 			Installation: content.Installation,
@@ -365,6 +366,6 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		return "", nil
 	}
 
-	contextHash, _ := backends.WriteContextFile(workDir, backendFrags, opts...)
+	contextHash, _ := agent.WriteContextFile(workDir, backendFrags, opts...)
 	return contextHash, nil
 }

@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/shared/agent"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -16,7 +16,7 @@ type LLMGRPCPlugin struct {
 	plugin.Plugin
 	// Impl is the concrete backend implementation.
 	// This is only set on the server (plugin) side.
-	Impl backends.Backend
+	Impl agent.Backend
 }
 
 // GRPCServer returns the gRPC server for the plugin.
@@ -33,7 +33,7 @@ func (p *LLMGRPCPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroke
 // GRPCServer wraps a Backend implementation to serve over gRPC.
 type GRPCServer struct {
 	UnimplementedLLMServer
-	Impl backends.Backend
+	Impl agent.Backend
 }
 
 // Info returns metadata about the plugin.
@@ -85,7 +85,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 
 	// Setup the backend (skip for distillation/minimal mode)
 	if !opts.GetSkipSetup() {
-		setupReq := &backends.SetupRequest{
+		setupReq := &agent.SetupRequest{
 			WorkDir:   workDir,
 			Fragments: convertFragments(req.Fragments),
 			Env:       env,
@@ -106,7 +106,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// when the client half-closes or the run ends (Recv errors), closing both so
 	// the pty's stdin copier unblocks.
 	stdinR, stdinW := io.Pipe()
-	resizeCh := make(chan backends.WindowSize, 1)
+	resizeCh := make(chan agent.WindowSize, 1)
 	go func() {
 		defer func() { _ = stdinW.Close() }()
 		defer close(resizeCh)
@@ -122,7 +122,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 				}
 			case *RunInput_Resize:
 				select {
-				case resizeCh <- backends.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}:
+				case resizeCh <- agent.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}:
 				default: // drop a resize if the pty consumer is mid-apply
 				}
 			}
@@ -130,9 +130,9 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	}()
 
 	// Build execute request from RunStart
-	execReq := &backends.ExecuteRequest{
+	execReq := &agent.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
-		Mode:        backends.ExecutionMode(opts.GetMode()),
+		Mode:        agent.ExecutionMode(opts.GetMode()),
 		Model:       opts.GetModel(),
 		Env:         env,
 		Verbosity:   verbosity,
@@ -163,11 +163,11 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 }
 
 // convertFragment converts a proto Fragment to a backend Fragment.
-func convertFragment(f *Fragment) *backends.Fragment {
+func convertFragment(f *Fragment) *agent.Fragment {
 	if f == nil {
 		return nil
 	}
-	return &backends.Fragment{
+	return &agent.Fragment{
 		Name:        f.Name,
 		Version:     f.Version,
 		Tags:        f.Tags,
@@ -178,11 +178,11 @@ func convertFragment(f *Fragment) *backends.Fragment {
 }
 
 // convertFragments converts a slice of proto Fragments to backend Fragments.
-func convertFragments(frags []*Fragment) []*backends.Fragment {
+func convertFragments(frags []*Fragment) []*agent.Fragment {
 	if frags == nil {
 		return nil
 	}
-	result := make([]*backends.Fragment, len(frags))
+	result := make([]*agent.Fragment, len(frags))
 	for i, f := range frags {
 		result[i] = convertFragment(f)
 	}
@@ -190,7 +190,7 @@ func convertFragments(frags []*Fragment) []*backends.Fragment {
 }
 
 // convertModelInfoToProto converts a backend ModelInfo to a proto ModelInfo.
-func convertModelInfoToProto(m *backends.ModelInfo) *ModelInfo {
+func convertModelInfoToProto(m *agent.ModelInfo) *ModelInfo {
 	if m == nil {
 		return nil
 	}

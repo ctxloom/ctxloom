@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/shared/agent"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -39,14 +39,14 @@ func TestEstimateTokens(t *testing.T) {
 func TestCompactor_SessionToText(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{}}
 
-	session := &backends.Session{
+	session := &agent.Session{
 		ID: "test-session",
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeUser, Content: "Hello"},
-			{Type: backends.EntryTypeAssistant, Content: "Hi there!"},
-			{Type: backends.EntryTypeToolUse, ToolName: "Read", ToolInput: []byte(`{"path":"/test"}`)},
-			{Type: backends.EntryTypeToolResult, ToolName: "Read", ToolOutput: "file contents"},
-			{Type: backends.EntryTypeSystem, Content: "System message"},
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeUser, Content: "Hello"},
+			{Type: agent.EntryTypeAssistant, Content: "Hi there!"},
+			{Type: agent.EntryTypeToolUse, ToolName: "Read", ToolInput: []byte(`{"path":"/test"}`)},
+			{Type: agent.EntryTypeToolResult, ToolName: "Read", ToolOutput: "file contents"},
+			{Type: agent.EntryTypeSystem, Content: "System message"},
 		},
 	}
 
@@ -68,10 +68,10 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 		largeContent[i] = 'x'
 	}
 
-	session := &backends.Session{
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeToolUse, ToolName: "Bash", ToolInput: largeContent},
-			{Type: backends.EntryTypeToolResult, ToolName: "Bash", ToolOutput: string(largeContent)},
+	session := &agent.Session{
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: largeContent},
+			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: string(largeContent)},
 		},
 	}
 
@@ -84,9 +84,9 @@ func TestCompactor_SessionToText_TruncatesLargeContent(t *testing.T) {
 func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 	c := &Compactor{config: CompactionConfig{}}
 
-	session := &backends.Session{
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeToolResult, ToolName: "Bash", ToolOutput: "error message", IsError: true},
+	session := &agent.Session{
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeToolResult, ToolName: "Bash", ToolOutput: "error message", IsError: true},
 		},
 	}
 
@@ -300,55 +300,55 @@ func TestMockClientFactory(t *testing.T) {
 	assert.Same(t, mock, client)
 }
 
-// mockBackend implements backends.Backend for testing compactor.
+// mockBackend implements agent.Backend for testing compactor.
 type mockBackend struct {
-	history backends.SessionHistory
+	history agent.SessionHistory
 }
 
 func (m *mockBackend) Name() string    { return "mock-test" }
 func (m *mockBackend) Version() string { return "1.0.0" }
-func (m *mockBackend) SupportedModes() []backends.ExecutionMode {
-	return []backends.ExecutionMode{backends.ModeInteractive, backends.ModeOneshot}
+func (m *mockBackend) SupportedModes() []agent.ExecutionMode {
+	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
 }
-func (m *mockBackend) Lifecycle() backends.LifecycleHandler                { return nil }
-func (m *mockBackend) Skills() backends.SkillRegistry                      { return nil }
-func (m *mockBackend) Context() backends.ContextProvider                   { return nil }
-func (m *mockBackend) MCP() backends.MCPManager                            { return nil }
-func (m *mockBackend) History() backends.SessionHistory                    { return m.history }
-func (m *mockBackend) WorkDir() string                                     { return "" }
-func (m *mockBackend) SetWorkDir(string)                                   {}
-func (m *mockBackend) Setup(context.Context, *backends.SetupRequest) error { return nil }
-func (m *mockBackend) Execute(context.Context, *backends.ExecuteRequest, io.Writer, io.Writer) (*backends.ExecuteResult, error) {
-	return &backends.ExecuteResult{ExitCode: 0}, nil
+func (m *mockBackend) Lifecycle() agent.LifecycleHandler                { return nil }
+func (m *mockBackend) Skills() agent.SkillRegistry                      { return nil }
+func (m *mockBackend) Context() agent.ContextProvider                   { return nil }
+func (m *mockBackend) MCP() agent.MCPManager                            { return nil }
+func (m *mockBackend) History() agent.SessionHistory                    { return m.history }
+func (m *mockBackend) WorkDir() string                                  { return "" }
+func (m *mockBackend) SetWorkDir(string)                                {}
+func (m *mockBackend) Setup(context.Context, *agent.SetupRequest) error { return nil }
+func (m *mockBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
+	return &agent.ExecuteResult{ExitCode: 0}, nil
 }
 func (m *mockBackend) Cleanup(context.Context) error { return nil }
 
 // mockSessionHistory implements backends.SessionHistory for testing.
 type mockSessionHistory struct {
-	currentSession *backends.Session
-	sessions       map[string]*backends.Session
-	sessionList    []backends.SessionMeta
+	currentSession *agent.Session
+	sessions       map[string]*agent.Session
+	sessionList    []agent.SessionMeta
 }
 
-func (m *mockSessionHistory) GetCurrentSession(workDir string) (*backends.Session, error) {
+func (m *mockSessionHistory) GetCurrentSession(workDir string) (*agent.Session, error) {
 	if m.currentSession == nil {
 		return nil, errors.New("no current session")
 	}
 	return m.currentSession, nil
 }
 
-func (m *mockSessionHistory) ListSessions(workDir string) ([]backends.SessionMeta, error) {
+func (m *mockSessionHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {
 	return m.sessionList, nil
 }
 
-func (m *mockSessionHistory) GetSession(workDir string, sessionID string) (*backends.Session, error) {
+func (m *mockSessionHistory) GetSession(workDir string, sessionID string) (*agent.Session, error) {
 	if s, ok := m.sessions[sessionID]; ok {
 		return s, nil
 	}
 	return nil, errors.New("session not found")
 }
 
-func (m *mockSessionHistory) GetSessionByPath(path string) (*backends.Session, error) {
+func (m *mockSessionHistory) GetSessionByPath(path string) (*agent.Session, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -411,9 +411,9 @@ func TestCompact_NoSession(t *testing.T) {
 
 func TestCompact_EmptySession(t *testing.T) {
 	mockHistory := &mockSessionHistory{
-		currentSession: &backends.Session{
+		currentSession: &agent.Session{
 			ID:      "empty-session",
-			Entries: []backends.SessionEntry{},
+			Entries: []agent.SessionEntry{},
 		},
 	}
 	mockBe := &mockBackend{history: mockHistory}
@@ -433,11 +433,11 @@ func TestCompact_WithMockClient(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	mockHistory := &mockSessionHistory{
-		currentSession: &backends.Session{
+		currentSession: &agent.Session{
 			ID: "test-compact-session",
-			Entries: []backends.SessionEntry{
-				{Type: backends.EntryTypeUser, Content: "Hello, how are you?"},
-				{Type: backends.EntryTypeAssistant, Content: "I'm doing well, thank you!"},
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "Hello, how are you?"},
+				{Type: agent.EntryTypeAssistant, Content: "I'm doing well, thank you!"},
 			},
 		},
 	}
@@ -485,11 +485,11 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(planDir, "schema.plan.md"), []byte(planBody), 0o644))
 
 	mockBe := &mockBackend{history: &mockSessionHistory{
-		currentSession: &backends.Session{
+		currentSession: &agent.Session{
 			ID: "plan-survival",
-			Entries: []backends.SessionEntry{
-				{Type: backends.EntryTypeUser, Content: "make a plan"},
-				{Type: backends.EntryTypeAssistant, Content: "plan ready"},
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "make a plan"},
+				{Type: agent.EntryTypeAssistant, Content: "plan ready"},
 			},
 		},
 	}}
@@ -529,14 +529,14 @@ func TestCompact_BySessionID(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()
 
-	targetSession := &backends.Session{
+	targetSession := &agent.Session{
 		ID: "specific-session",
-		Entries: []backends.SessionEntry{
-			{Type: backends.EntryTypeUser, Content: "Specific request"},
+		Entries: []agent.SessionEntry{
+			{Type: agent.EntryTypeUser, Content: "Specific request"},
 		},
 	}
 	mockHistory := &mockSessionHistory{
-		sessions: map[string]*backends.Session{
+		sessions: map[string]*agent.Session{
 			"specific-session": targetSession,
 		},
 	}

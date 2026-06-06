@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/shared/agent"
 	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
 )
@@ -215,7 +215,7 @@ func TestConvertModelInfoToProto_NilInput(t *testing.T) {
 // TestConvertModelInfoToProto_FullyPopulated verifies that all model
 // metadata fields are correctly converted for transmission.
 func TestConvertModelInfoToProto_FullyPopulated(t *testing.T) {
-	backend := &backends.ModelInfo{
+	backend := &agent.ModelInfo{
 		ModelName:    "claude-3-opus",
 		ModelVersion: "20240229",
 		Provider:     "anthropic",
@@ -232,7 +232,7 @@ func TestConvertModelInfoToProto_FullyPopulated(t *testing.T) {
 // TestConvertModelInfoToProto_EmptyFields verifies that empty strings
 // are preserved during conversion, not converted to nil or defaults.
 func TestConvertModelInfoToProto_EmptyFields(t *testing.T) {
-	backend := &backends.ModelInfo{
+	backend := &agent.ModelInfo{
 		ModelName:    "",
 		ModelVersion: "",
 		Provider:     "",

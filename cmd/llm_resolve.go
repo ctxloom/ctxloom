@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ctxloom/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/gemini"
+	"github.com/ctxloom/shared/agent"
 )
 
 // decodeBackendConfig decodes the labeled LLM entry into its backend's typed
 // config via the backend registry. The label is looked up verbatim; the
 // backend is chosen solely by the entry's type. Returns nil on a missing label
 // or unknown/undecodable type (fault tolerant — caller degrades to defaults).
-func decodeBackendConfig(cfg *config.Config, label string) backends.BackendConfig {
+func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	entry, ok := cfg.LM.Configs[label]
 	if !ok {
 		return nil
@@ -32,7 +35,7 @@ func decodeBackendConfig(cfg *config.Config, label string) backends.BackendConfi
 // decodeBackendConfigForType returns the decoded config of the first labeled
 // entry whose type matches backendType. Used where only a backend type is
 // known (the self-invoked serve transport); ties resolve to map order.
-func decodeBackendConfigForType(cfg *config.Config, backendType string) backends.BackendConfig {
+func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.BackendConfig {
 	for label, entry := range cfg.LM.Configs {
 		t := entry.Type
 		if t == "" {
@@ -50,9 +53,9 @@ func decodeBackendConfigForType(cfg *config.Config, backendType string) backends
 func llmEnvFor(cfg *config.Config, label string) map[string]string {
 	bc := decodeBackendConfig(cfg, label)
 	switch c := bc.(type) {
-	case *backends.ClaudeConfig:
+	case *claude.ClaudeConfig:
 		return c.Env
-	case *backends.GeminiConfig:
+	case *gemini.GeminiConfig:
 		return c.Env
 	case *backends.CodexConfig:
 		return c.Env
@@ -67,9 +70,9 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 func llmBinaryArgsFor(cfg *config.Config, label string) (binary string, args []string) {
 	bc := decodeBackendConfig(cfg, label)
 	switch c := bc.(type) {
-	case *backends.ClaudeConfig:
+	case *claude.ClaudeConfig:
 		return c.BinaryPath, c.Args
-	case *backends.GeminiConfig:
+	case *gemini.GeminiConfig:
 		return c.BinaryPath, c.Args
 	case *backends.CodexConfig:
 		return c.BinaryPath, c.Args

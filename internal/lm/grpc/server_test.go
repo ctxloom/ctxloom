@@ -8,12 +8,11 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // fakeRunServer captures everything the GRPCServer streams during Run.
@@ -105,7 +104,7 @@ func TestConvertModelInfoToProto(t *testing.T) {
 		assert.Nil(t, convertModelInfoToProto(nil))
 	})
 	t.Run("happy_path", func(t *testing.T) {
-		out := convertModelInfoToProto(&backends.ModelInfo{
+		out := convertModelInfoToProto(&agent.ModelInfo{
 			ModelName:    "claude-sonnet-4-6",
 			ModelVersion: "4.6",
 			Provider:     "anthropic",
@@ -117,38 +116,38 @@ func TestConvertModelInfoToProto(t *testing.T) {
 	})
 }
 
-// fakeBackend implements just enough of backends.Backend to drive
+// fakeBackend implements just enough of agent.Backend to drive
 // GRPCServer.Run / GRPCServer.Info in tests. No real LLM, no real
 // session storage.
 type fakeBackend struct {
 	name          string
 	version       string
-	modes         []backends.ExecutionMode
+	modes         []agent.ExecutionMode
 	setupCalled   bool
-	executeResult *backends.ExecuteResult
+	executeResult *agent.ExecuteResult
 	executeErr    error
 	cleanupCalled bool
 	cleanupErr    error
 	captureStdout string
 	captureStderr string
-	history       backends.SessionHistory
+	history       agent.SessionHistory
 }
 
-func (f *fakeBackend) Name() string                             { return f.name }
-func (f *fakeBackend) Version() string                          { return f.version }
-func (f *fakeBackend) SupportedModes() []backends.ExecutionMode { return f.modes }
-func (f *fakeBackend) Skills() backends.SkillRegistry           { return nil }
-func (f *fakeBackend) MCP() backends.MCPManager                 { return nil }
-func (f *fakeBackend) Context() backends.ContextProvider        { return nil }
-func (f *fakeBackend) Lifecycle() backends.LifecycleHandler     { return nil }
-func (f *fakeBackend) History() backends.SessionHistory         { return f.history }
+func (f *fakeBackend) Name() string                          { return f.name }
+func (f *fakeBackend) Version() string                       { return f.version }
+func (f *fakeBackend) SupportedModes() []agent.ExecutionMode { return f.modes }
+func (f *fakeBackend) Skills() agent.SkillRegistry           { return nil }
+func (f *fakeBackend) MCP() agent.MCPManager                 { return nil }
+func (f *fakeBackend) Context() agent.ContextProvider        { return nil }
+func (f *fakeBackend) Lifecycle() agent.LifecycleHandler     { return nil }
+func (f *fakeBackend) History() agent.SessionHistory         { return f.history }
 
-func (f *fakeBackend) Setup(ctx context.Context, req *backends.SetupRequest) error {
+func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	f.setupCalled = true
 	return nil
 }
 
-func (f *fakeBackend) Execute(ctx context.Context, req *backends.ExecuteRequest, stdout, stderr io.Writer) (*backends.ExecuteResult, error) {
+func (f *fakeBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	if f.captureStdout != "" {
 		_, _ = stdout.Write([]byte(f.captureStdout))
 	}
@@ -161,7 +160,7 @@ func (f *fakeBackend) Execute(ctx context.Context, req *backends.ExecuteRequest,
 	if f.executeResult != nil {
 		return f.executeResult, nil
 	}
-	return &backends.ExecuteResult{ExitCode: 0}, nil
+	return &agent.ExecuteResult{ExitCode: 0}, nil
 }
 
 func (f *fakeBackend) Cleanup(ctx context.Context) error {
@@ -173,7 +172,7 @@ func TestGRPCServer_Info_ReportsBackendMetadata(t *testing.T) {
 	srv := &GRPCServer{Impl: &fakeBackend{
 		name:    "claude-code",
 		version: "1.2.3",
-		modes:   []backends.ExecutionMode{backends.ExecutionMode(0), backends.ExecutionMode(1)},
+		modes:   []agent.ExecutionMode{agent.ExecutionMode(0), agent.ExecutionMode(1)},
 	}}
 	info, err := srv.Info(context.Background(), &Empty{})
 	require.NoError(t, err)
@@ -187,9 +186,9 @@ func TestGRPCServer_Run_FullLifecycle(t *testing.T) {
 		name:          "claude-code",
 		captureStdout: "model output\n",
 		captureStderr: "model warning\n",
-		executeResult: &backends.ExecuteResult{
+		executeResult: &agent.ExecuteResult{
 			ExitCode: 0,
-			ModelInfo: &backends.ModelInfo{
+			ModelInfo: &agent.ModelInfo{
 				ModelName: "claude-haiku",
 				Provider:  "anthropic",
 			},
@@ -231,7 +230,7 @@ func TestGRPCServer_Run_FullLifecycle(t *testing.T) {
 }
 
 func TestGRPCServer_Run_SkipSetup(t *testing.T) {
-	backend := &fakeBackend{executeResult: &backends.ExecuteResult{ExitCode: 0}}
+	backend := &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}
 	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
@@ -256,7 +255,7 @@ func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {
 
 func TestGRPCServer_Run_NilOptionsTreatedAsEmpty(t *testing.T) {
 	// Defensive — protobuf nil options shouldn't panic.
-	srv := &GRPCServer{Impl: &fakeBackend{executeResult: &backends.ExecuteResult{ExitCode: 0}}}
+	srv := &GRPCServer{Impl: &fakeBackend{executeResult: &agent.ExecuteResult{ExitCode: 0}}}
 	stream := newFakeRunServer()
 	stream.recv = []*RunInput{runStartInput(&RunStart{})}
 	err := srv.Run(stream)

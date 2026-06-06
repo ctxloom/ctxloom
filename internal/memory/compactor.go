@@ -11,12 +11,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/textutil"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/agent"
 )
 
 const (
@@ -39,7 +39,7 @@ type CompactionConfig struct {
 	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/ephemeral/memory)
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
-	BackendOverride backends.Backend // Optional: inject backend directly for testing (bypasses registry)
+	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
 }
 
 // CompactionResult holds the result of a compaction operation.
@@ -57,7 +57,7 @@ type CompactionResult struct {
 type Compactor struct {
 	config        CompactionConfig
 	source        pb.SessionSource
-	plans         func(context.Context, string) ([]backends.PlanFile, error)
+	plans         func(context.Context, string) ([]agent.PlanFile, error)
 	clientFactory pb.ClientFactory
 }
 
@@ -65,17 +65,17 @@ type Compactor struct {
 // It backs the BackendOverride test seam (unit-testing compaction logic against
 // a fake transcript store); production reads go over gRPC via pb.SessionReader.
 type memoryHistorySource struct {
-	history backends.SessionHistory
+	history agent.SessionHistory
 	workDir string
 }
 
-func (s memoryHistorySource) GetSession(_ context.Context, id string) (*backends.Session, error) {
+func (s memoryHistorySource) GetSession(_ context.Context, id string) (*agent.Session, error) {
 	return s.history.GetSession(s.workDir, id)
 }
-func (s memoryHistorySource) ListSessions(_ context.Context) ([]backends.SessionMeta, error) {
+func (s memoryHistorySource) ListSessions(_ context.Context) ([]agent.SessionMeta, error) {
 	return s.history.ListSessions(s.workDir)
 }
-func (s memoryHistorySource) CurrentSession(_ context.Context) (*backends.Session, error) {
+func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, error) {
 	return s.history.GetCurrentSession(s.workDir)
 }
 
@@ -100,7 +100,7 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	// in-process SessionHistory is adapted to the same SessionSource contract.
 	var (
 		source pb.SessionSource
-		plans  func(context.Context, string) ([]backends.PlanFile, error)
+		plans  func(context.Context, string) ([]agent.PlanFile, error)
 	)
 	if config.BackendOverride != nil {
 		if h := config.BackendOverride.History(); h != nil {
@@ -108,7 +108,7 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		}
 		// h == nil leaves source nil → loadSessionToCompact reports "no history".
 		// Tests read plan files directly from the (isolated) session dir.
-		plans = func(_ context.Context, harp string) ([]backends.PlanFile, error) {
+		plans = func(_ context.Context, harp string) ([]agent.PlanFile, error) {
 			return pb.ReadPlanFiles(harp), nil
 		}
 	} else {
@@ -199,12 +199,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // loadSessionToCompact resolves the session to compact — the configured
 // SessionID if set, else the current session — and rejects the
 // nothing-to-do cases (no backend history support, no session, empty session).
-func (c *Compactor) loadSessionToCompact(ctx context.Context) (*backends.Session, error) {
+func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	if c.source == nil {
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
 	}
 
-	var session *backends.Session
+	var session *agent.Session
 	var err error
 	if c.config.SessionID != "" {
 		session, err = c.source.GetSession(ctx, c.config.SessionID)
@@ -308,7 +308,7 @@ func updateSessionIndex(harpName, sessionID, summary string) {
 // sessionToText converts a session to readable text for distillation. Plans
 // live in separate .plan.md files (re-attached verbatim from RenderPlans), so
 // the transcript text is rendered straight through.
-func (c *Compactor) sessionToText(session *backends.Session) string {
+func (c *Compactor) sessionToText(session *agent.Session) string {
 	var builder strings.Builder
 	for _, entry := range session.Entries {
 		appendEntryText(&builder, entry)
@@ -326,26 +326,26 @@ func truncateForSummary(s string) string {
 }
 
 // appendEntryText renders one session entry as a markdown section.
-func appendEntryText(builder *strings.Builder, entry backends.SessionEntry) {
+func appendEntryText(builder *strings.Builder, entry agent.SessionEntry) {
 	switch entry.Type {
-	case backends.EntryTypeUser:
+	case agent.EntryTypeUser:
 		builder.WriteString("## User\n")
 		builder.WriteString(entry.Content)
 		builder.WriteString("\n\n")
 
-	case backends.EntryTypeAssistant:
+	case agent.EntryTypeAssistant:
 		builder.WriteString("## Assistant\n")
 		builder.WriteString(entry.Content)
 		builder.WriteString("\n\n")
 
-	case backends.EntryTypeToolUse:
+	case agent.EntryTypeToolUse:
 		_, _ = fmt.Fprintf(builder, "## Tool Call: %s\n", entry.ToolName)
 		if len(entry.ToolInput) > 0 {
 			_, _ = fmt.Fprintf(builder, "Arguments: %s\n", truncateForSummary(string(entry.ToolInput)))
 		}
 		builder.WriteString("\n")
 
-	case backends.EntryTypeToolResult:
+	case agent.EntryTypeToolResult:
 		_, _ = fmt.Fprintf(builder, "## Tool Result: %s\n", entry.ToolName)
 		builder.WriteString(truncateForSummary(entry.ToolOutput))
 		if entry.IsError {
@@ -353,7 +353,7 @@ func appendEntryText(builder *strings.Builder, entry backends.SessionEntry) {
 		}
 		builder.WriteString("\n\n")
 
-	case backends.EntryTypeSystem:
+	case agent.EntryTypeSystem:
 		_, _ = fmt.Fprintf(builder, "## System: %s\n\n", entry.Content)
 	}
 }

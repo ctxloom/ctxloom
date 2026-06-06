@@ -288,13 +288,13 @@ func TestMCP_ToolsList(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
-	// The MCP surface was reduced: read-only listings (fragments, profiles,
-	// prompts, ...) moved to resources (ctxloom://...). Assert on tools that
-	// remain on the surface.
+	// The MCP surface is retrieval + task tracking only: read-only listings moved
+	// to resources (ctxloom://...) and all management (bundles, remotes, hooks)
+	// moved to the CLI. Assert on tools that remain on the surface.
 	assert.Contains(t, output, "assemble_context")
 	assert.Contains(t, output, "search_content")
-	assert.Contains(t, output, "sync_dependencies")
-	assert.Contains(t, output, "create_bundle")
+	assert.Contains(t, output, "search_library")
+	assert.Contains(t, output, "task_add")
 }
 
 func TestMCP_ListFragments(t *testing.T) {
@@ -560,32 +560,6 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 	assert.Contains(t, content, "description: A test bundle")
 }
 
-func TestBundle_FragmentList(t *testing.T) {
-	env := setupTestEnv(t)
-
-	bundleContent := `version: "1.0"
-fragments:
-  frag1:
-    tags:
-      - test
-    content: |
-      Content 1
-  frag2:
-    tags:
-      - test
-    content: |
-      Content 2
-`
-	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/test.yaml", bundleContent))
-
-	_ = env.Run("bundle", "fragment", "list", "test")
-
-	assert.Equal(t, 0, env.LastExitCode())
-	output := env.LastOutput()
-	assert.Contains(t, output, "frag1")
-	assert.Contains(t, output, "frag2")
-}
-
 func TestBundle_PromptList(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -600,7 +574,9 @@ prompts:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/cache/bundles/prompt-bundle.yaml", bundleContent))
 
-	_ = env.Run("bundle", "prompt", "list", "prompt-bundle")
+	// `bundle show` renders the bundle's Prompts section; the former
+	// `bundle prompt list` subtree was removed (see cmd/bundle.go).
+	_ = env.Run("bundle", "show", "prompt-bundle")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -894,7 +870,9 @@ func TestConfig_Show(t *testing.T) {
 func TestConfig_Get(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("manage", "config", "get", "defaults")
+	// Sections are config/llm/mcp/profiles in schema v3 (the old "defaults"
+	// section was folded into "config").
+	_ = env.Run("manage", "config", "get", "llm")
 
 	assert.Equal(t, 0, env.LastExitCode())
 }

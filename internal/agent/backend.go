@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"time"
+
+	"github.com/ctxloom/shared/wire"
 )
 
 // Backend is the LAUNCH facet of an agent — running the LLM and its session
@@ -234,6 +236,25 @@ type SetupRequest struct {
 	Prompts   []*Fragment // For slash commands/skills
 	Env       map[string]string
 	Verbosity uint32
+	// Managed is the host-assembled config/bundle setup payload. The host
+	// resolves ctxloom config, profiles, and bundles and hands the result here
+	// so the backend plugin never imports ctxloom config/bundles. Nil for
+	// skip_setup/distill paths.
+	Managed *ManagedConfig
+}
+
+// ManagedConfig is the host-assembled setup payload: ctxloom config, profile,
+// and bundle state resolved host-side and handed to the backend's Setup so the
+// plugin never imports ctxloom config/bundles. Hooks is the
+// config+default-profile+bundle hook set WITHOUT context-injection; the agent
+// appends its own context-injection hook from its plugin-side context hash. The
+// command exports in Prompts already have the target agent's enablement +
+// metadata resolved host-side.
+type ManagedConfig struct {
+	Prompts          []CommandExport   // per-target-agent slash-command exports
+	Hooks            *wire.HooksConfig // config + default-profile + bundle hooks (no context-injection)
+	MCP              *wire.MCPConfig   // merged config + default-profile MCP servers
+	ManageStatusline bool              // whether ctxloom manages the backend statusline
 }
 
 // ExecuteRequest contains the runtime parameters for execution.

@@ -26,6 +26,94 @@ message RunRequest {
   RunOptions options = 1;
   repeated Fragment fragments = 2;       // Context fragments with metadata
   Fragment prompt = 3;                   // The user prompt as a fragment
+  ManagedConfig managed_config = 4;      // Host-assembled config/bundle setup payload (nil for skip_setup)
+}
+
+// ManagedConfig is the host-assembled setup payload that rides over Run so the
+// backend plugin no longer self-loads ctxloom config/bundles. The host resolves
+// config, profiles, and bundles, maps them to these wire-mirroring messages, and
+// the plugin converts back and feeds them into Setup. Hooks here are the
+// config+profile+bundle set WITHOUT context-injection — the agent appends its
+// own context-injection hook from its plugin-side context hash.
+message ManagedConfig {
+  repeated CommandExport prompts = 1;   // per-target-agent slash-command exports
+  HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
+  MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
+  bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
+}
+
+// CommandExport mirrors agent.CommandExport: one prompt's agent-agnostic
+// slash-command export spec, with the target agent's enablement+metadata already
+// resolved host-side.
+message CommandExport {
+  string name = 1;                  // Full name (bundle/item); path separators allowed
+  string content = 2;               // The command body
+  bool enabled = 3;                 // Resolved enablement for the target agent
+  string description = 4;           // For /help display
+  string argument_hint = 5;         // Autocomplete hint (unused by gemini)
+  repeated string allowed_tools = 6;// Tool restrictions (unused by gemini)
+  string model = 7;                 // Override model (unused by gemini)
+}
+
+// Hook mirrors wire.Hook.
+message Hook {
+  string matcher = 1;
+  string command = 2;
+  string type = 3;
+  string prompt = 4;
+  int32 timeout = 5;
+  bool async = 6;
+  string scm = 7;
+}
+
+// HookList wraps a repeated Hook so it can be a proto map value (proto forbids
+// repeated fields directly as map values).
+message HookList {
+  repeated Hook hooks = 1;
+}
+
+// UnifiedHooks mirrors wire.UnifiedHooks.
+message UnifiedHooks {
+  repeated Hook pre_tool = 1;
+  repeated Hook post_tool = 2;
+  repeated Hook session_start = 3;
+  repeated Hook session_end = 4;
+  repeated Hook pre_shell = 5;
+  repeated Hook post_file_edit = 6;
+}
+
+// BackendHooks mirrors wire.BackendHooks (event name -> hooks).
+message BackendHooks {
+  map<string, HookList> events = 1;
+}
+
+// HooksConfig mirrors wire.HooksConfig.
+message HooksConfig {
+  UnifiedHooks unified = 1;
+  map<string, BackendHooks> plugins = 2;
+}
+
+// MCPServer mirrors wire.MCPServer.
+message MCPServer {
+  string command = 1;
+  repeated string args = 2;
+  map<string, string> env = 3;
+  string notes = 4;
+  string installation = 5;
+  string scm = 6;
+}
+
+// MCPServerMap wraps a server map so it can be a proto map value.
+message MCPServerMap {
+  map<string, MCPServer> servers = 1;
+}
+
+// MCPConfig mirrors wire.MCPConfig. auto_register_ctxloom is optional to
+// preserve the unset/true/false tri-state of the *bool it mirrors.
+message MCPConfig {
+  optional bool auto_register_ctxloom = 1;
+  map<string, MCPServer> servers = 2;
+  map<string, MCPServerMap> plugins = 3;
 }
 
 // Fragment represents a context fragment or prompt with metadata.

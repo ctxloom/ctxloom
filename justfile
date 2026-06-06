@@ -304,8 +304,10 @@ complexity-check *ARGS: dev-image
 # sessions get a real tty (cleaner than `go run` for pty/raw-mode smoke tests).
 # Never touches your PATH/installed ctxloom. E.g. `just run run`, `just run memory list`.
 run *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
     go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
-    ./ctxloom {{ARGS}}
+    exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install to ~/go/bin (standard Go location)
 # Atomic rename instead of pkill+cp: replacing the directory entry leaves the

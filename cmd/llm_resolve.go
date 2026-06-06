@@ -56,6 +56,8 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 		return c.Env
 	case *backends.CodexConfig:
 		return c.Env
+	case *backends.MockConfig:
+		return c.Env
 	}
 	return nil
 }

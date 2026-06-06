@@ -107,17 +107,19 @@ func (m *MockLM) WriteConfig() error {
 	// Extract sections to preserve (profiles only - defaults will be rebuilt)
 	profilesSection := extractYAMLSection(existingConfig, "profiles:")
 
-	// Build config with mock settings
+	// Build config with mock settings (schema v3: labeled configs + role map).
 	var config strings.Builder
+	config.WriteString("version: 3\n")
 	config.WriteString("llm:\n")
-	config.WriteString("  default: mock\n")
 	config.WriteString("  configs:\n")
 	config.WriteString("    mock:\n")
-	config.WriteString("      args: []\n")
+	config.WriteString("      type: mock\n")
 	config.WriteString("      env:\n")
-	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_record_file: \"%s\"\n", m.RecordedInputPath)
-	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_response: \"%s\"\n", escapeYAMLString(m.Response))
-	_, _ = fmt.Fprintf(&config, "        ctxloom_mock_exit_code: \"%d\"\n", m.ExitCode)
+	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_RECORD_FILE: \"%s\"\n", m.RecordedInputPath)
+	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_RESPONSE: \"%s\"\n", escapeYAMLString(m.Response))
+	_, _ = fmt.Fprintf(&config, "        CTXLOOM_MOCK_EXIT_CODE: \"%d\"\n", m.ExitCode)
+	config.WriteString("  defaults:\n")
+	config.WriteString("    primary: mock\n")
 
 	config.WriteString("defaults:\n")
 	config.WriteString("  use_distilled: false\n")

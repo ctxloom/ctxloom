@@ -23,9 +23,12 @@ type Mock struct {
 	fragments []*Fragment
 }
 
-// MockConfig is the test backend's typed LLM config.
+// MockConfig is the test backend's typed LLM config. Env carries the
+// CTXLOOM_MOCK_* knobs (response, exit code, record file) through to Execute via
+// the run request, mirroring the other backends' env passthrough.
 type MockConfig struct {
-	Model string `mapstructure:"model"`
+	Model string            `mapstructure:"model"`
+	Env   map[string]string `mapstructure:"env"`
 }
 
 // BackendType identifies the backend this config drives.

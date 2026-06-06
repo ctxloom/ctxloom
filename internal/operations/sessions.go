@@ -40,6 +40,46 @@ func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	return mgr.ListForProject(projectDir)
 }
 
+// PreviousSessionRef identifies a prior session to materialize: which backend
+// produced it (agent-of-origin, enabling cross-agent handoff) and the
+// agent-agnostic session id the owning agent server reassembles.
+type PreviousSessionRef struct {
+	SessionID string
+	Backend   string
+}
+
+// ResolvePreviousSession resolves the session before the active harp's, for a
+// project, from the session index — the authority for ordering, agent-of-origin,
+// and cross-agent routing (ADR 0019). Entries come most-recent-first; the active
+// harp's own entry is skipped and the first prior entry that carries a bound
+// session id wins. Returns nil (no error) when the index has no such entry, so
+// the caller can fall back to the owning agent's own store listing.
+//
+// This replaces the per-backend GetPreviousSession readers: ctxloom decides
+// WHICH session is previous (and which agent owns it); the agent server only
+// materializes a given id. Gemini in particular no longer needs the index, so it
+// stops importing internal/sessions.
+func ResolvePreviousSession(projectDir, activeHarp string) (*PreviousSessionRef, error) {
+	entries, err := ListSessionsForProject(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	return selectPreviousEntry(entries, activeHarp), nil
+}
+
+// selectPreviousEntry picks the previous session from project entries
+// (most-recent-first): skip the active harp's own entry and any entry not yet
+// bound to a session id, then take the first prior one. Pure for testability.
+func selectPreviousEntry(entries []sessions.Entry, activeHarp string) *PreviousSessionRef {
+	for _, e := range entries {
+		if e.HarpName == activeHarp || e.SessionID == "" {
+			continue
+		}
+		return &PreviousSessionRef{SessionID: e.SessionID, Backend: e.Backend}
+	}
+	return nil
+}
+
 // GetSession returns the entry for harp, or nil if absent.
 func GetSession(harp string) (*sessions.Entry, error) {
 	mgr, err := openSessions()

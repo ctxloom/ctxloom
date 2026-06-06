@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/shared/harpmarker"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.
@@ -525,35 +524,7 @@ func (h *ClaudeSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return filepath.Join(homeDir, ".claude", "projects", projectName, sessionID+".jsonl")
 }
 
-// GetPreviousSession returns the session before the current one, resolved at
-// read time from the transcript store (the old PID-registry lookup assumed
-// /clear did not fork the session, but it does). When the active harp is known
-// (CTXLOOM_SESSION_HARP), resolution is scoped to transcripts carrying that
-// harp's self-id marker, so a concurrent terminal's session in the same project
-// directory can't be mistaken for the previous one.
-func (h *ClaudeSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	return previousSessionByListing(workDir, os.Getenv("CTXLOOM_SESSION_HARP"),
-		h.ListSessions, h.GetSessionByPath, h.harpFromTranscript)
-}
-
-// harpFromTranscript returns the harp that owns the transcript at path by
-// scanning for its self-id marker, or "" if absent or unreadable. The marker is
-// emitted into the SessionStart context, so it sits in the first lines; scanning
-// stops at the first hit, keeping the cost off the (potentially multi-MB) body.
-func (h *ClaudeSessionHistory) harpFromTranscript(path string) string {
-	file, err := h.fs.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = file.Close() }()
-
-	scanner := bufio.NewScanner(file)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-	for scanner.Scan() {
-		if harp := harpmarker.Scan(scanner.Bytes()); harp != "" {
-			return harp
-		}
-	}
-	return ""
-}
+// "Which session is previous" now lives in ctxloom
+// (operations.ResolvePreviousSession), resolved from the session index rather
+// than by scanning transcripts for harp markers here. This reader only locates,
+// reassembles, and translates a given session.

@@ -30,10 +30,9 @@ func (h *fakeHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) 
 	h.gotWorkDir = workDir
 	return h.metas, h.metasErr
 }
-func (h *fakeHistory) GetCurrentSession(string) (*agent.Session, error)  { return nil, nil }
-func (h *fakeHistory) GetSessionByPath(string) (*agent.Session, error)   { return nil, nil }
-func (h *fakeHistory) TranscriptPathFromHook(_, _, _ string) string      { return "" }
-func (h *fakeHistory) GetPreviousSession(string) (*agent.Session, error) { return nil, nil }
+func (h *fakeHistory) GetCurrentSession(string) (*agent.Session, error) { return nil, nil }
+func (h *fakeHistory) GetSessionByPath(string) (*agent.Session, error)  { return nil, nil }
+func (h *fakeHistory) TranscriptPathFromHook(_, _, _ string) string     { return "" }
 
 func TestSessionRoundTrip(t *testing.T) {
 	ts := time.Unix(1_700_000_000, 0).UTC()

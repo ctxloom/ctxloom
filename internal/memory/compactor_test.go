@@ -357,10 +357,6 @@ func (m *mockSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcri
 	return ""
 }
 
-func (m *mockSessionHistory) GetPreviousSession(workDir string) (*backends.Session, error) {
-	return nil, errors.New("not implemented")
-}
-
 func TestNewCompactor_WithBackendOverride(t *testing.T) {
 	mockHistory := &mockSessionHistory{}
 	mockBe := &mockBackend{history: mockHistory}

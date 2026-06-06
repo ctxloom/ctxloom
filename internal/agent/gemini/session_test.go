@@ -10,8 +10,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // =============================================================================
@@ -362,46 +360,10 @@ func TestGeminiSessionHistory_FindProjectDir_LegacyFallback(t *testing.T) {
 	assert.Equal(t, projectDir, result)
 }
 
-func TestPreviousSessionByIndex(t *testing.T) {
-	// Index entries are most-recent-first; the active harp ("self") is index 0.
-	entries := []sessions.Entry{
-		{HarpName: "self", TranscriptPath: "/t/self.jsonl"},
-		{HarpName: "prev", TranscriptPath: "/t/prev.jsonl"},
-		{HarpName: "old", TranscriptPath: "/t/old.jsonl"},
-	}
-	list := func(string) ([]sessions.Entry, error) { return entries, nil }
-	byPath := func(p string) (*Session, error) { return &Session{ID: p}, nil }
-
-	t.Run("skips self and returns most-recent prior", func(t *testing.T) {
-		s, err := previousSessionByIndex("/proj", "self", list, byPath)
-		require.NoError(t, err)
-		require.NotNil(t, s)
-		assert.Equal(t, "/t/prev.jsonl", s.ID)
-	})
-
-	t.Run("skips entries without a transcript path", func(t *testing.T) {
-		list := func(string) ([]sessions.Entry, error) {
-			return []sessions.Entry{
-				{HarpName: "self", TranscriptPath: "/t/self.jsonl"},
-				{HarpName: "pending", TranscriptPath: ""}, // never bound
-				{HarpName: "prev", TranscriptPath: "/t/prev.jsonl"},
-			}, nil
-		}
-		s, err := previousSessionByIndex("/proj", "self", list, byPath)
-		require.NoError(t, err)
-		require.NotNil(t, s)
-		assert.Equal(t, "/t/prev.jsonl", s.ID)
-	})
-
-	t.Run("nil when only the active harp exists", func(t *testing.T) {
-		list := func(string) ([]sessions.Entry, error) {
-			return []sessions.Entry{{HarpName: "self", TranscriptPath: "/t/self.jsonl"}}, nil
-		}
-		s, err := previousSessionByIndex("/proj", "self", list, byPath)
-		require.NoError(t, err)
-		assert.Nil(t, s)
-	})
-}
+// Previous-session resolution moved to ctxloom
+// (operations.ResolvePreviousSession, index-authoritative + cross-agent), so the
+// gemini-local index resolver and its test were removed along with this package's
+// internal/sessions dependency.
 
 func TestGeminiSessionHistory_TranscriptPathFromHook(t *testing.T) {
 	history := NewGeminiSessionHistory(NewGemini(writeGeminiSettings))

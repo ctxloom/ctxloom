@@ -256,27 +256,43 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	if backendName == "" {
 		backendName = "claude-code"
 	}
-	backend := backends.Get(backendName)
-	if backend == nil {
-		return nil, nil, fmt.Errorf("backend %q not found", backendName)
-	}
-	history := backend.History()
-	if history == nil {
-		return nil, nil, fmt.Errorf("session history not available for backend %q", backendName)
+
+	// Index-authoritative: ctxloom decides which session is previous and which
+	// agent produced it (cross-agent aware); the owning agent server materializes
+	// it. Best-effort — a lookup error degrades to the positional fallback.
+	sessionID := ""
+	if ref, rerr := operations.ResolvePreviousSession(workDir, os.Getenv("CTXLOOM_SESSION_HARP")); rerr == nil && ref != nil {
+		sessionID = ref.SessionID
+		if ref.Backend != "" {
+			backendName = ref.Backend
+		}
 	}
 
-	prevSession, err := history.GetPreviousSession(workDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("lookup previous session: %w", err)
+	if !backends.Exists(backendName) {
+		return nil, nil, fmt.Errorf("backend %q not found", backendName)
 	}
-	if prevSession == nil {
+
+	// Fallback for pre-binding history (no index entry): the second-most-recent
+	// transcript in the agent's own store is the previous one (the most recent is
+	// the active session).
+	if sessionID == "" {
+		metas, lerr := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
+		if lerr != nil {
+			return nil, nil, fmt.Errorf("lookup previous session: %w", lerr)
+		}
+		if len(metas) >= 2 {
+			sessionID = metas[1].ID
+		}
+	}
+
+	if sessionID == "" {
 		return nil, &loadSessionResult{
 			Loaded:  false,
 			Message: "No previous session found for this project.",
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, prevSession.ID, backendName, in.Model, 0)
+	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, 0)
 }
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.

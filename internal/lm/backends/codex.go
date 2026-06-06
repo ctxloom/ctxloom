@@ -400,7 +400,3 @@ func (h *CodexSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcr
 	return ""
 }
 
-// GetPreviousSession returns nil for Codex (no registry support yet).
-func (h *CodexSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	return nil, nil // No previous session tracking for Codex
-}

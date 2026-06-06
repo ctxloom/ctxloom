@@ -180,9 +180,11 @@ type SessionHistory interface {
 	// Claude: computes path from sessionID + workDir
 	// Gemini: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
-	// GetPreviousSession returns the session before the current one for recovery,
-	// resolved at read time from the transcript store (most-recent-first, [1]).
-	GetPreviousSession(workDir string) (*Session, error)
+
+	// Note: "which session is previous" is resolved by ctxloom from its session
+	// index (operations.ResolvePreviousSession), not by the agent — the index is
+	// the authority for ordering, agent-of-origin, and cross-agent routing. The
+	// agent only materializes a given session id (GetSession).
 }
 
 // Session represents a conversation session with normalized entries.

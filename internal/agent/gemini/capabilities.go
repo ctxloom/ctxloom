@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agent"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // geminiAppCommandsDir is the subdirectory for ctxloom-managed Gemini commands.
@@ -608,51 +607,8 @@ func (h *GeminiSessionHistory) TranscriptPathFromHook(workDir, sessionID, transc
 	return transcriptPath
 }
 
-// GetPreviousSession returns the session before the current one for this harp.
-//
-// Gemini does not persist SessionStart additionalContext into its transcript, so
-// the harp self-id marker that Claude scans for never lands there. Harp
-// ownership is instead resolved from the ctxloom session index: `ctxloom session
-// bind` records the active harp's session_id and transcript_path (both present
-// in Gemini's SessionStart hook payload), so the previous session is the most
-// recent prior index entry for this project that carries a readable transcript.
-// When the active harp is unknown or the index has no prior bound entry
-// (pre-binding history), resolution falls back to the positional datetime floor.
-func (h *GeminiSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	if harp := os.Getenv("CTXLOOM_SESSION_HARP"); harp != "" {
-		if mgr, err := sessions.Open(""); err == nil {
-			if s, err := previousSessionByIndex(workDir, harp, mgr.ListForProject, h.GetSessionByPath); err == nil && s != nil {
-				return s, nil
-			}
-		}
-	}
-	return previousSessionByListing(workDir, "", h.ListSessions, h.GetSessionByPath, nil)
-}
-
-// previousSessionByIndex resolves the session before the current one using the
-// ctxloom session index rather than transcript content — the deterministic path
-// for backends (e.g. Gemini) whose transcripts carry no harp self-id marker.
-// list returns a project's entries most-recent-first; the active harp's own
-// entry is skipped and the first prior entry with a readable transcript wins.
-// Returns nil without error when no such entry exists, so the caller can fall
-// back to the positional floor. This is the index-backed sibling of
-// previousSessionByListing (claude_capabilities.go).
-func previousSessionByIndex(
-	workDir, myHarp string,
-	list func(projectDir string) ([]sessions.Entry, error),
-	byPath func(string) (*Session, error),
-) (*Session, error) {
-	entries, err := list(workDir)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		if e.HarpName == myHarp || e.TranscriptPath == "" {
-			continue
-		}
-		if s, err := byPath(e.TranscriptPath); err == nil && s != nil {
-			return s, nil
-		}
-	}
-	return nil, nil
-}
+// "Which session is previous" now lives in ctxloom
+// (operations.ResolvePreviousSession), resolved from the session index — exactly
+// the index Gemini used to consult here. Moving it out removes the gemini
+// package's last dependency on internal/sessions (and its harp/upgrade/filelock
+// subtree). This reader only locates, reassembles, and translates a given session.

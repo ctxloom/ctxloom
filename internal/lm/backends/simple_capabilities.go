@@ -36,11 +36,6 @@ func (h *NilSessionHistory) TranscriptPathFromHook(workDir, sessionID, transcrip
 	return ""
 }
 
-// GetPreviousSession returns nil for backends without history support.
-func (h *NilSessionHistory) GetPreviousSession(workDir string) (*Session, error) {
-	return nil, nil // No previous session
-}
-
 // Provide assembles context fragments and stores them for later retrieval.
 func (c *CLIContextProvider) Provide(workDir string, fragments []*Fragment) error {
 	c.assembledContext = assembleFragments(fragments)

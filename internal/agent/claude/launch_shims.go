@@ -59,6 +59,4 @@ var (
 	NewBaseContextProvider = agent.NewBaseContextProvider
 
 	GetPromptContent = agent.GetPromptContent
-
-	previousSessionByListing = agent.PreviousSessionByListing
 )

@@ -59,6 +59,4 @@ var (
 
 	GetPromptContent = agent.GetPromptContent
 	ResolveCommandFS = agent.ResolveCommandFS
-
-	previousSessionByListing = agent.PreviousSessionByListing
 )

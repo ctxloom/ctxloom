@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
@@ -27,26 +28,67 @@ type RunResult struct {
 	ModelInfo *ModelInfo
 }
 
-// Run executes the plugin and streams output to the provided writers.
-func (c *GRPCClient) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
-	result, err := c.RunWithModelInfo(ctx, req, stdout, stderr)
+// Run executes the plugin and streams output to the provided writers. stdin and
+// resize are the frontend's terminal input (nil for non-interactive callers).
+func (c *GRPCClient) Run(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (int32, error) {
+	result, err := c.RunWithModelInfo(ctx, req, stdin, stdout, stderr, resize)
 	if err != nil {
 		return 1, err
 	}
 	return result.ExitCode, nil
 }
 
-// RunWithModelInfo executes the plugin and returns both exit code and model info.
-// Run is a bidirectional stream: the first message carries the RunStart; stdin
-// and resize follow (wired in B2). For now the start is sent and the response
-// stream is consumed.
-func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
+// RunWithModelInfo executes the plugin over the bidirectional Run stream: it
+// sends the RunStart, then pumps the frontend's stdin and resize events to the
+// controller (which feeds them into the agent's pty), while consuming the
+// response stream. The frontend owns the terminal; this is the client half of
+// that ownership. gRPC forbids concurrent Send on one stream, so the start +
+// stdin + resize pumps share a send mutex.
+func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (*RunResult, error) {
 	stream, err := c.client.Run(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := stream.Send(&RunInput{Input: &RunInput_Start{Start: req}}); err != nil {
+
+	var sendMu sync.Mutex
+	send := func(in *RunInput) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(in)
+	}
+
+	if err := send(&RunInput{Input: &RunInput_Start{Start: req}}); err != nil {
 		return nil, fmt.Errorf("send run start: %w", err)
+	}
+
+	// Pump keystrokes. The goroutine parks in stdin.Read at end of run; for the
+	// one-shot `ctxloom run` process that is harmless (the process exits).
+	if stdin != nil {
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				n, rerr := stdin.Read(buf)
+				if n > 0 {
+					if serr := send(&RunInput{Input: &RunInput_Stdin{Stdin: append([]byte(nil), buf[:n]...)}}); serr != nil {
+						return
+					}
+				}
+				if rerr != nil {
+					return
+				}
+			}
+		}()
+	}
+
+	// Pump terminal resizes.
+	if resize != nil {
+		go func() {
+			for ws := range resize {
+				if serr := send(&RunInput{Input: &RunInput_Resize{Resize: ws}}); serr != nil {
+					return
+				}
+			}
+		}()
 	}
 
 	result := &RunResult{}
@@ -192,13 +234,13 @@ func (p *LLMRunner) Info(ctx context.Context) (*LLMInfo, error) {
 }
 
 // Run executes the plugin.
-func (p *LLMRunner) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
-	return p.grpc.Run(ctx, req, stdout, stderr)
+func (p *LLMRunner) Run(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (int32, error) {
+	return p.grpc.Run(ctx, req, stdin, stdout, stderr, resize)
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
-	return p.grpc.RunWithModelInfo(ctx, req, stdout, stderr)
+func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (*RunResult, error) {
+	return p.grpc.RunWithModelInfo(ctx, req, stdin, stdout, stderr, resize)
 }
 
 // Kill terminates the plugin process.

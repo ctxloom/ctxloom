@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -99,6 +100,35 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		}
 	}
 
+	// Pump the rest of the bidi stream — the frontend's keystrokes and resizes —
+	// into the agent's pty: stdin via an io.Pipe, resize via a channel. The
+	// frontend owns the terminal; the controller just forwards. The pump stops
+	// when the client half-closes or the run ends (Recv errors), closing both so
+	// the pty's stdin copier unblocks.
+	stdinR, stdinW := io.Pipe()
+	resizeCh := make(chan backends.WindowSize, 1)
+	go func() {
+		defer func() { _ = stdinW.Close() }()
+		defer close(resizeCh)
+		for {
+			in, rerr := stream.Recv()
+			if rerr != nil {
+				return
+			}
+			switch v := in.GetInput().(type) {
+			case *RunInput_Stdin:
+				if _, werr := stdinW.Write(v.Stdin); werr != nil {
+					return
+				}
+			case *RunInput_Resize:
+				select {
+				case resizeCh <- backends.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}:
+				default: // drop a resize if the pty consumer is mid-apply
+				}
+			}
+		}
+	}()
+
 	// Build execute request from RunStart
 	execReq := &backends.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
@@ -110,6 +140,8 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		AutoApprove: opts.GetAutoApprove(),
 		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
+		Stdin:       stdinR,
+		Resize:      resizeCh,
 	}
 
 	// Execute the backend

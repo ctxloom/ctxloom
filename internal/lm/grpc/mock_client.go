@@ -52,8 +52,9 @@ func (m *MockClient) Info(ctx context.Context) (*LLMInfo, error) {
 	return &LLMInfo{Name: "mock", Version: "1.0.0"}, nil
 }
 
-// Run executes the plugin and streams output to the provided writers.
-func (m *MockClient) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
+// Run executes the plugin and streams output to the provided writers. stdin and
+// resize are accepted to satisfy the Client interface but ignored by the mock.
+func (m *MockClient) Run(ctx context.Context, req *RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *WindowSize) (int32, error) {
 	m.RunCalls++
 	if m.RunFunc != nil {
 		return m.RunFunc(ctx, req, stdout, stderr)
@@ -62,7 +63,7 @@ func (m *MockClient) Run(ctx context.Context, req *RunStart, stdout, stderr io.W
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
+func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *WindowSize) (*RunResult, error) {
 	m.RunWithModelInfoCalls++
 	if m.RunWithModelInfoFunc != nil {
 		return m.RunWithModelInfoFunc(ctx, req, stdout, stderr)

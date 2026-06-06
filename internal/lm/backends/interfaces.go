@@ -24,6 +24,7 @@ type (
 	SetupRequest     = agent.SetupRequest
 	ExecuteRequest   = agent.ExecuteRequest
 	ExecuteResult    = agent.ExecuteResult
+	WindowSize       = agent.WindowSize
 )
 
 const (

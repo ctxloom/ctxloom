@@ -321,12 +321,12 @@ func TestMockClient_DefaultBehavior(t *testing.T) {
 	assert.Equal(t, "1.0.0", info.Version)
 
 	// Run returns success
-	exitCode, err := mock.Run(context.Background(), &RunStart{}, nil, nil)
+	exitCode, err := mock.Run(context.Background(), &RunStart{}, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(0), exitCode)
 
 	// RunWithModelInfo returns success
-	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil)
+	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(0), result.ExitCode)
 
@@ -366,7 +366,7 @@ func TestMockClient_CustomRun(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	exitCode, err := mock.Run(context.Background(), &RunStart{}, &buf, nil)
+	exitCode, err := mock.Run(context.Background(), &RunStart{}, nil, &buf, nil, nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int32(42), exitCode)
@@ -387,7 +387,7 @@ func TestMockClient_CustomRunWithModelInfo(t *testing.T) {
 		},
 	}
 
-	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil)
+	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil, nil, nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "claude-3-haiku", result.ModelInfo.ModelName)

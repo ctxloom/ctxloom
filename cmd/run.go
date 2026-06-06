@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -593,8 +594,19 @@ Examples:
 		}
 		defer client.Kill()
 
+		// For an interactive run the frontend owns the terminal: raw mode + stdin
+		// + resize are pumped over the bidi Run stream to the controller's pty.
+		// Oneshot runs need none of that.
+		var stdin io.Reader
+		var resize <-chan *pb.WindowSize
+		restoreTerm := func() {}
+		if mode == pb.ExecutionMode_INTERACTIVE {
+			stdin, resize, restoreTerm = interactiveTerminal(context.Background())
+		}
+
 		// Run the AI plugin
-		exitCode, err := client.Run(context.Background(), req, os.Stdout, os.Stderr)
+		exitCode, err := client.Run(context.Background(), req, stdin, os.Stdout, os.Stderr, resize)
+		restoreTerm()
 		if err != nil {
 			return fmt.Errorf("AI plugin failed: %w", err)
 		}

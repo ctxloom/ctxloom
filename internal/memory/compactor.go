@@ -445,7 +445,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 
 	// Execute
 	var stdout, stderr bytes.Buffer
-	exitCode, err := client.Run(ctx, req, &stdout, &stderr)
+	exitCode, err := client.Run(ctx, req, nil, &stdout, &stderr, nil)
 	if err != nil {
 		return "", err
 	}

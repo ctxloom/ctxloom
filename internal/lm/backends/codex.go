@@ -107,7 +107,7 @@ func (b *Codex) Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr
 	var exitCode int32
 	var err error
 	if req.Mode == ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, req.Env, stdout, stderr)
+		exitCode, err = b.RunInteractive(ctx, args, req.Env, req.Stdin, stdout, stderr, req.Resize)
 	} else {
 		exitCode, err = b.RunNonInteractive(ctx, args, req.Env, stdout, stderr)
 	}

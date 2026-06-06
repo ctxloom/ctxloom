@@ -381,7 +381,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 		},
 	}
 
-	_, err = client.Run(ctx, req, os.Stdout, os.Stderr)
+	_, err = client.Run(ctx, req, nil, os.Stdout, os.Stderr, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: AI session ended: %v\n", err)
 	}

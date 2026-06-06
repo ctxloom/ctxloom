@@ -49,7 +49,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	// drain and drop output in some environments.
 	cmd := exec.Command("sh", "-c", "printf 'hello from pty\\n'; sleep 0.1")
 	var out bytes.Buffer
-	result, err := RunInteractive(context.Background(), cmd, &out, nil)
+	result, err := RunInteractive(context.Background(), cmd, nil, &out, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 	assert.Contains(t, result.Output, "hello from pty")
@@ -71,7 +71,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 func TestRunInteractive_BenignPTYCloseSwallowed(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'line one\\nline two\\n'; sleep 0.1")
 	var out bytes.Buffer
-	result, err := RunInteractive(context.Background(), cmd, &out, nil)
+	result, err := RunInteractive(context.Background(), cmd, nil, &out, nil, nil)
 	require.NoError(t, err, "benign PTY-close fallout must be swallowed via errors.Is")
 	assert.Equal(t, 0, result.ExitCode)
 	assert.Contains(t, result.Output, "line one")

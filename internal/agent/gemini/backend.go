@@ -185,7 +185,7 @@ func (b *Gemini) Execute(ctx context.Context, req *ExecuteRequest, stdout, stder
 	var exitCode int32
 	var err error
 	if (req.Prompt == nil || req.Prompt.Content == "") && req.Mode == ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, env, stdout, stderr)
+		exitCode, err = b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
 	} else {
 		exitCode, err = b.RunNonInteractive(ctx, args, env, stdout, stderr)
 	}

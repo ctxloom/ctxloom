@@ -347,7 +347,7 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 
 	// Execute and capture model info
 	var stdout, stderr bytes.Buffer
-	result, err := client.RunWithModelInfo(context.Background(), req, &stdout, &stderr)
+	result, err := client.RunWithModelInfo(context.Background(), req, nil, &stdout, &stderr, nil)
 	if err != nil {
 		return "", "", err
 	}

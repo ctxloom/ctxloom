@@ -52,7 +52,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	result, err := RunInteractive(ctx, cmd, &stdout, nil)
+	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
@@ -93,7 +93,7 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			result, err := RunInteractive(ctx, cmd, nil, nil)
+			result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, result.ExitCode)
@@ -121,7 +121,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		err    error
 	})
 	go func() {
-		result, err := RunInteractive(ctx, cmd, nil, nil)
+		result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 		resultCh <- struct {
 			result *Result
 			err    error
@@ -158,7 +158,7 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	result, err := RunInteractive(ctx, cmd, nil, nil)
+	result, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
@@ -196,7 +196,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		err    error
 	})
 	go func() {
-		result, err := RunInteractive(ctx, cmd, &stdout, nil)
+		result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 		resultCh <- struct {
 			result *Result
 			err    error
@@ -235,7 +235,7 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	result, err := RunInteractive(ctx, cmd, &stdout, nil)
+	result, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)

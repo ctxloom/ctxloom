@@ -279,6 +279,12 @@ type ExecuteRequest struct {
 	AutoApprove bool
 	Temperature float32
 	SkipSetup   bool // Minimal mode - skip hooks/skills/context in backend
+
+	// Stdin and Resize carry the frontend's terminal input into an interactive
+	// run (over the bidi Run stream): Stdin is the keystroke byte stream, Resize
+	// the terminal-size changes. Both nil for non-interactive/oneshot runs.
+	Stdin  io.Reader
+	Resize <-chan WindowSize
 }
 
 // ExecuteResult contains the outcome of execution.

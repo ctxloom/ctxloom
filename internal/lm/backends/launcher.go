@@ -16,13 +16,13 @@ import (
 // agent's LaunchSpec, allocating a pty for interactive sessions so the child CLI
 // sees a terminal even when stdin is a pipe (go-plugin gRPC). Process execution
 // lives here in the runtime, not in the engine-agnostic substrate.
-func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdout, stderr io.Writer) (int32, error) {
+func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int32, error) {
 	cmd := exec.CommandContext(ctx, spec.BinaryPath, spec.Args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		result, err := ptyrunner.RunInteractive(ctx, cmd, stdout, stderr)
+		result, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, stderr, resize)
 		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}

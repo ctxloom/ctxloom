@@ -13,12 +13,13 @@ type Client interface {
 	// Info returns metadata about the plugin.
 	Info(ctx context.Context) (*LLMInfo, error)
 
-	// Run executes the plugin and streams output to the provided writers.
-	// Returns the exit code.
-	Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error)
+	// Run executes the plugin and streams output to the provided writers,
+	// pumping the frontend's stdin/resize (nil for non-interactive). Returns the
+	// exit code.
+	Run(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (int32, error)
 
-	// RunWithModelInfo executes the plugin and returns both exit code and model info.
-	RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error)
+	// RunWithModelInfo is Run plus the resolved model info.
+	RunWithModelInfo(ctx context.Context, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *WindowSize) (*RunResult, error)
 
 	// GetSession asks the plugin to materialize a transcript (by agent-agnostic
 	// session id) into the normalized session form. No workspace is passed — the

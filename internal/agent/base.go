@@ -21,17 +21,25 @@ type LaunchSpec struct {
 	Interactive bool // true → allocate a pty so the child sees a terminal
 }
 
-// Launcher runs a LaunchSpec, streaming the child's stdout/stderr to the given
-// writers, and returns the process exit code. ctxloom injects a pty-backed
-// implementation (SetLauncher); see internal/lm/backends.RunLaunchSpec.
+// WindowSize is a terminal size for pty resize, carried from the frontend (which
+// owns the terminal) to the agent's pty.
+type WindowSize struct {
+	Rows uint16
+	Cols uint16
+}
+
+// Launcher runs a LaunchSpec, wiring the frontend's terminal to the agent's pty:
+// it copies stdin into the pty, streams the pty's output to stdout/stderr, and
+// applies resize events. Returns the process exit code. ctxloom injects a
+// pty-backed implementation (SetLauncher); see internal/lm/backends.RunLaunchSpec.
 //
 // Launch is owned by ctxloom (the runtime), not the agent: a single home for the
 // pty owns terminal allocation, resize, and stdio wiring, shared by every agent.
+// stdin/resize originate at the frontend and arrive over the bidi Run stream — so
+// the frontend (possibly remote) owns the terminal, not the controller.
 //
 // TODO: generalize "launch" to a broader "open/connect a session" operation.
-// Spawning a local CLI in a pty is only ONE realization; a cloud/remote agent
-// would connect to an already-running session instead — no process, no pty.
-type Launcher func(ctx context.Context, spec LaunchSpec, stdout, stderr io.Writer) (int32, error)
+type Launcher func(ctx context.Context, spec LaunchSpec, stdin io.Reader, stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error)
 
 // BaseBackend provides common functionality for all AI backends.
 // Embed this struct in concrete backend implementations.
@@ -108,21 +116,21 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 	return env
 }
 
-// RunInteractive runs the backend's command in interactive mode (the injected
-// launcher allocates a pty so the child sees a terminal even when stdin is a pipe
-// from go-plugin gRPC).
-func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr io.Writer) (int32, error) {
-	return b.run(ctx, args, env, true, stdout, stderr)
+// RunInteractive runs the backend's command in interactive mode: the injected
+// launcher allocates a pty and wires the frontend's stdin/resize (from the bidi
+// Run stream) into it. stdin/resize may be nil (e.g. a non-tty caller).
+func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
+	return b.run(ctx, args, env, true, stdin, stdout, stderr, resize)
 }
 
-// RunNonInteractive runs the backend's command without a pty.
+// RunNonInteractive runs the backend's command without a pty (no stdin/resize).
 func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr io.Writer) (int32, error) {
-	return b.run(ctx, args, env, false, stdout, stderr)
+	return b.run(ctx, args, env, false, nil, stdout, stderr, nil)
 }
 
 // run builds the LaunchSpec from the backend's state and hands it to the injected
 // launcher. The substrate never execs a process itself.
-func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdout, stderr io.Writer) (int32, error) {
+func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]string, interactive bool, stdin io.Reader, stdout, stderr io.Writer, resize <-chan WindowSize) (int32, error) {
 	if b.launcher == nil {
 		return 1, fmt.Errorf("no launcher configured for %s", b.name)
 	}
@@ -132,7 +140,7 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 		Env:         b.BuildEnv(env),
 		WorkDir:     b.WorkDir(),
 		Interactive: interactive,
-	}, stdout, stderr)
+	}, stdin, stdout, stderr, resize)
 }
 
 // AssembleContext combines fragments into a single context string.

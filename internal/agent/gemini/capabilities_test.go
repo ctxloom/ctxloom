@@ -5,7 +5,7 @@ package gemini
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

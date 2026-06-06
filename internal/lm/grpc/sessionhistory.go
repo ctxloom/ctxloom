@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 )
 

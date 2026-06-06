@@ -8,7 +8,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 

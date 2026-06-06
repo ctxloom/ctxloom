@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 

@@ -11,7 +11,7 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // Result contains the output and exit code from running a command.

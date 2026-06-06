@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/agent"
+import "github.com/ctxloom/shared/agent"
 
 // The launch-facet (Backend) contract lives in internal/agent (the
 // engine-agnostic core), alongside the settings-facet (SettingsWriter). These

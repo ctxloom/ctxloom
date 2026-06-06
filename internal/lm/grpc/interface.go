@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // Client is the interface for interacting with an AI plugin.

@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 )

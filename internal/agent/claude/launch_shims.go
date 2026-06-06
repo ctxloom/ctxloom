@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/ctxloom/ctxloom/internal/agent"
+import "github.com/ctxloom/shared/agent"
 
 // Shims to the shared launch core (internal/agent) so the launch backend and
 // capabilities below read unchanged after the move from internal/lm/backends.

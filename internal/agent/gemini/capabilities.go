@@ -16,7 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // geminiAppCommandsDir is the subdirectory for ctxloom-managed Gemini commands.

@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/agent"
+import "github.com/ctxloom/shared/agent"
 
 // The shared launch substrate lives in internal/agent (the engine-agnostic
 // core). These aliases cover only what the wiring layer (codex/mock, the

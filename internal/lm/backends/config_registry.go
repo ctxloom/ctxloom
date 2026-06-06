@@ -3,7 +3,7 @@ package backends
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 	"github.com/go-viper/mapstructure/v2"
 )
 

@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // geminiTrustWorkspaceEnv is Gemini CLI's workspace-trust override. Set to

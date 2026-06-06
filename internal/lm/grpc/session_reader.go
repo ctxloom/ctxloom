@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // SessionReader is the host-side consumer of the agent-authoritative transcript

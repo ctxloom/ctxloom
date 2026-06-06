@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/agent"
+	"github.com/ctxloom/shared/agent"
 )
 
 // ClaudeLifecycle implements LifecycleHandler for Claude Code using hooks.

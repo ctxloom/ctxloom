@@ -9,14 +9,14 @@ import (
 )
 
 // SettingsWriter is the agent settings-writing contract. It lives in
-// internal/agent (the engine-agnostic core) so a consumer can take the settings
+// shared/agent (the engine-agnostic core) so a consumer can take the settings
 // facet without the launch facet (Backend); aliased here for existing sites.
 type SettingsWriter = agent.SettingsWriter
 
 // HookWriter is kept for backwards compatibility.
 type HookWriter = SettingsWriter
 
-// Settings options + shared write helpers live in internal/agent (the
+// Settings options + shared write helpers live in shared/agent (the
 // engine-agnostic core) so the per-agent writers can use them without importing
 // backends. settingsOptions is the unexported alias the local registry keeps
 // using; SettingsOption and the With* funcs are re-exported for external callers

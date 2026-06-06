@@ -2,7 +2,7 @@ package backends
 
 import "github.com/ctxloom/shared/agent"
 
-// The shared launch substrate lives in internal/agent (the engine-agnostic
+// The shared launch substrate lives in shared/agent (the engine-agnostic
 // core). These aliases cover only what the wiring layer (codex/mock, the
 // command-file dispatcher) and external callers (cmd, operations) still
 // reference by the backends path — the per-agent capability bases moved out

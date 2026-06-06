@@ -2,7 +2,7 @@ package backends
 
 import "github.com/ctxloom/shared/agent"
 
-// The launch-facet (Backend) contract lives in internal/agent (the
+// The launch-facet (Backend) contract lives in shared/agent (the
 // engine-agnostic core), alongside the settings-facet (SettingsWriter). These
 // aliases keep existing backends/* and caller references working unchanged
 // while the canonical definitions live in the core.

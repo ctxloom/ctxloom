@@ -4,7 +4,7 @@ import (
 	"os/exec"
 
 	"github.com/ctxloom/claude"
-	"github.com/ctxloom/ctxloom/internal/agent/gemini"
+	"github.com/ctxloom/gemini"
 )
 
 // Configurable is implemented by backends that accept their own typed config.

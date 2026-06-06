@@ -1,9 +1,9 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/agent/gemini"
+import "github.com/ctxloom/gemini"
 
-// The gemini launch backend (Gemini + capabilities) lives in
-// internal/agent/gemini alongside its settings writer. This alias keeps the
+// The gemini launch backend (Gemini + capabilities) lives in its own module
+// github.com/ctxloom/gemini alongside its settings writer. This alias keeps the
 // wiring layer's config decoder and external callers (cmd/llm_resolve)
 // referencing the typed config unchanged. The backend itself is constructed via
 // gemini.NewGemini in the registry.

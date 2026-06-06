@@ -10,5 +10,6 @@ go 1.25.0
 use (
 	./claude/main
 	./ctxloom/main
+	./gemini/main
 	./shared/main
 )

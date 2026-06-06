@@ -3,7 +3,7 @@ package backends
 import (
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/claude"
-	"github.com/ctxloom/ctxloom/internal/agent/gemini"
+	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 

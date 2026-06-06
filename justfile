@@ -186,12 +186,13 @@ test-acceptance-live-container: container-build-acceptance
     # can read it. Rootless docker maps that user to a subuid, and the working
     # tree has mixed perms (some 0600 files) it could not otherwise read; staging
     # + a+rX avoids mutating your tree.
-    # Stage the org-mirror layout (go.work + ctxloom + shared + claude) so the
-    # runtime build resolves the sibling modules from local source via go.work.
-    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main"
+    # Stage the org-mirror layout (go.work + ctxloom + shared + claude + gemini) so
+    # the runtime build resolves the sibling modules from local source via go.work.
+    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main"
     tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src/ctxloom/main"
     ( cd ../../shared/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/shared/main"
     ( cd ../../claude/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/claude/main"
+    ( cd ../../gemini/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/gemini/main"
     cp go.work.container "$staging/src/go.work"
     chmod -R a+rX "$staging"
 
@@ -584,11 +585,12 @@ _run +ARGS:
             user_flag=()
         fi
         # Mount the org-mirror layout so go.work resolves sibling modules
-        # (shared, claude) from local source. ctxloom is the writable build target;
-        # the siblings are read-only. go.work.container is overlaid as the root
-        # go.work, and the toolchain finds it by walking up from the ctxloom module.
+        # (shared, claude, gemini) from local source. ctxloom is the writable build
+        # target; the siblings are read-only. go.work.container is overlaid as the
+        # root go.work, found by walking up from the ctxloom module.
         shared_dir="$(cd ../../shared/main && pwd)"
         claude_dir="$(cd ../../claude/main && pwd)"
+        gemini_dir="$(cd ../../gemini/main && pwd)"
         # Reuse the host module cache (read-only) and keep Go's writable caches
         # in the container tmpdir. Without this, HOME/GOCACHE resolve under the
         # cwd and the build spills a .cache/ into the source tree (and re-downloads
@@ -604,6 +606,7 @@ _run +ARGS:
             -v "$(pwd):/workspace/ctxloom/main" \
             -v "$shared_dir:/workspace/shared/main:ro" \
             -v "$claude_dir:/workspace/claude/main:ro" \
+            -v "$gemini_dir:/workspace/gemini/main:ro" \
             -v "$(pwd)/go.work.container:/workspace/go.work:ro" \
             -v "$(pwd)/justfile.container:/workspace/ctxloom/main/justfile:ro" \
             -w /workspace/ctxloom/main \

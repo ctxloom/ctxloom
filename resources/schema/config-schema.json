@@ -332,6 +332,15 @@
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },
           "additionalProperties": false
+        },
+        {
+          "title": "mock",
+          "properties": {
+            "type": { "const": "mock" },
+            "model": { "type": "string" },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+          },
+          "additionalProperties": false
         }
       ]
     },

@@ -18,4 +18,4 @@ Feature: Run
     And the mock LLM responds "MOCK-REPLY"
     When I run "ctxloom run --print --profile dev unicorn-prompt"
     Then the command succeeds
-    And the output contains "unicorn-prompt"
+    And the output contains "MOCK-REPLY"

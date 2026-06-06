@@ -84,6 +84,19 @@ func (b *BaseBackend) BuildEnv(reqEnv map[string]string) []string {
 // RunInteractive runs a command in interactive mode using a PTY.
 // The PTY ensures the child process sees a terminal, enabling interactive CLI tools
 // to work correctly even when stdin is a pipe (e.g., from go-plugin gRPC).
+//
+// Launch is owned by ctxloom (the runtime), not the agent: the agent declares
+// what to run (binary/args/env via the spec it returns); ctxloom allocates the
+// pty and execs it. The motivation is a single home for the pty — one place that
+// owns terminal allocation, resize, and stdio wiring — shared by every agent.
+//
+// TODO: generalize "launch" to a broader "open/connect a session" operation.
+// Spawning a local CLI in a pty is only ONE realization; a cloud/remote agent
+// would connect to an already-running session instead — no process, no pty. The
+// agent contract should expose an open/connect step whose local-CLI
+// implementation is this pty launch, rather than baking process-spawn into every
+// backend. Revisit whether even this belongs on the agent or only on a
+// "locally-launched" capability cloud backends don't implement.
 func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr interface{ Write([]byte) (int, error) }) (int32, error) {
 	cmd := exec.CommandContext(ctx, b.BinaryPath, args...)
 	cmd.Dir = b.WorkDir()

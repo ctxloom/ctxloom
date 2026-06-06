@@ -372,7 +372,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	}
 	defer client.Kill()
 
-	req := &pb.RunRequest{
+	req := &pb.RunStart{
 		Prompt: &pb.Fragment{Content: profileDiscoveryPrompt},
 		Options: &pb.RunOptions{
 			WorkDir:     workDir,

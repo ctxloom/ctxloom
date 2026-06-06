@@ -20,13 +20,23 @@ import (
 // Implements LLM_RunServer well enough for these tests; the
 // methods our code path doesn't touch are no-ops.
 type fakeRunServer struct {
-	sent []*RunResponse
-	ctx  context.Context
+	sent    []*RunResponse
+	recv    []*RunInput // queued inputs Recv returns in order, then io.EOF
+	recvIdx int
+	ctx     context.Context
 }
 
 func (s *fakeRunServer) Send(r *RunResponse) error {
 	s.sent = append(s.sent, r)
 	return nil
+}
+func (s *fakeRunServer) Recv() (*RunInput, error) {
+	if s.recvIdx >= len(s.recv) {
+		return nil, io.EOF
+	}
+	in := s.recv[s.recvIdx]
+	s.recvIdx++
+	return in, nil
 }
 func (s *fakeRunServer) Context() context.Context     { return s.ctx }
 func (s *fakeRunServer) SetHeader(metadata.MD) error  { return nil }
@@ -39,8 +49,13 @@ func newFakeRunServer() *fakeRunServer {
 	return &fakeRunServer{ctx: context.Background()}
 }
 
+// runStartInput wraps a RunStart as the first bidi Run input.
+func runStartInput(start *RunStart) *RunInput {
+	return &RunInput{Input: &RunInput_Start{Start: start}}
+}
+
 // Compile-time check that fakeRunServer satisfies the generated stream interface.
-var _ googlegrpc.ServerStreamingServer[RunResponse] = (*fakeRunServer)(nil)
+var _ googlegrpc.BidiStreamingServer[RunInput, RunResponse] = (*fakeRunServer)(nil)
 
 // TestStreamWriter_StdoutAndStderr exercises the per-byte stream
 // writer that GRPCServer.Run uses to fan stdout/stderr from the
@@ -183,11 +198,12 @@ func TestGRPCServer_Run_FullLifecycle(t *testing.T) {
 	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
-	err := srv.Run(&RunRequest{
+	stream.recv = []*RunInput{runStartInput(&RunStart{
 		Prompt:    &Fragment{Content: "hi"},
 		Fragments: []*Fragment{{Content: "ctx"}},
 		Options:   &RunOptions{WorkDir: "/tmp", AutoApprove: true},
-	}, stream)
+	})}
+	err := srv.Run(stream)
 	require.NoError(t, err)
 
 	// Setup + Cleanup called once each; stdout/stderr/exit all sent.
@@ -219,9 +235,10 @@ func TestGRPCServer_Run_SkipSetup(t *testing.T) {
 	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
-	err := srv.Run(&RunRequest{
+	stream.recv = []*RunInput{runStartInput(&RunStart{
 		Options: &RunOptions{SkipSetup: true},
-	}, stream)
+	})}
+	err := srv.Run(stream)
 	require.NoError(t, err)
 	assert.False(t, backend.setupCalled, "SkipSetup must skip Setup")
 	assert.True(t, backend.cleanupCalled, "Cleanup runs regardless")
@@ -232,7 +249,8 @@ func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {
 	srv := &GRPCServer{Impl: &fakeBackend{executeErr: want}}
 	stream := newFakeRunServer()
 
-	err := srv.Run(&RunRequest{Options: &RunOptions{}}, stream)
+	stream.recv = []*RunInput{runStartInput(&RunStart{Options: &RunOptions{}})}
+	err := srv.Run(stream)
 	assert.ErrorIs(t, err, want)
 }
 
@@ -240,7 +258,8 @@ func TestGRPCServer_Run_NilOptionsTreatedAsEmpty(t *testing.T) {
 	// Defensive — protobuf nil options shouldn't panic.
 	srv := &GRPCServer{Impl: &fakeBackend{executeResult: &backends.ExecuteResult{ExitCode: 0}}}
 	stream := newFakeRunServer()
-	err := srv.Run(&RunRequest{}, stream)
+	stream.recv = []*RunInput{runStartInput(&RunStart{})}
+	err := srv.Run(stream)
 	require.NoError(t, err)
 }
 

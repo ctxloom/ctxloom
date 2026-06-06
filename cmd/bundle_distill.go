@@ -329,7 +329,7 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 	defer client.Kill()
 
 	// Build request
-	req := &pb.RunRequest{
+	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
 			Content: builder.String(),
 		},

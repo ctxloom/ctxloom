@@ -228,7 +228,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 
 	// Create a mock client that returns distilled content
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled: key decisions and outcomes"))
 			return 0, nil
 		},
@@ -252,7 +252,7 @@ func TestCompactor_DistillChunk_WithMockClient(t *testing.T) {
 func TestCompactor_DistillChunk_ClientError(t *testing.T) {
 	// Create a mock client that returns an error
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("connection failed")
 		},
 	}
@@ -272,7 +272,7 @@ func TestCompactor_DistillChunk_ClientError(t *testing.T) {
 func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 	// Create a mock client that returns non-zero exit code
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stderr.Write([]byte("LLM error"))
 			return 1, nil
 		},
@@ -444,7 +444,7 @@ func TestCompact_WithMockClient(t *testing.T) {
 	mockBe := &mockBackend{history: mockHistory}
 
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled: User greeted assistant, assistant responded positively."))
 			return 0, nil
 		},
@@ -498,7 +498,7 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	// the LLM summarizes never carries the plan body.
 	var sawLLMInput string
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			sawLLMInput = req.Prompt.Content
 			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan."))
 			return 0, nil
@@ -543,7 +543,7 @@ func TestCompact_BySessionID(t *testing.T) {
 	mockBe := &mockBackend{history: mockHistory}
 
 	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},

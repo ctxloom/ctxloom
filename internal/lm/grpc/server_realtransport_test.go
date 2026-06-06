@@ -87,11 +87,13 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 
 	client := NewLLMClient(conn)
 
-	stream, err := client.Run(context.Background(), &RunRequest{
+	stream, err := client.Run(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&RunInput{Input: &RunInput_Start{Start: &RunStart{
 		Prompt:  &Fragment{Content: "hi"},
 		Options: &RunOptions{SkipSetup: true},
-	})
-	require.NoError(t, err)
+	}}}))
+	require.NoError(t, stream.CloseSend())
 
 	// Drain the stream. A concurrent-Send violation would crash the server
 	// goroutine and surface here as a stream error (or never deliver the exit

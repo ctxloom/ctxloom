@@ -28,7 +28,7 @@ type RunResult struct {
 }
 
 // Run executes the plugin and streams output to the provided writers.
-func (c *GRPCClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+func (c *GRPCClient) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
 	result, err := c.RunWithModelInfo(ctx, req, stdout, stderr)
 	if err != nil {
 		return 1, err
@@ -37,10 +37,16 @@ func (c *GRPCClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
-	stream, err := c.client.Run(ctx, req)
+// Run is a bidirectional stream: the first message carries the RunStart; stdin
+// and resize follow (wired in B2). For now the start is sent and the response
+// stream is consumed.
+func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
+	stream, err := c.client.Run(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if err := stream.Send(&RunInput{Input: &RunInput_Start{Start: req}}); err != nil {
+		return nil, fmt.Errorf("send run start: %w", err)
 	}
 
 	result := &RunResult{}
@@ -186,12 +192,12 @@ func (p *LLMRunner) Info(ctx context.Context) (*LLMInfo, error) {
 }
 
 // Run executes the plugin.
-func (p *LLMRunner) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+func (p *LLMRunner) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
 	return p.grpc.Run(ctx, req, stdout, stderr)
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+func (p *LLMRunner) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
 	return p.grpc.RunWithModelInfo(ctx, req, stdout, stderr)
 }
 

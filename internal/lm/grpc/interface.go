@@ -15,10 +15,10 @@ type Client interface {
 
 	// Run executes the plugin and streams output to the provided writers.
 	// Returns the exit code.
-	Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error)
+	Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error)
 
 	// RunWithModelInfo executes the plugin and returns both exit code and model info.
-	RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error)
+	RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error)
 
 	// GetSession asks the plugin to materialize a transcript (by agent-agnostic
 	// session id) into the normalized session form. No workspace is passed — the

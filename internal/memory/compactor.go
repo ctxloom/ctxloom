@@ -428,7 +428,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 
 	// Build request with model specified in options
 	// SkipSetup=true for minimal startup (no hooks/skills/context)
-	req := &pb.RunRequest{
+	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
 			Content: fmt.Sprintf("<session_log>\n%s\n</session_log>", chunk),
 		},

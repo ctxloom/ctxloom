@@ -527,7 +527,7 @@ Examples:
 		// (slash commands, hooks, MCP, statusline) and ships it in ManagedConfig
 		// so the backend plugin never self-loads ctxloom config/bundles. The
 		// exports are resolved for this backend's enablement + metadata.
-		req := &pb.RunRequest{
+		req := &pb.RunStart{
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
 			Options: &pb.RunOptions{

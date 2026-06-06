@@ -14,10 +14,10 @@ type MockClient struct {
 	InfoFunc func(ctx context.Context) (*LLMInfo, error)
 
 	// RunFunc is called when Run is invoked.
-	RunFunc func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error)
+	RunFunc func(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error)
 
 	// RunWithModelInfoFunc is called when RunWithModelInfo is invoked.
-	RunWithModelInfoFunc func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error)
+	RunWithModelInfoFunc func(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error)
 
 	// GetSessionFunc is called when GetSession is invoked.
 	GetSessionFunc func(ctx context.Context, sessionID string) (*agent.Session, error)
@@ -53,7 +53,7 @@ func (m *MockClient) Info(ctx context.Context) (*LLMInfo, error) {
 }
 
 // Run executes the plugin and streams output to the provided writers.
-func (m *MockClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+func (m *MockClient) Run(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
 	m.RunCalls++
 	if m.RunFunc != nil {
 		return m.RunFunc(ctx, req, stdout, stderr)
@@ -62,7 +62,7 @@ func (m *MockClient) Run(ctx context.Context, req *RunRequest, stdout, stderr io
 }
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
-func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
 	m.RunWithModelInfoCalls++
 	if m.RunWithModelInfoFunc != nil {
 		return m.RunWithModelInfoFunc(ctx, req, stdout, stderr)

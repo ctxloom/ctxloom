@@ -7,7 +7,7 @@ import (
 
 // This file holds the Go<->proto converters for the host-assembled
 // ManagedConfig setup payload. The host serializes its agent.ManagedConfig with
-// ManagedConfigToProto onto RunRequest; the plugin Run handler deserializes with
+// ManagedConfigToProto onto RunStart; the plugin Run handler deserializes with
 // managedConfigFromProto into SetupRequest.Managed. The proto messages mirror
 // the shared/wire hook + MCP vocabulary and agent.CommandExport field-for-field,
 // so these converters are mechanical — no ctxloom config/bundle type crosses the

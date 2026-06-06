@@ -9,7 +9,7 @@ import (
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles
 // here, resolves them into the wire-typed agent.ManagedConfig, and ships that to
-// the backend over RunRequest. The agent's Setup consumes only the result
+// the backend over RunStart. The agent's Setup consumes only the result
 // (BaseLifecycle.MergeManaged), so the launch backends never import
 // config/bundles. The assembly that used to run plugin-side in each agent's
 // Setup (config.Load + LoadPrompts + MergeConfigHooks) lives here now.

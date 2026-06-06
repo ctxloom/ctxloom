@@ -321,12 +321,12 @@ func TestMockClient_DefaultBehavior(t *testing.T) {
 	assert.Equal(t, "1.0.0", info.Version)
 
 	// Run returns success
-	exitCode, err := mock.Run(context.Background(), &RunRequest{}, nil, nil)
+	exitCode, err := mock.Run(context.Background(), &RunStart{}, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(0), exitCode)
 
 	// RunWithModelInfo returns success
-	result, err := mock.RunWithModelInfo(context.Background(), &RunRequest{}, nil, nil)
+	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(0), result.ExitCode)
 
@@ -357,7 +357,7 @@ func TestMockClient_CustomInfo(t *testing.T) {
 // TestMockClient_CustomRun verifies that custom Run behavior can be injected.
 func TestMockClient_CustomRun(t *testing.T) {
 	mock := &MockClient{
-		RunFunc: func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (int32, error) {
+		RunFunc: func(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (int32, error) {
 			if stdout != nil {
 				_, _ = stdout.Write([]byte("hello from mock"))
 			}
@@ -366,7 +366,7 @@ func TestMockClient_CustomRun(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	exitCode, err := mock.Run(context.Background(), &RunRequest{}, &buf, nil)
+	exitCode, err := mock.Run(context.Background(), &RunStart{}, &buf, nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int32(42), exitCode)
@@ -376,7 +376,7 @@ func TestMockClient_CustomRun(t *testing.T) {
 // TestMockClient_CustomRunWithModelInfo verifies custom RunWithModelInfo behavior.
 func TestMockClient_CustomRunWithModelInfo(t *testing.T) {
 	mock := &MockClient{
-		RunWithModelInfoFunc: func(ctx context.Context, req *RunRequest, stdout, stderr io.Writer) (*RunResult, error) {
+		RunWithModelInfoFunc: func(ctx context.Context, req *RunStart, stdout, stderr io.Writer) (*RunResult, error) {
 			return &RunResult{
 				ExitCode: 0,
 				ModelInfo: &ModelInfo{
@@ -387,7 +387,7 @@ func TestMockClient_CustomRunWithModelInfo(t *testing.T) {
 		},
 	}
 
-	result, err := mock.RunWithModelInfo(context.Background(), &RunRequest{}, nil, nil)
+	result, err := mock.RunWithModelInfo(context.Background(), &RunStart{}, nil, nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "claude-3-haiku", result.ModelInfo.ModelName)

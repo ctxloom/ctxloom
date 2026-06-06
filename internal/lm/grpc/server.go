@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -48,8 +49,20 @@ func (s *GRPCServer) Info(ctx context.Context, _ *Empty) (*LLMInfo, error) {
 	}, nil
 }
 
-// Run executes the backend and streams output.
-func (s *GRPCServer) Run(req *RunRequest, stream LLM_RunServer) error {
+// Run executes the backend and streams output over a bidirectional stream. The
+// first RunInput carries the RunStart (setup + launch params); subsequent inputs
+// carry stdin/resize from the frontend (consumed by B2 — for now the pty still
+// reads local stdin).
+func (s *GRPCServer) Run(stream LLM_RunServer) error {
+	first, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("receive run start: %w", err)
+	}
+	req := first.GetStart()
+	if req == nil {
+		return fmt.Errorf("first Run message must carry start")
+	}
+
 	// Create writers that send output over the stream. os/exec copies
 	// stdout and stderr from separate goroutines, so both writers may call
 	// stream.Send concurrently — which gRPC forbids. Share one mutex so
@@ -58,7 +71,7 @@ func (s *GRPCServer) Run(req *RunRequest, stream LLM_RunServer) error {
 	stdoutWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: false}
 	stderrWriter := &streamWriter{stream: stream, sendMu: &sendMu, isStderr: true}
 
-	// Build setup request from RunRequest. Treat nil Options as
+	// Build setup request from RunStart. Treat nil Options as
 	// fully-default so callers using proto-zero-values don't crash —
 	// use the generated Get* accessors throughout (they're nil-safe).
 	opts := req.GetOptions()
@@ -86,7 +99,7 @@ func (s *GRPCServer) Run(req *RunRequest, stream LLM_RunServer) error {
 		}
 	}
 
-	// Build execute request from RunRequest
+	// Build execute request from RunStart
 	execReq := &backends.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
 		Mode:        backends.ExecutionMode(opts.GetMode()),

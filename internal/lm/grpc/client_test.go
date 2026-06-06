@@ -34,7 +34,6 @@ type fakeLLMClient struct {
 
 	gotInfoCalls int
 	gotRunCalls  int
-	lastRunReq   *RunRequest
 }
 
 func (f *fakeLLMClient) Info(ctx context.Context, in *Empty, opts ...googlegrpc.CallOption) (*LLMInfo, error) {
@@ -42,9 +41,8 @@ func (f *fakeLLMClient) Info(ctx context.Context, in *Empty, opts ...googlegrpc.
 	return f.infoResp, f.infoErr
 }
 
-func (f *fakeLLMClient) Run(ctx context.Context, in *RunRequest, opts ...googlegrpc.CallOption) (googlegrpc.ServerStreamingClient[RunResponse], error) {
+func (f *fakeLLMClient) Run(ctx context.Context, opts ...googlegrpc.CallOption) (googlegrpc.BidiStreamingClient[RunInput, RunResponse], error) {
 	f.gotRunCalls++
-	f.lastRunReq = in
 	if f.runErr != nil {
 		return nil, f.runErr
 	}
@@ -70,6 +68,22 @@ type fakeStream struct {
 	responses []*RunResponse
 	recvErr   error // non-nil aborts the stream after current queue
 	idx       int
+	sent      []*RunInput // captures what the client Sends (start, stdin, resize)
+}
+
+func (s *fakeStream) Send(in *RunInput) error {
+	s.sent = append(s.sent, in)
+	return nil
+}
+
+// startSent returns the RunStart the client sent as the first input, or nil.
+func (s *fakeStream) startSent() *RunStart {
+	for _, in := range s.sent {
+		if st := in.GetStart(); st != nil {
+			return st
+		}
+	}
+	return nil
 }
 
 func (s *fakeStream) Recv() (*RunResponse, error) {
@@ -123,7 +137,7 @@ func TestGRPCClient_Run_RoutesStdoutStderr(t *testing.T) {
 	c := &GRPCClient{client: fake}
 
 	var stdout, stderr bytes.Buffer
-	exit, err := c.Run(context.Background(), &RunRequest{}, &stdout, &stderr)
+	exit, err := c.Run(context.Background(), &RunStart{}, &stdout, &stderr)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), exit)
 	assert.Equal(t, "hello\nworld\n", stdout.String())
@@ -138,7 +152,7 @@ func TestGRPCClient_RunWithModelInfo_CapturesExitAndModel(t *testing.T) {
 	c := &GRPCClient{client: fake}
 
 	var stdout, stderr bytes.Buffer
-	result, err := c.RunWithModelInfo(context.Background(), &RunRequest{}, &stdout, &stderr)
+	result, err := c.RunWithModelInfo(context.Background(), &RunStart{}, &stdout, &stderr)
 	require.NoError(t, err)
 	assert.Equal(t, int32(42), result.ExitCode)
 	require.NotNil(t, result.ModelInfo)
@@ -149,7 +163,7 @@ func TestGRPCClient_Run_PropagatesStartError(t *testing.T) {
 	fake := &fakeLLMClient{runErr: errors.New("dial failed")}
 	c := &GRPCClient{client: fake}
 
-	exit, err := c.Run(context.Background(), &RunRequest{}, io.Discard, io.Discard)
+	exit, err := c.Run(context.Background(), &RunStart{}, io.Discard, io.Discard)
 	require.Error(t, err)
 	assert.Equal(t, int32(1), exit, "start error must yield exit=1")
 }
@@ -165,7 +179,7 @@ func TestGRPCClient_RunWithModelInfo_PropagatesStreamRecvError(t *testing.T) {
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer
-	_, err := c.RunWithModelInfo(context.Background(), &RunRequest{}, &stdout, io.Discard)
+	_, err := c.RunWithModelInfo(context.Background(), &RunStart{}, &stdout, io.Discard)
 	require.Error(t, err)
 	// Partial stdout should still have been written before the error.
 	assert.Equal(t, "partial\n", stdout.String())
@@ -178,10 +192,10 @@ func TestGRPCClient_Run_PassesRequestThrough(t *testing.T) {
 	fake := &fakeLLMClient{runStream: stream}
 	c := &GRPCClient{client: fake}
 
-	req := &RunRequest{Prompt: &Fragment{Content: "hi"}}
+	req := &RunStart{Prompt: &Fragment{Content: "hi"}}
 	_, err := c.Run(context.Background(), req, io.Discard, io.Discard)
 	require.NoError(t, err)
-	assert.Equal(t, req, fake.lastRunReq, "request must reach the underlying client unchanged")
+	assert.Equal(t, req, stream.startSent(), "the start must be sent on the bidi stream unchanged")
 }
 
 // fakeLLMConnection is a stand-in for plugin.Client in tests of
@@ -323,7 +337,7 @@ func TestLLMRunner_InfoAndRunDelegate(t *testing.T) {
 		{Output: &RunResponse_ExitCode{ExitCode: 7}},
 	}}
 	fake.runStream = stream
-	exit, err := pc.Run(t.Context(), &RunRequest{}, io.Discard, io.Discard)
+	exit, err := pc.Run(t.Context(), &RunStart{}, io.Discard, io.Discard)
 	require.NoError(t, err)
 	assert.Equal(t, int32(7), exit)
 }
@@ -337,7 +351,7 @@ func TestGRPCClient_Run_StreamWithNoOutputs_ZeroExit(t *testing.T) {
 	c := &GRPCClient{client: fake}
 
 	var stdout bytes.Buffer
-	exit, err := c.Run(context.Background(), &RunRequest{}, &stdout, io.Discard)
+	exit, err := c.Run(context.Background(), &RunStart{}, &stdout, io.Discard)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), exit)
 	assert.Empty(t, stdout.String())

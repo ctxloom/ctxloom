@@ -16,7 +16,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schemagen"
 )
 
-const schemaDir = "resources/schema"
+// schemaDir is a gitignored, generated artifact directory (like generated
+// protobuf): produced by `just gen-schemas` as a build dependency and in CI, not
+// checked in. It sits under schema/ so the existing //go:embed all:schema picks
+// it up into the binary.
+const schemaDir = "resources/schema/gen"
 
 func main() {
 	var targets []schemagen.Target

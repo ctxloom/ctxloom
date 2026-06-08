@@ -101,6 +101,9 @@ jobs:
       - name: Generate protobuf code
         run: buf generate
 
+      - name: Generate JSON Schemas
+        run: just -f justfile.container gen-schemas
+
       - name: Run tests
         run: just -f justfile.container test
 
@@ -134,8 +137,8 @@ jobs:
       - name: Enforce cyclomatic complexity (CCN ≤ 10)
         run: just -f justfile.container complexity-check
 
-      - name: Enforce JSON Schema sync (struct = producer, schema = contract)
-        run: just -f justfile.container gen-schemas-check
+      - name: Generate JSON Schemas (verify the generator runs clean)
+        run: just -f justfile.container gen-schemas
 
   build-and-integration:
     name: Build & Integration Tests

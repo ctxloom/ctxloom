@@ -59,16 +59,12 @@ plugin-list:
 build-verbose:
     go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
 
-# Regenerate the published JSON Schemas for ctxloom's JSON output (resources/
-# schema/*-schema.json) by reflecting their producing Go structs. Build-tagged
+# Regenerate the published JSON Schemas for ctxloom's JSON output into the
+# gitignored resources/schema/gen/ by reflecting their producing Go structs.
+# A generated build artifact (like protobuf), not checked in. Build-tagged
 # `schemagen` so the reflection dependency never enters the production binary.
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
-
-# Drift gate: regenerate the schemas and fail if anything changed. A struct
-# edited without regenerating its schema fails here. Run in CI.
-gen-schemas-check: gen-schemas
-    git diff --exit-code -- resources/schema
 
 # Ensure the covdata tool is present for multi-package coverage merges.
 # Go 1.25 dropped covdata (and other secondary tools) from the prebuilt

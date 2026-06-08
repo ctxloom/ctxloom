@@ -63,3 +63,7 @@ coverage.raw.out
 # ctxloom private working state (synced bundles, session/context, project id)
 *.ctxloom.bak
 .gemini/
+
+# Generated JSON Schemas for ctxloom JSON output (vexed-cloak); produced by
+# `just gen-schemas` (build dep + CI step), like generated protobuf.
+resources/schema/gen/

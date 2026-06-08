@@ -24,7 +24,7 @@ default: build
 # ===== Build targets =====
 
 # Build with all features (treesitter)
-build: validate proto
+build: validate proto gen-schemas
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
         -o ctxloom .
@@ -151,16 +151,13 @@ proto:
 lint:
     golangci-lint run
 
-# Regenerate the published JSON Schemas for ctxloom's JSON output by reflecting
-# their producing Go structs. Build-tagged `schemagen` so the reflection
-# dependency never enters the production binary.
+# Regenerate the published JSON Schemas for ctxloom's JSON output into the
+# gitignored resources/schema/gen/ by reflecting their producing Go structs.
+# A generated build artifact (like protobuf): a `build` dependency and a CI
+# step, not checked in. Build-tagged `schemagen` so the reflection dependency
+# never enters the production binary.
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
-
-# Drift gate: regenerate the schemas and fail if anything changed. A struct
-# edited without regenerating its schema fails here. Run in the lint job.
-gen-schemas-check: gen-schemas
-    git diff --exit-code -- resources/schema
 
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's

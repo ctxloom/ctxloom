@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxloom.dev/schemas/run-oneshot-result.json",
+  "title": "ctxloom run --print --json result",
+  "description": "Published contract for the JSON emitted by `ctxloom run --print --json`, produced by operations.RunOneshotResult. This is the canonical per-agent run shape that map/weave nest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "output",
+    "label",
+    "backend",
+    "exit_code"
+  ],
+  "properties": {
+    "profile": {
+      "type": "string",
+      "description": "Profile the run was assembled from. Omitted when no profile was used."
+    },
+    "output": {
+      "type": "string",
+      "description": "Captured stdout of the one-shot agent run."
+    },
+    "label": {
+      "type": "string",
+      "description": "Display label for the run (profile name or a synthesized label)."
+    },
+    "backend": {
+      "type": "string",
+      "description": "Backend type that executed the run (e.g. claude, gemini, mock)."
+    },
+    "model": {
+      "type": "string",
+      "description": "Resolved model id. Omitted when the backend reports none."
+    },
+    "exit_code": {
+      "type": "integer",
+      "description": "Process exit code of the agent run; 0 on success."
+    }
+  }
+}

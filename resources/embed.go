@@ -39,6 +39,15 @@ func GetConfigSchema() ([]byte, error) {
 	return resourcesFS.ReadFile("schema/config-schema.json")
 }
 
+// GetSchema returns an embedded published JSON Schema by file name
+// (e.g. "run-oneshot-result-schema.json"). Schemas under schema/ are the
+// stable, documented contracts for ctxloom's JSON output; each is kept in sync
+// with its producing Go struct by a drift test. This is the generic accessor
+// the per-surface schemas (vexed-cloak) are read through.
+func GetSchema(name string) ([]byte, error) {
+	return resourcesFS.ReadFile("schema/" + name)
+}
+
 // GetExampleConfig returns the embedded example config file.
 func GetExampleConfig() ([]byte, error) {
 	return resourcesFS.ReadFile("example-config.yaml")

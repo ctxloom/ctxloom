@@ -40,6 +40,7 @@ export default defineConfig({
 						{ label: 'Fragments', link: '/concepts/fragments/' },
 						{ label: 'Prompts', link: '/concepts/prompts/' },
 						{ label: 'Profiles', link: '/concepts/profiles/' },
+						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
 						{ label: 'Architecture', link: '/concepts/architecture/' },
 					],

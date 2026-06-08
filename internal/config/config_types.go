@@ -85,6 +85,7 @@ func (f FragmentRef) MarshalYAML() (interface{}, error) {
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
 	Description string            `mapstructure:"description" yaml:"description,omitempty"`
+	LLM         string            `mapstructure:"llm" yaml:"llm,omitempty"`                   // Preferred config label/backend (overridable by -l)
 	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
 	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
 	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")

@@ -525,98 +525,6 @@ func TestExtractBundleName(t *testing.T) {
 }
 
 // =============================================================================
-// NormalizeBundleName Tests
-// =============================================================================
-// NormalizeBundleName converts paths with git hosting prefixes to canonical
-// repo/bundle format. This enables consistent naming regardless of how bundles
-// were installed (direct clone vs remote pull).
-
-func TestNormalizeBundleName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		// Git hosting paths should be normalized
-		{
-			name:  "github.com with owner and bundle path",
-			input: "github.com/owner/ctxloom-github/go-development",
-			want:  "ctxloom-github/go-development",
-		},
-		{
-			name:  "github.com with owner and repo only",
-			input: "github.com/owner/ctxloom-github",
-			want:  "ctxloom-github",
-		},
-		{
-			name:  "gitlab.com with group and bundle path",
-			input: "gitlab.com/group/repo/core/fragments",
-			want:  "repo/core/fragments",
-		},
-		{
-			name:  "bitbucket.org with owner and repo",
-			input: "bitbucket.org/team/shared-context/utils",
-			want:  "shared-context/utils",
-		},
-
-		// Already canonical or local paths should be unchanged
-		{
-			name:  "already canonical format",
-			input: "ctxloom-github/go-development",
-			want:  "ctxloom-github/go-development",
-		},
-		{
-			name:  "local bundle name",
-			input: "local-bundle",
-			want:  "local-bundle",
-		},
-		{
-			name:  "simple name",
-			input: "go-tools",
-			want:  "go-tools",
-		},
-
-		// Edge cases
-		{
-			name:  "empty string",
-			input: "",
-			want:  "",
-		},
-		{
-			name:  "nested local path",
-			input: "vendor/bundles/go-tools",
-			want:  "vendor/bundles/go-tools",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeBundleName(tt.input)
-			assert.Equal(t, tt.want, got, "NormalizeBundleName(%q)", tt.input)
-		})
-	}
-}
-
-// TestNormalizeBundleName_Idempotent verifies that normalizing an already
-// normalized name returns the same result.
-func TestNormalizeBundleName_Idempotent(t *testing.T) {
-	inputs := []string{
-		"ctxloom-github/go-development",
-		"repo/bundle",
-		"simple-bundle",
-		"",
-	}
-
-	for _, input := range inputs {
-		t.Run(input, func(t *testing.T) {
-			first := NormalizeBundleName(input)
-			second := NormalizeBundleName(first)
-			assert.Equal(t, first, second, "normalizing should be idempotent")
-		})
-	}
-}
-
-// =============================================================================
 // ClaudeCodeConfig Tests
 // =============================================================================
 
@@ -1395,6 +1303,35 @@ func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
 	})
 
 	assert.Empty(t, got, "non-fragment refs must not become fragment names")
+}
+
+// Regression: a canonical URL ref's scheme colon must NOT be mistaken for the
+// item selector. A URL-form cherry-pick passes through intact (the bundle name
+// retains the full URL); previously IndexAny(":#") split on "https:" and dropped
+// every URL cherry-pick. The cherry-pick path returns the canonical name without
+// loading, so this asserts the parse independent of resolution.
+func TestLoader_ExpandBundleRefs_CanonicalURLCherryPickPassesThrough(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{
+		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#fragments/security",
+	})
+
+	assert.Equal(t, []string{
+		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#fragments/security",
+	}, got)
+}
+
+// A URL-form ref targeting prompts/mcp is still skipped (not a fragment), and the
+// scheme colon doesn't cause it to be mis-parsed into a bogus fragment.
+func TestLoader_ExpandBundleRefs_CanonicalURLNonFragmentSkipped(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{
+		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#prompts/p1",
+	})
+
+	assert.Empty(t, got)
 }
 
 func TestLoader_ExpandBundleRefs_MissingBundleSkippedSilently(t *testing.T) {

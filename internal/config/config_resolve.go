@@ -13,6 +13,7 @@ import (
 // profileBuilder collects profile fields using sets to avoid duplicates during inheritance.
 type profileBuilder struct {
 	Description string
+	LLM         string
 	Tags        collections.Set[string]
 	Bundles     collections.Set[string]
 	BundleItems collections.Set[string]
@@ -171,6 +172,7 @@ func (b *profileBuilder) toProfile() *Profile {
 
 	return &Profile{
 		Description:      b.Description,
+		LLM:              b.LLM,
 		Tags:             b.tagsOrder,
 		Bundles:          b.bundlesOrder,
 		BundleItems:      b.bundleItemsOrder,
@@ -288,4 +290,9 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	}
 
 	builder.Description = profile.Description
+	// Non-empty wins so a child without an llm inherits its parent's; the leaf
+	// is merged last, so it overrides.
+	if profile.LLM != "" {
+		builder.LLM = profile.LLM
+	}
 }

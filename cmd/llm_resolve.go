@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/claude"
+	"github.com/ctxloom/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/gemini"
@@ -57,7 +58,7 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 		return c.Env
 	case *gemini.GeminiConfig:
 		return c.Env
-	case *backends.CodexConfig:
+	case *codex.CodexConfig:
 		return c.Env
 	case *backends.MockConfig:
 		return c.Env
@@ -74,7 +75,7 @@ func llmBinaryArgsFor(cfg *config.Config, label string) (binary string, args []s
 		return c.BinaryPath, c.Args
 	case *gemini.GeminiConfig:
 		return c.BinaryPath, c.Args
-	case *backends.CodexConfig:
+	case *codex.CodexConfig:
 		return c.BinaryPath, c.Args
 	}
 	return "", nil

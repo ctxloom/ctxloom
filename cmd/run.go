@@ -303,6 +303,13 @@ Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.
 Additional -f flags will be appended to the profile's fragments.
 
+With no -p/-f/-t and no default profile configured, an interactive picker
+lists the installed profiles to choose one for this run (skipped when not on a
+terminal).
+
+A profile may declare its own preferred LLM (profile create --llm). It is used
+unless overridden by --llm/-l, which always wins.
+
 The LLM runs in isolation, ignoring default context files like Claude.md.
 
 Verbosity levels (-v can be repeated):
@@ -329,23 +336,6 @@ Examples:
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)
 
-		// Determine which LLM config to use. An explicit --llm override names a
-		// config label, validated up front (friction); no override uses the
-		// primary role's label. The label resolves to a backend type + model;
-		// the backend name (not the label) drives session naming and transport.
-		label, err := resolveRunLLM(cfg, runLLM)
-		if err != nil {
-			return err
-		}
-		backendName, labelModel := cfg.ResolveLLM(label)
-		// An ad-hoc --llm naming a backend type (not a configured label)
-		// resolves to that backend directly rather than the built-in default.
-		if _, configured := cfg.LM.Configs[label]; !configured && backends.Exists(label) {
-			backendName, labelModel = label, ""
-		}
-		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
-		llmEnv := llmEnvFor(cfg, label)
-
 		// Build the prompt - from saved prompt, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
@@ -358,6 +348,15 @@ Examples:
 		}
 		if prompt == "" && len(args) > 0 {
 			prompt = strings.Join(args, " ")
+		}
+		// In --print (oneshot) mode with no prompt yet, read it from piped stdin.
+		// This makes `run --print` a universal reducer: `… | ctxloom run -p synth
+		// --print` synthesizes over any piped input (e.g. `ctxloom map` output or
+		// non-ctxloom text). Skipped on a TTY so an interactive read never blocks.
+		if prompt == "" && runPrint && stdinIsPiped() {
+			if data, rerr := io.ReadAll(os.Stdin); rerr == nil {
+				prompt = strings.TrimSpace(string(data))
+			}
 		}
 
 		// Assemble context using operations
@@ -387,6 +386,19 @@ Examples:
 			fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(pending.All()))
 		}
 
+		// When nothing selects context (no -p, -f, or -t) and no default profile
+		// is configured, offer an interactive profile picker on a TTY. Off a TTY
+		// or with no installed profiles this is a no-op and assembly degrades to
+		// the empty context as before (CLAUDE.md fault tolerance).
+		if runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
+			choice := resolveProfileSelection(cfg)
+			if choice.Quit {
+				fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
+				return nil
+			}
+			runProfile = choice.Name
+		}
+
 		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
 			Profile:   runProfile,
 			Fragments: runFragments,
@@ -400,6 +412,22 @@ Examples:
 		if len(runFragments) > 0 && len(ctxResult.FragmentsLoaded) == 0 {
 			return fmt.Errorf("no fragments loaded: all requested fragments not found")
 		}
+
+		// Determine which LLM config to use. Resolution is deferred until after
+		// context assembly because the chosen profile may declare its own LLM.
+		// Precedence: explicit --llm override (validated up front, friction),
+		// else the profile's declared llm, else the primary role's label. The
+		// label resolves to a backend type + model; the backend name (not the
+		// label) drives session naming and transport.
+		label, err := resolveRunLLM(cfg, runLLM, ctxResult.ProfileLLM)
+		if err != nil {
+			return err
+		}
+		// label → backend type + model (shared with the oneshot/map/weave path).
+		// The backend name (not the label) drives session naming and transport.
+		backendName, labelModel := operations.ResolveBackend(cfg, label)
+		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
+		llmEnv := llmEnvFor(cfg, label)
 
 		// Convert context content to proto fragments
 		var protoFragments []*pb.Fragment
@@ -620,17 +648,25 @@ Examples:
 	},
 }
 
-// resolveRunLLM picks the config label for this run. An explicit override
-// (--llm) names a label and is validated up front (friction-up-front): it must
-// be a configured label, or — as a convenience — a registered backend type
-// whose binary is installed (treated as an ad-hoc label resolving to that
-// backend). With no override, the primary role's label is used (the graceful
-// path).
-func resolveRunLLM(cfg *config.Config, override string) (string, error) {
-	if override == "" {
-		return cfg.PrimaryLabel(), nil
+// resolveRunLLM picks the config label to launch. Precedence: an explicit
+// --llm override (validated up front — an unknown value is a hard error, since
+// the user typed it now), else the profile's declared llm, else the primary
+// role's label. A misconfigured profile.llm is fault-tolerant per CLAUDE.md: it
+// warns and falls back to the primary label rather than blocking startup.
+func resolveRunLLM(cfg *config.Config, override, profileLLM string) (string, error) {
+	if override != "" {
+		return validateExplicitLLM(cfg, override)
 	}
-	return validateExplicitLLM(cfg, override)
+	if profileLLM != "" {
+		if validated, err := validateExplicitLLM(cfg, profileLLM); err == nil {
+			return validated, nil
+		} else {
+			fmt.Fprintf(os.Stderr,
+				"ctxloom: warning: profile-declared llm %q is unusable (%v); falling back to the primary role\n",
+				profileLLM, err)
+		}
+	}
+	return cfg.PrimaryLabel(), nil
 }
 
 // validateExplicitLLM validates a non-empty --llm override (friction-up-front):

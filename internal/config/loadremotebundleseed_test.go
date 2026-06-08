@@ -62,20 +62,24 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	lock, err := lm.Load()
 	require.NoError(t, err)
 	entry := remote.LockEntry{SHA: sha, URL: repoURL, FetchedAt: time.Now().UTC()}
-	lock.AddEntry(remote.ItemTypeBundle, "src/good", entry)
-	lock.AddEntry(remote.ItemTypeBundle, "src/bad", entry)
+	lock.AddEntry(remote.ItemTypeBundle, repoURL+"@bundles/good", entry)
+	lock.AddEntry(remote.ItemTypeBundle, repoURL+"@bundles/bad", entry)
 	require.NoError(t, lm.Save(lock))
 
 	cfg := &Config{AppPaths: []string{appDir}}
 	seed := cfg.loadRemoteBundleSeed()
 
 	require.NotNil(t, seed, "a populated lockfile must materialize a seed")
-	good, ok := seed["src/good"]
-	require.True(t, ok, "the valid bundle is loaded from the clone")
-	assert.Equal(t, "src/good", good.Name)
+	// The seed is keyed by the canonical ref — the sole resolution identity.
+	canonical := repoURL + "@bundles/good"
+	good, ok := seed[canonical]
+	require.True(t, ok, "the valid bundle is loaded and keyed by its canonical ref")
+	assert.Equal(t, canonical, good.Name)
 	assert.Equal(t, "v1", good.Version, "bundle content is parsed at the locked SHA")
-	assert.Equal(t, "<remote>:src/good@"+sha, good.Path)
+	assert.Equal(t, "<remote>:"+canonical+"@"+sha, good.Path)
 
-	_, badLoaded := seed["src/bad"]
+	_, badLoaded := seed[repoURL+"@bundles/bad"]
 	assert.False(t, badLoaded, "a malformed bundle is skipped, not fatal")
+	_, shortKeyed := seed["src/good"]
+	assert.False(t, shortKeyed, "the seed is canonical-keyed only — no short keys")
 }

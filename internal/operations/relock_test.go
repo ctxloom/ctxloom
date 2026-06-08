@@ -52,7 +52,7 @@ func relockTestProject(t *testing.T, repoURL string) (string, *remote.Registry, 
 	if err := os.MkdirAll(profilesDir, 0o755); err != nil {
 		t.Fatalf("mkdir profiles: %v", err)
 	}
-	profileYAML := "name: dev\nbundles:\n  - alice/sec\n  - alice/two\n  - malformed\n"
+	profileYAML := "name: dev\nbundles:\n  - " + repoURL + "@bundles/sec\n  - " + repoURL + "@bundles/two\n  - malformed\n"
 	if err := os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(profileYAML), 0o644); err != nil {
 		t.Fatalf("write profile: %v", err)
 	}
@@ -107,15 +107,15 @@ func TestRelock_WritesResolvedEntriesWithoutExistingLockfile(t *testing.T) {
 
 	lf, err := lm.Load()
 	mustNoErr(t, err, "load regenerated lockfile")
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "alice/sec")
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, repoURL+"@bundles/sec")
 	if !ok {
-		t.Fatal("alice/sec not in regenerated lockfile")
+		t.Fatal("sec not in regenerated lockfile")
 	}
 	if entry.SHA != wantSHA {
-		t.Fatalf("alice/sec SHA = %q, want %q", entry.SHA, wantSHA)
+		t.Fatalf("sec SHA = %q, want %q", entry.SHA, wantSHA)
 	}
-	if _, ok := lf.GetEntry(remote.ItemTypeBundle, "alice/two"); !ok {
-		t.Fatal("alice/two not in regenerated lockfile")
+	if _, ok := lf.GetEntry(remote.ItemTypeBundle, repoURL+"@bundles/two"); !ok {
+		t.Fatal("two not in regenerated lockfile")
 	}
 }
 
@@ -140,7 +140,7 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 	mustNoErr(t, os.MkdirAll(profilesDir, 0o755), "mkdir profiles")
 	profileYAML := "name: dev\n" +
 		"parents:\n  - " + parentURL + "@profiles/go-developer\n" +
-		"bundles:\n  - alice/sec\n"
+		"bundles:\n  - " + bundleURL + "@bundles/sec\n"
 	mustNoErr(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(profileYAML), 0o644), "write profile")
 
 	cfg := &config.Config{
@@ -172,10 +172,10 @@ func TestRelock_PinsCanonicalURLParent(t *testing.T) {
 
 	lf, err := remote.NewLockfileManager(baseDir).Load()
 	mustNoErr(t, err, "load lockfile")
-	// Parent is keyed by its short "<repo>/<path>" form, not the raw URL.
-	entry, ok := lf.GetEntry(remote.ItemTypeProfile, "ctxloom-default/go-developer")
+	// Parent is keyed by its canonical ref.
+	entry, ok := lf.GetEntry(remote.ItemTypeProfile, parentURL+"@profiles/go-developer")
 	if !ok {
-		t.Fatalf("canonical parent not pinned under short key; profiles=%v", lf.Profiles)
+		t.Fatalf("canonical parent not pinned under canonical key; profiles=%v", lf.Profiles)
 	}
 	if entry.SHA != wantSHA {
 		t.Fatalf("parent SHA = %q, want %q", entry.SHA, wantSHA)

@@ -97,6 +97,7 @@ var (
 	profileCreateParents     []string
 	profileCreateBundles     []string
 	profileCreateDescription string
+	profileCreateLLM         string
 )
 
 var profileCreateCmd = &cobra.Command{
@@ -128,6 +129,15 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Validate --llm up front the same way `run -l` does (friction-up-front):
+	// an unknown label/backend is rejected at create time rather than warned
+	// about on every launch.
+	if profileCreateLLM != "" {
+		if _, err := validateExplicitLLM(cfg, profileCreateLLM); err != nil {
+			return err
+		}
+	}
+
 	// Route through the operations core so the CLI shares the MCP path's
 	// validation and the default auto-promotion (so `ctxloom run` doesn't
 	// launch with empty context after the first profile is created). The
@@ -136,6 +146,7 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 	res, err := operations.CreateProfile(cmd.Context(), cfg, operations.CreateProfileRequest{
 		Name:        name,
 		Description: profileCreateDescription,
+		LLM:         profileCreateLLM,
 		Parents:     profileCreateParents,
 		Bundles:     profileCreateBundles,
 		Loader:      profiles.NewLoader(profileCreateDirs(cfg)),
@@ -234,6 +245,9 @@ func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault 
 	if p.Description != "" {
 		w.Printf("Description: %s\n", p.Description)
 	}
+	if p.LLM != "" {
+		w.Printf("LLM: %s\n", p.LLM)
+	}
 	writeBulletList(w, "Parents", p.Parents)
 	writeBulletList(w, "Bundles", p.Bundles)
 	writeBulletList(w, "Tags", p.Tags)
@@ -294,6 +308,17 @@ Examples:
 			d := profileUpdateDescription
 			req.Description = &d
 		}
+		if cmd.Flags().Changed("llm") {
+			// Validate a non-empty value the same way create/run do; an empty
+			// value clears the preference and skips validation.
+			if profileUpdateLLM != "" {
+				if _, err := validateExplicitLLM(cfg, profileUpdateLLM); err != nil {
+					return err
+				}
+			}
+			l := profileUpdateLLM
+			req.LLM = &l
+		}
 
 		// Route through the operations core: it validates added parents exist
 		// before mutating (a check the old CLI path lacked) and reflects the
@@ -322,6 +347,7 @@ var (
 	profileUpdateAddBundles             []string
 	profileUpdateRemoveBundles          []string
 	profileUpdateDescription            string
+	profileUpdateLLM                    string
 	profileUpdateAddExcludeFragments    []string
 	profileUpdateRemoveExcludeFragments []string
 	profileUpdateAddExcludeMCP          []string
@@ -582,6 +608,7 @@ func init() {
 	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile URL(s) to inherit from")
 	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
 	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
+	profileCreateCmd.Flags().StringVar(&profileCreateLLM, "llm", "", "Preferred LLM config label/backend to launch (overridable by run -l)")
 
 	profilePushCmd.Flags().BoolVar(&profilePushPR, "pr", false, "Create a pull request instead of pushing directly")
 	profilePushCmd.Flags().StringVar(&profilePushBranch, "branch", "", "Target branch (default: repository default)")
@@ -592,6 +619,7 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")
+	profileUpdateCmd.Flags().StringVar(&profileUpdateLLM, "llm", "", "Set the preferred LLM config label/backend (empty clears it)")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeFragments, "exclude-fragment", nil, "Fragment name(s) to exclude")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeFragments, "include-fragment", nil, "Fragment name(s) to stop excluding")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddExcludeMCP, "exclude-mcp", nil, "MCP server name(s) to exclude")
@@ -612,6 +640,8 @@ func init() {
 
 	// Register flag completions
 	_ = profileCreateCmd.RegisterFlagCompletionFunc("parent", completeProfileNames)
+	_ = profileCreateCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("add-parent", completeProfileNames)
 	_ = profileUpdateCmd.RegisterFlagCompletionFunc("remove-parent", completeProfileNames)
+	_ = profileUpdateCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 }

@@ -11,6 +11,8 @@ Profiles are stored in `.ctxloom/profiles/` as YAML files:
 ```yaml
 description: "Profile description"
 
+llm: claude-fast                    # Preferred LLM (config label or backend)
+
 parents:                            # Inherit from other profiles
   - base-profile
   - ctxloom-default/python-developer
@@ -33,6 +35,21 @@ variables:                         # Template variables (Mustache)
 
 To mark a profile as the default for `ctxloom run`, list it under
 `defaults.profiles` in `.ctxloom/config.yaml` (see [Default Profiles](#default-profiles) below). The legacy per-file `default: true` flag is no longer supported.
+
+When `ctxloom run` is invoked with no profile and no configured default, it shows
+an interactive picker of installed profiles (skipped when not on a terminal).
+
+### Preferred LLM (`llm:`)
+
+A profile can name the LLM it should launch with via `llm:` — a config label
+(e.g. `claude-fast`, `gemini-code`) or a backend type. `ctxloom run` uses it
+unless `--llm`/`-l` overrides; a misconfigured value warns and falls back to the
+primary role rather than blocking startup. Set it with `--llm` on
+`profile create`/`profile modify`.
+
+This field is what makes a profile a self-contained agent for `ctxloom map` /
+`weave`: each parallel member runs on its own `llm:`, and the synthesizer on a
+high-power one.
 
 ## Content Reference Syntax
 

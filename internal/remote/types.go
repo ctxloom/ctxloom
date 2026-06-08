@@ -284,6 +284,14 @@ type Reference struct {
 
 	// IsCanonical indicates this is a URL-based reference (vs simple remote/path)
 	IsCanonical bool
+
+	// IsLocal indicates a ctxloom:local reference — project-authored content
+	// read from the committed .ctxloom/local/ working copy rather than a remote
+	// clone. Local refs share the canonical grammar tail (@kind/name[@version])
+	// but their source is the fixed "ctxloom:local" token, so they carry no URL.
+	// ContentVersion is usually empty (the version is the surrounding project's
+	// own VCS state); a non-empty value pins to a project revision.
+	IsLocal bool
 }
 
 // LockEntry represents a locked dependency in the lockfile.

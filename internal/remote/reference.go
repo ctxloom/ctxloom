@@ -10,6 +10,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
+// LocalSource is the fixed source token for ctxloom:local references —
+// project-authored content under the committed .ctxloom/local/ working copy.
+// It mirrors the canonical grammar: LocalSource @ <type>/<path>[@version].
+const LocalSource = "ctxloom:local"
+
 // ParseReference parses a remote reference string.
 //
 // Supported formats:
@@ -30,9 +35,18 @@ import (
 // File URL (local repositories):
 //   - "file:///path/to/repo@bundles/name"
 //   - "file:///home/user/ctxloom-content@fragments/security"
+//
+// Local source (project-authored, committed .ctxloom/local/):
+//   - "ctxloom:local@bundles/name"
+//   - "ctxloom:local@profiles/dev@<rev>" (pinned to a project revision)
 func ParseReference(ref string) (*Reference, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
+	}
+
+	// Local source: ctxloom:local@<type>/<path>[@version]
+	if strings.HasPrefix(ref, LocalSource+"@") {
+		return parseLocalReference(ref)
 	}
 
 	// Detect URL-based references
@@ -46,7 +60,12 @@ func ParseReference(ref string) (*Reference, error) {
 		return parseFileReference(ref)
 	}
 
-	// Simple format: remote/path[@ref]
+	// Simple format: remote/path[@ref]. NOTE: the short form is no longer the
+	// operational identity (lockfile/seed/profiles are canonical); it survives
+	// here only because the MCP browse/fetch/confirm subsystem (FetchRemoteContent,
+	// WriteRemoteItem, the "remote/path@sha" pull token) still resolves short
+	// refs via registry aliases. Hard-erroring short input is blocked on
+	// migrating that subsystem to canonical (task numb-aide).
 	return parseSimpleReference(ref)
 }
 
@@ -80,6 +99,32 @@ func parseSimpleReference(ref string) (*Reference, error) {
 		Path:           itemPath,
 		ContentVersion: contentVersion,
 		IsCanonical:    false,
+	}, nil
+}
+
+// parseLocalReference parses ctxloom:local references like:
+//   - ctxloom:local@bundles/name (current working copy)
+//   - ctxloom:local@profiles/dev@<rev> (pinned to a project revision)
+//
+// Format: ctxloom:local@<type>/<path>[@version]. The tail after the source
+// token is parsed identically to a canonical URL's (parseTypePathVersion), so
+// the local and remote grammars stay in lockstep. The version is opaque and
+// usually empty — local content's version is the surrounding project's own VCS
+// state.
+func parseLocalReference(ref string) (*Reference, error) {
+	// Strip the source token; the "@" was matched by the caller.
+	remainder := strings.TrimPrefix(ref, LocalSource+"@") // type/path[@version]
+
+	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
+	if err != nil {
+		return nil, fmt.Errorf("invalid local reference %s: %w", ref, err)
+	}
+
+	return &Reference{
+		ItemType:       itemType,
+		Path:           itemPath,
+		ContentVersion: contentVersion,
+		IsLocal:        true,
 	}, nil
 }
 
@@ -272,6 +317,9 @@ func isItemTypeDir(s string) bool {
 
 // String returns the string representation of a reference.
 func (r *Reference) String() string {
+	if r.IsLocal {
+		return r.localRef()
+	}
 	if r.IsCanonical {
 		return r.CanonicalString()
 	}
@@ -279,6 +327,21 @@ func (r *Reference) String() string {
 		return fmt.Sprintf("%s/%s@%s", r.Remote, r.Path, r.ContentVersion)
 	}
 	return fmt.Sprintf("%s/%s", r.Remote, r.Path)
+}
+
+// localRef formats a ctxloom:local reference as
+// "ctxloom:local@<type>/<path>[@version]". The version is included when present
+// (unlike the canonical URL form, the local form is fully round-trippable).
+func (r *Reference) localRef() string {
+	typeName := r.ItemType.DirName()
+	if typeName == "" {
+		typeName = "bundles" // default
+	}
+	s := fmt.Sprintf("%s@%s/%s", LocalSource, typeName, r.Path)
+	if r.ContentVersion != "" {
+		s += "@" + r.ContentVersion
+	}
+	return s
 }
 
 // CanonicalString returns the canonical URL representation.
@@ -297,12 +360,20 @@ func (r *Reference) CanonicalString() string {
 // For canonical refs, uses the embedded item type.
 // For simple refs, uses the provided itemType.
 func (r *Reference) BuildFilePath(itemType ItemType) string {
-	if r.IsCanonical {
-		// Use embedded values
-		return fmt.Sprintf("ctxloom/%s/%s.yaml", r.ItemType.DirName(), r.Path)
+	if r.IsLocal {
+		// Read relative to the .ctxloom/local/ root, which is itself inside
+		// .ctxloom — so no redundant ctxloom/ segment:
+		// .ctxloom/local/bundles/go-tools.yaml.
+		return path.Join(r.ItemType.DirName(), r.Path+".yaml")
 	}
-	// ctxloom/bundles/go-tools.yaml
-	return fmt.Sprintf("ctxloom/%s/%s.yaml", itemType.DirName(), r.Path)
+	if r.IsCanonical {
+		// Use the embedded item type for canonical refs.
+		itemType = r.ItemType
+	}
+	// Within a repo: ctxloom/<kind>/<path>.yaml. These are logical,
+	// forward-slash repo paths (consumed by go-git / FromSlash on disk), so
+	// path.Join is correct here — not filepath.Join.
+	return path.Join("ctxloom", itemType.DirName(), r.Path+".yaml")
 }
 
 // LocalPath returns the local path where the item would be installed.
@@ -442,28 +513,6 @@ func (r *Reference) MustCanonical(registry *Registry, itemType ItemType) *Refere
 		panic(err)
 	}
 	return canonical
-}
-
-// ToLocalName converts a canonical reference to local name format.
-// The local name uses the repository name as the remote alias.
-//
-// Examples:
-//
-//	https://github.com/owner/ctxloom-github@bundles/core-practices@v1.2.3
-//	  -> ctxloom-github/core-practices
-//
-//	git@github.com:owner/my-repo@profiles/dev@abc123
-//	  -> my-repo/dev
-//
-// For simple (non-canonical) references, returns Remote/Path as-is.
-func (r *Reference) ToLocalName() string {
-	if !r.IsCanonical {
-		// Already a local format
-		return fmt.Sprintf("%s/%s", r.Remote, r.Path)
-	}
-
-	repoName := ExtractRepoName(r.URL)
-	return fmt.Sprintf("%s/%s", repoName, r.Path)
 }
 
 // ExtractRepoName extracts the repository name from a URL.

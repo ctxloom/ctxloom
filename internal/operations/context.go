@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/cbroglie/mustache"
@@ -44,6 +45,12 @@ type AssembleContextResult struct {
 	Profiles        []string `json:"profiles"`
 	FragmentsLoaded []string `json:"fragments_loaded"`
 	Context         string   `json:"context"`
+
+	// ProfileLLM is the LLM the resolved profile(s) declared (first non-empty
+	// across the resolved set). Empty means no profile preference; callers fall
+	// back to the configured primary role. Overridable by -l/--llm at the call
+	// site.
+	ProfileLLM string `json:"profile_llm,omitempty"`
 }
 
 // AssembleContext assembles context from a profile, fragments, and/or tags.
@@ -57,7 +64,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	profileNames := resolveContextProfileNames(cfg, req)
 
-	allFragments, profileVars, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc)
+	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +92,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		Profiles:        profileNames,
 		FragmentsLoaded: loadedNames,
 		Context:         contextContent,
+		ProfileLLM:      profileLLM,
 	}, nil
 }
 
@@ -122,15 +130,28 @@ func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.Fragment
 }
 
 // collectProfileFragments resolves each profile (with inheritance) and gathers
-// its tag-matched + explicit fragments and variables.
-func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader) ([]config.FragmentRef, map[string]string, error) {
+// its tag-matched + explicit fragments and variables. It also reports the
+// effective declared LLM: the first non-empty profile.LLM across the resolved
+// set, warning to stderr if a later profile disagrees.
+func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader) ([]config.FragmentRef, map[string]string, string, error) {
 	var allFragments []config.FragmentRef
 	profileVars := make(map[string]string)
+	effectiveLLM := ""
 
 	for _, pName := range profileNames {
 		profile, err := resolveProfile(cfg, pName, loader, profileLoaderFunc)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to resolve profile %s: %w", pName, err)
+			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
+		}
+
+		if profile.LLM != "" {
+			if effectiveLLM == "" {
+				effectiveLLM = profile.LLM
+			} else if profile.LLM != effectiveLLM {
+				fmt.Fprintf(os.Stderr,
+					"ctxloom: warning: profile %q declares llm %q but %q is already in effect; keeping %q\n",
+					pName, profile.LLM, effectiveLLM, effectiveLLM)
+			}
 		}
 
 		for k, v := range profile.Variables {
@@ -139,13 +160,13 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 
 		tagFragments, err := fragmentsFromTags(loader, profile.Tags)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to list fragments by profile tags: %w", err)
+			return nil, nil, "", fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}
 		allFragments = append(allFragments, tagFragments...)
 		allFragments = append(allFragments, profile.Fragments...)
 	}
 
-	return allFragments, profileVars, nil
+	return allFragments, profileVars, effectiveLLM, nil
 }
 
 // loadAssembledContext loads the ordered fragments and applies variable
@@ -265,6 +286,7 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			Tags:      resolved.Tags,
 			Bundles:   resolved.Bundles,
 			Variables: resolved.Variables,
+			LLM:       resolved.LLM,
 		}
 	}
 

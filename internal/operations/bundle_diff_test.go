@@ -72,14 +72,18 @@ func TestDiffLockfiles(t *testing.T) {
 		require.NoError(t, registry.SetTrustBundles("trusted", true))
 		require.NoError(t, registry.Add("untrusted", "https://github.com/untrusted/repo"))
 
+		const (
+			trustedKey   = "https://github.com/trusted/repo@bundles/x"
+			untrustedKey = "https://github.com/untrusted/repo@bundles/y"
+		)
 		prev := mkLock(nil)
 		curr := mkLock(map[string]string{
-			"trusted/x":   "111",
-			"untrusted/y": "222",
+			trustedKey:   "111",
+			untrustedKey: "222",
 		})
 		cs := DiffLockfiles(prev, curr, registry)
 		require.Len(t, cs.Added, 1)
-		assert.Equal(t, "untrusted/y", cs.Added[0].Name, "trusted remote should be filtered out")
+		assert.Equal(t, untrustedKey, cs.Added[0].Name, "trusted remote should be filtered out")
 	})
 
 	t.Run("removed bundles are NOT reported", func(t *testing.T) {

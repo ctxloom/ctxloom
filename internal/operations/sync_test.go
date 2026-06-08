@@ -86,12 +86,12 @@ func TestCollectRemoteReferences(t *testing.T) {
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
-					"github/go-tools", // Remote
-					"local-bundle",    // Local (no slash)
-					"gitlab/security", // Remote
+					"https://github.com/test/ctxloom@bundles/go-tools", // Remote
+					"local-bundle", // Local (no scheme)
+					"https://gitlab.com/test/sec@bundles/security",     // Remote
 				},
 				Parents: []string{
-					"remote/parent-profile", // Remote
+					"https://github.com/test/ctxloom@profiles/parent", // Remote
 				},
 			},
 			"local-only": {
@@ -135,14 +135,17 @@ func TestIsRemoteReference(t *testing.T) {
 		ref      string
 		expected bool
 	}{
-		{"github/bundle", true},
-		{"remote/path/bundle", true},
+		// Only scheme-qualified canonical URLs are remote now.
 		{"https://github.com/owner/repo", true},
 		{"git@github.com:owner/repo", true},
 		{"file:///path/to/repo", true},
+		// Short "repo/path" form is no longer a remote reference (eliminated).
+		{"github/bundle", false},
+		{"remote/path/bundle", false},
 		{"local-bundle", false},
 		{"my-bundle", false},
-		// profile: prefix indicates local profile reference
+		// ctxloom:local and the profile: alias are local, not remote.
+		{"ctxloom:local@bundles/foo", false},
 		{"profile:personal/typescript-dev", false},
 		{"profile:nested/deep/profile", false},
 		{"profile:simple", false},
@@ -197,7 +200,7 @@ func TestSyncDependencies_WithRemotes(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -253,7 +256,7 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -261,8 +264,8 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 
 	// Create necessary directories and existing bundle
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom", 0755)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -306,7 +309,7 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -314,8 +317,8 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 
 	// Create necessary directories and existing bundle
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github", 0755)
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github/go-tools.yaml", []byte("version: 1"), 0644)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom", 0755)
+	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom/go-tools.yaml", []byte("version: 1"), 0644)
 
 	// Create registry
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
@@ -355,7 +358,7 @@ func TestSyncDependencies_PullError(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -411,7 +414,7 @@ func TestSyncDependencies_UpdatedStatus(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -486,8 +489,8 @@ func TestCheckMissingDependencies(t *testing.T) {
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
 				Bundles: []string{
-					"github/go-tools", // Missing
-					"github/security", // Installed
+					"https://github.com/test/forge@bundles/go-tools", // Missing
+					"https://github.com/test/forge@bundles/security", // Installed
 				},
 			},
 		}},
@@ -498,7 +501,7 @@ func TestCheckMissingDependencies(t *testing.T) {
 
 	// One bundle's content is retrievable at its locked address, the other's
 	// is not.
-	reader := fakeBundleSource{readable: map[string]bool{"github/security": true}}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/security": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS:           fs,
@@ -516,8 +519,8 @@ func TestCheckMissingDependencies(t *testing.T) {
 		t.Errorf("expected 1 missing, got %d", result.Count)
 	}
 
-	if len(result.Missing) != 1 || result.Missing[0].Reference != "github/go-tools" {
-		t.Errorf("expected missing github/go-tools, got %v", result.Missing)
+	if len(result.Missing) != 1 || result.Missing[0].Reference != "https://github.com/test/forge@bundles/go-tools" {
+		t.Errorf("expected missing go-tools, got %v", result.Missing)
 	}
 }
 
@@ -527,7 +530,7 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/forge@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -535,7 +538,7 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	reader := fakeBundleSource{readable: map[string]bool{"github/go-tools": true}}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/go-tools": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
 		FS:           fs,
@@ -565,7 +568,7 @@ func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/forge@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -588,8 +591,8 @@ func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 	if result.Status != "missing" {
 		t.Errorf("expected status 'missing', got %q", result.Status)
 	}
-	if result.Count != 1 || len(result.Missing) != 1 || result.Missing[0].Reference != "github/go-tools" {
-		t.Errorf("expected github/go-tools missing, got %v", result.Missing)
+	if result.Count != 1 || len(result.Missing) != 1 || result.Missing[0].Reference != "https://github.com/test/forge@bundles/go-tools" {
+		t.Errorf("expected go-tools missing, got %v", result.Missing)
 	}
 }
 
@@ -635,7 +638,7 @@ func TestSyncOnStartup_WithMissingDependencies(t *testing.T) {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"test": {
-				Bundles: []string{"github/go-tools"},
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
 			},
 		}},
 		AppPaths: []string{testBaseDir},
@@ -835,7 +838,7 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 				Parents: []string{"profile:nested/profile"},
 			},
 			"nested/profile": {
-				Bundles: []string{"github/remote-bundle"},
+				Bundles: []string{"https://github.com/test/forge@bundles/remote-bundle"},
 			},
 		}},
 	}
@@ -847,7 +850,7 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 	collectProfileReferencesRecursive(cfg, "top", bundleSet, profileSet, visited)
 
 	// Should find the remote bundle from nested/profile
-	assert.True(t, bundleSet.Has("github/remote-bundle"),
+	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/remote-bundle"),
 		"should find remote bundle after stripping profile: prefix")
 }
 
@@ -860,7 +863,7 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 			},
 			"profile-b": {
 				Parents: []string{"profile:profile-a"},
-				Bundles: []string{"github/bundle"},
+				Bundles: []string{"https://github.com/test/forge@bundles/bundle"},
 			},
 		}},
 	}
@@ -873,7 +876,7 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 	collectProfileReferencesRecursive(cfg, "profile-a", bundleSet, profileSet, visited)
 
 	// Should still find the bundle
-	assert.True(t, bundleSet.Has("github/bundle"))
+	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/bundle"))
 }
 
 // TestRunSyncPostSteps_Guards pins the two guard conditions in runSyncPostSteps

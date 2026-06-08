@@ -27,26 +27,6 @@ import (
 // Hash-based identification enables ctxloom to track which hooks it manages vs
 // user-defined hooks, allowing clean updates without losing user customization.
 
-func TestComputeHookHash(t *testing.T) {
-	h1 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h2 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h3 := wire.Hook{Command: "./other.sh", Matcher: "Bash"}
-
-	hash1 := computeHookHash(h1)
-	hash2 := computeHookHash(h2)
-	hash3 := computeHookHash(h3)
-
-	if hash1 != hash2 {
-		t.Errorf("same hooks should have same hash: %s != %s", hash1, hash2)
-	}
-	if hash1 == hash3 {
-		t.Error("different hooks should have different hashes")
-	}
-	if len(hash1) != 16 {
-		t.Errorf("expected 16 char hash, got %d", len(hash1))
-	}
-}
-
 // TestNewContextInjectionHook_ShellQuotesProjectPath pins the shell-safe
 // quoting of the --project path: spaces, single quotes, and shell
 // metacharacters must not break the command split or inject behavior when
@@ -107,51 +87,15 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		for k, h := range hooks {
 			assert.Containsf(t, h.Command, fmt.Sprintf("--part %d --of %d", k+1, n),
 				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
-			assert.Truef(t, isCtxloomManaged(h.Command),
+			assert.Truef(t, agent.IsManaged(h.Command, "ctxloom"),
 				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
 			assert.Equal(t, agent.ContextInjectionTimeout, h.Timeout)
 		}
 	})
 }
 
-// TestIsCtxloomManaged covers the single predicate driving cleanup across
-// hooks, the statusLine, and the MCP server. Any command whose executable
-// is `ctxloom` is ours, regardless of verb — so a slot whose verb drifted
-// (the legacy `ctxloom hook hud` statusLine) still migrates forward instead
-// of being mistaken for user-authored.
-func TestIsCtxloomManaged(t *testing.T) {
-	cases := map[string]bool{
-		// All ctxloom invocations are managed — hooks, statusLine, MCP.
-		"ctxloom hook inject-context --project /p hash": true,
-		"ctxloom hook session-bind":                     true,
-		"ctxloom hook stamp-plan":                       true,
-		"ctxloom hook hud":                              true,
-		"ctxloom mcp":                                   true,
-		// Legacy verb forms (pre-callback-consolidation) must still migrate forward.
-		"ctxloom session bind":     true,
-		"ctxloom tasks stamp-plan": true,
-		"ctxloom meta hud":         true,
-		// Quoted / absolute / Windows executable paths.
-		`"/usr/bin/ctxloom" hook hud`:               true,
-		"/home/me/go/bin/ctxloom hook session-bind": true,
-		`"C:\Tools\ctxloom.exe" hook stamp-plan`:    true,
-		// Quoted executable path containing spaces — strings.Fields used to
-		// split this mid-path and miss it, leaving dup hooks to accumulate.
-		`"/Apps/My Tools/ctxloom" mcp`:             true,
-		`'/Apps/My Tools/ctxloom' hook stamp-plan`: true,
-		// Not ctxloom.
-		"echo 'user hook'":                   false,
-		"node /opt/somewhere/script.js":      false,
-		"/usr/local/bin/ctxloomctl whatever": false,
-		"starship prompt":                    false,
-		"":                                   false,
-	}
-	for cmd, want := range cases {
-		if got := isCtxloomManaged(cmd); got != want {
-			t.Errorf("isCtxloomManaged(%q) = %v; want %v", cmd, got, want)
-		}
-	}
-}
+// (Managed-command detection is exercised in shared/agent — TestIsManaged in
+// predicate_test.go — now that isCtxloomManaged is a thin agent.IsManaged call.)
 
 // =============================================================================
 // Settings Writer Factory Tests
@@ -166,7 +110,7 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 	}{
 		{"claude-code", "claude-code", true},
 		{"gemini", "gemini", true},
-		{"codex", "codex", false},     // No settings support
+		{"codex", "codex", true},      // config.toml hooks + MCP
 		{"unknown", "unknown", false}, // Unknown backend
 		{"empty", "", false},          // Empty string
 	}
@@ -190,7 +134,7 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 
 func TestWriteSettings_UnsupportedBackend(t *testing.T) {
 	// Unsupported backends should silently succeed (no-op)
-	err := WriteSettings("codex", nil, nil, nil, "/project")
+	err := WriteSettings("unknown-backend", nil, nil, nil, "/project")
 	assert.NoError(t, err)
 }
 
@@ -217,86 +161,8 @@ func TestWriteSettings_WithFS(t *testing.T) {
 // These tests verify that ctxloom gracefully handles malformed or incompatible
 // settings.json files, as Claude Code's schema is undocumented and may change.
 
-// =============================================================================
-// Helper Function Tests
-// =============================================================================
-// Tests for shared helper functions that reduce code duplication.
-
-func TestAtomicWriteFile(t *testing.T) {
-	t.Run("writes new file", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		path := "/test/file.json"
-		data := []byte(`{"key": "value"}`)
-
-		err := atomicWriteFile(fs, path, data, "test file")
-		require.NoError(t, err)
-
-		// Verify file contents
-		contents, err := afero.ReadFile(fs, path)
-		require.NoError(t, err)
-		assert.Equal(t, data, contents)
-	})
-
-	t.Run("creates backup of existing file", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		path := "/test/file.json"
-		original := []byte(`{"original": true}`)
-		updated := []byte(`{"updated": true}`)
-
-		// Create original file
-		require.NoError(t, afero.WriteFile(fs, path, original, 0644))
-
-		// Write new content
-		err := atomicWriteFile(fs, path, updated, "test file")
-		require.NoError(t, err)
-
-		// Verify backup exists with original content
-		backupPath := path + ".ctxloom.bak"
-		backup, err := afero.ReadFile(fs, backupPath)
-		require.NoError(t, err)
-		assert.Equal(t, original, backup)
-
-		// Verify file has new content
-		contents, err := afero.ReadFile(fs, path)
-		require.NoError(t, err)
-		assert.Equal(t, updated, contents)
-	})
-
-	t.Run("cleans up temp file on success", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		path := "/test/file.json"
-		data := []byte(`{"key": "value"}`)
-
-		err := atomicWriteFile(fs, path, data, "test file")
-		require.NoError(t, err)
-
-		// Temp file should not exist
-		tmpPath := path + ".ctxloom.tmp"
-		exists, _ := afero.Exists(fs, tmpPath)
-		assert.False(t, exists, "temp file should be cleaned up")
-	})
-}
-
-func TestWarn(t *testing.T) {
-	// Capture stderr
-	// Note: warn() outputs to os.Stderr, which is hard to capture in tests.
-	// This test just verifies the function doesn't panic.
-	warn("test warning: %s", "message")
-}
-
-func TestGetFS(t *testing.T) {
-	t.Run("returns provided fs", func(t *testing.T) {
-		memFs := afero.NewMemMapFs()
-		result := getFS(memFs)
-		assert.Equal(t, memFs, result)
-	})
-
-	t.Run("returns OsFs when nil", func(t *testing.T) {
-		result := getFS(nil)
-		assert.NotNil(t, result)
-		// Can't directly compare to OsFs, but it shouldn't be nil
-	})
-}
+// (AtomicWriteFile / GetFS / ComputeHookHash are covered in shared/agent —
+// settings_io_test.go — alongside the helpers themselves.)
 func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 	tmpDir := t.TempDir()
 	agent.SetExecutablePathForTesting("/install/now/ctxloom")

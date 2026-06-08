@@ -1,8 +1,6 @@
 package operations
 
 import (
-	"strings"
-
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -70,9 +68,12 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 	}
 
 	for name, entry := range curr.Bundles {
-		remoteName, _, _ := strings.Cut(name, "/")
-		if isTrustedRemote(registry, remoteName) {
+		remoteName := remoteNameForKey(registry, name)
+		if remoteName != "" && isTrustedRemote(registry, remoteName) {
 			continue
+		}
+		if remoteName == "" {
+			remoteName = displayRemoteForKey(name)
 		}
 		old, existed := prevBundles[name]
 		// Pinned entries on the active side never surface a change:
@@ -100,6 +101,34 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 		}
 	}
 	return cs
+}
+
+// remoteNameForKey resolves the registry remote alias for a canonical lockfile
+// key by matching the key's repo URL. Returns "" when the key is not canonical,
+// the registry is nil, or the URL is not a registered remote.
+func remoteNameForKey(registry *remote.Registry, key string) string {
+	if registry == nil {
+		return ""
+	}
+	ref, err := remote.ParseReference(key)
+	if err != nil || ref.URL == "" {
+		return ""
+	}
+	name, ok := registry.FindByURL(ref.URL)
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+// displayRemoteForKey returns a human-facing remote label for a canonical
+// lockfile key (host/owner/repo), falling back to the raw key.
+func displayRemoteForKey(key string) string {
+	ref, err := remote.ParseReference(key)
+	if err != nil || ref.URL == "" {
+		return key
+	}
+	return ref.LocalRemoteName()
 }
 
 // isTrustedRemote reports whether the registry has TrustBundles=true for

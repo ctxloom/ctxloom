@@ -134,21 +134,17 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 // vendor directory.
 func (m *VendorManager) vendorEntry(ctx context.Context, itemType ItemType, entryRef string, entry LockEntry, registry *Registry, auth AuthConfig, vendorDir string) error {
 	ref, err := ParseReference(entryRef)
-	if err != nil {
+	if err != nil || !ref.IsCanonical {
 		return fmt.Errorf("invalid reference %s: %w", entryRef, err)
 	}
 
-	rem, err := registry.Get(ref.Remote)
-	if err != nil {
-		return fmt.Errorf("remote not found %s: %w", ref.Remote, err)
-	}
-
-	fetcher, err := m.fetcherFactory(rem.URL, auth)
+	// Canonical keys carry the repo URL directly — no registry lookup needed.
+	fetcher, err := m.fetcherFactory(ref.URL, auth)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
 
-	owner, repo, err := ParseRepoURL(rem.URL)
+	owner, repo, err := ParseRepoURL(ref.URL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
@@ -159,7 +155,7 @@ func (m *VendorManager) vendorEntry(ctx context.Context, itemType ItemType, entr
 		return fmt.Errorf("failed to fetch %s: %w", entryRef, err)
 	}
 
-	vendorPath := filepath.Join(vendorDir, string(itemType)+"s", ref.Remote, ref.Path+".yaml")
+	vendorPath := filepath.Join(vendorDir, string(itemType)+"s", ref.LocalRemoteName(), ref.Path+".yaml")
 	if err := m.fs.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
@@ -171,13 +167,13 @@ func (m *VendorManager) vendorEntry(ctx context.Context, itemType ItemType, entr
 
 // GetVendored returns content from the vendor directory if available.
 func (m *VendorManager) GetVendored(itemType ItemType, ref *Reference) ([]byte, error) {
-	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.Remote, ref.Path+".yaml")
+	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.LocalRemoteName(), ref.Path+".yaml")
 	return afero.ReadFile(m.fs, vendorPath)
 }
 
 // HasVendored checks if an item exists in the vendor directory.
 func (m *VendorManager) HasVendored(itemType ItemType, ref *Reference) bool {
-	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.Remote, ref.Path+".yaml")
+	vendorPath := filepath.Join(m.VendorDir(), itemType.DirName(), ref.LocalRemoteName(), ref.Path+".yaml")
 	_, err := m.fs.Stat(vendorPath)
 	return err == nil
 }

@@ -214,7 +214,7 @@ func TestCachingBundleReader_WithRealReader(t *testing.T) {
 	cache := NewCachingBundleReader(inner)
 
 	for i := 0; i < 3; i++ {
-		data, err := cache.ReadBundleBytes(context.Background(), "alice/security")
+		data, err := cache.ReadBundleBytes(context.Background(), secKey)
 		require.NoError(t, err)
 		assert.Equal(t, "description: Security bundle\n", string(data))
 	}

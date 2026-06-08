@@ -8,7 +8,7 @@ Deferred.
 
 ## Context
 
-`docs/ctxloom-tasks-plan.md` proposed a `task_link_session <harp-id> <harp-session-name>` MCP tool for explicit task ↔ session association. After plan-stamping shipped (the PostFileEdit hook that records the active harp on `plans.md` changes), the link is created implicitly: a task created during session X has X's harp stamped on it via the bundle hook.
+The ctxloom-tasks plan proposed a `task_link_session <harp-id> <harp-session-name>` MCP tool for explicit task ↔ session association. After plan-stamping shipped (the PostFileEdit hook that records the active harp on `plans.md` changes), the link is created implicitly: a task created during session X has X's harp stamped on it via the bundle hook.
 
 ## Decision
 

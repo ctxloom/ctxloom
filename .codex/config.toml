@@ -1,0 +1,17 @@
+[hooks]
+[[hooks.PostToolUse]]
+matcher = 'Edit|Write'
+
+[[hooks.PostToolUse.hooks]]
+command = 'ctxloom hook stamp-plan'
+type = 'command'
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+command = 'ctxloom hook session-bind'
+type = 'command'
+
+[mcp_servers]
+[mcp_servers.ctxloom]
+args = ['mcp']
+command = 'ctxloom'

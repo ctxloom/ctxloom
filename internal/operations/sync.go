@@ -351,24 +351,17 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 	}
 }
 
-// isRemoteReference checks if a reference points to a remote source.
+// isRemoteReference checks if a reference points to a remote source. Remote
+// refs are scheme-qualified canonical URLs; ctxloom:local and the "profile:"
+// local-profile alias are not remote.
 func isRemoteReference(ref string) bool {
-	// URL-based references are always remote
-	if strings.HasPrefix(ref, "https://") ||
-		strings.HasPrefix(ref, "http://") ||
-		strings.HasPrefix(ref, "git@") ||
-		strings.HasPrefix(ref, "file://") {
-		return true
-	}
-
-	// "profile:" prefix indicates a local profile reference (not remote)
-	// e.g., "profile:personal/typescript-developer" is local
-	if strings.HasPrefix(ref, "profile:") {
+	if strings.HasPrefix(ref, remote.LocalSource) { // ctxloom:local
 		return false
 	}
-
-	// Simple format: remote/path (e.g., "github/bundle-name")
-	return strings.Contains(ref, "/")
+	return strings.HasPrefix(ref, "https://") ||
+		strings.HasPrefix(ref, "http://") ||
+		strings.HasPrefix(ref, "git@") ||
+		strings.HasPrefix(ref, "file://")
 }
 
 // syncItem syncs a single item and returns the result.

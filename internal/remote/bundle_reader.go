@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // ErrBundleNotInLockfile is returned when a caller asks for a bundle that
@@ -110,33 +109,29 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
 
-	remoteName, itemPath, ok := strings.Cut(bundleName, "/")
-	if !ok {
-		return nil, fmt.Errorf("invalid lockfile bundle key %q (expected remoteName/path)", bundleName)
+	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the
+	// repo URL and item path.
+	ref, err := ParseReference(bundleName)
+	if err != nil || !ref.IsCanonical {
+		return nil, fmt.Errorf("invalid lockfile bundle key %q (expected a canonical ref): %w", bundleName, err)
 	}
 
-	repoURL := entry.URL
+	repoURL := ref.URL
 	if repoURL == "" {
-		// Recover from registry when the lockfile predates URL recording.
-		rem, regErr := r.registry.Get(remoteName)
-		if regErr != nil {
-			return nil, fmt.Errorf("remote %q not registered and no URL on lockfile entry for %s", remoteName, bundleName)
-		}
-		repoURL = rem.URL
+		repoURL = entry.URL
 	}
 
-	fetcher, err := r.factory(repoURL, r.auth)
-	if err != nil {
-		return nil, fmt.Errorf("create fetcher for %s: %w", repoURL, err)
+	fetcher, ferr := r.factory(repoURL, r.auth)
+	if ferr != nil {
+		return nil, fmt.Errorf("create fetcher for %s: %w", repoURL, ferr)
 	}
 
-	owner, repo, err := ParseRepoURL(repoURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, err)
+	owner, repo, perr := ParseRepoURL(repoURL)
+	if perr != nil {
+		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}
 
-	ref := &Reference{Path: itemPath}
-	filePath := ref.BuildFilePath(ItemTypeBundle)
+	filePath := ref.BuildFilePath(ref.ItemType)
 
 	data, err := fetcher.FetchFile(ctx, owner, repo, filePath, entry.SHA)
 	if err != nil {

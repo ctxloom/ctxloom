@@ -239,7 +239,10 @@ func renderPendingBundle(ctx context.Context, cfg *config.Config, name string) (
 		return "", err
 	}
 	entry, _ := reader.LockEntryFor(name)
-	remoteName, _, _ := strings.Cut(name, "/")
+	remoteName := name
+	if ref, perr := remote.ParseReference(name); perr == nil && ref.URL != "" {
+		remoteName = ref.LocalRemoteName()
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s @ %s (from %s)\n", name, shortSHA(entry.SHA), remoteName)

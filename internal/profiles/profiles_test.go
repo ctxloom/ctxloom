@@ -307,6 +307,34 @@ variables:
 	assert.Equal(t, "child-only", resolved.Variables["new_var"])
 }
 
+// TestLoader_ResolveProfile_LLM verifies the preferred-LLM field round-trips
+// through save/load and inheritance: a child's llm overrides its parent's, and
+// a child without one inherits the parent's.
+func TestLoader_ResolveProfile_LLM(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := "llm: gemini-code\nbundles:\n  - parent-bundle\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	// Child overrides the parent's llm.
+	overrider := "parents:\n  - parent\nllm: claude-fast\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "overrider.yaml"), []byte(overrider), 0644))
+
+	// Child inherits the parent's llm (declares none of its own).
+	inheritor := "parents:\n  - parent\nbundles:\n  - child-bundle\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "inheritor.yaml"), []byte(inheritor), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+
+	overriderResolved, err := loader.ResolveProfile("overrider", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-fast", overriderResolved.LLM, "child llm should win over parent")
+
+	inheritorResolved, err := loader.ResolveProfile("inheritor", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "gemini-code", inheritorResolved.LLM, "child should inherit parent llm")
+}
+
 // TestLoader_ResolveProfile_CircularReference verifies circular dependency detection.
 //
 // This is a safety check - without it, a circular reference like A→B→A would

@@ -33,14 +33,93 @@ ctxloom run [flags] [prompt...]
 | `--saved-prompt` | | Load saved prompt template |
 | `--llm` | `-l` | Config label to use (e.g. claude-code, claude-fast, gemini-code, gemini-fast); overrides the configured default |
 | `--dry-run` | `-n` | Preview context without running |
-| `--print` | | Print assembled context |
+| `--print` | | Run non-interactively (oneshot) and print the response |
 | `--verbose` | `-v` | Increase verbosity (-v, -vv, -vvv) |
+
+With `--print` and no prompt given, the prompt is read from **stdin** when stdin
+is piped. This makes `run --print` a universal reducer/synthesizer over any input
+— ctxloom-produced or not:
+
+```bash
+ctxloom map -p code-review/security -p code-review/perf "<diff>" \
+  | ctxloom run -p code-review/synthesis --print     # synthesize the parts
+cat findings-from-some-tool.txt | ctxloom run -p code-review/synthesis --print
+```
+
+A profile may declare its own preferred LLM (`llm:`); `--llm`/`-l` overrides it.
 
 **Examples:**
 ```bash
 ctxloom run -p developer "explain this code"
 ctxloom run -f core#fragments/tdd -t golang "review PR"
 ctxloom run -n  # Preview what context would be sent
+```
+
+#### `ctxloom map`
+
+Run multiple profiles in parallel over one shared task (the fan-out half of the
+`weave` ensemble primitive). Each `-p` profile runs as its own oneshot agent with
+its own context and LLM; outputs are emitted as labeled blocks. Bounded by
+`--concurrency` and fault-tolerant (a failed member is reported inline, others
+continue).
+
+```bash
+ctxloom map [flags] [task...]
+```
+
+**Flags:**
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--profile` | `-p` | Profile to run as a parallel member (repeatable) |
+| `--llm` | `-l` | Override the LLM for every member (else each profile's own `llm:`) |
+| `--concurrency` | | Max members to run at once (default 4) |
+| `--save-parts` | | Directory to write each member's raw output into |
+
+The task is taken from the arguments, or from stdin when no arguments are given.
+The labeled output is meant to be read, saved (`--save-parts`), or piped into a
+synthesizer:
+
+**Examples:**
+```bash
+git diff | ctxloom map -p code-review/security -p code-review/perf
+ctxloom map -p a -p b -p c --concurrency 3 "review this change" \
+  | ctxloom run -p synthesis --print
+```
+
+#### `ctxloom weave`
+
+Fan a task across profiles in parallel, then synthesize the results — the
+composite of `map` + a synthesis `run`, but in-process (no shell) so it works
+identically on every platform. Each `-p` member runs as its own agent on its own
+`llm:`; the `-s` synthesizer runs on its own (typically high-power) `llm:`.
+
+```bash
+ctxloom weave [flags] [task...]
+```
+
+**Flags:**
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--profile` | `-p` | Member profile to run in parallel (repeatable) |
+| `--synthesize` | `-s` | Synthesis profile that combines member outputs |
+| `--llm` | `-l` | Override the LLM for every member (synthesizer keeps its own `llm:`) |
+| `--concurrency` | | Max members to run at once (default 4) |
+| `--part` | | Inject `NAME=FILE` as a part to synthesize (repeatable) |
+| `--parts-from` | | Inject every file in a directory as a part |
+| `--save-parts` | | Directory to write each member's raw output into |
+| `--no-synthesize` | | Emit the labeled parts only; skip synthesis |
+
+`weave` is equivalent to `ctxloom map -p A -p B "task" | ctxloom run -p SYNTH
+--print`, but portable and single-invocation. The `--part`/`--parts-from` flags
+let you synthesize **non-ctxloom outputs** alongside (or instead of) live members.
+
+**Examples:**
+```bash
+ctxloom weave -p code-review/security -p code-review/performance \
+  -s code-review/synthesis "review this diff"
+git diff | ctxloom weave -p reviewer/a -p reviewer/b -s synthesis
+ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
+ctxloom weave -s synth --parts-from ./collected "merge these findings"
 ```
 
 #### `ctxloom init`
@@ -129,6 +208,19 @@ Manage profiles (named fragment collections).
 | `push <name> [remote]` | Push profile to remote |
 | `export <name> <dir>` | Export profile to directory |
 | `import <file>` | Import profile from file |
+
+A profile may declare a preferred **LLM** via the `llm:` field (a config label or
+backend type). `ctxloom run` uses it unless `--llm`/`-l` overrides; in a `weave`
+ensemble each member runs on its own `llm:` and the synthesizer on a high-power one.
+Set it with `--llm` on create/modify:
+
+```bash
+ctxloom profile create reviewer --bundle code-review-checklists --llm claude-fast
+ctxloom profile modify reviewer --llm gemini-code   # change it; --llm "" clears it
+```
+
+When `ctxloom run` is invoked with no profile and no configured default, it shows
+an interactive picker of installed profiles (skipped when not on a terminal).
 
 **Examples:**
 ```bash

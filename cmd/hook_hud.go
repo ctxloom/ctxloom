@@ -15,13 +15,17 @@ import (
 var hookHudCmd = &cobra.Command{
 	Use:    "hud",
 	Hidden: true, // Machine callback (statusline command) - not for direct use
-	Short:  "Output formatted statusline for Claude Code HUD",
-	Long: `Reads Claude Code session JSON from stdin and outputs a formatted statusline
-combining Claude session info with ctxloom project status.
+	Short:  "Output a formatted statusline for the active agent's HUD",
+	Long: `Reads the active agent's session JSON from stdin and outputs a formatted
+statusline combining the session's model/context info with ctxloom project status.
 
-This command is designed to be used as the statusLine command in Claude Code's
-settings.json. It runs after each assistant message and displays context usage,
-model info, and active ctxloom profile/bundle counts.
+This is the command an agent runs for its statusline after each assistant message,
+displaying context usage, model info, and active ctxloom profile/bundle counts.
+
+Agent-neutral by design: the input is the common statusline JSON shape (model,
+context window, cost, worktree). Claude Code is the only agent today that supports
+a command-backed statusline, so it is the only one currently wired to run this;
+other agents map onto the same shape as they gain the capability.
 
 The output uses ANSI escape codes for color in supported terminals.`,
 	RunE: runHookHud,
@@ -31,15 +35,15 @@ func init() {
 	hookCmd.AddCommand(hookHudCmd)
 }
 
-// claudeSessionJSON represents the relevant fields from Claude Code's statusline JSON.
-type claudeSessionJSON struct {
-	Model struct {
-		DisplayName string `json:"display_name"`
-		ID          string `json:"id"`
-	} `json:"model"`
+// agentSessionJSON is the common statusline JSON an agent pipes to `hook hud` on
+// stdin. Claude Code emits exactly this shape; it is the canonical form other
+// agents map onto as they gain command-backed statuslines. Model is captured raw
+// so it can be either an object ({display_name|name|id}) or a bare string —
+// resolved by modelName.
+type agentSessionJSON struct {
+	Model         json.RawMessage `json:"model"`
 	ContextWindow struct {
-		UsedPercentage      float64 `json:"used_percentage"`
-		RemainingPercentage float64 `json:"remaining_percentage"`
+		UsedPercentage float64 `json:"used_percentage"`
 	} `json:"context_window"`
 	Cost struct {
 		TotalCostUSD float64 `json:"total_cost_usd"`
@@ -48,6 +52,34 @@ type claudeSessionJSON struct {
 		Name   string `json:"name"`
 		Branch string `json:"branch"`
 	} `json:"worktree"`
+}
+
+// modelName resolves the display label from the session's model field, which an
+// agent may send as an object ({display_name|name|id}) or a bare string.
+func (s agentSessionJSON) modelName() string {
+	if len(s.Model) == 0 {
+		return ""
+	}
+	var obj struct {
+		DisplayName string `json:"display_name"`
+		Name        string `json:"name"`
+		ID          string `json:"id"`
+	}
+	if json.Unmarshal(s.Model, &obj) == nil {
+		switch {
+		case obj.DisplayName != "":
+			return obj.DisplayName
+		case obj.Name != "":
+			return obj.Name
+		case obj.ID != "":
+			return obj.ID
+		}
+	}
+	var str string
+	if json.Unmarshal(s.Model, &str) == nil {
+		return str
+	}
+	return ""
 }
 
 // ctxloomHudInfo holds ctxloom-specific data for the HUD.
@@ -65,7 +97,7 @@ func runHookHud(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var session claudeSessionJSON
+	var session agentSessionJSON
 	if err := json.Unmarshal(input, &session); err != nil {
 		// Fault tolerant: output minimal HUD on parse error
 		fmt.Print("ctxloom")
@@ -130,14 +162,11 @@ func contextBarColor(pct float64) string {
 }
 
 // formatHud formats the statusline output.
-func formatHud(session claudeSessionJSON, info ctxloomHudInfo) string {
+func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 	var parts []string
 
 	// Model name
-	model := session.Model.DisplayName
-	if model == "" {
-		model = session.Model.ID
-	}
+	model := session.modelName()
 	if model != "" {
 		parts = append(parts, fmt.Sprintf("%s%s%s", colorCyan, model, colorReset))
 	}

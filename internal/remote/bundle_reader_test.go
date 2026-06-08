@@ -32,11 +32,11 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 
 	lock := &Lockfile{
 		Bundles: map[string]LockEntry{
-			"alice/security": {
+			secKey: {
 				SHA: "abc123def",
 				URL: "https://github.com/alice/ctxloom",
 			},
-			"alice/nested/sub": {
+			subKey: {
 				SHA: "ffff111",
 				URL: "https://github.com/alice/ctxloom",
 			},
@@ -48,11 +48,17 @@ func readerFixture(t *testing.T) (*BundleReader, *MockFetcher, *Lockfile) {
 	return reader, fetcher, lock
 }
 
+// Canonical lockfile keys used across the bundle-reader tests.
+const (
+	secKey = "https://github.com/alice/ctxloom@bundles/security"
+	subKey = "https://github.com/alice/ctxloom@bundles/nested/sub"
+)
+
 func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	t.Run("fetches at locked SHA", func(t *testing.T) {
 		reader, fetcher, _ := readerFixture(t)
 
-		data, err := reader.ReadBundleBytes(context.Background(), "alice/security")
+		data, err := reader.ReadBundleBytes(context.Background(), secKey)
 		require.NoError(t, err)
 		assert.Equal(t, "description: Security bundle\n", string(data))
 
@@ -71,7 +77,7 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	t.Run("nested bundle path", func(t *testing.T) {
 		reader, fetcher, _ := readerFixture(t)
 
-		data, err := reader.ReadBundleBytes(context.Background(), "alice/nested/sub")
+		data, err := reader.ReadBundleBytes(context.Background(), subKey)
 		require.NoError(t, err)
 		assert.Equal(t, "description: Sub\n", string(data))
 
@@ -82,49 +88,24 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 	t.Run("missing bundle returns ErrBundleNotInLockfile", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
 
-		_, err := reader.ReadBundleBytes(context.Background(), "alice/missing")
+		_, err := reader.ReadBundleBytes(context.Background(), "https://github.com/alice/ctxloom@bundles/missing")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrBundleNotInLockfile)
 	})
 
-	t.Run("invalid key without slash returns error", func(t *testing.T) {
+	t.Run("non-canonical key returns error", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
 		reader.lock.Bundles["badkey"] = LockEntry{SHA: "x"}
 		_, err := reader.ReadBundleBytes(context.Background(), "badkey")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "expected remoteName/path")
-	})
-
-	t.Run("falls back to registry URL when lockfile entry has empty URL", func(t *testing.T) {
-		reader, fetcher, _ := readerFixture(t)
-
-		entry := reader.lock.Bundles["alice/security"]
-		entry.URL = "" // simulate older lockfile
-		reader.lock.Bundles["alice/security"] = entry
-
-		_, err := reader.ReadBundleBytes(context.Background(), "alice/security")
-		require.NoError(t, err)
-		require.Len(t, fetcher.FetchFileCalls, 1)
-		assert.Equal(t, "alice", fetcher.FetchFileCalls[0].Owner)
-	})
-
-	t.Run("errors when neither lockfile URL nor registry has it", func(t *testing.T) {
-		reader, _, _ := readerFixture(t)
-		require.NoError(t, reader.registry.Remove("alice"))
-		entry := reader.lock.Bundles["alice/security"]
-		entry.URL = ""
-		reader.lock.Bundles["alice/security"] = entry
-
-		_, err := reader.ReadBundleBytes(context.Background(), "alice/security")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not registered")
+		assert.Contains(t, err.Error(), "canonical")
 	})
 
 	t.Run("propagates fetcher errors", func(t *testing.T) {
 		reader, fetcher, _ := readerFixture(t)
 		fetcher.FetchFileErr = errors.New("boom")
 
-		_, err := reader.ReadBundleBytes(context.Background(), "alice/security")
+		_, err := reader.ReadBundleBytes(context.Background(), secKey)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 	})
@@ -134,18 +115,18 @@ func TestBundleReader_Surface(t *testing.T) {
 	t.Run("ListBundleNames is sorted and contains every lockfile key", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
 		names := reader.ListBundleNames()
-		assert.Equal(t, []string{"alice/nested/sub", "alice/security"}, names)
+		assert.Equal(t, []string{subKey, secKey}, names)
 	})
 
 	t.Run("HasBundle matches lockfile keys", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
-		assert.True(t, reader.HasBundle("alice/security"))
-		assert.False(t, reader.HasBundle("alice/missing"))
+		assert.True(t, reader.HasBundle(secKey))
+		assert.False(t, reader.HasBundle("https://github.com/alice/ctxloom@bundles/missing"))
 	})
 
 	t.Run("LockEntryFor returns the entry and false for unknown", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
-		entry, ok := reader.LockEntryFor("alice/security")
+		entry, ok := reader.LockEntryFor(secKey)
 		require.True(t, ok)
 		assert.Equal(t, "abc123def", entry.SHA)
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -195,7 +194,12 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 
 	fs := afero.NewMemMapFs()
 	appDir := ".ctxloom"
-	bundlePath := filepath.Join(appDir, remote.ItemTypeBundle.DirName(), "acme", "gone.yaml")
+	const goneRef = "https://github.com/acme/repo@bundles/gone"
+	goneParsed, perr := remote.ParseReference(goneRef)
+	if perr != nil {
+		t.Fatalf("parse ref: %v", perr)
+	}
+	bundlePath := goneParsed.LocalPath(appDir, remote.ItemTypeBundle)
 	if err := afero.WriteFile(fs, bundlePath, []byte("name: gone\n"), 0o644); err != nil {
 		t.Fatalf("seed bundle file: %v", err)
 	}
@@ -205,15 +209,15 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 		Bundles:  map[string]remote.LockEntry{},
 		Profiles: map[string]remote.LockEntry{},
 	}
-	lockfile.AddEntry(remote.ItemTypeBundle, "acme/gone", remote.LockEntry{SHA: "deadbee"})
+	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd("acme/gone")}, lockfile, lockManager)
+	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager)
 
 	if exists, _ := afero.Exists(fs, bundlePath); exists {
 		t.Errorf("expected %s to be deleted", bundlePath)
 	}
-	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, "acme/gone"); ok {
+	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, goneRef); ok {
 		t.Error("expected lockfile entry to be pruned")
 	}
 	got := out.String()
@@ -242,19 +246,20 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	t.Cleanup(func() { updateCleanup = prev })
 
 	fs := afero.NewMemMapFs() // empty: the target file does not exist
+	const goneRef = "https://github.com/acme/repo@bundles/gone"
 	lockfile := &remote.Lockfile{
 		Bundles:  map[string]remote.LockEntry{},
 		Profiles: map[string]remote.LockEntry{},
 	}
-	lockfile.AddEntry(remote.ItemTypeBundle, "acme/gone", remote.LockEntry{SHA: "deadbee"})
+	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd("acme/gone")}, lockfile, nil)
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, nil)
 
 	if got := out.String(); strings.Contains(got, "Warning: failed to remove") {
 		t.Errorf("missing file should not warn:\n%s", got)
 	}
-	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, "acme/gone"); ok {
+	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, goneRef); ok {
 		t.Error("expected lockfile entry to be pruned even when file was absent")
 	}
 }

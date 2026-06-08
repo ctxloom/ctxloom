@@ -4,6 +4,7 @@ import (
 	"os/exec"
 
 	"github.com/ctxloom/claude"
+	"github.com/ctxloom/codex"
 	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 )
@@ -99,12 +100,12 @@ func init() {
 	})
 
 	Register("codex", func() agent.Backend {
-		b := NewCodex()
+		b := codex.NewCodex(WriteSettings)
 		b.SetLauncher(RunLaunchSpec)
 		return b
 	})
 	RegisterConfig("codex", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &CodexConfig{})
+		return decodeBody(body, &codex.CodexConfig{})
 	})
 
 	Register("mock", func() agent.Backend { return NewMock() })

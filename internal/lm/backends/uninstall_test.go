@@ -92,7 +92,7 @@ func TestGeminiRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 }
 
 func TestBackendStatus_UnsupportedBackendIsUnwired(t *testing.T) {
-	status, err := BackendStatus("codex", "/project")
+	status, err := BackendStatus("unknown-backend", "/project")
 	require.NoError(t, err)
 	assert.False(t, status.Wired())
 	assert.False(t, status.SettingsExists)

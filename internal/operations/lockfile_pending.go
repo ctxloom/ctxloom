@@ -3,11 +3,11 @@ package operations
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -77,8 +77,8 @@ func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry,
 	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
 
 	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
-		remoteName, _, _ := strings.Cut(name, "/")
-		return isTrustedRemote(registry, remoteName)
+		rn := remoteNameForKey(registry, name)
+		return rn != "" && isTrustedRemote(registry, rn)
 	})
 }
 
@@ -160,10 +160,11 @@ func PromoteRemotePendingBundles(cfg *config.Config, remoteName string) ([]strin
 	baseDir := getBaseDir(cfg)
 	activeMgr := remote.NewLockfileManager(baseDir)
 	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
+	registry, _ := remote.NewRegistry(paths.RemotesPath(baseDir))
 
 	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
-		rem, _, _ := strings.Cut(name, "/")
-		return rem == remoteName
+		// Match canonical keys whose repo URL maps to the named remote.
+		return remoteNameForKey(registry, name) == remoteName
 	})
 }
 

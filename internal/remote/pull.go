@@ -329,7 +329,8 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 		if err != nil {
 			return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
 		}
-		return repoURL, rem, fmt.Sprintf("%s/%s", rem.Name, ref.Path), nil
+		// Lockfile key is the canonical ref — the sole content identity.
+		return repoURL, rem, ref.CanonicalString(), nil
 	}
 
 	rem, err = p.registry.Get(ref.Remote)
@@ -442,14 +443,10 @@ func confirmInstall(opts PullOptions) error {
 // records a synthetic path for bundles), updates the lockfile, and cascades
 // profile dependencies.
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
+	// Profiles are stored verbatim — bundle refs stay canonical (the sole
+	// identity). Cascade pull reads those canonical refs and self-registers
+	// each remote via GetOrCreateByURL, so no profile rewrite is needed.
 	content := item.content
-	if opts.ItemType == ItemTypeProfile {
-		transformed, err := p.transformProfileContent(content, opts.Stdout)
-		if err != nil {
-			return nil, fmt.Errorf("failed to transform profile: %w", err)
-		}
-		content = transformed
-	}
 
 	localPath, overwritten, err := p.writePulledContent(ref, opts, item.localName, item.sha, content)
 	if err != nil {
@@ -565,8 +562,7 @@ func (p *Puller) bundleAlreadyCached(ref *Reference, force bool) bool {
 	if err != nil {
 		return false
 	}
-	localName := fmt.Sprintf("%s/%s", ref.Remote, ref.Path)
-	_, ok := lock.GetEntry(ItemTypeBundle, localName)
+	_, ok := lock.GetEntry(ItemTypeBundle, ref.CanonicalString())
 	return ok && !force
 }
 
@@ -747,91 +743,3 @@ func (p *Puller) lockfileTargetFor(itemType ItemType) *LockfileManager {
 	return p.lockfileManager
 }
 
-// profileHasCanonicalRefs reports whether any bundle entry is a canonical URL
-// (i.e. needs localization on import).
-func profileHasCanonicalRefs(bundles []interface{}) bool {
-	for _, b := range bundles {
-		if s, ok := b.(string); ok && IsCanonicalRef(s) {
-			return true
-		}
-	}
-	return false
-}
-
-// localizeBundleRef converts one profile bundle entry to its local form. A
-// local name is normalized via ToLocalRef; a canonical URL is parsed, its
-// remote registered (essential so cascade pull can find it), and rewritten to
-// remoteName/path. On any failure the original ref is returned unchanged
-// (warn-and-continue), with canonical-URL failures logged to w.
-func (p *Puller) localizeBundleRef(ref string, w io.Writer) string {
-	if !IsCanonicalRef(ref) {
-		// Already local - normalize to a consistent format (strips version
-		// suffixes, normalizes paths); keep the original if it won't parse.
-		local, err := ToLocalRef(ref)
-		if err != nil {
-			return ref
-		}
-		return local
-	}
-
-	urlPart, itemPath := splitItemPath(ref)
-	parsed, err := ParseReference(urlPart)
-	if err != nil {
-		_, _ = fmt.Fprintf(w, "  Warning: could not parse %q: %v\n", ref, err)
-		return ref
-	}
-	localRemote, err := p.registry.GetOrCreateByURL(parsed.URL)
-	if err != nil {
-		_, _ = fmt.Fprintf(w, "  Warning: could not register remote for %q: %v\n", ref, err)
-		return ref
-	}
-
-	localRef := fmt.Sprintf("%s/%s%s", localRemote.Name, parsed.Path, itemPath)
-	_, _ = fmt.Fprintf(w, "  %s -> %s\n", ref, localRef)
-	return localRef
-}
-
-// localizeBundleRefs localizes every string bundle entry, preserving order and
-// skipping non-string entries.
-func (p *Puller) localizeBundleRefs(bundles []interface{}, w io.Writer) []string {
-	out := make([]string, 0, len(bundles))
-	for _, b := range bundles {
-		s, ok := b.(string)
-		if !ok {
-			continue
-		}
-		out = append(out, p.localizeBundleRef(s, w))
-	}
-	return out
-}
-
-// transformProfileContent converts canonical URLs in a profile to local names.
-// The actual lockfile entries are created when bundles are pulled (via cascade or manually).
-func (p *Puller) transformProfileContent(content []byte, w io.Writer) ([]byte, error) {
-	var rawProfile map[string]interface{}
-	if err := yaml.Unmarshal(content, &rawProfile); err != nil {
-		return content, nil // Not valid YAML, return as-is
-	}
-
-	bundlesRaw, ok := rawProfile["bundles"]
-	if !ok {
-		return content, nil // No bundles, return as-is
-	}
-	bundles, ok := bundlesRaw.([]interface{})
-	if !ok {
-		return content, nil // Not a list, return as-is
-	}
-
-	if !profileHasCanonicalRefs(bundles) {
-		return content, nil
-	}
-
-	_, _ = fmt.Fprintf(w, "\nTransforming canonical URLs to local names...\n")
-	rawProfile["bundles"] = p.localizeBundleRefs(bundles, w)
-
-	transformed, err := yaml.Marshal(rawProfile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal transformed profile: %w", err)
-	}
-	return transformed, nil
-}

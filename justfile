@@ -140,6 +140,12 @@ cover-html:
 # Run tests with coverage (legacy alias)
 test-coverage: cover
 
+# Run the cross-agent equity conformance suite (claude/gemini/codex through the
+# shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
+# default `go test ./...`; run it explicitly here.
+test-conformance:
+    go test -race -tags conformance ./internal/lm/conformance/...
+
 # Run integration tests (requires ctxloom binary)
 test-integration: build
     go test -v -tags integration ./tests/integration/...
@@ -164,45 +170,63 @@ container-build-acceptance: dev-image
 
 # Run the full acceptance suite (incl. @live real-agent scenarios) inside the
 # acceptance container as the non-root `ctxloom` user, on THIS machine. Builds
-# the image first. Your ~/.claude is copied to a world-readable staging dir and
-# mounted read-only — under rootless docker the non-root user maps to a subuid
-# that cannot read your 0600 credentials directly. ctxloom is built at runtime
-# from the read-only workspace mount; all writes go to the container HOME / tmp.
+# the image first. Your ~/.claude and ~/.gemini are copied to a world-readable
+# staging dir and mounted read-only — under rootless docker the non-root user
+# maps to a subuid that cannot read your 0600 credentials directly. Set
+# {ANTHROPIC,GEMINI,GOOGLE}_API_KEY to use the unattended API-key path instead.
+# ctxloom is built at runtime from the read-only workspace mount; all writes go
+# to the container HOME / tmp. Each agent's @live rows self-skip without creds.
 test-acceptance-live-container: container-build-acceptance
     #!/usr/bin/env bash
     set -euo pipefail
     staging="$(mktemp -d)"
     trap 'chmod -R u+w "$staging" 2>/dev/null; rm -rf "$staging"' EXIT
 
-    # Credentials: copy only the files the live steps read (copyClaudeCredentials),
-    # not the whole ~/.claude — it holds large logs and dangling symlinks.
+    # Credentials: copy only the files the live steps read (copyClaudeCredentials /
+    # copyGeminiCredentials), not the whole credential trees — they hold large logs,
+    # caches, and dangling symlinks.
     mkdir -p "$staging/.claude"
     for f in .credentials.json settings.json config.json; do
         if [ -f "$HOME/.claude/$f" ]; then cp "$HOME/.claude/$f" "$staging/.claude/$f"; fi
     done
     if [ -f "$HOME/.claude.json" ]; then cp "$HOME/.claude.json" "$staging/.claude.json"; fi
 
+    mkdir -p "$staging/.gemini"
+    for f in oauth_creds.json google_accounts.json settings.json installation_id user_id; do
+        if [ -f "$HOME/.gemini/$f" ]; then cp "$HOME/.gemini/$f" "$staging/.gemini/$f"; fi
+    done
+
     # Source: stage a copy of the working tree (minus .git) so the non-root user
     # can read it. Rootless docker maps that user to a subuid, and the working
     # tree has mixed perms (some 0600 files) it could not otherwise read; staging
     # + a+rX avoids mutating your tree.
-    # Stage the org-mirror layout (go.work + ctxloom + shared + claude + gemini) so
-    # the runtime build resolves the sibling modules from local source via go.work.
-    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main"
+    # Stage the org-mirror layout (go.work + ctxloom + shared + claude + gemini +
+    # codex) so the runtime build resolves the sibling modules from local source
+    # via go.work.
+    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main" "$staging/src/codex/main"
     tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src/ctxloom/main"
     ( cd ../../shared/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/shared/main"
     ( cd ../../claude/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/claude/main"
     ( cd ../../gemini/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/gemini/main"
+    ( cd ../../codex/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/codex/main"
     cp go.work.container "$staging/src/go.work"
     chmod -R a+rX "$staging"
 
-    mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/src:/workspace:ro")
+    mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/.gemini:/home/ctxloom/.gemini:ro" -v "$staging/src:/workspace:ro")
     if [ -f "$staging/.claude.json" ]; then mounts+=(-v "$staging/.claude.json:/home/ctxloom/.claude.json:ro"); fi
     # Reuse the host module cache read-only so the runtime build doesn't re-download.
     if [ -d "$HOME/go/pkg/mod" ]; then mounts+=(-v "$HOME/go/pkg/mod:/home/ctxloom/go/pkg/mod:ro"); fi
 
+    # Forward API keys when present so the unattended API-key path runs without
+    # copied subscription creds. Absent keys fall back to the mounted cred dirs.
+    keys=()
+    for k in ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY; do
+        if [ -n "${!k:-}" ]; then keys+=(-e "$k"); fi
+    done
+
     {{container_cmd}} run --rm \
         "${mounts[@]}" \
+        ${keys[@]+"${keys[@]}"} \
         -e HOME=/home/ctxloom \
         -e CTXLOOM_ACCEPTANCE_LIVE=1 \
         -e ACCEPTANCE_TAGS="~@network" \
@@ -585,12 +609,13 @@ _run +ARGS:
             user_flag=()
         fi
         # Mount the org-mirror layout so go.work resolves sibling modules
-        # (shared, claude, gemini) from local source. ctxloom is the writable build
-        # target; the siblings are read-only. go.work.container is overlaid as the
-        # root go.work, found by walking up from the ctxloom module.
+        # (shared, claude, gemini, codex) from local source. ctxloom is the writable
+        # build target; the siblings are read-only. go.work.container is overlaid as
+        # the root go.work, found by walking up from the ctxloom module.
         shared_dir="$(cd ../../shared/main && pwd)"
         claude_dir="$(cd ../../claude/main && pwd)"
         gemini_dir="$(cd ../../gemini/main && pwd)"
+        codex_dir="$(cd ../../codex/main && pwd)"
         # Reuse the host module cache (read-only) and keep Go's writable caches
         # in the container tmpdir. Without this, HOME/GOCACHE resolve under the
         # cwd and the build spills a .cache/ into the source tree (and re-downloads
@@ -607,6 +632,7 @@ _run +ARGS:
             -v "$shared_dir:/workspace/shared/main:ro" \
             -v "$claude_dir:/workspace/claude/main:ro" \
             -v "$gemini_dir:/workspace/gemini/main:ro" \
+            -v "$codex_dir:/workspace/codex/main:ro" \
             -v "$(pwd)/go.work.container:/workspace/go.work:ro" \
             -v "$(pwd)/justfile.container:/workspace/ctxloom/main/justfile:ro" \
             -w /workspace/ctxloom/main \

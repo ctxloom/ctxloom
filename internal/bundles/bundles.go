@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -16,40 +15,6 @@ import (
 
 	"github.com/ctxloom/shared/collections"
 )
-
-// gitHostPattern matches paths that start with a git hosting domain.
-// Examples: github.com/owner/repo, gitlab.com/group/project
-var gitHostPattern = regexp.MustCompile(`^(github\.com|gitlab\.com|bitbucket\.org)/[^/]+/([^/]+)(?:/(.+))?$`)
-
-// NormalizeBundleName converts a bundle path to its canonical repo/bundle format.
-// This ensures consistent naming regardless of how the bundle was installed.
-//
-// Input formats:
-//   - github.com/owner/ctxloom-github/go-development → ctxloom-github/go-development
-//   - gitlab.com/group/repo/core → repo/core
-//   - ctxloom-github/go-development → ctxloom-github/go-development (unchanged)
-//   - local-bundle → local-bundle (unchanged)
-//
-// The canonical format is: repo-name/bundle-path
-func NormalizeBundleName(name string) string {
-	if name == "" {
-		return name
-	}
-
-	// Check if path starts with a git hosting domain
-	if matches := gitHostPattern.FindStringSubmatch(name); matches != nil {
-		// matches[2] = repo name, matches[3] = remaining path (may be empty)
-		repoName := matches[2]
-		remainingPath := matches[3]
-		if remainingPath != "" {
-			return repoName + "/" + remainingPath
-		}
-		return repoName
-	}
-
-	// Already in canonical format or local bundle
-	return name
-}
 
 // Bundle represents a versioned collection of related content.
 // All items within a bundle share the same version.

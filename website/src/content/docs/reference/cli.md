@@ -32,18 +32,98 @@ ctxloom run [flags] [prompt...]
 | `--saved-prompt <name>` | Use saved prompt instead of inline |
 | `--dry-run` | Show what would be assembled without running |
 | `--suppress-warnings` | Suppress warnings |
-| `--print` | Print assembled context to stdout |
+| `-l, --llm <label>` | Config label/backend to use; overrides the profile's `llm:` and the default |
+| `--print` | Run non-interactively (oneshot) and print the response |
 | `-v, -vv, -vvv` | Verbosity levels |
+
+With `--print` and no prompt argument, the prompt is read from **stdin** when
+piped — making `run --print` a universal reducer over any input (e.g. the output
+of `ctxloom map`, or text from another tool).
 
 ### Examples
 
 ```bash
 ctxloom run -p developer "implement error handling"
 ctxloom run -f python-tools#fragments/typing "add type hints"
-ctxloom run -f security#fragments/owasp -f python#fragments/errors "audit"
 ctxloom run -t security "check for vulnerabilities"
-ctxloom run --plugin gemini "use Gemini"
+ctxloom run -l gemini-code "use Gemini"
 ctxloom run --dry-run  # Preview only
+
+# Synthesize piped input with a high-power profile:
+cat findings.txt | ctxloom run -p code-review/synthesis --print
+```
+
+## ctxloom map
+
+Run multiple profiles in parallel over one shared task — the **fan-out** half of
+the `weave` ensemble primitive. Each `-p` profile runs as its own oneshot agent
+with its own context and LLM (`llm:`), and their outputs are emitted as labeled
+blocks. Runs are bounded by `--concurrency` and fault-tolerant: a failed member
+is reported inline without aborting the others.
+
+```bash
+ctxloom map [flags] [task...]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-p, --profile <name>` | Profile to run as a parallel member (repeatable) |
+| `-l, --llm <label>` | Override the LLM for every member (else each profile's own `llm:`) |
+| `--concurrency <n>` | Max members to run at once (default 4) |
+| `--save-parts <dir>` | Write each member's raw output into a directory |
+
+The task is taken from the arguments, or from stdin when no arguments are given.
+Pipe the labeled output into a synthesizer to complete the map → reduce flow:
+
+### Examples
+
+```bash
+git diff | ctxloom map -p code-review/security -p code-review/performance
+ctxloom map -p a -p b -p c --concurrency 3 "review this change" \
+  | ctxloom run -p code-review/synthesis --print
+ctxloom map -p reviewer/a -p reviewer/b --save-parts ./parts "audit"
+```
+
+## ctxloom weave
+
+Fan a task across profiles in parallel, then **synthesize** the results — the
+composite of `map` + a synthesis `run`, run in-process (no shell) so it behaves
+identically on every platform. Each `-p` member runs as its own agent on its own
+`llm:`; the `-s` synthesizer runs on its own (typically high-power) `llm:`.
+
+```bash
+ctxloom weave [flags] [task...]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-p, --profile <name>` | Member profile to run in parallel (repeatable) |
+| `-s, --synthesize <name>` | Synthesis profile that combines member outputs |
+| `-l, --llm <label>` | Override the LLM for every member (synthesizer keeps its own `llm:`) |
+| `--concurrency <n>` | Max members to run at once (default 4) |
+| `--part <NAME=FILE>` | Inject a non-ctxloom output as a labeled part (repeatable) |
+| `--parts-from <dir>` | Inject every file in a directory as a part |
+| `--save-parts <dir>` | Write each member's raw output into a directory |
+| `--no-synthesize` | Emit the labeled parts only; skip synthesis |
+
+`weave` is equivalent to `ctxloom map -p A -p B "task" | ctxloom run -p SYNTH
+--print`, but portable and single-invocation. Use the components directly when
+you want to inspect or post-process the intermediate parts; use `--part` /
+`--parts-from` to synthesize **non-ctxloom outputs** alongside (or instead of)
+live members.
+
+### Examples
+
+```bash
+ctxloom weave -p code-review/security -p code-review/performance \
+  -s code-review/synthesis "review this diff"
+git diff | ctxloom weave -p reviewer/a -p reviewer/b -s synthesis
+ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
+ctxloom weave -s synth --parts-from ./collected "merge these findings"
 ```
 
 ## ctxloom fragment
@@ -108,12 +188,14 @@ Manage profiles.
 | `--parent` | Parent profiles to inherit from (repeatable) |
 | `-b, --bundle` | Bundle references to include (repeatable) |
 | `-d, --description` | Profile description |
+| `--llm` | Preferred LLM config label/backend to launch (overridable by `run -l`) |
 
 ### Modify Flags
 
 | Flag | Description |
 |------|-------------|
 | `--add-parent` | Add parent profile (repeatable) |
+| `--llm` | Set the preferred LLM (a config label/backend); empty clears it |
 | `--remove-parent` | Remove parent profile (repeatable) |
 | `--add-bundle` | Add bundle reference (repeatable) |
 | `--remove-bundle` | Remove bundle reference (repeatable) |

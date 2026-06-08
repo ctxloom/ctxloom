@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/tasks"
 )
 
-// Task tools follow Phase 4.4 of docs/ctxloom-tasks-plan.md: a tight
+// Task tools follow Phase 4.4 of the ctxloom-tasks plan: a tight
 // 3-tool surface (list, add, set_status). task_search is absorbed into
 // task_list's term filter; task_summary is exposed via list's
 // `include_summary` flag — saving the tool-tax of two extra MCP entries.

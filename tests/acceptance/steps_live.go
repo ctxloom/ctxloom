@@ -13,30 +13,34 @@ import (
 )
 
 // realHomeDir is the user's actual home, captured in TestMain before any
-// scenario overrides HOME. Used to locate ~/.claude for the subscription-auth
-// path.
+// scenario overrides HOME. Used to locate ~/.claude and ~/.gemini for the
+// subscription-auth path.
 var realHomeDir string
 
-// liveAgentAvailable reports whether a real Claude agent can be reached. The
-// API-key path (which flows through the subprocess env) triggers automatically.
-// The subscription path copies local credentials and makes paid calls, so it is
-// gated behind an explicit opt-in rather than the mere presence of ~/.claude on a
-// developer machine.
-func liveAgentAvailable() bool {
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return true
-	}
-	if os.Getenv("CTXLOOM_ACCEPTANCE_LIVE") == "1" && realHomeDir != "" {
-		if _, err := os.Stat(filepath.Join(realHomeDir, ".claude")); err == nil {
-			return true
-		}
-	}
-	return false
+// liveAgent describes a real backend the @live suite can drive. The same
+// distillation scenarios run against each entry via a Scenario Outline, so the
+// behavioral assertions stay backend-agnostic while auth and config differ.
+type liveAgent struct {
+	// apiKeyEnvs are the env vars whose presence enables the unattended API-key
+	// path. They flow to the CLI through the inherited subprocess env, so nothing
+	// is copied for this path.
+	apiKeyEnvs []string
+	// credDir is the per-agent credential directory under HOME (e.g. ".claude").
+	credDir string
+	// config is the ctxloom config.yaml that points primary+fast at this backend.
+	config string
+	// copyCreds copies just the auth files from the real HOME into the isolated
+	// one for the subscription path.
+	copyCreds func(realHome, fakeHome string)
 }
 
-// liveConfig points both the primary and fast roles at a real claude-code
-// backend on a cheap model.
-const liveConfig = `version: 3
+// liveAgents maps the lowercased scenario token ("claude", "gemini") to its
+// backend wiring. Each uses a cheap model so the paid calls stay inexpensive.
+var liveAgents = map[string]liveAgent{
+	"claude": {
+		apiKeyEnvs: []string{"ANTHROPIC_API_KEY"},
+		credDir:    ".claude",
+		config: `version: 3
 llm:
   configs:
     claude:
@@ -47,28 +51,80 @@ llm:
     fast: claude
 profiles:
   defaults: []
-`
+`,
+		copyCreds: copyClaudeCredentials,
+	},
+	"gemini": {
+		apiKeyEnvs: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+		credDir:    ".gemini",
+		config: `version: 3
+llm:
+  configs:
+    gemini:
+      type: gemini
+      model: gemini-2.5-flash
+  defaults:
+    primary: gemini
+    fast: gemini
+profiles:
+  defaults: []
+`,
+		copyCreds: copyGeminiCredentials,
+	},
+}
+
+// envSet reports whether any of the named env vars is non-empty.
+func envSet(names []string) bool {
+	for _, n := range names {
+		if os.Getenv(n) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// liveAgentAvailable reports whether the named real agent can be reached. The
+// API-key path (which flows through the subprocess env) triggers automatically.
+// The subscription path copies local credentials and makes paid calls, so it is
+// gated behind an explicit opt-in rather than the mere presence of the credential
+// directory on a developer machine.
+func liveAgentAvailable(a liveAgent) bool {
+	if envSet(a.apiKeyEnvs) {
+		return true
+	}
+	if os.Getenv("CTXLOOM_ACCEPTANCE_LIVE") == "1" && realHomeDir != "" {
+		if _, err := os.Stat(filepath.Join(realHomeDir, a.credDir)); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// The gate-and-skip: every @live scenario starts here, so the hermetic run
 	// (which excludes @live) never touches credentials, and a credential-less
-	// live run skips rather than fails.
-	ctx.Step(`^a real Claude agent is available$`, func(c context.Context) error {
-		if !liveAgentAvailable() {
+	// live run skips rather than fails. The agent token comes from the Scenario
+	// Outline Examples table ("Claude", "Gemini").
+	ctx.Step(`^a real (\S+) agent is available$`, func(c context.Context, name string) error {
+		a, ok := liveAgents[strings.ToLower(name)]
+		if !ok {
+			return fmt.Errorf("unknown live agent %q", name)
+		}
+		if !liveAgentAvailable(a) {
 			return godog.ErrSkip
 		}
 		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		if err := w.env.WriteFile(".ctxloom/config.yaml", liveConfig); err != nil {
+		if err := w.env.WriteFile(".ctxloom/config.yaml", a.config); err != nil {
 			return err
 		}
 		// Subscription path: copy just the credential files into the isolated HOME
-		// so the backend authenticates without dragging the whole ~/.claude tree.
+		// so the backend authenticates without dragging the whole credential tree.
 		// The API-key path needs nothing — it flows through the env.
-		if os.Getenv("ANTHROPIC_API_KEY") == "" && realHomeDir != "" {
-			copyClaudeCredentials(realHomeDir, w.env.HomeDir)
+		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
+			a.copyCreds(realHomeDir, w.env.HomeDir)
 		}
 		return nil
 	})
@@ -226,5 +282,23 @@ func copyClaudeCredentials(realHome, fakeHome string) {
 	// dropping into an interactive first-run flow under the isolated HOME.
 	if data, err := os.ReadFile(filepath.Join(realHome, ".claude.json")); err == nil {
 		_ = os.WriteFile(filepath.Join(fakeHome, ".claude.json"), data, 0o600)
+	}
+}
+
+// copyGeminiCredentials copies just the auth-relevant files from the real
+// ~/.gemini into the isolated home, best effort — never the whole tree (which
+// holds the tmp transcript cache and command exports). oauth_creds.json and
+// google_accounts.json carry the subscription login; installation_id and
+// settings.json keep the CLI out of its interactive first-run flow.
+func copyGeminiCredentials(realHome, fakeHome string) {
+	srcDir := filepath.Join(realHome, ".gemini")
+	dstDir := filepath.Join(fakeHome, ".gemini")
+	_ = os.MkdirAll(dstDir, 0o755)
+	for _, name := range []string{"oauth_creds.json", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
+		data, err := os.ReadFile(filepath.Join(srcDir, name))
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
 	}
 }

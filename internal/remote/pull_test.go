@@ -97,7 +97,7 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	}
 	sha := "abc1234"
 	filePath := "ctxloom/profiles/secure.yaml"
-	content := []byte("name: secure\nbundles:\n  - alice/security\n")
+	content := []byte("name: secure\nbundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
 
 	secure, _ := ParseSecureContent(ItemTypeProfile, content)
 	tc := &mockTerminalChecker{isWriter: false}
@@ -290,7 +290,7 @@ func TestPuller_Pull_Force(t *testing.T) {
 	)
 
 	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    true,
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
@@ -303,14 +303,14 @@ func TestPuller_Pull_Force(t *testing.T) {
 	// Bundles no longer materialize on fs after PR 1 of the bundle-review
 	// plan. LocalPath is a synthetic "<remote>:name@sha" string and the
 	// fetched bytes come back on Content for callers that need them.
-	assert.Equal(t, "<remote>:alice/security@abc123def456", result.LocalPath)
+	assert.Equal(t, "<remote>:https://github.com/alice/ctxloom@bundles/security@abc123def456", result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 	assert.NotEmpty(t, result.Content)
 
 	// The lockfile is now the only on-disk record of the install.
 	lock, lerr := lm.Load()
 	require.NoError(t, lerr)
-	entry, ok := lock.GetEntry(ItemTypeBundle, "alice/security")
+	entry, ok := lock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
 	require.True(t, ok, "lockfile entry should exist")
 	assert.Equal(t, "abc123def456", entry.SHA)
 
@@ -359,7 +359,7 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 		WithVendorManager(nil),
 	)
 
-	_, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    false, // Not forcing
 		ItemType: ItemTypeBundle,
 	})
@@ -388,7 +388,7 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 	)
 
 	var stdout bytes.Buffer
-	_, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    false,
 		ItemType: ItemTypeBundle,
 		Stdout:   &stdout,
@@ -408,7 +408,7 @@ func TestPuller_Pull_WithReplaceDirective(t *testing.T) {
 
 	// Create replace manager with directive
 	rm, _ := NewReplaceManager("/test", WithReplaceFS(fs))
-	_ = rm.Add("alice/security", "/local/security.yaml")
+	_ = rm.Add("https://github.com/alice/ctxloom@bundles/security", "/local/security.yaml")
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 
@@ -419,7 +419,7 @@ func TestPuller_Pull_WithReplaceDirective(t *testing.T) {
 	)
 
 	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    true,
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
@@ -437,7 +437,7 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 
 	// Create vendor config
 	require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/alice", 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/alice/security.yaml", []byte("vendored content\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/github.com/alice/ctxloom/security.yaml", []byte("vendored content\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(paths.AppDirName), []byte("vendor: true\n"), 0644))
 
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
@@ -450,7 +450,7 @@ func TestPuller_Pull_WithVendorDirective(t *testing.T) {
 	)
 
 	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    true,
 		LocalDir: paths.AppDirName,
 		ItemType: ItemTypeBundle,
@@ -480,7 +480,7 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 	)
 
 	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Blind:    true,
 		LocalDir: paths.AppDirName,
 		ItemType: ItemTypeBundle,
@@ -511,7 +511,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	)
 
 	// Call with nil Stdout and Stdin - should use defaults
-	result, err := puller.Pull(context.Background(), "alice/security", PullOptions{
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
 		Force:    true,
 		LocalDir: paths.AppDirName,
 		ItemType: ItemTypeBundle,
@@ -587,7 +587,7 @@ func TestCascadePullProfile(t *testing.T) {
 
 		lockMgr := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 		lock := &Lockfile{Bundles: map[string]LockEntry{}, Profiles: map[string]LockEntry{}}
-		lock.AddEntry(ItemTypeBundle, "alice/security", LockEntry{SHA: "abc123", URL: "https://github.com/alice/ctxloom"})
+		lock.AddEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security", LockEntry{SHA: "abc123", URL: "https://github.com/alice/ctxloom"})
 		require.NoError(t, lockMgr.Save(lock))
 
 		puller := NewPuller(registry, AuthConfig{},
@@ -595,7 +595,7 @@ func TestCascadePullProfile(t *testing.T) {
 			WithLockfileManager(lockMgr),
 		)
 
-		profileContent := []byte("bundles:\n  - alice/security\n")
+		profileContent := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
 		var stdout bytes.Buffer
 
 		pulled, err := puller.cascadePullProfile(ctx, profileContent, PullOptions{
@@ -647,7 +647,7 @@ func TestCascadePullProfile(t *testing.T) {
 			WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
 		)
 
-		profileContent := []byte("bundles:\n  - alice/security\n")
+		profileContent := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
 		var stdout bytes.Buffer
 
 		pulled, err := puller.cascadePullProfile(ctx, profileContent, PullOptions{
@@ -657,8 +657,8 @@ func TestCascadePullProfile(t *testing.T) {
 		})
 
 		require.NoError(t, err)
-		assert.Contains(t, pulled, "alice/security")
-		assert.Contains(t, stdout.String(), "Pulling alice/security")
+		assert.Contains(t, pulled, "https://github.com/alice/ctxloom@bundles/security")
+		assert.Contains(t, stdout.String(), "Pulling https://github.com/alice/ctxloom@bundles/security")
 	})
 
 	t.Run("returns error for invalid YAML", func(t *testing.T) {
@@ -678,136 +678,6 @@ func TestCascadePullProfile(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse profile")
-	})
-}
-
-func TestTransformProfileContent(t *testing.T) {
-	t.Run("returns content unchanged when no bundles", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("description: Test profile\n")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("returns content unchanged when bundles are already local", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("bundles:\n  - alice/security\n  - bob/testing\n")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("transforms canonical URLs to local names", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
-
-		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		// Should have transformed the URL
-		assert.Contains(t, stdout.String(), "Transforming canonical URLs")
-		// The result should contain a local reference
-		assert.NotContains(t, string(result), "https://github.com")
-	})
-
-	t.Run("handles invalid YAML gracefully", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("not valid yaml: [[")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result) // Returns unchanged
-	})
-
-	t.Run("handles bundles field that is not a list", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("bundles: not-a-list\n")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result) // Returns unchanged
-	})
-
-	t.Run("preserves item path suffix during transformation", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
-
-		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
-		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
-
-		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-			WithLockfileManager(lm),
-		)
-
-		content := []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security#fragments/tdd\n")
-		var stdout bytes.Buffer
-
-		result, err := puller.transformProfileContent(content, &stdout)
-
-		require.NoError(t, err)
-		// Should preserve the #fragments/tdd suffix
-		assert.Contains(t, string(result), "#fragments/tdd")
 	})
 }
 
@@ -910,14 +780,14 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
+		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
 
 		require.NoError(t, err)
 
 		// Verify lockfile was updated
 		loaded, err := lm.Load()
 		require.NoError(t, err)
-		entry, ok := loaded.Bundles["alice/security"]
+		entry, ok := loaded.Bundles["https://github.com/alice/ctxloom@bundles/security"]
 		assert.True(t, ok)
 		assert.Equal(t, "abc123def456", entry.SHA)
 		assert.Equal(t, "v1.0.0", entry.RequestedVersion)
@@ -940,7 +810,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("alice/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
+		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
 		require.NoError(t, err)
 
 		err = puller.updateLockfile("alice/testing", ItemTypeBundle, rem, "def456", "v2.0.0")
@@ -949,7 +819,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		assert.Len(t, loaded.Bundles, 2)
-		assert.Contains(t, loaded.Bundles, "alice/security")
+		assert.Contains(t, loaded.Bundles, "https://github.com/alice/ctxloom@bundles/security")
 		assert.Contains(t, loaded.Bundles, "alice/testing")
 	})
 }

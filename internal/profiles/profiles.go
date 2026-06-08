@@ -40,6 +40,11 @@ type Profile struct {
 	Parents     []string `yaml:"parents,omitempty"` // Parent profiles to inherit from
 	Tags        []string `yaml:"tags,omitempty"`    // Fragment tags to include
 
+	// LLM is the config label (or backend type) this profile prefers to launch.
+	// Used by `ctxloom run` unless overridden by -l/--llm. Empty falls back to
+	// the configured primary role.
+	LLM string `yaml:"llm,omitempty"`
+
 	// Bundles are content references using standardized path syntax
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"
 	// Full URLs: "https://github.com/user/repo@bundles/name"
@@ -389,6 +394,10 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	for k, v := range profile.Variables {
 		resolved.Variables[k] = v
 	}
+	// A profile's own llm overrides any inherited from parents.
+	if profile.LLM != "" {
+		resolved.LLM = profile.LLM
+	}
 
 	return resolved, nil
 }
@@ -407,6 +416,7 @@ type ResolvedProfile struct {
 	Bundles   []string // All bundle references
 	Tags      []string
 	Variables map[string]string
+	LLM       string // Preferred config label/backend (empty = inherit primary)
 }
 
 // Merge adds items from another resolved profile.
@@ -417,6 +427,10 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v
 		}
+	}
+	// First non-empty parent wins; the resolving profile overrides afterward.
+	if r.LLM == "" {
+		r.LLM = other.LLM
 	}
 }
 

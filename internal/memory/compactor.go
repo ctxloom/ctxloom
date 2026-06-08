@@ -543,7 +543,7 @@ func firstLineSummary(s string) string {
 //     by sessionID continue to work.
 //   - Otherwise, fall back to the legacy <outputDir>/<sessionID>.md layout.
 //
-// This is the Phase 3.6 harp-dir layout from docs/ctxloom-tasks-plan.md.
+// This is the Phase 3.6 harp-dir layout from the ctxloom-tasks plan.
 // Also writes a frozen task snapshot copy of <projectDir>/.ctxloom/tasks.md
 // to <harpDir>/tasks.md when a harp dir is in play and a tasks file exists.
 func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (string, error) {

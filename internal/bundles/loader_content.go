@@ -356,11 +356,25 @@ func (l *Loader) expandBundleRef(ref string) []string {
 	}
 
 	// Targeted ref: bundle{:|#}{fragments|prompts|mcp}/...
-	// Use IndexAny so we accept either separator. The bundle name itself may
-	// contain "/" (e.g. "remote/bundle") but never ":" or "#".
-	if idx := strings.IndexAny(ref, ":#"); idx != -1 {
-		bundleName := ref[:idx]
-		rest := ref[idx+1:]
+	// Locate the item selector WITHOUT tripping on a source's scheme colon.
+	// '#' is the canonical separator and is unambiguous — a ref never contains
+	// '#' except to introduce a selector (canonical URLs included). The ':'
+	// alias counts only when it introduces a known section, so a URL scheme's
+	// ':' (always followed by "//") is never mistaken for a selector. (The
+	// previous IndexAny(":#") split a "https://…" ref on the scheme colon,
+	// dropping every URL-form cherry-pick.)
+	sep := strings.Index(ref, "#")
+	if sep == -1 {
+		for _, marker := range []string{":fragments/", ":prompts/", ":mcp"} {
+			if i := strings.Index(ref, marker); i != -1 {
+				sep = i
+				break
+			}
+		}
+	}
+	if sep != -1 {
+		bundleName := ref[:sep]
+		rest := ref[sep+1:]
 		if !strings.HasPrefix(rest, "fragments/") {
 			// Targeted at prompts, mcp, or unknown — not a fragment ref.
 			return nil

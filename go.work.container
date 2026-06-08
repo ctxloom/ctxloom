@@ -9,6 +9,7 @@ go 1.25.0
 
 use (
 	./claude/main
+	./codex/main
 	./ctxloom/main
 	./gemini/main
 	./shared/main

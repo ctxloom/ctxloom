@@ -148,7 +148,7 @@ resources/read with the URI.
   from .ctxloom/tasks.md. Equivalent to task_list(include_summary=true).summary.
 
 More URIs will appear as the listing-tool → resource migration progresses
-(see docs/ctxloom-tasks-plan.md Phase 4.1). Until then, the existing
+(see the ctxloom-tasks plan, Phase 4.1). Until then, the existing
 list_* / get_* MCP tools remain the primary surface for those queries.
 `)
 	return resourceText(req.Params.URI, "text/markdown", body), nil

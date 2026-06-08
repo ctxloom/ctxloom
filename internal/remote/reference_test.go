@@ -4,98 +4,27 @@ import (
 	"testing"
 )
 
+// The short "repo/path" form still PARSES (the MCP browse/fetch subsystem
+// resolves it via registry aliases), even though it is no longer the
+// operational identity for the lockfile/seed/profiles.
 func TestParseReference_Simple(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    *Reference
-		wantErr bool
+		name           string
+		input          string
+		wantRemote     string
+		wantPath       string
+		wantVersion    string
+		wantErr        bool
 	}{
-		{
-			name:  "simple reference",
-			input: "alice/security",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "security",
-				ContentVersion: "",
-			},
-		},
-		{
-			name:  "reference with tag",
-			input: "alice/security@v1.0.0",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "security",
-				ContentVersion: "v1.0.0",
-			},
-		},
-		{
-			name:  "reference with SHA",
-			input: "alice/security@abc1234",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "security",
-				ContentVersion: "abc1234",
-			},
-		},
-		{
-			name:  "nested path",
-			input: "alice/golang/best-practices",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "golang/best-practices",
-				ContentVersion: "",
-			},
-		},
-		{
-			name:  "nested path with tag",
-			input: "alice/golang/best-practices@v2.0.0",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "golang/best-practices",
-				ContentVersion: "v2.0.0",
-			},
-		},
-		{
-			name:  "deeply nested path",
-			input: "corp/lang/go/testing/mocks@main",
-			want: &Reference{
-				Remote:         "corp",
-				Path:           "lang/go/testing/mocks",
-				ContentVersion: "main",
-			},
-		},
-		{
-			name:    "empty string",
-			input:   "",
-			wantErr: true,
-		},
-		{
-			name:    "no slash",
-			input:   "alice",
-			wantErr: true,
-		},
-		{
-			name:    "empty remote",
-			input:   "/security",
-			wantErr: true,
-		},
-		{
-			name:    "empty path",
-			input:   "alice/",
-			wantErr: true,
-		},
-		{
-			name:  "at sign in path (edge case)",
-			input: "alice/email@domain@v1.0.0",
-			want: &Reference{
-				Remote:         "alice",
-				Path:           "email@domain",
-				ContentVersion: "v1.0.0",
-			},
-		},
+		{name: "simple reference", input: "alice/security", wantRemote: "alice", wantPath: "security"},
+		{name: "with tag", input: "alice/security@v1.0.0", wantRemote: "alice", wantPath: "security", wantVersion: "v1.0.0"},
+		{name: "nested path", input: "alice/golang/best-practices", wantRemote: "alice", wantPath: "golang/best-practices"},
+		{name: "deeply nested with ref", input: "corp/lang/go/testing/mocks@main", wantRemote: "corp", wantPath: "lang/go/testing/mocks", wantVersion: "main"},
+		{name: "empty string", input: "", wantErr: true},
+		{name: "no slash", input: "alice", wantErr: true},
+		{name: "empty remote", input: "/security", wantErr: true},
+		{name: "empty path", input: "alice/", wantErr: true},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ParseReference(tt.input)
@@ -109,17 +38,8 @@ func TestParseReference_Simple(t *testing.T) {
 				t.Errorf("ParseReference(%q) unexpected error: %v", tt.input, err)
 				return
 			}
-			if got.Remote != tt.want.Remote {
-				t.Errorf("Remote = %q, want %q", got.Remote, tt.want.Remote)
-			}
-			if got.Path != tt.want.Path {
-				t.Errorf("Path = %q, want %q", got.Path, tt.want.Path)
-			}
-			if got.ContentVersion != tt.want.ContentVersion {
-				t.Errorf("ContentVersion = %q, want %q", got.ContentVersion, tt.want.ContentVersion)
-			}
-			if got.IsCanonical {
-				t.Errorf("IsCanonical = true, want false for simple reference")
+			if got.Remote != tt.wantRemote || got.Path != tt.wantPath || got.ContentVersion != tt.wantVersion || got.IsCanonical {
+				t.Errorf("ParseReference(%q) = %+v", tt.input, got)
 			}
 		})
 	}
@@ -649,57 +569,6 @@ func TestReference_RepoURL(t *testing.T) {
 	}
 }
 
-func TestReference_ToLocalName(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  Reference
-		want string
-	}{
-		{
-			name: "simple reference",
-			ref:  Reference{Remote: "alice", Path: "security"},
-			want: "alice/security",
-		},
-		{
-			name: "canonical HTTPS reference",
-			ref: Reference{
-				URL:         "https://github.com/owner/ctxloom-github",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
-			},
-			want: "ctxloom-github/core-practices",
-		},
-		{
-			name: "canonical SSH reference",
-			ref: Reference{
-				URL:         "git@github.com:owner/my-repo",
-				ItemType:    ItemTypeProfile,
-				Path:        "dev",
-				IsCanonical: true,
-			},
-			want: "my-repo/dev",
-		},
-		{
-			name: "canonical file reference",
-			ref: Reference{
-				URL:         "file:///home/user/my-ctxloom",
-				ItemType:    ItemTypeBundle,
-				Path:        "tools",
-				IsCanonical: true,
-			},
-			want: "my-ctxloom/tools",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.ToLocalName(); got != tt.want {
-				t.Errorf("ToLocalName() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestExtractRepoName(t *testing.T) {
 	tests := []struct {

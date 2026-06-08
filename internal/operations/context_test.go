@@ -250,6 +250,30 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
 }
 
+func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-dev": {
+				LLM:       "gemini-code",
+				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
+			},
+			"plain": {
+				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
+			},
+		}},
+	}
+
+	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Loader: loader})
+	require.NoError(t, err)
+	assert.Equal(t, "gemini-code", withLLM.ProfileLLM)
+
+	withoutLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Loader: loader})
+	require.NoError(t, err)
+	assert.Empty(t, withoutLLM.ProfileLLM)
+}
+
 func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{

@@ -78,6 +78,13 @@ func isInteractiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
+// stdinIsPiped reports whether stdin is NOT a terminal — i.e. content is being
+// piped or redirected in. Used to decide when a command should read its task
+// from stdin (e.g. `… | ctxloom run --print`).
+func stdinIsPiped() bool {
+	return !term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
 	reader   *bufio.Reader

@@ -255,7 +255,7 @@ func TestVendorManager_VendorAll(t *testing.T) {
 		lockfile := &Lockfile{
 			Version: 1,
 			Bundles: map[string]LockEntry{
-				"alice/security": {
+				"https://github.com/alice/ctxloom@bundles/security": {
 					SHA: "abc123",
 					URL: "https://github.com/alice/ctxloom",
 				},
@@ -266,8 +266,9 @@ func TestVendorManager_VendorAll(t *testing.T) {
 		err = manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
 		require.NoError(t, err)
 
-		// Verify vendored file exists - vendor is in cache dir
-		vendorPath := filepath.Join("/test", paths.CacheDir, paths.VendorDir, "bundles", "alice", "security.yaml")
+		// Verify vendored file exists — vendor is in cache dir, keyed by the
+		// canonical remote name (host/owner/repo).
+		vendorPath := filepath.Join("/test", paths.CacheDir, paths.VendorDir, "bundles", "github.com", "alice", "ctxloom", "security.yaml")
 		exists, err := afero.Exists(fs, vendorPath)
 		require.NoError(t, err)
 		assert.True(t, exists)
@@ -302,14 +303,14 @@ func TestVendorManager_VendorAll(t *testing.T) {
 		lockfile := &Lockfile{
 			Version: 1,
 			Bundles: map[string]LockEntry{
-				"unknown/security": {SHA: "abc123"},
+				"unknown/security": {SHA: "abc123"}, // short form — no longer a valid ref
 			},
 			Profiles: make(map[string]LockEntry),
 		}
 
 		err := manager.VendorAll(ctx, lockfile, registry, AuthConfig{})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "remote not found")
+		assert.Contains(t, err.Error(), "invalid reference")
 	})
 }
 

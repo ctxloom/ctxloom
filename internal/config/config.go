@@ -545,9 +545,11 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
 }
 
-// loadRemoteBundleSeed materializes every lockfile-listed bundle from the
-// local git clone cache, parsed and ready to seed a bundles.Loader. Returns
-// nil when there is no lockfile or registry — caller treats nil as "no
+// loadRemoteBundleSeed materializes every lockfile-listed bundle from the local
+// git clone cache, parsed and keyed by its CANONICAL ref ("<url>@bundles/<path>")
+// ready to seed a bundles.Loader. Canonical is the sole resolution identity:
+// profiles author canonical refs and resolve straight to these seeded bundles.
+// Returns nil when there is no lockfile or registry — caller treats nil as "no
 // remote bundles, just walk fs."
 func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	if len(c.AppPaths) == 0 {
@@ -579,17 +581,20 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
-	for name, data := range rawBytes {
-		b, perr := bundles.ParseBundle(data)
-		if perr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote bundle %q: %v\n", name, perr))
+	for canonical, data := range rawBytes {
+		entry, ok := lock.Bundles[canonical]
+		if !ok {
 			continue
 		}
-		b.Name = name
-		if entry, ok := lock.Bundles[name]; ok {
-			b.Path = fmt.Sprintf("<remote>:%s@%s", name, entry.SHA)
+		b, perr := bundles.ParseBundle(data)
+		if perr != nil {
+			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote bundle %q: %v\n", canonical, perr))
+			continue
 		}
-		loaded[name] = b
+		// Lockfile keys are canonical refs — the sole seed/resolution identity.
+		b.Name = canonical
+		b.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
+		loaded[canonical] = b
 	}
 	return loaded
 }

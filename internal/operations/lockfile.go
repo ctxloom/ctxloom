@@ -268,9 +268,19 @@ func scanInstalledEntries(fs afero.Fs, itemDir string, itemType remote.ItemType,
 				continue
 			}
 
+			if meta.Source.URL == "" {
+				continue
+			}
 			relPath, _ := filepath.Rel(remoteDir, file)
-			name := strings.TrimSuffix(relPath, ".yaml")
-			ref := fmt.Sprintf("%s/%s", remoteName, name)
+			name := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
+			// Lockfile key is the canonical ref, derived from the install-time
+			// source URL recorded in _source.
+			ref := (&remote.Reference{
+				URL:         meta.Source.URL,
+				ItemType:    itemType,
+				Path:        name,
+				IsCanonical: true,
+			}).CanonicalString()
 			lockfile.AddEntry(itemType, ref, remote.LockEntry{
 				SHA:       meta.Source.SHA,
 				URL:       meta.Source.URL,
@@ -309,8 +319,8 @@ func uniqueRefURLs(items []relockItem, urlForRef func(string) (string, bool)) []
 }
 
 // pinRelockEntries resolves each item's current default-branch SHA and adds it
-// to lockfile, keyed by the short "remote/name" form (ref.ToLocalName, matching
-// LockDependencies' convention). Per CLAUDE.md fault tolerance, every per-item
+// to lockfile, keyed by the canonical ref (ref.CanonicalString) — the sole
+// content identity. Per CLAUDE.md fault tolerance, every per-item
 // failure is counted and recorded but skipped — whatever resolves is still
 // pinned. Returns the pinned count, failure count, and per-failure messages.
 func pinRelockEntries(ctx context.Context, lockfile *remote.Lockfile, items []relockItem, repoURLForRef func(*remote.Reference) (string, bool), auth remote.AuthConfig, factory FetcherFactory) (itemCount, failed int, errs []string) {
@@ -342,7 +352,7 @@ func pinRelockEntries(ctx context.Context, lockfile *remote.Lockfile, items []re
 			continue
 		}
 
-		lockfile.AddEntry(it.Type, ref.ToLocalName(), remote.LockEntry{
+		lockfile.AddEntry(it.Type, ref.CanonicalString(), remote.LockEntry{
 			SHA:       sha,
 			URL:       repoURL,
 			FetchedAt: fetchedAt,
@@ -580,15 +590,11 @@ func findOutdatedEntries(ctx context.Context, entries []struct {
 	var outdated []OutdatedItem
 	fetcherByURL := map[string]remote.Fetcher{}
 	for _, e := range entries {
-		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
+		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
+		if repoURL == "" {
 			continue
 		}
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			continue
-		}
-		latestSHA, err := resolveLatestSHA(ctx, rem.URL, auth, factory, fetcherByURL)
+		latestSHA, err := resolveLatestSHA(ctx, repoURL, auth, factory, fetcherByURL)
 		if err != nil {
 			continue
 		}
@@ -616,21 +622,41 @@ func uniqueRemoteURLs(entries []struct {
 	seen := map[string]struct{}{}
 	var urls []string
 	for _, e := range entries {
-		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
+		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
+		if repoURL == "" {
 			continue
 		}
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
+		if _, ok := seen[repoURL]; ok {
 			continue
 		}
-		if _, ok := seen[rem.URL]; ok {
-			continue
-		}
-		seen[rem.URL] = struct{}{}
-		urls = append(urls, rem.URL)
+		seen[repoURL] = struct{}{}
+		urls = append(urls, repoURL)
 	}
 	return urls
+}
+
+// repoURLForEntry resolves a lockfile entry's repo URL: canonical entries carry
+// it directly (entry.URL); short refs without one fall back to registry alias
+// resolution. Returns "" when neither yields a URL.
+func repoURLForEntry(ref string, entry remote.LockEntry, registry *remote.Registry) string {
+	if entry.URL != "" {
+		return entry.URL
+	}
+	parsed, err := remote.ParseReference(ref)
+	if err != nil {
+		return ""
+	}
+	if parsed.URL != "" {
+		return parsed.URL
+	}
+	if registry == nil {
+		return ""
+	}
+	rem, err := registry.Get(parsed.Remote)
+	if err != nil {
+		return ""
+	}
+	return rem.URL
 }
 
 // refreshRepoCaches advances each unique clone to live HEAD before SHA

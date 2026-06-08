@@ -35,6 +35,13 @@ const (
 	// ProfilesDir is the subdirectory for profiles.
 	ProfilesDir = "profiles"
 
+	// LocalDir is the subdirectory for project-authored, version-controlled
+	// content referenced via the ctxloom:local source. Unlike CacheDir it is
+	// committed with the project (NOT gitignored, NOT regeneratable), and unlike
+	// remote content it is read from the working copy rather than a clone.
+	// Layout mirrors a repo's ctxloom tree: .ctxloom/local/<kind>/<name>.yaml.
+	LocalDir = "local"
+
 	// MemoryDir is the subdirectory for memory/session files.
 	MemoryDir = "memory"
 
@@ -229,6 +236,13 @@ func ProfilesPath(appPath string) string {
 // BundlesPath returns the path to the bundles directory (under cache/).
 func BundlesPath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), BundlesDir)
+}
+
+// LocalPath returns the path to the committed local-content directory (at
+// appPath root, NOT under cache/). It is the working-copy root for
+// ctxloom:local references.
+func LocalPath(appPath string) string {
+	return filepath.Join(appPath, LocalDir)
 }
 
 // VendorPath returns the path to the vendor directory (under cache/).

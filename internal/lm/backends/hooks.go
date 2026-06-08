@@ -2,6 +2,7 @@ package backends
 
 import (
 	"github.com/ctxloom/claude"
+	"github.com/ctxloom/codex"
 	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
@@ -53,6 +54,7 @@ var settingsWriterRegistry = map[string]func(*settingsOptions) SettingsWriter{
 		return claude.NewWriter(*o)
 	},
 	"gemini": func(o *settingsOptions) SettingsWriter { return gemini.NewWriter(*o) },
+	"codex":  func(o *settingsOptions) SettingsWriter { return codex.NewWriter(*o) },
 }
 
 // newSettingsWriter constructs the named backend's writer from the resolved
@@ -79,27 +81,7 @@ func BackendsWithSettings() []string {
 	return names
 }
 
-// computeHookHash delegates to agent.ComputeHookHash (transitional wrapper —
-// removed when the writers move to the per-agent packages).
-func computeHookHash(h wire.Hook) string { return agent.ComputeHookHash(h) }
-
-// =============================================================================
-// Shared Helper Functions
-// =============================================================================
-// These helpers reduce code duplication between ClaudeCodeHookWriter and
-// GeminiHookWriter implementations.
-
-func getFS(fs afero.Fs) afero.Fs { return agent.GetFS(fs) }
-
-func warn(format string, args ...any) { agent.Warn(format, args...) }
-
-func atomicWriteFile(fs afero.Fs, path string, data []byte, desc string) error {
-	return agent.AtomicWriteFile(fs, path, data, desc)
-}
-
-// Shared symbols used by symlink.go and the per-agent capabilities.
-const ctxloomBinary = agent.CtxloomBinary
-
-var ctxloomMCPArgs = agent.CtxloomMCPArgs
-
-func isCtxloomManaged(command string) bool { return agent.IsManaged(command, "ctxloom") }
+// The per-agent settings-writer helpers (hook-hash, managed-command detection,
+// fs/atomic-write, ctxloom binary/args) now live in shared/agent and are used
+// directly by the claude/gemini/codex writer modules — the transitional wrappers
+// that used to bridge them here are gone.

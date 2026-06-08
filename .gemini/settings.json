@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "AfterTool": [
+      {
+        "hooks": [
+          {
+            "command": "ctxloom hook stamp-plan",
+            "name": "ctxloom-managed",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

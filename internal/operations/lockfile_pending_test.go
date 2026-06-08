@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -69,38 +70,51 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 		assert.Zero(t, merged)
 	})
 
+	// registerRemote writes a remotes.yaml entry so PromoteRemotePendingBundles
+	// can map the alias back to the canonical key's URL.
+	registerRemote := func(t *testing.T, cfg *config.Config, name, url string) {
+		t.Helper()
+		reg, err := remote.NewRegistry(paths.RemotesPath(cfg.AppPaths[0]))
+		require.NoError(t, err)
+		require.NoError(t, reg.Add(name, url))
+	}
+	// Canonical keys for remote "r" (https://example.com/r).
+	rA, rB := "https://example.com/r@bundles/a", "https://example.com/r@bundles/b"
+
 	t.Run("PromoteRemotePendingBundles promotes only the named remote", func(t *testing.T) {
 		cfg := mkCfg(t)
+		registerRemote(t, cfg, "r", "https://example.com/r")
 		writePending(t, cfg, map[string]string{
-			"r/a":     "sha1",
-			"r/b":     "sha2",
-			"other/c": "sha3",
+			rA:                                  "sha1",
+			rB:                                  "sha2",
+			"https://example.com/other@bundles/c": "sha3",
 		})
 
 		promoted, err := PromoteRemotePendingBundles(cfg, "r")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"r/a", "r/b"}, promoted, "sorted, scoped to remote r")
+		assert.Equal(t, []string{rA, rB}, promoted, "sorted, scoped to remote r")
 
 		active := readActive(t, cfg)
-		assert.Contains(t, active.Bundles, "r/a")
-		assert.Contains(t, active.Bundles, "r/b")
-		assert.NotContains(t, active.Bundles, "other/c")
-		assert.True(t, pendingExists(t, cfg), "other/c is still pending")
+		assert.Contains(t, active.Bundles, rA)
+		assert.Contains(t, active.Bundles, rB)
+		assert.NotContains(t, active.Bundles, "https://example.com/other@bundles/c")
+		assert.True(t, pendingExists(t, cfg), "other remote is still pending")
 	})
 
 	t.Run("PromoteRemotePendingBundles drains pending when the remote is the last one", func(t *testing.T) {
 		cfg := mkCfg(t)
-		writePending(t, cfg, map[string]string{"r/a": "sha1", "r/b": "sha2"})
+		registerRemote(t, cfg, "r", "https://example.com/r")
+		writePending(t, cfg, map[string]string{rA: "sha1", rB: "sha2"})
 
 		promoted, err := PromoteRemotePendingBundles(cfg, "r")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"r/a", "r/b"}, promoted)
+		assert.Equal(t, []string{rA, rB}, promoted)
 		assert.False(t, pendingExists(t, cfg), "pending file deleted once empty")
 	})
 
 	t.Run("PromoteRemotePendingBundles with no matching remote is a no-op", func(t *testing.T) {
 		cfg := mkCfg(t)
-		writePending(t, cfg, map[string]string{"r/a": "sha1"})
+		writePending(t, cfg, map[string]string{rA: "sha1"})
 
 		promoted, err := PromoteRemotePendingBundles(cfg, "nope")
 		require.NoError(t, err)
@@ -111,18 +125,19 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 
 	t.Run("PromoteRemotePendingBundles respects an active pin", func(t *testing.T) {
 		cfg := mkCfg(t)
+		registerRemote(t, cfg, "r", "https://example.com/r")
 		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
 		require.NoError(t, mgr.Save(&remote.Lockfile{
-			Bundles:  map[string]remote.LockEntry{"r/a": {SHA: "old", Pinned: true}},
+			Bundles:  map[string]remote.LockEntry{rA: {SHA: "old", Pinned: true}},
 			Profiles: map[string]remote.LockEntry{},
 		}))
-		writePending(t, cfg, map[string]string{"r/a": "new", "r/b": "sha2"})
+		writePending(t, cfg, map[string]string{rA: "new", rB: "sha2"})
 
 		promoted, err := PromoteRemotePendingBundles(cfg, "r")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"r/b"}, promoted, "pinned r/a held back")
-		assert.Equal(t, "old", readActive(t, cfg).Bundles["r/a"].SHA, "pinned SHA unchanged")
-		assert.True(t, pendingExists(t, cfg), "pinned r/a still pending behind the pin")
+		assert.Equal(t, []string{rB}, promoted, "pinned a held back")
+		assert.Equal(t, "old", readActive(t, cfg).Bundles[rA].SHA, "pinned SHA unchanged")
+		assert.True(t, pendingExists(t, cfg), "pinned a still pending behind the pin")
 	})
 
 	t.Run("DropPendingBundle removes one entry", func(t *testing.T) {
@@ -304,63 +319,63 @@ func TestPromoteTrustedPendingBundles(t *testing.T) {
 	t.Run("promotes trusted entries and leaves untrusted in pending", func(t *testing.T) {
 		cfg := mkCfg(t)
 		writePendingEntries(t, cfg, map[string]remote.LockEntry{
-			"trusted/x":   {SHA: "111"},
-			"untrusted/y": {SHA: "222"},
+			"https://github.com/trusted/repo@bundles/x":   {SHA: "111"},
+			"https://github.com/untrusted/repo@bundles/y": {SHA: "222"},
 		})
 
 		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
 		require.NoError(t, err)
-		assert.Equal(t, []string{"trusted/x"}, promoted)
+		assert.Equal(t, []string{"https://github.com/trusted/repo@bundles/x"}, promoted)
 
 		active := loadActive(t, cfg)
-		assert.Contains(t, active.Bundles, "trusted/x")
-		assert.NotContains(t, active.Bundles, "untrusted/y")
+		assert.Contains(t, active.Bundles, "https://github.com/trusted/repo@bundles/x")
+		assert.NotContains(t, active.Bundles, "https://github.com/untrusted/repo@bundles/y")
 
 		pending := loadPending(t, cfg)
-		assert.NotContains(t, pending.Bundles, "trusted/x")
-		assert.Contains(t, pending.Bundles, "untrusted/y", "untrusted stays for review")
+		assert.NotContains(t, pending.Bundles, "https://github.com/trusted/repo@bundles/x")
+		assert.Contains(t, pending.Bundles, "https://github.com/untrusted/repo@bundles/y", "untrusted stays for review")
 	})
 
 	t.Run("pin overrides trust: pinned active entry is not promoted", func(t *testing.T) {
 		cfg := mkCfg(t)
 		writeActiveEntries(t, cfg, map[string]remote.LockEntry{
-			"trusted/x": {SHA: "old", Pinned: true},
+			"https://github.com/trusted/repo@bundles/x": {SHA: "old", Pinned: true},
 		})
 		writePendingEntries(t, cfg, map[string]remote.LockEntry{
-			"trusted/x": {SHA: "new"},
+			"https://github.com/trusted/repo@bundles/x": {SHA: "new"},
 		})
 
 		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
 		require.NoError(t, err)
 		assert.Empty(t, promoted)
 
-		assert.Equal(t, "old", loadActive(t, cfg).Bundles["trusted/x"].SHA, "pinned SHA unchanged")
-		assert.Contains(t, loadPending(t, cfg).Bundles, "trusted/x", "new SHA still pending behind the pin")
+		assert.Equal(t, "old", loadActive(t, cfg).Bundles["https://github.com/trusted/repo@bundles/x"].SHA, "pinned SHA unchanged")
+		assert.Contains(t, loadPending(t, cfg).Bundles, "https://github.com/trusted/repo@bundles/x", "new SHA still pending behind the pin")
 	})
 
 	t.Run("nil registry trusts nothing", func(t *testing.T) {
 		cfg := mkCfg(t)
 		writePendingEntries(t, cfg, map[string]remote.LockEntry{
-			"trusted/x": {SHA: "111"},
+			"https://github.com/trusted/repo@bundles/x": {SHA: "111"},
 		})
 
 		promoted, err := PromoteTrustedPendingBundles(cfg, nil, afero.NewOsFs())
 		require.NoError(t, err)
 		assert.Empty(t, promoted)
 		assert.Empty(t, loadActive(t, cfg).Bundles)
-		assert.Contains(t, loadPending(t, cfg).Bundles, "trusted/x")
+		assert.Contains(t, loadPending(t, cfg).Bundles, "https://github.com/trusted/repo@bundles/x")
 	})
 
 	t.Run("deletes pending file when every entry is promoted", func(t *testing.T) {
 		cfg := mkCfg(t)
 		writePendingEntries(t, cfg, map[string]remote.LockEntry{
-			"trusted/x": {SHA: "111"},
-			"trusted/z": {SHA: "333"},
+			"https://github.com/trusted/repo@bundles/x": {SHA: "111"},
+			"https://github.com/trusted/repo@bundles/z": {SHA: "333"},
 		})
 
 		promoted, err := PromoteTrustedPendingBundles(cfg, trustedRegistry(t), afero.NewOsFs())
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"trusted/x", "trusted/z"}, promoted)
+		assert.ElementsMatch(t, []string{"https://github.com/trusted/repo@bundles/x", "https://github.com/trusted/repo@bundles/z"}, promoted)
 		assert.True(t, loadPending(t, cfg).IsEmpty(), "pending should be drained")
 	})
 

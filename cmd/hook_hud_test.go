@@ -1,12 +1,36 @@
 package cmd
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// TestAgentSession_ModelName pins the agent-neutral model resolution: an agent
+// may send `model` as an object (Claude's {display_name|name|id}) or as a bare
+// string, and modelName must resolve both (preferring display_name → name → id).
+func TestAgentSession_ModelName(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"object_display_name", `{"display_name":"Claude Sonnet","id":"claude-x"}`, "Claude Sonnet"},
+		{"object_name", `{"name":"gemini-2.5-flash"}`, "gemini-2.5-flash"},
+		{"object_id_fallback", `{"id":"o3-mini"}`, "o3-mini"},
+		{"bare_string", `"gpt-5-codex"`, "gpt-5-codex"},
+		{"empty", ``, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := agentSessionJSON{Model: json.RawMessage(tc.raw)}
+			assert.Equal(t, tc.want, s.modelName())
+		})
+	}
+}
 
 // TestFormatHud_HarpDisplay covers the Phase 3.5.1 harp visibility
 // surface: when CTXLOOM_SESSION_HARP is set in the env, formatHud must
@@ -19,21 +43,20 @@ func TestFormatHud_HarpDisplay(t *testing.T) {
 
 	t.Run("included_when_set", func(t *testing.T) {
 		t.Setenv("CTXLOOM_SESSION_HARP", "swift-amber-falcon")
-		out := formatHud(claudeSessionJSON{}, ctxloomHudInfo{})
+		out := formatHud(agentSessionJSON{}, ctxloomHudInfo{})
 		assert.Contains(t, out, "swift-amber-falcon")
 		assert.Contains(t, out, "⌁", "harp section is prefixed with the ⌁ glyph")
 	})
 
 	t.Run("omitted_when_unset", func(t *testing.T) {
 		t.Setenv("CTXLOOM_SESSION_HARP", "")
-		out := formatHud(claudeSessionJSON{}, ctxloomHudInfo{})
+		out := formatHud(agentSessionJSON{}, ctxloomHudInfo{})
 		assert.NotContains(t, out, "⌁", "no harp ⇒ no ⌁ section")
 	})
 
 	t.Run("composes_with_other_sections", func(t *testing.T) {
 		t.Setenv("CTXLOOM_SESSION_HARP", "bold-crimson-thunder")
-		session := claudeSessionJSON{}
-		session.Model.DisplayName = "Claude Sonnet"
+		session := agentSessionJSON{Model: json.RawMessage(`{"display_name":"Claude Sonnet"}`)}
 		session.ContextWindow.UsedPercentage = 42
 		session.Cost.TotalCostUSD = 1.23
 		out := formatHud(session, ctxloomHudInfo{Profile: "developer", BundleCount: 5})

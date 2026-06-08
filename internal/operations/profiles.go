@@ -218,6 +218,7 @@ type GetProfileRequest struct {
 type GetProfileResult struct {
 	Name             string            `json:"name"`
 	Description      string            `json:"description,omitempty"`
+	LLM              string            `json:"llm,omitempty"`
 	Parents          []string          `json:"parents,omitempty"`
 	Tags             []string          `json:"tags,omitempty"`
 	Bundles          []string          `json:"bundles,omitempty"`
@@ -245,6 +246,7 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 	return &GetProfileResult{
 		Name:             profile.Name,
 		Description:      profile.Description,
+		LLM:              profile.LLM,
 		Parents:          profile.Parents,
 		Tags:             profile.Tags,
 		Bundles:          profile.Bundles,
@@ -259,6 +261,7 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 type CreateProfileRequest struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
+	LLM         string   `json:"llm"`
 	Parents     []string `json:"parents"`
 	Bundles     []string `json:"bundles"`
 	Tags        []string `json:"tags"`
@@ -305,6 +308,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	profile := &profiles.Profile{
 		Name:             req.Name,
 		Description:      req.Description,
+		LLM:              req.LLM,
 		Parents:          req.Parents,
 		Bundles:          req.Bundles,
 		Tags:             req.Tags,
@@ -339,6 +343,7 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 type UpdateProfileRequest struct {
 	Name          string   `json:"name"`
 	Description   *string  `json:"description"`
+	LLM           *string  `json:"llm"`
 	AddParents    []string `json:"add_parents"`
 	RemoveParents []string `json:"remove_parents"`
 	AddBundles    []string `json:"add_bundles"`
@@ -386,6 +391,16 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	if req.Description != nil {
 		profile.Description = *req.Description
 		changes = append(changes, "updated description")
+	}
+
+	// Update the preferred LLM (empty clears it).
+	if req.LLM != nil {
+		profile.LLM = *req.LLM
+		if profile.LLM == "" {
+			changes = append(changes, "cleared llm")
+		} else {
+			changes = append(changes, fmt.Sprintf("set llm to %q", profile.LLM))
+		}
 	}
 
 	// Reflect the default flag into cfg (persisted below via cfg.Save).

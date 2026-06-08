@@ -206,6 +206,10 @@
             "type": "string",
             "description": "Human-readable description of this profile"
           },
+          "llm": {
+            "type": "string",
+            "description": "Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`)"
+          },
           "parents": {
             "type": "array",
             "description": "Parent profiles to inherit from (processed depth-first)",

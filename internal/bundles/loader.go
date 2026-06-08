@@ -23,7 +23,7 @@ type Loader struct {
 	fs              afero.Fs
 	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
-	seeded          map[string]*Bundle // Bundle-name → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
 }
 
 // seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
@@ -103,6 +103,7 @@ func (l *Loader) Load(name string) (*Bundle, error) {
 }
 
 // lookupSeeded returns the seeded bundle for name, if any. Cheap read-only.
+// Seeded bundles are keyed by their canonical ref.
 func (l *Loader) lookupSeeded(name string) (*Bundle, bool) {
 	if l.seeded == nil {
 		return nil, false
@@ -227,7 +228,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				bundlePath := filepath.Join(path, "bundle.yaml")
 				if _, err := l.fs.Stat(bundlePath); err == nil {
 					relPath, _ := filepath.Rel(dir, path)
-					bundleName := NormalizeBundleName(filepath.ToSlash(relPath))
+					bundleName := filepath.ToSlash(relPath)
 					if seen.Has(bundleName) {
 						return nil
 					}
@@ -244,7 +245,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			// Check for .yaml files (bundle files)
 			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
 				relPath, _ := filepath.Rel(dir, path)
-				bundleName := NormalizeBundleName(strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml"))
+				bundleName := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
 				if seen.Has(bundleName) {
 					return nil
 				}

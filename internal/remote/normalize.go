@@ -1,48 +1,8 @@
 package remote
 
 import (
-	"fmt"
 	"strings"
 )
-
-// ToLocalRef converts any reference format to local name format.
-// This is the canonical function for normalizing references before storage,
-// lockfile operations, or comparisons.
-//
-// Input formats supported:
-//   - Canonical HTTPS: https://github.com/owner/ctxloom-github@bundles/core
-//   - Canonical SSH: git@github.com:owner/repo@bundles/core
-//   - Canonical file: file:///path/to/repo@bundles/core
-//   - Simple: alice/core or alice/core@v1.0.0
-//
-// Output format: repoName/path (e.g., ctxloom-github/core)
-//
-// Examples:
-//
-//	https://github.com/owner/ctxloom-github@bundles/core → ctxloom-github/core
-//	git@github.com:owner/my-repo@bundles/core → my-repo/core
-//	alice/core@v1.0.0 → alice/core
-//	alice/core → alice/core (unchanged)
-func ToLocalRef(ref string) (string, error) {
-	if ref == "" {
-		return "", fmt.Errorf("empty reference")
-	}
-
-	// Strip any item path suffix (e.g., #fragments/name) - preserve for later
-	ref, itemPath := splitItemPath(ref)
-
-	// Parse the reference
-	parsed, err := ParseReference(ref)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse reference: %w", err)
-	}
-
-	// Convert to local name
-	localName := parsed.ToLocalName()
-
-	// Re-append item path if present
-	return localName + itemPath, nil
-}
 
 // splitItemPath separates a bundle reference's URL/name part from an optional
 // "#item-path" suffix (e.g. "...#fragments/name"). When no suffix is present,

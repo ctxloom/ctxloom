@@ -71,8 +71,7 @@ func AnalyzeBundleReferences(req AnalyzeBundleReferencesRequest) *BundleAnalysis
 	}
 	for ref := range referenced {
 		if _, exists := req.Lockfile.Bundles[ref]; !exists {
-			bundlePath := filepath.Join(appDir, "bundles", strings.Replace(ref, "/", string(filepath.Separator), 1)+".yaml")
-			if _, statErr := fs.Stat(bundlePath); os.IsNotExist(statErr) {
+			if _, statErr := fs.Stat(localBundlePath(appDir, ref)); os.IsNotExist(statErr) {
 				result.Missing = append(result.Missing, ref)
 			}
 		}
@@ -96,15 +95,30 @@ func collectProfileBundleRefs(path string, content []byte, result *BundleAnalysi
 			continue
 		}
 		bundleRef, _, _ := strings.Cut(bundle, "#")
-		if !strings.Contains(bundleRef, "/") {
+		ref, err := remote.ParseReference(bundleRef)
+		if err != nil || !ref.IsCanonical {
 			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
 			continue
 		}
-		if ref, err := remote.ParseReference(bundleRef); err == nil && ref.IsCanonical {
-			bundleRef = ref.ToLocalName()
-		}
-		referenced[bundleRef] = true
+		// Key by the canonical ref so it matches lockfile keys.
+		referenced[ref.CanonicalString()] = true
 	}
+}
+
+// localItemPath returns the on-disk install path for a canonical item ref,
+// using the same layout as the puller (Reference.LocalPath). Returns "" when
+// the ref is not a parseable canonical ref.
+func localItemPath(appDir string, itemType remote.ItemType, canonicalRef string) string {
+	ref, err := remote.ParseReference(canonicalRef)
+	if err != nil || !ref.IsCanonical {
+		return ""
+	}
+	return ref.LocalPath(appDir, itemType)
+}
+
+// localBundlePath is localItemPath for a bundle ref.
+func localBundlePath(appDir, canonicalRef string) string {
+	return localItemPath(appDir, remote.ItemTypeBundle, canonicalRef)
 }
 
 // RemovedItem identifies a local item to delete during cleanup.
@@ -139,7 +153,7 @@ func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, err
 	fs := getFS(req.FS)
 	res := &RemoveLocalItemsResult{}
 	for _, item := range req.Items {
-		localPath := filepath.Join(req.AppDir, item.Type.DirName(), strings.Replace(item.Ref, "/", string(filepath.Separator), 1)+".yaml")
+		localPath := localItemPath(req.AppDir, item.Type, item.Ref)
 		if err := fs.Remove(localPath); err != nil {
 			if !os.IsNotExist(err) {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("failed to remove %s: %v", localPath, err))

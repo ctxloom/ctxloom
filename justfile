@@ -59,10 +59,26 @@ plugin-list:
 build-verbose:
     go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
 
+# Ensure the covdata tool is present for multi-package coverage merges.
+# Go 1.25 dropped covdata (and other secondary tools) from the prebuilt
+# distribution — they're built on demand from src/cmd. But `go test
+# -coverprofile ./...` merges coverage for test-less packages by invoking
+# covdata out of GOTOOLDIR, and an auto-downloaded toolchain's GOTOOLDIR is
+# read-only with no covdata, so the merge fails with `no such tool "covdata"`.
+# Build the version-matched covdata into GOTOOLDIR once (idempotent).
+_ensure-covdata:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tooldir="$(go env GOTOOLDIR)"
+    if [ -x "$tooldir/covdata" ]; then exit 0; fi
+    chmod u+w "$tooldir" 2>/dev/null || true
+    go build -o "$tooldir/covdata" cmd/covdata
+    echo "ctxloom: built version-matched covdata into $tooldir/"
+
 # Run all tests (builds ctxloom first for acceptance tests).
 # Coverage is filtered through .coverignore so generated files
 # (protobuf, gRPC) don't drag the reported number down.
-test: build
+test: build _ensure-covdata
     #!/usr/bin/env bash
     set -e
     go test -race -coverprofile=coverage.raw.out ./...

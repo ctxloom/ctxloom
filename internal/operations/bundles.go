@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -639,7 +640,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("remote %q not found: %w", remoteName, err)
 	}
-	targetPath := fmt.Sprintf("ctxloom/bundles/%s.yaml", bundleName)
+	targetPath := path.Join("ctxloom", "bundles", bundleName+".yaml")
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).

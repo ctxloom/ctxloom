@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -396,7 +397,7 @@ func buildPublishPath(itemType ItemType, name string) string {
 	default:
 		dir = "bundles"
 	}
-	return fmt.Sprintf("ctxloom/%s/%s.yaml", dir, name)
+	return path.Join("ctxloom", dir, name+".yaml")
 }
 
 // addPublishMetadata adds _source metadata to content for tracking.

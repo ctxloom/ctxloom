@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
 
@@ -619,9 +619,9 @@ func browseTypeList(itemType string) []remote.ItemType {
 // type's directory doesn't exist) yields no items and no warning; any other
 // error yields a warning string (also echoed to stderr).
 func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
-	basePath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
+	basePath := path.Join("ctxloom", itemType.DirName())
 	if req.Path != "" {
-		basePath = filepath.Join(basePath, req.Path)
+		basePath = path.Join(basePath, req.Path)
 	}
 
 	entries, err := browseDir(ctx, fetcher, owner, repo, basePath, "", req.Recursive)
@@ -666,8 +666,8 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, re
 }
 
 // browseDir lists directory contents, optionally recursively.
-func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, path, ref string, recursive bool) ([]remote.DirEntry, error) {
-	entries, err := fetcher.ListDir(ctx, owner, repo, path, ref)
+func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, dir, ref string, recursive bool) ([]remote.DirEntry, error) {
+	entries, err := fetcher.ListDir(ctx, owner, repo, dir, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -679,7 +679,10 @@ func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, path, r
 	var results []remote.DirEntry
 	for _, entry := range entries {
 		if entry.IsDir {
-			fullPath := filepath.Join(path, entry.Name)
+			// dir is a logical, forward-slash repo path consumed by go-git
+			// ListDir — build with path.Join, not filepath.Join (which would
+			// emit backslashes on Windows and break tree navigation).
+			fullPath := path.Join(dir, entry.Name)
 			subEntries, err := browseDir(ctx, fetcher, owner, repo, fullPath, ref, true)
 			if err != nil {
 				continue // Continue on error for subdirectories
@@ -989,7 +992,7 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 
 // searchDirectoryContent searches by listing directory contents.
 func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery) ([]remote.SearchResult, error) {
-	dirPath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
+	dirPath := path.Join("ctxloom", itemType.DirName())
 
 	entries, err := fetcher.ListDir(ctx, owner, repo, dirPath, branch)
 	if err != nil {
@@ -1009,7 +1012,7 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 		// the local clone, so this is cheap. If the file can't be read or
 		// parsed, fall back to a name-only entry (still text-matchable).
 		manifestEntry := remote.ManifestEntry{Name: name}
-		filePath := fmt.Sprintf("%s/%s", dirPath, entry.Name)
+		filePath := path.Join(dirPath, entry.Name)
 		if content, ferr := fetcher.FetchFile(ctx, owner, repo, filePath, branch); ferr == nil {
 			var meta struct {
 				Tags        []string `yaml:"tags"`

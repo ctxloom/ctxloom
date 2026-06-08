@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -346,18 +347,21 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	if r.IsCanonical() {
 		itemType = r.ItemType
 	}
+	// remoteName ("github.com/owner/repo") and r.Path ("lang/go/testing") are
+	// logical, forward-slash segments. baseDir is an on-disk OS path, so build
+	// with filepath.Join — it cleans the embedded forward slashes to the OS
+	// separator, keeping the install path Windows-safe (was fmt.Sprintf("%s/…"),
+	// which left forward slashes on Windows).
 	remoteName := r.LocalRemoteName()
+	file := r.Path + ".yaml"
 
 	switch itemType {
-	case ItemTypeBundle:
-		// Bundles: .ctxloom/cache/bundles/remote/path.yaml
-		return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, paths.CacheDir, paths.BundlesDir, remoteName, r.Path)
 	case ItemTypeProfile:
-		// Profiles: .ctxloom/profiles/remote/path.yaml (at root level, no cache layer)
-		return fmt.Sprintf("%s/%s/%s/%s.yaml", baseDir, paths.ProfilesDir, remoteName, r.Path)
+		// Profiles: .ctxloom/profiles/<remote>/<path>.yaml (root level, no cache layer)
+		return filepath.Join(baseDir, paths.ProfilesDir, remoteName, file)
 	default:
-		// Default to bundles
-		return fmt.Sprintf("%s/%s/%s/%s/%s.yaml", baseDir, paths.CacheDir, paths.BundlesDir, remoteName, r.Path)
+		// Bundles (and any other type): .ctxloom/cache/bundles/<remote>/<path>.yaml
+		return filepath.Join(baseDir, paths.CacheDir, paths.BundlesDir, remoteName, file)
 	}
 }
 

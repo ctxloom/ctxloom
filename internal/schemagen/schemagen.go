@@ -15,8 +15,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// idBase is the published $id prefix; matches the hand-maintained schemas
-// (config-schema.json, fragment-schema.json) under the same host.
+// idBase is the published $id prefix; matches the hand-maintained input schemas
+// (schema/input/{config,fragment}-schema.json) under the same host.
 const idBase = "https://ctxloom.dev/schemas/"
 
 // draft is the JSON Schema dialect every generated schema declares.

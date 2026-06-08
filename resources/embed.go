@@ -36,7 +36,7 @@ func MustGetPromptText(name string) string {
 
 // GetConfigSchema returns the embedded JSON schema for config validation.
 func GetConfigSchema() ([]byte, error) {
-	return resourcesFS.ReadFile("schema/config-schema.json")
+	return resourcesFS.ReadFile("schema/input/config-schema.json")
 }
 
 // GetSchema returns an embedded published JSON Schema by file name

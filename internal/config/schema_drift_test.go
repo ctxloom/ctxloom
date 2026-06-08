@@ -21,11 +21,10 @@ import (
 // how `sync` silently broke). These tests are that drift gate for the input
 // schema — the authored-input counterpart to the generated output-schema check.
 
-// schemaOnlyTopLevel are top-level schema properties with no matching Config
-// field, acknowledged so a NEW orphan is still caught. "memory" is a vestigial
-// block (it references the removed "plugin" terminology and nothing in Go reads
-// a `memory:` section); remove it from the schema and from here together.
-var schemaOnlyTopLevel = map[string]bool{"memory": true}
+// schemaOnlyTopLevel are top-level schema properties intentionally without a
+// matching Config field, acknowledged so a NEW orphan is still caught. Empty
+// today: the schema and the struct are in exact correspondence.
+var schemaOnlyTopLevel = map[string]bool{}
 
 func configSchemaProperties(t *testing.T) (props map[string]json.RawMessage, additionalProps bool) {
 	t.Helper()

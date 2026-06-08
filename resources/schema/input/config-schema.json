@@ -78,6 +78,17 @@
       },
       "additionalProperties": false
     },
+    "sync": {
+      "type": "object",
+      "description": "Remote dependency sync behavior",
+      "properties": {
+        "auto_sync": {
+          "type": "boolean",
+          "description": "Automatically sync remote dependencies on startup (default: true)"
+        }
+      },
+      "additionalProperties": false
+    },
     "hooks": {
       "$ref": "#/$defs/hooksConfig",
       "description": "Hooks configuration applied globally"

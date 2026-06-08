@@ -233,6 +233,16 @@ test-acceptance-live-container: container-build-acceptance
     ( cd ../../gemini/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/gemini/main"
     ( cd ../../codex/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/codex/main"
     cp go.work.container "$staging/src/go.work"
+    # Materialize a COMPLETE go.work.sum for the staged workspace. The in-container
+    # build runs offline against a read-only /workspace + read-only module cache,
+    # so it can neither write go.work.sum nor reach the network sumdb. The host's
+    # go.work.sum carries only go.mod hashes for workspace-upgraded deps (the host
+    # build fills the full module hashes from the proxy/sumdb at build time) — so
+    # seed from it, then `go work sync` here (host has proxy + cache) to record the
+    # missing full hashes. Without this the container dies on either
+    # "go.work.sum: read-only file system" or a sumdb lookup.
+    if [ -f ../../go.work.sum ]; then cp ../../go.work.sum "$staging/src/go.work.sum"; fi
+    ( cd "$staging/src" && go work sync )
     chmod -R a+rX "$staging"
 
     mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/.gemini:/home/ctxloom/.gemini:ro" -v "$staging/src:/workspace:ro")

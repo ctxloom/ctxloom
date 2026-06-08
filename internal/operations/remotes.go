@@ -644,7 +644,9 @@ func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, r
 
 // browseEntry builds a BrowseItemEntry from a directory entry, stripping the
 // ".yaml" suffix from files and prefixing req.Path onto the pull path. The
-// PullRef is the canonical ref users paste into `ctxloom pull`.
+// PullRef is the short "<remote-alias>/<path>" convenience ref users paste into
+// `ctxloom install` — short forms are accepted as input and resolved to canonical
+// (the alias' URL) at the boundary; canonical remains the sole stored identity.
 func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, req BrowseRemoteRequest) BrowseItemEntry {
 	name := e.Name
 	if !e.IsDir && strings.HasSuffix(name, ".yaml") {
@@ -661,7 +663,7 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, re
 		Type:    string(itemType),
 		Path:    pullPath,
 		IsDir:   e.IsDir,
-		PullRef: fmt.Sprintf("%s@%s/%s", repoURL, itemType.DirName(), pullPath),
+		PullRef: req.Remote + "/" + pullPath,
 	}
 }
 

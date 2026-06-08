@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -10,6 +11,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
+
+// canonicalizeUserRef accepts a convenience short-form reference
+// ("<remote-alias>/<path>") as USER INPUT and expands it to a canonical
+// "<url>@<kind>/<path>" ref via the registry. Anything already scheme-qualified
+// (a canonical URL or ctxloom:local) — or an unresolvable alias — is returned
+// unchanged for the downstream parser to accept or reject. The short form is a
+// CLI convenience only: this resolved canonical ref is what flows on to the
+// lockfile and the on-disk install path, so nothing short is ever stored.
+func canonicalizeUserRef(reference string, itemType remote.ItemType, registry *remote.Registry) string {
+	if _, err := remote.ParseReference(reference); err == nil {
+		return reference
+	}
+	alias, path, ok := strings.Cut(reference, "/")
+	if !ok || alias == "" || path == "" {
+		return reference
+	}
+	rem, err := registry.Get(alias)
+	if err != nil || rem.URL == "" {
+		return reference
+	}
+	return fmt.Sprintf("%s@%s/%s", rem.URL, itemType.DirName(), path)
+}
 
 // parseRemoteItemType maps the request item_type string to a remote.ItemType,
 // accepting only "bundle" and "profile".
@@ -57,6 +80,18 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 	}
 
 	baseDir := getBaseDir(cfg)
+
+	// Resolve the registry once: used both to canonicalize a convenience
+	// short-form reference and to build the puller.
+	registry := req.Registry
+	if registry == nil {
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize registry: %w", err)
+		}
+	}
+	req.Registry = registry
+
 	puller, err := resolvePullItemPuller(cfg, req, baseDir)
 	if err != nil {
 		return nil, err
@@ -70,7 +105,12 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		Cascade:  req.Cascade,
 	}
 
-	result, err := puller.Pull(ctx, req.Reference, opts)
+	// Short forms ("<remote-alias>/<path>") are accepted as USER INPUT for
+	// convenience and resolved to a canonical ref here; canonical is the sole
+	// stored identity (lockfile, install path), so nothing short is persisted.
+	ref := canonicalizeUserRef(req.Reference, itemType, registry)
+
+	result, err := puller.Pull(ctx, ref, opts)
 	if err != nil {
 		return nil, err
 	}

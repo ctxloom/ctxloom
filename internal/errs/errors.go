@@ -25,6 +25,13 @@ var (
 	// exist on a remote (forge 404). Fetchers wrap it so callers can detect
 	// "content removed on remote" via errors.Is instead of matching error text.
 	ErrRemoteContentNotFound = errors.New("not found")
+
+	// ErrRemoteNotMaterialized indicates a configured remote has no local clone
+	// yet, so read-only operations that refuse to fetch on demand (list, search,
+	// fetch from the cache) cannot see its content. Callers warn the user — with
+	// next steps to materialize — and skip that remote rather than failing or
+	// silently omitting it. Detect via errors.Is.
+	ErrRemoteNotMaterialized = errors.New("remote not materialized locally")
 )
 
 // Configuration errors indicate problems with configuration.

@@ -85,6 +85,11 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 // description, Contains, and Tags lines.
 func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo) {
 	w.Printf("  %s", info.Name)
+	if info.Deleted {
+		// Removed upstream: no version/metadata to show — just flag it.
+		w.Println(" (deleted upstream)")
+		return
+	}
 	if info.Version != "" {
 		w.Printf(" (v%s)", info.Version)
 	}

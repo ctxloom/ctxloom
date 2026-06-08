@@ -13,6 +13,8 @@ import (
 // recording the last read so tests can assert path/revision routing.
 type stubVCS struct {
 	data           []byte
+	items          []string
+	deletedItems   []string
 	err            error
 	lastPath       string
 	lastRev        string
@@ -40,6 +42,14 @@ func (s *stubVCS) ResolveRevision(_ context.Context, rev string) (string, error)
 	return rev, nil
 }
 
+func (s *stubVCS) ListItems(_ context.Context, _ ItemType) ([]string, error) {
+	return s.items, s.err
+}
+
+func (s *stubVCS) ListDeletedItems(_ context.Context, _ ItemType) ([]string, error) {
+	return s.deletedItems, s.err
+}
+
 var (
 	_ VCS       = (*stubVCS)(nil)
 	_ Versioned = (*stubVCS)(nil)
@@ -55,6 +65,9 @@ func (s *stubRefFetcher) Handles(ref *Reference) bool { return s.handles(ref) }
 func (s *stubRefFetcher) FetchItem(_ context.Context, _ *Reference, _ string) ([]byte, error) {
 	s.called = true
 	return []byte("stub"), nil
+}
+func (s *stubRefFetcher) ListItems(_ context.Context, _ ItemType) ([]*Reference, error) {
+	return nil, nil
 }
 
 func canonicalBundleRef(t *testing.T) *Reference {

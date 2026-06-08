@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -98,6 +99,67 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 	}
 
 	return entries, nil
+}
+
+// ListDeletedItems walks the repo's commit history and returns the item paths
+// under ctxloom/<kind>/ that existed at some past revision but are ABSENT at
+// HEAD — items removed upstream. Paths are relative to ctxloom/<kind>/ with the
+// .yaml suffix stripped, matching ListDir-derived current listings. This is the
+// history capability behind VCS Versioned.ListDeletedItems; it reads the local
+// clone only (zero network). Repos with no history of the kind list nothing.
+func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
+	base := "ctxloom/" + kind.DirName()
+
+	// Items present at HEAD — the baseline we subtract from history.
+	present := map[string]struct{}{}
+	if head, err := f.treeAtRef(""); err == nil {
+		collectItemPaths(head, base, present)
+	}
+
+	// Union of every item path ever seen under base across all commits.
+	everSeen := map[string]struct{}{}
+	iter, err := f.repo.Log(&git.LogOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("read history: %w", err)
+	}
+	defer iter.Close()
+	if err := iter.ForEach(func(c *object.Commit) error {
+		tree, terr := c.Tree()
+		if terr != nil {
+			return nil // skip a commit whose tree won't load
+		}
+		collectItemPaths(tree, base, everSeen)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("walk history: %w", err)
+	}
+
+	var deleted []string
+	for p := range everSeen {
+		if _, stillPresent := present[p]; !stillPresent {
+			deleted = append(deleted, p)
+		}
+	}
+	sort.Strings(deleted)
+	return deleted, nil
+}
+
+// collectItemPaths adds every .yaml item path under base in tree to out, keyed
+// relative to base with the suffix stripped (e.g. "lang/go/testing"). A tree
+// without base contributes nothing.
+func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
+	sub, err := tree.Tree(base)
+	if err != nil {
+		return
+	}
+	files := sub.Files()
+	defer files.Close()
+	_ = files.ForEach(func(file *object.File) error {
+		if strings.HasSuffix(file.Name, ".yaml") {
+			out[strings.TrimSuffix(file.Name, ".yaml")] = struct{}{}
+		}
+		return nil
+	})
 }
 
 // ResolveRef converts a git reference to a commit SHA.

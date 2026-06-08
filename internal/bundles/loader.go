@@ -277,6 +277,11 @@ type BundleInfo struct {
 	FragmentCount int
 	PromptCount   int
 	MCPCount      int
+	// Deleted marks a bundle that existed in an installed remote's history but
+	// is gone from that repo at the current revision — removed upstream. Such an
+	// entry carries only Name (the canonical ref); metadata is unavailable since
+	// the content no longer exists to read.
+	Deleted bool
 }
 
 func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {

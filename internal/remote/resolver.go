@@ -2,7 +2,10 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // RefFetcher performs the source-specific raw retrieval for one scheme of the
@@ -39,6 +42,15 @@ type RefFetcher interface {
 	// Cherry-pick of an individual #section/item is the caller's concern and
 	// operates on the returned bytes: FetchItem always returns the complete item.
 	FetchItem(ctx context.Context, ref *Reference, version string) ([]byte, error)
+
+	// ListItems returns a canonical (or local) Reference for every item of kind
+	// this scheme can serve across its configured sources, at each source's
+	// current state. It is the listing counterpart to FetchItem: where FetchItem
+	// reads ONE item named by a ref, ListItems enumerates the refs themselves.
+	// Sources that cannot be listed (e.g. an un-downloaded remote) are skipped;
+	// the returned error joins any such per-source failures so the caller can warn
+	// while still using the items that did list (fault-tolerant per CLAUDE.md).
+	ListItems(ctx context.Context, kind ItemType) ([]*Reference, error)
 }
 
 // Resolver is the scheme-dispatched content resolver: the shared base of the
@@ -77,18 +89,86 @@ func (r *Resolver) Resolve(ctx context.Context, ref *Reference) ([]byte, error) 
 	return nil, fmt.Errorf("resolve: no fetcher for reference %q", ref.String())
 }
 
+// List enumerates every item of kind across every scheme, fanning out to each
+// registered fetcher's ListItems and concatenating the references. It is
+// fault-tolerant: a fetcher (or one of its sources) that fails to list is
+// skipped, its error joined into the returned error so the caller can warn while
+// still using what did list. The result is the listing counterpart to Resolve.
+func (r *Resolver) List(ctx context.Context, kind ItemType) ([]*Reference, error) {
+	var refs []*Reference
+	var errs []error
+	for _, f := range r.fetchers {
+		got, err := f.ListItems(ctx, kind)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		refs = append(refs, got...)
+	}
+	return refs, errors.Join(errs...)
+}
+
+// DeletedItemLister is the OPTIONAL listing capability for surfacing items
+// removed upstream — present at a past revision, gone now. A RefFetcher whose
+// backend can walk history (the remote git clone) implements it; schemes without
+// history (local working-copy content) do not. Resolver.ListDeleted probes for
+// it by type assertion, exactly like Versioned extends VCS.
+type DeletedItemLister interface {
+	ListDeletedItems(ctx context.Context, kind ItemType) ([]*Reference, error)
+}
+
+// ListDeleted enumerates items removed upstream across every scheme that can
+// report them (those whose fetcher implements DeletedItemLister). Schemes
+// without history are skipped. Like List, it is fault-tolerant and joins
+// per-source errors. It is the deleted-item counterpart to List.
+func (r *Resolver) ListDeleted(ctx context.Context, kind ItemType) ([]*Reference, error) {
+	var refs []*Reference
+	var failures []error
+	for _, f := range r.fetchers {
+		lister, ok := f.(DeletedItemLister)
+		if !ok {
+			continue
+		}
+		got, err := lister.ListDeletedItems(ctx, kind)
+		if err != nil {
+			failures = append(failures, err)
+		}
+		refs = append(refs, got...)
+	}
+	return refs, errors.Join(failures...)
+}
+
 // RemoteRefFetcher is the RefFetcher for canonical URL-sourced references
 // (https://, git@, file://). It opens a VCS bound to the referenced repository
 // and reads the item at the pinned revision. It holds no git knowledge itself —
 // that lives in the VCSFactory it is given (GitForgeVCSFactory today).
 type RemoteRefFetcher struct {
 	openVCS VCSFactory
+	sources func() []string
+}
+
+// RemoteRefFetcherOption configures an optional capability on the remote fetcher.
+type RemoteRefFetcherOption func(*RemoteRefFetcher)
+
+// WithRemoteSources supplies the repo URLs ListItems enumerates. Reads
+// (FetchItem) get their source from the reference itself and need no source set;
+// listing has no such ref, so the caller declares which repos to walk — the
+// lockfile's installed URLs for `bundle list`. Without this option ListItems
+// returns nothing (the fetcher still serves FetchItem).
+func WithRemoteSources(urls []string) RemoteRefFetcherOption {
+	return func(f *RemoteRefFetcher) {
+		f.sources = func() []string { return urls }
+	}
 }
 
 // NewRemoteRefFetcher constructs the remote-scheme fetcher over a VCSFactory.
-// In production, wire GitForgeVCSFactory(cachedFactory, auth).
-func NewRemoteRefFetcher(openVCS VCSFactory) *RemoteRefFetcher {
-	return &RemoteRefFetcher{openVCS: openVCS}
+// In production, wire GitForgeVCSFactory(cachedFactory, auth). Pass
+// WithRemoteSources to enable ListItems.
+func NewRemoteRefFetcher(openVCS VCSFactory, opts ...RemoteRefFetcherOption) *RemoteRefFetcher {
+	f := &RemoteRefFetcher{openVCS: openVCS}
+	for _, o := range opts {
+		o(f)
+	}
+	return f
 }
 
 // Handles serves canonical references that carry a repository URL. URL-less
@@ -118,8 +198,74 @@ func (f *RemoteRefFetcher) FetchItem(ctx context.Context, ref *Reference, versio
 	return data, nil
 }
 
-// Ensure RemoteRefFetcher satisfies the per-scheme interface at compile time.
-var _ RefFetcher = (*RemoteRefFetcher)(nil)
+// ListItems walks each configured source repo's tree and returns a canonical
+// reference for every bundle/profile of kind found. A source whose local clone
+// is absent (not yet downloaded) is NOT silently dropped: its failure is wrapped
+// as a "not materialized" error and joined into the result, so the caller warns
+// the user (a non-materialized remote is invisible to listing until synced)
+// while still returning the items from the remotes that ARE present.
+func (f *RemoteRefFetcher) ListItems(ctx context.Context, kind ItemType) ([]*Reference, error) {
+	if f.sources == nil {
+		return nil, nil
+	}
+	var refs []*Reference
+	var failures []error
+	for _, url := range f.sources() {
+		vcs, err := f.openVCS(url)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%w: %s — run `ctxloom remote sync` to download it", errs.ErrRemoteNotMaterialized, url))
+			continue
+		}
+		paths, err := vcs.ListItems(ctx, kind)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("list %s: %w", url, err))
+			continue
+		}
+		for _, p := range paths {
+			refs = append(refs, &Reference{URL: url, ItemType: kind, Path: p})
+		}
+	}
+	return refs, errors.Join(failures...)
+}
+
+// ListDeletedItems returns references for items removed upstream across the
+// configured sources, using each source's Versioned history capability. A source
+// whose clone is absent or whose backend has no history is skipped silently —
+// ListItems already surfaced the not-materialized case, so this does not warn
+// again. Per-source history-walk failures are joined into the error.
+func (f *RemoteRefFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]*Reference, error) {
+	if f.sources == nil {
+		return nil, nil
+	}
+	var refs []*Reference
+	var failures []error
+	for _, url := range f.sources() {
+		vcs, err := f.openVCS(url)
+		if err != nil {
+			continue
+		}
+		versioned, ok := vcs.(Versioned)
+		if !ok {
+			continue
+		}
+		paths, err := versioned.ListDeletedItems(ctx, kind)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("list deleted %s: %w", url, err))
+			continue
+		}
+		for _, p := range paths {
+			refs = append(refs, &Reference{URL: url, ItemType: kind, Path: p})
+		}
+	}
+	return refs, errors.Join(failures...)
+}
+
+// Ensure RemoteRefFetcher satisfies the per-scheme interface at compile time,
+// plus the optional deleted-item capability.
+var (
+	_ RefFetcher        = (*RemoteRefFetcher)(nil)
+	_ DeletedItemLister = (*RemoteRefFetcher)(nil)
+)
 
 // LocalRefFetcher is the RefFetcher for ctxloom:local references — project
 // authored content under the committed .ctxloom/local/ working copy. It opens a
@@ -166,6 +312,25 @@ func (f *LocalRefFetcher) FetchItem(ctx context.Context, ref *Reference, version
 		return nil, fmt.Errorf("read %s@%s: %w", filePath, version, err)
 	}
 	return data, nil
+}
+
+// ListItems walks the committed local-content root and returns a ctxloom:local
+// reference for every bundle/profile of kind found there. The single source is
+// the project working copy, so there is no "not materialized" case.
+func (f *LocalRefFetcher) ListItems(ctx context.Context, kind ItemType) ([]*Reference, error) {
+	vcs, err := f.openVCS(f.root)
+	if err != nil {
+		return nil, fmt.Errorf("open local source %s: %w", f.root, err)
+	}
+	paths, err := vcs.ListItems(ctx, kind)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]*Reference, 0, len(paths))
+	for _, p := range paths {
+		refs = append(refs, &Reference{IsLocal: true, ItemType: kind, Path: p})
+	}
+	return refs, nil
 }
 
 // Ensure LocalRefFetcher satisfies the per-scheme interface at compile time.

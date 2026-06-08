@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // MockFetcher is a test double for Fetcher that can be configured with expected responses.
@@ -129,7 +131,10 @@ func (m *MockFetcher) ListDir(ctx context.Context, owner, repo, path, ref string
 	if entries, ok := m.Dirs[path]; ok {
 		return entries, nil
 	}
-	return nil, fmt.Errorf("directory not found: %s", path)
+	// Mirror GitCloneFetcher: a missing directory wraps ErrRemoteContentNotFound
+	// so callers (e.g. VCS.ListItems) can treat "no such dir" as empty via
+	// errors.Is rather than matching error text.
+	return nil, fmt.Errorf("directory not found: %s: %w", path, errs.ErrRemoteContentNotFound)
 }
 
 func (m *MockFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (string, error) {

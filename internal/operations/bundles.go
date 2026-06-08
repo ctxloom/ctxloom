@@ -300,13 +300,14 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 	return bundle, nil
 }
 
-// ListBundles returns a summary of every installed bundle (ADR 0019: the read
-// path lives here, not in the CLI).
+// ListBundles returns a summary of every bundle available across the configured
+// remotes' downloaded clones and the local working copy, named by canonical
+// reference (ADR 0019: the read path lives here, not in the CLI). It routes
+// through the scheme-dispatched Resolver/VCS seam — walking each remote's git
+// tree — rather than fs-walking the extracted cache with filesystem-relpath
+// names. A configured remote that has not been synced is warned, not listed.
 func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("no .ctxloom directory configured")
-	}
-	return bundles.NewLoader(cfg.GetBundleDirs(), false).List()
+	return listBundleInfos(context.Background(), cfg)
 }
 
 // GetBundle loads a single bundle by name through the configured bundle store.

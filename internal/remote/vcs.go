@@ -2,10 +2,16 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // VCS abstracts reads from a single version-controlled source — one repository
@@ -24,6 +30,14 @@ type VCS interface {
 	// ReadFile returns path's bytes at the source's current state — a remote's
 	// default-branch tip, or a local working copy. Always supported.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+
+	// ListItems returns the repo-relative item paths under ctxloom/<kind>/ at the
+	// source's CURRENT state, with the ctxloom/<kind>/ prefix and the .yaml suffix
+	// stripped (so "lang/go/testing", not "ctxloom/bundles/lang/go/testing.yaml").
+	// A source with no such directory returns an empty list, not an error. Listing
+	// past revisions — and surfacing items DELETED since — is the optional
+	// Versioned capability (ListDeletedItems), not part of the minimal surface.
+	ListItems(ctx context.Context, kind ItemType) ([]string, error)
 }
 
 // Versioned is the OPTIONAL VCS capability for addressing past revisions and
@@ -44,6 +58,13 @@ type Versioned interface {
 	// ResolveRevision resolves a symbolic rev (tag/branch) to a concrete,
 	// pinnable id.
 	ResolveRevision(ctx context.Context, rev string) (string, error)
+	// ListDeletedItems returns item paths under ctxloom/<kind>/ that existed at
+	// some past revision but are gone at the current state — content removed
+	// upstream. Same path shape as VCS.ListItems (relative, suffix stripped). A
+	// backend with no history of the kind returns an empty list. This is the
+	// history counterpart to ListItems: ListItems sees what IS, ListDeletedItems
+	// sees what WAS-but-isn't.
+	ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error)
 }
 
 // readItemAt reads path from vcs at version, routing the read by capability:
@@ -94,6 +115,63 @@ func (v *gitForgeVCS) ResolveRevision(ctx context.Context, rev string) (string, 
 	return v.fetcher.ResolveRef(ctx, v.owner, v.repo, rev)
 }
 
+// ListItems walks ctxloom/<kind>/ in the repo tree at the default branch,
+// recursing into subdirectories, and returns each .yaml item's path relative to
+// that base (suffix stripped). A repo with no such directory lists empty.
+func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, error) {
+	base := "ctxloom/" + kind.DirName()
+	var items []string
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		entries, err := v.fetcher.ListDir(ctx, v.owner, v.repo, dir, "")
+		if err != nil {
+			// A missing directory is not an error — the repo simply has no items
+			// of this kind (or none under this subtree).
+			if errors.Is(err, errs.ErrRemoteContentNotFound) {
+				return nil
+			}
+			return err
+		}
+		for _, e := range entries {
+			full := dir + "/" + e.Name
+			if e.IsDir {
+				if err := walk(full); err != nil {
+					return err
+				}
+				continue
+			}
+			if strings.HasSuffix(e.Name, ".yaml") {
+				rel := strings.TrimSuffix(strings.TrimPrefix(full, base+"/"), ".yaml")
+				items = append(items, rel)
+			}
+		}
+		return nil
+	}
+	if err := walk(base); err != nil {
+		return nil, err
+	}
+	sort.Strings(items)
+	return items, nil
+}
+
+// itemHistorySource is the optional history capability a forge Fetcher backend
+// may provide: the local-clone GitCloneFetcher walks go-git history, while the
+// forge-API fetcher cannot. gitForgeVCS probes for it by type assertion.
+type itemHistorySource interface {
+	ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error)
+}
+
+// ListDeletedItems surfaces items removed upstream when the underlying fetcher
+// can walk history (the local clone); otherwise it returns nothing, since a
+// backend without history cannot know what was deleted.
+func (v *gitForgeVCS) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
+	hist, ok := v.fetcher.(itemHistorySource)
+	if !ok {
+		return nil, nil
+	}
+	return hist.ListDeletedItems(ctx, kind)
+}
+
 var (
 	_ VCS       = (*gitForgeVCS)(nil)
 	_ Versioned = (*gitForgeVCS)(nil)
@@ -120,6 +198,34 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 	return data, nil
 }
 
+// ListItems walks <root>/<kind>/ on the filesystem and returns each .yaml
+// item's path relative to that base (suffix stripped). A root without the
+// directory lists empty. Current working set only — fsVCS has no history.
+func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
+	base := filepath.Join(v.root, kind.DirName())
+	exists, err := afero.DirExists(v.fs, base)
+	if err != nil || !exists {
+		return nil, nil
+	}
+	var items []string
+	walkErr := afero.Walk(v.fs, base, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(base, p)
+		if relErr != nil {
+			return nil
+		}
+		items = append(items, strings.TrimSuffix(filepath.ToSlash(rel), ".yaml"))
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	sort.Strings(items)
+	return items, nil
+}
+
 var _ VCS = (*fsVCS)(nil)
 
 // FSVCSFactory builds a VCSFactory over an afero.Fs: each opened VCS reads files
@@ -130,6 +236,32 @@ var _ VCS = (*fsVCS)(nil)
 func FSVCSFactory(fs afero.Fs) VCSFactory {
 	return func(loc string) (VCS, error) {
 		return &fsVCS{fs: fs, root: loc}, nil
+	}
+}
+
+// ClonedRepoVCSFactory opens a VCS over the repository's EXISTING local clone in
+// the cache, reading through go-git with zero network. Unlike the cached
+// FetcherFactory (which clones on first touch via EnsureRef), this NEVER fetches:
+// if the clone is absent, git.PlainOpen fails and the factory returns an error,
+// so a not-yet-downloaded remote is skipped (and warned) rather than silently
+// materialized. This is the backend for listing/reads that must only see what is
+// already downloaded.
+func ClonedRepoVCSFactory(cache *RepoCache) VCSFactory {
+	return func(loc string) (VCS, error) {
+		forgeType, _, err := DetectForge(loc)
+		if err != nil {
+			return nil, fmt.Errorf("detect forge for %s: %w", loc, err)
+		}
+		owner, repo, err := ParseRepoURL(loc)
+		if err != nil {
+			return nil, fmt.Errorf("parse repo URL %s: %w", loc, err)
+		}
+		// PlainOpen of the cache dir — no clone/fetch. Absent clone → error.
+		fetcher, err := NewGitCloneFetcher(cache.RepoDirForURL(loc), normalizeCloneURL(loc), forgeType, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &gitForgeVCS{fetcher: fetcher, owner: owner, repo: repo}, nil
 	}
 }
 

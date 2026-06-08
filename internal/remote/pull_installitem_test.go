@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -39,7 +40,7 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 }
 
 func TestInstallPulledItem(t *testing.T) {
-	t.Run("profile is transformed, written, and locked without cascade", func(t *testing.T) {
+	t.Run("profile is locked as a reference, not materialized, without cascade", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(lm))
@@ -56,11 +57,12 @@ func TestInstallPulledItem(t *testing.T) {
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
-		assert.Nil(t, res.CascadePulled, "cascade disabled → no cascaded items")
+		assert.Equal(t, "<remote>:alice/myprofile@sha-prof", res.LocalPath,
+			"profiles get a synthetic path, not a disk write")
 
-		written, rerr := afero.ReadFile(fs, ref.LocalPath("/test", ItemTypeProfile))
-		require.NoError(t, rerr, "a profile is written to disk")
-		assert.Contains(t, string(written), "https://github.com/alice/ctxloom@bundles/security")
+		// A remote profile is a pure reference — nothing is materialized to disk.
+		_, statErr := fs.Stat(ref.LocalPath("/test", ItemTypeProfile))
+		assert.True(t, os.IsNotExist(statErr), "the profile must NOT be written to disk")
 
 		lock, lerr := lm.Load()
 		require.NoError(t, lerr)
@@ -100,50 +102,6 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.False(t, inMain, "the bundle entry must NOT land in the main lockfile")
 	})
 
-	t.Run("cascade pulls the profile's referenced bundles", func(t *testing.T) {
-		fs, registry := installItemEnv(t)
-		mf := newMockFetcher()
-		mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\n")
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-		puller := newInstallPuller(registry, fs, mf, WithLockfileManager(lm))
-
-		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
-		item := &fetchedItem{
-			rem:       installItemRemote,
-			localName: "alice/myprofile",
-			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n"),
-		}
-		var out bytes.Buffer
-		opts := PullOptions{ItemType: ItemTypeProfile, Cascade: true, Force: true, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
-
-		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
-		require.NoError(t, err)
-		assert.Contains(t, res.CascadePulled, "https://github.com/alice/ctxloom@bundles/security",
-			"cascade must pull the bundle the profile references")
-	})
-
-	t.Run("cascade failure is wrapped and surfaced", func(t *testing.T) {
-		fs, registry := installItemEnv(t)
-		// mock fetcher serves NO bundle file, so the cascaded bundle pull fails.
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(lm))
-
-		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
-		item := &fetchedItem{
-			rem:       installItemRemote,
-			localName: "alice/myprofile",
-			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/ghost\n"),
-		}
-		var out bytes.Buffer
-		opts := PullOptions{ItemType: ItemTypeProfile, Cascade: true, Force: true, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
-
-		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cascade pull failed")
-		assert.NotNil(t, res, "the profile itself installed; the partial result is still returned")
-	})
 
 	t.Run("lockfile write failure warns but does not fail the install", func(t *testing.T) {
 		fs, registry := installItemEnv(t)

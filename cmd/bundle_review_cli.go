@@ -27,11 +27,10 @@ var bundleReviewCmd = &cobra.Command{
 awaiting approval. Changes from trusted remotes auto-apply and never appear here.
 
 Respond with:
-  ctxloom bundle approve              Approve all pending changes
-  ctxloom bundle approve --remote X   Approve all pending from remote X
+  ctxloom bundle approve              Approve the staged upgrade
   ctxloom bundle decline              Decline all pending changes
   ctxloom bundle decline <name>       Decline one
-  ctxloom bundle pin <name>           Freeze one at its active SHA
+  ctxloom bundle hold <name>          Hold one at its locked SHA (no auto-upgrade)
   ctxloom bundle show-pending <name>  Print a pending bundle's YAML + diff
   ctxloom remote trust <remote>       Trust a remote going forward`,
 	Args: cobra.NoArgs,
@@ -50,43 +49,29 @@ Respond with:
 	},
 }
 
-var bundleApproveRemote string
 
 var bundleApproveCmd = &cobra.Command{
 	Use:   "approve",
 	Short: "Approve pending bundle changes",
-	Long: `Merge pending bundle changes into the active lockfile and re-apply hooks.
-With --remote, approve only the changes from that remote (without persisting
-trust); use 'ctxloom remote trust' to trust it for future syncs.`,
+	Long: `Adopt the staged upgrade: rewrite each local profile's direct remote refs to
+the reviewed hashes, rebuild the active lockfile from the updated closure
+(surfacing any hash conflict), and re-apply hooks.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
 			return err
 		}
-		if bundleApproveRemote != "" {
-			names, err := operations.PromoteRemotePendingBundles(cfg, bundleApproveRemote)
-			if err != nil {
-				return err
-			}
-			if len(names) == 0 {
-				fmt.Printf("No pending changes from %q to approve.\n", bundleApproveRemote)
-				return nil
-			}
-			applyHooksAfterReview(cmd.Context(), cfg)
-			fmt.Printf("Approved %d change(s) from %q.\n", len(names), bundleApproveRemote)
-			return nil
-		}
-		merged, err := operations.MergePendingLockfileCount(cfg)
+		applied, err := operations.ApproveUpgrade(cmd.Context(), cfg)
 		if err != nil {
 			return err
 		}
-		if merged == 0 {
+		if applied == 0 {
 			fmt.Println("No bundle changes pending review.")
 			return nil
 		}
 		applyHooksAfterReview(cmd.Context(), cfg)
-		fmt.Printf("Approved %d bundle change(s).\n", merged)
+		fmt.Printf("Approved %d dependency change(s).\n", applied)
 		return nil
 	},
 }
@@ -125,51 +110,57 @@ installed). With a name, declines only that one.`,
 	},
 }
 
-var bundlePinCmd = &cobra.Command{
-	Use:   "pin <name>",
-	Short: "Freeze a bundle at its active SHA so its changes stop surfacing",
-	Long: `Set the pin flag on a bundle's active lockfile entry. Future syncs still
-fetch new SHAs into pending, but review stops surfacing them until you unpin.`,
+var bundleHoldCmd = &cobra.Command{
+	Use:     "hold <name>",
+	Aliases: []string{"pin"},
+	Short:   "Hold an item at its locked SHA so `upgrade` won't advance it",
+	Long: `Set the hold flag on a bundle or profile's active lockfile entry so 'remote
+upgrade' leaves it frozen at its currently-locked commit — even when its version
+constraint would otherwise allow a newer one. The hold is policy only: it does
+not edit the manifest, and the held SHA still satisfies the constraint. Unhold to
+let it move again. ('hold' was formerly 'pin', which now risks confusion with an
+exact version pin in the manifest.)`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
 			return err
 		}
-		// Drop any pending change for it so we don't re-surface what we just pinned.
+		// Drop any pending change for it so we don't re-surface what we just held.
 		_, _ = operations.DropPendingBundle(cfg, args[0])
-		found, err := operations.SetBundlePin(cfg, args[0], true)
+		found, err := operations.SetItemPin(cfg, args[0], true)
 		if err != nil {
 			return err
 		}
 		if !found {
-			fmt.Printf("%q is not in the active lockfile; nothing to pin.\n", args[0])
+			fmt.Printf("%q is not in the active lockfile; nothing to hold.\n", args[0])
 			return nil
 		}
 		applyHooksAfterReview(cmd.Context(), cfg)
-		fmt.Printf("Pinned %q at its active SHA.\n", args[0])
+		fmt.Printf("Held %q at its locked SHA.\n", args[0])
 		return nil
 	},
 }
 
-var bundleUnpinCmd = &cobra.Command{
-	Use:   "unpin <name>",
-	Short: "Reverse a pin so the bundle's changes surface in review again",
-	Args:  cobra.ExactArgs(1),
+var bundleUnholdCmd = &cobra.Command{
+	Use:     "unhold <name>",
+	Aliases: []string{"unpin"},
+	Short:   "Release a hold so `upgrade` can advance the item again",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
 			return err
 		}
-		found, err := operations.SetBundlePin(cfg, args[0], false)
+		found, err := operations.SetItemPin(cfg, args[0], false)
 		if err != nil {
 			return err
 		}
 		if !found {
-			fmt.Printf("%q is not in the active lockfile; nothing to unpin.\n", args[0])
+			fmt.Printf("%q is not in the active lockfile; nothing to unhold.\n", args[0])
 			return nil
 		}
-		fmt.Printf("Unpinned %q; its accumulated SHA change will surface on the next review.\n", args[0])
+		fmt.Printf("Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
 		return nil
 	},
 }
@@ -212,10 +203,9 @@ func renderReviewCLI(cs *operations.BundleChangeSet) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("Approve all:        ctxloom bundle approve\n")
-	b.WriteString("Approve a remote:   ctxloom bundle approve --remote <name>\n")
 	b.WriteString("Decline all/one:    ctxloom bundle decline [name]\n")
 	b.WriteString("Inspect one:        ctxloom bundle show-pending <name>\n")
-	b.WriteString("Pin one:            ctxloom bundle pin <name>\n")
+	b.WriteString("Hold one:           ctxloom bundle hold <name>\n")
 	b.WriteString("Trust a remote:     ctxloom remote trust <name>\n")
 	return b.String()
 }
@@ -223,6 +213,9 @@ func renderReviewCLI(cs *operations.BundleChangeSet) string {
 // renderPendingBundle returns the raw YAML of a pending bundle plus a structural
 // diff against the active copy (when the bundle is a modification, not new).
 func renderPendingBundle(ctx context.Context, cfg *config.Config, name string) (string, error) {
+	// Accept the short "<alias>/<path>" form as input; lockfile keys are canonical.
+	name = operations.CanonicalizeRemoteRef(cfg, name, remote.ItemTypeBundle)
+
 	pendingLock, err := operations.LoadPendingLockfile(cfg)
 	if err != nil {
 		return "", fmt.Errorf("load pending lockfile: %w", err)

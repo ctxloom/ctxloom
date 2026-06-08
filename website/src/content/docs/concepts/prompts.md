@@ -56,19 +56,18 @@ prompts:
     description: "Review code for best practices"
     content: |
       Review this code...
-    plugins:
-      llm:
-        claude-code:
-          enabled: true              # Default: true (opt-out model)
-          description: "Review code" # Shown in /help
-          argument_hint: "<file>"    # Autocomplete hint
-          allowed_tools:             # Restrict available tools
-            - Read
-            - Grep
-          model: "sonnet"            # Override model
-        gemini:
-          enabled: true              # Also expose in Gemini CLI
-          description: "Review code"
+    llm:
+      claude-code:
+        enabled: true              # Default: true (opt-out model)
+        description: "Review code" # Shown in /help
+        argument_hint: "<file>"    # Autocomplete hint
+        allowed_tools:             # Restrict available tools
+          - Read
+          - Grep
+        model: "sonnet"            # Override model
+      gemini:
+        enabled: true              # Also expose in Gemini CLI
+        description: "Review code"
 ```
 
 ### Configuration Fields
@@ -91,12 +90,11 @@ prompts:
     description: "Internal use only"
     content: |
       This prompt is used programmatically, not as a command.
-    plugins:
-      llm:
-        claude-code:
-          enabled: false
-        gemini:
-          enabled: false
+    llm:
+      claude-code:
+        enabled: false
+      gemini:
+        enabled: false
 ```
 
 ## Using Prompts
@@ -181,11 +179,10 @@ prompts:
       5. **Testing**: Coverage gaps, test quality
 
       Provide specific line references and suggested fixes.
-    plugins:
-      llm:
-        claude-code:
-          description: "Comprehensive code review"
-          argument_hint: "<file or directory>"
+    llm:
+      claude-code:
+        description: "Comprehensive code review"
+        argument_hint: "<file or directory>"
 ```
 
 ### Test Generator Skill
@@ -202,15 +199,14 @@ prompts:
       - Cover happy path and error cases
       - Mock external dependencies
       - Include edge cases
-    plugins:
-      llm:
-        claude-code:
-          description: "Generate unit tests"
-          argument_hint: "<function or file>"
-          allowed_tools:
-            - Read
-            - Write
-            - Grep
+    llm:
+      claude-code:
+        description: "Generate unit tests"
+        argument_hint: "<function or file>"
+        allowed_tools:
+          - Read
+          - Write
+          - Grep
 ```
 
 ### Documentation Skill
@@ -227,9 +223,8 @@ prompts:
       - Return value descriptions
       - Usage examples
       - Error conditions
-    plugins:
-      llm:
-        claude-code:
-          description: "Generate docs"
-          model: "haiku"  # Use faster model for docs
+    llm:
+      claude-code:
+        description: "Generate docs"
+        model: "haiku"  # Use faster model for docs
 ```

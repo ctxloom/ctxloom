@@ -45,10 +45,9 @@ func init() {
 	bundleCmd.AddCommand(bundleReviewCmd)
 	bundleCmd.AddCommand(bundleApproveCmd)
 	bundleCmd.AddCommand(bundleDeclineCmd)
-	bundleCmd.AddCommand(bundlePinCmd)
-	bundleCmd.AddCommand(bundleUnpinCmd)
+	bundleCmd.AddCommand(bundleHoldCmd)
+	bundleCmd.AddCommand(bundleUnholdCmd)
 	bundleCmd.AddCommand(bundleShowPendingCmd)
-	bundleApproveCmd.Flags().StringVar(&bundleApproveRemote, "remote", "", "Approve only pending changes from this remote")
 
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")

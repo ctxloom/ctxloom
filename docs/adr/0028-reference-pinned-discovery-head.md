@@ -6,6 +6,8 @@
 
 Accepted.
 
+**Updated by [0033](0033-version-constraint-dependency-model.md):** referenced content is still read at a pinned commit, but that commit now lives in the **lockfile** as the resolution of the ref's version *constraint* — it is no longer carried in the manifest ref itself.
+
 ## Context
 
 ctxloom is a package manager for context. A profile *references* bundles (and

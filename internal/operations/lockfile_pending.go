@@ -2,171 +2,10 @@ package operations
 
 import (
 	"fmt"
-	"sort"
-
-	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
-
-// MergePendingLockfile copies every bundle entry from lock.pending.yaml into
-// lock.yaml, then deletes the pending file. Profiles are left alone because
-// sync never routes them to pending (profiles bypass the review flow).
-// No-op when pending is absent or empty.
-//
-// Returns the number of bundles merged.
-func MergePendingLockfile(cfg *config.Config) error {
-	_, err := MergePendingLockfileCount(cfg)
-	return err
-}
-
-// MergePendingLockfileCount is like MergePendingLockfile but reports how
-// many bundles moved across. Useful for tool responses.
-func MergePendingLockfileCount(cfg *config.Config) (int, error) {
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir)
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
-
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		return 0, fmt.Errorf("load pending lockfile: %w", err)
-	}
-	if pending.IsEmpty() {
-		return 0, pendingMgr.Delete()
-	}
-
-	active, err := activeMgr.Load()
-	if err != nil {
-		return 0, fmt.Errorf("load active lockfile: %w", err)
-	}
-
-	merged := 0
-	for name, entry := range pending.Bundles {
-		active.AddEntry(remote.ItemTypeBundle, name, entry)
-		merged++
-	}
-
-	if err := activeMgr.Save(active); err != nil {
-		return 0, fmt.Errorf("save active lockfile: %w", err)
-	}
-	if err := pendingMgr.Delete(); err != nil {
-		return merged, fmt.Errorf("delete pending lockfile: %w", err)
-	}
-	return merged, nil
-}
-
-// PromoteTrustedPendingBundles lifts every pending bundle whose source
-// remote is marked TrustBundles=true straight into the active lockfile,
-// dropping it from pending. Trust means "apply without review", so these
-// changes bypass the review gate entirely instead of being orphaned in
-// pending (where nothing would ever promote them).
-//
-// Pin overrides trust: a pending entry whose active counterpart is Pinned
-// is left in place — the user has explicitly frozen that bundle at its
-// active SHA, and a per-bundle pin is more specific than per-remote trust.
-//
-// fs is threaded so callers inside SyncDependencies operate on the same
-// (possibly in-memory) filesystem as the rest of the sync; pass
-// afero.NewOsFs() for real-disk callers. A nil registry trusts no remote,
-// making this a no-op. Returns the names promoted.
-func PromoteTrustedPendingBundles(cfg *config.Config, registry *remote.Registry, fs afero.Fs) ([]string, error) {
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
-
-	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
-		rn := remoteNameForKey(registry, name)
-		return rn != "" && isTrustedRemote(registry, rn)
-	})
-}
-
-// promotePendingBundles lifts every pending bundle for which keep(name) is true
-// into the active lockfile, dropping it from pending, then persists both
-// (deleting pending if emptied). A pending entry whose active counterpart is
-// Pinned is left in place. Returns the promoted names, sorted. Shared by the
-// trusted-remote and per-remote promotion paths.
-func promotePendingBundles(activeMgr, pendingMgr *remote.LockfileManager, keep func(name string) bool) ([]string, error) {
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load pending lockfile: %w", err)
-	}
-	if pending.IsEmpty() {
-		return nil, nil
-	}
-
-	active, err := activeMgr.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load active lockfile: %w", err)
-	}
-
-	promoted := applyPendingPromotions(active, pending, keep)
-	if len(promoted) == 0 {
-		return nil, nil
-	}
-	sort.Strings(promoted)
-
-	if err := savePromotions(activeMgr, pendingMgr, active, pending); err != nil {
-		return nil, err
-	}
-	return promoted, nil
-}
-
-// applyPendingPromotions moves each kept (and non-pin-blocked) pending bundle
-// into active, mutating both lockfiles in place and returning the promoted names.
-func applyPendingPromotions(active, pending *remote.Lockfile, keep func(name string) bool) []string {
-	var promoted []string
-	for name, entry := range pending.Bundles {
-		if !keep(name) {
-			continue
-		}
-		if old, ok := active.GetEntry(remote.ItemTypeBundle, name); ok && old.Pinned {
-			continue
-		}
-		active.AddEntry(remote.ItemTypeBundle, name, entry)
-		pending.RemoveEntry(remote.ItemTypeBundle, name)
-		promoted = append(promoted, name)
-	}
-	return promoted
-}
-
-// savePromotions persists the active and pending lockfiles after promotion,
-// deleting the pending file when it has been emptied.
-func savePromotions(activeMgr, pendingMgr *remote.LockfileManager, active, pending *remote.Lockfile) error {
-	if err := activeMgr.Save(active); err != nil {
-		return fmt.Errorf("save active lockfile: %w", err)
-	}
-	if pending.IsEmpty() {
-		return pendingMgr.Delete()
-	}
-	return pendingMgr.Save(pending)
-}
-
-// PromoteRemotePendingBundles lifts every pending bundle whose lockfile key
-// is prefixed "<remoteName>/" straight into the active lockfile, dropping it
-// from pending. It reads the on-disk pending lockfile directly rather than
-// trusting an in-memory review snapshot, so it promotes everything actually
-// stranded in pending for that remote — even entries carried over from a
-// previous session that the current process never diffed into review state.
-//
-// Pin overrides approval: a pending entry whose active counterpart is Pinned
-// is left in place, matching PromoteTrustedPendingBundles. Returns the names
-// promoted, sorted. Backs both trust_remote and approve_remote_pending.
-func PromoteRemotePendingBundles(cfg *config.Config, remoteName string) ([]string, error) {
-	if remoteName == "" {
-		return nil, nil
-	}
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir)
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile())
-	registry, _ := remote.NewRegistry(paths.RemotesPath(baseDir))
-
-	return promotePendingBundles(activeMgr, pendingMgr, func(name string) bool {
-		// Match canonical keys whose repo URL maps to the named remote.
-		return remoteNameForKey(registry, name) == remoteName
-	})
-}
 
 // DropPendingBundle removes one bundle from the pending lockfile (used by
 // decline_bundle with a name). Returns whether the bundle was actually
@@ -224,35 +63,36 @@ func LoadActiveLockfile(cfg *config.Config) (*remote.Lockfile, error) {
 	return remote.NewLockfileManager(baseDir).Load()
 }
 
-// SetBundlePin flips the Pinned flag on the active lockfile entry for
-// name. Returns whether the entry was present. Persists the lockfile on
-// success. ErrNotFound (false, nil) is the "no such bundle in active
-// lock" signal; callers surface that as a friendly error rather than
-// treating it as a failure.
+// SetItemPin flips the Pinned flag on the active lockfile entry that ref names,
+// trying both item types (bundle then profile) so a directly-referenced profile
+// can be frozen too. ref may be a short "<alias>/<path>" or canonical form.
+// Returns whether a matching entry was found. Persists on a change.
 //
-// Pinning is metadata-only: the SHA stays where it is, and future syncs
-// still pull new SHAs into pending. The pin's effect is that
-// DiffLockfiles no longer surfaces the change in the review template,
-// so the user stops seeing review prompts for this bundle.
-func SetBundlePin(cfg *config.Config, name string, pinned bool) (bool, error) {
+// Pinning is the user's "do not upgrade this" mark: StageUpgrade skips a pinned
+// ref, and lock preserves the flag across a closure rebuild, so the pin holds
+// the item at its current SHA until unpinned.
+func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 	baseDir := getBaseDir(cfg)
 	activeMgr := remote.NewLockfileManager(baseDir)
 	active, err := activeMgr.Load()
 	if err != nil {
 		return false, fmt.Errorf("load active lockfile: %w", err)
 	}
-	entry, ok := active.GetEntry(remote.ItemTypeBundle, name)
-	if !ok {
-		return false, nil
-	}
-	if entry.Pinned == pinned {
-		// Idempotent: nothing to save.
+	for _, kind := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
+		canonical := CanonicalizeRemoteRef(cfg, ref, kind)
+		entry, ok := active.GetEntry(kind, canonical)
+		if !ok {
+			continue
+		}
+		if entry.Pinned == pinned {
+			return true, nil // idempotent
+		}
+		entry.Pinned = pinned
+		active.AddEntry(kind, canonical, entry)
+		if err := activeMgr.Save(active); err != nil {
+			return true, fmt.Errorf("save active lockfile: %w", err)
+		}
 		return true, nil
 	}
-	entry.Pinned = pinned
-	active.AddEntry(remote.ItemTypeBundle, name, entry)
-	if err := activeMgr.Save(active); err != nil {
-		return true, fmt.Errorf("save active lockfile: %w", err)
-	}
-	return true, nil
+	return false, nil
 }

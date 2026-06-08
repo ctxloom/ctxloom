@@ -3,7 +3,6 @@ package remote
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/spf13/afero"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
@@ -34,9 +32,6 @@ type PullOptions struct {
 	// ItemType specifies what type of item to pull.
 	ItemType ItemType
 
-	// Cascade pulls all dependencies (bundles referenced by profiles).
-	Cascade bool
-
 	// Stdout and Stdin for output and input (for testing).
 	Stdout io.Writer
 	Stdin  io.Reader
@@ -53,22 +48,14 @@ type PullResult struct {
 	// SHA is the commit SHA of the fetched content.
 	SHA string
 
-	// Overwritten indicates if an existing file was replaced. Always false
-	// for bundles after PR 1 of docs/bundle-review-plan.md.
+	// Overwritten indicates if an existing file was replaced. Always false:
+	// remote items are references, never materialized.
 	Overwritten bool
-
-	// CascadePulled lists items pulled as dependencies (for profiles).
-	CascadePulled []string
 
 	// Content holds the fetched bytes for callers that would otherwise
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
 	// synthetic) and also for profiles (where it equals what was written).
 	Content []byte
-}
-
-// profileYAML is a minimal struct for parsing profile bundle references.
-type profileYAML struct {
-	Bundles []string `yaml:"bundles"`
 }
 
 // FetcherFactory creates Fetcher instances. Allows mocking for tests.
@@ -434,13 +421,11 @@ func confirmInstall(opts PullOptions) error {
 	return nil
 }
 
-// installPulledItem transforms (for profiles), writes the item to disk (or
-// records a synthetic path for bundles), updates the lockfile, and cascades
-// profile dependencies.
+// installPulledItem records a pulled remote item (synthetic path — nothing is
+// materialized) and writes its lockfile entry. Dependencies are NOT cascaded:
+// every reference is hash-pinned, so the dependency closure is determined by
+// lock walking the refs (operations.FlattenDependencies), not by pull.
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
-	// Profiles are stored verbatim — bundle refs stay canonical (the sole
-	// identity). Cascade pull reads those canonical refs and self-registers
-	// each remote via GetOrCreateByURL, so no profile rewrite is needed.
 	content := item.content
 
 	localPath, overwritten, err := p.writePulledContent(ref, opts, item.localName, item.sha, content)
@@ -455,147 +440,16 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
-	result := &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}
-
-	if opts.Cascade && opts.ItemType == ItemTypeProfile {
-		cascaded, err := p.cascadePullProfile(ctx, content, opts)
-		if err != nil {
-			return result, fmt.Errorf("cascade pull failed: %w", err)
-		}
-		result.CascadePulled = cascaded
-	}
-
-	return result, nil
+	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}, nil
 }
 
-// writePulledContent persists fetched content. Bundles are not written to disk
-// (docs/bundle-review-plan.md PR 1): the git clone cache is the storage and
-// reads at the locked SHA go through remote.BundleReader, so this returns a
-// synthetic informational LocalPath. Other item types write to disk, prompting
-// before overwriting a differing existing file (unless forced).
-func (p *Puller) writePulledContent(ref *Reference, opts PullOptions, localName, sha string, content []byte) (localPath string, overwritten bool, err error) {
-	if opts.ItemType == ItemTypeBundle {
-		return fmt.Sprintf("<remote>:%s@%s", localName, sha), false, nil
-	}
-
-	baseDir := opts.LocalDir
-	if baseDir == "" {
-		baseDir = ".ctxloom"
-	}
-	localPath = ref.LocalPath(baseDir, opts.ItemType)
-
-	if _, statErr := p.fs.Stat(localPath); statErr == nil {
-		overwritten = true
-		existingContent, _ := afero.ReadFile(p.fs, localPath)
-		if string(existingContent) != string(content) && !opts.Force {
-			_, _ = fmt.Fprintln(opts.Stdout, "\n--- Existing file differs ---")
-			_, _ = fmt.Fprintln(opts.Stdout, "Use a diff tool to compare if needed.")
-			confirmed, perr := promptConfirmation(opts.Stdout, opts.Stdin, "Overwrite existing file?")
-			if perr != nil {
-				return "", false, fmt.Errorf("failed to read confirmation: %w", perr)
-			}
-			if !confirmed {
-				return "", false, fmt.Errorf("overwrite cancelled: %w", errs.ErrCancelled)
-			}
-		}
-	}
-
-	if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return "", false, fmt.Errorf("failed to create directory: %w", err)
-	}
-	if err := afero.WriteFile(p.fs, localPath, content, 0644); err != nil {
-		return "", false, fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return localPath, overwritten, nil
-}
-
-// cascadePullProfile parses a profile and pulls all referenced bundles.
-func (p *Puller) cascadePullProfile(ctx context.Context, profileContent []byte, opts PullOptions) ([]string, error) {
-	var profile profileYAML
-	if err := yaml.Unmarshal(profileContent, &profile); err != nil {
-		return nil, fmt.Errorf("failed to parse profile: %w", err)
-	}
-
-	if len(profile.Bundles) == 0 {
-		return nil, nil
-	}
-
-	printProfileBundleList(opts.Stdout, profile.Bundles)
-
-	var pulled []string
-	for _, bundleRef := range profile.Bundles {
-		didPull, err := p.cascadePullBundle(ctx, bundleRef, opts)
-		if err != nil {
-			return pulled, err
-		}
-		if didPull {
-			pulled = append(pulled, bundleRef)
-		}
-	}
-
-	return pulled, nil
-}
-
-// printProfileBundleList prints the bundles a profile references before pulling.
-func printProfileBundleList(w io.Writer, bundles []string) {
-	_, _ = fmt.Fprintf(w, "\nProfile references %d bundles:\n", len(bundles))
-	for _, bundle := range bundles {
-		_, _ = fmt.Fprintf(w, "  - %s\n", bundle)
-	}
-	_, _ = fmt.Fprintln(w)
-}
-
-// bundleAlreadyCached reports whether a bundle is already installed. Bundles no
-// longer live as fs files; presence is a lockfile-entry check via the
-// configured manager (any installed bundle has a lock entry). Force defeats it.
-func (p *Puller) bundleAlreadyCached(ref *Reference, force bool) bool {
-	if p.lockfileManager == nil {
-		return false
-	}
-	lock, err := p.lockfileManager.Load()
-	if err != nil {
-		return false
-	}
-	_, ok := lock.GetEntry(ItemTypeBundle, ref.CanonicalString())
-	return ok && !force
-}
-
-// cascadePullBundle pulls one referenced bundle, reporting didPull=true only
-// when it was actually installed (an invalid ref, a cached bundle, or a
-// cancellation is skipped with didPull=false and no error).
-func (p *Puller) cascadePullBundle(ctx context.Context, bundleRef string, opts PullOptions) (bool, error) {
-	ref, err := ParseReference(bundleRef)
-	if err != nil {
-		_, _ = fmt.Fprintf(opts.Stdout, "Warning: invalid bundle reference %q: %v\n", bundleRef, err)
-		return false, nil
-	}
-
-	if p.bundleAlreadyCached(ref, opts.Force) {
-		_, _ = fmt.Fprintf(opts.Stdout, "  [cached] %s\n", bundleRef)
-		return false, nil
-	}
-
-	_, _ = fmt.Fprintf(opts.Stdout, "  Pulling %s...\n", bundleRef)
-	bundleOpts := PullOptions{
-		Force:    opts.Force,
-		LocalDir: opts.LocalDir,
-		ItemType: ItemTypeBundle,
-		Cascade:  false, // Don't cascade further
-		Stdout:   opts.Stdout,
-		Stdin:    opts.Stdin,
-	}
-
-	if _, err := p.Pull(ctx, bundleRef, bundleOpts); err != nil {
-		if errors.Is(err, errs.ErrCancelled) {
-			_, _ = fmt.Fprintf(opts.Stdout, "    Skipped\n")
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to pull bundle %s: %w", bundleRef, err)
-	}
-
-	_, _ = fmt.Fprintf(opts.Stdout, "    Done\n")
-	return true, nil
+// writePulledContent records a pulled remote item. Remote bundles AND profiles
+// are pure references: the git clone cache + lockfile pair is the storage, and
+// reads at the locked SHA go through remote.BundleReader / remote.ProfileReader.
+// Nothing is materialized to disk, so this returns a synthetic informational
+// LocalPath and never overwrites a local file.
+func (p *Puller) writePulledContent(_ *Reference, _ PullOptions, localName, sha string, _ []byte) (localPath string, overwritten bool, err error) {
+	return fmt.Sprintf("<remote>:%s@%s", localName, sha), false, nil
 }
 
 // displaySecurityWarning shows the security warning and full content.

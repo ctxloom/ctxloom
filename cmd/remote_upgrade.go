@@ -18,43 +18,39 @@ import (
 var remoteUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade pinned dependencies to the latest available",
-	Long: `Re-pin every dependency in .ctxloom/lock.yaml at the remote's current HEAD.
+	Long: `Re-pin each local profile's direct remote references to current HEAD and
+stage the resulting dependency changes for review.
 
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
-'remote upgrade' advances your pins to the newest commit on each referenced
-profile, parent, and bundle by walking the live dependency graph.
-
-Unlike 'remote lock', which records the install-time SHA of each installed
-file, 'upgrade' re-resolves every entry against the current default-branch HEAD.
-It works even when lock.yaml does not exist yet, so it also rebuilds a deleted
-or missing lockfile.
+'remote upgrade' advances your pins to the newest commit. The changes are NOT
+applied directly — they are staged in the pending lockfile so you can review
+them ('ctxloom bundle review') and approve or decline. Passive 'remote sync'
+installs exactly what is already pinned and never stages a change.
 
 Examples:
-  ctxloom remote upgrade                 # Advance all pins to current HEAD`,
+  ctxloom remote upgrade                 # Stage HEAD pins for review`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfigOrFallback(GetConfig, os.Stderr)
 
-		fmt.Println("Upgrading pinned dependencies to current HEAD...")
+		fmt.Println("Resolving current HEAD for pinned dependencies...")
 
-		result, err := operations.Relock(cmd.Context(), cfg, operations.RelockRequest{})
+		res, err := operations.StageUpgrade(cmd.Context(), cfg)
 		if err != nil {
 			return err
 		}
-
-		switch result.Status {
-		case "empty":
-			fmt.Println(result.Message)
-		default:
-			fmt.Printf("\nRegenerated %s with %d entries.\n", result.Path, result.ItemCount)
+		if res.TrustedApplied > 0 {
+			fmt.Printf("Applied %d change(s) from trusted remote(s).\n", res.TrustedApplied)
 		}
-
-		if result.Failed > 0 {
-			fmt.Printf("Skipped %d unresolvable entr%s:\n", result.Failed, plural(result.Failed, "y", "ies"))
-			for _, e := range result.Errors {
-				fmt.Printf("  - %s\n", e)
+		if res.Staged == 0 {
+			if res.TrustedApplied == 0 {
+				fmt.Println("Everything is up to date.")
 			}
+			return nil
 		}
 
+		fmt.Printf("Staged %d dependency change(s) for review.\n", res.Staged)
+		fmt.Println("Review with: ctxloom bundle review")
+		fmt.Println("Apply with:  ctxloom bundle approve   (or decline)")
 		return nil
 	},
 }

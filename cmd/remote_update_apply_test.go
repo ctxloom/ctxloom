@@ -57,22 +57,17 @@ func TestApplyUpdates_AllSucceed(t *testing.T) {
 	}
 }
 
-func TestApplyUpdates_PullsProfilesBeforeBundlesWithCascade(t *testing.T) {
+func TestApplyUpdates_PullsProfilesBeforeBundles(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
 	applyUpdates(context.Background(), &out, p,
 		[]updateInfo{profileUpd("alice/sec")},
 		[]updateInfo{bundleUpd("bob/tools")})
 
+	// Profiles update before bundles so a re-pinned profile's new bundle refs
+	// are present when the bundles are processed.
 	if want := []string{"alice/sec", "bob/tools"}; !equalStrings(p.calls, want) {
 		t.Fatalf("call order = %v, want %v", p.calls, want)
-	}
-	// Profile pull cascades (to pull newly referenced bundles); bundle pull does not.
-	if !p.opts[0].Cascade {
-		t.Error("profile pull should set Cascade=true")
-	}
-	if p.opts[1].Cascade {
-		t.Error("bundle pull should not cascade")
 	}
 }
 

@@ -69,6 +69,70 @@ func ParseReference(ref string) (*Reference, error) {
 		"— the short \"repo/path\" form is no longer accepted", ref)
 }
 
+// ResolveRef resolves a reference that may be written in short same-repo form
+// against the source it is read from. It is the one place short ↔ canonical
+// expansion happens, used wherever refs are consumed (cascade, sync collection,
+// profile resolution).
+//
+//   - A scheme-qualified canonical ref (https://, git@, file://) or an explicit
+//     ctxloom:local ref is already self-contained and is returned unchanged.
+//   - Anything else is a short same-repo ref ("demo", "lang/go", "demo@v1") and
+//     is expanded against sourceURL: the containing item's source. sourceURL is
+//     a git URL for remote content, or LocalSource ("ctxloom:local") when the
+//     containing item is read from the project itself.
+//
+// kind selects the item-type segment of the expanded canonical ref
+// (bundles/profiles). A short ref with no source to expand against is an error.
+func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
+	// Already self-contained (canonical URL or ctxloom:local) → as-is.
+	if parsed, err := ParseReference(ref); err == nil {
+		return parsed, nil
+	}
+
+	if ref == "" {
+		return nil, fmt.Errorf("empty reference")
+	}
+	if sourceURL == "" {
+		return nil, fmt.Errorf("cannot resolve short reference %q without a source", ref)
+	}
+
+	// Short same-repo ref: expand "path[@version]" against the source.
+	// LocalSource expands to the ctxloom:local grammar; a URL to the canonical
+	// URL grammar — both share the "<source>@<kind>/<path>[@version]" shape.
+	canonical := fmt.Sprintf("%s@%s/%s", sourceURL, kind.DirName(), ref)
+	parsed, err := ParseReference(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("invalid short reference %q against %s: %w", ref, sourceURL, err)
+	}
+	return parsed, nil
+}
+
+// ResolveRefString resolves ref against its source and returns the canonical
+// ref STRING, preserving a trailing "#item-path" suffix. A self-contained ref
+// (canonical URL or ctxloom:local) is returned verbatim. A short same-repo ref
+// ("demo", "lang/go") is expanded against sourceURL; when it carries no explicit
+// "@version"/hash of its own, it inherits sourceHash — a sibling read from a repo
+// at a given commit IS pinned to that commit. On any failure ref is returned
+// unchanged (fault tolerant — persist the authored form rather than drop it).
+func ResolveRefString(ref, sourceURL, sourceHash string, kind ItemType) string {
+	base, item := splitItemPath(ref)
+	if _, err := ParseReference(base); err == nil {
+		return ref // already self-contained
+	}
+	if sourceURL == "" {
+		return ref
+	}
+	expanded := fmt.Sprintf("%s@%s/%s", sourceURL, kind.DirName(), base)
+	// Inherit the container's commit unless the ref already pins its own version.
+	if sourceHash != "" && !strings.Contains(base, "@") {
+		expanded += "@" + sourceHash
+	}
+	if _, err := ParseReference(expanded); err != nil {
+		return ref
+	}
+	return expanded + item
+}
+
 // parseLocalReference parses ctxloom:local references like:
 //   - ctxloom:local@bundles/name (current working copy)
 //   - ctxloom:local@profiles/dev@<rev> (pinned to a project revision)

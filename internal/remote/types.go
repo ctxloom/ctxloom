@@ -24,17 +24,6 @@ type Remote struct {
 	Forge string `yaml:"forge,omitempty" json:"forge,omitempty"`
 }
 
-// SourceMeta contains provenance metadata embedded in installed fragments/prompts.
-// This tracks where the item was pulled from for audit and update purposes.
-type SourceMeta struct {
-	Org       string    `yaml:"org" json:"org"`               // Repository org or user
-	Name      string    `yaml:"name" json:"name"`             // Fragment/prompt name
-	SHA       string    `yaml:"sha" json:"sha"`               // Full git commit SHA
-	URL       string    `yaml:"url" json:"url"`               // Source repository URL
-	Type      ItemType  `yaml:"type" json:"type"`             // "fragment", "prompt", or "profile"
-	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"` // When the item was pulled
-}
-
 // ItemType distinguishes between different remote item types.
 type ItemType string
 
@@ -295,9 +284,18 @@ type LockEntry struct {
 	// URL is the canonical repository URL
 	URL string `yaml:"url" json:"url"`
 
-	// RequestedVersion is the original tag/SHA requested by user (for export reconstruction)
-	// Empty if user didn't specify a version (used HEAD)
+	// RequestedVersion is the version constraint the manifest asked for — a
+	// semver range, branch, tag, SHA, or empty (track default branch). It is the
+	// authored intent; SHA is what that intent resolved to. A relock carries the
+	// SHA forward unchanged while RequestedVersion is unchanged (npm-style
+	// stability); `upgrade` re-resolves it.
 	RequestedVersion string `yaml:"requested_version,omitempty" json:"requested_version,omitempty"`
+
+	// Version is the concrete tag a semver constraint resolved to (e.g.
+	// "v1.3.0"), recorded for display and to test whether a carried-forward SHA
+	// still satisfies a changed constraint. Empty for default-branch, direct
+	// branch, and bare-SHA resolutions, which have no single tag label.
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
 
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`

@@ -193,7 +193,7 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 // (`ctxloom bundle review`) and the server never blocks on them. The only action
 // taken here is the non-interactive bypass: with CTXLOOM_AUTO_APPROVE_BUNDLES=1
 // (CI/cron), pending changes are merged into active immediately.
-func (s *ctxServer) handleSyncChanges(_ context.Context, changes *operations.BundleChangeSet) {
+func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.BundleChangeSet) {
 	if changes.IsEmpty() {
 		return
 	}
@@ -206,8 +206,8 @@ func (s *ctxServer) handleSyncChanges(_ context.Context, changes *operations.Bun
 				fmt.Fprintf(os.Stderr, "  ~ %s %s → %s (from %s)\n", c.Name, shortSHA(c.OldSHA), shortSHA(c.NewSHA), c.Remote)
 			}
 		}
-		if err := operations.MergePendingLockfile(s.cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: merge pending lockfile: %v\n", err)
+		if _, err := operations.ApproveUpgrade(ctx, s.cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: auto-approve pending changes: %v\n", err)
 		}
 		return
 	}

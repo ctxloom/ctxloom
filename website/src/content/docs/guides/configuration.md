@@ -38,22 +38,26 @@ editor:
   args: ["-c", "set number"]     # Additional arguments
   # Fallback: VISUAL env → EDITOR env → nano
 
-# Language model plugins
+# Language model configuration — every LLM setting lives under `llm:`
 llm:
-  plugin_paths: []               # Additional plugin directories
-  plugins:
+  default: claude-code           # Default LLM backend
+  model: opus                    # Default model (optional)
+  configs:                       # Per-LLM overrides (optional)
     claude-code:
-      model: "claude-opus-4-5"   # Default model
       binary_path: "/path/to/bin"
-      args: []                   # Plugin-specific arguments
+      model: "claude-opus-4-5"
+      args: []                   # Extra CLI arguments
       env:                       # Environment variables
         CUSTOM_VAR: "value"
     gemini:
       model: "gemini-2.0-flash"
+  compaction:                    # LLM used for distillation (optional)
+    llm: claude-code
+    model: haiku
+    chunks: 8000
 
 # Default settings
 defaults:
-  llm_plugin: "claude-code"      # Default LLM plugin
   profiles:                      # Default profiles to load
     - ctxloom-default/go-developer
     - ctxloom-default/code-reviewer
@@ -62,8 +66,6 @@ defaults:
 # Sync configuration
 sync:
   auto_sync: true                # Auto-sync on startup (default: true)
-  lock: true                     # Update lockfile after sync (default: true)
-  apply_hooks: true              # Apply hooks after sync (default: true)
 
 # Hooks configuration
 hooks:
@@ -105,21 +107,23 @@ profiles:
 # To make a profile load by default, list it under defaults.profiles above.
 ```
 
-## LM Plugins
+## LLMs
 
-Available plugins:
+Available LLM backends:
 
-| Plugin | CLI | Description |
+| LLM | CLI | Description |
 |--------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
 | `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini |
 | `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI (provisional) |
 
-### Plugin Configuration
+Select the default with `llm.default` (or per-run with `--llm <name>`). Override a
+backend's binary, model, args, or environment under `llm.configs`:
 
 ```yaml
 llm:
-  plugins:
+  default: claude-code
+  configs:
     claude-code:
       model: "claude-opus-4-5"
       args: ["--dangerously-skip-permissions"]
@@ -133,7 +137,7 @@ llm:
 |---------|---------|-------------|
 | `use_distilled` | `true` | Prefer distilled content |
 | `auto_sync` | `true` | Sync remotes on startup |
-| `llm_plugin` | `claude-code` | Default AI backend |
+| `llm.default` | `claude-code` | Default LLM backend |
 | `auto_register_ctxloom` | `true` | Register ctxloom MCP server |
 | `statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
 
@@ -193,13 +197,14 @@ ctxloom remote sync        # Sync from lockfile
 
 ## Memory Configuration
 
-Session memory is always enabled. Compaction settings can be customized in `defaults:`:
+Session memory is always enabled. Compaction settings live under `llm.compaction`:
 
 ```yaml
-defaults:
-  compaction_plugin: claude-code  # LLM plugin for distillation
-  compaction_model: haiku         # Model (fast + cheap)
-  compaction_chunks: 8000         # Tokens per chunk
+llm:
+  compaction:
+    llm: claude-code   # LLM used for distillation
+    model: haiku       # Model (fast + cheap)
+    chunks: 8000       # Tokens per chunk
 ```
 
 See [Session Memory Guide](/getting-started/memory) for usage details.

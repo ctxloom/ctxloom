@@ -48,15 +48,14 @@ prompts:
       # Prompt Content
       Your prompt template here...
 
-    # Plugin-specific settings
-    plugins:
-      llm:
-        claude-code:
-          enabled: true             # null = enabled (opt-out)
-          description: "For /help"
-          argument_hint: "usage"
-          allowed_tools: [Read, Write]
-          model: "claude-opus-4-5"
+    # Per-LLM export settings
+    llm:
+      claude-code:
+        enabled: true             # null = enabled (opt-out)
+        description: "For /help"
+        argument_hint: "usage"
+        allowed_tools: [Read, Write]
+        model: "claude-opus-4-5"
 
 mcp:
   server-name:
@@ -90,7 +89,7 @@ mcp:
 | `content` | string | Required. The prompt template |
 | `description` | string | Human-readable description |
 | `tags` | array | Tags for filtering |
-| `plugins` | object | Plugin-specific settings |
+| `llm` | object | Per-LLM export settings (slash-command surface per backend) |
 
 ### MCP Server Fields
 

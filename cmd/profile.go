@@ -478,8 +478,9 @@ Examples:
 }
 
 var (
-	profileInstallForce bool
-	profileInstallBlind bool
+	profileInstallForce   bool
+	profileInstallBlind   bool
+	profileInstallProfile string
 )
 
 var profileInstallCmd = &cobra.Command{
@@ -511,13 +512,31 @@ Examples:
 			return err
 		}
 
-		action := "Installed"
-		if result.Overwritten {
-			action = "Updated"
+		// Wire the reference as a CONSTRAINT — no SHA baked in. The manifest records
+		// what was asked for (a version range, branch, tag, or empty = track default
+		// branch); LockDependencies below resolves it to a concrete commit recorded
+		// in the lockfile. The resolved SHA lives only in the lock, never the profile,
+		// so a later `upgrade` moves the lock without rewriting the manifest.
+		wired, werr := operations.WireRemoteRef(cfg, operations.WireRefRequest{
+			Ref:         result.Reference,
+			ItemType:    remote.ItemTypeProfile,
+			ProfileName: profileInstallProfile,
+		})
+		if werr != nil {
+			return werr
 		}
 
-		fmt.Printf("%s profile: %s\n", action, result.LocalPath)
-		fmt.Printf("SHA: %s\n", result.SHA[:7])
+		// Rebuild the lock from the new closure, surfacing a hash conflict
+		// immediately (assigning a conflicting pin is an error).
+		if _, lerr := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{
+			SkipSync:       true,
+			FailOnConflict: true,
+		}); lerr != nil {
+			return lerr
+		}
+
+		fmt.Printf("Installed profile %s @ %s\n", result.Reference, shortSHA(result.SHA))
+		fmt.Printf("Added to local profile %q\n", wired)
 
 		return nil
 	},
@@ -629,6 +648,7 @@ func init() {
 
 	profileInstallCmd.Flags().BoolVarP(&profileInstallForce, "force", "f", false, "Skip confirmation prompts")
 	profileInstallCmd.Flags().BoolVar(&profileInstallBlind, "blind", false, "Skip security review display")
+	profileInstallCmd.Flags().StringVar(&profileInstallProfile, "profile", "", "Local profile to add the installed profile to (default: the default profile, created if absent)")
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames

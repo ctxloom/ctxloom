@@ -37,7 +37,7 @@ func TestPullItemRequest_Validation(t *testing.T) {
 		},
 		{
 			name:        "valid profile request with options",
-			req:         PullItemRequest{Reference: "test/my-profile", ItemType: "profile", Force: true, Cascade: true},
+			req:         PullItemRequest{Reference: "test/my-profile", ItemType: "profile", Force: true},
 			shouldError: false,
 		},
 		{
@@ -62,17 +62,14 @@ func TestPullItemRequest_Validation(t *testing.T) {
 
 func TestPullItemResult_Fields(t *testing.T) {
 	result := PullItemResult{
-		LocalPath:     paths.ProfilesPath(testBaseDir) + "/test/my-profile.yaml",
-		SHA:           "abc123d",
-		Overwritten:   true,
-		CascadePulled: []string{"test/bundle1", "test/bundle2"},
+		LocalPath:   paths.ProfilesPath(testBaseDir) + "/test/my-profile.yaml",
+		SHA:         "abc123d",
+		Overwritten: true,
 	}
 
 	assert.Equal(t, paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml", result.LocalPath)
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.True(t, result.Overwritten)
-	assert.Len(t, result.CascadePulled, 2)
-	assert.Contains(t, result.CascadePulled, "test/bundle1")
 }
 
 // =============================================================================
@@ -227,36 +224,6 @@ func TestPullItem_WithForce(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, result.Overwritten)
-}
-
-func TestPullItem_WithCascade(t *testing.T) {
-	// Cascade mode pulls profile dependencies automatically - essential for
-	// complete profile installation without manual bundle tracking.
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-
-	puller := &mockPuller{
-		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
-			assert.True(t, opts.Cascade)
-			return &remote.PullResult{
-				LocalPath:     paths.ProfilesPath(testBaseDir) + "/test/profile.yaml",
-				SHA:           "abc123",
-				Overwritten:   false,
-				CascadePulled: []string{"test/bundle1", "test/bundle2"},
-			}, nil
-		},
-	}
-
-	result, err := PullItem(context.Background(), cfg, PullItemRequest{
-		Reference: "test/profile",
-		ItemType:  "profile",
-		Cascade:   true,
-		Puller:    puller,
-	})
-
-	require.NoError(t, err)
-	assert.Len(t, result.CascadePulled, 2)
-	assert.Contains(t, result.CascadePulled, "test/bundle1")
-	assert.Contains(t, result.CascadePulled, "test/bundle2")
 }
 
 func TestPullItem_PullError(t *testing.T) {

@@ -54,7 +54,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(PullItemResult{})},
 		{Type: reflect.TypeOf(PushBundleResult{})},
 		{Type: reflect.TypeOf(ReadBundleResult{})},
-		{Type: reflect.TypeOf(RelockResult{})},
 		{Type: reflect.TypeOf(RemoveHooksResult{})},
 		{Type: reflect.TypeOf(RemoveLocalItemsResult{})},
 		{Type: reflect.TypeOf(RemoveMCPServerResult{})},

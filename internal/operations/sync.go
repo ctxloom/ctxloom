@@ -104,7 +104,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		result.Status = "completed_with_errors"
 	}
 
-	applyTrustedPromotions(cfg, registry, fs, result)
+	recordReviewState(cfg, registry, fs, result)
 
 	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
 		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
@@ -113,9 +113,11 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 }
 
 // resolveSyncDeps returns the registry and puller for a sync, preferring
-// injected (test) instances. The puller redirects bundle writes to the
-// *pending* lockfile so the active lock.yaml stays at the old SHA until the
-// user approves the review (docs/bundle-review-plan.md Phase 2.3).
+// injected (test) instances. Sync installs exactly the pinned set and never
+// stages for review — it does NOT redirect to the pending lockfile. Surfacing
+// an upstream change is `remote upgrade`'s job (operations.StageUpgrade), and
+// the post-sync lock rebuilds the active lockfile from the pinned closure, so
+// the puller's writes are just a registration side effect.
 func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
 	registry := req.Registry
 	if registry == nil {
@@ -129,11 +131,9 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 	puller := req.Puller
 	if puller == nil {
 		auth := remote.LoadAuth(baseDir)
-		pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
 		puller = remote.NewPuller(registry, auth,
 			remote.WithFetcherFactory(newCachedFetcherFactory(cfg)),
 			remote.WithLockfileManager(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))),
-			remote.WithBundleLockfileTarget(pendingMgr),
 		)
 	}
 	return registry, puller, nil
@@ -173,7 +173,10 @@ func init() {
 // post-step failure must not fail the sync the user just completed (CLAUDE.md).
 func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
 	if req.Lock && result.Installed+result.Updated > 0 {
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
+		// The puller already wrote the lockfile inline during this sync, so the
+		// lock step only needs to surface it — SkipSync avoids a redundant
+		// second sync pass.
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true}); err != nil {
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
@@ -190,18 +193,12 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	}
 }
 
-// applyTrustedPromotions lifts trusted remotes' freshly-pulled entries out of
-// pending and into active (bypassing the review gate), then records the
-// active↔pending bundle delta on result. Fault-tolerant — a promotion failure
-// just leaves those entries pending. result.Changes is empty when nothing
-// landed in pending (only profiles synced, or all bundles were promoted).
-func applyTrustedPromotions(cfg *config.Config, registry *remote.Registry, fs afero.Fs, result *SyncDependenciesResult) {
-	if promoted, err := PromoteTrustedPendingBundles(cfg, registry, fs); err != nil {
-		zap.L().Warn("failed to promote trusted pending bundles", zap.Error(err))
-	} else if len(promoted) > 0 {
-		zap.L().Info("auto-applied trusted bundles", zap.Strings("bundles", promoted))
-	}
-
+// recordReviewState records the active↔pending bundle delta on result so the MCP
+// review surface can show any changes a `remote upgrade` staged for review.
+// Sync itself never stages (it installs exactly the pinned set) and never
+// auto-applies trust — trusted changes are applied coherently by StageUpgrade,
+// which rewrites the refs. result.Changes is empty when pending is empty.
+func recordReviewState(cfg *config.Config, registry *remote.Registry, fs afero.Fs, result *SyncDependenciesResult) {
 	result.Changes = computeBundleChanges(cfg, registry, fs)
 }
 
@@ -242,12 +239,9 @@ func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
 		registry = nil // diff degrades to "no trust filter" rather than aborting
 	}
 	fs := afero.NewOsFs()
-	// A pending file carried over from a previous session may strand
-	// trusted bundles that were never promoted. Lift them into active here
-	// too, so the startup reconcile path matches a fresh sync.
-	if _, err := PromoteTrustedPendingBundles(cfg, registry, fs); err != nil {
-		zap.L().Warn("failed to promote trusted pending bundles", zap.Error(err))
-	}
+	// Trusted changes are applied coherently by StageUpgrade (it rewrites the
+	// refs), and DiffLockfiles filters trusted entries from review regardless, so
+	// there is nothing to promote here — just report the reviewable delta.
 	return computeBundleChanges(cfg, registry, fs)
 }
 
@@ -399,7 +393,6 @@ func syncItem(ctx context.Context, cfg *config.Config, puller Puller, registry *
 		Force:    force,
 		Blind:    true,
 		ItemType: itemType,
-		Cascade:  true, // Pull referenced bundles for profiles
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)

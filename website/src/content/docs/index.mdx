@@ -108,9 +108,8 @@ Claude Code's `/compact` has a fundamental flaw: it needs context space to run, 
 
 ctxloom reads the raw JSONL transcript from disk and uses a separate LLM (default: Haiku) to distill it - operating outside your exhausted context window.
 
-ctxloom includes built-in commands:
-- `/recover` - Recover context from previous session after `/clear`
-- `/loadctx` - Browse and load from any recent session
+ctxloom includes a built-in command:
+- `/recover` - Recover context from a previous session after `/clear`
 
 ## How It Works
 
@@ -170,8 +169,9 @@ ctxloom mcp serve
 
 ```yaml
 # .ctxloom/config.yaml
+llm:
+  default: claude-code
 defaults:
-  llm_plugin: claude-code
   profiles:
     - ctxloom-main/go-developer
 ```

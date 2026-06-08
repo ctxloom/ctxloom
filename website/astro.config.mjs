@@ -42,6 +42,8 @@ export default defineConfig({
 						{ label: 'Profiles', link: '/concepts/profiles/' },
 						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
+						{ label: 'Review and Trust', link: '/concepts/review-and-trust/' },
+						{ label: 'Sessions and Tasks', link: '/concepts/sessions-and-tasks/' },
 						{ label: 'Architecture', link: '/concepts/architecture/' },
 					],
 				},

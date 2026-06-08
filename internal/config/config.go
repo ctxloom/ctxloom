@@ -267,7 +267,64 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	if resolve := c.ProfileRemoteResolver(); resolve != nil {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}
+	// Seed remote profiles read from the git clone cache at their locked SHA, so
+	// every consumer of the loader sees them as references without a materialized
+	// copy on disk (the profile-side mirror of SeededBundleLoader).
+	if seed := c.loadRemoteProfileSeed(); len(seed) > 0 {
+		opts = append(opts, profiles.WithSeededProfiles(seed))
+	}
 	return profiles.NewLoader(profileDirs, opts...)
+}
+
+// loadRemoteProfileSeed reads every lockfile-listed profile from the local git
+// clone cache at its locked SHA, parses it, resolves its short same-repo bundle
+// and parent refs against its repo URL, and returns them keyed by canonical ref
+// ready to seed a profiles.Loader. Remote profiles are pure references — never
+// materialized to disk — so this is how they enter the loader. Returns nil when
+// there is no lockfile (caller treats nil as "no remote profiles").
+func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	baseDir := c.AppPaths[0]
+
+	lock, err := remote.NewLockfileManager(baseDir).Load()
+	if err != nil || lock.IsEmpty() {
+		return nil
+	}
+	auth := remote.LoadAuth(baseDir)
+	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+	factory := remote.NewCachedFetcherFactory(cache)
+	reader := remote.NewProfileReader(factory, auth, lock)
+
+	loaded := make(map[string]*profiles.Profile)
+	for _, canonical := range reader.ListProfileNames() {
+		data, rerr := reader.ReadProfileBytes(context.Background(), canonical)
+		if rerr != nil {
+			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote profile %q from cache: %v\n", canonical, rerr))
+			continue
+		}
+		p, perr := profiles.ParseProfile(data)
+		if perr != nil {
+			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote profile %q: %v\n", canonical, perr))
+			continue
+		}
+		entry := lock.Profiles[canonical]
+		// The profile's own repo URL is the source its short sibling refs resolve
+		// against — it's intrinsic to the canonical lockfile key.
+		repoURL := entry.URL
+		if ref, e := remote.ParseReference(canonical); e == nil && ref.URL != "" {
+			repoURL = ref.URL
+		}
+		p.ResolveShortRefs(repoURL, entry.SHA)
+		p.Name = canonical
+		p.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
+		loaded[canonical] = p
+	}
+	if len(loaded) == 0 {
+		return nil
+	}
+	return loaded
 }
 
 // ProfileRemoteResolver returns a function mapping a profile's local name to the

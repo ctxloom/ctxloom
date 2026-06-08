@@ -40,14 +40,15 @@ func runRemoteLock(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{
-		SkipSync: remoteLockNoSync,
+		SkipSync:       remoteLockNoSync,
+		FailOnConflict: true, // explicit lock surfaces a hash conflict as an error
 	})
 	if err != nil {
 		return err
 	}
 
 	if result.Status == "empty" {
-		fmt.Println("No remote items with source metadata found.")
+		fmt.Println("No remote items found in the lockfile.")
 		fmt.Println("Install items with: ctxloom install <remote>/<name>")
 		return nil
 	}

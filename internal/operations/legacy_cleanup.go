@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // PurgeExtractedBundles removes the on-disk extracted YAML copies of
@@ -49,8 +48,14 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 		if readErr != nil {
 			return nil
 		}
+		// Legacy remote-pull artifacts embedded a `_source` block; a non-empty
+		// SHA there unambiguously marks one. Only that field matters for the
+		// keep/remove decision, so probe it directly rather than depend on a
+		// shared provenance type.
 		var meta struct {
-			Source remote.SourceMeta `yaml:"_source"`
+			Source struct {
+				SHA string `yaml:"sha"`
+			} `yaml:"_source"`
 		}
 		if yaml.Unmarshal(data, &meta) != nil {
 			return nil

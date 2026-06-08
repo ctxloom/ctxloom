@@ -4,12 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -28,6 +24,11 @@ type LockDependenciesRequest struct {
 	// before locking their versions. Set to true to skip this behavior.
 	SkipSync bool `json:"skip_sync"`
 
+	// FailOnConflict makes a dependency hash conflict a hard error (explicit
+	// `remote lock`). When false (startup auto-lock) the conflict is warned and
+	// the conflicted items are dropped, never blocking the session (CLAUDE.md).
+	FailOnConflict bool `json:"-"`
+
 	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
 }
 
@@ -39,42 +40,69 @@ type LockDependenciesResult struct {
 	Message   string `json:"message,omitempty"`
 }
 
-// LockDependencies generates a lockfile from currently installed remote items.
-// By default, it runs sync first to ensure all dependencies are installed before
-// locking their versions. Use SkipSync to disable this behavior.
+// LockDependencies builds lock.yaml from the flattened transitive closure of
+// the project's local profiles. Every reference is hash-pinned, so the closure
+// is fully determined by what each item references — no resolution to "latest"
+// (that is Relock/`update`). If the same item appears at two differing hashes
+// anywhere in the closure that is a conflict: surfaced immediately as a hard
+// error when FailOnConflict is set (explicit `remote lock`), else warned and
+// the conflicted items dropped so startup is never blocked (CLAUDE.md).
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)
 
-	// Run sync first to ensure all dependencies are installed
-	// This prevents generating an incomplete lockfile if ephemeral was cleared
+	// Run sync first so the clones the closure walk reads are present.
 	if !req.SkipSync {
-		_, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{
+		if _, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{
 			Force: false,
-			Lock:  false, // Don't recursively call lock
+			Lock:  false, // don't recurse back into lock
 			FS:    req.FS,
-		})
-		if err != nil {
+		}); err != nil {
 			return nil, fmt.Errorf("failed to sync dependencies before locking: %w", err)
 		}
 	}
 
+	pins, conflicts := FlattenDependencies(ctx, cfg, nil)
+	if len(conflicts) > 0 {
+		if req.FailOnConflict {
+			return nil, ConflictError(conflicts)
+		}
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", ConflictError(conflicts))
+		pins = dropConflicted(pins, conflicts)
+	}
+
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
+	// Preserve the per-item Pinned flag across the closure rebuild — pinning is
+	// the user's "do not upgrade this" mark and must survive a relock.
+	prevPinned := map[string]bool{}
+	if prev, err := lockManager.Load(); err == nil {
+		for _, e := range prev.AllEntries() {
+			if e.Entry.Pinned {
+				prevPinned[string(e.Type)+"\x00"+e.Ref] = true
+			}
+		}
+	}
+
 	lockfile := &remote.Lockfile{
 		Version:  1,
 		Bundles:  make(map[string]remote.LockEntry),
 		Profiles: make(map[string]remote.LockEntry),
 	}
+	for _, p := range pins {
+		// RequestedVersion records the manifest constraint so a later relock can
+		// carry this SHA forward while the constraint is unchanged; Version records
+		// the tag a semver constraint chose, for display and satisfaction checks.
+		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version}
+		if prevPinned[string(p.Type)+"\x00"+p.Identity] {
+			entry.Pinned = true
+		}
+		lockfile.AddEntry(p.Type, p.Identity, entry)
+	}
 
-	// Scan installed bundles and profiles for their install-time _source SHA.
-	itemCount := 0
-	itemCount += scanInstalledEntries(fs, paths.BundlesPath(baseDir), remote.ItemTypeBundle, lockfile)
-	itemCount += scanInstalledEntries(fs, paths.ProfilesPath(baseDir), remote.ItemTypeProfile, lockfile)
-
-	if itemCount == 0 {
+	if lockfile.IsEmpty() {
 		return &LockDependenciesResult{
 			Status:  "empty",
-			Message: "No remote items with source metadata found",
+			Message: "No remote items found",
 		}, nil
 	}
 
@@ -85,275 +113,24 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	return &LockDependenciesResult{
 		Status:    "generated",
 		Path:      lockManager.Path(),
-		ItemCount: itemCount,
+		ItemCount: len(lockfile.AllEntries()),
 	}, nil
 }
 
-// RelockRequest contains parameters for regenerating the lockfile from the
-// project's configured profiles.
-type RelockRequest struct {
-	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
-
-	// Registry lets tests inject a pre-built registry. When nil one is opened
-	// from the project's remotes dir.
-	Registry *remote.Registry `json:"-"`
-
-	// FetcherFactory lets tests inject a fetcher factory. When nil the cached
-	// clone-backed factory is used.
-	FetcherFactory FetcherFactory `json:"-"`
-
-	// RepoCache lets tests inject a counting/fake repo updater for the per-URL
-	// refresh pre-pass. When nil the production clone cache is used.
-	RepoCache RepoUpdater `json:"-"`
-}
-
-// RelockResult contains the result of regenerating the lockfile.
-type RelockResult struct {
-	Status    string   `json:"status"` // "regenerated" or "empty"
-	Path      string   `json:"path,omitempty"`
-	ItemCount int      `json:"item_count,omitempty"`
-	Failed    int      `json:"failed,omitempty"`
-	Errors    []string `json:"errors,omitempty"`
-	Message   string   `json:"message,omitempty"`
-}
-
-// Relock regenerates lock.yaml from the project's configured/installed profiles,
-// re-pinning every bundle and parent-profile dependency at the current
-// default-branch (origin/main) SHA.
-//
-// Unlike LockDependencies — which scans already-installed files for the
-// install-time _source SHA they carry — Relock walks the live dependency graph
-// from the configured profiles (following local parents) and resolves each
-// remote's current HEAD. That means it works even when lock.yaml does NOT exist
-// yet, which is the whole point: it regenerates a deleted/missing lockfile.
-//
-// Fault tolerance (CLAUDE.md): a per-URL fetch failure or an unresolvable entry
-// is warned and skipped; whatever resolves cleanly is still written. Only a
-// hard registry/collection failure aborts.
-func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*RelockResult, error) {
-	fs := getFS(req.FS)
-	baseDir := getBaseDir(cfg)
-
-	registry := req.Registry
-	if registry == nil {
-		var err error
-		registry, err = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize registry: %w", err)
+// dropConflicted removes every pin whose identity is in conflicts — used by the
+// startup auto-lock to degrade past a conflict rather than block the session.
+func dropConflicted(pins []PinnedRef, conflicts []DependencyConflict) []PinnedRef {
+	bad := make(map[string]struct{}, len(conflicts))
+	for _, c := range conflicts {
+		bad[c.Item] = struct{}{}
+	}
+	kept := pins[:0]
+	for _, p := range pins {
+		if _, isBad := bad[p.Identity]; !isBad {
+			kept = append(kept, p)
 		}
 	}
-
-	auth := remote.LoadAuth(baseDir)
-
-	// Walk the configured profiles (and their local parents) to discover every
-	// remote bundle + profile reference that should be pinned.
-	bundleRefs, profileRefs, err := collectRemoteReferences(cfg, nil, fs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect references: %w", err)
-	}
-
-	var items []relockItem
-	for _, r := range profileRefs {
-		items = append(items, relockItem{remote.ItemTypeProfile, r})
-	}
-	for _, r := range bundleRefs {
-		items = append(items, relockItem{remote.ItemTypeBundle, r})
-	}
-
-	// repoURLForRef resolves a reference to its repository URL. Canonical URL
-	// refs (e.g. a profile parent "https://…@profiles/name") carry the URL
-	// directly and have no registry name; simple "remote/path" refs resolve
-	// their URL via the registry.
-	repoURLForRef := func(ref *remote.Reference) (string, bool) {
-		// Canonical refs carry the URL directly; nothing else resolves now that
-		// the short "repo/path" form is gone.
-		return ref.URL, ref.URL != ""
-	}
-
-	urlForRef := func(refStr string) (string, bool) {
-		ref, perr := remote.ParseReference(refStr)
-		if perr != nil {
-			return "", false
-		}
-		return repoURLForRef(ref)
-	}
-
-	// Refresh every unique remote clone first so origin/main is advanced to the
-	// live HEAD before we resolve SHAs. Without this, a stale shallow clone
-	// would re-pin at the old SHA.
-	cache := req.RepoCache
-	if cache == nil {
-		cache = newRepoCache(cfg)
-	}
-	refreshRepoCaches(ctx, cache, uniqueRefURLs(items, urlForRef))
-
-	// Fetcher factory backed by the (now-refreshed) local clones.
-	fetcherFactory := req.FetcherFactory
-	if fetcherFactory == nil {
-		cached := newCachedFetcherFactory(cfg)
-		fetcherFactory = FetcherFactory(cached)
-	}
-
-	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	lockfile := &remote.Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]remote.LockEntry),
-		Profiles: make(map[string]remote.LockEntry),
-	}
-
-	itemCount, failed, relockErrs := pinRelockEntries(ctx, lockfile, items, repoURLForRef, auth, fetcherFactory)
-
-	if itemCount == 0 {
-		return &RelockResult{
-			Status:  "empty",
-			Failed:  failed,
-			Errors:  relockErrs,
-			Message: "No resolvable dependencies found in configured profiles",
-		}, nil
-	}
-
-	if err := lockManager.Save(lockfile); err != nil {
-		return nil, fmt.Errorf("failed to write lockfile: %w", err)
-	}
-
-	return &RelockResult{
-		Status:    "regenerated",
-		Path:      lockManager.Path(),
-		ItemCount: itemCount,
-		Failed:    failed,
-		Errors:    relockErrs,
-	}, nil
-}
-
-// scanInstalledEntries walks itemDir/<remote>/**/*.yaml, reads each file's
-// install-time `_source` metadata, and adds an entry to lockfile for every file
-// carrying a SHA. Returns the number of entries added. Unreadable dirs/files and
-// files lacking _source.SHA are silently skipped. Used by LockDependencies to
-// rebuild the lockfile from what's already installed on disk.
-func scanInstalledEntries(fs afero.Fs, itemDir string, itemType remote.ItemType, lockfile *remote.Lockfile) int {
-	entries, err := afero.ReadDir(fs, itemDir)
-	if err != nil {
-		return 0
-	}
-
-	count := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		remoteName := entry.Name()
-		remoteDir := filepath.Join(itemDir, remoteName)
-
-		files, _ := afero.Glob(fs, filepath.Join(remoteDir, "**", "*.yaml"))
-		rootFiles, _ := afero.Glob(fs, filepath.Join(remoteDir, "*.yaml"))
-		files = append(files, rootFiles...)
-
-		for _, file := range files {
-			content, err := afero.ReadFile(fs, file)
-			if err != nil {
-				continue
-			}
-			var meta struct {
-				Source remote.SourceMeta `yaml:"_source"`
-			}
-			if err := yaml.Unmarshal(content, &meta); err != nil {
-				continue
-			}
-			if meta.Source.SHA == "" {
-				continue
-			}
-
-			if meta.Source.URL == "" {
-				continue
-			}
-			relPath, _ := filepath.Rel(remoteDir, file)
-			name := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
-			// Lockfile key is the canonical ref, derived from the install-time
-			// source URL recorded in _source.
-			ref := (&remote.Reference{
-				URL:      meta.Source.URL,
-				ItemType: itemType,
-				Path:     name,
-			}).CanonicalString()
-			lockfile.AddEntry(itemType, ref, remote.LockEntry{
-				SHA:       meta.Source.SHA,
-				URL:       meta.Source.URL,
-				FetchedAt: meta.Source.FetchedAt,
-			})
-			count++
-		}
-	}
-	return count
-}
-
-// relockItem is a typed (itemType, ref) pair queued for relock pinning.
-type relockItem struct {
-	Type remote.ItemType
-	Ref  string
-}
-
-// uniqueRefURLs returns the unique repo URLs for items, first-seen order,
-// resolving each ref via urlForRef. Refs that don't resolve are skipped. Used to
-// fetch each repo's clone once before SHA resolution.
-func uniqueRefURLs(items []relockItem, urlForRef func(string) (string, bool)) []string {
-	seen := map[string]struct{}{}
-	var urls []string
-	for _, it := range items {
-		url, ok := urlForRef(it.Ref)
-		if !ok {
-			continue
-		}
-		if _, dup := seen[url]; dup {
-			continue
-		}
-		seen[url] = struct{}{}
-		urls = append(urls, url)
-	}
-	return urls
-}
-
-// pinRelockEntries resolves each item's current default-branch SHA and adds it
-// to lockfile, keyed by the canonical ref (ref.CanonicalString) — the sole
-// content identity. Per CLAUDE.md fault tolerance, every per-item
-// failure is counted and recorded but skipped — whatever resolves is still
-// pinned. Returns the pinned count, failure count, and per-failure messages.
-func pinRelockEntries(ctx context.Context, lockfile *remote.Lockfile, items []relockItem, repoURLForRef func(*remote.Reference) (string, bool), auth remote.AuthConfig, factory FetcherFactory) (itemCount, failed int, errs []string) {
-	fetchedAt := time.Now().UTC()
-	fetcherByURL := map[string]remote.Fetcher{}
-
-	for _, it := range items {
-		if it.Ref == "" {
-			continue
-		}
-		ref, perr := remote.ParseReference(it.Ref)
-		if perr != nil {
-			failed++
-			errs = append(errs, fmt.Sprintf("%s: invalid reference (skipped)", it.Ref))
-			continue
-		}
-		repoURL, ok := repoURLForRef(ref)
-		if !ok {
-			failed++
-			errs = append(errs, fmt.Sprintf("%s: remote not found (skipped)", it.Ref))
-			continue
-		}
-
-		sha, serr := resolveLatestSHA(ctx, repoURL, auth, factory, fetcherByURL)
-		if serr != nil || sha == "" {
-			failed++
-			errs = append(errs, fmt.Sprintf("%s: no SHA resolved (skipped)", it.Ref))
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: could not resolve SHA for %s, skipping\n", it.Ref)
-			continue
-		}
-
-		lockfile.AddEntry(it.Type, ref.CanonicalString(), remote.LockEntry{
-			SHA:       sha,
-			URL:       repoURL,
-			FetchedAt: fetchedAt,
-		})
-		itemCount++
-	}
-	return itemCount, failed, errs
+	return kept
 }
 
 // InstallDependenciesRequest contains parameters for installing from lockfile.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,98 +16,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
-// TestWritePulledContent covers the disk-write path of a pull: bundles get a
-// synthetic path and never touch disk, other item types write through, and an
-// existing differing file is guarded by an overwrite prompt unless forced.
+// TestWritePulledContent covers the pull write path: remote bundles AND profiles
+// are pure references (git clone cache + lockfile are the storage), so both get
+// a synthetic path and never touch disk.
 func TestWritePulledContent(t *testing.T) {
 	const baseDir = "/proj/.ctxloom"
 	ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
 
-	t.Run("bundle_is_synthetic_no_disk_write", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		opts := PullOptions{ItemType: ItemTypeBundle, LocalDir: baseDir, Stdout: &bytes.Buffer{}}
+	for _, itemType := range []ItemType{ItemTypeBundle, ItemTypeProfile} {
+		t.Run(string(itemType)+"_is_synthetic_no_disk_write", func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			p := &Puller{fs: fs}
+			opts := PullOptions{ItemType: itemType, LocalDir: baseDir, Stdout: &bytes.Buffer{}}
 
-		localPath, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "abc123", []byte("x"))
-		require.NoError(t, err)
-		assert.False(t, overwritten)
-		assert.Equal(t, "<remote>:alice/myprofile@abc123", localPath)
+			localPath, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "abc123", []byte("x"))
+			require.NoError(t, err)
+			assert.False(t, overwritten)
+			assert.Equal(t, "<remote>:alice/myprofile@abc123", localPath)
 
-		// Nothing was written under the cache dir.
-		entries, _ := afero.ReadDir(fs, baseDir)
-		assert.Empty(t, entries, "bundles must not be written to disk")
-	})
-
-	t.Run("new_profile_writes_through", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: baseDir, Stdout: &bytes.Buffer{}}
-
-		localPath, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "sha", []byte("hello"))
-		require.NoError(t, err)
-		assert.False(t, overwritten, "a fresh file is not an overwrite")
-
-		got, readErr := afero.ReadFile(fs, localPath)
-		require.NoError(t, readErr)
-		assert.Equal(t, "hello", string(got))
-	})
-
-	t.Run("existing_identical_content_skips_prompt", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: baseDir, Stdout: &bytes.Buffer{}}
-		localPath := ref.LocalPath(baseDir, ItemTypeProfile)
-		require.NoError(t, afero.WriteFile(fs, localPath, []byte("same"), 0o644))
-
-		// Stdin is empty: if a prompt were issued the read would fail, so a
-		// clean return proves identical content short-circuits the prompt.
-		opts.Stdin = strings.NewReader("")
-		_, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "sha", []byte("same"))
-		require.NoError(t, err)
-		assert.True(t, overwritten, "an existing file counts as overwritten even when content is identical")
-	})
-
-	t.Run("existing_differing_force_overwrites_without_prompt", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		localPath := ref.LocalPath(baseDir, ItemTypeProfile)
-		require.NoError(t, afero.WriteFile(fs, localPath, []byte("old"), 0o644))
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: baseDir, Force: true, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("")}
-
-		_, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "sha", []byte("new"))
-		require.NoError(t, err)
-		assert.True(t, overwritten)
-		got, _ := afero.ReadFile(fs, localPath)
-		assert.Equal(t, "new", string(got), "force overwrites the differing file")
-	})
-
-	t.Run("existing_differing_prompt_yes_overwrites", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		localPath := ref.LocalPath(baseDir, ItemTypeProfile)
-		require.NoError(t, afero.WriteFile(fs, localPath, []byte("old"), 0o644))
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: baseDir, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("y\n")}
-
-		_, overwritten, err := p.writePulledContent(ref, opts, "alice/myprofile", "sha", []byte("new"))
-		require.NoError(t, err)
-		assert.True(t, overwritten)
-		got, _ := afero.ReadFile(fs, localPath)
-		assert.Equal(t, "new", string(got))
-	})
-
-	t.Run("existing_differing_prompt_no_cancels", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		p := &Puller{fs: fs}
-		localPath := ref.LocalPath(baseDir, ItemTypeProfile)
-		require.NoError(t, afero.WriteFile(fs, localPath, []byte("old"), 0o644))
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: baseDir, Stdout: &bytes.Buffer{}, Stdin: strings.NewReader("n\n")}
-
-		_, _, err := p.writePulledContent(ref, opts, "alice/myprofile", "sha", []byte("new"))
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, errs.ErrCancelled), "declining the overwrite prompt cancels the write")
-		got, _ := afero.ReadFile(fs, localPath)
-		assert.Equal(t, "old", string(got), "a cancelled write must not modify the existing file")
-	})
+			// Nothing was written anywhere under the project dir.
+			_, statErr := fs.Stat(ref.LocalPath(baseDir, itemType))
+			assert.True(t, os.IsNotExist(statErr), "remote items must not be materialized to disk")
+		})
+	}
 }
 
 // TestConfirmRetraction covers the retraction gate: a clean version passes

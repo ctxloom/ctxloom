@@ -193,6 +193,26 @@ func (f *GitCloneFetcher) ResolveRef(ctx context.Context, owner, repo, ref strin
 	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
 }
 
+// ListTags returns the repository's tag names (e.g. "v1.2.3"), lightweight and
+// annotated alike, in no particular order. It reads refs/tags from the local
+// clone — zero network. This is the version space the semver constraint resolver
+// matches against.
+func (f *GitCloneFetcher) ListTags(ctx context.Context, owner, repo string) ([]string, error) {
+	iter, err := f.repo.Tags()
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+	defer iter.Close()
+	var tags []string
+	if err := iter.ForEach(func(ref *plumbing.Reference) error {
+		tags = append(tags, ref.Name().Short())
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("iterate tags: %w", err)
+	}
+	return tags, nil
+}
+
 // SearchRepos is not supported by the local clone fetcher.
 // This should be handled by the API fallback wrapper.
 func (f *GitCloneFetcher) SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error) {

@@ -27,13 +27,13 @@ Feature: Bundles
     Then the command succeeds
     And the output contains "testing"
 
-  Scenario: Pinning a local bundle reports it is not lockfile-tracked
+  Scenario: Holding a local bundle reports it is not lockfile-tracked
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    When I run "ctxloom bundle pin demo"
+    When I run "ctxloom bundle hold demo"
     Then the command succeeds
-    And the output contains "nothing to pin"
-    When I run "ctxloom bundle unpin demo"
+    And the output contains "nothing to hold"
+    When I run "ctxloom bundle unhold demo"
     Then the command succeeds
 
   Scenario: Delete a bundle removes its file

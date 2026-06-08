@@ -554,7 +554,7 @@ Distill and load context from a specific session.
 
 ### recover_session
 
-Recover context from the current session after `/clear`. Uses stable process ID tracking to find the previous session automatically.
+Recover the most-recent session's context after `/clear`. Reads the session from disk at request time (no process/PID tracking).
 
 **Parameters:**
 
@@ -566,7 +566,7 @@ Recover context from the current session after `/clear`. Uses stable process ID 
 
 ### get_previous_session
 
-Get the previous session's distilled content by looking up the session registry. This is the primary tool for recovering context after `/clear`.
+Get the previous session's distilled content for the current project, read from disk at request time (no process/PID tracking). This is the primary tool for recovering context after `/clear`.
 
 **Parameters:**
 
@@ -574,15 +574,7 @@ Get the previous session's distilled content by looking up the session registry.
 |------|------|----------|-------------|
 | `model` | string | No | LLM model for distillation if needed |
 
-### browse_session_history
-
-Browse recent sessions with AI-generated summaries. Shows sessions from the last 3 days with a brief description of each.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend to browse: `claude-code` or `gemini` (default: `claude-code`) |
+> Browsing recent sessions is exposed as a **resource**, not a tool — read `ctxloom://sessions/recent`.
 
 ---
 

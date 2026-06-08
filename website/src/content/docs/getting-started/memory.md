@@ -24,7 +24,7 @@ The alternative is worse: `/clear` then manually copy-paste chunks of your chat 
 3. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
 4. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
 5. **Persistent storage** - Distilled summaries are saved to `.ctxloom/memory/`
-6. **Reliable recovery** - Process ID tracking ensures you can always find the previous session
+6. **Reliable recovery** - Sessions are read from disk at request time, so the previous session is always findable
 
 The workflow is simple: when you hit context limits, `/clear` and `/recover`. No timing anxiety.
 
@@ -35,6 +35,9 @@ When working on long sessions, you'll eventually approach context window limits.
 1. **Clear** the context window when you hit limits
 2. **Recover** context from the previous session after `/clear`
 3. **Browse** session history to find and load specific sessions
+
+For durable, cross-session work items (distinct from the agent's ephemeral
+to-dos), see [Sessions and Tasks](/concepts/sessions-and-tasks/).
 
 ## Usage
 
@@ -49,12 +52,15 @@ When you hit context limits and need to clear:
 /recover
 ```
 
-The `/recover` command:
+The `/recover` skill:
 
-1. Finds the previous session using process ID tracking
-2. Reads the raw JSONL transcript from disk
-3. Distills it using a separate LLM (default: Haiku)
-4. Returns the essence to continue working
+1. Reads the previous session for this project from disk (read-time — no process tracking)
+2. Distills the raw JSONL transcript using a separate LLM (default: Haiku)
+3. Returns the essence so you can continue working
+
+Behind the skill, two tools do the work: `recover_session` recovers the
+most-recent session, and `get_previous_session` returns the previous session for
+the current project.
 
 ### Alternative Recovery
 
@@ -68,45 +74,29 @@ The AI will use `get_previous_session` to find and distill your previous session
 
 ### Browsing Session History
 
-Use `/loadctx` to browse and load from any recent session:
-
-```
-/loadctx
-```
-
-This shows sessions from the last 3 days with AI-generated summaries.
-
-### Browsing Session History
-
-To see recent sessions with AI-generated summaries:
+To see recent sessions with short summaries, read the `ctxloom://sessions/recent`
+resource — or just ask:
 
 ```
 Show me recent sessions
 ```
 
-or
+Then load a specific one to continue it:
 
 ```
-Browse my session history
-```
-
-The AI will use `browse_session_history` to show sessions from the last 3 days with a brief summary of each, then you can load a specific one:
-
-```
-Load session abc123def
+Load the distilled session from this morning
 ```
 
 ## How It Works
 
 ### Session Tracking
 
-ctxloom uses a session registry to track conversations across `/clear`:
-
-1. On session start, a hook registers the session transcript path with the ctxloom wrapper PID
-2. The PID remains stable across `/clear` (even though the AI process restarts)
-3. When you ask to recover, ctxloom looks up the previous session by PID
-
-This allows seamless recovery without manually specifying session IDs.
+ctxloom records each session on disk under the project, in a harp-named session
+directory. Recovery is **read-time**: when you ask to recover, ctxloom reads the
+previous (or most-recent) session for the current project straight from disk. No
+live process or PID tracking is involved, so recovery works even after the AI
+process has fully restarted across `/clear` — and without manually specifying
+session IDs.
 
 ### Compaction
 
@@ -140,11 +130,11 @@ Memory is stored in:
 
 ```bash
 # Morning: Write code with Claude
-ctxloom run --plugin claude-code "implement the auth module"
+ctxloom run --llm claude-code "implement the auth module"
 # When done, compact the session (or let it auto-compact on context limit)
 
 # Afternoon: Review with Gemini
-ctxloom run --plugin gemini
+ctxloom run --llm gemini
 "Load the distilled session from this morning"
 # Gemini loads the markdown summary, continues the work
 ```
@@ -169,9 +159,11 @@ Session memory provides these MCP tools:
 | `compact_session` | Compact current or specified session |
 | `list_sessions` | List available sessions with compaction status |
 | `load_session` | Distill and load a specific session by ID |
-| `recover_session` | Recover context after `/clear` using process tracking |
-| `get_previous_session` | Get the previous session's content by PID lookup |
-| `browse_session_history` | Browse recent sessions with AI summaries |
+| `recover_session` | Recover the most-recent session's context after `/clear` |
+| `get_previous_session` | Get the previous session for this project (read-time) |
+
+Browsing recent sessions is a **resource**, not a tool — read
+`ctxloom://sessions/recent`.
 
 ### Example: Manual Compaction
 
@@ -193,19 +185,22 @@ Use get_previous_session to recover what we were working on
 
 ### Example: Browse History
 
+Recent sessions are exposed as the `ctxloom://sessions/recent` resource:
+
 ```
-Use browse_session_history to show me recent sessions
+Show me recent sessions
 ```
 
 ## Advanced Configuration
 
-Compaction settings can be customized in `defaults:`:
+Compaction settings live under `llm.compaction`:
 
 ```yaml
-defaults:
-  compaction_plugin: claude-code  # LLM plugin for distillation
-  compaction_model: haiku         # Model to use (fast + cheap)
-  compaction_chunks: 8000         # Tokens per chunk
+llm:
+  compaction:
+    llm: claude-code   # LLM used for distillation
+    model: haiku       # Model to use (fast + cheap)
+    chunks: 8000       # Tokens per chunk
 ```
 
 ## CLI Commands
@@ -230,7 +225,7 @@ Shows all sessions with their compaction status.
 
 1. **Just `/clear` when needed** - Don't overthink it; ctxloom tracks your session automatically
 2. **Use `/recover` after clearing** - Distillation happens on-demand, no pre-saving required
-3. **Use `/loadctx` for older sessions** - Browse history when you need context from days ago
+3. **Browse older sessions** - Read `ctxloom://sessions/recent` (or ask "show me recent sessions") when you need context from days ago
 4. **Review recovered content** - Check that important details were captured
 
 ## Troubleshooting
@@ -238,14 +233,13 @@ Shows all sessions with their compaction status.
 ### Recovery Shows "No Previous Session"
 
 If recovery can't find the previous session:
-- Ensure you started the session with `ctxloom run` (not raw `claude`)
-- The session registry tracks by PID; if ctxloom wasn't the wrapper, it won't be tracked
-- Try `browse_session_history` to manually find and load the session
+- Ensure you started the session with `ctxloom run` (not raw `claude`), so the session was recorded
+- Browse `ctxloom://sessions/recent` (or ask "show me recent sessions") to find and load a specific one
 
 ### Compaction Fails
 
 If compaction fails:
-- Check that the LLM plugin is configured correctly
+- Check that the LLM is configured correctly
 - Ensure you have API access for the compaction model
 - Try with a smaller `chunk_size` if sessions are very large
 

@@ -95,6 +95,16 @@ func (f *cacheFetcher) GetDefaultBranch(ctx context.Context, owner, repo string)
 	return gf.GetDefaultBranch(ctx, owner, repo)
 }
 
+// ListTags forwards to the local clone (ensuring it is present first), so semver
+// range resolution reads the repo's tags from the cache with no forge API traffic.
+func (f *cacheFetcher) ListTags(ctx context.Context, owner, repo string) ([]string, error) {
+	gf, err := f.localFetcher(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return gf.ListTags(ctx, owner, repo)
+}
+
 // SearchRepos has no local equivalent; it queries the forge's search index.
 // Only the GitHub adapter has a search API — the generic git adapter clones a
 // known URL and cannot enumerate a host, so it returns no results. The API

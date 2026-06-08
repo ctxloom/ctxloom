@@ -9,15 +9,18 @@ Feature: Remote content
     And a git remote "origin" serving a ctxloom bundle
     When I run "ctxloom remote browse origin"
     Then the command succeeds
-    And the output contains "origin/demo"
-    And the output contains "origin/base"
+    And the output contains "@bundles/demo"
+    And the output contains "@profiles/base"
 
   Scenario: Install a profile from a remote
+    # Remote profiles are pure references — not materialized to disk. Installing
+    # locks the canonical ref and wires it into a local profile so it's active.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     When I run "ctxloom profile install origin/base --force"
     Then the command succeeds
-    And the file ".ctxloom/profiles/origin/base.yaml" exists
+    And the file ".ctxloom/lock.yaml" contains "@profiles/base"
+    And the file ".ctxloom/profiles/default.yaml" exists
 
   Scenario: Install a bundle's fragment from a remote
     Given an initialized ctxloom project
@@ -52,13 +55,14 @@ Feature: Remote content
     When the agent reads resource "ctxloom://remotes/origin/contents"
     Then the resource contains "demo"
 
-  Scenario: A remote change is staged for review and approved
+  Scenario: An upgrade is staged for review and approved
+    # References are hash-pinned; passive sync never stages. `remote upgrade`
+    # re-pins to HEAD and stages the change for review.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom profile install origin/base --force"
-    And I run "ctxloom remote sync"
     And the remote "origin" advances its bundle
-    When I run "ctxloom remote sync"
+    When I run "ctxloom remote upgrade"
     Then the command succeeds
     When I run "ctxloom bundle review"
     Then the command succeeds
@@ -70,14 +74,39 @@ Feature: Remote content
     When I run "ctxloom bundle review"
     Then the output contains "No bundle changes pending review"
 
-  Scenario: A staged remote change can be declined
+  Scenario: A staged upgrade can be declined
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom profile install origin/base --force"
-    And I run "ctxloom remote sync"
     And the remote "origin" advances its bundle
-    And I run "ctxloom remote sync"
+    And I run "ctxloom remote upgrade"
     When I run "ctxloom bundle decline"
     Then the command succeeds
+    When I run "ctxloom bundle review"
+    Then the output contains "No bundle changes pending review"
+
+  Scenario: A pinned dependency is not upgraded
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom bundle pin origin/base"
+    And the remote "origin" advances its bundle
+    When I run "ctxloom remote upgrade"
+    Then the command succeeds
+    And the output contains "up to date"
+    When I run "ctxloom bundle review"
+    Then the output contains "No bundle changes pending review"
+
+  Scenario: A trusted remote's upgrade applies without review
+    # Trust means "apply without review": `upgrade` rewrites the pinned refs and
+    # relocks immediately instead of staging for review.
+    Given an initialized ctxloom project
+    And a git remote "origin" serving a ctxloom bundle
+    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote trust origin"
+    And the remote "origin" advances its bundle
+    When I run "ctxloom remote upgrade"
+    Then the command succeeds
+    And the output contains "trusted"
     When I run "ctxloom bundle review"
     Then the output contains "No bundle changes pending review"

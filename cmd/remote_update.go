@@ -319,7 +319,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, regis
 		if err != nil {
 			continue
 		}
-		latest, ok := latestRemoteSHA(ctx, fetcher, ref.URL)
+		latest, ok := latestWithinConstraint(ctx, fetcher, ref.URL, e.Entry.RequestedVersion)
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
@@ -333,22 +333,22 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, regis
 	return profileUpdates, bundleUpdates, skipped
 }
 
-// latestRemoteSHA returns the SHA of the remote's default branch, or ok=false if
-// any step fails. Split out so detectUpdates stays flat.
-func latestRemoteSHA(ctx context.Context, fetcher remote.Fetcher, url string) (sha string, ok bool) {
+// latestWithinConstraint returns the newest commit the entry's version
+// constraint allows — the highest tag in a semver range, the tip of a branch, or
+// (for a constraint-less entry) the default branch's HEAD. An exact tag/SHA
+// constraint resolves to itself, so it is never reported outdated. ok=false on
+// any failure. This is what makes `update` constraint-aware: it reports an update
+// only when a newer commit actually satisfies what the manifest asked for.
+func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, constraint string) (sha string, ok bool) {
 	owner, repo, err := remote.ParseRepoURL(url)
 	if err != nil {
 		return "", false
 	}
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-	if err != nil {
+	res, rerr := remote.ResolveConstraint(ctx, constraint, remote.NewFetcherRepoVersions(fetcher, owner, repo))
+	if rerr != nil || res.SHA == "" {
 		return "", false
 	}
-	sha, err = fetcher.ResolveRef(ctx, owner, repo, branch)
-	if err != nil {
-		return "", false
-	}
-	return sha, true
+	return res.SHA, true
 }
 
 // printAvailableUpdates lists pending profile and bundle updates; empty sections
@@ -370,20 +370,19 @@ func printAvailableUpdates(out io.Writer, profileUpdates, bundleUpdates []update
 	}
 }
 
-// applyUpdates pulls profile updates first (Cascade=true, since a profile may
-// newly reference bundles) then bundle updates, returning counts plus the items
-// the remote no longer has (for cleanup). Per-item errors are classified and
-// reported, never fatal.
+// applyUpdates pulls profile updates first (a profile may newly reference
+// bundles, surfaced by the next lock) then bundle updates, returning counts plus
+// the items the remote no longer has (for cleanup). Per-item errors are
+// classified and reported, never fatal.
 func applyUpdates(ctx context.Context, out io.Writer, p pullRunner, profileUpdates, bundleUpdates []updateInfo) (updated, failed int, removed []updateInfo) {
-	pu, pf, pr := applyUpdateBatch(ctx, out, p, "\n--- Updating profiles first ---", profileUpdates, true)
-	bu, bf, br := applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", bundleUpdates, false)
+	pu, pf, pr := applyUpdateBatch(ctx, out, p, "\n--- Updating profiles first ---", profileUpdates)
+	bu, bf, br := applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", bundleUpdates)
 	removed = append(pr, br...)
 	return pu + bu, pf + bf, removed
 }
 
-// applyUpdateBatch pulls one batch under a header. cascade is set on profile
-// pulls so their newly-referenced bundles come along.
-func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header string, updates []updateInfo, cascade bool) (updated, failed int, removed []updateInfo) {
+// applyUpdateBatch pulls one batch under a header.
+func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header string, updates []updateInfo) (updated, failed int, removed []updateInfo) {
 	if len(updates) == 0 {
 		return 0, 0, nil
 	}
@@ -394,7 +393,6 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 			ItemType: u.Type,
 			Force:    updateForce,
 			Blind:    updateBlind,
-			Cascade:  cascade,
 		})
 		if err != nil {
 			switch classifyPullError(err) {

@@ -3,6 +3,7 @@ package profiles
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,32 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
+
+// ParseProfile unmarshals profile YAML into a Profile. Name and Path are not
+// set (they are not encoded in the file); callers assign them. Used to parse
+// remote profiles read from the git clone cache before seeding the loader.
+func ParseProfile(data []byte) (*Profile, error) {
+	var p Profile
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+	return &p, nil
+}
+
+// ResolveShortRefs rewrites this profile's bundle and parent references from
+// short same-repo form to canonical form, resolved against sourceURL (the repo
+// the profile was read from). Self-contained refs pass through unchanged. This
+// is applied when seeding a remote profile so every downstream reader sees
+// canonical refs — the profile's authored short refs only have meaning relative
+// to its own source repo.
+func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
+	for i, b := range p.Bundles {
+		p.Bundles[i] = remote.ResolveRefString(b, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	for i, par := range p.Parents {
+		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeProfile)
+	}
+}
 
 // Profile represents a named collection of fragments, bundles, and configuration.
 // Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml
@@ -68,6 +95,12 @@ type Loader struct {
 	// pending accumulates in-memory schema upgrades applied during Load that an
 	// interactive caller may persist with consent (see PendingUpgrades).
 	pending []*upgrade.Pending
+	// seeded holds remote profiles read from the git clone cache at their locked
+	// SHA, indexed by canonical ref. Remote profiles are pure references (never
+	// materialized to disk), so they enter the loader only via this seed — the
+	// profile-side mirror of bundles.WithSeededBundles. Seeded entries are
+	// returned ahead of any fs lookup.
+	seeded map[string]*Profile
 }
 
 // LoaderOption is a functional option for configuring a Loader.
@@ -87,6 +120,29 @@ func WithRemoteResolver(resolve func(profileName string) string) LoaderOption {
 	return func(l *Loader) {
 		l.remoteResolver = resolve
 	}
+}
+
+// WithSeededProfiles pre-populates the loader with parsed remote profiles
+// indexed by canonical ref. Seeded entries win over fs hits with the same name,
+// mirroring bundles.WithSeededBundles: remote profiles served from the git clone
+// cache (see remote.ProfileReader) are referenced, never materialized to disk,
+// so they reach the loader only through this seed. Each call merges its map in.
+func WithSeededProfiles(seeded map[string]*Profile) LoaderOption {
+	return func(l *Loader) {
+		if l.seeded == nil {
+			l.seeded = make(map[string]*Profile, len(seeded))
+		}
+		maps.Copy(l.seeded, seeded)
+	}
+}
+
+// lookupSeeded returns the seeded profile for name (or nil+false).
+func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
+	if l.seeded == nil {
+		return nil, false
+	}
+	p, ok := l.seeded[name]
+	return p, ok
 }
 
 // PendingUpgrades returns the in-memory schema upgrades Load applied to older
@@ -133,6 +189,13 @@ func NewLoader(dirs []string, opts ...LoaderOption) *Loader {
 func (l *Loader) List() ([]*Profile, error) {
 	var profiles []*Profile
 	seen := make(map[string]bool)
+
+	// Seeded remote profiles take precedence and are emitted first — they carry
+	// a non-fs Path (the canonical ref) so write paths never touch them.
+	for name, p := range l.seeded {
+		profiles = append(profiles, p)
+		seen[name] = true
+	}
 
 	for _, dir := range l.dirs {
 		exists, err := afero.DirExists(l.fs, dir)
@@ -186,6 +249,11 @@ func (l *Loader) List() ([]*Profile, error) {
 
 // Load loads a profile by name (supports subdirectory paths like "github/profile-name").
 func (l *Loader) Load(name string) (*Profile, error) {
+	// Seeded remote profiles win over any fs lookup.
+	if p, ok := l.lookupSeeded(name); ok {
+		return p, nil
+	}
+
 	// Convert forward slashes to OS-specific separator for file lookup
 	osName := filepath.FromSlash(name)
 

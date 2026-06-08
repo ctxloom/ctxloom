@@ -141,209 +141,62 @@ func TestCheckOutdatedResult_Outdated(t *testing.T) {
 // =============================================================================
 // LockDependencies Integration Tests
 // =============================================================================
-// Lock generation scans installed bundles/profiles for source metadata (_source
-// field), then writes a lockfile capturing exact SHAs. This enables teams to
-// share consistent versions and reproduce builds exactly.
+// Lock builds lock.yaml from the flattened, hash-pinned transitive closure of
+// the project's local profiles, surfacing a same-item/different-hash conflict
+// immediately. (Uses real temp dirs so the profile loader reads files.)
 
-func TestLockDependencies_EmptyDirectory(t *testing.T) {
-	fs := afero.NewMemMapFs()
+// writeLocalProfile writes a local profile file under baseDir/profiles.
+func writeLocalProfile(t *testing.T, baseDir, name, body string) {
+	t.Helper()
+	dir := paths.ProfilesPath(baseDir)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(body), 0o644))
+}
 
-	// Create empty bundles directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"", 0755))
+func TestLockDependencies_NoProfiles(t *testing.T) {
+	cfg := testConfigWithSCMPath(t.TempDir())
 
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true})
 	require.NoError(t, err)
 
 	assert.Equal(t, "empty", result.Status)
 	assert.Contains(t, result.Message, "No remote items")
 }
 
-func TestLockDependencies_WithSourceMetadata(t *testing.T) {
-	fs := afero.NewMemMapFs()
+func TestLockDependencies_BuildsFromClosure(t *testing.T) {
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "default",
+		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
+	cfg := testConfigWithSCMPath(tmp)
 
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir)+"/test-remote", 0755))
-
-	// Create bundle with source metadata
-	bundleContent := `version: "1.0"
-description: Test bundle
-_source:
-  sha: abc123def456
-  url: https://github.com/test/repo
-  version: v1
-  fetched_at: "2024-01-01T00:00:00Z"
-fragments:
-  test:
-    content: Test content
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/my-bundle.yaml", []byte(bundleContent), 0644))
-
-	// Create profile with source metadata
-	profileContent := `_source:
-  sha: def789ghi012
-  url: https://github.com/test/repo
-  version: v1
-  fetched_at: "2024-01-02T00:00:00Z"
-bundles:
-  - my-bundle
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/test-remote/dev.yaml", []byte(profileContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
-
-	assert.Equal(t, "generated", result.Status)
-	assert.Equal(t, 2, result.ItemCount)
-	assert.Contains(t, result.Path, "lock.yaml")
-}
-
-func TestLockDependencies_SkipsFilesWithoutSourceMetadata(t *testing.T) {
-	// Local bundles created by users shouldn't be locked - only remote installs
-	// with source tracking (_source field) should appear in lockfiles.
-	fs := afero.NewMemMapFs()
-
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
-
-	// Create bundle WITHOUT source metadata
-	bundleContent := `version: "1.0"
-description: Local bundle without source
-fragments:
-  test:
-    content: Test content
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/local-bundle.yaml", []byte(bundleContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
-	require.NoError(t, err)
-
-	// Should return empty since no items have source metadata
-	assert.Equal(t, "empty", result.Status)
-	assert.Contains(t, result.Message, "No remote items")
-}
-
-func TestLockDependencies_MixedItems(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/remote1", 0755))
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/remote2", 0755))
-
-	// Bundle with source metadata
-	bundleWithMeta := `version: "1.0"
-_source:
-  sha: aaa111bbb222
-  url: https://github.com/remote1/repo
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/remote1/tracked.yaml", []byte(bundleWithMeta), 0644))
-
-	// Bundle without source metadata (should be skipped)
-	bundleNoMeta := `version: "1.0"
-description: Local bundle
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/remote2/local.yaml", []byte(bundleNoMeta), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
-	require.NoError(t, err)
-
-	assert.Equal(t, "generated", result.Status)
-	assert.Equal(t, 1, result.ItemCount) // Only the one with metadata
-}
-
-func TestLockDependencies_NestedPaths(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create nested directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/org/subdir", 0755))
-
-	// Bundle in nested path
-	bundleContent := `version: "1.0"
-_source:
-  sha: nested123sha
-  url: https://github.com/org/repo
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/org/deep-bundle.yaml", []byte(bundleContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
-	require.NoError(t, err)
-
 	assert.Equal(t, "generated", result.Status)
 	assert.Equal(t, 1, result.ItemCount)
+
+	lf, err := remote.NewLockfileManager(tmp).Load()
+	require.NoError(t, err)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "https://github.com/test/repo@bundles/demo")
+	require.True(t, ok, "the pinned bundle is locked under its hashless canonical identity")
+	assert.Equal(t, "abc123def456", entry.SHA)
 }
 
-func TestLockDependencies_InvalidYAML(t *testing.T) {
-	fs := afero.NewMemMapFs()
+func TestLockDependencies_ConflictSurfacedImmediately(t *testing.T) {
+	tmp := t.TempDir()
+	writeLocalProfile(t, tmp, "a", "bundles:\n  - https://github.com/test/repo@bundles/demo@aaaaaaa\n")
+	writeLocalProfile(t, tmp, "b", "bundles:\n  - https://github.com/test/repo@bundles/demo@bbbbbbb\n")
+	cfg := testConfigWithSCMPath(tmp)
 
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
+	// Explicit lock → hard error naming the conflict.
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conflict")
+	assert.Contains(t, err.Error(), "bundles/demo")
 
-	// Create bundle with invalid YAML (should be skipped)
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/invalid.yaml", []byte("invalid: yaml: [[["), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
+	// Startup auto-lock → warn + degrade (conflicted item dropped, here leaving none).
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: false})
 	require.NoError(t, err)
-
-	// Should return empty since the invalid YAML is skipped
 	assert.Equal(t, "empty", result.Status)
-}
-
-func TestLockDependencies_EmptySHA(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
-
-	// Create bundle with empty SHA in source metadata
-	bundleContent := `version: "1.0"
-_source:
-  sha: ""
-  url: https://github.com/test/repo
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/empty-sha.yaml", []byte(bundleContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
-	require.NoError(t, err)
-
-	// Should return empty since SHA is empty
-	assert.Equal(t, "empty", result.Status)
-}
-
-func TestLockDependencies_ProfilesOnly(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create only profiles (no bundles directory)
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir)+"/test-remote", 0755))
-
-	profileContent := `_source:
-  sha: profile123sha
-  url: https://github.com/test/repo
-bundles:
-  - bundle1
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ProfilesPath(testBaseDir)+"/test-remote/my-profile.yaml", []byte(profileContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FS: fs, SkipSync: true})
-	require.NoError(t, err)
-
-	assert.Equal(t, "generated", result.Status)
-	assert.Equal(t, 1, result.ItemCount)
 }
 
 func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
@@ -377,34 +230,6 @@ func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
 
 	// Should complete (sync found nothing to do, lock found nothing to lock)
 	assert.Equal(t, "empty", result.Status)
-}
-
-func TestLockDependencies_SkipSyncOption(t *testing.T) {
-	// Verify that SkipSync: true skips the sync step
-	fs := afero.NewMemMapFs()
-
-	// Create directory structure with a bundle that has source metadata
-	require.NoError(t, fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/test-remote", 0755))
-
-	bundleContent := `_source:
-  sha: abc123
-  url: https://github.com/test/repo
-fragments:
-  test: {}
-`
-	require.NoError(t, afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/test-remote/my-bundle.yaml", []byte(bundleContent), 0644))
-
-	cfg := testConfigWithSCMPath(testBaseDir)
-
-	// With SkipSync: true, we skip sync and go straight to lock generation
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{
-		FS:       fs,
-		SkipSync: true,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, "generated", result.Status)
-	assert.Equal(t, 1, result.ItemCount)
 }
 
 // testConfigWithSCMPath creates a config with the given ctxloom path for testing.

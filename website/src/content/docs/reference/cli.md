@@ -15,7 +15,7 @@ ctxloom init --home       # Create/ensure ~/.ctxloom exists
 
 ## ctxloom run
 
-Assemble context and run AI plugin.
+Assemble context and run the configured LLM.
 
 ```bash
 ctxloom run [flags] [prompt...]
@@ -28,7 +28,6 @@ ctxloom run [flags] [prompt...]
 | `-p, --profile <name>` | Load predefined fragment set |
 | `-f, --fragments <names>` | Additional fragments to include (repeatable) |
 | `-t, --tags <tags>` | Include fragments with specific tags (repeatable) |
-| `--plugin <name>` | LLM plugin to use (default: claude-code) |
 | `--saved-prompt <name>` | Use saved prompt instead of inline |
 | `--dry-run` | Show what would be assembled without running |
 | `--suppress-warnings` | Suppress warnings |
@@ -233,9 +232,16 @@ Manage remote sources.
 | `search` | `<query>` | Search for bundles/profiles |
 | `browse` | `<remote>` | Browse remote contents |
 | `discover` | | Find ctxloom repos on GitHub/GitLab |
-| `lock` | | Generate lockfile from installed items |
-| `update` | `[name]` | Update remotes (all or specific) |
-| `sync` | | Sync dependencies |
+| `lock` | | Resolve every reference's version constraint to a commit in `lock.yaml` |
+| `sync` | | Install exactly what the lockfile pins (resolves nothing) |
+| `update` | `[name]` | Report the newest commit available within each constraint |
+| `upgrade` | | Re-resolve within constraints and move the **lock** (trusted apply, others stage for review) |
+
+A reference's `@version` is a **constraint** — a semver range (`@^1.2`), a branch
+(`@main`), an exact tag/SHA (`@v1.2.3`), or empty (default branch). `upgrade`
+moves only the lockfile, never your profile YAML. Freeze an item with `ctxloom
+bundle hold <name>` (alias `pin`); release with `unhold` (alias `unpin`). See
+[Versioning, locking, and holds](/concepts/remotes/#versioning-locking-and-holds).
 
 ### URL Formats
 

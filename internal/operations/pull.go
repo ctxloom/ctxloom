@@ -34,6 +34,20 @@ func canonicalizeUserRef(reference string, itemType remote.ItemType, registry *r
 	return fmt.Sprintf("%s@%s/%s", rem.URL, itemType.DirName(), path)
 }
 
+// CanonicalizeRemoteRef expands a convenience short-form reference
+// ("<alias>/<path>") to its canonical "<url>@<kind>/<path>" form via the
+// registry, leaving an already-canonical (or unresolvable) ref unchanged. CLI
+// commands that look items up by their canonical lockfile key (show-pending,
+// decline, pin) use it so they accept the same short input as install. Returns
+// the ref unchanged when no registry is available.
+func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemType) string {
+	registry, err := getRegistry(cfg, remote.WithRegistryFS(getFS(nil)))
+	if err != nil {
+		return ref
+	}
+	return canonicalizeUserRef(ref, itemType, registry)
+}
+
 // parseRemoteItemType maps the request item_type string to a remote.ItemType,
 // accepting only "bundle" and "profile".
 func parseRemoteItemType(s string) (remote.ItemType, error) {
@@ -52,7 +66,6 @@ type PullItemRequest struct {
 	ItemType  string `json:"item_type"` // "bundle" or "profile"
 	Force     bool   `json:"force"`
 	Blind     bool   `json:"blind"` // Skip security review display (implies Force)
-	Cascade   bool   `json:"cascade"`
 
 	// Registry is an optional pre-configured registry (for testing).
 	Registry *remote.Registry `json:"-"`
@@ -64,11 +77,11 @@ type PullItemRequest struct {
 
 // PullItemResult contains the result of a pull operation.
 type PullItemResult struct {
-	LocalPath     string   `json:"local_path"`
-	SHA           string   `json:"sha"`
-	Overwritten   bool     `json:"overwritten"`
-	CascadePulled []string `json:"cascade_pulled,omitempty"`
-	Installation  string   `json:"installation,omitempty"` // Setup instructions for the user
+	Reference    string `json:"reference"` // canonical ref the item was locked under
+	LocalPath    string `json:"local_path"`
+	SHA          string `json:"sha"`
+	Overwritten  bool   `json:"overwritten"`
+	Installation string `json:"installation,omitempty"` // Setup instructions for the user
 }
 
 // PullItem performs a direct pull operation using the existing Puller.
@@ -102,7 +115,6 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		Force:    req.Force,
 		Blind:    req.Blind,
 		ItemType: itemType,
-		Cascade:  req.Cascade,
 	}
 
 	// Short forms ("<remote-alias>/<path>") are accepted as USER INPUT for
@@ -115,12 +127,19 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 		return nil, err
 	}
 
+	// The canonical ref is the locked identity — the lockfile key callers wire
+	// into a local profile. Derive it from the resolved input ref.
+	canonical := ref
+	if parsed, perr := remote.ParseReference(ref); perr == nil {
+		canonical = parsed.CanonicalString()
+	}
+
 	return &PullItemResult{
-		LocalPath:     result.LocalPath,
-		SHA:           result.SHA,
-		Overwritten:   result.Overwritten,
-		CascadePulled: result.CascadePulled,
-		Installation:  bundleInstallation(itemType, result.Content),
+		Reference:    canonical,
+		LocalPath:    result.LocalPath,
+		SHA:          result.SHA,
+		Overwritten:  result.Overwritten,
+		Installation: bundleInstallation(itemType, result.Content),
 	}, nil
 }
 

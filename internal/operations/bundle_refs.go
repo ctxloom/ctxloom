@@ -96,7 +96,7 @@ func collectProfileBundleRefs(path string, content []byte, result *BundleAnalysi
 		}
 		bundleRef, _, _ := strings.Cut(bundle, "#")
 		ref, err := remote.ParseReference(bundleRef)
-		if err != nil || !ref.IsCanonical {
+		if err != nil || !ref.IsCanonical() {
 			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
 			continue
 		}
@@ -110,7 +110,7 @@ func collectProfileBundleRefs(path string, content []byte, result *BundleAnalysi
 // the ref is not a parseable canonical ref.
 func localItemPath(appDir string, itemType remote.ItemType, canonicalRef string) string {
 	ref, err := remote.ParseReference(canonicalRef)
-	if err != nil || !ref.IsCanonical {
+	if err != nil || !ref.IsCanonical() {
 		return ""
 	}
 	return ref.LocalPath(appDir, itemType)

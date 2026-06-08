@@ -65,19 +65,20 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return fmt.Errorf("invalid reference: %w", err)
 	}
 
-	rem, err := registry.Get(ref.Remote)
-	if err != nil {
-		return err
+	// Canonical refs carry the repo URL directly.
+	repoURL := ref.URL
+	if repoURL == "" {
+		return fmt.Errorf("reference has no repository URL: %s", refStr)
 	}
 
-	refreshRemoteClone(cmd.Context(), cfg, rem.URL)
+	refreshRemoteClone(cmd.Context(), cfg, repoURL)
 
-	fetcher, err := operations.GetCachedFetcher(cfg, rem.URL)
+	fetcher, err := operations.GetCachedFetcher(cfg, repoURL)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
 
-	owner, repo, err := remote.ParseRepoURL(rem.URL)
+	owner, repo, err := remote.ParseRepoURL(repoURL)
 	if err != nil {
 		return fmt.Errorf("invalid remote URL: %w", err)
 	}
@@ -263,23 +264,20 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, registry *remot
 			continue
 		}
 		ref, err := remote.ParseReference(e.Ref)
-		if err != nil {
+		if err != nil || ref.URL == "" {
 			continue
 		}
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
+		repoURL := ref.URL
+		if _, ok := fetched[repoURL]; ok {
 			continue
 		}
-		if _, ok := fetched[rem.URL]; ok {
-			continue
-		}
-		fetched[rem.URL] = struct{}{}
-		forgeType, _, ferr := remote.DetectForge(rem.URL)
+		fetched[repoURL] = struct{}{}
+		forgeType, _, ferr := remote.DetectForge(repoURL)
 		if ferr != nil {
 			continue
 		}
-		if _, uerr := cache.UpdateRepo(ctx, rem.URL, forgeType); uerr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", rem.URL, uerr)
+		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", repoURL, uerr)
 		}
 	}
 }
@@ -313,16 +311,15 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, regis
 		if err != nil {
 			continue
 		}
-		rem, err := registry.Get(ref.Remote)
-		if err != nil {
-			fmt.Fprintf(out, "  %s: remote not found\n", e.Ref)
+		if ref.URL == "" {
+			fmt.Fprintf(out, "  %s: reference has no repository URL\n", e.Ref)
 			continue
 		}
-		fetcher, err := fetcherFor(rem.URL)
+		fetcher, err := fetcherFor(ref.URL)
 		if err != nil {
 			continue
 		}
-		latest, ok := latestRemoteSHA(ctx, fetcher, rem.URL)
+		latest, ok := latestRemoteSHA(ctx, fetcher, ref.URL)
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}

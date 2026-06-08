@@ -1104,12 +1104,12 @@ func TestUniqueRemoteURLs(t *testing.T) {
 		Ref   string
 		Entry remote.LockEntry
 	}{
-		{remote.ItemTypeBundle, "alpha/one", remote.LockEntry{SHA: "a"}},
-		{remote.ItemTypeBundle, "alpha/two", remote.LockEntry{SHA: "a"}},
-		{remote.ItemTypeBundle, "beta/one", remote.LockEntry{SHA: "b"}},
-		{remote.ItemTypeBundle, "alpha/three", remote.LockEntry{SHA: "a"}},
-		{remote.ItemTypeBundle, "beta/two", remote.LockEntry{SHA: "b"}},
-		{remote.ItemTypeBundle, "ghost/one", remote.LockEntry{SHA: "g"}},
+		{remote.ItemTypeBundle, "https://github.com/alpha/repo@bundles/one", remote.LockEntry{SHA: "a", URL: "https://github.com/alpha/repo"}},
+		{remote.ItemTypeBundle, "https://github.com/alpha/repo@bundles/two", remote.LockEntry{SHA: "a", URL: "https://github.com/alpha/repo"}},
+		{remote.ItemTypeBundle, "https://github.com/beta/repo@bundles/one", remote.LockEntry{SHA: "b", URL: "https://github.com/beta/repo"}},
+		{remote.ItemTypeBundle, "https://github.com/alpha/repo@bundles/three", remote.LockEntry{SHA: "a", URL: "https://github.com/alpha/repo"}},
+		{remote.ItemTypeBundle, "https://github.com/beta/repo@bundles/two", remote.LockEntry{SHA: "b", URL: "https://github.com/beta/repo"}},
+		{remote.ItemTypeBundle, "ghost@bundles/one", remote.LockEntry{SHA: "g"}}, // no URL → skipped
 	}
 
 	urls := uniqueRemoteURLs(entries, registry)
@@ -1117,7 +1117,7 @@ func TestUniqueRemoteURLs(t *testing.T) {
 	assert.Equal(t, []string{
 		"https://github.com/alpha/repo",
 		"https://github.com/beta/repo",
-	}, urls, "dedup by URL, preserve first-appearance order, skip unknown remotes")
+	}, urls, "dedup by URL, preserve first-appearance order, skip entries without a URL")
 }
 
 func TestUniqueRemoteURLs_EmptyEntries(t *testing.T) {

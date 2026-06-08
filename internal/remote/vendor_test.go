@@ -36,8 +36,9 @@ func TestVendorManager_HasVendored(t *testing.T) {
 	manager := NewVendorManager(tmpDir)
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "security",
+		URL:      "https://github.com/alice/ctxloom",
+		ItemType: ItemTypeBundle,
+		Path:     "security",
 	}
 
 	// Initially not vendored
@@ -46,7 +47,7 @@ func TestVendorManager_HasVendored(t *testing.T) {
 	}
 
 	// Create vendored file
-	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "alice", "security.yaml")
+	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "github.com", "alice", "ctxloom", "security.yaml")
 	if err := os.MkdirAll(filepath.Dir(vendorPath), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +66,15 @@ func TestVendorManager_GetVendored(t *testing.T) {
 	manager := NewVendorManager(tmpDir)
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "security",
+		URL:      "https://github.com/alice/ctxloom",
+		ItemType: ItemTypeBundle,
+		Path:     "security",
 	}
 
 	content := []byte("vendored content")
 
 	// Create vendored file
-	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "alice", "security.yaml")
+	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "github.com", "alice", "ctxloom", "security.yaml")
 	_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
 	_ = os.WriteFile(vendorPath, content, 0644)
 
@@ -87,7 +89,7 @@ func TestVendorManager_GetVendored(t *testing.T) {
 	}
 
 	// Get non-existent
-	badRef := &Reference{Remote: "bob", Path: "other"}
+	badRef := &Reference{URL: "https://github.com/bob/repo", ItemType: ItemTypeBundle, Path: "other"}
 	_, err = manager.GetVendored(ItemTypeBundle, badRef)
 	if err == nil {
 		t.Error("expected error getting non-vendored file")
@@ -99,14 +101,15 @@ func TestVendorManager_NestedPath(t *testing.T) {
 	manager := NewVendorManager(tmpDir)
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "lang/go/testing",
+		URL:      "https://github.com/alice/ctxloom",
+		ItemType: ItemTypeBundle,
+		Path:     "lang/go/testing",
 	}
 
 	content := []byte("nested vendored content")
 
 	// Create vendored file with nested path
-	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "alice", "lang", "go", "testing.yaml")
+	vendorPath := filepath.Join(manager.VendorDir(), "bundles", "github.com", "alice", "ctxloom", "lang", "go", "testing.yaml")
 	_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
 	_ = os.WriteFile(vendorPath, content, 0644)
 
@@ -129,13 +132,14 @@ func TestVendorManager_DifferentItemTypes(t *testing.T) {
 	manager := NewVendorManager(tmpDir)
 
 	ref := &Reference{
-		Remote: "alice",
-		Path:   "test",
+		URL:      "https://github.com/alice/ctxloom",
+		ItemType: ItemTypeBundle,
+		Path:     "test",
 	}
 
 	// Create files for different types (bundles and profiles only)
 	for _, itemType := range []ItemType{ItemTypeBundle, ItemTypeProfile} {
-		vendorPath := filepath.Join(manager.VendorDir(), itemType.DirName(), "alice", "test.yaml")
+		vendorPath := filepath.Join(manager.VendorDir(), itemType.DirName(), "github.com", "alice", "ctxloom", "test.yaml")
 		_ = os.MkdirAll(filepath.Dir(vendorPath), 0755)
 		_ = os.WriteFile(vendorPath, []byte(string(itemType)), 0644)
 	}

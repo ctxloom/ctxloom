@@ -112,7 +112,7 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the
 	// repo URL and item path.
 	ref, err := ParseReference(bundleName)
-	if err != nil || !ref.IsCanonical {
+	if err != nil || !ref.IsCanonical() {
 		return nil, fmt.Errorf("invalid lockfile bundle key %q (expected a canonical ref): %w", bundleName, err)
 	}
 

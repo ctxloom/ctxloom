@@ -569,7 +569,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	var items []BrowseItemEntry
 	var warnings []string
 	for _, itemType := range browseTypeList(req.ItemType) {
-		typeItems, warning := browseTypeItems(ctx, fetcher, owner, repo, itemType, req)
+		typeItems, warning := browseTypeItems(ctx, fetcher, owner, repo, rem.URL, itemType, req)
 		items = append(items, typeItems...)
 		if warning != "" {
 			warnings = append(warnings, warning)
@@ -618,7 +618,7 @@ func browseTypeList(itemType string) []remote.ItemType {
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
 // type's directory doesn't exist) yields no items and no warning; any other
 // error yields a warning string (also echoed to stderr).
-func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
+func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, string) {
 	basePath := fmt.Sprintf("ctxloom/%s", itemType.DirName())
 	if req.Path != "" {
 		basePath = filepath.Join(basePath, req.Path)
@@ -637,14 +637,15 @@ func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo st
 
 	items := make([]BrowseItemEntry, 0, len(entries))
 	for _, e := range entries {
-		items = append(items, browseEntry(e, itemType, req))
+		items = append(items, browseEntry(e, itemType, repoURL, req))
 	}
 	return items, ""
 }
 
 // browseEntry builds a BrowseItemEntry from a directory entry, stripping the
-// ".yaml" suffix from files and prefixing req.Path onto the pull path.
-func browseEntry(e remote.DirEntry, itemType remote.ItemType, req BrowseRemoteRequest) BrowseItemEntry {
+// ".yaml" suffix from files and prefixing req.Path onto the pull path. The
+// PullRef is the canonical ref users paste into `ctxloom pull`.
+func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, req BrowseRemoteRequest) BrowseItemEntry {
 	name := e.Name
 	if !e.IsDir && strings.HasSuffix(name, ".yaml") {
 		name = strings.TrimSuffix(name, ".yaml")
@@ -660,7 +661,7 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, req BrowseRemoteRe
 		Type:    string(itemType),
 		Path:    pullPath,
 		IsDir:   e.IsDir,
-		PullRef: fmt.Sprintf("%s/%s", req.Remote, pullPath),
+		PullRef: fmt.Sprintf("%s@%s/%s", repoURL, itemType.DirName(), pullPath),
 	}
 }
 
@@ -921,7 +922,7 @@ func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
 			Tags:        r.Entry.Tags,
 			Description: r.Entry.Description,
 			Author:      r.Entry.Author,
-			PullRef:     fmt.Sprintf("%s/%s", r.Remote, r.Entry.Name),
+			PullRef:     fmt.Sprintf("%s@%ss/%s", r.RemoteURL, itemType, r.Entry.Name),
 		})
 	}
 	return entries

@@ -32,7 +32,8 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote:         "alice",
+		URL:            "https://github.com/alice/ctxloom",
+		ItemType:       ItemTypeBundle,
 		Path:           "security",
 		ContentVersion: "v1.0.0",
 	}
@@ -87,7 +88,8 @@ func TestDisplaySecurityWarningProfile(t *testing.T) {
 	var buf bytes.Buffer
 
 	ref := &Reference{
-		Remote:         "alice",
+		URL:            "https://github.com/alice/ctxloom",
+		ItemType:       ItemTypeProfile,
 		Path:           "secure",
 		ContentVersion: "v1.0.0",
 	}
@@ -691,7 +693,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote:         "alice",
+			URL:            "https://github.com/alice/ctxloom",
+			ItemType:       ItemTypeBundle,
 			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
@@ -702,11 +705,11 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		exists, err := afero.Exists(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		savedContent, err := afero.ReadFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		savedContent, err := afero.ReadFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
 		require.NoError(t, err)
 		assert.Equal(t, content, savedContent)
 	})
@@ -720,7 +723,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote:         "alice",
+			URL:            "https://github.com/alice/ctxloom",
+			ItemType:       ItemTypeBundle,
 			Path:           "security",
 			ContentVersion: "v1.0.0",
 		}
@@ -731,7 +735,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/custom/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/security.yaml")
+		exists, err := afero.Exists(fs, "/custom/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
@@ -745,7 +749,8 @@ func TestPuller_WriteContent(t *testing.T) {
 		)
 
 		ref := &Reference{
-			Remote:         "alice",
+			URL:            "https://github.com/alice/ctxloom",
+			ItemType:       ItemTypeBundle,
 			Path:           "deep/nested/security",
 			ContentVersion: "v1.0.0",
 		}
@@ -756,7 +761,7 @@ func TestPuller_WriteContent(t *testing.T) {
 		err := puller.writeContent(ref, opts, content, "abc123")
 
 		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/alice/deep/nested/security.yaml")
+		exists, err := afero.Exists(fs, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/deep/nested/security.yaml")
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})

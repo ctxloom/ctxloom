@@ -61,7 +61,7 @@ func canonicalBundleRef(t *testing.T) *Reference {
 	t.Helper()
 	ref, err := ParseReference("https://github.com/owner/repo@bundles/core-practices")
 	require.NoError(t, err)
-	require.True(t, ref.IsCanonical)
+	require.True(t, ref.IsCanonical())
 	return ref
 }
 
@@ -115,7 +115,7 @@ func TestRemoteRefFetcher_Handles(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, f.Handles(local), "a local ref is not a remote-fetcher concern")
 	assert.False(t, f.Handles(nil))
-	assert.False(t, f.Handles(&Reference{IsCanonical: true}), "canonical but URL-less is not handled")
+	assert.False(t, f.Handles(&Reference{ItemType: ItemTypeBundle, Path: "x"}), "a URL-less ref is not canonical, so not handled")
 }
 
 func TestRemoteRefFetcher_FetchItem_RejectsUnhandled(t *testing.T) {
@@ -140,7 +140,7 @@ func TestResolver_DispatchesByScheme(t *testing.T) {
 	ctx := context.Background()
 
 	// local stub claims everything non-canonical; remote claims canonical URLs.
-	local := &stubRefFetcher{handles: func(r *Reference) bool { return r != nil && !r.IsCanonical }}
+	local := &stubRefFetcher{handles: func(r *Reference) bool { return r != nil && !r.IsCanonical() }}
 	remoteVCS := &stubVCS{data: []byte("remote")}
 	remote := NewRemoteRefFetcher(func(string) (VCS, error) { return remoteVCS, nil })
 

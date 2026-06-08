@@ -60,46 +60,12 @@ func ParseReference(ref string) (*Reference, error) {
 		return parseFileReference(ref)
 	}
 
-	// Simple format: remote/path[@ref]. NOTE: the short form is no longer the
-	// operational identity (lockfile/seed/profiles are canonical); it survives
-	// here only because the MCP browse/fetch/confirm subsystem (FetchRemoteContent,
-	// WriteRemoteItem, the "remote/path@sha" pull token) still resolves short
-	// refs via registry aliases. Hard-erroring short input is blocked on
-	// migrating that subsystem to canonical (task numb-aide).
-	return parseSimpleReference(ref)
-}
-
-// parseSimpleReference parses the simple "remote/path[@ref]" format.
-func parseSimpleReference(ref string) (*Reference, error) {
-	// Split off content version if present
-	contentVersion := ""
-	if idx := strings.LastIndex(ref, "@"); idx != -1 {
-		contentVersion = ref[idx+1:]
-		ref = ref[:idx]
-	}
-
-	// Split into remote and path
-	parts := strings.SplitN(ref, "/", 2)
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid reference format, expected 'remote/path': %s", ref)
-	}
-
-	remote := parts[0]
-	itemPath := parts[1]
-
-	if remote == "" {
-		return nil, fmt.Errorf("empty remote name in reference")
-	}
-	if itemPath == "" {
-		return nil, fmt.Errorf("empty path in reference")
-	}
-
-	return &Reference{
-		Remote:         remote,
-		Path:           itemPath,
-		ContentVersion: contentVersion,
-		IsCanonical:    false,
-	}, nil
+	// No recognized scheme: the short "repo/path" form has been eliminated.
+	// References must be scheme-qualified — a canonical URL (https://, git@,
+	// file://) or a local ref (ctxloom:local@...).
+	return nil, fmt.Errorf("unsupported reference %q: use a canonical URL "+
+		"(e.g. https://github.com/owner/repo@bundles/name) or ctxloom:local@bundles/name "+
+		"— the short \"repo/path\" form is no longer accepted", ref)
 }
 
 // parseLocalReference parses ctxloom:local references like:
@@ -156,7 +122,6 @@ func parseHTTPSReference(ref string) (*Reference, error) {
 		ItemType:       itemType,
 		Path:           itemPath,
 		ContentVersion: contentVersion,
-		IsCanonical:    true,
 	}, nil
 }
 
@@ -204,7 +169,6 @@ func parseSSHReference(ref string) (*Reference, error) {
 		ItemType:       itemType,
 		Path:           itemPath,
 		ContentVersion: contentVersion,
-		IsCanonical:    true,
 	}, nil
 }
 
@@ -246,7 +210,6 @@ func parseFileReference(ref string) (*Reference, error) {
 		ItemType:       itemType,
 		Path:           itemPath,
 		ContentVersion: contentVersion,
-		IsCanonical:    true,
 	}, nil
 }
 
@@ -320,13 +283,7 @@ func (r *Reference) String() string {
 	if r.IsLocal {
 		return r.localRef()
 	}
-	if r.IsCanonical {
-		return r.CanonicalString()
-	}
-	if r.ContentVersion != "" {
-		return fmt.Sprintf("%s/%s@%s", r.Remote, r.Path, r.ContentVersion)
-	}
-	return fmt.Sprintf("%s/%s", r.Remote, r.Path)
+	return r.CanonicalString()
 }
 
 // localRef formats a ctxloom:local reference as
@@ -346,8 +303,8 @@ func (r *Reference) localRef() string {
 
 // CanonicalString returns the canonical URL representation.
 func (r *Reference) CanonicalString() string {
-	if r.URL == "" {
-		return r.String()
+	if r.IsLocal {
+		return r.localRef()
 	}
 	typeName := r.ItemType.DirName()
 	if typeName == "" {
@@ -356,19 +313,25 @@ func (r *Reference) CanonicalString() string {
 	return fmt.Sprintf("%s@%s/%s", r.URL, typeName, r.Path)
 }
 
+// IsCanonical reports whether this is a URL-based reference. A reference is
+// canonical exactly when it carries a repository URL; URL-less refs are either
+// local (ctxloom:local) or invalid.
+func (r *Reference) IsCanonical() bool {
+	return r.URL != ""
+}
+
 // BuildFilePath constructs the path to the item within the repository.
 // For canonical refs, uses the embedded item type.
 // For simple refs, uses the provided itemType.
 func (r *Reference) BuildFilePath(itemType ItemType) string {
-	if r.IsLocal {
+	if r.IsCanonical() {
+		// Use the embedded item type for canonical refs.
+		itemType = r.ItemType
+	} else if r.IsLocal {
 		// Read relative to the .ctxloom/local/ root, which is itself inside
 		// .ctxloom — so no redundant ctxloom/ segment:
 		// .ctxloom/local/bundles/go-tools.yaml.
 		return path.Join(r.ItemType.DirName(), r.Path+".yaml")
-	}
-	if r.IsCanonical {
-		// Use the embedded item type for canonical refs.
-		itemType = r.ItemType
 	}
 	// Within a repo: ctxloom/<kind>/<path>.yaml. These are logical,
 	// forward-slash repo paths (consumed by go-git / FromSlash on disk), so
@@ -380,14 +343,10 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 // baseDir is the .ctxloom directory path.
 // Bundles go in cache/bundles/, profiles go in profiles/ (at root).
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
-	var remoteName string
-
-	if r.IsCanonical {
+	if r.IsCanonical() {
 		itemType = r.ItemType
-		remoteName = r.LocalRemoteName()
-	} else {
-		remoteName = r.Remote
 	}
+	remoteName := r.LocalRemoteName()
 
 	switch itemType {
 	case ItemTypeBundle:
@@ -403,10 +362,11 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.
-// For canonical URLs, this extracts a meaningful identifier.
+// For canonical URLs, this extracts a meaningful identifier; for URL-less
+// (local) refs it is empty.
 func (r *Reference) LocalRemoteName() string {
 	if r.URL == "" {
-		return r.Remote
+		return ""
 	}
 
 	// Extract a meaningful name from the URL:
@@ -480,39 +440,6 @@ func sanitizePath(s string) string {
 	s = strings.ReplaceAll(s, ":", "/")
 	s = strings.ReplaceAll(s, "@", "/")
 	return s
-}
-
-// ToCanonical converts a simple reference to a canonical URL reference.
-// Requires looking up the remote in the registry to get the URL.
-// itemType specifies what type of item this reference points to.
-func (r *Reference) ToCanonical(registry *Registry, itemType ItemType) (*Reference, error) {
-	if r.IsCanonical {
-		return r, nil // Already canonical
-	}
-
-	// Look up remote in registry
-	remote, err := registry.Get(r.Remote)
-	if err != nil {
-		return nil, fmt.Errorf("cannot convert to canonical: %w", err)
-	}
-
-	return &Reference{
-		URL:            remote.URL,
-		ItemType:       itemType,
-		Path:           r.Path,
-		ContentVersion: r.ContentVersion,
-		IsCanonical:    true,
-	}, nil
-}
-
-// MustCanonical converts to canonical, panicking on error.
-// Only use when you're certain the remote exists.
-func (r *Reference) MustCanonical(registry *Registry, itemType ItemType) *Reference {
-	canonical, err := r.ToCanonical(registry, itemType)
-	if err != nil {
-		panic(err)
-	}
-	return canonical
 }
 
 // ExtractRepoName extracts the repository name from a URL.

@@ -63,7 +63,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 		// The matched entries expose their tags (not name-only stubs) and a
 		// pull_ref the caller can install.
 		assert.Contains(t, byName["go-development"].Tags, "golang")
-		assert.Equal(t, "acme/go-development", byName["go-development"].PullRef)
+		assert.Equal(t, url+"@bundles/go-development", byName["go-development"].PullRef)
 		assert.Equal(t, "bundle", byName["go-development"].Type)
 		assert.Equal(t, "profile", byName["go-developer"].Type)
 	})

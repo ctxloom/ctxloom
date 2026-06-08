@@ -20,7 +20,7 @@ import (
 // existing differing file is guarded by an overwrite prompt unless forced.
 func TestWritePulledContent(t *testing.T) {
 	const baseDir = "/proj/.ctxloom"
-	ref := &Reference{Remote: "alice", Path: "myprofile"}
+	ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
 
 	t.Run("bundle_is_synthetic_no_disk_write", func(t *testing.T) {
 		fs := afero.NewMemMapFs()

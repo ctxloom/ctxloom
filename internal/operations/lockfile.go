@@ -165,14 +165,9 @@ func Relock(ctx context.Context, cfg *config.Config, req RelockRequest) (*Relock
 	// directly and have no registry name; simple "remote/path" refs resolve
 	// their URL via the registry.
 	repoURLForRef := func(ref *remote.Reference) (string, bool) {
-		if ref.IsCanonical {
-			return ref.URL, ref.URL != ""
-		}
-		rem, gerr := registry.Get(ref.Remote)
-		if gerr != nil {
-			return "", false
-		}
-		return rem.URL, true
+		// Canonical refs carry the URL directly; nothing else resolves now that
+		// the short "repo/path" form is gone.
+		return ref.URL, ref.URL != ""
 	}
 
 	urlForRef := func(refStr string) (string, bool) {
@@ -276,10 +271,9 @@ func scanInstalledEntries(fs afero.Fs, itemDir string, itemType remote.ItemType,
 			// Lockfile key is the canonical ref, derived from the install-time
 			// source URL recorded in _source.
 			ref := (&remote.Reference{
-				URL:         meta.Source.URL,
-				ItemType:    itemType,
-				Path:        name,
-				IsCanonical: true,
+				URL:      meta.Source.URL,
+				ItemType: itemType,
+				Path:     name,
 			}).CanonicalString()
 			lockfile.AddEntry(itemType, ref, remote.LockEntry{
 				SHA:       meta.Source.SHA,
@@ -635,28 +629,10 @@ func uniqueRemoteURLs(entries []struct {
 	return urls
 }
 
-// repoURLForEntry resolves a lockfile entry's repo URL: canonical entries carry
-// it directly (entry.URL); short refs without one fall back to registry alias
-// resolution. Returns "" when neither yields a URL.
-func repoURLForEntry(ref string, entry remote.LockEntry, registry *remote.Registry) string {
-	if entry.URL != "" {
-		return entry.URL
-	}
-	parsed, err := remote.ParseReference(ref)
-	if err != nil {
-		return ""
-	}
-	if parsed.URL != "" {
-		return parsed.URL
-	}
-	if registry == nil {
-		return ""
-	}
-	rem, err := registry.Get(parsed.Remote)
-	if err != nil {
-		return ""
-	}
-	return rem.URL
+// repoURLForEntry resolves a lockfile entry's repo URL. Canonical lockfile
+// entries record it directly (entry.URL); a missing URL yields "".
+func repoURLForEntry(_ string, entry remote.LockEntry, _ *remote.Registry) string {
+	return entry.URL
 }
 
 // refreshRepoCaches advances each unique clone to live HEAD before SHA

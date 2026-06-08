@@ -91,10 +91,10 @@ func NewRemoteRefFetcher(openVCS VCSFactory) *RemoteRefFetcher {
 	return &RemoteRefFetcher{openVCS: openVCS}
 }
 
-// Handles serves canonical references that carry a repository URL. Simple
-// (short) refs and the future ctxloom:local refs are left to other fetchers.
+// Handles serves canonical references that carry a repository URL. URL-less
+// refs (local ctxloom:local content) are left to other fetchers.
 func (f *RemoteRefFetcher) Handles(ref *Reference) bool {
-	return ref != nil && ref.IsCanonical && ref.URL != ""
+	return ref != nil && ref.IsCanonical()
 }
 
 // FetchItem opens the VCS for ref's repository and returns the raw item bytes

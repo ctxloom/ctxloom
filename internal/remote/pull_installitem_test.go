@@ -44,12 +44,12 @@ func TestInstallPulledItem(t *testing.T) {
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(lm))
 
-		ref := &Reference{Remote: "alice", Path: "myprofile"}
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
 		item := &fetchedItem{
 			rem:       installItemRemote,
 			localName: "alice/myprofile",
 			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - alice/security\n"),
+			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n"),
 		}
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
@@ -60,7 +60,7 @@ func TestInstallPulledItem(t *testing.T) {
 
 		written, rerr := afero.ReadFile(fs, ref.LocalPath("/test", ItemTypeProfile))
 		require.NoError(t, rerr, "a profile is written to disk")
-		assert.Contains(t, string(written), "alice/security")
+		assert.Contains(t, string(written), "https://github.com/alice/ctxloom@bundles/security")
 
 		lock, lerr := lm.Load()
 		require.NoError(t, lerr)
@@ -76,10 +76,10 @@ func TestInstallPulledItem(t *testing.T) {
 		puller := newInstallPuller(registry, fs, newMockFetcher(),
 			WithLockfileManager(mainLock), WithBundleLockfileTarget(pending))
 
-		ref := &Reference{Remote: "alice", Path: "security"}
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}
 		item := &fetchedItem{
 			rem:       installItemRemote,
-			localName: "alice/security",
+			localName: "https://github.com/alice/ctxloom@bundles/security",
 			sha:       "sha-bundle",
 			content:   []byte("description: a bundle\n"),
 		}
@@ -88,15 +88,15 @@ func TestInstallPulledItem(t *testing.T) {
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
-		assert.Equal(t, "<remote>:alice/security@sha-bundle", res.LocalPath, "bundles get a synthetic path, not a disk write")
+		assert.Equal(t, "<remote>:https://github.com/alice/ctxloom@bundles/security@sha-bundle", res.LocalPath, "bundles get a synthetic path, not a disk write")
 		assert.False(t, res.Overwritten)
 
 		pendingLock, _ := pending.Load()
-		_, inPending := pendingLock.GetEntry(ItemTypeBundle, "alice/security")
+		_, inPending := pendingLock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
 		assert.True(t, inPending, "the bundle entry lands in the pending lockfile")
 
 		mainLockData, _ := mainLock.Load()
-		_, inMain := mainLockData.GetEntry(ItemTypeBundle, "alice/security")
+		_, inMain := mainLockData.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
 		assert.False(t, inMain, "the bundle entry must NOT land in the main lockfile")
 	})
 
@@ -107,19 +107,19 @@ func TestInstallPulledItem(t *testing.T) {
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 		puller := newInstallPuller(registry, fs, mf, WithLockfileManager(lm))
 
-		ref := &Reference{Remote: "alice", Path: "myprofile"}
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
 		item := &fetchedItem{
 			rem:       installItemRemote,
 			localName: "alice/myprofile",
 			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - alice/security\n"),
+			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n"),
 		}
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeProfile, Cascade: true, Force: true, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
 
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
-		assert.Contains(t, res.CascadePulled, "alice/security",
+		assert.Contains(t, res.CascadePulled, "https://github.com/alice/ctxloom@bundles/security",
 			"cascade must pull the bundle the profile references")
 	})
 
@@ -129,12 +129,12 @@ func TestInstallPulledItem(t *testing.T) {
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(lm))
 
-		ref := &Reference{Remote: "alice", Path: "myprofile"}
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
 		item := &fetchedItem{
 			rem:       installItemRemote,
 			localName: "alice/myprofile",
 			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - alice/ghost\n"),
+			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/ghost\n"),
 		}
 		var out bytes.Buffer
 		opts := PullOptions{ItemType: ItemTypeProfile, Cascade: true, Force: true, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
@@ -152,10 +152,10 @@ func TestInstallPulledItem(t *testing.T) {
 		roLock := NewLockfileManager("/test", WithLockfileFS(afero.NewReadOnlyFs(afero.NewMemMapFs())))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(roLock))
 
-		ref := &Reference{Remote: "alice", Path: "security"}
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}
 		item := &fetchedItem{
 			rem:       installItemRemote,
-			localName: "alice/security",
+			localName: "https://github.com/alice/ctxloom@bundles/security",
 			sha:       "sha-bundle",
 			content:   []byte("description: a bundle\n"),
 		}

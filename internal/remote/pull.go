@@ -270,7 +270,7 @@ func (p *Puller) tryLocalSource(ref *Reference, refStr string, opts PullOptions)
 		}
 		_, _ = fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
 		return &PullResult{
-			LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.Remote, ref.Path+".yaml"),
+			LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.LocalRemoteName(), ref.Path+".yaml"),
 			SHA:         "vendored",
 			Overwritten: false,
 		}, nil
@@ -323,21 +323,16 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 // local-name. Canonical refs auto-register the remote by URL; plain refs look
 // it up in the registry.
 func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName string, err error) {
-	if ref.IsCanonical {
-		repoURL = ref.URL
-		rem, err = p.registry.GetOrCreateByURL(repoURL)
-		if err != nil {
-			return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
-		}
-		// Lockfile key is the canonical ref — the sole content identity.
-		return repoURL, rem, ref.CanonicalString(), nil
+	if !ref.IsCanonical() {
+		return "", nil, "", fmt.Errorf("not a canonical reference: %s", ref.String())
 	}
-
-	rem, err = p.registry.Get(ref.Remote)
+	repoURL = ref.URL
+	rem, err = p.registry.GetOrCreateByURL(repoURL)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
 	}
-	return rem.URL, rem, fmt.Sprintf("%s/%s", ref.Remote, ref.Path), nil
+	// Lockfile key is the canonical ref — the sole content identity.
+	return repoURL, rem, ref.CanonicalString(), nil
 }
 
 // confirmRetraction warns and (unless forced) prompts when a version has been
@@ -623,7 +618,7 @@ func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, fileP
 
 	// Source info
 	_, _ = fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)
-	_, _ = fmt.Fprintf(w, "Org:    %s\n", ref.Remote)
+	_, _ = fmt.Fprintf(w, "Org:    %s\n", ref.LocalRemoteName())
 	_, _ = fmt.Fprintf(w, "Name:   %s\n", ref.Path)
 	_, _ = fmt.Fprintf(w, "Path:   %s\n", filePath)
 
@@ -742,4 +737,3 @@ func (p *Puller) lockfileTargetFor(itemType ItemType) *LockfileManager {
 	}
 	return p.lockfileManager
 }
-

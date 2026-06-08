@@ -4,42 +4,22 @@ import (
 	"testing"
 )
 
-// The short "repo/path" form still PARSES (the MCP browse/fetch subsystem
-// resolves it via registry aliases), even though it is no longer the
-// operational identity for the lockfile/seed/profiles.
-func TestParseReference_Simple(t *testing.T) {
-	tests := []struct {
-		name           string
-		input          string
-		wantRemote     string
-		wantPath       string
-		wantVersion    string
-		wantErr        bool
-	}{
-		{name: "simple reference", input: "alice/security", wantRemote: "alice", wantPath: "security"},
-		{name: "with tag", input: "alice/security@v1.0.0", wantRemote: "alice", wantPath: "security", wantVersion: "v1.0.0"},
-		{name: "nested path", input: "alice/golang/best-practices", wantRemote: "alice", wantPath: "golang/best-practices"},
-		{name: "deeply nested with ref", input: "corp/lang/go/testing/mocks@main", wantRemote: "corp", wantPath: "lang/go/testing/mocks", wantVersion: "main"},
-		{name: "empty string", input: "", wantErr: true},
-		{name: "no slash", input: "alice", wantErr: true},
-		{name: "empty remote", input: "/security", wantErr: true},
-		{name: "empty path", input: "alice/", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseReference(tt.input)
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ParseReference(%q) expected error, got nil", tt.input)
-				}
-				return
-			}
-			if err != nil {
-				t.Errorf("ParseReference(%q) unexpected error: %v", tt.input, err)
-				return
-			}
-			if got.Remote != tt.wantRemote || got.Path != tt.wantPath || got.ContentVersion != tt.wantVersion || got.IsCanonical {
-				t.Errorf("ParseReference(%q) = %+v", tt.input, got)
+// The short "repo/path" form has been eliminated: ParseReference rejects any
+// scheme-less reference, naming the canonical/local forms to use instead.
+func TestParseReference_ShortFormRejected(t *testing.T) {
+	for _, input := range []string{
+		"alice/security",
+		"alice/security@v1.0.0",
+		"alice/golang/best-practices",
+		"corp/lang/go/testing/mocks@main",
+		"alice",     // no slash
+		"/security", // empty remote
+		"alice/",    // empty path
+		"",          // empty
+	} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := ParseReference(input); err == nil {
+				t.Errorf("ParseReference(%q) expected an error (short form is gone), got nil", input)
 			}
 		})
 	}
@@ -143,7 +123,7 @@ func TestParseReference_HTTPS(t *testing.T) {
 			if got.Path != tt.wantPath {
 				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
 			}
-			if !got.IsCanonical {
+			if !got.IsCanonical() {
 				t.Errorf("IsCanonical = false, want true for URL reference")
 			}
 		})
@@ -235,7 +215,7 @@ func TestParseReference_SSH(t *testing.T) {
 			if got.Path != tt.wantPath {
 				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
 			}
-			if !got.IsCanonical {
+			if !got.IsCanonical() {
 				t.Errorf("IsCanonical = false, want true for SSH reference")
 			}
 		})
@@ -299,7 +279,7 @@ func TestParseReference_File(t *testing.T) {
 			if got.Path != tt.wantPath {
 				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
 			}
-			if !got.IsCanonical {
+			if !got.IsCanonical() {
 				t.Errorf("IsCanonical = false, want true for file reference")
 			}
 		})
@@ -313,37 +293,20 @@ func TestReference_String(t *testing.T) {
 		want string
 	}{
 		{
-			name: "simple without git ref",
-			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: ""},
-			want: "alice/security",
-		},
-		{
-			name: "simple with git ref",
-			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: "v1.0.0"},
-			want: "alice/security@v1.0.0",
-		},
-		{
-			name: "nested path with ref",
-			ref:  Reference{Remote: "corp", Path: "go/testing", ContentVersion: "main"},
-			want: "corp/go/testing@main",
-		},
-		{
 			name: "canonical HTTPS bundle",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: ItemTypeBundle,
+				Path:     "core-practices",
 			},
 			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
 			name: "canonical SSH profile",
 			ref: Reference{
-				URL:         "git@github.com:owner/repo",
-				ItemType:    ItemTypeProfile,
-				Path:        "security",
-				IsCanonical: true,
+				URL:      "git@github.com:owner/repo",
+				ItemType: ItemTypeProfile,
+				Path:     "security",
 			},
 			want: "git@github.com:owner/repo@profiles/security",
 		},
@@ -366,30 +329,29 @@ func TestReference_BuildFilePath(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "simple bundle",
-			ref:      Reference{Remote: "alice", Path: "go-tools"},
+			name:     "non-canonical bundle uses passed item type",
+			ref:      Reference{Path: "go-tools"},
 			itemType: ItemTypeBundle,
 			want:     "ctxloom/bundles/go-tools.yaml",
 		},
 		{
-			name:     "simple profile",
-			ref:      Reference{Remote: "alice", Path: "security-focused"},
+			name:     "non-canonical profile",
+			ref:      Reference{Path: "security-focused"},
 			itemType: ItemTypeProfile,
 			want:     "ctxloom/profiles/security-focused.yaml",
 		},
 		{
-			name:     "nested bundle",
-			ref:      Reference{Remote: "alice", Path: "golang/best-practices"},
+			name:     "nested path",
+			ref:      Reference{Path: "golang/best-practices"},
 			itemType: ItemTypeBundle,
 			want:     "ctxloom/bundles/golang/best-practices.yaml",
 		},
 		{
 			name: "canonical uses embedded values",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: ItemTypeBundle,
+				Path:     "core-practices",
 			},
 			itemType: ItemTypeProfile, // Should be ignored for canonical
 			want:     "ctxloom/bundles/core-practices.yaml",
@@ -414,33 +376,11 @@ func TestReference_LocalPath(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "simple bundle",
-			ref:      Reference{Remote: "alice", Path: "go-tools"},
-			baseDir:  "/home/user/.ctxloom",
-			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/cache/bundles/alice/go-tools.yaml",
-		},
-		{
-			name:     "simple profile",
-			ref:      Reference{Remote: "corp", Path: "security"},
-			baseDir:  ".ctxloom",
-			itemType: ItemTypeProfile,
-			want:     ".ctxloom/profiles/corp/security.yaml",
-		},
-		{
-			name:     "nested path",
-			ref:      Reference{Remote: "alice", Path: "lang/go/testing"},
-			baseDir:  "/home/user/.ctxloom",
-			itemType: ItemTypeBundle,
-			want:     "/home/user/.ctxloom/cache/bundles/alice/lang/go/testing.yaml",
-		},
-		{
 			name: "canonical HTTPS bundle",
 			ref: Reference{
-				URL:         "https://github.com/ctxloom/ctxloom-github",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
+				URL:      "https://github.com/ctxloom/ctxloom-github",
+				ItemType: ItemTypeBundle,
+				Path:     "core-practices",
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeProfile, // Should be ignored for canonical
@@ -449,10 +389,9 @@ func TestReference_LocalPath(t *testing.T) {
 		{
 			name: "canonical SSH profile",
 			ref: Reference{
-				URL:         "git@github.com:owner/repo",
-				ItemType:    ItemTypeProfile,
-				Path:        "security",
-				IsCanonical: true,
+				URL:      "git@github.com:owner/repo",
+				ItemType: ItemTypeProfile,
+				Path:     "security",
 			},
 			baseDir:  ".ctxloom",
 			itemType: ItemTypeBundle, // Should be ignored for canonical
@@ -476,47 +415,42 @@ func TestReference_LocalRemoteName(t *testing.T) {
 		want string
 	}{
 		{
-			name: "simple remote",
-			ref:  Reference{Remote: "alice"},
-			want: "alice",
+			name: "URL-less ref has no remote name",
+			ref:  Reference{},
+			want: "",
 		},
 		{
 			name: "HTTPS URL",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				IsCanonical: true,
+				URL: "https://github.com/owner/repo",
 			},
 			want: "github.com/owner/repo",
 		},
 		{
 			name: "SSH URL",
 			ref: Reference{
-				URL:         "git@github.com:owner/repo",
-				IsCanonical: true,
+				URL: "git@github.com:owner/repo",
 			},
 			want: "github.com/owner/repo",
 		},
 		{
 			name: "file URL",
 			ref: Reference{
-				URL:         "file:///home/user/ctxloom-content",
-				IsCanonical: true,
+				URL: "file:///home/user/ctxloom-content",
 			},
 			want: "user/ctxloom-content",
 		},
 		{
 			name: "file URL with single path component",
 			ref: Reference{
-				URL:         "file:///repo",
-				IsCanonical: true,
+				URL: "file:///repo",
 			},
 			want: "repo",
 		},
 		{
 			name: "malformed URL falls back to sanitize",
 			ref: Reference{
-				URL:         "unknown://weird:url",
-				IsCanonical: true,
+				URL: "unknown://weird:url",
 			},
 			want: "unknown/weird/url",
 		},
@@ -538,23 +472,21 @@ func TestReference_RepoURL(t *testing.T) {
 		want string
 	}{
 		{
-			name: "simple reference has no URL",
-			ref:  Reference{Remote: "alice", Path: "security"},
+			name: "URL-less reference has no URL",
+			ref:  Reference{Path: "security"},
 			want: "",
 		},
 		{
 			name: "canonical HTTPS reference",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				IsCanonical: true,
+				URL: "https://github.com/owner/repo",
 			},
 			want: "https://github.com/owner/repo",
 		},
 		{
 			name: "canonical SSH reference",
 			ref: Reference{
-				URL:         "git@github.com:owner/repo",
-				IsCanonical: true,
+				URL: "git@github.com:owner/repo",
 			},
 			want: "git@github.com:owner/repo",
 		},
@@ -568,7 +500,6 @@ func TestReference_RepoURL(t *testing.T) {
 		})
 	}
 }
-
 
 func TestExtractRepoName(t *testing.T) {
 	tests := []struct {
@@ -634,17 +565,11 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 		want string
 	}{
 		{
-			name: "simple reference without URL",
-			ref:  Reference{Remote: "alice", Path: "security", ContentVersion: "v1.0.0"},
-			want: "alice/security@v1.0.0",
-		},
-		{
 			name: "canonical without content version",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: ItemTypeBundle,
+				Path:     "core-practices",
 			},
 			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
@@ -655,7 +580,6 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 				ItemType:       ItemTypeBundle,
 				Path:           "core-practices",
 				ContentVersion: "v1.2.3",
-				IsCanonical:    true,
 			},
 			want: "https://github.com/owner/repo@bundles/core-practices@v1.2.3",
 		},
@@ -666,17 +590,15 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 				ItemType:       ItemTypeProfile,
 				Path:           "security",
 				ContentVersion: "abc1234",
-				IsCanonical:    true,
 			},
 			want: "git@github.com:owner/repo@profiles/security@abc1234",
 		},
 		{
 			name: "canonical with empty item type",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    "",
-				Path:        "core",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: "",
+				Path:     "core",
 			},
 			want: "https://github.com/owner/repo@s/core",
 		},
@@ -729,37 +651,29 @@ func TestReference_CanonicalString(t *testing.T) {
 		want string
 	}{
 		{
-			name: "simple reference returns String format",
-			ref:  Reference{Remote: "alice", Path: "security"},
-			want: "alice/security",
-		},
-		{
 			name: "canonical bundle",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    ItemTypeBundle,
-				Path:        "core-practices",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: ItemTypeBundle,
+				Path:     "core-practices",
 			},
 			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
 			name: "canonical profile",
 			ref: Reference{
-				URL:         "git@github.com:owner/repo",
-				ItemType:    ItemTypeProfile,
-				Path:        "security",
-				IsCanonical: true,
+				URL:      "git@github.com:owner/repo",
+				ItemType: ItemTypeProfile,
+				Path:     "security",
 			},
 			want: "git@github.com:owner/repo@profiles/security",
 		},
 		{
 			name: "empty item type",
 			ref: Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    "",
-				Path:        "core",
-				IsCanonical: true,
+				URL:      "https://github.com/owner/repo",
+				ItemType: "",
+				Path:     "core",
 			},
 			want: "https://github.com/owner/repo@s/core",
 		},
@@ -827,111 +741,4 @@ func TestParseReference_ContentVersion(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestReference_ToCanonical(t *testing.T) {
-	tests := []struct {
-		name     string
-		ref      *Reference
-		itemType ItemType
-		wantURL  string
-		wantErr  bool
-	}{
-		{
-			name: "converts simple ref to canonical",
-			ref: &Reference{
-				Remote:         "alice",
-				Path:           "security",
-				ContentVersion: "v1.0.0",
-				IsCanonical:    false,
-			},
-			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/alice/ctxloom",
-			wantErr:  false,
-		},
-		{
-			name: "already canonical returns same",
-			ref: &Reference{
-				URL:         "https://github.com/owner/repo",
-				ItemType:    ItemTypeBundle,
-				Path:        "security",
-				IsCanonical: true,
-			},
-			itemType: ItemTypeBundle,
-			wantURL:  "https://github.com/owner/repo",
-			wantErr:  false,
-		},
-		{
-			name: "unknown remote returns error",
-			ref: &Reference{
-				Remote:      "unknown",
-				Path:        "security",
-				IsCanonical: false,
-			},
-			itemType: ItemTypeBundle,
-			wantErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create registry with alice remote
-			registry, _ := NewRegistry("")
-			_ = registry.Add("alice", "https://github.com/alice/ctxloom")
-
-			result, err := tt.ref.ToCanonical(registry, tt.itemType)
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error but got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if result.URL != tt.wantURL {
-				t.Errorf("URL = %q, want %q", result.URL, tt.wantURL)
-			}
-			if !result.IsCanonical {
-				t.Error("expected IsCanonical to be true")
-			}
-		})
-	}
-}
-
-func TestReference_MustCanonical(t *testing.T) {
-	t.Run("succeeds for valid remote", func(t *testing.T) {
-		registry, _ := NewRegistry("")
-		_ = registry.Add("alice", "https://github.com/alice/ctxloom")
-
-		ref := &Reference{
-			Remote:      "alice",
-			Path:        "security",
-			IsCanonical: false,
-		}
-
-		// Should not panic
-		result := ref.MustCanonical(registry, ItemTypeBundle)
-		if !result.IsCanonical {
-			t.Error("expected canonical reference")
-		}
-	})
-
-	t.Run("panics for unknown remote", func(t *testing.T) {
-		registry, _ := NewRegistry("")
-
-		ref := &Reference{
-			Remote:      "unknown",
-			Path:        "security",
-			IsCanonical: false,
-		}
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("expected panic but got none")
-			}
-		}()
-
-		ref.MustCanonical(registry, ItemTypeBundle)
-	})
 }

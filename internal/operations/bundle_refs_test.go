@@ -44,7 +44,7 @@ func writeRefBundle(t *testing.T, fs afero.Fs, canonicalRef string) {
 	t.Helper()
 	ref, err := remote.ParseReference(canonicalRef)
 	require.NoError(t, err)
-	require.True(t, ref.IsCanonical, "test setup: ref must be canonical")
+	require.True(t, ref.IsCanonical(), "test setup: ref must be canonical")
 	localPath := ref.LocalPath(refsTestAppDir, remote.ItemTypeBundle)
 	require.NoError(t, fs.MkdirAll(filepath.Dir(localPath), 0755))
 	require.NoError(t, afero.WriteFile(fs, localPath, []byte(""), 0644))

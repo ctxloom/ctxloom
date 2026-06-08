@@ -134,7 +134,7 @@ func (m *VendorManager) VendorAll(ctx context.Context, lockfile *Lockfile, regis
 // vendor directory.
 func (m *VendorManager) vendorEntry(ctx context.Context, itemType ItemType, entryRef string, entry LockEntry, registry *Registry, auth AuthConfig, vendorDir string) error {
 	ref, err := ParseReference(entryRef)
-	if err != nil || !ref.IsCanonical {
+	if err != nil || !ref.IsCanonical() {
 		return fmt.Errorf("invalid reference %s: %w", entryRef, err)
 	}
 

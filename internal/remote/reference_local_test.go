@@ -31,9 +31,8 @@ func TestParseReference_Local(t *testing.T) {
 			ref, err := ParseReference(tt.ref)
 			require.NoError(t, err)
 			assert.True(t, ref.IsLocal, "IsLocal")
-			assert.False(t, ref.IsCanonical, "local is not URL-canonical")
+			assert.False(t, ref.IsCanonical(), "local is not URL-canonical")
 			assert.Empty(t, ref.URL)
-			assert.Empty(t, ref.Remote)
 			assert.Equal(t, tt.wantType, ref.ItemType)
 			assert.Equal(t, tt.wantPath, ref.Path)
 			assert.Equal(t, tt.wantVersion, ref.ContentVersion)
@@ -87,10 +86,9 @@ func TestParseReference_NonLocalUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, canonical.IsLocal)
 
-	// A simple (short) ref still parses but is not local.
-	simple, err := ParseReference("alice/security")
-	require.NoError(t, err)
-	assert.False(t, simple.IsLocal)
+	// The short "repo/path" form is rejected outright (no longer a ref at all).
+	_, err = ParseReference("alice/security")
+	assert.Error(t, err)
 }
 
 func TestLocalRefFetcher_FetchItem_FilesystemBackend(t *testing.T) {

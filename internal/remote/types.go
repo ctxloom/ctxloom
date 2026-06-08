@@ -241,11 +241,7 @@ const (
 
 // Reference represents a parsed remote reference.
 //
-// Supported formats:
-//
-// Simple (requires remotes.yaml):
-//   - alice/security → Remote="alice", Path="security"
-//   - alice/security@v1.0.0 → with ContentVersion
+// Supported formats (all scheme-qualified — the short "repo/path" form is gone):
 //
 // HTTPS URL (canonical, self-contained):
 //   - https://github.com/owner/repo@bundles/name (latest)
@@ -258,19 +254,19 @@ const (
 // File URL (local repos):
 //   - file:///path/to/repo@bundles/name@v1.2.3
 //
+// Local source:
+//   - ctxloom:local@bundles/name[@rev]
+//
 // Format: <repo>@<type>/<path>@<content_version>
 // - First @ = item type and path (bundles/<name> or profiles/<name>)
 // - Second @ = content version (git tag or SHA, optional)
 // Pre-removal refs carried a schema-version segment (repo@v1/<type>/<path>);
 // it is silently dropped on parse (see stripLegacySchemaSegment).
 type Reference struct {
-	// Remote is the remote name (for simple format) or empty for URL-based refs
-	Remote string
-
 	// Path is the item name/path (e.g., "core-practices" or "golang/best-practices")
 	Path string
 
-	// URL is the full repository URL (for URL-based refs); empty for simple format
+	// URL is the full repository URL (for URL-based refs); empty for local refs
 	URL string
 
 	// ContentVersion is the git tag or SHA for content versioning
@@ -281,9 +277,6 @@ type Reference struct {
 
 	// ItemType is the type of item (bundles, profiles); extracted from URL path
 	ItemType ItemType
-
-	// IsCanonical indicates this is a URL-based reference (vs simple remote/path)
-	IsCanonical bool
 
 	// IsLocal indicates a ctxloom:local reference — project-authored content
 	// read from the committed .ctxloom/local/ working copy rather than a remote

@@ -301,12 +301,11 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 	return bundle, nil
 }
 
-// ListBundles returns a summary of every bundle available across the configured
-// remotes' downloaded clones and the local working copy, named by canonical
-// reference (ADR 0019: the read path lives here, not in the CLI). It routes
-// through the scheme-dispatched Resolver/VCS seam — walking each remote's git
-// tree — rather than fs-walking the extracted cache with filesystem-relpath
-// names. A configured remote that has not been synced is warned, not listed.
+// ListBundles returns a summary of every bundle to display (ADR 0019: the read
+// path lives here, not in the CLI): locally-authored bundles, remote bundles
+// named canonically via the Resolver/VCS seam, and bundles removed upstream
+// (flagged Deleted). See listBundleInfos for how the three sources are merged
+// without double-listing.
 func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
 	return listBundleInfos(context.Background(), cfg)
 }

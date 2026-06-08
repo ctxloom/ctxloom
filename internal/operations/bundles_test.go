@@ -30,6 +30,28 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 	return appDir, cfg
 }
 
+// TestListBundles_IncludesLocallyCreatedBundle is the unit-level guard for the
+// "Create a bundle and list it" acceptance scenario, pulled down into `just test`
+// (the acceptance suite is //go:build acceptance and was never run here). A
+// bundle authored locally — written to cache/bundles by CreateBundle — MUST
+// appear in ListBundles. A refactor that listed only via the remote Resolver
+// dropped local bundles; this fails fast if that regresses again.
+func TestListBundles_IncludesLocallyCreatedBundle(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "demo"})
+	require.NoError(t, err)
+
+	infos, err := ListBundles(cfg)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(infos))
+	for _, b := range infos {
+		names = append(names, b.Name)
+	}
+	assert.Contains(t, names, "demo", "a locally-created bundle must be listed by ListBundles")
+}
+
 // TestCreateBundle_SkeletonOnly drives the minimum-viable shape: name only,
 // expect a bundle YAML written to cache/bundles/<name>.yaml with Version 1.0.0
 // and no fragments/prompts/mcp.

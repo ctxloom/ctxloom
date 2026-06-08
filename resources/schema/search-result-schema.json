@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "tags": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "string"
+    },
+    "match": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/search-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SearchResult",
+  "required": [
+    "type",
+    "name"
+  ],
+  "additionalProperties": false
+}

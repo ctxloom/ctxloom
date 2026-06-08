@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "item_count": {
+      "type": "integer"
+    },
+    "failed": {
+      "type": "integer"
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/relock-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RelockResult",
+  "required": [
+    "status"
+  ],
+  "additionalProperties": false
+}

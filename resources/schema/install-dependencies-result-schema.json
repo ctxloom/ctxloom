@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "installed": {
+      "type": "integer"
+    },
+    "failed": {
+      "type": "integer"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/install-dependencies-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstallDependenciesResult",
+  "required": [
+    "status",
+    "installed",
+    "failed",
+    "total"
+  ],
+  "additionalProperties": false
+}

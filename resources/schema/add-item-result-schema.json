@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "bundle": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/add-item-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AddItemResult",
+  "required": [
+    "status",
+    "bundle",
+    "name",
+    "path"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/remove-remote-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RemoveRemoteResult",
+  "required": [
+    "status",
+    "name"
+  ],
+  "additionalProperties": false
+}

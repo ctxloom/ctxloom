@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "properties": {
+    "servers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "args": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "backend": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "installation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "command",
+          "backend"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "auto_register": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/list-mcp-servers-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ListMCPServersResult",
+  "required": [
+    "servers",
+    "count",
+    "auto_register"
+  ],
+  "additionalProperties": false
+}

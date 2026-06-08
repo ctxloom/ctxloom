@@ -1,35 +1,31 @@
 {
   "type": "object",
   "properties": {
-    "profile": {
+    "status": {
       "type": "string"
     },
-    "output": {
+    "name": {
       "type": "string"
     },
-    "label": {
+    "command": {
       "type": "string"
     },
     "backend": {
       "type": "string"
     },
-    "model": {
+    "message": {
       "type": "string"
-    },
-    "exit_code": {
-      "type": "integer",
-      "minimum": -2147483648,
-      "maximum": 2147483647
     }
   },
-  "$id": "https://ctxloom.dev/schemas/run-oneshot-result.json",
+  "$id": "https://ctxloom.dev/schemas/add-mcp-server-result.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "RunOneshotResult",
+  "title": "AddMCPServerResult",
   "required": [
-    "output",
-    "label",
+    "status",
+    "name",
+    "command",
     "backend",
-    "exit_code"
+    "message"
   ],
   "additionalProperties": false
 }

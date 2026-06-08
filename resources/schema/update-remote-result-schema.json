@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "updated": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/update-remote-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateRemoteResult",
+  "required": [
+    "status"
+  ],
+  "additionalProperties": false
+}

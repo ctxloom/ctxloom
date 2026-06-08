@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "remote": {
+      "type": "string"
+    },
+    "target_path": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "create_pr": {
+      "type": "boolean"
+    },
+    "size_bytes": {
+      "type": "integer"
+    },
+    "commit_sha": {
+      "type": "string"
+    },
+    "pr_url": {
+      "type": "string"
+    },
+    "preview": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/push-bundle-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PushBundleResult",
+  "required": [
+    "status",
+    "path",
+    "remote",
+    "target_path",
+    "create_pr"
+  ],
+  "additionalProperties": false
+}

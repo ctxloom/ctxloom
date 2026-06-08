@@ -1,0 +1,130 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "synced": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "local_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "type",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "skipped": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "local_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "type",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "failed": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "local_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "type",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "installed": {
+      "type": "integer"
+    },
+    "updated": {
+      "type": "integer"
+    },
+    "errors": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/sync-dependencies-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SyncDependenciesResult",
+  "required": [
+    "status",
+    "total",
+    "installed",
+    "updated",
+    "errors"
+  ],
+  "additionalProperties": false
+}

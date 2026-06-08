@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "report": {
+      "type": "string"
+    },
+    "parts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile",
+          "output"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "synthesizer": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/weave-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WeaveResult",
+  "required": [
+    "parts"
+  ],
+  "additionalProperties": false
+}

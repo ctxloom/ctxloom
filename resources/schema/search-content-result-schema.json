@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "match": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "query": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/search-content-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SearchContentResult",
+  "required": [
+    "results",
+    "count",
+    "query"
+  ],
+  "additionalProperties": false
+}

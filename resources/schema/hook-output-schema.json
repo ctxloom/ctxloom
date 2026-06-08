@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "hookSpecificOutput": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "hookEventName": {
+          "type": "string"
+        },
+        "additionalContext": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hookEventName"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/hook-output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HookOutput",
+  "additionalProperties": false
+}

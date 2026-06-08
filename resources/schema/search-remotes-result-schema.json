@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "remote": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "pull_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "remote",
+          "name",
+          "type",
+          "pull_ref"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "query": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/search-remotes-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SearchRemotesResult",
+  "required": [
+    "results",
+    "count",
+    "query"
+  ],
+  "additionalProperties": false
+}

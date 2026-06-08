@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "bundle": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "model_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/distill-item-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DistillItemResult",
+  "required": [
+    "status",
+    "bundle",
+    "name",
+    "path"
+  ],
+  "additionalProperties": false
+}

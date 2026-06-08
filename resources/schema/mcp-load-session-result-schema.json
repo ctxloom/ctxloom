@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "loaded": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "was_cached": {
+      "type": "boolean"
+    },
+    "tokens": {
+      "type": "integer"
+    },
+    "tokens_in": {
+      "type": "integer"
+    },
+    "tokens_out": {
+      "type": "integer"
+    },
+    "reduction": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "pid": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/mcp-load-session-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "loadSessionResult",
+  "required": [
+    "loaded"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "auto_register": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/set-mcp-auto-register-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetMCPAutoRegisterResult",
+  "required": [
+    "status",
+    "auto_register",
+    "message"
+  ],
+  "additionalProperties": false
+}

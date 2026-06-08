@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "count": {
+      "type": "integer"
+    },
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "locked_sha": {
+            "type": "string"
+          },
+          "latest_sha": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reference",
+          "locked_sha",
+          "latest_sha"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "total": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/check-outdated-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CheckOutdatedResult",
+  "required": [
+    "status"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "tags": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/get-fragment-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GetFragmentResult",
+  "required": [
+    "name",
+    "content"
+  ],
+  "additionalProperties": false
+}

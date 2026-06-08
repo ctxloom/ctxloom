@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/get-prompt-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GetPromptResult",
+  "required": [
+    "name",
+    "content"
+  ],
+  "additionalProperties": false
+}

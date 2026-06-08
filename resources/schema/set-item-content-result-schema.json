@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "bundle": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "distilled": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/set-item-content-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetItemContentResult",
+  "required": [
+    "status",
+    "bundle",
+    "name",
+    "path",
+    "distilled"
+  ],
+  "additionalProperties": false
+}

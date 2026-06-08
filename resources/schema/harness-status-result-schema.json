@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "properties": {
+    "work_dir": {
+      "type": "string"
+    },
+    "auto_register_mcp": {
+      "type": "boolean"
+    },
+    "manage_statusline": {
+      "type": "boolean"
+    },
+    "backends": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "settings_exists": {
+            "type": "boolean"
+          },
+          "hooks_present": {
+            "type": "boolean"
+          },
+          "status_line": {
+            "type": "boolean"
+          },
+          "mcp_present": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "backend",
+          "settings_exists",
+          "hooks_present",
+          "status_line",
+          "mcp_present"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/harness-status-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarnessStatusResult",
+  "required": [
+    "work_dir",
+    "auto_register_mcp",
+    "manage_statusline",
+    "backends"
+  ],
+  "additionalProperties": false
+}

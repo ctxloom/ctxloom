@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "Command": {
+          "type": "string"
+        },
+        "Args": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "Env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "Notes": {
+          "type": "string"
+        },
+        "Installation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "Command",
+        "Args",
+        "Env",
+        "Notes",
+        "Installation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/get-bundle-mcp-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GetBundleMCPResult",
+  "required": [
+    "mcp"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "harp_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "checked": {
+          "type": "boolean"
+        },
+        "trigger": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "harp_id",
+        "text",
+        "status",
+        "checked"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/mcp-task-set-status-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "taskSetStatusResult",
+  "required": [
+    "path",
+    "task"
+  ],
+  "additionalProperties": false
+}

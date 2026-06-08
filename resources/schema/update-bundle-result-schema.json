@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "changes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/update-bundle-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateBundleResult",
+  "required": [
+    "status",
+    "name"
+  ],
+  "additionalProperties": false
+}

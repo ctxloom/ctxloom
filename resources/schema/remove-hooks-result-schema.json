@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "backends": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/remove-hooks-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RemoveHooksResult",
+  "required": [
+    "status",
+    "backends"
+  ],
+  "additionalProperties": false
+}

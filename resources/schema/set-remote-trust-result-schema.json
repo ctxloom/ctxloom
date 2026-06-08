@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/set-remote-trust-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetRemoteTrustResult",
+  "required": [
+    "status",
+    "name",
+    "trust"
+  ],
+  "additionalProperties": false
+}

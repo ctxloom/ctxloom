@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/default-remote-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DefaultRemoteResult",
+  "required": [
+    "status"
+  ],
+  "additionalProperties": false
+}

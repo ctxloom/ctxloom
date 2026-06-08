@@ -4,32 +4,25 @@
     "profile": {
       "type": "string"
     },
-    "output": {
-      "type": "string"
-    },
     "label": {
       "type": "string"
     },
     "backend": {
       "type": "string"
     },
-    "model": {
+    "output": {
       "type": "string"
     },
-    "exit_code": {
-      "type": "integer",
-      "minimum": -2147483648,
-      "maximum": 2147483647
+    "error": {
+      "type": "string"
     }
   },
-  "$id": "https://ctxloom.dev/schemas/run-oneshot-result.json",
+  "$id": "https://ctxloom.dev/schemas/part.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "RunOneshotResult",
+  "title": "Part",
   "required": [
-    "output",
-    "label",
-    "backend",
-    "exit_code"
+    "profile",
+    "output"
   ],
   "additionalProperties": false
 }

@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "repositories": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "stars": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "forge": {
+            "type": "string"
+          },
+          "add_command": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "description",
+          "stars",
+          "url",
+          "forge",
+          "add_command"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/discover-remotes-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiscoverRemotesResult",
+  "required": [
+    "repositories",
+    "count"
+  ],
+  "additionalProperties": false
+}

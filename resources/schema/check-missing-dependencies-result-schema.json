@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "missing": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "type",
+          "profile"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/check-missing-dependencies-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CheckMissingDependenciesResult",
+  "required": [
+    "status",
+    "count"
+  ],
+  "additionalProperties": false
+}

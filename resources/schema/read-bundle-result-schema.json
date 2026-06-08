@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {},
+  "$id": "https://ctxloom.dev/schemas/read-bundle-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReadBundleResult",
+  "additionalProperties": false
+}

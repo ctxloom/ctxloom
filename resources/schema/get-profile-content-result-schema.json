@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/get-profile-content-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GetProfileContentResult",
+  "required": [
+    "content",
+    "path"
+  ],
+  "additionalProperties": false
+}

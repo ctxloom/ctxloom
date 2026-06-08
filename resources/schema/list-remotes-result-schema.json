@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "remotes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "trusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "trusted"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "count": {
+      "type": "integer"
+    },
+    "default": {
+      "type": "string"
+    }
+  },
+  "$id": "https://ctxloom.dev/schemas/list-remotes-result.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ListRemotesResult",
+  "required": [
+    "remotes",
+    "count"
+  ],
+  "additionalProperties": false
+}

@@ -37,7 +37,7 @@ Feature: Remote content
     And I run "ctxloom profile install origin/base --force"
     When I run "ctxloom remote sync"
     Then the command succeeds
-    And the file ".ctxloom/lock.yaml" contains "origin/base"
+    And the file ".ctxloom/lock.yaml" contains "@profiles/base"
 
   Scenario: Generate a lockfile
     Given an initialized ctxloom project

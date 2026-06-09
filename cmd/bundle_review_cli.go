@@ -323,6 +323,22 @@ type bundlesYAML struct {
 type yamlBlob struct {
 	Content string `yaml:"content"`
 	Command string `yaml:"command"` // MCP servers and hooks
+	// Rest captures every OTHER field (an MCP server's args/env, a hook's prompt,
+	// etc.) so the diff registers a change to them — not just content/command. An
+	// MCP server that keeps the same command but adds an exfiltration arg or token
+	// env, or a hook whose command is swapped, must not read as unchanged.
+	Rest map[string]any `yaml:",inline"`
+}
+
+// fingerprint is a stable serialization used to detect modifications. yaml.Marshal
+// sorts map keys, so equal blobs fingerprint identically regardless of the order
+// fields were authored in.
+func (b yamlBlob) fingerprint() string {
+	out, err := yaml.Marshal(b)
+	if err != nil {
+		return b.Content + "\x00" + b.Command // defensive; marshalling a blob never fails
+	}
+	return string(out)
 }
 
 // writeSection emits "+name", "- name", "~ name" lines for entries added,
@@ -333,7 +349,7 @@ func writeSection(sb *strings.Builder, label string, oldMap, newMap map[string]y
 	for name := range newMap {
 		if _, ok := oldMap[name]; !ok {
 			added = append(added, name)
-		} else if oldMap[name] != newMap[name] {
+		} else if oldMap[name].fingerprint() != newMap[name].fingerprint() {
 			modified = append(modified, name)
 		}
 	}
@@ -361,8 +377,10 @@ func writeSection(sb *strings.Builder, label string, oldMap, newMap map[string]y
 }
 
 // writeHookCounts summarizes hook deltas per event. Hooks have no stable
-// identifiers (an ordered list per event), so we report counts. A hook count
-// change is the most security-relevant diff — each hook is arbitrary code.
+// identifiers (an ordered list per event). A count change is reported as
+// "N → M"; but a same-count swap of a hook's command/prompt/content is the
+// MOST security-relevant diff — each hook is arbitrary code — so we also
+// compare the ordered blobs positionally and flag a content change.
 func writeHookCounts(sb *strings.Builder, oldHooks, newHooks map[string][]yamlBlob) {
 	events := make(map[string]struct{})
 	for k := range oldHooks {
@@ -373,8 +391,16 @@ func writeHookCounts(sb *strings.Builder, oldHooks, newHooks map[string][]yamlBl
 	}
 	var changed []string
 	for event := range events {
-		if len(oldHooks[event]) != len(newHooks[event]) {
-			changed = append(changed, fmt.Sprintf("%s: %d → %d", event, len(oldHooks[event]), len(newHooks[event])))
+		o, n := oldHooks[event], newHooks[event]
+		if len(o) != len(n) {
+			changed = append(changed, fmt.Sprintf("%s: %d → %d", event, len(o), len(n)))
+			continue
+		}
+		for i := range n {
+			if o[i].fingerprint() != n[i].fingerprint() {
+				changed = append(changed, fmt.Sprintf("%s: %d hook(s), content changed", event, len(n)))
+				break
+			}
 		}
 	}
 	if len(changed) == 0 {

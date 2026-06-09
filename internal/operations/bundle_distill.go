@@ -99,10 +99,10 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 	distillFragments(ctx, bundle, fragTargets, req.Distiller)
 	distillPrompts(ctx, bundle, promptTargets, req.Distiller)
 	for _, n := range fragTargets {
-		res.Items = append(res.Items, DistillBundleItem{Kind: ItemKindFragment, Name: n, Status: DistillStatusDistilled, ModelID: bundle.Fragments[n].DistilledBy})
+		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy))
 	}
 	for _, n := range promptTargets {
-		res.Items = append(res.Items, DistillBundleItem{Kind: ItemKindPrompt, Name: n, Status: DistillStatusDistilled, ModelID: bundle.Prompts[n].DistilledBy})
+		res.Items = append(res.Items, distillOutcome(ItemKindPrompt, n, bundle.Prompts[n].DistilledBy))
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {
@@ -128,6 +128,18 @@ func planBundleItemDistill(kind ItemKind, name string, noDistill, needsDistill, 
 		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "unchanged"}, true
 	}
 	return DistillBundleItem{}, false
+}
+
+// distillOutcome classifies one already-attempted item by whether the distiller
+// stamped a model on it. distillFragments/distillPrompts warn-and-skip on a
+// per-item error, leaving DistilledBy empty and the content raw — so an empty
+// DistilledBy is a FAILURE that must be reported skipped, not a success. Reporting
+// it as distilled (with an empty model id) was a silent lie in the summary.
+func distillOutcome(kind ItemKind, name, distilledBy string) DistillBundleItem {
+	if distilledBy == "" {
+		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "distill_failed"}
+	}
+	return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusDistilled, ModelID: distilledBy}
 }
 
 func appendStatus(items *[]DistillBundleItem, kind ItemKind, names []string, status DistillBundleItemStatus, reason string) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/ctxloom/shared/agent"
@@ -96,7 +97,14 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			Managed: managedConfigFromProto(req.GetManagedConfig()),
 		}
 		if err := s.Impl.Setup(stream.Context(), setupReq); err != nil {
-			return err
+			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
+			// through most misconfigurations." Setup now does load-bearing-but-
+			// non-essential work — context provision, skill registration, settings
+			// + hook flush — any of which can fail on a bad write without making the
+			// agent unlaunchable. Warn and proceed to Execute rather than aborting,
+			// matching the documented startup sequence ("apply hooks: warn on
+			// errors, continue" / "always respond with initialized").
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: backend setup failed (launching anyway): %v\n", err)
 		}
 	}
 

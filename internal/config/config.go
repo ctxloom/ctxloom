@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/spf13/afero"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
@@ -520,18 +518,13 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		}
 	}
 
-	v := viper.New()
-	v.SetConfigType("yaml")
-
-	// Use ReadConfig instead of ReadInConfig to read from the data we already have
-	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to read config at %s: %v", configPath, err))
-		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
-		// Return nil - we have a valid (empty) config with warnings
-		return nil
-	}
-
-	if err := v.Unmarshal(cfg); err != nil {
+	// Parse with yaml directly, NOT viper. Viper lowercases every key it decodes,
+	// which corrupts the case-sensitive keys captured by LLMConfig.Body's
+	// `,remain`/`,inline` map: a backend `env: {GEMINI_API_KEY: ...}` would reach
+	// the launched process as `gemini_api_key`, so the engine never sees its
+	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
+	// init path), so both entry points decode a config identically.
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to parse config at %s: %v", configPath, err))
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 		// Return nil - we have a valid (partially loaded) config with warnings

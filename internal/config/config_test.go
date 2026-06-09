@@ -894,6 +894,40 @@ profiles:
 	assert.Equal(t, SourceProject, cfg.Source)
 }
 
+// TestLoad_PreservesEnvKeyCase is a regression guard: the Load path must not
+// lowercase case-sensitive keys inside a backend's polymorphic Body. The previous
+// decoder (viper) lowercased every key, so `env: {GEMINI_API_KEY: ...}` reached the
+// launched process as `gemini_api_key` and the engine never saw its credential.
+// ParseConfig (init) was always correct, which masked the divergence.
+func TestLoad_PreservesEnvKeyCase(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/project/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(appDir, 0755))
+
+	configContent := `
+version: 3
+llm:
+  configs:
+    gem:
+      type: gemini
+      env:
+        GEMINI_API_KEY: secret
+        Mixed_Case: x
+  defaults:
+    primary: gem
+`
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
+	require.NoError(t, err)
+
+	env, ok := cfg.LM.Configs["gem"].Body["env"].(map[string]any)
+	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.LM.Configs["gem"].Body["env"])
+	assert.Equal(t, "secret", env["GEMINI_API_KEY"], "uppercase env key must be preserved verbatim")
+	assert.Contains(t, env, "Mixed_Case")
+	assert.NotContains(t, env, "gemini_api_key", "env key must not be lowercased")
+}
+
 func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
@@ -985,7 +1019,7 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
 		assert.Len(t, cfg.Warnings, 1)
-		assert.Contains(t, cfg.Warnings[0], "failed to read config")
+		assert.Contains(t, cfg.Warnings[0], "failed to parse config")
 	})
 }
 

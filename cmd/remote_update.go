@@ -93,7 +93,11 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return err
 	}
 
-	currentSHA, itemType := lookupLockedSHA(lockfile, refStr)
+	// Look up by the canonical identity, not the raw input: lockfile keys are
+	// Reference.CanonicalString() (version-suffix stripped), so an input carrying
+	// an explicit "@version" would otherwise miss its own locked entry and be
+	// reported as untracked.
+	currentSHA, itemType := lookupLockedSHA(lockfile, ref.CanonicalString())
 	itemType, upToDate := reportUpdateStatus(refStr, currentSHA, latestSHA, itemType)
 	if upToDate {
 		return nil

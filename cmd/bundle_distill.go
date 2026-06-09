@@ -292,12 +292,15 @@ func isStructuredContent(ct compression.ContentType) bool {
 	return false
 }
 
-// distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	// Build content to distill. The distill prompt leads the message so the
-	// model is framed as a compressor even in headless minimal mode, where the
-	// fragment/context-file channel is not loaded (without it weaker models
-	// answer the instruction-shaped content instead of compressing it).
+// buildDistillMessage assembles the user message sent to the compressor: the
+// distill prompt leads (framing the model as a compressor even in headless
+// minimal mode, where the fragment/context-file channel is not loaded — without
+// it weaker models answer the instruction-shaped content instead of compressing
+// it), optional sibling context follows, and the item to compress is wrapped in
+// <content_to_compress>. The item name rides as a tag ATTRIBUTE, not an injected
+// `# name` markdown heading: injecting a heading made the model echo it on top
+// of the content's own H1, doubling the title in the distilled output.
+func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string {
 	var builder strings.Builder
 
 	if distillPrompt != "" {
@@ -315,15 +318,18 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 		builder.WriteString("- Compress knowing this content will be loaded alongside those siblings\n\n")
 	}
 
-	// The item name rides as a tag attribute (metadata the distill prompt
-	// already forbids echoing), not an injected `# name` markdown heading —
-	// injecting a heading made the model emit it on top of the content's own
-	// H1, doubling the title in the distilled output.
 	builder.WriteString("<content_to_compress name=\"")
 	builder.WriteString(name)
 	builder.WriteString("\">\n")
 	builder.WriteString(content)
 	builder.WriteString("\n</content_to_compress>")
+
+	return builder.String()
+}
+
+// distillWithLLM sends content through the LLM and returns distilled content and model ID.
+func distillWithLLM(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
 
 	// Create plugin client
 	client, err := pb.NewSelfInvokingClient(llmName, 0)
@@ -335,7 +341,7 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 	// Build request
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
-			Content: builder.String(),
+			Content: message,
 		},
 		Fragments: []*pb.Fragment{
 			{Content: distillPrompt},

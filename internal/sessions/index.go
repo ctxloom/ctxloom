@@ -123,9 +123,16 @@ func (m *Manager) PendingUpgrade() *upgrade.Pending {
 	return m.pendingUpgrade
 }
 
-// CommitUpgrade persists a pending index upgrade to disk (atomic tmp+rename),
-// writing the upgraded bytes verbatim. No-op when nothing is pending; clears the
-// pending state on success. Callers prompt the user before invoking this.
+// CommitUpgrade persists a pending index upgrade to disk (atomic tmp+rename).
+// No-op when nothing is pending; clears the pending state on success. Callers
+// prompt the user before invoking this.
+//
+// The upgrade is RE-STAGED from the file's current bytes under the lock, not
+// written from the staged snapshot: between Load (which staged it) and the
+// user's consent, a concurrent writer — e.g. the spawned backend's MCP
+// BindSession — may have rewritten the index, and persisting the stale
+// snapshot would silently drop that write. Concurrent writers emit canonical
+// form, so re-running the pipeline on fresh bytes then finds nothing to do.
 func (m *Manager) CommitUpgrade() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -139,7 +146,21 @@ func (m *Manager) CommitUpgrade() error {
 	}
 	defer unlock()
 
-	if err := iox.WriteFileAtomic(m.path, m.pendingUpgrade.Data, 0o644); err != nil {
+	data, err := os.ReadFile(m.path)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && len(data) == 0) {
+		m.pendingUpgrade = nil // the file is gone or empty; nothing to upgrade
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	upgraded, applied := indexUpgrades.Run(data)
+	if len(applied) == 0 {
+		m.pendingUpgrade = nil // a concurrent write already canonicalized it
+		return nil
+	}
+
+	if err := iox.WriteFileAtomic(m.path, upgraded, 0o644); err != nil {
 		return err
 	}
 	m.pendingUpgrade = nil

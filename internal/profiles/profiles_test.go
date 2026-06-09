@@ -193,6 +193,59 @@ func TestLoader_Save(t *testing.T) {
 	assert.Equal(t, []string{"bundle1"}, loaded.Bundles)
 }
 
+// TestLoader_Save_SubdirName pins saving the subdir-qualified names List
+// itself produces (e.g. "team/dev"): Save must create the intermediate
+// directories instead of failing ENOENT on the file write.
+func TestLoader_Save_SubdirName(t *testing.T) {
+	tmpDir := t.TempDir()
+	loader := NewLoader([]string{tmpDir})
+
+	require.NoError(t, loader.Save(&Profile{Name: "team/dev", Description: "nested"}))
+	assert.FileExists(t, filepath.Join(tmpDir, "team", "dev.yaml"))
+
+	loaded, err := loader.Load("team/dev")
+	require.NoError(t, err)
+	assert.Equal(t, "nested", loaded.Description)
+}
+
+// TestLoader_Save_RejectsTraversal pins the path-traversal chokepoint: a name
+// that escapes the profiles directory must be rejected, never written.
+// (Bundles have ValidateBundleName; profiles join Name into a path with the
+// same risk.)
+func TestLoader_Save_RejectsTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	loader := NewLoader([]string{filepath.Join(tmpDir, "profiles")})
+
+	for _, name := range []string{"../evil", "/abs/path", "a/../../evil"} {
+		t.Run(name, func(t *testing.T) {
+			err := loader.Save(&Profile{Name: name})
+			require.Error(t, err, "name %q must be rejected", name)
+		})
+	}
+	// Legitimate dot-prefixed names are NOT traversal.
+	require.NoError(t, loader.Save(&Profile{Name: "..hidden"}))
+}
+
+// TestLoader_Save_RoundTripsYmlFile pins extension round-tripping: a profile
+// loaded from a .yml file saves back to that file instead of duplicating
+// itself as a sibling .yaml.
+func TestLoader_Save_RoundTripsYmlFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "dev.yml"), []byte("description: original\n"), 0o644))
+
+	loader := NewLoader([]string{tmpDir})
+	loaded, err := loader.Load("dev")
+	require.NoError(t, err)
+
+	loaded.Description = "edited"
+	require.NoError(t, loader.Save(loaded))
+
+	assert.NoFileExists(t, filepath.Join(tmpDir, "dev.yaml"), "save must not duplicate the profile under a second extension")
+	again, err := loader.Load("dev")
+	require.NoError(t, err)
+	assert.Equal(t, "edited", again.Description)
+}
+
 func TestLoader_Save_NoDirs(t *testing.T) {
 	loader := NewLoader([]string{})
 	err := loader.Save(&Profile{Name: "test"})

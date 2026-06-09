@@ -341,14 +341,21 @@ func (l *Loader) Save(profile *Profile) error {
 	if len(l.dirs) == 0 {
 		return fmt.Errorf("no profiles directory configured")
 	}
-
-	// Use first directory for writes
-	dir := l.dirs[0]
-	if err := l.fs.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create profiles directory: %w", err)
+	if err := validateProfileName(profile.Name); err != nil {
+		return err
 	}
 
-	path := filepath.Join(dir, profile.Name+".yaml")
+	// A profile loaded from disk saves back to its own file (so a .yml
+	// profile round-trips instead of duplicating as .yaml); a new profile
+	// writes under the first directory. Subdir-qualified names — the form
+	// List produces — get their intermediate directories created.
+	path := profile.Path
+	if path == "" {
+		path = filepath.Join(l.dirs[0], filepath.FromSlash(profile.Name)+".yaml")
+	}
+	if err := l.fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create profiles directory: %w", err)
+	}
 
 	// Create a copy without Name and Path for serialization
 	toSave := *profile
@@ -365,6 +372,22 @@ func (l *Loader) Save(profile *Profile) error {
 	}
 
 	profile.Path = path
+	return nil
+}
+
+// validateProfileName rejects names that would escape the profiles directory
+// when joined into a path. The check is the cleaned-relative form (not a
+// naive ".." prefix test), so legitimate names like "..hidden" pass while
+// "../x" and absolute paths are rejected. This is the profile-side mirror of
+// bundles.ValidateBundleName.
+func validateProfileName(name string) error {
+	if name == "" {
+		return fmt.Errorf("profile name is required")
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid profile name %q: must stay within the profiles directory", name)
+	}
 	return nil
 }
 

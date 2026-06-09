@@ -190,6 +190,48 @@ func TestCommitUpgrade_NormalizesAndClearsPending(t *testing.T) {
 	assert.NotContains(t, string(got), "781317+00:00", "legacy format gone after commit")
 }
 
+// TestCommitUpgrade_DoesNotClobberConcurrentWrite pins the commit-time
+// re-stage: between Load (which stages the upgrade) and the user's consent,
+// the spawned backend's MCP BindSession may rewrite the index. Committing the
+// staged snapshot would silently drop that write — commit must re-read under
+// the lock and, finding canonical bytes, leave them alone.
+func TestCommitUpgrade_DoesNotClobberConcurrentWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.yaml")
+	const legacy = `sessions:
+- harp_name: generous-trustless-waltz
+  backend: claude-code
+  project_dir: /home/u/proj
+  started_at: 2026-05-28 16:57:20.781317+00:00
+`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o644))
+
+	m, err := Open(path)
+	require.NoError(t, err)
+	_, err = m.Load() // stages the pending upgrade
+	require.NoError(t, err)
+	require.NotNil(t, m.PendingUpgrade())
+
+	// A concurrent writer (canonical form, like saveLocked) lands a session
+	// bind during the prompt window.
+	const concurrent = `sessions:
+    - harp_name: generous-trustless-waltz
+      session_id: bound-by-mcp
+      backend: claude-code
+      project_dir: /home/u/proj
+      started_at: 2026-05-28T16:57:20.781317Z
+`
+	require.NoError(t, os.WriteFile(path, []byte(concurrent), 0o644))
+
+	require.NoError(t, m.CommitUpgrade())
+	assert.Nil(t, m.PendingUpgrade())
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "bound-by-mcp",
+		"the concurrent session bind must survive the upgrade commit")
+}
+
 func TestLoad_CurrentIndexHasNoPendingUpgrade(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "index.yaml")

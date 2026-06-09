@@ -285,7 +285,10 @@ func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, 
 
 func init() {
 	hookInjectContextCmd.Flags().StringVar(&injectContextProject, "project", "", "Project directory (defaults to git root or current directory)")
-	hookInjectContextCmd.Flags().StringVar(&injectContextBackend, "backend", "claude-code", "Backend type (claude-code or gemini)")
+	// The injection output is backend-independent; the flag is accepted only
+	// so previously-generated hook commands that pass it keep working.
+	hookInjectContextCmd.Flags().StringVar(&injectContextBackend, "backend", "", "Unused; retained for compatibility")
+	_ = hookInjectContextCmd.Flags().MarkHidden("backend")
 	hookInjectContextCmd.Flags().IntVar(&injectContextPart, "part", 0, "1-based chunk index when context is split across multiple ordered hooks")
 	hookInjectContextCmd.Flags().IntVar(&injectContextTotal, "of", 0, "total number of context chunks (omit or 0 for single-shot whole-content injection)")
 	hookCmd.AddCommand(hookInjectContextCmd)

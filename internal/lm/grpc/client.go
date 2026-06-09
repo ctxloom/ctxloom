@@ -215,17 +215,31 @@ func NewLLMRunner(cmd string, args []string, verbosity int) (*LLMRunner, error) 
 	}, nil
 }
 
-// NewSelfInvokingClient creates a plugin client that invokes "ctxloom plugin serve <backend>".
+// NewSelfInvokingClient creates a plugin client that invokes "ctxloom llm serve <backend>".
 // This is used when no external plugin binary is found.
 // Verbosity controls logging: 0=quiet, 1=info, 2=debug, 3+=trace.
 func NewSelfInvokingClient(backendName string, verbosity int) (*LLMRunner, error) {
+	return NewSelfInvokingClientForLabel(backendName, "", verbosity)
+}
+
+// NewSelfInvokingClientForLabel is NewSelfInvokingClient carrying the resolved
+// config label into the serve subprocess. With two labels of the same backend
+// type, serve's type-based lookup is map-ordered — the run would randomly
+// apply either label's binary/args/env per process. Callers that resolved a
+// specific label (the run path) pass it so serve configures exactly that
+// entry; label may be empty when only the type is known.
+func NewSelfInvokingClientForLabel(backendName, label string, verbosity int) (*LLMRunner, error) {
 	// Get the path to the current executable
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
 
-	return NewLLMRunner(executable, []string{"llm", "serve", backendName}, verbosity)
+	args := []string{"llm", "serve", backendName}
+	if label != "" {
+		args = append(args, "--label", label)
+	}
+	return NewLLMRunner(executable, args, verbosity)
 }
 
 // Info returns metadata about the plugin.

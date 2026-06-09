@@ -22,6 +22,7 @@ var (
 	weavePartsFrom   string
 	weaveParts       []string
 	weaveNoSynth     bool
+	weaveVerbosity   int
 )
 
 var weaveCmd = &cobra.Command{
@@ -91,7 +92,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		WorkDir:       projectroot.WorkDir(),
 		Concurrency:   weaveConcurrency,
 		NoSynthesize:  weaveNoSynth,
-		Verbosity:     runVerbosity,
+		Verbosity:     weaveVerbosity,
 	})
 
 	if weaveSaveParts != "" && result != nil {
@@ -179,6 +180,7 @@ func init() {
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
 	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis")
+	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 
 	_ = weaveCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("synthesize", completeProfileNames)

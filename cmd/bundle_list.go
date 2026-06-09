@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 )
 
 var bundleListCmd = &cobra.Command{
@@ -237,7 +238,7 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 
 	firstLine := strings.Split(strings.TrimSpace(frag.Content), "\n")[0]
 	if len(firstLine) > 70 {
-		firstLine = firstLine[:67] + "..."
+		firstLine = textutil.TruncateBytes(firstLine, 67) + "..."
 	}
 	w.Printf("      %s\n", firstLine)
 }

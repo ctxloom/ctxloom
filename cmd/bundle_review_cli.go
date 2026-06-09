@@ -49,7 +49,6 @@ Respond with:
 	},
 }
 
-
 var bundleApproveCmd = &cobra.Command{
 	Use:   "approve",
 	Short: "Approve pending bundle changes",

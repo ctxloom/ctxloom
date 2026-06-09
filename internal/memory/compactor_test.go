@@ -136,6 +136,24 @@ func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
 	assert.Greater(t, len(chunks), 1)
 }
 
+// TestCompactor_ChunkText_NoTrailingOverlapDuplicate pins the loop exit: once
+// the final chunk reaches the end of the text, the loop must stop. Advancing
+// by chunkEnd-overlap instead re-entered the loop with the pure-overlap tail
+// and emitted it again as a standalone chunk — one wasted LLM distill call of
+// duplicated content per compaction.
+func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
+	c := &Compactor{config: CompactionConfig{}}
+
+	text := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 60)) // ~1380 chars
+	chunks := c.chunkText(text, 100)                                         // 400-char chunks, 200-char overlap
+
+	require.Greater(t, len(chunks), 1)
+	for i := 1; i < len(chunks); i++ {
+		assert.False(t, strings.HasSuffix(chunks[i-1], chunks[i]),
+			"chunk %d is a pure-overlap duplicate of the tail of chunk %d", i, i-1)
+	}
+}
+
 func TestDistilledSession_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 

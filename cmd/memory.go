@@ -268,10 +268,14 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Printf("Session: %s\n", result.SessionID)
 	fmt.Printf("Chunks: %d\n", result.ChunksCreated)
+	reduction := 0.0
+	if result.TotalTokensIn > 0 {
+		reduction = 100 * (1 - float64(result.TotalTokensOut)/float64(result.TotalTokensIn))
+	}
 	fmt.Printf("Tokens: %d -> %d (%.0f%% reduction)\n",
 		result.TotalTokensIn,
 		result.TotalTokensOut,
-		100*(1-float64(result.TotalTokensOut)/float64(result.TotalTokensIn)))
+		reduction)
 	fmt.Printf("Duration: %s\n", result.Duration.Round(time.Millisecond))
 	fmt.Printf("Output: %s\n", result.DistilledPath)
 

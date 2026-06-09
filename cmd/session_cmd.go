@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/shared/harpmarker"
 )
 
 var sessionCmd = &cobra.Command{

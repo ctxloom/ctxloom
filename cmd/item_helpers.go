@@ -427,7 +427,7 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool
 			action = "Updated"
 		}
 		fmt.Printf("%s %s\n", action, result.Path)
-		fmt.Printf("Commit: %s\n", result.SHA[:7])
+		fmt.Printf("Commit: %s\n", shortSHA(result.SHA))
 	}
 
 	return nil

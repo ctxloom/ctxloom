@@ -35,7 +35,6 @@ var (
 	runProfile          string
 	runSavedPrompt      string
 	runDryRun           bool
-	runSuppressWarnings bool
 	runPrint            bool
 	runVerbosity        int
 	runAssumeYes        bool
@@ -621,8 +620,10 @@ Examples:
 			// Use external plugin binary
 			client, err = pb.NewLLMRunner(llmBinary, llmArgs, runVerbosity)
 		} else {
-			// Use built-in plugin via self-invocation
-			client, err = pb.NewSelfInvokingClient(backendName, runVerbosity)
+			// Use built-in plugin via self-invocation, carrying the resolved
+			// label so serve configures exactly this entry (not the first
+			// map-ordered entry of the same type).
+			client, err = pb.NewSelfInvokingClientForLabel(backendName, label, runVerbosity)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to start plugin: %w", err)
@@ -730,7 +731,6 @@ func init() {
 	runCmd.Flags().StringSliceVarP(&runTags, "tag", "t", nil, "Include fragments with this tag (can be repeated)")
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
-	runCmd.Flags().BoolVarP(&runSuppressWarnings, "quiet", "q", false, "Suppress warnings (e.g., variable redefinition)")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")

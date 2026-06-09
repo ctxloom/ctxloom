@@ -148,7 +148,6 @@ func projectAppDir(cfg *config.Config) string {
 
 // refreshRemoteClone fetches the latest into the local clone so updates can be
 // detected. Fault-tolerant: a fetch failure warns and the stale clone is used.
-//
 func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) {
 	cache := operations.NewRepoCache(cfg)
 	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
@@ -157,7 +156,6 @@ func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string)
 		}
 	}
 }
-
 
 // lookupLockedEntry finds refStr's lock entry and item type, trying bundles
 // then profiles. Returns a zero entry and empty type when not present.
@@ -188,7 +186,6 @@ func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string, ite
 		return itemType, false
 	}
 }
-
 
 func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
 	lockfile, err := lockManager.Load()

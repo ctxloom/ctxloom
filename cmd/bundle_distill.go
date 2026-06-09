@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -210,12 +211,13 @@ func hasSiblingsOfType(count int, excludeName, prefix string) bool {
 	return count > 1 || (count == 1 && !strings.HasPrefix(excludeName, prefix))
 }
 
-// firstLineTruncated returns the first line of s, trimmed and capped at 60 runes
-// (57 + "…"-style ellipsis) for a compact one-line summary.
+// firstLineTruncated returns the first line of s, trimmed and capped at 60
+// bytes (57 + ellipsis, never splitting a multibyte rune) for a compact
+// one-line summary.
 func firstLineTruncated(s string) string {
 	line := strings.Split(strings.TrimSpace(s), "\n")[0]
 	if len(line) > 60 {
-		return line[:57] + "..."
+		return textutil.TruncateBytes(line, 57) + "..."
 	}
 	return line
 }

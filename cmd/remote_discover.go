@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 )
 
 var (
@@ -78,12 +79,12 @@ Examples:
 			// Truncate description
 			desc := r.Description
 			if len(desc) > 35 {
-				desc = desc[:32] + "..."
+				desc = textutil.TruncateBytes(desc, 32) + "..."
 			}
 
 			repoName := fmt.Sprintf("%s/%s", r.Owner, r.Name)
 			if len(repoName) > 19 {
-				repoName = repoName[:16] + "..."
+				repoName = textutil.TruncateBytes(repoName, 16) + "..."
 			}
 
 			fmt.Printf("%3d │ %-6s │ %-19s │ %5d │ %s\n",

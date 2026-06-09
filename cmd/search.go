@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 )
 
 var (
@@ -247,12 +248,12 @@ func printRemoteResults(results []operations.SearchRemoteEntry) {
 	for _, r := range results {
 		tags := strings.Join(r.Tags, ", ")
 		if len(tags) > 20 {
-			tags = tags[:17] + "..."
+			tags = textutil.TruncateBytes(tags, 17) + "..."
 		}
 
 		name := r.Name
 		if len(name) > 18 {
-			name = name[:15] + "..."
+			name = textutil.TruncateBytes(name, 15) + "..."
 		}
 
 		itemType := r.Type

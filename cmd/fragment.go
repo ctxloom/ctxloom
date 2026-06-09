@@ -139,7 +139,6 @@ Examples:
 	},
 }
 
-
 var (
 	fragmentPushPR      bool
 	fragmentPushBranch  string

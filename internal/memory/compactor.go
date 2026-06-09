@@ -393,6 +393,13 @@ func (c *Compactor) chunkText(text string, targetTokens int) []string {
 		chunk := remaining[:chunkEnd]
 		chunks = append(chunks, strings.TrimSpace(chunk))
 
+		// The final chunk reaches the end of the text: stop here. Advancing by
+		// chunkEnd-overlap would re-enter the loop with the pure-overlap tail
+		// and emit it again as a duplicate chunk.
+		if chunkEnd == len(remaining) {
+			break
+		}
+
 		// Move forward, keeping some overlap for context
 		advance := chunkEnd - overlapChars
 		if advance <= 0 {

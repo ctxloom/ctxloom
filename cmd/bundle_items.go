@@ -103,13 +103,20 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 // content. The temp-file round-trip and editor invocation are frontend concerns;
 // callers persist the result through internal/operations.
 func editInEditor(cfg *config.Config, content, filename string) (string, error) {
-	// Create temp file
-	tmpDir := os.TempDir()
+	// A private per-call temp dir: a fixed os.TempDir()/<name> path collides
+	// across concurrent edits of same-named items and is predictable and
+	// world-readable (0644) on shared machines for possibly-private content.
+	// The subdir keeps the user-visible filename (editors show it) while
+	// 0700 + MkdirTemp give isolation and unpredictability.
+	tmpDir, err := os.MkdirTemp("", "ctxloom-edit-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 	tmpFile := filepath.Join(tmpDir, filename)
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(content), 0o600); err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Get editor command
 	editor := cfg.Editor.Command

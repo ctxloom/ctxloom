@@ -18,6 +18,7 @@ var (
 	mapLLM         string
 	mapConcurrency int
 	mapSaveParts   string
+	mapVerbosity   int
 )
 
 var mapCmd = &cobra.Command{
@@ -70,7 +71,7 @@ func runMap(cmd *cobra.Command, args []string) error {
 		LLM:         mapLLM,
 		WorkDir:     projectroot.WorkDir(),
 		Concurrency: mapConcurrency,
-		Verbosity:   runVerbosity,
+		Verbosity:   mapVerbosity,
 	})
 
 	if mapSaveParts != "" {
@@ -116,6 +117,7 @@ func init() {
 	mapCmd.Flags().StringSliceVarP(&mapProfiles, "profile", "p", nil, "Profile to run as a parallel member (repeatable)")
 	mapCmd.Flags().StringVarP(&mapLLM, "llm", "l", "", "Override the LLM for every member (else each profile's own llm:)")
 	mapCmd.Flags().IntVar(&mapConcurrency, "concurrency", 0, "Max members to run at once (default 4)")
+	mapCmd.Flags().CountVarP(&mapVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 	mapCmd.Flags().StringVar(&mapSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 
 	_ = mapCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

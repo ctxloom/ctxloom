@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
@@ -9,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/shared/agent"
 )
 
 var llmServeCmd = &cobra.Command{
@@ -32,8 +34,14 @@ var llmServeCmd = &cobra.Command{
 		// transport names backends, not labels), so binary/args/env come from
 		// any matching entry; the model + env for a specific run are carried on
 		// the request itself.
-		if cfg, _ := config.Load(); cfg != nil {
-			if bc := decodeBackendConfigForType(cfg, backendName); bc != nil {
+		cfg, cfgErr := config.Load()
+		if cfgErr != nil {
+			// Degrade to an unconfigured backend, but say so — every other
+			// startup path warns on a config-load failure.
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: config load failed; serving %s unconfigured: %v\n", backendName, cfgErr)
+		}
+		if cfg != nil {
+			if bc := serveBackendConfig(cfg, backendName, llmServeLabel); bc != nil {
 				if c, ok := backend.(backends.Configurable); ok {
 					c.Configure(bc)
 				}
@@ -56,6 +64,32 @@ var llmServeCmd = &cobra.Command{
 	},
 }
 
+var llmServeLabel string
+
+// serveBackendConfig picks the labeled entry to configure the served backend
+// with. The label the run resolved wins (verified against the backend type so
+// a stale flag can't misconfigure); the type-based scan remains the fallback
+// for callers that only know the type — its map-order tie is exactly why the
+// run path passes the label through.
+func serveBackendConfig(cfg *config.Config, backendName, label string) agent.BackendConfig {
+	if label != "" {
+		if entry, ok := cfg.LM.Configs[label]; ok {
+			t := entry.Type
+			if t == "" {
+				t = config.DefaultLLM
+			}
+			if t == backendName {
+				if bc := decodeBackendConfig(cfg, label); bc != nil {
+					return bc
+				}
+			}
+		}
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: label %q does not resolve to backend %s; falling back to type lookup\n", label, backendName)
+	}
+	return decodeBackendConfigForType(cfg, backendName)
+}
+
 func init() {
 	llmCmd.AddCommand(llmServeCmd)
+	llmServeCmd.Flags().StringVar(&llmServeLabel, "label", "", "Config label to apply (internal; passed by the self-invoking run path)")
 }

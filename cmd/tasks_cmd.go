@@ -325,7 +325,11 @@ var tasksStampPlanCmd = &cobra.Command{
 		}
 		raw, err := io.ReadAll(cmd.InOrStdin())
 		if err != nil {
-			return fmt.Errorf("read stdin: %w", err)
+			// Machine hook: never fail the host agent's tool call over a
+			// stamping hiccup (the sibling hooks — session-bind,
+			// inject-context — follow the same warn-and-continue rule).
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: stamp-plan: read stdin: %v\n", err)
+			return nil
 		}
 		path, err := parseEditPayload(raw)
 		if err != nil || path == "" {
@@ -334,7 +338,10 @@ var tasksStampPlanCmd = &cobra.Command{
 		if !memory.IsPlanFile(path) {
 			return nil
 		}
-		return tasks.StampPlanFile(path, harp)
+		if err := tasks.StampPlanFile(path, harp); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: stamp-plan: %v\n", err)
+		}
+		return nil
 	},
 }
 

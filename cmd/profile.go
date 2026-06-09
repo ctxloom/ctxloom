@@ -580,7 +580,7 @@ func printPublishResult(result *remote.PublishResult) {
 		action = "Updated"
 	}
 	fmt.Printf("%s %s\n", action, result.Path)
-	fmt.Printf("Commit: %s\n", result.SHA[:7])
+	fmt.Printf("Commit: %s\n", shortSHA(result.SHA))
 }
 
 var profileEditCmd = &cobra.Command{
@@ -595,7 +595,6 @@ Examples:
 		return editProfileFile(args[0])
 	},
 }
-
 
 var profileExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
@@ -702,7 +701,6 @@ func init() {
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
 	profileDefaultCmd.Flags().BoolVar(&profileDefaultUnset, "unset", false, "Remove the named profile from the default set")
-
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames

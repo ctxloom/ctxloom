@@ -117,7 +117,6 @@ Examples:
 
 var promptDistillForce bool
 
-
 var (
 	promptPushPR      bool
 	promptPushBranch  string

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -359,8 +360,13 @@ Examples:
 			}
 		}
 
-		// Assemble context using operations
-		ctx := context.Background()
+		// Assemble context using operations. The context carries shutdown
+		// signals so SIGTERM/SIGHUP unwind through the defers — terminal
+		// restore, the session end-mark, client.Kill — instead of killing the
+		// process mid-raw-mode. (Interactive ^C is raw-mode input forwarded to
+		// the child, not a SIGINT to us.)
+		ctx, stopSignals := signal.NotifyContext(cmd.Context(), shutdownSignals...)
+		defer stopSignals()
 
 		// Auto-sync remote dependencies on startup if enabled (graceful failure).
 		// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
@@ -630,11 +636,11 @@ Examples:
 		var resize <-chan *pb.WindowSize
 		restoreTerm := func() {}
 		if mode == pb.ExecutionMode_INTERACTIVE {
-			stdin, resize, restoreTerm = interactiveTerminal(context.Background())
+			stdin, resize, restoreTerm = interactiveTerminal(ctx)
 		}
 
 		// Run the AI plugin
-		exitCode, err := client.Run(context.Background(), req, stdin, os.Stdout, os.Stderr, resize)
+		exitCode, err := client.Run(ctx, req, stdin, os.Stdout, os.Stderr, resize)
 		restoreTerm()
 		if err != nil {
 			return fmt.Errorf("AI plugin failed: %w", err)

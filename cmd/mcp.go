@@ -35,6 +35,9 @@ RUNNING AS MCP SERVER:
 
 Manage configured MCP servers and ctxloom's own auto-registration under
 'ctxloom manage mcp'.`,
+	// NoArgs: without it, a stale invocation like `ctxloom mcp list` would
+	// silently start a stdio MCP server that sits waiting on stdin.
+	Args: cobra.NoArgs,
 	RunE: runMCPServerSDK,
 }
 

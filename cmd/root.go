@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -31,6 +32,11 @@ func GetConfig() (*config.Config, error) {
 var rootCmd = &cobra.Command{
 	Use:   "ctxloom",
 	Short: "Sophisticated Context Management",
+	// Execute owns error printing: without these, cobra prints every RunE
+	// error twice ("Error: x" + Execute's own print) and dumps the full
+	// usage text — including for a wrapped LLM's ordinary nonzero exit.
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	Long: `ctxloom manages context for AI coding assistants.
 
 QUICK START
@@ -72,11 +78,13 @@ func GetRootCmd() *cobra.Command {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		// Check for ExitError to preserve specific exit codes
-		if exitErr, ok := err.(*ExitError); ok {
+		// An ExitError carries the wrapped LLM's own exit code — an ordinary
+		// outcome, not an error to report.
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
 }

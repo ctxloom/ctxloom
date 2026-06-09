@@ -85,3 +85,32 @@ func TestRepoCache_UpdateRepo_AdvancesOrigin(t *testing.T) {
 	require.Equalf(t, liveSHA, got,
 		"origin default branch not advanced: got %s, want live %s (initial was %s)", got, liveSHA, initialSHA)
 }
+
+// TestGitCloneFetcher_EmptyRefReadsTrackOrigin is the regression test for the
+// stale-HEAD read bug: fetch advances refs/remotes/origin/* but never the
+// clone's local branch, and empty-ref reads resolved the local HEAD — so after
+// a sync, listings and version-less reads served clone-time content. The VCS
+// contract says an empty ref means the remote's default-branch tip.
+func TestGitCloneFetcher_EmptyRefReadsTrackOrigin(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceRepo := createTestRepo(t, tmpDir)
+	repoURL := "file://" + sourceRepo
+
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+
+	cloneDir, err := cache.EnsureRepo(context.Background(), repoURL, ForgeGitHub)
+	require.NoError(t, err)
+
+	// Advance the remote and fetch (no re-clone).
+	commitTo(t, sourceRepo, "fresh.txt", "fresh content")
+	_, err = cache.UpdateRepo(context.Background(), repoURL, ForgeGitHub)
+	require.NoError(t, err)
+
+	fetcher, err := NewGitCloneFetcher(cloneDir, repoURL, ForgeGitHub, nil)
+	require.NoError(t, err)
+
+	data, err := fetcher.FetchFile(context.Background(), "o", "r", "fresh.txt", "")
+	require.NoError(t, err, "an empty-ref read must see the fetched default-branch tip, not the stale local HEAD")
+	require.Equal(t, "fresh content", string(data))
+}

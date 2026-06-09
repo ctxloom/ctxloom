@@ -277,12 +277,25 @@ func (f *GitCloneFetcher) treeAtRef(ref string) (*object.Tree, error) {
 	var commitHash plumbing.Hash
 
 	if ref == "" {
-		// Use HEAD
-		head, err := f.repo.Head()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		// An empty ref means "the remote's default-branch tip" (the VCS
+		// contract), NOT the clone's local HEAD: fetch advances
+		// refs/remotes/origin/* but never fast-forwards the local branch, so
+		// HEAD serves clone-time content after every sync. Resolve through the
+		// default branch name (resolveToCommitHash prefers origin/<name>),
+		// falling back to HEAD only when no branch resolves (fixture repos
+		// without origin refs).
+		if name, derr := f.GetDefaultBranch(context.Background(), "", ""); derr == nil && name != "" {
+			if hash, rerr := f.repo.ResolveRevision(plumbing.Revision("refs/remotes/origin/" + name)); rerr == nil {
+				commitHash = *hash
+			}
 		}
-		commitHash = head.Hash()
+		if commitHash.IsZero() {
+			head, err := f.repo.Head()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get HEAD: %w", err)
+			}
+			commitHash = head.Hash()
+		}
 	} else {
 		// Try resolving the ref through multiple strategies
 		resolved, err := f.resolveToCommitHash(ref)
@@ -307,10 +320,12 @@ func (f *GitCloneFetcher) treeAtRef(ref string) (*object.Tree, error) {
 
 // resolveToCommitHash tries multiple strategies to resolve a ref string to a commit hash.
 func (f *GitCloneFetcher) resolveToCommitHash(ref string) (plumbing.Hash, error) {
-	// Try direct resolution strategies in order
+	// origin/<ref> first: fetch advances the remote-tracking refs but never
+	// the clone's local branches, so a local branch name resolves to stale
+	// clone-time state. SHAs and tags fall through to the later strategies.
 	strategies := []string{
-		ref,
 		"refs/remotes/origin/" + ref,
+		ref,
 		"refs/tags/" + ref,
 	}
 

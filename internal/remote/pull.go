@@ -290,25 +290,21 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	return nil
 }
 
-// resolveContentSHA resolves the commit SHA to fetch. It uses the ref's
-// content version when specified, else the remote's default branch.
+// resolveContentSHA resolves the commit SHA to fetch through the constraint
+// resolver: a semver range ("^1.2") resolves to the highest satisfying tag, a
+// branch/tag/SHA to itself, and an empty version to the default branch's tip.
+// Feeding the raw constraint to ResolveRef instead treated a semver range as a
+// literal git ref (go-git even reads a leading "^" as a parent operator), so a
+// range that resolved fine through the lock/upgrade path failed plain pull.
 // requestedVersion echoes what the user asked for ("" if they took the
 // default), recorded in the lockfile for export reconstruction.
 func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion string, err error) {
-	contentVersion := ref.EffectiveContentVersion()
-	requestedVersion = contentVersion
-	if contentVersion == "" {
-		contentVersion, err = fetcher.GetDefaultBranch(ctx, owner, repo)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to get default branch: %w", err)
-		}
-		requestedVersion = ""
-	}
-	sha, err = fetcher.ResolveRef(ctx, owner, repo, contentVersion)
+	requestedVersion = ref.EffectiveContentVersion()
+	res, err := ResolveConstraint(ctx, requestedVersion, NewFetcherRepoVersions(fetcher, owner, repo))
 	if err != nil {
-		return "", "", fmt.Errorf("failed to resolve ref '%s': %w", contentVersion, err)
+		return "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
 	}
-	return sha, requestedVersion, nil
+	return res.SHA, requestedVersion, nil
 }
 
 // securityReview enforces the pull's safety gate: blind mode implies force,

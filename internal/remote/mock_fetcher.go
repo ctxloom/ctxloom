@@ -14,6 +14,7 @@ type MockFetcher struct {
 	Dirs          map[string][]DirEntry
 	DefaultBranch string
 	Refs          map[string]string
+	Tags          []string
 	Repos         []RepoInfo
 	ValidRepos    map[string]bool // key: "owner/repo"
 	ForgeType     ForgeType
@@ -70,6 +71,12 @@ func NewMockFetcher() *MockFetcher {
 		ValidRepos:    make(map[string]bool),
 		ForgeType:     ForgeGitHub,
 	}
+}
+
+// ListTags satisfies the tagLister capability so semver-constraint
+// resolution is exercisable against the mock.
+func (m *MockFetcher) ListTags(_ context.Context, _, _ string) ([]string, error) {
+	return m.Tags, nil
 }
 
 // WithFile adds a file to the mock.

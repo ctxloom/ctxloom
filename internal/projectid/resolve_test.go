@@ -188,3 +188,36 @@ func TestMintUniqueAgainstRegistry(t *testing.T) {
 		seen[e.ProjectID] = struct{}{}
 	}
 }
+
+// TestResolveSymlinkedPathKeepsIdentity pins path canonicalization: the same
+// tree reached through a symlink (or an alternate mount like /tmp vs
+// /private/tmp) is the SAME project. Without symlink resolution the symlinked
+// launch missed its registry entry, concluded "live copy", forked a fresh
+// identity, and overwrote the in-tree marker — orphaning the project's task
+// log.
+func TestResolveSymlinkedPathKeepsIdentity(t *testing.T) {
+	m := newManager(t)
+	real := t.TempDir()
+
+	first := mustResolve(t, m, real)
+	if first.Action != ActionNewProject {
+		t.Fatalf("setup: action = %q, want %q", first.Action, ActionNewProject)
+	}
+
+	linkParent := t.TempDir()
+	link := filepath.Join(linkParent, "via-link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	second := mustResolve(t, m, link)
+	if second.ProjectID != first.ProjectID {
+		t.Fatalf("symlinked launch forked identity: %q != %q", second.ProjectID, first.ProjectID)
+	}
+	if second.Action != ActionNormal {
+		t.Fatalf("action = %q, want %q (no fork, no move)", second.Action, ActionNormal)
+	}
+	if got := markerOf(t, real); got != first.ProjectID {
+		t.Fatalf("marker was rewritten to %q, want original %q", got, first.ProjectID)
+	}
+}

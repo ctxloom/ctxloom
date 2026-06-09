@@ -13,7 +13,10 @@
 //	// ... exclusive access to protected resource
 package filelock
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // Lock acquires an exclusive (write) lock on the specified file.
 // The file is created if it doesn't exist.
@@ -33,19 +36,9 @@ func LockShared(path string) (unlock func(), err error) {
 
 // ensureDir creates the parent directory of path if it doesn't exist.
 func ensureDir(path string) error {
-	dir := path[:len(path)-len(pathBase(path))-1]
-	if dir == "" {
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
 		return nil
 	}
-	return os.MkdirAll(dir, 0755)
-}
-
-// pathBase returns the last element of path (simple implementation to avoid filepath import).
-func pathBase(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' || path[i] == '\\' {
-			return path[i+1:]
-		}
-	}
-	return path
+	return os.MkdirAll(dir, 0o755)
 }

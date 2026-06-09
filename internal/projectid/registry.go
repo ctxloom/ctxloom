@@ -223,9 +223,19 @@ func (m *Manager) Repoint(id, newPath string) error {
 	return fmt.Errorf("project-id not found: %q", id)
 }
 
+// cleanPath canonicalizes p for identity comparison: symlinks are resolved so
+// the same tree reached via a symlink or alternate mount (/tmp vs /private/tmp
+// on macOS) maps to ONE identity. Without this, a symlinked launch missed its
+// registry entry, concluded "live copy", forked a fresh id, and overwrote the
+// in-tree marker — orphaning the project's task log. Falls back to a lexical
+// Clean when resolution fails (path gone, permission), so comparisons against
+// dead registry entries still work.
 func cleanPath(p string) string {
 	if p == "" {
 		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
 	}
 	return filepath.Clean(p)
 }

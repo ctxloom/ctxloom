@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,7 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -63,6 +64,12 @@ type Config struct {
 	PendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
+
+	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
+	// when the user configured their own registry). Save strips values that
+	// still match it: the overlay is a runtime fallback, and persisting it
+	// would pin the user to a snapshot of shipped model defaults.
+	lmDefaultOverlay *LMConfig
 }
 
 // LoadOption is a functional option for Load.
@@ -476,13 +483,21 @@ func mergeDefaultConfig(cfg *Config) {
 	if len(cfg.LM.Configs) > 0 {
 		return
 	}
-	cfg.LM.Configs = def.LM.Configs
+	// cfg gets its own entry map: the overlay snapshot must stay pristine so a
+	// later in-place registry mutation isn't mistaken for "still the default"
+	// and stripped by Save.
+	overlay := LMConfig{Configs: def.LM.Configs}
+	cfg.LM.Configs = make(map[string]LLMConfig, len(def.LM.Configs))
+	maps.Copy(cfg.LM.Configs, def.LM.Configs)
 	if cfg.LM.Defaults.Primary == "" {
 		cfg.LM.Defaults.Primary = def.LM.Defaults.Primary
+		overlay.Defaults.Primary = def.LM.Defaults.Primary
 	}
 	if cfg.LM.Defaults.Fast == "" {
 		cfg.LM.Defaults.Fast = def.LM.Defaults.Fast
+		overlay.Defaults.Fast = def.LM.Defaults.Fast
 	}
+	cfg.lmDefaultOverlay = &overlay
 }
 
 // loadConfigFile loads a config file into the provided Config struct.

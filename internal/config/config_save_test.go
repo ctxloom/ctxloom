@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -127,4 +129,66 @@ func TestConfig_Save_PrunesEmptiedEditorAndMCP(t *testing.T) {
 	assert.NotContains(t, got, "editor:", "emptied editor block must be pruned")
 	assert.NotContains(t, got, "mcp:", "emptied mcp block must be pruned")
 	assert.Contains(t, got, "custom_unknown: keepme", "unknown keys must survive a save")
+}
+
+// TestConfig_Save_DoesNotPersistEmbeddedDefaults pins the registry boundary:
+// mergeDefaultConfig overlays the embedded default LLM registry as a runtime
+// fallback for users who configured none. Persisting that overlay would pin
+// the user to a snapshot of shipped model defaults that stops tracking future
+// releases — Save must write only user-authored LM configuration.
+func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{AppPaths: []string{tmpDir}}
+	mergeDefaultConfig(cfg)
+	require.NotEmpty(t, cfg.LM.Configs, "precondition: the overlay populated the registry")
+
+	require.NoError(t, cfg.Save())
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "configs:",
+		"the overlaid default registry must not be materialized into the user's config")
+
+	// A user-authored change persists without dragging the registry along.
+	cfg.LM.Defaults.Primary = "mine"
+	require.NoError(t, cfg.Save())
+	data, err = os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "primary: mine")
+	assert.NotContains(t, string(data), "configs:")
+}
+
+// TestConfig_Save_UserRegistryStillPersists guards the other side: a registry
+// the user actually authored round-trips through Save unchanged.
+func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		AppPaths: []string{tmpDir},
+		LM: LMConfig{Configs: map[string]LLMConfig{
+			"mine": {Type: "claude-code"},
+		}},
+	}
+	mergeDefaultConfig(cfg) // no-op for a non-empty registry
+
+	require.NoError(t, cfg.Save())
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "mine")
+}
+
+// TestConfig_Save_LeavesNoTempFiles pins the atomic-write contract: Save goes
+// through a unique temp + rename (a torn config.yaml must be impossible), and
+// the temp never outlives the call.
+func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &Config{
+		AppPaths: []string{tmpDir},
+		LM:       LMConfig{Configs: map[string]LLMConfig{"mine": {Type: "claude-code"}}},
+	}
+	require.NoError(t, cfg.Save())
+
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.HasSuffix(e.Name(), ".tmp"), "leftover temp file: %s", e.Name())
+	}
 }

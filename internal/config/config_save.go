@@ -3,10 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 
-	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/filelock"
+	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/shared/wire"
 )
 
 // ConfigFile represents the structure for saving config.yaml
@@ -30,14 +34,18 @@ func (c *Config) CommitUpgrade() error {
 		return nil
 	}
 	p := c.PendingUpgrade
-	if err := afero.WriteFile(c.getFS(), p.Path, p.Data, 0o644); err != nil {
+	if err := iox.WriteFileAtomicFs(c.getFS(), p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
 	}
 	c.PendingUpgrade = nil
 	return nil
 }
 
-// Save writes the configuration to the primary config file.
+// Save writes the configuration to the primary config file. The
+// read-modify-write is serialized across processes with an advisory file lock
+// (the MCP server and a concurrent CLI both call Save — without it one
+// writer's sections are silently lost), and the write itself is atomic so a
+// crash can never tear config.yaml.
 func (c *Config) Save() error {
 	configPath, err := c.GetConfigFilePath()
 	if err != nil {
@@ -45,6 +53,17 @@ func (c *Config) Save() error {
 	}
 
 	fs := c.getFS()
+
+	// Advisory flock applies only to the real filesystem; an injected (test)
+	// fs has no cross-process readers. A lock failure degrades to an unlocked
+	// save rather than blocking the write (CLAUDE.md fault tolerance).
+	if c.fs == nil {
+		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
+			defer unlock()
+		} else {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: config lock failed, saving unlocked: %v\n", lerr)
+		}
+	}
 
 	existing, err := readExistingConfig(fs, configPath)
 	if err != nil {
@@ -58,7 +77,7 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := afero.WriteFile(fs, configPath, data, 0644); err != nil {
+	if err := iox.WriteFileAtomicFs(fs, configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -96,6 +115,35 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 	return existing, nil
 }
 
+// userAuthoredLM returns the LM section with default-overlaid values stripped:
+// registry entries and role defaults that came verbatim from the embedded
+// default config (mergeDefaultConfig) are runtime fallbacks, not user
+// configuration. Persisting them would pin the user to a snapshot of shipped
+// model defaults that stops tracking future releases. Anything the user added
+// or changed since the overlay survives.
+func (c *Config) userAuthoredLM() LMConfig {
+	lm := c.LM
+	ov := c.lmDefaultOverlay
+	if ov == nil {
+		return lm
+	}
+	configs := make(map[string]LLMConfig, len(lm.Configs))
+	for label, entry := range lm.Configs {
+		if def, ok := ov.Configs[label]; ok && reflect.DeepEqual(entry, def) {
+			continue
+		}
+		configs[label] = entry
+	}
+	lm.Configs = configs
+	if ov.Defaults.Primary != "" && lm.Defaults.Primary == ov.Defaults.Primary {
+		lm.Defaults.Primary = ""
+	}
+	if ov.Defaults.Fast != "" && lm.Defaults.Fast == ov.Defaults.Fast {
+		lm.Defaults.Fast = ""
+	}
+	return lm
+}
+
 // persistableLM returns a copy of the LM config with the registry-only Role
 // dropped from every entry, so persisted user configs carry plain {type, model}
 // entries. The input is not mutated (the in-memory registry keeps its roles).
@@ -127,7 +175,8 @@ func setOrDelete(m map[string]interface{}, key string, present bool, value inter
 // it editor settings would be silently dropped.
 func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	existing["version"] = CurrentConfigVersion // stamp current schema version so saved configs are never stale
-	existing["llm"] = persistableLM(c.LM)
+	lm := c.userAuthoredLM()
+	setOrDelete(existing, "llm", lm.hasAny(), persistableLM(lm))
 	delete(existing, "lm")         // remove old key if present
 	delete(existing, "generators") // no longer supported
 

@@ -279,6 +279,75 @@ bundles:
 	return fs, loader
 }
 
+func TestSetDefaultProfile(t *testing.T) {
+	newCfg := func(fs afero.Fs) *config.Config {
+		cfg := &config.Config{AppPaths: []string{testBaseDir}}
+		cfg.SetFS(fs)
+		return cfg
+	}
+
+	t.Run("empty name errors", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Loader: loader})
+		require.Error(t, err)
+	})
+
+	t.Run("adds a valid local profile and persists", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "added", res.Status)
+		assert.True(t, cfg.Profiles.IsDefaultProfile("go-developer"))
+		assert.Equal(t, []string{"go-developer"}, res.Defaults)
+
+		// Persisted to the config file on the in-memory fs.
+		data, rerr := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
+		require.NoError(t, rerr)
+		assert.Contains(t, string(data), "go-developer")
+	})
+
+	t.Run("adding an already-default profile is unchanged", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		cfg.Profiles.AddDefaultProfile("go-developer")
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "unchanged", res.Status)
+	})
+
+	t.Run("accepts a remote ref without loader validation", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		ref := "https://github.com/user/ctxloom@profiles/dev"
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: ref, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "added", res.Status)
+		assert.True(t, cfg.Profiles.IsDefaultProfile(ref))
+	})
+
+	t.Run("unknown local name errors", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Name: "nope", Loader: loader})
+		require.Error(t, err)
+	})
+
+	t.Run("unset removes a default; absent is unchanged", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		cfg.Profiles.AddDefaultProfile("go-developer")
+
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Unset: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "removed", res.Status)
+		assert.False(t, cfg.Profiles.IsDefaultProfile("go-developer"))
+
+		res, err = SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Unset: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "unchanged", res.Status)
+	})
+}
+
 func TestListProfiles_AllProfiles(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

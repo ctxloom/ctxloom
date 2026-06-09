@@ -234,33 +234,33 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	remoteSyncForce bool
-	remoteSyncLock  bool
+	remotePullForce bool
+	remotePullLock  bool
 )
 
-var remoteSyncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Sync dependencies from profiles",
-	Long: `Sync remote bundles and profiles referenced in your configuration.
+var remotePullCmd = &cobra.Command{
+	Use:   "pull",
+	Short: "Pull dependencies from profiles",
+	Long: `Pull remote bundles and profiles referenced in your configuration.
 
 This fetches all remote dependencies declared in your profiles, updates
 the lockfile, and applies hooks.
 
 Examples:
-  ctxloom remote sync                    # Sync all dependencies
-  ctxloom remote sync --force            # Re-pull even if already installed
-  ctxloom remote sync --no-lock          # Skip lockfile update`,
+  ctxloom remote pull                    # Pull all dependencies
+  ctxloom remote pull --force            # Re-pull even if already installed
+  ctxloom remote pull --no-lock          # Skip lockfile update`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		fmt.Println("Syncing dependencies...")
+		fmt.Println("Pulling dependencies...")
 
 		result, err := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
-			Force:      remoteSyncForce,
-			Lock:       remoteSyncLock,
+			Force:      remotePullForce,
+			Lock:       remotePullLock,
 			ApplyHooks: true,
 		})
 		if err != nil {
@@ -268,11 +268,11 @@ Examples:
 		}
 
 		if result.Total == 0 {
-			fmt.Println("No remote dependencies to sync.")
+			fmt.Println("No remote dependencies to pull.")
 			return nil
 		}
 
-		fmt.Printf("\nSynced %d items:\n", result.Total)
+		fmt.Printf("\nPulled %d items:\n", result.Total)
 		if result.Installed > 0 {
 			fmt.Printf("  Installed: %d\n", result.Installed)
 		}
@@ -300,7 +300,7 @@ func init() {
 	remoteCmd.AddCommand(remoteRemoveCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
-	remoteCmd.AddCommand(remoteSyncCmd)
+	remoteCmd.AddCommand(remotePullCmd)
 	remoteCmd.AddCommand(remoteTrustCmd)
 	remoteCmd.AddCommand(remoteUntrustCmd)
 
@@ -310,9 +310,9 @@ func init() {
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,
 		"Clear the default remote")
 
-	remoteSyncCmd.Flags().BoolVarP(&remoteSyncForce, "force", "f", false,
+	remotePullCmd.Flags().BoolVarP(&remotePullForce, "force", "f", false,
 		"Re-pull even if already installed")
-	remoteSyncLock = true // default
-	remoteSyncCmd.Flags().BoolVar(&remoteSyncLock, "lock", true,
-		"Update lockfile after sync")
+	remotePullLock = true // default
+	remotePullCmd.Flags().BoolVar(&remotePullLock, "lock", true,
+		"Update lockfile after pull")
 }

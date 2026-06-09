@@ -138,6 +138,13 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Expand bare convenience refs (e.g. "code-review-base#fragments/conduct")
+	// against the configured default remote so the profile stores canonical
+	// URLs. Scheme-qualified refs pass through untouched.
+	registry := defaultRemoteRegistry()
+	profileCreateParents = expandRefsAgainstDefaultRemote(profileCreateParents, remote.ItemTypeProfile, registry)
+	profileCreateBundles = expandRefsAgainstDefaultRemote(profileCreateBundles, remote.ItemTypeBundle, registry)
+
 	// Route through the operations core so the CLI shares the MCP path's
 	// validation and the default auto-promotion (so `ctxloom run` doesn't
 	// launch with empty context after the first profile is created). The
@@ -167,6 +174,43 @@ func profileCreateDirs(cfg *config.Config) []string {
 		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return dirs
+}
+
+// defaultRemoteRegistry loads the remote registry for ref expansion, returning
+// nil on any error. Expansion is a convenience: a missing/unreadable registry
+// simply means bare refs pass through unchanged rather than failing the command.
+func defaultRemoteRegistry() *remote.Registry {
+	registry, err := remote.NewRegistry("")
+	if err != nil {
+		return nil
+	}
+	return registry
+}
+
+// expandRefsAgainstDefaultRemote expands bare convenience refs (e.g.
+// "code-review-base#fragments/conduct") into canonical URLs against the
+// configured default remote, so profiles store canonical identity while the CLI
+// accepts the short input form. A scheme-qualified ref (canonical URL or
+// ctxloom:local) is returned untouched; so is any ref when no default remote is
+// configured or its URL is unknown — the downstream parser then accepts or
+// rejects it. kind selects the item-type segment (bundles/profiles).
+func expandRefsAgainstDefaultRemote(refs []string, kind remote.ItemType, registry *remote.Registry) []string {
+	if len(refs) == 0 || registry == nil {
+		return refs
+	}
+	def := registry.GetDefault()
+	if def == "" {
+		return refs
+	}
+	rem, err := registry.Get(def)
+	if err != nil || rem.URL == "" {
+		return refs
+	}
+	out := make([]string, len(refs))
+	for i, ref := range refs {
+		out[i] = remote.ResolveRefString(ref, rem.URL, "", kind)
+	}
+	return out
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
@@ -205,6 +249,77 @@ var profileDeleteCmd = &cobra.Command{
 
 		fmt.Printf("Deleted profile %q\n", name)
 		return nil
+	},
+}
+
+var profileDefaultUnset bool
+
+var profileDefaultCmd = &cobra.Command{
+	Use:   "default [name|ref]",
+	Short: "Set, clear, or show the default profile(s)",
+	Long: `Manage which profile(s) run/weave use when none is passed with -p.
+
+The default set is a LIST: multiple defaults may coexist, and a default may be a
+local profile name OR a remote reference. With no argument, prints the current
+default set.
+
+Examples:
+  ctxloom profile default                 # show current default(s)
+  ctxloom profile default go-developer    # add a default
+  ctxloom profile default https://github.com/user/ctxloom@profiles/dev
+  ctxloom profile default --unset go-developer`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+
+		// No argument: report the current default set.
+		if len(args) == 0 {
+			if profileDefaultUnset {
+				return fmt.Errorf("--unset requires a profile name or reference")
+			}
+			defaults := cfg.ExplicitDefaultProfiles()
+			if len(defaults) == 0 {
+				w.Println("No default profile set.")
+				return w.Err()
+			}
+			w.Println("Default profile(s):")
+			for _, d := range defaults {
+				w.Printf("  - %s\n", d)
+			}
+			return w.Err()
+		}
+
+		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
+
+		res, err := operations.SetDefaultProfile(cmd.Context(), cfg, operations.SetDefaultProfileRequest{
+			Name:  name,
+			Unset: profileDefaultUnset,
+		})
+		if err != nil {
+			return err
+		}
+
+		switch res.Status {
+		case "added":
+			w.Printf("Set %q as a default profile.\n", name)
+		case "removed":
+			w.Printf("Cleared %q from the default profiles.\n", name)
+		default:
+			if profileDefaultUnset {
+				w.Printf("%q was not a default profile.\n", name)
+			} else {
+				w.Printf("%q is already a default profile.\n", name)
+			}
+		}
+		return w.Err()
 	},
 }
 
@@ -293,12 +408,16 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
+		// Expand bare convenience refs against the default remote so additions
+		// are stored canonical; removals are expanded too so they match the
+		// canonical form already on disk.
+		registry := defaultRemoteRegistry()
 		req := operations.UpdateProfileRequest{
 			Name:                   name,
-			AddParents:             profileUpdateAddParents,
-			RemoveParents:          profileUpdateRemoveParents,
-			AddBundles:             profileUpdateAddBundles,
-			RemoveBundles:          profileUpdateRemoveBundles,
+			AddParents:             expandRefsAgainstDefaultRemote(profileUpdateAddParents, remote.ItemTypeProfile, registry),
+			RemoveParents:          expandRefsAgainstDefaultRemote(profileUpdateRemoveParents, remote.ItemTypeProfile, registry),
+			AddBundles:             expandRefsAgainstDefaultRemote(profileUpdateAddBundles, remote.ItemTypeBundle, registry),
+			RemoveBundles:          expandRefsAgainstDefaultRemote(profileUpdateRemoveBundles, remote.ItemTypeBundle, registry),
 			AddExcludeFragments:    profileUpdateAddExcludeFragments,
 			RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
 			AddExcludeMCP:          profileUpdateAddExcludeMCP,
@@ -552,6 +671,7 @@ func init() {
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileCreateCmd)
 	profileCmd.AddCommand(profileDeleteCmd)
+	profileCmd.AddCommand(profileDefaultCmd)
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
@@ -581,10 +701,13 @@ func init() {
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
+	profileDefaultCmd.Flags().BoolVar(&profileDefaultUnset, "unset", false, "Remove the named profile from the default set")
+
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames
 	profileDeleteCmd.ValidArgsFunction = completeProfileNames
+	profileDefaultCmd.ValidArgsFunction = completeProfileNames
 	profileEditCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
 	profilePushCmd.ValidArgsFunction = completeProfileNames

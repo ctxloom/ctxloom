@@ -118,9 +118,9 @@ func TestConfigDeterminesWritePath(t *testing.T) {
 // =============================================================================
 // PullItem Integration Tests
 // =============================================================================
-// PullItem combines fetch and write into a single operation for direct installs.
-// Cascade mode for profiles automatically pulls referenced bundles, enabling
-// one-command profile installation with all dependencies.
+// PullItem combines fetch and write into a single operation. Cascade mode for
+// profiles automatically pulls referenced bundles, so a profile and its whole
+// dependency closure materialize in one operation.
 
 func TestPullItem_InvalidItemType(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

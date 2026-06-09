@@ -186,7 +186,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"guidance that apply to this project. Treat it as authoritative project " +
 				"instructions._" +
 				"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
-				"bundles, profiles, fragments, and prompts; `ctxloom remote sync`, `ctxloom remote " +
+				"bundles, profiles, fragments, and prompts; `ctxloom remote pull`, `ctxloom remote " +
 				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
 				"MCP tools are only for retrieving context during the session — searching and loading " +
 				"fragments, prompts (skills), and prior session history — plus task tracking._"

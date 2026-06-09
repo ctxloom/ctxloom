@@ -473,7 +473,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		if err != nil {
 			if errors.Is(err, errs.ErrProfileNotFound) {
 				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote sync` to install)\n",
+					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)\n",
 					name, parent)
 				continue
 			}

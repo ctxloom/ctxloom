@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
@@ -541,6 +542,73 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 	return &DeleteProfileResult{
 		Status:  "deleted",
 		Profile: req.Name,
+	}, nil
+}
+
+// SetDefaultProfileRequest adds or removes a default profile.
+type SetDefaultProfileRequest struct {
+	Name  string `json:"name"`
+	Unset bool   `json:"unset"`
+
+	// Loader is an optional pre-configured loader (for testing).
+	Loader *profiles.Loader `json:"-"`
+}
+
+// SetDefaultProfileResult reports the outcome of a default-profile change and
+// the resulting default set.
+type SetDefaultProfileResult struct {
+	Status   string   `json:"status"` // "added", "removed", "unchanged"
+	Name     string   `json:"name"`
+	Defaults []string `json:"defaults"`
+}
+
+// SetDefaultProfile adds (or, with Unset, removes) a profile from the config
+// defaults list. defaults is a LIST, so multiple defaults may coexist and a
+// default may be a bare local profile name OR a remote ref — both are valid
+// targets for `run`/`weave` when no profile is given. A bare local name is
+// validated against the loader; a reference (canonical URL or ctxloom:local) is
+// accepted as-is, since its target lives in a remote the loader can't resolve
+// synchronously. This is the supported replacement for the default-setting that
+// `install --profile` did, minus the parent-graft.
+func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultProfileRequest) (*SetDefaultProfileResult, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+
+	// Validate existence only for a bare local name we're adding: removals must
+	// stay possible even after the underlying profile is gone, and refs point
+	// into remotes the loader cannot resolve here.
+	if !req.Unset {
+		if _, err := remote.ParseReference(req.Name); err != nil {
+			loader := req.Loader
+			if loader == nil {
+				loader = profileLoader(cfg)
+			}
+			if !loader.Exists(req.Name) {
+				return nil, fmt.Errorf("profile %q not found", req.Name)
+			}
+		}
+	}
+
+	status := "unchanged"
+	if req.Unset {
+		if cfg.Profiles.RemoveDefaultProfile(req.Name) {
+			status = "removed"
+		}
+	} else if cfg.Profiles.AddDefaultProfile(req.Name) {
+		status = "added"
+	}
+
+	if status != "unchanged" {
+		if err := cfg.Save(); err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+	}
+
+	return &SetDefaultProfileResult{
+		Status:   status,
+		Name:     req.Name,
+		Defaults: cfg.ExplicitDefaultProfiles(),
 	}, nil
 }
 

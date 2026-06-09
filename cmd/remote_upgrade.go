@@ -24,7 +24,7 @@ stage the resulting dependency changes for review.
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
 'remote upgrade' advances your pins to the newest commit. The changes are NOT
 applied directly — they are staged in the pending lockfile so you can review
-them ('ctxloom bundle review') and approve or decline. Passive 'remote sync'
+them ('ctxloom bundle review') and approve or decline. Passive 'remote pull'
 installs exactly what is already pinned and never stages a change.
 
 Examples:

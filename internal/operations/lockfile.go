@@ -24,9 +24,10 @@ type LockDependenciesRequest struct {
 	// before locking their versions. Set to true to skip this behavior.
 	SkipSync bool `json:"skip_sync"`
 
-	// FailOnConflict makes a dependency hash conflict a hard error (explicit
-	// `remote lock`). When false (startup auto-lock) the conflict is warned and
-	// the conflicted items are dropped, never blocking the session (CLAUDE.md).
+	// FailOnConflict makes a dependency hash conflict a hard error, for callers
+	// that want strict locking. When false (startup auto-lock) the conflict is
+	// warned and the conflicted items are dropped, never blocking the session
+	// (CLAUDE.md).
 	FailOnConflict bool `json:"-"`
 
 	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
@@ -45,8 +46,8 @@ type LockDependenciesResult struct {
 // is fully determined by what each item references — no resolution to "latest"
 // (that is Relock/`update`). If the same item appears at two differing hashes
 // anywhere in the closure that is a conflict: surfaced immediately as a hard
-// error when FailOnConflict is set (explicit `remote lock`), else warned and
-// the conflicted items dropped so startup is never blocked (CLAUDE.md).
+// error when FailOnConflict is set, else warned and the conflicted items
+// dropped so startup is never blocked (CLAUDE.md).
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
 	fs := getFS(req.FS)
 	baseDir := getBaseDir(cfg)

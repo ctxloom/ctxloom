@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
@@ -340,70 +339,6 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	}, nil
 }
 
-// WireRefRequest wires an installed remote reference into a LOCAL profile so it
-// becomes active. Remote profiles are added as parents; remote bundles as bundle
-// refs. The target is ProfileName, or the configured default profile, or a
-// newly-created "default" profile (promoted to default) when none is configured.
-type WireRefRequest struct {
-	Ref         string          `json:"ref"`      // canonical remote ref to wire in
-	ItemType    remote.ItemType `json:"item_type"`
-	ProfileName string          `json:"profile"` // target local profile; "" → default
-
-	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
-}
-
-// WireRemoteRef adds a freshly-installed remote ref to a local profile and
-// returns the profile it landed in. This is how `install` makes a remote item
-// active without materializing it: the ref is recorded in a local, committed
-// profile while the content itself stays a reference read from the clone.
-func WireRemoteRef(cfg *config.Config, req WireRefRequest) (string, error) {
-	if req.Ref == "" {
-		return "", fmt.Errorf("ref is required")
-	}
-	loader := req.Loader
-	if loader == nil {
-		loader = profileLoader(cfg)
-	}
-
-	name := req.ProfileName
-	if name == "" {
-		if defs := cfg.ExplicitDefaultProfiles(); len(defs) > 0 {
-			name = defs[0]
-		} else {
-			name = "default"
-		}
-	}
-
-	profile, err := loader.Load(name)
-	created := false
-	if err != nil {
-		profile = &profiles.Profile{Name: name, Description: "Local profile"}
-		created = true
-	}
-
-	switch req.ItemType {
-	case remote.ItemTypeProfile:
-		if !slices.Contains(profile.Parents, req.Ref) {
-			profile.Parents = append(profile.Parents, req.Ref)
-		}
-	default:
-		if !slices.Contains(profile.Bundles, req.Ref) {
-			profile.Bundles = append(profile.Bundles, req.Ref)
-		}
-	}
-
-	if err := loader.Save(profile); err != nil {
-		return "", fmt.Errorf("failed to wire %s into profile %q: %w", req.Ref, name, err)
-	}
-
-	if created {
-		// A brand-new local profile becomes the default if none is configured, so
-		// the installed content is active for `ctxloom run` out of the box.
-		PromoteToDefaultIfFirst(cfg, name)
-	}
-	return name, nil
-}
 
 // UpdateProfileRequest contains parameters for updating a profile.
 type UpdateProfileRequest struct {

@@ -32,8 +32,6 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 		WithPullerFS(fs),
 		WithTerminalChecker(&mockTerminalChecker{}),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithReplaceManager(nil),
-		WithVendorManager(nil),
 	}
 	opts = append(opts, extra...)
 	return NewPuller(registry, AuthConfig{}, opts...)

@@ -16,8 +16,7 @@ Examples:
   ctxloom fragment list                              # List all fragments
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
-  ctxloom fragment create my-bundle coding-standards # Create new fragment
-  ctxloom fragment install ctxloom-default/core           # Install bundle from remote`,
+  ctxloom fragment create my-bundle coding-standards # Create new fragment`,
 }
 
 var fragmentListCmd = &cobra.Command{
@@ -140,31 +139,6 @@ Examples:
 	},
 }
 
-var (
-	fragmentInstallForce bool
-	fragmentInstallBlind bool
-)
-
-var fragmentInstallCmd = &cobra.Command{
-	Use:   "install <reference>",
-	Short: "Install a bundle from remote",
-	Long: `Install a bundle containing fragments from a remote repository.
-
-This pulls the entire bundle (which contains fragments, prompts, etc.)
-from the specified remote.
-
-Reference formats:
-  ctxloom-default/core                    # Bundle from default remote path
-  https://github.com/user/repo@bundles/core   # Full URL
-
-Examples:
-  ctxloom fragment install ctxloom-default/core
-  ctxloom fragment install ctxloom-default/go-development`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return installBundle(cmd, args[0], fragmentInstallForce, fragmentInstallBlind)
-	},
-}
 
 var (
 	fragmentPushPR      bool
@@ -203,16 +177,12 @@ func init() {
 	fragmentCmd.AddCommand(fragmentDeleteCmd)
 	fragmentCmd.AddCommand(fragmentEditCmd)
 	fragmentCmd.AddCommand(fragmentDistillCmd)
-	fragmentCmd.AddCommand(fragmentInstallCmd)
 	fragmentCmd.AddCommand(fragmentPushCmd)
 	fragmentCmd.AddCommand(fragmentSearchCmd)
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
-
-	fragmentInstallCmd.Flags().BoolVarP(&fragmentInstallForce, "force", "f", false, "Skip confirmation prompts")
-	fragmentInstallCmd.Flags().BoolVar(&fragmentInstallBlind, "blind", false, "Skip security review display")
 
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")
 	fragmentPushCmd.Flags().StringVar(&fragmentPushBranch, "branch", "", "Target branch")

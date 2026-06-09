@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -105,8 +104,6 @@ func (d *defaultTerminalChecker) IsTerminalWriter(w io.Writer) bool {
 type Puller struct {
 	registry              *Registry
 	auth                  AuthConfig
-	replaceManager        *ReplaceManager
-	vendorManager         *VendorManager
 	lockfileManager       *LockfileManager
 	bundleLockfileManager *LockfileManager // optional: when set, bundle pulls write here instead of lockfileManager
 	fetcherFactory        FetcherFactory
@@ -121,20 +118,6 @@ type PullerOption func(*Puller)
 func WithPullerFS(fs afero.Fs) PullerOption {
 	return func(p *Puller) {
 		p.fs = fs
-	}
-}
-
-// WithReplaceManager sets a custom replace manager (for testing).
-func WithReplaceManager(rm *ReplaceManager) PullerOption {
-	return func(p *Puller) {
-		p.replaceManager = rm
-	}
-}
-
-// WithVendorManager sets a custom vendor manager (for testing).
-func WithVendorManager(vm *VendorManager) PullerOption {
-	return func(p *Puller) {
-		p.vendorManager = vm
 	}
 }
 
@@ -185,12 +168,6 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 	}
 
 	// Initialize defaults for nil dependencies (allows tests to override)
-	if p.replaceManager == nil {
-		p.replaceManager, _ = NewReplaceManager("")
-	}
-	if p.vendorManager == nil {
-		p.vendorManager = NewVendorManager(".ctxloom")
-	}
 	if p.lockfileManager == nil {
 		p.lockfileManager = NewLockfileManager(".ctxloom")
 	}
@@ -209,10 +186,9 @@ type fetchedItem struct {
 }
 
 // Pull downloads an item from a remote with security review. It is the
-// orchestrator: local-source short-circuits (replace/vendor), then fetch
-// (resolve → retraction → SHA → download → security gate), then install
-// (transform → write → lock → cascade). Each phase is a helper below so this
-// stays readable and each piece is independently testable.
+// orchestrator: fetch (resolve → retraction → SHA → download → security gate),
+// then install (transform → write → lock → cascade). Each phase is a helper
+// below so this stays readable and each piece is independently testable.
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -226,52 +202,12 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
-	// A replace directive or vendored copy satisfies the pull without going to
-	// the network. A non-nil result (or error) means "handled".
-	if result, err := p.tryLocalSource(ref, refStr, opts); result != nil || err != nil {
-		return result, err
-	}
-
 	item, err := p.fetchForPull(ctx, ref, refStr, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	return p.installPulledItem(ctx, ref, opts, item)
-}
-
-// tryLocalSource resolves a pull from a local replace directive or a vendored
-// copy, returning a non-nil result when one applies. (nil, nil) means neither
-// applied and the caller should fetch from the remote.
-func (p *Puller) tryLocalSource(ref *Reference, refStr string, opts PullOptions) (*PullResult, error) {
-	if p.replaceManager != nil {
-		if localPath, ok := p.replaceManager.Get(refStr); ok {
-			_, _ = fmt.Fprintf(opts.Stdout, "Using local replace: %s → %s\n", refStr, localPath)
-			replacedContent, err := p.replaceManager.LoadReplaced(refStr)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load replaced file: %w", err)
-			}
-			if err := p.writeContent(ref, opts, replacedContent, "local"); err != nil {
-				return nil, err
-			}
-			return &PullResult{LocalPath: localPath, SHA: "local", Overwritten: false}, nil
-		}
-	}
-
-	if p.vendorManager != nil && p.vendorManager.IsVendored() && p.vendorManager.HasVendored(opts.ItemType, ref) {
-		vendoredContent, err := p.vendorManager.GetVendored(opts.ItemType, ref)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load vendored file: %w", err)
-		}
-		_, _ = fmt.Fprintf(opts.Stdout, "Using vendored: %s (%d bytes)\n", refStr, len(vendoredContent))
-		return &PullResult{
-			LocalPath:   filepath.Join(p.vendorManager.VendorDir(), opts.ItemType.DirName(), ref.LocalRemoteName(), ref.Path+".yaml"),
-			SHA:         "vendored",
-			Overwritten: false,
-		}, nil
-	}
-
-	return nil, nil
 }
 
 // fetchForPull resolves the remote, checks retraction, resolves the SHA, fetches
@@ -551,22 +487,6 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 
 	response := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	return response == "y" || response == "yes", nil
-}
-
-// writeContent writes content to the local path (used for replace directive).
-func (p *Puller) writeContent(ref *Reference, opts PullOptions, content []byte, sha string) error {
-	baseDir := opts.LocalDir
-	if baseDir == "" {
-		baseDir = ".ctxloom"
-	}
-
-	localPath := ref.LocalPath(baseDir, opts.ItemType)
-
-	if err := p.fs.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	return afero.WriteFile(p.fs, localPath, content, 0644)
 }
 
 // updateLockfile records provenance in the lockfile. Bundles route to

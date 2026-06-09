@@ -191,7 +191,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 	if lockfile.IsEmpty() {
 		fmt.Println("No entries in lockfile.")
-		fmt.Println("Generate one with: ctxloom remote lock")
+		fmt.Println("Generate one with: ctxloom remote sync")
 		return nil
 	}
 
@@ -203,7 +203,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	profileUpdates, bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, registry, auth, lockfile)
 
 	if skippedEmpty > 0 {
-		fmt.Printf("Skipped %d entries with empty SHA (run 'ctxloom remote lock' to clean up)\n\n", skippedEmpty)
+		fmt.Printf("Skipped %d entries with empty SHA (run 'ctxloom remote sync' to clean up)\n\n", skippedEmpty)
 	}
 
 	totalUpdates := len(profileUpdates) + len(bundleUpdates)
@@ -238,7 +238,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 	reportMissingDefaults(os.Stdout, checkDefaultProfiles())
 
-	fmt.Println("\nRun 'ctxloom remote lock' to update the lockfile.")
+	fmt.Println("\nRun 'ctxloom remote sync' to update the lockfile.")
 
 	return nil
 }
@@ -498,7 +498,7 @@ func reportBundleIssues(out io.Writer, analysis *operations.BundleAnalysis) {
 			fmt.Fprintf(out, "  - %s\n", orphan)
 		}
 		fmt.Fprintln(out, "\nTo remove orphaned bundles, delete them manually from .ctxloom/bundles/")
-		fmt.Fprintln(out, "Then run 'ctxloom remote lock' to update the lockfile.")
+		fmt.Fprintln(out, "Then run 'ctxloom remote sync' to update the lockfile.")
 	}
 }
 

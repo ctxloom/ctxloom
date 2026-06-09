@@ -477,70 +477,6 @@ Examples:
 	},
 }
 
-var (
-	profileInstallForce   bool
-	profileInstallBlind   bool
-	profileInstallProfile string
-)
-
-var profileInstallCmd = &cobra.Command{
-	Use:   "install <reference>",
-	Short: "Install a profile from remote",
-	Long: `Install a profile from a remote repository.
-
-Reference formats:
-  ctxloom-default/developer                    # Profile from default remote path
-  https://github.com/user/repo@profiles/developer   # Full URL
-
-Examples:
-  ctxloom profile install ctxloom-default/developer
-  ctxloom profile install ctxloom-default/architect`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		result, err := operations.PullItem(cmd.Context(), cfg, operations.PullItemRequest{
-			Reference: args[0],
-			ItemType:  "profile",
-			Force:     profileInstallForce,
-			Blind:     profileInstallBlind,
-		})
-		if err != nil {
-			return err
-		}
-
-		// Wire the reference as a CONSTRAINT — no SHA baked in. The manifest records
-		// what was asked for (a version range, branch, tag, or empty = track default
-		// branch); LockDependencies below resolves it to a concrete commit recorded
-		// in the lockfile. The resolved SHA lives only in the lock, never the profile,
-		// so a later `upgrade` moves the lock without rewriting the manifest.
-		wired, werr := operations.WireRemoteRef(cfg, operations.WireRefRequest{
-			Ref:         result.Reference,
-			ItemType:    remote.ItemTypeProfile,
-			ProfileName: profileInstallProfile,
-		})
-		if werr != nil {
-			return werr
-		}
-
-		// Rebuild the lock from the new closure, surfacing a hash conflict
-		// immediately (assigning a conflicting pin is an error).
-		if _, lerr := operations.LockDependencies(cmd.Context(), cfg, operations.LockDependenciesRequest{
-			SkipSync:       true,
-			FailOnConflict: true,
-		}); lerr != nil {
-			return lerr
-		}
-
-		fmt.Printf("Installed profile %s @ %s\n", result.Reference, shortSHA(result.SHA))
-		fmt.Printf("Added to local profile %q\n", wired)
-
-		return nil
-	},
-}
 
 var profileExportCmd = &cobra.Command{
 	Use:   "export <name> <dest-dir>",
@@ -619,7 +555,6 @@ func init() {
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
-	profileCmd.AddCommand(profileInstallCmd)
 	profileCmd.AddCommand(profilePushCmd)
 	profileCmd.AddCommand(profileExportCmd)
 	profileCmd.AddCommand(profileImportCmd)
@@ -646,9 +581,6 @@ func init() {
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
-	profileInstallCmd.Flags().BoolVarP(&profileInstallForce, "force", "f", false, "Skip confirmation prompts")
-	profileInstallCmd.Flags().BoolVar(&profileInstallBlind, "blind", false, "Skip security review display")
-	profileInstallCmd.Flags().StringVar(&profileInstallProfile, "profile", "", "Local profile to add the installed profile to (default: the default profile, created if absent)")
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames

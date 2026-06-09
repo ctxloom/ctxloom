@@ -378,34 +378,6 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 	return nil
 }
 
-// installBundle installs a bundle from a remote.
-func installBundle(cmd *cobra.Command, reference string, force, blind bool) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	result, err := operations.PullItem(cmd.Context(), cfg, operations.PullItemRequest{
-		Reference: reference,
-		ItemType:  "bundle",
-		Force:     force,
-		Blind:     blind,
-	})
-	if err != nil {
-		return err
-	}
-
-	action := "Installed"
-	if result.Overwritten {
-		action = "Updated"
-	}
-
-	fmt.Printf("%s bundle: %s\n", action, result.LocalPath)
-	fmt.Printf("SHA: %s\n", result.SHA[:7])
-
-	return nil
-}
-
 // pushBundle pushes a bundle to a remote.
 func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool, branch, message string) error {
 	cfg, err := GetConfig()

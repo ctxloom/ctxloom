@@ -235,8 +235,6 @@ func mockFetcherFactory(f Fetcher) FetcherFactory {
 
 func TestNewPuller_WithOptions(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	rm, _ := NewReplaceManager("", WithReplaceFS(fs))
-	vm := NewVendorManager("/test", WithVendorFS(fs))
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
 	tc := &mockTerminalChecker{}
 	ff := mockFetcherFactory(newMockFetcher())
@@ -247,8 +245,6 @@ func TestNewPuller_WithOptions(t *testing.T) {
 
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
-		WithReplaceManager(rm),
-		WithVendorManager(vm),
 		WithLockfileManager(lm),
 		WithTerminalChecker(tc),
 		WithFetcherFactory(ff),
@@ -256,8 +252,6 @@ func TestNewPuller_WithOptions(t *testing.T) {
 
 	assert.NotNil(t, puller)
 	assert.Equal(t, fs, puller.fs)
-	assert.Equal(t, rm, puller.replaceManager)
-	assert.Equal(t, vm, puller.vendorManager)
 	assert.Equal(t, lm, puller.lockfileManager)
 	assert.Equal(t, tc, puller.terminalChecker)
 }
@@ -287,8 +281,6 @@ func TestPuller_Pull_Force(t *testing.T) {
 		WithLockfileManager(lm),
 		WithTerminalChecker(tc),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithReplaceManager(nil),
-		WithVendorManager(nil),
 	)
 
 	var stdout bytes.Buffer
@@ -327,8 +319,6 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
-		WithReplaceManager(nil),
-		WithVendorManager(nil),
 	)
 
 	_, err := puller.Pull(context.Background(), "invalid", PullOptions{
@@ -357,8 +347,6 @@ func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
 		WithPullerFS(fs),
 		WithTerminalChecker(tc),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithReplaceManager(nil),
-		WithVendorManager(nil),
 	)
 
 	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
@@ -385,8 +373,6 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 		WithPullerFS(fs),
 		WithTerminalChecker(tc),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithReplaceManager(nil),
-		WithVendorManager(nil),
 	)
 
 	var stdout bytes.Buffer
@@ -399,69 +385,6 @@ func TestPuller_Pull_UserCancels(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cancelled")
-}
-
-func TestPuller_Pull_WithReplaceDirective(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create local replacement file
-	require.NoError(t, fs.MkdirAll("/local", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/local/security.yaml", []byte("local content\n"), 0644))
-
-	// Create replace manager with directive
-	rm, _ := NewReplaceManager("/test", WithReplaceFS(fs))
-	_ = rm.Add("https://github.com/alice/ctxloom@bundles/security", "/local/security.yaml")
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-
-	puller := NewPuller(registry, AuthConfig{},
-		WithPullerFS(fs),
-		WithReplaceManager(rm),
-		WithVendorManager(nil),
-	)
-
-	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    true,
-		LocalDir: "/test",
-		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "/local/security.yaml", result.LocalPath)
-	assert.Equal(t, "local", result.SHA)
-	assert.Contains(t, stdout.String(), "Using local replace")
-}
-
-func TestPuller_Pull_WithVendorDirective(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create vendor config
-	require.NoError(t, fs.MkdirAll(paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/alice", 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.VendorDir+"/bundles/github.com/alice/ctxloom/security.yaml", []byte("vendored content\n"), 0644))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(paths.AppDirName), []byte("vendor: true\n"), 0644))
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	vm := NewVendorManager(paths.AppDirName, WithVendorFS(fs))
-	_ = vm.SetVendorMode(true)
-
-	puller := NewPuller(registry, AuthConfig{},
-		WithPullerFS(fs),
-		WithVendorManager(vm),
-	)
-
-	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    true,
-		LocalDir: paths.AppDirName,
-		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "vendored", result.SHA)
-	assert.Contains(t, stdout.String(), "Using vendored")
 }
 
 func TestPuller_Pull_BlindMode(t *testing.T) {
@@ -555,90 +478,6 @@ func TestDefaultFetcherFactory(t *testing.T) {
 	t.Run("rejects a generic git host (no API fetcher)", func(t *testing.T) {
 		_, err := DefaultFetcherFactory("https://gitlab.com/owner/repo", AuthConfig{})
 		require.Error(t, err)
-	})
-}
-
-func TestPuller_WriteContent(t *testing.T) {
-	t.Run("writes content to default directory", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-		)
-
-		ref := &Reference{
-			URL:            "https://github.com/alice/ctxloom",
-			ItemType:       ItemTypeBundle,
-			Path:           "security",
-			ContentVersion: "v1.0.0",
-		}
-
-		content := []byte("test content\n")
-		opts := PullOptions{LocalDir: ""}
-
-		err := puller.writeContent(ref, opts, content, "abc123")
-
-		require.NoError(t, err)
-		exists, err := afero.Exists(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
-		require.NoError(t, err)
-		assert.True(t, exists)
-
-		savedContent, err := afero.ReadFile(fs, paths.AppDirName+"/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
-		require.NoError(t, err)
-		assert.Equal(t, content, savedContent)
-	})
-
-	t.Run("writes content to custom directory", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-		)
-
-		ref := &Reference{
-			URL:            "https://github.com/alice/ctxloom",
-			ItemType:       ItemTypeBundle,
-			Path:           "security",
-			ContentVersion: "v1.0.0",
-		}
-
-		content := []byte("custom content\n")
-		opts := PullOptions{LocalDir: "/custom"}
-
-		err := puller.writeContent(ref, opts, content, "abc123")
-
-		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/custom/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/security.yaml")
-		require.NoError(t, err)
-		assert.True(t, exists)
-	})
-
-	t.Run("creates parent directories", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-
-		puller := NewPuller(registry, AuthConfig{},
-			WithPullerFS(fs),
-		)
-
-		ref := &Reference{
-			URL:            "https://github.com/alice/ctxloom",
-			ItemType:       ItemTypeBundle,
-			Path:           "deep/nested/security",
-			ContentVersion: "v1.0.0",
-		}
-
-		content := []byte("nested content\n")
-		opts := PullOptions{LocalDir: "/test"}
-
-		err := puller.writeContent(ref, opts, content, "abc123")
-
-		require.NoError(t, err)
-		exists, err := afero.Exists(fs, "/test/"+paths.CacheDir+"/"+paths.BundlesDir+"/github.com/alice/ctxloom/deep/nested/security.yaml")
-		require.NoError(t, err)
-		assert.True(t, exists)
 	})
 }
 

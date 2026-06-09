@@ -16,8 +16,7 @@ Examples:
   ctxloom prompt list                              # List all prompts
   ctxloom prompt show core#prompts/code-review     # Show prompt content
   ctxloom prompt edit core#prompts/code-review     # Edit prompt content
-  ctxloom prompt create my-bundle code-review      # Create new prompt
-  ctxloom prompt install ctxloom-default/core           # Install bundle from remote`,
+  ctxloom prompt create my-bundle code-review      # Create new prompt`,
 }
 
 var promptListCmd = &cobra.Command{
@@ -118,31 +117,6 @@ Examples:
 
 var promptDistillForce bool
 
-var (
-	promptInstallForce bool
-	promptInstallBlind bool
-)
-
-var promptInstallCmd = &cobra.Command{
-	Use:   "install <reference>",
-	Short: "Install a bundle from remote",
-	Long: `Install a bundle containing prompts from a remote repository.
-
-This pulls the entire bundle (which contains prompts, fragments, etc.)
-from the specified remote.
-
-Reference formats:
-  ctxloom-default/core                    # Bundle from default remote path
-  https://github.com/user/repo@bundles/core   # Full URL
-
-Examples:
-  ctxloom prompt install ctxloom-default/core
-  ctxloom prompt install ctxloom-default/go-development`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return installBundle(cmd, args[0], promptInstallForce, promptInstallBlind)
-	},
-}
 
 var (
 	promptPushPR      bool
@@ -181,15 +155,11 @@ func init() {
 	promptCmd.AddCommand(promptDeleteCmd)
 	promptCmd.AddCommand(promptEditCmd)
 	promptCmd.AddCommand(promptDistillCmd)
-	promptCmd.AddCommand(promptInstallCmd)
 	promptCmd.AddCommand(promptPushCmd)
 
 	promptListCmd.Flags().StringVarP(&promptListBundle, "bundle", "b", "", "Filter by bundle name")
 	promptShowCmd.Flags().BoolVarP(&promptShowDistilled, "distilled", "d", false, "Show distilled version")
 	promptDistillCmd.Flags().BoolVarP(&promptDistillForce, "force", "f", false, "Re-distill even if unchanged")
-
-	promptInstallCmd.Flags().BoolVarP(&promptInstallForce, "force", "f", false, "Skip confirmation prompts")
-	promptInstallCmd.Flags().BoolVar(&promptInstallBlind, "blind", false, "Skip security review display")
 
 	promptPushCmd.Flags().BoolVar(&promptPushPR, "pr", false, "Create a pull request")
 	promptPushCmd.Flags().StringVar(&promptPushBranch, "branch", "", "Target branch")

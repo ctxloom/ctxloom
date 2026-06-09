@@ -51,6 +51,14 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 		if l.seeded == nil {
 			l.seeded = make(map[string]*Bundle, len(seeded))
 		}
+		// The seed key is the bundle's resolution identity; a bundle that
+		// doesn't carry its own name would compose broken item names
+		// ("/<item>"), so backfill from the key.
+		for name, b := range seeded {
+			if b != nil && b.Name == "" {
+				b.Name = name
+			}
+		}
 		maps.Copy(l.seeded, seeded)
 	}
 }

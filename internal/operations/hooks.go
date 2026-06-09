@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
@@ -69,7 +67,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// MCP servers from profile bundles + prompts for command files, shared
 	// across backends.
 	bundleMCP := freshCfg.ResolveBundleMCPServers()
-	prompts := loadPromptsForCommands(freshCfg, bundleLoaderOpts(req))
+	prompts := backends.LoadPromptExports(freshCfg, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
 		backendNames: hookBackendNames(backend),
@@ -215,99 +213,6 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 		}
 	}
 	return nil
-}
-
-// loadPromptsForCommands loads all prompts from bundles for slash command export.
-// Also includes built-in ctxloom prompts like saveandclear.
-func loadPromptsForCommands(cfg *config.Config, opts []bundles.LoaderOption) []*bundles.LoadedContent {
-	// Start with built-in prompts (always included)
-	prompts := getBuiltinPrompts(cfg)
-
-	bundleDirs := cfg.GetBundleDirs()
-	if len(bundleDirs) == 0 {
-		return prompts
-	}
-
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
-	infos, err := loader.ListAllPrompts()
-	if err != nil {
-		return prompts
-	}
-
-	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
-		if err != nil {
-			continue
-		}
-		prompts = append(prompts, content)
-	}
-
-	return prompts
-}
-
-// getBuiltinPrompts returns ctxloom's built-in slash command prompts.
-// These are embedded in the ctxloom binary and always available.
-func getBuiltinPrompts(_ *config.Config) []*bundles.LoadedContent {
-	names, err := resources.ListBuiltinCommands()
-	if err != nil {
-		return nil
-	}
-
-	var prompts []*bundles.LoadedContent
-	for _, name := range names {
-		content, err := resources.GetBuiltinCommand(name)
-		if err != nil {
-			continue
-		}
-
-		description, body := parseMarkdownFrontmatter(string(content))
-		prompts = append(prompts, &bundles.LoadedContent{
-			Name:    name,
-			Content: body,
-			LLM: bundles.LLMExports{
-				ClaudeCode: bundles.ClaudeCodeConfig{
-					Description: description,
-				},
-				Gemini: bundles.GeminiConfig{
-					Description: description,
-				},
-			},
-		})
-	}
-	return prompts
-}
-
-// parseMarkdownFrontmatter extracts description from YAML frontmatter and returns body.
-// Expects format: ---\ndescription: ...\n---\nbody
-func parseMarkdownFrontmatter(content string) (description, body string) {
-	if !strings.HasPrefix(content, "---\n") {
-		return "", content
-	}
-
-	// Find the closing ---
-	rest := content[4:] // Skip opening "---\n"
-	endIdx := strings.Index(rest, "\n---")
-	if endIdx == -1 {
-		return "", content
-	}
-
-	frontmatter := rest[:endIdx]
-	body = strings.TrimPrefix(rest[endIdx+4:], "\n")
-
-	// Parse description from frontmatter (simple key: value parsing)
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			// Remove surrounding quotes if present
-			if len(description) >= 2 && description[0] == '"' && description[len(description)-1] == '"' {
-				description = description[1 : len(description)-1]
-			}
-			break
-		}
-	}
-
-	return description, body
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.

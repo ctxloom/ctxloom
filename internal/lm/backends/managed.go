@@ -28,7 +28,7 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 		return nil
 	}
 	return &agent.ManagedConfig{
-		Prompts:          commandExportsFor(backendName, loadPrompts(cfg)),
+		Prompts:          commandExportsFor(backendName, LoadPromptExports(cfg)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, ""),
 		MCP:              assembleManagedMCP(cfg),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
@@ -48,28 +48,6 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 	default:
 		return nil
 	}
-}
-
-// loadPrompts loads every bundle prompt for slash-command export. The
-// SeededBundleLoader is the only loader that also picks up remote bundles from
-// the lockfile clone cache (see docs/bundle-review-plan.md); empty fs dirs are
-// fine — remote-only setups still produce commands. Moved host-side from the
-// substrate (was agent.LoadPrompts) so the agent never imports bundles.
-func loadPrompts(cfg *config.Config) []*bundles.LoadedContent {
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled())
-	infos, err := loader.ListAllPrompts()
-	if err != nil {
-		return nil
-	}
-	var prompts []*bundles.LoadedContent
-	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
-		if err != nil {
-			continue
-		}
-		prompts = append(prompts, content)
-	}
-	return prompts
 }
 
 // assembleManagedMCP builds the merged MCP server set: config-level servers then

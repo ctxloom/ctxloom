@@ -14,6 +14,8 @@ import (
 // metadata, ready to assemble into context.
 type LoadedContent struct {
 	Name         string            // Full name (bundle/item)
+	Bundle       string            // Owning bundle's loader name (canonical ref for remote bundles)
+	Item         string            // Bare fragment/prompt name within the bundle
 	Version      string            // Bundle version
 	Tags         []string          // Combined tags
 	Content      string            // The actual content
@@ -22,6 +24,33 @@ type LoadedContent struct {
 	DistilledBy  string            // Model that created distillation
 	Exports      map[string]string // Exported variables (from generators)
 	LLM          LLMExports        // Per-LLM export settings (slash-command config)
+}
+
+// ExportName returns the short, slash-command-facing name for this item:
+// the owning bundle's last path segment plus the bare item name. Remote
+// bundles are keyed by canonical ref ("<url>@bundles/<path>"); exporting
+// that verbatim names the command after the entire URL (and ':' makes the
+// filename invalid on Windows). Name remains the full identity — only the
+// export-facing name shortens. Content without bundle metadata (builtin
+// prompts) falls back to Name.
+func (c *LoadedContent) ExportName() string {
+	if c.Bundle == "" || c.Item == "" {
+		return c.Name
+	}
+	return exportBaseName(c.Bundle) + "/" + c.Item
+}
+
+// exportBaseName shortens a bundle loader name to its last path segment,
+// stripping the canonical ref's "<url>@<type>/" prefix when present.
+func exportBaseName(bundleName string) string {
+	base := bundleName
+	if i := strings.LastIndex(base, "@"); i >= 0 {
+		base = base[i+1:]
+	}
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	return base
 }
 
 // ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
@@ -175,8 +204,10 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
+		Bundle:       bundle.Name,
+		Item:         fragName,
 		Version:      bundle.Version,
-		Tags:         append(bundle.Tags, frag.Tags...),
+		Tags:         slices.Concat(bundle.Tags, frag.Tags),
 		Content:      frag.EffectiveContent(l.preferDistilled),
 		Installation: frag.Installation,
 		IsDistilled:  l.preferDistilled && frag.Distilled != "",
@@ -232,8 +263,10 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundlePrompt) *LoadedContent {
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
+		Bundle:       bundle.Name,
+		Item:         promptName,
 		Version:      bundle.Version,
-		Tags:         append(bundle.Tags, prompt.Tags...),
+		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
 		Content:      prompt.EffectiveContent(l.preferDistilled),
 		Installation: prompt.Installation,
 		IsDistilled:  l.preferDistilled && prompt.Distilled != "",

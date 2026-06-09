@@ -1,6 +1,8 @@
 package backends
 
 import (
+	"strings"
+
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/gemini"
@@ -28,11 +30,12 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 // claudeExports maps loaded bundle content to Claude command exports, resolving
 // the claude-code per-prompt LLM export config.
 func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+	names := exportNames(prompts)
 	out := make([]agent.CommandExport, 0, len(prompts))
 	for _, p := range prompts {
 		cc := p.LLM.ClaudeCode
 		out = append(out, agent.CommandExport{
-			Name:         p.Name,
+			Name:         names[p.Name],
 			Content:      p.Content,
 			Enabled:      cc.IsEnabled(),
 			Description:  cc.Description,
@@ -47,15 +50,46 @@ func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 // geminiExports maps loaded bundle content to Gemini command exports, resolving
 // the gemini per-prompt LLM export config.
 func geminiExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+	names := exportNames(prompts)
 	out := make([]agent.CommandExport, 0, len(prompts))
 	for _, p := range prompts {
 		g := p.LLM.Gemini
 		out = append(out, agent.CommandExport{
-			Name:        p.Name,
+			Name:        names[p.Name],
 			Content:     p.Content,
 			Enabled:     g.IsEnabled(),
 			Description: g.Description,
 		})
 	}
 	return out
+}
+
+// exportNames maps each prompt's full identity (LoadedContent.Name) to its
+// export-facing command name. The short form (bundle's last path segment +
+// item, see LoadedContent.ExportName) is used whenever it's unambiguous within
+// the export set; when two bundles shorten to the same name, the colliders
+// fall back to their full identity — sanitized for filesystem safety — so
+// neither silently overwrites the other's command file.
+func exportNames(prompts []*bundles.LoadedContent) map[string]string {
+	counts := make(map[string]int, len(prompts))
+	for _, p := range prompts {
+		counts[p.ExportName()]++
+	}
+	names := make(map[string]string, len(prompts))
+	for _, p := range prompts {
+		short := p.ExportName()
+		if counts[short] > 1 {
+			names[p.Name] = sanitizeExportName(p.Name)
+			continue
+		}
+		names[p.Name] = short
+	}
+	return names
+}
+
+// sanitizeExportName makes a collision-fallback name safe to use as a filename
+// across platforms: ':' is invalid on Windows and '\' is a path separator
+// there, so both collapse to '-'. The per-agent writers handle '/' themselves.
+func sanitizeExportName(name string) string {
+	return strings.NewReplacer(":", "-", `\`, "-").Replace(name)
 }

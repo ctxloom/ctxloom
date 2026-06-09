@@ -50,7 +50,7 @@ Claude Code has `CLAUDE.md`, Gemini has `GEMINI.md` - but these are **project-le
 | **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
 | **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
-| **Remote Sync** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
+| **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
 
 ## Quick Example
@@ -65,8 +65,9 @@ ctxloom run -f go-development -f security "implement auth"
 # Use a profile (pre-configured fragment set)
 ctxloom run -p backend-developer "review this PR"
 
-# Pull from remote
-ctxloom fragment install ctxloom-main/testing
+# Reference a remote bundle in a local profile, then pull
+ctxloom profile create testing -b ctxloom-main/testing
+ctxloom remote pull
 ```
 
 ## Slash Commands

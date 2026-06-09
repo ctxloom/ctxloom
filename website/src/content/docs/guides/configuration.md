@@ -188,11 +188,11 @@ sync:
 
 ### Lockfile
 
-The `lock.yaml` records installed remote items for reproducible installations:
+The `lock.yaml` records the resolved remote items for reproducible pulls. It is
+updated automatically whenever you pull or update:
 
 ```bash
-ctxloom remote lock        # Generate lockfile
-ctxloom remote sync        # Sync from lockfile
+ctxloom remote pull        # Fetch referenced content and update lock.yaml
 ```
 
 ## Memory Configuration

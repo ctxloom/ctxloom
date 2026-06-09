@@ -11,7 +11,7 @@ Get up and running with ctxloom in minutes.
 | **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
 | **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
-| **Remote Sync** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
+| **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
 
 ## Initialize Your Project
@@ -135,8 +135,9 @@ ctxloom remote browse community
 # Use remote content directly
 ctxloom run -f community/go-testing "help with tests"
 
-# Or install locally
-ctxloom fragment install community/go-testing
+# Or author a local profile that references the remote bundle, then pull
+ctxloom profile create go-testing -b community/go-testing
+ctxloom remote pull
 ```
 
 ## Next Steps

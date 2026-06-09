@@ -137,7 +137,7 @@ Manage fragments.
 | `delete` | | `bundle#fragments/name` | Delete fragment from bundle |
 | `edit` | | `bundle#fragments/name` | Edit fragment in configured editor |
 | `distill` | `--force` | `bundle#fragments/name` | Create token-efficient version |
-| `install` | `--force`, `--blind` | `<reference>` | Install bundle from remote |
+| `push` | | `bundle#fragments/name` | Push a fragment to its remote |
 
 ### Examples
 
@@ -149,8 +149,12 @@ ctxloom fragment show --distilled python-tools#fragments/typing
 ctxloom fragment create my-bundle coding-standards
 ctxloom fragment edit my-bundle#fragments/coding-standards
 ctxloom fragment distill my-bundle#fragments/coding-standards
-ctxloom fragment install ctxloom-default/testing
-ctxloom fragment install --blind ctxloom-default/security  # Skip preview
+
+# Consume a remote bundle (or one fragment) by referencing it from a local
+# profile, then pulling. ctxloom resolves the reference and updates the lockfile.
+ctxloom profile create testing -b ctxloom-default/testing
+ctxloom profile create security -b ctxloom-default/security#fragments/owasp-top-10
+ctxloom remote pull
 ```
 
 ## ctxloom prompt
@@ -164,7 +168,7 @@ Manage prompts.
 | `create` | `<bundle> <name>` | Create new prompt |
 | `delete` | `bundle#prompts/name` | Delete prompt |
 | `edit` | `bundle#prompts/name` | Edit prompt in editor |
-| `install` | `<reference>` | Install from remote |
+| `push` | `bundle#prompts/name` | Push a prompt to its remote |
 
 ## ctxloom profile
 
@@ -176,9 +180,12 @@ Manage profiles.
 | `show` | | `<name>` | Show profile details and exclusions |
 | `create` | `--parent`, `-b`, `-d` | `<name>` | Create new profile |
 | `modify` | See below | `<name>` | Modify profile configuration |
+| `default` | `--unset` | `[name\|ref]` | Set, clear, or show the default profile(s) |
 | `delete` | | `<name>` | Delete profile |
 | `edit` | | `<name>` | Edit profile in editor |
-| `install` | | `<reference>` | Install from remote |
+| `export` | | `<name>` | Export a profile |
+| `import` | | `<file>` | Import a profile |
+| `push` | | `<name>` | Push a profile to its remote |
 
 ### Create Flags
 
@@ -216,8 +223,27 @@ ctxloom profile create child --parent base --parent security -b extras
 ctxloom profile modify developer --exclude-fragment verbose-logging
 ctxloom profile modify developer --include-mcp slow-server
 ctxloom profile edit my-profile
-ctxloom profile install ctxloom-default/python-developer
+
+# Inherit a remote profile: reference it as a parent, then pull.
+ctxloom profile create python-dev --parent ctxloom-default/python-developer
+ctxloom remote pull
+
+# Set, clear, or show the default profile(s) (defaults are a list; an entry may
+# be a local profile name or a remote ref).
+ctxloom profile default python-dev
+ctxloom profile default ctxloom-default/python-developer
+ctxloom profile default --unset python-dev
+ctxloom profile default                       # show current default(s)
 ```
+
+### Bare convenience refs
+
+`profile create` and `profile modify` accept **bare convenience refs** for
+`-b`/`--bundle` and `--parent` (e.g. `-b code-review-base#fragments/conduct` or
+`--parent developer`). Bare refs are expanded against the configured default
+remote into canonical URLs. Full URLs
+(`https://github.com/owner/repo@bundles/name`) and `ctxloom:local@...` refs pass
+through unchanged.
 
 ## ctxloom remote
 
@@ -231,9 +257,10 @@ Manage remote sources.
 | `default` | `[name]` | Get/set default remote |
 | `search` | `<query>` | Search for bundles/profiles |
 | `browse` | `<remote>` | Browse remote contents |
+| `trust` | `<name>` | Mark a remote as trusted (auto-applies upgrades) |
+| `untrust` | `<name>` | Revoke trust for a remote |
 | `discover` | | Find ctxloom repos on GitHub/GitLab |
-| `lock` | | Resolve every reference's version constraint to a commit in `lock.yaml` |
-| `sync` | | Install exactly what the lockfile pins (resolves nothing) |
+| `pull` | | Fetch all remote bundles/profiles referenced by your local profiles, update the lockfile, and apply hooks |
 | `update` | `[name]` | Report the newest commit available within each constraint |
 | `upgrade` | | Re-resolve within constraints and move the **lock** (trusted apply, others stage for review) |
 
@@ -262,7 +289,7 @@ ctxloom remote default myteam
 ctxloom remote browse ctxloom-default
 ctxloom remote search "python testing"
 ctxloom remote discover
-ctxloom remote sync
+ctxloom remote pull
 ```
 
 ## ctxloom mcp

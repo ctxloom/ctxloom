@@ -8,7 +8,7 @@ Complete reference for all ctxloom commands and options.
 ctxloom run -p <profile> "prompt"     # Run with profile
 ctxloom search -t <tag>               # Search by tag
 ctxloom fragment list                 # List fragments
-ctxloom remote sync                   # Sync dependencies
+ctxloom remote pull                   # Pull referenced bundles/profiles
 ```
 
 ## Commands
@@ -162,7 +162,6 @@ Manage context fragments.
 | `edit <ref>` | Edit fragment in editor |
 | `distill <ref>` | Create token-efficient version |
 | `search [query]` | Search fragments |
-| `install <reference>` | Install bundle from remote |
 | `push <bundle> [remote]` | Push bundle to remote |
 
 **Reference format:** `bundle#fragments/name`
@@ -176,7 +175,15 @@ ctxloom fragment show core#fragments/tdd --distilled
 ctxloom fragment create my-bundle coding-standards
 ctxloom fragment edit core#fragments/tdd
 ctxloom fragment search -t golang
-ctxloom fragment install ctxloom-default/core
+```
+
+To consume a remote bundle (or a single fragment from it), author a local profile
+that references it, then pull:
+
+```bash
+ctxloom profile create developer -b ctxloom-default/core
+ctxloom profile create developer -b ctxloom-default/core#fragments/tdd
+ctxloom remote pull
 ```
 
 #### `ctxloom prompt`
@@ -204,7 +211,7 @@ Manage profiles (named fragment collections).
 | `delete <name>` | Delete profile |
 | `edit <name>` | Edit profile YAML |
 | `modify <name>` | Modify profile configuration |
-| `install <reference>` | Install profile from remote |
+| `default [name\|ref]` | Show, set, or clear (`--unset <name>`) the default profile(s) |
 | `push <name> [remote]` | Push profile to remote |
 | `export <name> <dir>` | Export profile to directory |
 | `import <file>` | Import profile from file |
@@ -222,12 +229,37 @@ ctxloom profile modify reviewer --llm gemini-code   # change it; --llm "" clears
 When `ctxloom run` is invoked with no profile and no configured default, it shows
 an interactive picker of installed profiles (skipped when not on a terminal).
 
+**Consuming remote content (reference-only):** you don't "install" remote items.
+You author a local profile that *references* remote content, then pull:
+
+- Reference a remote **bundle** (or one fragment) with `-b`/`--bundle`, optionally
+  `#fragments/<name>`, then `ctxloom remote pull`.
+- Inherit a remote **profile** with `--parent`, then `ctxloom remote pull`.
+- To override remote content locally, copy it under `.ctxloom/local/` and
+  reference it as `ctxloom:local@bundles/<name>`.
+
+`create`/`modify` accept **bare convenience refs** (e.g.
+`-b code-review-base#fragments/conduct`, `--parent developer`) that expand against
+the configured default remote into canonical URLs. Full URLs and
+`ctxloom:local@...` refs pass through unchanged.
+
+**Default profiles:** defaults are a *list*; each entry may be a local name or a
+remote ref. Manage them with `ctxloom profile default`:
+
+```bash
+ctxloom profile default                 # show current default(s)
+ctxloom profile default developer       # set/add a default profile
+ctxloom profile default --unset developer  # clear it
+```
+
 **Examples:**
 ```bash
 ctxloom profile list
 ctxloom profile show developer
 ctxloom profile create backend --parent developer --bundle go-tools
+ctxloom profile create reviewer -b code-review-base#fragments/conduct
 ctxloom profile modify backend --add-bundle security
+ctxloom remote pull                     # fetch referenced bundles/profiles
 ```
 
 #### `ctxloom search`
@@ -266,14 +298,11 @@ Manage remote repositories.
 | `add <name> <url>` | Add remote source (optionally `--forge <label>`) |
 | `remove <name>` | Remove remote |
 | `default [name]` | Get/set default remote |
-| `sync` | Sync dependencies from profiles |
+| `pull` | Fetch all remote bundles/profiles referenced by local profiles, update the lockfile, and apply hooks |
 | `search <query>` | Search across remotes |
 | `browse <remote>` | Browse remote contents |
 | `discover` | Discover ctxloom repositories |
-| `lock` | Generate lockfile from installed items |
 | `update` | Check for and apply updates |
-| `vendor` | Copy dependencies locally for offline use |
-| `replace` | Manage local overrides for development |
 
 **URL formats:**
 - `user/repo` - GitHub shorthand (expands to `https://github.com/user/repo`)
@@ -307,15 +336,17 @@ ctxloom remote add personal myuser/ctxloom-profiles
 ctxloom remote add corp https://git.example.com/corp/repo --forge git
 ctxloom remote add work https://github.mycorp.com/me/ctxloom --forge work-ghe
 ctxloom remote default personal
-ctxloom remote sync --force
+ctxloom remote pull                     # Fetch referenced bundles/profiles, lock, apply hooks
 ctxloom remote search golang
 ctxloom remote browse ctxloom-default
 ctxloom remote discover --min-stars 10
-ctxloom remote lock                     # Generate lockfile
 ctxloom remote update                   # Check for updates
-ctxloom remote vendor --enable          # Enable offline mode
-ctxloom remote replace add alice/core ./local/core.yaml
 ```
+
+Locking happens automatically as part of `pull` (and `update`); there is no
+separate lock step. To override remote content for local development, copy it
+under `.ctxloom/local/` and reference it as `ctxloom:local@bundles/<name>` from a
+profile.
 
 #### `ctxloom bundle` (Advanced)
 

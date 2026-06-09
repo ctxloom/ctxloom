@@ -16,7 +16,7 @@ and moves the lockfile:
 - From an **untrusted** remote, the new commit is **staged** in a pending lockfile
   for review — nothing is installed until you approve.
 
-Passive `ctxloom remote sync` installs exactly what the lock already pins and
+Passive `ctxloom remote pull` fetches exactly what the lock already pins and
 stages nothing — review is only ever triggered by an `upgrade`.
 
 ## Reviewing staged changes

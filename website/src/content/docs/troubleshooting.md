@@ -202,20 +202,14 @@ ctxloom remote list
 ctxloom remote add myremote owner/repo
 ```
 
-### Sync Failures
+### Pull Failures
 
-**Problem:** `ctxloom remote sync` fails
+**Problem:** `ctxloom remote pull` fails
 
 **Debug:**
 ```bash
-# Check what's being synced
-ctxloom remote sync --dry-run
-
-# Sync with verbose output
-CTXLOOM_VERBOSE=1 ctxloom remote sync
-
-# Force re-sync
-ctxloom remote sync --force
+# Pull with verbose output
+CTXLOOM_VERBOSE=1 ctxloom remote pull
 ```
 
 ## Profile Issues
@@ -255,9 +249,11 @@ ctxloom profile show myprofile
 ctxloom fragment list
 ```
 
-**Install missing bundles:**
+**Pull missing bundles:** reference the remote bundle from a local profile, then
+pull so ctxloom fetches it and updates the lockfile:
 ```bash
-ctxloom fragment install remote/missing-bundle
+ctxloom profile create missing -b remote/missing-bundle
+ctxloom remote pull
 ```
 
 ## Fragment Issues
@@ -391,16 +387,14 @@ time ctxloom run --dry-run
 
 ### Slow Remote Operations
 
-**Problem:** Remote sync/browse is slow
+**Problem:** Remote pull/browse is slow
 
 **Solutions:**
 
 1. **Check network** - ensure good connectivity to GitHub/GitLab
 2. **Use caching** - ctxloom caches remote content locally
-3. **Reduce scope** - sync specific profiles instead of all:
-```bash
-ctxloom remote sync --profiles myprofile
-```
+3. **Reduce scope** - keep your local profiles focused so `ctxloom remote pull`
+   fetches only the bundles/profiles you actually reference
 
 ## Configuration Issues
 

@@ -254,4 +254,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before installing with `ctxloom fragment install`.
+Always review content before referencing it in a profile and running `ctxloom remote pull`.

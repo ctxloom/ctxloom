@@ -30,8 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/instal
 # Initialize a project
 ctxloom init                  # Create .ctxloom directory in current project
 
-# Install content from a remote
-ctxloom fragment install ctxloom-default/core
+# Reference remote content from a local profile, then pull it
+ctxloom profile create developer -b ctxloom-default/core
+ctxloom remote pull           # Fetch referenced bundles and update the lockfile
 
 # Search for content
 ctxloom search -t golang      # Find fragments by tag
@@ -64,10 +65,10 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom run` | Assemble context and run AI |
 | `ctxloom init` | Initialize .ctxloom directory |
 | `ctxloom search` | Search fragments and prompts |
-| `ctxloom fragment` | Manage fragments (list, show, create, edit, install) |
+| `ctxloom fragment` | Manage fragments (list, show, create, edit) |
 | `ctxloom prompt` | Manage prompts |
 | `ctxloom profile` | Manage profiles |
-| `ctxloom remote` | Manage remotes (add, sync, search, browse) |
+| `ctxloom remote` | Manage remotes (add, pull, search, browse) |
 | `ctxloom mcp` | Run ctxloom as an MCP server |
 | `ctxloom manage` | Install/manage the project harness (init, hooks, mcp, config, gitignore) |
 

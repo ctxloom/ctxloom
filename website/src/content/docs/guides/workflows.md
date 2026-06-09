@@ -27,20 +27,19 @@ ctxloom remote add community alice/ctxloom-golang
 
 # Browse what's available
 ctxloom remote browse community
-
-# Pull bundles you want
-ctxloom fragment install community/go-development
-ctxloom fragment install community/testing-patterns
 ```
 
 ### 3. Create a Profile
 
 ```bash
-# Create a development profile
+# Create a development profile that references the remote bundles
 ctxloom profile create go-dev \
-  -b go-development \
-  -b testing-patterns \
+  -b community/go-development \
+  -b community/testing-patterns \
   -d "Go development environment"
+
+# Pull the referenced content
+ctxloom remote pull
 ```
 
 ### 4. Start Coding
@@ -55,8 +54,8 @@ ctxloom run -p go-dev "help with code"
 ### Morning Setup
 
 ```bash
-# Sync any remote updates
-ctxloom remote sync
+# Pull any remote updates your profiles reference
+ctxloom remote pull
 
 # Check your current profile
 ctxloom profile show default
@@ -135,11 +134,11 @@ git push -u origin main
 # Add team remote
 ctxloom remote add team myorg/ctxloom-team
 
-# Sync team bundles
-ctxloom remote sync
-
 # Create profile that inherits from team
 ctxloom profile create my-dev --parent team/team-developer
+
+# Pull the referenced team content
+ctxloom remote pull
 
 # Use the profile
 ctxloom run -p my-dev "help with code"
@@ -229,9 +228,13 @@ Use different `.ctxloom/` configurations in different project directories:
 ### Setup
 
 ```bash
-# Add security bundles
-ctxloom fragment install ctxloom-default/security
-ctxloom fragment install ctxloom-default/owasp
+# Author a profile referencing the security bundles
+ctxloom profile create security \
+  -b ctxloom-default/security \
+  -b ctxloom-default/owasp
+
+# Pull the referenced content
+ctxloom remote pull
 ```
 
 ### Conducting Reviews
@@ -284,7 +287,7 @@ jobs:
       - name: Setup ctxloom
         run: |
           go install github.com/ctxloom/ctxloom@latest
-          ctxloom remote sync
+          ctxloom remote pull
 
       - name: AI Code Review
         run: |
@@ -295,8 +298,8 @@ jobs:
 ### Lockfile for Reproducibility
 
 ```bash
-# Generate lockfile
-ctxloom remote lock
+# Pulling updates the lockfile automatically
+ctxloom remote pull
 
 # Commit lockfile
 git add .ctxloom/lock.yaml
@@ -306,8 +309,8 @@ git commit -m "Lock ctxloom dependencies"
 In CI:
 
 ```bash
-# Install exact versions
-ctxloom remote install
+# Pull the exact versions recorded in the committed lockfile
+ctxloom remote pull
 ```
 
 ## Troubleshooting Workflow
@@ -337,8 +340,8 @@ ctxloom fragment list
 # Check what's available remotely
 ctxloom remote browse ctxloom-default
 
-# Sync missing dependencies
-ctxloom remote sync
+# Pull missing dependencies
+ctxloom remote pull
 ```
 
 ## Tips and Best Practices
@@ -388,13 +391,10 @@ git commit -m "Update ctxloom configuration"
 ### Regular Maintenance
 
 ```bash
-# Weekly: sync remote updates
-ctxloom remote sync
+# Weekly: pull remote updates
+ctxloom remote pull
 
 # Monthly: review and clean up profiles
 ctxloom profile list
 ctxloom fragment list
-
-# As needed: update lockfile
-ctxloom remote lock
 ```

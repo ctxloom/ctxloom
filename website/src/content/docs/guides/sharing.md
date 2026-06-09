@@ -133,7 +133,8 @@ Context bundles for [description].
 
 ```bash
 ctxloom remote add mybundles username/my-ctxloom-bundles
-ctxloom fragment install mybundles/go-development
+ctxloom profile create dev -b mybundles/go-development
+ctxloom remote pull
 ```
 
 ## Available Bundles
@@ -196,10 +197,11 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Users can then pin to specific versions:
+Users can then pin to specific versions by referencing the tagged ref:
 
 ```bash
-ctxloom fragment install mybundles/go-development@v1.0.0
+ctxloom profile create dev -b mybundles/go-development@v1.0.0
+ctxloom remote pull
 ```
 
 ## Best Practices

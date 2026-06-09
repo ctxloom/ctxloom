@@ -143,11 +143,11 @@ flowchart TD
     F --> G["7. Context file deleted"]
 ```
 
-### Remote Sync Flow
+### Remote Pull Flow
 
 ```mermaid
 flowchart TD
-    A["1. ctxloom remote sync"] --> B["2. Load profile dependencies"]
+    A["1. ctxloom remote pull"] --> B["2. Load profile dependencies"]
     B --> C["3. For each remote bundle"]
     C --> D["Fetch from GitHub/GitLab"]
     C --> E["Validate structure"]

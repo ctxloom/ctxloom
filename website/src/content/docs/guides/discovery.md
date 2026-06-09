@@ -100,19 +100,28 @@ Once you've added a remote, you can:
 ctxloom remote browse golang-bundles
 ```
 
-### Pull Bundles Locally
+### Reference Remote Content
+
+You don't install remote items into your project. Instead, author a local
+profile that references the remote content, then pull what it references.
 
 ```bash
-# Preview before pulling
-ctxloom remote pull golang-bundles/go-testing --type bundle
+# Consume a remote bundle by referencing it from a new profile
+ctxloom profile create go-dev -b golang-bundles/go-testing
 
-# Pull without preview
-ctxloom fragment install --blind golang-bundles/go-testing
+# Or consume a single fragment of a bundle
+ctxloom profile create go-dev -b golang-bundles/testing#fragments/table-driven
+
+# Inherit a remote profile
+ctxloom profile create go-dev --parent golang-bundles/go-developer
+
+# Fetch everything your profiles reference and update the lockfile
+ctxloom remote pull
 ```
 
 ### Use Content Directly
 
-Reference remote content without pulling:
+Reference remote content for a single run without authoring a profile:
 
 ```bash
 # Use a remote profile
@@ -168,7 +177,7 @@ This enables AI assistants to help you find and add relevant bundles during your
 
 - Use `--stars` to filter for popular, well-maintained repos
 - Check the description for relevance to your needs
-- Browse the repo contents before pulling everything
+- Browse the repo contents before referencing them
 
 ### Naming Remotes
 
@@ -182,8 +191,8 @@ Choose descriptive names that indicate the content type:
 After adding remotes, keep them in sync:
 
 ```bash
-# Sync all remote dependencies
-ctxloom remote sync
+# Pull all remote content your profiles reference
+ctxloom remote pull
 
 # Update specific remote
 ctxloom remote update golang-bundles

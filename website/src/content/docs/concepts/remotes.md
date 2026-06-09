@@ -33,14 +33,23 @@ ctxloom remote add myteam myorg/ctxloom-team
 ctxloom remote add corp https://gitlab.com/corp/ctxloom
 ```
 
-## Pulling Content
+## Consuming Remote Content
+
+You don't "install" remote items into your project. Instead you author a local
+profile that **references** remote content, then pull. `ctxloom remote pull`
+fetches everything your local profiles reference, updates the lockfile, and
+applies hooks — it takes no item argument.
 
 ```bash
-# Pull a bundle
-ctxloom remote pull ctxloom-default/testing --type bundle
+# Consume a remote bundle (or one fragment of it)
+ctxloom profile create testing -b ctxloom-default/testing
+ctxloom profile create audit -b ctxloom-default/security#fragments/owasp
 
-# Pull a profile
-ctxloom remote pull ctxloom-default/python-developer --type profile
+# Inherit a remote profile
+ctxloom profile create my-dev --parent ctxloom-default/python-developer
+
+# Fetch everything your profiles reference
+ctxloom remote pull
 ```
 
 Pulled content is saved locally in your `.ctxloom/` directory.
@@ -49,7 +58,7 @@ Pulled content is saved locally in your `.ctxloom/` directory.
 
 ### Direct Reference
 
-Reference remote content directly without pulling:
+Reference remote content directly without authoring a profile:
 
 ```bash
 # Use remote profile
@@ -99,16 +108,18 @@ To pin to a release, write the exact tag (`@v1.2.3`); to loosen, use a range or 
 branch. Your existing `@<sha>` references are already valid — they're just the
 tightest constraint.
 
-### Lock, sync, update, upgrade
+### Pull, update, upgrade
 
 ```bash
-ctxloom remote lock      # resolve every constraint → lock.yaml (stable: keeps the
-                         # current commit while a constraint is unchanged)
-ctxloom remote sync      # install exactly what the lock pins (resolves nothing)
+ctxloom remote pull      # resolve every constraint → lock.yaml and fetch exactly what
+                         # the lock pins (stable: keeps the current commit while a
+                         # constraint is unchanged)
 ctxloom remote update    # report the newest commit available within each constraint
 ctxloom remote upgrade   # re-resolve within constraints and move the LOCK (never the
                          # manifest); trusted remotes apply, others stage for review
 ```
+
+Locking happens automatically as part of `pull` — there is no separate lock step.
 
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It writes only

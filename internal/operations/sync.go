@@ -324,10 +324,13 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 
 	bundles, parents := collectProfileReferences(cfg, profileName)
 
-	// Add remote bundles
+	// Add remote bundles. Strip any `#fragments/<name>` selector so distinct
+	// fragment refs to the same bundle dedupe to a single fetch/lock entry; the
+	// selector is re-applied at assembly time by the bundle loader.
 	for _, b := range bundles {
 		if isRemoteReference(b) {
-			bundleSet.Add(b)
+			base, _, _ := strings.Cut(b, "#")
+			bundleSet.Add(base)
 		}
 	}
 

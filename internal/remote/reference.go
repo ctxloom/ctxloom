@@ -306,6 +306,17 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 		contentVersion = ""
 	}
 
+	// Strip a fragment/prompt selector (`#fragments/<name>`) — it identifies an
+	// item WITHIN the bundle, not the bundle's identity. Keeping it here would
+	// bake the selector into the canonical ref / lockfile key, so the fetcher
+	// would look for a file literally named "<bundle>#fragments/<name>.yaml".
+	// The selector is split off and re-applied at assembly time by the bundle
+	// loader (see loader_content.go splitItemRef). Done after the @version split
+	// so a "<path>#sel@<sha>" form keeps its version.
+	if hashIdx := strings.Index(itemPath, "#"); hashIdx != -1 {
+		itemPath = itemPath[:hashIdx]
+	}
+
 	if itemPath == "" {
 		return "", "", "", fmt.Errorf("empty path")
 	}

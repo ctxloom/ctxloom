@@ -99,6 +99,23 @@ func TestParseReference_HTTPS(t *testing.T) {
 			wantType: ItemTypeProfile,
 			wantPath: "rust-developer",
 		},
+		{
+			// A bundle ref carrying a fragment selector identifies the bundle,
+			// not the fragment — the selector must not leak into Path (and thus
+			// the canonical ref / lockfile key).
+			name:     "fragment selector stripped from bundle path",
+			input:    "https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/synthesis",
+			wantURL:  "https://github.com/ctxloom/ctxloom-default",
+			wantType: ItemTypeBundle,
+			wantPath: "code-review-base",
+		},
+		{
+			name:     "fragment selector stripped, version preserved",
+			input:    "https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/golang@abc123",
+			wantURL:  "https://github.com/ctxloom/ctxloom-default",
+			wantType: ItemTypeBundle,
+			wantPath: "code-review-base",
+		},
 	}
 
 	for _, tt := range tests {

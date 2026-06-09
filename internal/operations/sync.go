@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -386,16 +387,18 @@ func syncItem(ctx context.Context, cfg *config.Config, puller Puller, registry *
 		}
 	}
 
-	// Pull the item. Sync stages bundle changes into the *pending* lockfile
-	// for the bundle-review gate (it does not activate them), so the pull must
-	// be Blind: there is no interactive confirmation to give — the review IS
-	// the confirmation — and any content display would both be premature and
-	// corrupt a non-interactive caller's stream (e.g. the MCP server's stdout).
+	// Pull the item. The pull must be Blind: there is no interactive
+	// confirmation to give — the bundle-review gate is the confirmation — and
+	// any content display would be premature. Stdout is pinned to stderr
+	// because sync runs inside the MCP server, whose process stdout carries
+	// the JSON-RPC stream; pull's informational output (Blind-mode notice,
+	// lockfile warnings) must never land there.
 	opts := remote.PullOptions{
 		LocalDir: baseDir,
 		Force:    force,
 		Blind:    true,
 		ItemType: itemType,
+		Stdout:   os.Stderr,
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)

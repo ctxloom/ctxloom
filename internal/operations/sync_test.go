@@ -37,6 +37,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -243,6 +244,51 @@ remotes:
 	if len(puller.pullCalls) != 1 {
 		t.Errorf("expected 1 pull call, got %d", len(puller.pullCalls))
 	}
+}
+
+// TestSyncDependencies_PullOutputAvoidsStdout pins the MCP stdio invariant:
+// sync runs inside the MCP server, whose stdout carries JSON-RPC, so every
+// pull's informational output (Blind-mode notice, lockfile warnings) must be
+// routed to stderr. An unset PullOptions.Stdout defaults to os.Stdout inside
+// Pull, which would corrupt the protocol stream.
+func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+	puller := &syncMockPuller{}
+
+	_, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:       fs,
+		Registry: registry,
+		Puller:   puller,
+	})
+	if err != nil {
+		t.Fatalf("SyncDependencies failed: %v", err)
+	}
+
+	if len(puller.pullCalls) != 1 {
+		t.Fatalf("expected 1 pull call, got %d", len(puller.pullCalls))
+	}
+	assert.Same(t, os.Stderr, puller.pullCalls[0].opts.Stdout,
+		"sync pulls must route informational output to stderr, never process stdout")
 }
 
 // TestSyncDependencies_SkipsExisting verifies incremental sync behavior.

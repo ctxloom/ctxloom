@@ -417,6 +417,45 @@ func TestPuller_Pull_BlindMode(t *testing.T) {
 	assert.Contains(t, stdout.String(), "Blind mode")
 }
 
+// TestPuller_Pull_BlindMode_RetractedVersion_DoesNotPrompt pins the Blind
+// contract: Blind implies Force for every confirmation gate, including the
+// retraction prompt. Blind pulls run non-interactively (MCP startup sync), so
+// any prompt would block on a stdin nobody answers.
+func TestPuller_Pull_BlindMode_RetractedVersion_DoesNotPrompt(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	registry, _ := NewRegistry("", WithRegistryFS(fs))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+	mf := newMockFetcher()
+	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
+	mf.files["ctxloom/manifest.yaml"] = []byte(`retracted:
+  - type: bundle
+    name: security
+    reason: compromised release
+`)
+	mf.refs["main"] = "abc123"
+
+	puller := NewPuller(registry, AuthConfig{},
+		WithPullerFS(fs),
+		WithFetcherFactory(mockFetcherFactory(mf)),
+		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
+		WithTerminalChecker(&mockTerminalChecker{isReader: false}),
+	)
+
+	var stdout bytes.Buffer
+	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
+		Blind:    true,
+		LocalDir: paths.AppDirName,
+		ItemType: ItemTypeBundle,
+		Stdout:   &stdout,
+		Stdin:    strings.NewReader(""), // EOF: a prompt read here would fail the pull
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Contains(t, stdout.String(), "retracted")
+}
+
 func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))

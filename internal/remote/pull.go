@@ -267,7 +267,9 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 }
 
 // confirmRetraction warns and (unless forced) prompts when a version has been
-// retracted. A declined prompt cancels the pull.
+// retracted. A declined prompt cancels the pull. Blind implies force here, as
+// in securityReview: blind pulls run non-interactively (MCP startup sync), so
+// a prompt would block on a stdin nobody answers.
 func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) error {
 	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
 	if !retracted {
@@ -275,7 +277,7 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	}
 	_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
 	_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
-	if opts.Force {
+	if opts.Force || opts.Blind {
 		return nil
 	}
 	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")

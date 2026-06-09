@@ -8,61 +8,118 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// runProfileUpgrade is a helper: run the profile upgrade pipeline for remote
-// over data and report the upgraded bytes plus which upgrades fired.
-func runProfileUpgrade(remote string, data []byte) ([]byte, []string) {
-	return profileUpgrades(remote).Run(data)
+// personalURL and defaultURL are the canonical repo URLs the test alias resolver
+// maps the two stock remotes to.
+const (
+	personalURL = "https://github.com/benjaminabbitt/ctxloom-personal"
+	defaultURL  = "https://github.com/ctxloom/ctxloom-default"
+)
+
+// testAliasToURL is the alias→URL resolver used across the upgrade tests, standing
+// in for the registry-backed resolver the loader wires in production.
+func testAliasToURL(alias string) string {
+	switch alias {
+	case "personal":
+		return personalURL
+	case "ctxloom-default":
+		return defaultURL
+	}
+	return ""
 }
 
-// TestBundleRefQualify_BareRefsGainRemote verifies that whole-bundle refs with
-// no remote are qualified with the profile's remote, while already-qualified
-// refs and cherry-picked items keep their bundle's existing remote.
-func TestBundleRefQualify_BareRefsGainRemote(t *testing.T) {
-	in := []byte("bundles:\n  - core-practices\n  - personal/already-qualified\n  - go-development:fragments/testing\n")
+// runProfileUpgrade is a helper: run the profile upgrade pipeline for a profile
+// whose own remote URL is ownURL over data, and report the upgraded bytes plus
+// which upgrades fired.
+func runProfileUpgrade(ownURL string, data []byte) ([]byte, []string) {
+	return profileUpgrades(ownURL, testAliasToURL).Run(data)
+}
 
-	out, applied := runProfileUpgrade("personal", in)
+// TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that bare and
+// alias-prefixed bundle refs are rewritten to canonical URL form, that a
+// cherry-picked ":fragments/…" selector becomes the canonical "#fragments/…",
+// and that a foreign alias resolves against ITS repo, not the profile's own.
+func TestBundleRefCanonicalize_ShortRefsBecomeCanonical(t *testing.T) {
+	in := []byte("bundles:\n" +
+		"  - core-practices\n" +
+		"  - personal/developer-mindset\n" +
+		"  - ctxloom-default/git\n" +
+		"  - go-development:fragments/testing\n")
 
-	require.NotEmpty(t, applied, "upgrade should fire when bare refs are present")
+	out, applied := runProfileUpgrade(personalURL, in)
+
+	require.NotEmpty(t, applied, "upgrade should fire when short refs are present")
 	got := string(out)
-	assert.Contains(t, got, "personal/core-practices")
-	assert.Contains(t, got, "personal/already-qualified")
-	assert.NotContains(t, got, "personal/personal/already-qualified", "must not double-qualify")
-	// Cherry-picked item: only the bundle portion (before ':') is qualified.
-	assert.Contains(t, got, "personal/go-development:fragments/testing")
+	// Bare → profile's own remote.
+	assert.Contains(t, got, "- "+personalURL+"@bundles/core-practices")
+	// Alias matching the profile's own remote → that repo (redundant prefix dropped).
+	assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
+	// Foreign alias → ITS repo, not the profile's own.
+	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
+	// Cherry-pick: bundle canonicalized, ':' selector normalized to '#'.
+	assert.Contains(t, got, "- "+personalURL+"@bundles/go-development#fragments/testing")
+	// No short/alias form should survive.
+	assert.NotContains(t, got, "- personal/")
+	assert.NotContains(t, got, "- ctxloom-default/")
 }
 
-// TestBundleRefQualify_Idempotent verifies running the upgrade twice equals
-// running it once — a second pass over already-qualified refs is a no-op.
-func TestBundleRefQualify_Idempotent(t *testing.T) {
-	in := []byte("bundles:\n  - core-practices\n  - containers\n")
+// TestBundleRefCanonicalize_CanonicalURLsUntouched is a regression guard: a
+// canonical URL ref is already fully qualified and must pass through verbatim.
+// The scheme colon in "https://" must NOT be mistaken for the cherry-pick ':'
+// separator — doing so split the bundle name down to "https" and produced a
+// nonsense "<remote>/https://…" ref that no longer resolved.
+func TestBundleRefCanonicalize_CanonicalURLsUntouched(t *testing.T) {
+	in := []byte("bundles:\n" +
+		"  - " + defaultURL + "@bundles/default\n" +
+		"  - " + personalURL + "@bundles/just\n" +
+		"  - core-practices\n")
 
-	once, applied1 := runProfileUpgrade("personal", in)
+	out, applied := runProfileUpgrade(personalURL, in)
+
+	got := string(out)
+	// The bare ref still canonicalizes...
+	require.NotEmpty(t, applied)
+	assert.Contains(t, got, "- "+personalURL+"@bundles/core-practices")
+	// ...but the canonical URLs are left exactly as-is.
+	assert.Contains(t, got, "- "+defaultURL+"@bundles/default")
+	assert.Contains(t, got, "- "+personalURL+"@bundles/just")
+	assert.NotContains(t, got, "@bundles/https:", "canonical URL must never be re-wrapped")
+	assert.NotContains(t, got, "/https://", "canonical URL must never be prefixed")
+}
+
+// TestBundleRefCanonicalize_Idempotent verifies running the upgrade twice equals
+// running it once — a second pass over already-canonical refs is a no-op.
+func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
+	in := []byte("bundles:\n  - core-practices\n  - ctxloom-default/git\n")
+
+	once, applied1 := runProfileUpgrade(personalURL, in)
 	require.NotEmpty(t, applied1)
 
-	twice, applied2 := runProfileUpgrade("personal", once)
-	assert.Empty(t, applied2, "second pass over qualified refs must not fire")
+	twice, applied2 := runProfileUpgrade(personalURL, once)
+	assert.Empty(t, applied2, "second pass over canonical refs must not fire")
 	assert.Equal(t, string(once), string(twice))
 }
 
-// TestBundleRefQualify_EmptyRemoteNoOp verifies that a profile with no resolvable
-// remote (local project profile) keeps its bare bundle refs untouched.
-func TestBundleRefQualify_EmptyRemoteNoOp(t *testing.T) {
-	in := []byte("bundles:\n  - core-practices\n")
+// TestBundleRefCanonicalize_NoContextNoOp verifies that a profile with no
+// resolution context (a local project profile: empty own URL, and refs whose
+// alias the resolver doesn't know) keeps its bundle refs untouched.
+func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
+	in := []byte("bundles:\n  - core-practices\n  - unknown-alias/thing\n")
 
-	out, applied := runProfileUpgrade("", in)
+	out, applied := profileUpgrades("", testAliasToURL).Run(in)
 
-	assert.Empty(t, applied, "no remote => no qualification")
+	assert.Empty(t, applied, "no own URL + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
 }
 
-// TestLoad_QualifiesBareBundlesViaResolver verifies the loader seam: a profile
-// loaded under a name whose resolver yields a remote comes back with its bare
-// bundle refs qualified, and records a pending upgrade for the rewrite prompt.
-func TestLoad_QualifiesBareBundlesViaResolver(t *testing.T) {
+// TestLoad_CanonicalizesShortBundlesViaResolver verifies the loader seam: a
+// profile loaded under a name whose resolvers yield a remote comes back with its
+// short bundle refs canonicalized, and records a pending upgrade for the rewrite
+// prompt.
+func TestLoad_CanonicalizesShortBundlesViaResolver(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs,
 		"/profiles/personal/go-developer.yaml",
-		[]byte("description: test\nbundles:\n  - core-practices\n  - go-development\n"),
+		[]byte("description: test\nbundles:\n  - core-practices\n  - ctxloom-default/git\n"),
 		0o644))
 
 	resolver := func(name string) string {
@@ -71,11 +128,15 @@ func TestLoad_QualifiesBareBundlesViaResolver(t *testing.T) {
 		}
 		return ""
 	}
-	loader := NewLoader([]string{"/profiles"}, WithFS(fs), WithRemoteResolver(resolver))
+	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
+		WithRemoteResolver(resolver), WithRemoteURLResolver(testAliasToURL))
 
 	p, err := loader.Load("personal/go-developer")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"personal/core-practices", "personal/go-development"}, p.Bundles)
+	assert.Equal(t, []string{
+		personalURL + "@bundles/core-practices",
+		defaultURL + "@bundles/git",
+	}, p.Bundles)
 
 	pending := loader.PendingUpgrades()
 	require.Len(t, pending, 1, "loader should record a pending rewrite")
@@ -93,7 +154,8 @@ func TestLoad_LocalProfileKeepsBareBundles(t *testing.T) {
 		0o644))
 
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(func(string) string { return "" }))
+		WithRemoteResolver(func(string) string { return "" }),
+		WithRemoteURLResolver(testAliasToURL))
 
 	p, err := loader.Load("go-developer")
 	require.NoError(t, err)
@@ -101,16 +163,17 @@ func TestLoad_LocalProfileKeepsBareBundles(t *testing.T) {
 	assert.Empty(t, loader.PendingUpgrades())
 }
 
-// TestCommitUpgrade_WritesQualifiedFileAndClearsPending verifies that persisting
-// a pending upgrade rewrites the profile file to the qualified form and removes
+// TestCommitUpgrade_WritesCanonicalFileAndClearsPending verifies that persisting
+// a pending upgrade rewrites the profile file to the canonical form and removes
 // it from the loader's pending set.
-func TestCommitUpgrade_WritesQualifiedFileAndClearsPending(t *testing.T) {
+func TestCommitUpgrade_WritesCanonicalFileAndClearsPending(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	path := "/profiles/personal/go-developer.yaml"
 	require.NoError(t, afero.WriteFile(fs, path,
 		[]byte("bundles:\n  - core-practices\n"), 0o644))
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs),
-		WithRemoteResolver(func(string) string { return "personal" }))
+		WithRemoteResolver(func(string) string { return "personal" }),
+		WithRemoteURLResolver(testAliasToURL))
 
 	_, err := loader.Load("personal/go-developer")
 	require.NoError(t, err)
@@ -121,12 +184,12 @@ func TestCommitUpgrade_WritesQualifiedFileAndClearsPending(t *testing.T) {
 
 	data, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "personal/core-practices")
+	assert.Contains(t, string(data), personalURL+"@bundles/core-practices")
 	assert.Empty(t, loader.PendingUpgrades(), "committed pending should be cleared")
 }
 
-// TestLoad_NoResolverIsNoOp verifies a loader constructed without a remote
-// resolver behaves exactly as before — bare refs untouched, no panics.
+// TestLoad_NoResolverIsNoOp verifies a loader constructed without remote
+// resolvers behaves exactly as before — bare refs untouched, no panics.
 func TestLoad_NoResolverIsNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs,

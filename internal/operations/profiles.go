@@ -610,8 +610,8 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 }
 
 // profileLoader creates a profile loader using the config. It wires the remote
-// resolver so read paths (show/list) qualify legacy bare bundle refs the same
-// way assembly does.
+// resolvers so read paths (show/list) canonicalize legacy bare/alias bundle refs
+// the same way assembly does.
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
@@ -621,6 +621,9 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 	var opts []profiles.LoaderOption
 	if resolve := cfg.ProfileRemoteResolver(); resolve != nil {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
+	}
+	if resolveURL := cfg.ProfileRemoteURLResolver(); resolveURL != nil {
+		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
 	}
 	return profiles.NewLoader(profileDirs, opts...)
 }

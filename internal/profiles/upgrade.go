@@ -5,6 +5,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
@@ -13,40 +14,53 @@ import (
 // Pipeline is itself an Upgrader, so the chain composes and the loader runs the
 // whole thing over every profile (see loadFile).
 //
-// It is parameterized by the short remote name the profile was installed from:
-// unlike config's pure-document upgrades, qualifying a bare bundle ref needs the
-// profile's remote, which lives in the load name, not the document, so the caller
-// resolves it and threads it in. Remote-dependent upgrades self-gate on an empty
-// remote (a local project profile has none), so the pipeline is always built —
-// that keeps future remote-independent upgrades from being skipped for local
-// profiles.
-func profileUpgrades(remote string) upgrade.Pipeline {
+// It is parameterized by the resolution context a bundle ref needs to be made
+// canonical: ownURL is the repo URL of the remote the profile itself was
+// installed from (so a bare sibling ref resolves against it), and aliasToURL
+// maps any remote alias to its repo URL (so an "<alias>/<bundle>" ref resolves
+// against the aliased repo). Both come from the load name + registry, which live
+// outside the document, so the loader resolves them and threads them in.
+// Remote-dependent upgrades self-gate when they have no resolution context (a
+// local project profile has no remote), so the pipeline is always built — that
+// keeps future remote-independent upgrades from being skipped for local profiles.
+func profileUpgrades(ownURL string, aliasToURL func(string) string) upgrade.Pipeline {
 	return upgrade.Pipeline{
-		bundleRefQualifyUpgrade{remote: remote},
+		bundleRefCanonicalizeUpgrade{ownURL: ownURL, aliasToURL: aliasToURL},
 	}
 }
 
-// bundleRefQualifyUpgrade qualifies bare bundle references with the profile's
-// remote. Early profiles (pre-namespacing) listed bundles by bare name
-// (`core-practices`); installed/seeded bundles are keyed `<remote>/<bundle>`, so
-// a bare ref no longer resolves. This rewrites each bare whole-bundle ref to
-// `<remote>/<bundle>` so the existing resolver finds it unchanged.
+// bundleRefCanonicalizeUpgrade rewrites non-canonical bundle references to their
+// canonical URL form ("<url>@bundles/<path>"). Early/legacy profiles listed
+// bundles by bare name (`core-practices`) or by remote alias
+// (`ctxloom-default/git`); but remote bundles are no longer extracted to disk —
+// they are seeded and resolved by canonical ref ONLY (see
+// config.loadRemoteBundleSeed). So neither short form resolves anymore. This
+// canonicalizes each ref so the seeded resolver finds it unchanged, and — since
+// loadFile records what it changed as a pending rewrite — migrates the on-disk
+// profile to canonical storage on the next consented rewrite.
 //
-// It is idempotent: an already-qualified ref (its bundle name contains `/`) is
-// left untouched, so re-running over a current document changes nothing.
-type bundleRefQualifyUpgrade struct {
-	remote string
+//   - A bare ref ("core-practices") resolves against ownURL (the profile's own
+//     remote).
+//   - An "<alias>/<bundle>" ref resolves against the alias' repo URL via
+//     aliasToURL — including the common case where the alias is the profile's
+//     own remote (a redundant prefix the old qualifier produced).
+//   - An already-canonical ref is left untouched, so the upgrade is idempotent.
+//   - A legacy ":fragments/…" / ":prompts/…" / ":mcp" item selector is rewritten
+//     to the canonical "#…" form; a "#…" selector is preserved verbatim.
+//   - Anything that cannot be resolved (no context, unknown alias, or a result
+//     that fails to parse) is left unchanged — fault tolerant: persist the
+//     authored form rather than drop the ref.
+type bundleRefCanonicalizeUpgrade struct {
+	ownURL     string
+	aliasToURL func(string) string
 }
 
 // Name identifies the upgrade in logs and the rewrite prompt.
-func (bundleRefQualifyUpgrade) Name() string { return "qualify bare bundle refs" }
+func (bundleRefCanonicalizeUpgrade) Name() string { return "canonicalize bundle refs" }
 
-// Apply qualifies bare entries in the top-level `bundles` sequence, returning
+// Apply canonicalizes entries in the top-level `bundles` sequence, returning
 // whether it changed anything.
-func (u bundleRefQualifyUpgrade) Apply(root *yaml.Node) (changed bool) {
-	if u.remote == "" {
-		return false
-	}
+func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 	seq := upgrade.MapValue(root, "bundles")
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return false
@@ -55,29 +69,73 @@ func (u bundleRefQualifyUpgrade) Apply(root *yaml.Node) (changed bool) {
 		if item.Kind != yaml.ScalarNode {
 			continue
 		}
-		if qualified, ok := u.qualify(item.Value); ok {
-			item.Value = qualified
+		if canonical, ok := u.canonicalize(item.Value); ok {
+			item.Value = canonical
 			changed = true
 		}
 	}
 	return changed
 }
 
-// qualify rewrites a single bundle ref, reporting whether it changed. The remote
-// prefixes the bundle-name portion only: a cherry-picked ref like
-// `bundle:fragments/x` becomes `<remote>/bundle:fragments/x`. A ref whose bundle
-// portion already carries a remote (contains `/`) is returned unchanged.
-func (u bundleRefQualifyUpgrade) qualify(ref string) (string, bool) {
-	bundle := ref
-	rest := ""
-	// The bundle name may not contain ':' or '#'; everything from the first such
-	// separator onward selects items within the bundle and is preserved verbatim.
-	if idx := strings.IndexAny(ref, ":#"); idx != -1 {
-		bundle = ref[:idx]
-		rest = ref[idx:]
-	}
-	if bundle == "" || strings.Contains(bundle, "/") {
+// canonicalize rewrites a single bundle ref to canonical URL form, reporting
+// whether it changed. See the type doc for the resolution rules.
+func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
+	// A canonical URL ref is already fully qualified and must never be touched.
+	// Its scheme colon ("https://") would otherwise be mistaken for the cherry-pick
+	// ':' separator below, splitting the bundle name down to "https". (The
+	// resolver's expandBundleRef hit the same trap; see
+	// internal/bundles/loader_content.go.)
+	if remote.IsCanonicalRef(ref) {
 		return ref, false
 	}
-	return u.remote + "/" + bundle + rest, true
+
+	base, item := splitBundleSelector(ref)
+	if base == "" {
+		return ref, false
+	}
+
+	// Determine the source repo URL and the bundle path within it.
+	var srcURL, bundlePath string
+	if alias, rest, ok := strings.Cut(base, "/"); ok && rest != "" {
+		// "<alias>/<bundle>": resolve the alias to its repo URL.
+		if u.aliasToURL != nil {
+			srcURL = u.aliasToURL(alias)
+		}
+		bundlePath = rest
+	} else if !strings.Contains(base, "/") {
+		// Bare "<bundle>": resolve against the profile's own remote.
+		srcURL = u.ownURL
+		bundlePath = base
+	}
+	if srcURL == "" || bundlePath == "" {
+		return ref, false
+	}
+
+	canonical := srcURL + "@" + remote.ItemTypeBundle.DirName() + "/" + bundlePath + item
+	// Validate before adopting: an unparseable result means our inputs didn't
+	// compose into a real ref, so keep the authored form rather than corrupt it.
+	if _, err := remote.ParseReference(canonical); err != nil {
+		return ref, false
+	}
+	return canonical, true
+}
+
+// splitBundleSelector separates a bundle ref's bundle portion from an optional
+// item selector, normalizing the legacy ':' selector to the canonical '#' form.
+// The returned item, when present, includes its leading '#'. The bundle portion
+// may itself contain '/' (an "<alias>/<bundle>" prefix); only the selector is
+// split off here. A URL scheme colon is never mistaken for a selector because a
+// ':' counts only when it introduces a known section (mirrors
+// bundles.expandBundleRef).
+func splitBundleSelector(ref string) (base, item string) {
+	if i := strings.Index(ref, "#"); i != -1 {
+		return ref[:i], ref[i:]
+	}
+	for _, marker := range []string{":fragments/", ":prompts/", ":mcp"} {
+		if i := strings.Index(ref, marker); i != -1 {
+			// Drop the ':' and reintroduce the selector under the canonical '#'.
+			return ref[:i], "#" + ref[i+1:]
+		}
+	}
+	return ref, ""
 }

@@ -89,9 +89,13 @@ type Loader struct {
 	dirs []string
 	fs   afero.Fs
 	// remoteResolver maps a profile load name to the short remote name it was
-	// installed from, used to qualify bare bundle refs on load (see upgrade.go).
-	// Nil means no qualification — the loader behaves as a plain reader.
+	// installed from, used to canonicalize bundle refs on load (see upgrade.go).
+	// Nil means no resolution — the loader behaves as a plain reader.
 	remoteResolver func(profileName string) string
+	// remoteURLResolver maps a remote alias to its canonical repo URL. Paired with
+	// remoteResolver, it lets the loader rewrite a profile's bare/alias bundle refs
+	// to their canonical URL form on load. Nil means no canonicalization.
+	remoteURLResolver func(alias string) string
 	// pending accumulates in-memory schema upgrades applied during Load that an
 	// interactive caller may persist with consent (see PendingUpgrades).
 	pending []*upgrade.Pending
@@ -114,11 +118,22 @@ func WithFS(fs afero.Fs) LoaderOption {
 }
 
 // WithRemoteResolver sets the function that maps a profile load name to the
-// short remote name it was installed from. The loader uses it to qualify bare
-// bundle refs in legacy profiles on load. Without it, profiles load verbatim.
+// short remote name it was installed from. Paired with WithRemoteURLResolver, the
+// loader uses it to canonicalize bare/alias bundle refs in legacy profiles on
+// load. Without it, profiles load verbatim.
 func WithRemoteResolver(resolve func(profileName string) string) LoaderOption {
 	return func(l *Loader) {
 		l.remoteResolver = resolve
+	}
+}
+
+// WithRemoteURLResolver sets the function that maps a remote alias to its
+// canonical repo URL. The loader uses it (with WithRemoteResolver) to rewrite a
+// legacy profile's bare/alias bundle refs to canonical URL form on load. Without
+// it, no canonicalization is attempted.
+func WithRemoteURLResolver(resolve func(alias string) string) LoaderOption {
+	return func(l *Loader) {
+		l.remoteURLResolver = resolve
 	}
 }
 
@@ -288,16 +303,27 @@ func (l *Loader) remoteFor(name string) string {
 	return l.remoteResolver(name)
 }
 
-func (l *Loader) loadFile(path, remote string) (*Profile, error) {
+func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	data, err := afero.ReadFile(l.fs, path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Upgrade older on-disk schema (e.g. bare bundle refs) to the current form in
-	// memory before unmarshaling. Applied upgrades are recorded as pending so an
-	// interactive caller may persist the rewrite with consent (see upgrade.go).
-	if upgraded, applied := profileUpgrades(remote).Run(data); len(applied) > 0 {
+	// Resolution context for canonicalizing legacy bundle refs (see upgrade.go):
+	// ownURL is the profile's own remote repo URL (for bare sibling refs), and
+	// l.remoteURLResolver maps any alias to its repo URL (for "<alias>/<bundle>"
+	// refs). Both are nil/empty for a local project profile, which then loads
+	// verbatim.
+	var ownURL string
+	if l.remoteURLResolver != nil && remoteAlias != "" {
+		ownURL = l.remoteURLResolver(remoteAlias)
+	}
+
+	// Upgrade older on-disk schema (e.g. bare/alias bundle refs) to the current
+	// canonical form in memory before unmarshaling. Applied upgrades are recorded
+	// as pending so an interactive caller may persist the rewrite with consent
+	// (see upgrade.go).
+	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver).Run(data); len(applied) > 0 {
 		data = upgraded
 		l.pending = append(l.pending, &upgrade.Pending{Path: path, Data: upgraded, Applied: applied})
 	}

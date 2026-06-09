@@ -267,6 +267,9 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	if resolve := c.ProfileRemoteResolver(); resolve != nil {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}
+	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
+		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
+	}
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
 	// copy on disk (the profile-side mirror of SeededBundleLoader).
@@ -346,6 +349,32 @@ func (c *Config) ProfileRemoteResolver() func(string) string {
 	return func(name string) string {
 		short, _ := registry.ResolveItemRemote(name)
 		return short
+	}
+}
+
+// ProfileRemoteURLResolver returns a function mapping a remote alias to its
+// canonical repo URL, backed by the remotes registry. Paired with
+// ProfileRemoteResolver, it lets the profile loader rewrite a legacy profile's
+// bare/alias bundle refs to their canonical URL form on load. Nil when no
+// registry is available (the loader then reads bundle refs verbatim).
+func (c *Config) ProfileRemoteURLResolver() func(string) string {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	var ropts []remote.RegistryOption
+	if c.fs != nil {
+		ropts = append(ropts, remote.WithRegistryFS(c.fs))
+	}
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	if err != nil {
+		return nil
+	}
+	return func(alias string) string {
+		rem, err := registry.Get(alias)
+		if err != nil || rem == nil {
+			return ""
+		}
+		return rem.URL
 	}
 }
 

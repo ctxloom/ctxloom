@@ -28,6 +28,20 @@ func NewBundleReaderForConfig(cfg *config.Config) remote.BundleByteSource {
 	)
 }
 
+// NewProfileReaderForConfig wires a cached ProfileByteSource from cfg using
+// the standard cached fetcher factory and the active lockfile on disk. It is
+// the profile-side mirror of NewBundleReaderForConfig, used by the
+// installed-probe (remote profiles are pure references, never materialized to
+// disk). Returns nil if the lockfile can't be loaded.
+func NewProfileReaderForConfig(cfg *config.Config) ProfileByteSource {
+	baseDir := getBaseDir(cfg)
+	lock, err := remote.NewLockfileManager(baseDir).Load()
+	if err != nil {
+		return nil
+	}
+	return remote.NewProfileReader(newCachedFetcherFactory(cfg), remote.LoadAuth(baseDir), lock)
+}
+
 // NewBundleReaderForLockfile wires a reader against a specific lockfile
 // rather than the active one on disk. Used by show_bundle_verbatim to
 // preview content from the *pending* lockfile during a review. The cache

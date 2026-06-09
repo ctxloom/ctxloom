@@ -37,3 +37,18 @@ Feature: Profiles
     When I run "ctxloom profile delete dev"
     Then the command succeeds
     And the file ".ctxloom/profiles/dev.yaml" does not exist
+
+  Scenario: Manage the default profile set
+    # The default set is a list: defaults can be added, shown, and unset.
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    And a profile "dev" with bundle "demo"
+    When I run "ctxloom profile default dev"
+    Then the command succeeds
+    When I run "ctxloom profile default"
+    Then the command succeeds
+    And the output contains "dev"
+    When I run "ctxloom profile default --unset dev"
+    Then the command succeeds
+    When I run "ctxloom profile default"
+    Then the output contains "No default profile set."

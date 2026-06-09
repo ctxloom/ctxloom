@@ -587,6 +587,25 @@ func TestCreateProfile_WithParents(t *testing.T) {
 	assert.Equal(t, "created", result.Status)
 }
 
+// TestCreateProfile_RemoteParentSkipsLocalValidation pins the reference-only
+// bootstrap order: a remote parent can only exist locally AFTER `remote pull`,
+// and pull only fetches what a profile references — so create must accept a
+// scheme-qualified remote ref without resolving it locally. Remote refs are
+// validated at pull/lock time instead.
+func TestCreateProfile_RemoteParentSkipsLocalValidation(t *testing.T) {
+	_, loader := setupProfileTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
+		Name:    "remote-child",
+		Parents: []string{"https://github.com/test/forge@profiles/base"},
+		Loader:  loader,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "created", result.Status)
+}
+
 func TestCreateProfile_ParentNotFound(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

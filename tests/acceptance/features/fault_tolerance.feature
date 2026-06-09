@@ -30,8 +30,8 @@ Feature: Fault tolerance
     When I run "ctxloom fragment show not-a-real-reference"
     Then the command fails
 
-  Scenario: An unreachable remote does not crash sync
+  Scenario: An unreachable remote does not crash pull
     Given an initialized ctxloom project
     And I run "ctxloom remote add broken file:///nonexistent/ctxloom-repo.git --forge git"
-    When I run "ctxloom remote sync"
+    When I run "ctxloom remote pull"
     Then the command succeeds

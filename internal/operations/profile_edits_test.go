@@ -153,4 +153,12 @@ func TestRequireProfilesExist(t *testing.T) {
 			t.Fatal("expected an error for unknown parent")
 		}
 	})
+
+	t.Run("remote refs skip local validation", func(t *testing.T) {
+		// Remote parents only exist locally after `remote pull`, and pull only
+		// fetches what a profile references; they are validated at pull/lock time.
+		if err := requireProfilesExist(loader, []string{"https://github.com/test/forge@profiles/base"}); err != nil {
+			t.Fatalf("err = %v, want nil for a remote ref", err)
+		}
+	})
 }

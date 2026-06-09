@@ -293,9 +293,10 @@ remotes:
 
 // TestSyncDependencies_SkipsExisting verifies incremental sync behavior.
 //
-// By default, sync does NOT re-download bundles that already exist locally.
-// This makes repeated syncs fast - only missing items are fetched.
-// Use Force=true to override this for full re-sync.
+// By default, sync does NOT re-pull items that are already installed. In the
+// reference-only model nothing lives on disk, so "installed" means the active
+// lockfile holds the canonical ref AND its content is retrievable from the
+// clone cache — the same probe CheckMissingDependencies uses.
 func TestSyncDependencies_SkipsExisting(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -308,12 +309,7 @@ func TestSyncDependencies_SkipsExisting(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 	}
 
-	// Create necessary directories and existing bundle
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom", 0755)
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom/go-tools.yaml", []byte("version: 1"), 0644)
-
-	// Create registry
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -324,12 +320,14 @@ remotes:
 	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
-		FS:       fs,
-		Registry: registry,
-		Puller:   puller,
-		Force:    false,
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        false,
 	})
 	if err != nil {
 		t.Fatalf("SyncDependencies failed: %v", err)
@@ -343,6 +341,51 @@ remotes:
 	// Should not have called pull
 	if len(puller.pullCalls) != 0 {
 		t.Errorf("expected 0 pull calls, got %d", len(puller.pullCalls))
+	}
+}
+
+// TestSyncDependencies_SkipCanonicalizesRef pins ref canonicalization in the
+// installed-probe: profile refs carry version constraints and fragment
+// selectors, but lockfile keys are canonical (version- and selector-less). A
+// constrained ref to an installed bundle must be recognized as installed, not
+// re-pulled on every sync.
+func TestSyncDependencies_SkipCanonicalizesRef(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{"https://github.com/test/ctxloom@bundles/go-tools@^1.0"},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
+remotes:
+  github:
+    url: https://github.com/test/ctxloom
+    version: v1
+`), 0644)
+
+	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
+
+	puller := &syncMockPuller{}
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
+
+	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+	})
+	if err != nil {
+		t.Fatalf("SyncDependencies failed: %v", err)
+	}
+
+	if len(result.Skipped) != 1 {
+		t.Errorf("expected 1 skipped item, got %d (pull calls: %d)", len(result.Skipped), len(puller.pullCalls))
 	}
 }
 
@@ -361,12 +404,7 @@ func TestSyncDependencies_ForceRedownload(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 	}
 
-	// Create necessary directories and existing bundle
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-	_ = fs.MkdirAll(paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom", 0755)
-	_ = afero.WriteFile(fs, paths.BundlesPath(testBaseDir)+"/github.com/test/ctxloom/go-tools.yaml", []byte("version: 1"), 0644)
-
-	// Create registry
 	_ = afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(`
 remotes:
   github:
@@ -377,12 +415,15 @@ remotes:
 	registry, _ := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 
 	puller := &syncMockPuller{}
+	// The bundle reads as installed; Force must re-pull it anyway.
+	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/ctxloom@bundles/go-tools": true}}
 
 	result, err := SyncDependencies(context.Background(), cfg, SyncDependenciesRequest{
-		FS:       fs,
-		Registry: registry,
-		Puller:   puller,
-		Force:    true, // Force re-download
+		FS:           fs,
+		Registry:     registry,
+		Puller:       puller,
+		BundleReader: reader,
+		Force:        true, // Force re-download
 	})
 	if err != nil {
 		t.Fatalf("SyncDependencies failed: %v", err)
@@ -550,7 +591,6 @@ func TestCheckMissingDependencies(t *testing.T) {
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/security": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
-		FS:           fs,
 		BundleReader: reader,
 	})
 	if err != nil {
@@ -587,7 +627,6 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	reader := fakeBundleSource{readable: map[string]bool{"https://github.com/test/forge@bundles/go-tools": true}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
-		FS:           fs,
 		BundleReader: reader,
 	})
 	if err != nil {
@@ -600,6 +639,105 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 
 	if result.Count != 0 {
 		t.Errorf("expected 0 missing, got %d", result.Count)
+	}
+}
+
+// fakeProfileSource is the profile-side mirror of fakeBundleSource: a remote
+// profile is installed only when its content reads back from the clone cache
+// at the locked address.
+type fakeProfileSource struct {
+	readable map[string]bool
+}
+
+func (f fakeProfileSource) ReadProfileBytes(_ context.Context, name string) ([]byte, error) {
+	if f.readable[name] {
+		return []byte("description: test"), nil
+	}
+	return nil, fmt.Errorf("%w: %s", remote.ErrProfileNotInLockfile, name)
+}
+
+// TestCheckMissingDependencies_RemoteProfileProbedViaLockfile pins the
+// reference-only rule for profiles: remote profiles are never materialized to
+// disk, so installed-ness must be probed through the lockfile-backed profile
+// reader — a disk check would report every remote profile missing forever and
+// force a re-sync on every startup.
+func TestCheckMissingDependencies_RemoteProfileProbedViaLockfile(t *testing.T) {
+	cfgFor := func(parent string) *config.Config {
+		return &config.Config{
+			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+				"test": {Parents: []string{parent}},
+			}},
+			AppPaths: []string{testBaseDir},
+		}
+	}
+
+	t.Run("retrievable remote profile is installed", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+		result, err := CheckMissingDependencies(context.Background(), cfgFor("https://github.com/test/forge@profiles/dev"), CheckMissingDependenciesRequest{
+			BundleReader:  fakeBundleSource{},
+			ProfileReader: fakeProfileSource{readable: map[string]bool{"https://github.com/test/forge@profiles/dev": true}},
+		})
+		if err != nil {
+			t.Fatalf("CheckMissingDependencies failed: %v", err)
+		}
+		if result.Count != 0 {
+			t.Errorf("expected 0 missing, got %d: %v", result.Count, result.Missing)
+		}
+	})
+
+	t.Run("unretrievable remote profile is missing", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+		result, err := CheckMissingDependencies(context.Background(), cfgFor("https://github.com/test/forge@profiles/dev"), CheckMissingDependenciesRequest{
+			BundleReader:  fakeBundleSource{},
+			ProfileReader: fakeProfileSource{},
+		})
+		if err != nil {
+			t.Fatalf("CheckMissingDependencies failed: %v", err)
+		}
+		if result.Count != 1 {
+			t.Errorf("expected 1 missing, got %d", result.Count)
+		}
+	})
+}
+
+// TestCheckMissingDependencies_CanonicalizesRefs pins ref canonicalization in
+// the installed-probe: lockfile keys are canonical refs (no version constraint,
+// no fragment selector), so refs carrying either must still match their entry.
+func TestCheckMissingDependencies_CanonicalizesRefs(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{
+					"https://github.com/test/forge@bundles/go-tools@^1.0",
+					"https://github.com/test/forge@bundles/security#fragments/conduct",
+				},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	reader := fakeBundleSource{readable: map[string]bool{
+		"https://github.com/test/forge@bundles/go-tools": true,
+		"https://github.com/test/forge@bundles/security": true,
+	}}
+
+	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
+		BundleReader: reader,
+	})
+	if err != nil {
+		t.Fatalf("CheckMissingDependencies failed: %v", err)
+	}
+
+	if result.Count != 0 {
+		t.Errorf("expected 0 missing, got %d: %v", result.Count, result.Missing)
 	}
 }
 
@@ -627,7 +765,6 @@ func TestCheckMissingDependencies_DanglingLockEntry(t *testing.T) {
 	reader := fakeBundleSource{readable: map[string]bool{}}
 
 	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
-		FS:           fs,
 		BundleReader: reader,
 	})
 	if err != nil {

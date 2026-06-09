@@ -257,14 +257,17 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 }
 
 func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
-	// A file already gone is not an error: no warning, but the lockfile entry
-	// is still pruned. cleaned stays 0, so Save is skipped.
+	// A file already gone is the NORMAL case in the reference-only model
+	// (nothing is materialized to disk): no warning, the lockfile entry is
+	// pruned, and the pruned lockfile is persisted — the save is gated on
+	// entries pruned, never on files deleted.
 	prev := updateCleanup
 	updateCleanup = true
 	t.Cleanup(func() { updateCleanup = prev })
 
 	fs := afero.NewMemMapFs() // empty: the target file does not exist
 	const goneRef = "https://github.com/acme/repo@bundles/gone"
+	lockManager := remote.NewLockfileManager(".ctxloom", remote.WithLockfileFS(fs))
 	lockfile := &remote.Lockfile{
 		Bundles:  map[string]remote.LockEntry{},
 		Profiles: map[string]remote.LockEntry{},
@@ -272,13 +275,24 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, nil)
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager)
 
-	if got := out.String(); strings.Contains(got, "Warning: failed to remove") {
+	got := out.String()
+	if strings.Contains(got, "Warning: failed to remove") {
 		t.Errorf("missing file should not warn:\n%s", got)
 	}
 	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, goneRef); ok {
 		t.Error("expected lockfile entry to be pruned even when file was absent")
+	}
+	if !strings.Contains(got, "Updated lockfile (removed 1 entries)") {
+		t.Errorf("expected the pruned lockfile to be persisted:\n%s", got)
+	}
+	reloaded, err := lockManager.Load()
+	if err != nil {
+		t.Fatalf("reload lockfile: %v", err)
+	}
+	if _, ok := reloaded.GetEntry(remote.ItemTypeBundle, goneRef); ok {
+		t.Error("persisted lockfile should not contain the pruned entry")
 	}
 }
 

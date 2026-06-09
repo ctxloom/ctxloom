@@ -2,7 +2,9 @@
 Feature: Remote content
   Fetching content from a remote over the real clone path, exercised hermetically
   against a seeded file:// repository. (Enabled by the NormalizeURL fix that
-  preserves non-HTTP schemes.)
+  preserves non-HTTP schemes.) Remote items are pure references: a local profile
+  names them (bare refs expand against the default remote), and `remote pull`
+  fetches and locks the dependency closure.
 
   Scenario: Browse a remote's contents
     Given an initialized ctxloom project
@@ -12,42 +14,40 @@ Feature: Remote content
     And the output contains "@bundles/demo"
     And the output contains "@profiles/base"
 
-  Scenario: Install a profile from a remote
-    # Remote profiles are pure references — not materialized to disk. Installing
-    # locks the canonical ref and wires it into a local profile so it's active.
+  Scenario: Reference a remote profile and pull it
+    # Remote profiles are pure references — not materialized to disk. A local
+    # profile names the remote profile as a parent (the bare ref expands against
+    # the default remote); pull locks the canonical ref. Locking walks the refs,
+    # so the bundle the remote profile names is locked too.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    When I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    When I run "ctxloom remote pull"
     Then the command succeeds
     And the file ".ctxloom/lock.yaml" contains "@profiles/base"
-    And the file ".ctxloom/profiles/default.yaml" exists
+    And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
 
-  Scenario: Install a bundle's fragment from a remote
+  Scenario: Reference a remote bundle and pull it
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    When I run "ctxloom fragment install origin/demo --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --bundle demo"
+    When I run "ctxloom remote pull"
     Then the command succeeds
+    And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
 
-  Scenario: Install a bundle's prompt from a remote
+  Scenario: A second pull skips already-locked dependencies
+    # Pull is incremental: an item whose lock entry resolves from the clone
+    # cache is not re-fetched.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    When I run "ctxloom prompt install origin/demo --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom remote pull"
+    When I run "ctxloom remote pull"
     Then the command succeeds
-
-  Scenario: Sync locks installed remote dependencies
-    Given an initialized ctxloom project
-    And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
-    When I run "ctxloom remote sync"
-    Then the command succeeds
-    And the file ".ctxloom/lock.yaml" contains "@profiles/base"
-
-  Scenario: Generate a lockfile
-    Given an initialized ctxloom project
-    And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
-    When I run "ctxloom remote lock"
-    Then the command succeeds
+    And the output contains "Skipped (already installed)"
 
   Scenario: Read a remote's contents over MCP
     Given an initialized ctxloom project
@@ -56,11 +56,13 @@ Feature: Remote content
     Then the resource contains "demo"
 
   Scenario: An upgrade is staged for review and approved
-    # References are hash-pinned; passive sync never stages. `remote upgrade`
+    # References are hash-pinned; passive pull never stages. `remote upgrade`
     # re-pins to HEAD and stages the change for review.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom remote pull"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
     Then the command succeeds
@@ -77,7 +79,9 @@ Feature: Remote content
   Scenario: A staged upgrade can be declined
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom remote pull"
     And the remote "origin" advances its bundle
     And I run "ctxloom remote upgrade"
     When I run "ctxloom bundle decline"
@@ -88,7 +92,9 @@ Feature: Remote content
   Scenario: A pinned dependency is not upgraded
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom remote pull"
     And I run "ctxloom bundle pin origin/base"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
@@ -102,7 +108,9 @@ Feature: Remote content
     # relocks immediately instead of staging for review.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom profile install origin/base --force"
+    And I run "ctxloom remote default origin"
+    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom remote pull"
     And I run "ctxloom remote trust origin"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"

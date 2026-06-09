@@ -367,14 +367,6 @@ const (
 	TagOperatorOR  TagOperator = "OR"
 )
 
-// RemoteConfig holds remote-related configuration.
-type RemoteConfig struct {
-	Remotes map[string]Remote `yaml:"remotes,omitempty" json:"remotes,omitempty"`
-	Auth    AuthConfig        `yaml:"auth,omitempty" json:"auth,omitempty"`
-	Replace map[string]string `yaml:"replace,omitempty" json:"replace,omitempty"` // Local overrides
-	Vendor  bool              `yaml:"vendor,omitempty" json:"vendor,omitempty"`   // Use vendored deps
-}
-
 // AuthConfig holds authentication tokens for forges.
 type AuthConfig struct {
 	GitHub string `yaml:"github,omitempty" json:"github,omitempty"`

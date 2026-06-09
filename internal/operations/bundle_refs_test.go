@@ -154,3 +154,67 @@ func TestAnalyzeBundleReferences_EmptyBundleStringSkipped(t *testing.T) {
 	got := analyze(fs, refLockfile(map[string]remote.LockEntry{canonRef("foo"): {SHA: "abc"}}))
 	assert.Empty(t, got.Invalid, "empty bundle ref must be skipped, not flagged invalid")
 }
+
+// TestRemoveLocalItems_PrunesLockfileEntries pins the reference-only cleanup
+// contract: remote items are never materialized to disk, so cleanup's real job
+// is pruning lockfile entries — and the pruned lockfile must be persisted even
+// though no file was deleted. (Gating the save on deleted files made
+// `remote update --cleanup` a silent no-op.)
+func TestRemoveLocalItems_PrunesLockfileEntries(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	lock := refLockfile(map[string]remote.LockEntry{
+		canonRef("dropped"): {SHA: "abc"},
+		canonRef("kept"):    {SHA: "def"},
+	})
+	manager := remote.NewLockfileManager(refsTestAppDir, remote.WithLockfileFS(fs))
+
+	res, err := RemoveLocalItems(RemoveLocalItemsRequest{
+		AppDir:      refsTestAppDir,
+		Items:       []RemovedItem{{Type: remote.ItemTypeBundle, Ref: canonRef("dropped")}},
+		Lockfile:    lock,
+		LockManager: manager,
+		FS:          fs,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{canonRef("dropped")}, res.Pruned)
+	assert.True(t, res.Saved, "pruned lockfile must be persisted even when no files were deleted")
+	assert.Empty(t, res.Warnings)
+
+	saved, err := manager.Load()
+	require.NoError(t, err)
+	_, dropped := saved.Bundles[canonRef("dropped")]
+	assert.False(t, dropped, "pruned entry must be gone from the saved lockfile")
+	_, kept := saved.Bundles[canonRef("kept")]
+	assert.True(t, kept)
+}
+
+// TestRemoveLocalItems_RemovesLegacyMaterializedFile covers the transitional
+// case: installs from the pre-reference-only model left real files on disk;
+// cleanup still deletes those and reports them.
+func TestRemoveLocalItems_RemovesLegacyMaterializedFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	lock := refLockfile(map[string]remote.LockEntry{canonRef("dropped"): {SHA: "abc"}})
+	manager := remote.NewLockfileManager(refsTestAppDir, remote.WithLockfileFS(fs))
+
+	legacyPath := localBundlePath(refsTestAppDir, canonRef("dropped"))
+	require.NotEmpty(t, legacyPath)
+	require.NoError(t, fs.MkdirAll(filepath.Dir(legacyPath), 0755))
+	require.NoError(t, afero.WriteFile(fs, legacyPath, []byte("description: legacy"), 0644))
+
+	res, err := RemoveLocalItems(RemoveLocalItemsRequest{
+		AppDir:      refsTestAppDir,
+		Items:       []RemovedItem{{Type: remote.ItemTypeBundle, Ref: canonRef("dropped")}},
+		Lockfile:    lock,
+		LockManager: manager,
+		FS:          fs,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{legacyPath}, res.Removed)
+	assert.Equal(t, []string{canonRef("dropped")}, res.Pruned)
+	assert.True(t, res.Saved)
+
+	exists, _ := afero.Exists(fs, legacyPath)
+	assert.False(t, exists)
+}

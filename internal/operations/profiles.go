@@ -299,11 +299,9 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		return nil, fmt.Errorf("profile %q already exists", req.Name)
 	}
 
-	// Validate parents exist
-	for _, parent := range req.Parents {
-		if !loader.Exists(parent) {
-			return nil, fmt.Errorf("parent profile %q not found", parent)
-		}
+	// Validate that local parents exist.
+	if err := requireProfilesExist(loader, req.Parents); err != nil {
+		return nil, err
 	}
 
 	profile := &profiles.Profile{
@@ -490,11 +488,17 @@ func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
 	return nil
 }
 
-// requireProfilesExist returns an error for the first name the loader cannot
-// resolve, so parent additions are validated before UpdateProfile mutates or
-// saves anything.
+// requireProfilesExist returns an error for the first LOCAL name the loader
+// cannot resolve, so parent additions are validated before create/update
+// mutates or saves anything. Remote refs are skipped: in the reference-only
+// model a remote parent only exists locally after `remote pull`, and pull only
+// fetches what a profile references — validating remote refs here would
+// deadlock the bootstrap order. They are validated at pull/lock time.
 func requireProfilesExist(loader *profiles.Loader, names []string) error {
 	for _, name := range names {
+		if isRemoteReference(name) {
+			continue
+		}
 		if !loader.Exists(name) {
 			return fmt.Errorf("parent profile %q not found", name)
 		}

@@ -1,8 +1,8 @@
 Feature: Remote registry
-  remote manages the registry of remote sources and replace directives. These are
-  local registry operations (no fetch): adding, defaulting, trusting, replacing,
-  and removing. Content operations (sync/install/browse) that require fetchable
-  remote content are exercised at the operations layer in tests/integration.
+  remote manages the registry of remote sources. These are local registry
+  operations (no fetch): adding, defaulting, trusting, and removing. Content
+  operations that require fetchable remote content are exercised at the
+  operations layer in tests/integration.
 
   Scenario: Add a remote and list it
     Given an initialized ctxloom project
@@ -27,16 +27,6 @@ Feature: Remote registry
     Then the command succeeds
     And the file ".ctxloom/remotes.yaml" contains "trust_bundles: true"
     When I run "ctxloom remote untrust origin"
-    Then the command succeeds
-
-  Scenario: Manage replace directives
-    Given an initialized ctxloom project
-    When I run "ctxloom remote replace add demo-dep .ctxloom"
-    Then the command succeeds
-    When I run "ctxloom remote replace list"
-    Then the command succeeds
-    And the output contains "demo-dep"
-    When I run "ctxloom remote replace remove demo-dep"
     Then the command succeeds
 
   Scenario: Remove a remote

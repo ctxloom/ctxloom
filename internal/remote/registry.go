@@ -69,8 +69,6 @@ type configFile struct {
 	Forges  map[string]ForgeConfig `yaml:"forges,omitempty"`
 	Default string                 `yaml:"default,omitempty"`
 	Auth    AuthConfig             `yaml:"auth,omitempty"`
-	Replace map[string]string      `yaml:"replace,omitempty"`
-	Vendor  bool                   `yaml:"vendor,omitempty"`
 }
 
 // load reads remotes from the config file.

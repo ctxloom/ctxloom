@@ -466,7 +466,7 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 		fmt.Fprintf(out, "  Warning: %s\n", w)
 	}
 	if res.Saved {
-		fmt.Fprintf(out, "  Updated lockfile (removed %d entries)\n", len(res.Removed))
+		fmt.Fprintf(out, "  Updated lockfile (removed %d entries)\n", len(res.Pruned))
 	}
 }
 

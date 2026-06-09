@@ -140,30 +140,33 @@ type RemoveLocalItemsRequest struct {
 
 // RemoveLocalItemsResult reports the cleanup outcome.
 type RemoveLocalItemsResult struct {
-	Removed  []string // local paths actually deleted
+	Removed  []string // local paths actually deleted (legacy materialized copies)
+	Pruned   []string // lockfile entries pruned (canonical refs)
 	Warnings []string
 	Saved    bool // whether the lockfile was rewritten
 }
 
-// RemoveLocalItems deletes the local files for items the remote dropped, prunes
-// their lockfile entries, and persists the lockfile. Missing files are not
-// errors; other removal failures are warnings. The frontend reports; the
-// deletion + lockfile save live here.
+// RemoveLocalItems prunes the lockfile entries for items the remote dropped
+// and persists the pruned lockfile. Remote items are pure references — nothing
+// is materialized to disk — so the lockfile prune is the real cleanup; the
+// save is gated on entries pruned, never on files deleted. File removal is
+// best-effort cleanup of copies materialized by the pre-reference-only model:
+// a missing file is the normal case, other removal failures are warnings.
 func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, error) {
 	fs := getFS(req.FS)
 	res := &RemoveLocalItemsResult{}
 	for _, item := range req.Items {
-		localPath := localItemPath(req.AppDir, item.Type, item.Ref)
-		if err := fs.Remove(localPath); err != nil {
-			if !os.IsNotExist(err) {
+		if localPath := localItemPath(req.AppDir, item.Type, item.Ref); localPath != "" {
+			if err := fs.Remove(localPath); err == nil {
+				res.Removed = append(res.Removed, localPath)
+			} else if !os.IsNotExist(err) {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("failed to remove %s: %v", localPath, err))
 			}
-		} else {
-			res.Removed = append(res.Removed, localPath)
 		}
 		req.Lockfile.RemoveEntry(item.Type, item.Ref)
+		res.Pruned = append(res.Pruned, item.Ref)
 	}
-	if len(res.Removed) > 0 {
+	if len(res.Pruned) > 0 {
 		if err := req.LockManager.Save(req.Lockfile); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("failed to update lockfile: %v", err))
 		} else {

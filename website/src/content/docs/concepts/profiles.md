@@ -94,7 +94,15 @@ ctxloom profile show developer          # Show profile details
 ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
 ctxloom profile delete old-profile      # Remove profile
-ctxloom profile install ctxloom-default/dev    # Install from remote
+ctxloom profile default developer       # Set/show the default profile(s)
+```
+
+To consume a remote profile, author a local profile that inherits from it, then
+pull:
+
+```bash
+ctxloom profile create my-dev --parent ctxloom-default/dev
+ctxloom remote pull
 ```
 
 ### Create with Options
@@ -107,6 +115,11 @@ ctxloom profile create backend \
   -b testing \
   -d "Backend developer profile"
 ```
+
+Refs passed to `--parent`/`-b` may be bare convenience refs (e.g.
+`--parent developer` or `-b code-review-base#fragments/conduct`), which expand
+against the configured default remote into canonical URLs. Full URLs and
+`ctxloom:local@...` refs pass through unchanged.
 
 ## Profile Inheritance
 
@@ -144,7 +157,7 @@ variables:
 
 ## Excluding Content
 
-Profiles can exclude fragments, prompts, or MCP servers inherited from parents:
+Profiles can exclude fragments or MCP servers inherited from parents:
 
 ```yaml
 # developer.yaml
@@ -154,11 +167,17 @@ parents:
 exclude_fragments:
   - verbose-logging         # But skip these fragments
   - deprecated-style
-exclude_prompts:
-  - review-nitpick          # Skip this prompt
 exclude_mcp:
   - slow-server             # Don't include this MCP server
 ```
+
+Prompts are deliberately not excludable. Exclusion exists for content that is
+*pushed* on the session — fragments are ingested into the context window and
+MCP servers run and consume resources, so an unwanted one has a real cost. A
+prompt is only a slash command: it does nothing until you invoke it, so an
+unwanted prompt just sits unused in the menu. Bundle authors can still scope
+where a prompt surfaces per backend with the prompt's `llm.<backend>.enabled`
+flag.
 
 ### Managing Exclusions
 
@@ -235,15 +254,21 @@ defaults:
     - ctxloom-default/base
 ```
 
-This is the only way to mark a profile as default. ctxloom auto-promotes a
-profile here when:
+The default is a **list**, and each entry may be a local profile name or a
+remote ref. ctxloom auto-promotes a profile here when:
 
 - you create the first profile (via `create_profile` or interactive setup), or
-- you `pull_remote` a profile and no default is configured yet, or
+- you reference a remote profile and no default is configured yet, or
 - exactly one profile is installed locally (single-profile fallback at run time).
 
-If you want a different default later, edit `defaults.profiles` directly or
-call `update_profile <name> --default true`.
+If you want a different default later, edit `defaults.profiles` directly or use
+the `profile default` command:
+
+```bash
+ctxloom profile default developer         # set the default profile
+ctxloom profile default                   # show the current default(s)
+ctxloom profile default --unset developer # clear an entry
+```
 
 ## Variables
 

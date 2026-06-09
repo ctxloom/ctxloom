@@ -124,6 +124,12 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 
 func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	t.Helper()
+	// Isolate HOME so the assembly path's EnsureDefaultProfiles ->
+	// homeDefaultProfiles can't read the developer's real ~/.ctxloom/config.yaml.
+	// Otherwise a host config with `profiles.defaults` leaks into these tests (e.g.
+	// TestAssembleContext_EmptyRequest, which expects no default profiles) and they
+	// fail or pass based on the machine they run on, not the code.
+	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 
 	// Create bundles directory

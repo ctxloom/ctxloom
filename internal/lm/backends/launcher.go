@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 
 	"github.com/ctxloom/ctxloom/internal/ptyrunner"
@@ -29,19 +28,16 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 		return int32(result.ExitCode), nil
 	}
 
-	// Non-interactive: no stdin (don't wait for input); tee child output to the
-	// process's own stdout/stderr and the caller's writers.
+	// Non-interactive: no stdin (don't wait for input). Output goes ONLY to
+	// the caller's writers (the gRPC stream) — this code runs inside the
+	// go-plugin subprocess, whose own stdout is discarded by the host and
+	// whose stderr is re-surfaced through the plugin logger, so teeing to
+	// os.Stdout/os.Stderr was dead weight that could double-print child
+	// stderr under -v. The interactive branch likewise never touches the
+	// process's own stdio (the frontend renders).
 	cmd.Stdin = nil
-	if stdout != nil {
-		cmd.Stdout = io.MultiWriter(os.Stdout, stdout)
-	} else {
-		cmd.Stdout = os.Stdout
-	}
-	if stderr != nil {
-		cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
-	} else {
-		cmd.Stderr = os.Stderr
-	}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

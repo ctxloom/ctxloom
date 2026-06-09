@@ -129,9 +129,21 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 					return
 				}
 			case *RunInput_Resize:
+				// Latest-wins coalescing: when a stale size is still pending,
+				// replace it — a plain "drop the new one" select keeps the
+				// OLD size, leaving the pty out of date after a resize burst.
+				ws := agent.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}
 				select {
-				case resizeCh <- agent.WindowSize{Rows: uint16(v.Resize.GetRows()), Cols: uint16(v.Resize.GetCols())}:
-				default: // drop a resize if the pty consumer is mid-apply
+				case resizeCh <- ws:
+				default:
+					// Full with a stale size: drain it (the consumer may beat
+					// us to it) and send the newer one. This goroutine is the
+					// sole producer, so the retry send cannot block.
+					select {
+					case <-resizeCh:
+					default:
+					}
+					resizeCh <- ws
 				}
 			}
 		}
@@ -158,9 +170,12 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		return err
 	}
 
-	// Cleanup
+	// Cleanup. A teardown hiccup after a successful run must not eat the
+	// agent's exit code — failing the stream here reports a completed session
+	// as "AI plugin failed" (partial success is success, CLAUDE.md). Warn and
+	// still send, matching how Setup degrades above.
 	if err := s.Impl.Cleanup(stream.Context()); err != nil {
-		return err
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: backend cleanup failed: %v\n", err)
 	}
 
 	// Send the exit code and model info as the final message

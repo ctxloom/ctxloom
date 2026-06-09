@@ -22,9 +22,19 @@ func watchResize(ctx context.Context, f *os.File) <-chan *pb.WindowSize {
 
 	emit := func() {
 		if w, h, err := term.GetSize(int(f.Fd())); err == nil {
+			ws := &pb.WindowSize{Rows: uint32(h), Cols: uint32(w)}
+			// Latest-wins coalescing: a pending size is STALE, not "as good as
+			// the latest" — after a resize burst the pty would settle on an
+			// out-of-date size until the next SIGWINCH. Sole producer, so the
+			// retry send cannot block.
 			select {
-			case ch <- &pb.WindowSize{Rows: uint32(h), Cols: uint32(w)}:
-			default: // coalesce: a pending size is as good as the latest
+			case ch <- ws:
+			default:
+				select {
+				case <-ch:
+				default:
+				}
+				ch <- ws
 			}
 		}
 	}

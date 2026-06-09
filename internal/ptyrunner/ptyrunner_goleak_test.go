@@ -52,7 +52,7 @@ func TestRunInteractive_StdinGoroutineDoesNotLeak(t *testing.T) {
 	result, err := RunInteractive(context.Background(), cmd, nil, &out, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
-	assert.Contains(t, result.Output, "hello from pty")
+	assert.Contains(t, out.String(), "hello from pty")
 
 	// Deliver the next input event: EOF on stdin. This is what must unpark the
 	// goroutine still blocked in os.Stdin.Read.
@@ -74,6 +74,6 @@ func TestRunInteractive_BenignPTYCloseSwallowed(t *testing.T) {
 	result, err := RunInteractive(context.Background(), cmd, nil, &out, nil, nil)
 	require.NoError(t, err, "benign PTY-close fallout must be swallowed via errors.Is")
 	assert.Equal(t, 0, result.ExitCode)
-	assert.Contains(t, result.Output, "line one")
-	assert.Contains(t, result.Output, "line two")
+	assert.Contains(t, out.String(), "line one")
+	assert.Contains(t, out.String(), "line two")
 }

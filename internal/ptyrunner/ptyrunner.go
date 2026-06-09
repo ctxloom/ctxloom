@@ -2,7 +2,6 @@
 package ptyrunner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,9 +13,11 @@ import (
 	"github.com/ctxloom/shared/agent"
 )
 
-// Result contains the output and exit code from running a command.
+// Result contains the exit code from running a command. The session's output
+// is NOT captured here: an interactive TUI redraws constantly for hours, so
+// buffering the whole stream would grow without bound — callers that want the
+// output pass a stdout writer and own the retention policy.
 type Result struct {
-	Output   string
 	ExitCode int
 }
 
@@ -98,15 +99,16 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 
 	// Copy PTY output to the caller's stdout writer (the gRPC stream). The
 	// controller does not echo to its own os.Stdout — the frontend renders.
-	var stdoutBuf bytes.Buffer
+	// With no writer the pty is still drained, or the child would block on a
+	// full pty buffer.
+	dst := io.Discard
+	if stdout != nil {
+		dst = stdout
+	}
 	copyDone := make(chan struct{})
 	go func() {
 		defer close(copyDone)
-		if stdout != nil {
-			_, _ = io.Copy(io.MultiWriter(stdout, &stdoutBuf), ptty)
-		} else {
-			_, _ = io.Copy(&stdoutBuf, ptty)
-		}
+		_, _ = io.Copy(dst, ptty)
 	}()
 
 	// Wait for command to finish first
@@ -119,10 +121,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 	// Wait for copy to finish
 	<-copyDone
 
-	result := &Result{
-		Output:   stdoutBuf.String(),
-		ExitCode: 0,
-	}
+	result := &Result{ExitCode: 0}
 
 	if err != nil {
 		var exitErr *exec.ExitError

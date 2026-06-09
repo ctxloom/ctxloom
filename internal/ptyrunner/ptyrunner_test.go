@@ -57,7 +57,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 	// Output may include terminal control characters, so just check content
-	assert.Contains(t, result.Output, "hello world")
+	assert.Contains(t, stdout.String(), "hello world")
 }
 
 // TestRunInteractive_ExitCode verifies exit codes are properly captured.
@@ -240,11 +240,8 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 
-	// Both result.Output and the writer should contain the output
-	assert.Contains(t, result.Output, "line1")
-	assert.Contains(t, result.Output, "line2")
-	assert.Contains(t, result.Output, "line3")
-
+	// Output is delivered ONLY through the caller's writer; the runner keeps
+	// no in-memory copy of the session stream.
 	assert.Contains(t, stdout.String(), "line1")
 	assert.Contains(t, stdout.String(), "line2")
 	assert.Contains(t, stdout.String(), "line3")

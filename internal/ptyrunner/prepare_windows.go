@@ -51,6 +51,3 @@ func adjustPtyCommand(c *pty.Cmd, original *exec.Cmd) {
 	}
 	c.SysProcAttr.CmdLine = `/c "` + innerCmdLine + `"`
 }
-
-// resetTerminal is a no-op on Windows — ConPTY manages terminal state.
-func resetTerminal() {}

@@ -28,9 +28,7 @@ It's a workaround for when native LLM compaction is insufficient.
 Commands:
   ctxloom memory list                  List all sessions
   ctxloom memory show <session>        Show session details
-  ctxloom memory compact [--session]   Compact a session log
-
-Build with -tags memory to enable this feature.`,
+  ctxloom memory compact [--session]   Compact a session log`,
 }
 
 var memoryListCmd = &cobra.Command{
@@ -70,6 +68,7 @@ var (
 	compactBackend string
 	listBackend    string
 	showBackend    string
+	showFull       bool
 )
 
 func init() {
@@ -78,12 +77,13 @@ func init() {
 	memoryCmd.AddCommand(memoryShowCmd)
 	memoryCmd.AddCommand(memoryCompactCmd)
 
-	memoryListCmd.Flags().StringVar(&listBackend, "backend", "", "Backend to list sessions from (default: claude-code)")
-	memoryShowCmd.Flags().StringVar(&showBackend, "backend", "", "Backend to read session from (default: claude-code)")
+	memoryListCmd.Flags().StringVar(&listBackend, "backend", "", "Backend to list sessions from (default: the configured default LLM)")
+	memoryShowCmd.Flags().StringVar(&showBackend, "backend", "", "Backend to read session from (default: the configured default LLM)")
+	memoryShowCmd.Flags().BoolVar(&showFull, "full", false, "Show the full distilled summary without truncation")
 
 	memoryCompactCmd.Flags().StringVar(&compactSession, "session", "", "Session ID to compact (default: most recent)")
 	memoryCompactCmd.Flags().StringVar(&compactModel, "model", "", "LLM model to use for distillation (default: from config or claude-3-haiku)")
-	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: claude-code)")
+	memoryCompactCmd.Flags().StringVar(&compactBackend, "backend", "", "Backend to read session from (default: the configured default LLM)")
 }
 
 func runMemoryList(cmd *cobra.Command, args []string) error {
@@ -208,7 +208,7 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 
 		// Truncate if very long
 		content := distilled.Body
-		if len(content) > 2000 {
+		if !showFull && len(content) > 2000 {
 			content = content[:2000] + "\n\n... [truncated, use --full to see all]"
 		}
 		fmt.Println(content)

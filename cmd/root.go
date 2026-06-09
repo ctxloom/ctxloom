@@ -44,13 +44,13 @@ QUICK START
   ctxloom fragment edit core#fragments/coding     Edit a fragment
 
 CONTENT COMMANDS
-  fragment      Manage fragments (list, show, create, delete, edit, install)
-  prompt        Manage prompts (list, show, create, delete, edit, install)
-  profile       Manage profiles (list, show, create, delete, edit, install)
+  fragment      Manage fragments (list, show, create, delete, edit, search)
+  prompt        Manage prompts (list, show, create, delete, edit)
+  profile       Manage profiles (list, show, create, delete, edit, default)
 
 INFRASTRUCTURE
   manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
-  remote        Manage remotes (add, remove, list, sync, lock, update)
+  remote        Manage remotes (add, remove, list, default, pull, update, upgrade)
   mcp           Run ctxloom as an MCP server
 
 WORKFLOW

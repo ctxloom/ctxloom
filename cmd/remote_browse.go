@@ -88,7 +88,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("Install with: ctxloom install <reference>")
+	fmt.Println("Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 
 	return nil
 }

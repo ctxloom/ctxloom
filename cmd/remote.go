@@ -25,13 +25,13 @@ Registry:
   ctxloom remote untrust <name>          Require review for this remote again
 
 Discovery:
-  ctxloom remote search <query>          Search for bundles/profiles
+  ctxloom search <query>                 Search local and remote content
   ctxloom remote browse <remote>         Browse a remote's contents
   ctxloom remote discover                Find ctxloom repositories
 
 Examples:
   ctxloom remote add alice alice/ctxloom
-  ctxloom remote search "golang testing"
+  ctxloom search "golang testing"
   ctxloom remote browse ctxloom-default`,
 }
 
@@ -249,7 +249,7 @@ the lockfile, and applies hooks.
 Examples:
   ctxloom remote pull                    # Pull all dependencies
   ctxloom remote pull --force            # Re-pull even if already installed
-  ctxloom remote pull --no-lock          # Skip lockfile update`,
+  ctxloom remote pull --lock=false       # Skip lockfile update`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {

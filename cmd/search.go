@@ -261,5 +261,5 @@ func printRemoteResults(results []operations.SearchRemoteEntry) {
 	}
 
 	fmt.Println()
-	fmt.Println("Install with: ctxloom pull <remote>/<name>")
+	fmt.Println("Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 }

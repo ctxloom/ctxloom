@@ -150,7 +150,7 @@ func listItems(itemType ItemType, bundleFilter string) error {
 
 	if len(rows) == 0 {
 		fmt.Printf("No %ss found.\n", itemType)
-		fmt.Printf("Install bundles with: ctxloom %s install <remote>/bundle-name\n", itemType)
+		fmt.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
 		return nil
 	}
 

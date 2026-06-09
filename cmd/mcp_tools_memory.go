@@ -31,19 +31,19 @@ func reductionPct(in, out int) string {
 type compactSessionInput struct {
 	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to compact (defaults to current session)"`
 	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation (defaults to config or claude-3-haiku)"`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to claude-code)"`
+	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
 }
 
 type loadSessionInput struct {
 	SessionID string `json:"session_id,omitempty" jsonschema:"Backend-native session ID (UUID). Either session_id or harp_name is required."`
 	HarpName  string `json:"harp_name,omitempty" jsonschema:"Harp-named session reference (e.g. \"swift-amber-falcon\") from ~/.ctxloom/sessions/index.yaml. Resolved to a session_id via the index; if both are passed, harp_name wins."`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to claude-code)"`
+	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
 	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
 }
 
 type recoverSessionInput struct {
 	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to recover. If not provided, uses most recent session."`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to claude-code)"`
+	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
 	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
 }
 

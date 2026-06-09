@@ -22,16 +22,14 @@ RUNNING AS MCP SERVER:
   ctxloom mcp serve        Alias for running as MCP server
 
   Available tools when running as server:
-    Context:  assemble_context, search_content, search_remotes
-    Sync:     sync_dependencies
-    Bundles:  create_bundle, update_bundle, delete_bundle
-    Review:   acknowledge_bundle_review, decline_bundle, show_bundle_verbatim,
-              trust_remote, approve_remote_pending, pin_bundle, unpin_bundle
+    Context:  assemble_context, search_content, search_library
     Sessions: compact_session, load_session, get_previous_session, recover_session
-    Tasks:    task_add, task_list, task_set_status
+    Tasks:    task_add, task_list, task_set_status, task_edit
 
   Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
-  sessions) are exposed as MCP resources (ctxloom://...), not tools.
+  sessions) are exposed as MCP resources (ctxloom://...), not tools. All
+  management (bundles, remotes, review/approve, trust, pinning) is done with
+  the ctxloom CLI, not MCP tools.
 
 Manage configured MCP servers and ctxloom's own auto-registration under
 'ctxloom manage mcp'.`,

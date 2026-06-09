@@ -53,7 +53,7 @@ var profileListCmd = &cobra.Command{
 
 		if res.Count == 0 {
 			fmt.Println("No profiles defined.")
-			fmt.Println("Use 'ctxloom profile add <name> -f <fragments...>' to create one.")
+			fmt.Println("Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
 			return nil
 		}
 

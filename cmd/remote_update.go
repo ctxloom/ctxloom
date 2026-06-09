@@ -489,7 +489,7 @@ func reportBundleIssues(out io.Writer, analysis *operations.BundleAnalysis) {
 		for _, missing := range analysis.Missing {
 			fmt.Fprintf(out, "  - %s\n", missing)
 		}
-		fmt.Fprintln(out, "\nPull missing bundles with: ctxloom remote bundles pull <name>")
+		fmt.Fprintln(out, "\nPull missing bundles with: ctxloom remote pull")
 	}
 	if len(analysis.Orphans) > 0 {
 		fmt.Fprintf(out, "\n--- Orphaned bundles ---\n")

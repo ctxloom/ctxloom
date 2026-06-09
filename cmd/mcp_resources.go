@@ -135,21 +135,24 @@ func (s *ctxServer) handleResourceHelp(_ context.Context, req *mcp.ReadResourceR
 	body := strings.TrimSpace(`
 # ctxloom resources
 
-ctxloom exposes a small set of MCP resources for data that doesn't
-need to live in the tool surface. Fetch them via the MCP client's
-resources/read with the URI.
+ctxloom exposes read-only listings as MCP resources. Fetch them via the MCP
+client's resources/read with the URI. Retrieval tools (assemble_context,
+search_content, search_library, session and task tools) are the only tools;
+all management is done with the ctxloom CLI.
 
 ## Available URIs
 
 - ` + "`ctxloom://help`" + ` — this file.
+- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://prompts`" + `, ` + "`ctxloom://profiles`" + ` — listings;
+  append ` + "`/{name}`" + ` for a single item's content.
+- ` + "`ctxloom://remotes`" + ` — configured remotes; ` + "`ctxloom://remotes/{name}/contents`" + `
+  lists a remote's bundles and profiles.
+- ` + "`ctxloom://mcp-servers`" + ` — configured MCP servers.
+- ` + "`ctxloom://sessions`" + ` — all recorded sessions for this project.
 - ` + "`ctxloom://sessions/recent`" + ` — harp-named sessions for the current project,
   most recent first. Each row: harp_name, started_at, summary, session_id.
 - ` + "`ctxloom://tasks/summary`" + ` — per-status task counts + in-progress harp IDs
   from .ctxloom/tasks.md. Equivalent to task_list(include_summary=true).summary.
-
-More URIs will appear as the listing-tool → resource migration progresses
-(see the ctxloom-tasks plan, Phase 4.1). Until then, the existing
-list_* / get_* MCP tools remain the primary surface for those queries.
 `)
 	return resourceText(req.Params.URI, "text/markdown", body), nil
 }

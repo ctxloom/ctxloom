@@ -32,6 +32,14 @@ type PullOptions struct {
 	// ItemType specifies what type of item to pull.
 	ItemType ItemType
 
+	// RequestedVersion, when non-nil, overrides the version constraint recorded in
+	// the lockfile entry (RequestedVersion) instead of deriving it from the pulled
+	// ref. `update --apply` uses it to pull a constraint-bounded SHA pin
+	// ("<ref>@<sha>") for the CONTENT while preserving the manifest's original
+	// constraint in the lock — otherwise pinning the pull would freeze "^1.2" into a
+	// concrete SHA. A non-nil pointer to "" preserves a constraint-less entry.
+	RequestedVersion *string
+
 	// Stdout and Stdin for output and input (for testing).
 	Stdout io.Writer
 	Stdin  io.Reader
@@ -436,7 +444,13 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via
 	// the SHA recorded here. A lockfile failure warns but does not fail the pull.
-	if err := p.updateLockfile(item.localName, opts.ItemType, item.rem, item.sha, item.requestedVersion); err != nil {
+	requestedVersion := item.requestedVersion
+	if opts.RequestedVersion != nil {
+		// Caller pins the content SHA but wants the manifest constraint preserved
+		// (see PullOptions.RequestedVersion).
+		requestedVersion = *opts.RequestedVersion
+	}
+	if err := p.updateLockfile(item.localName, opts.ItemType, item.rem, item.sha, requestedVersion); err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 

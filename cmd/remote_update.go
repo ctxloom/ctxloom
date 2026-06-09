@@ -249,6 +249,9 @@ type updateInfo struct {
 	Ref        string
 	CurrentSHA string
 	LatestSHA  string
+	// RequestedVersion is the entry's original manifest constraint, carried so
+	// apply can pin the content to LatestSHA without overwriting the constraint.
+	RequestedVersion string
 }
 
 // pullRunner is the slice of *remote.Puller that the apply phase needs, declared
@@ -327,7 +330,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, regis
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
-		info := updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest}
+		info := updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion}
 		if e.Type == remote.ItemTypeProfile {
 			profileUpdates = append(profileUpdates, info)
 		} else {
@@ -393,10 +396,17 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 	fmt.Fprintln(out, header)
 	for _, u := range updates {
 		fmt.Fprintf(out, "\nUpdating %s...\n", u.Ref)
-		result, err := p.Pull(ctx, u.Ref, remote.PullOptions{
-			ItemType: u.Type,
-			Force:    updateForce,
-			Blind:    updateBlind,
+		// Pull the exact constraint-bounded SHA detect computed and displayed as
+		// "Latest", not the bare ref: a bare canonical ref re-resolves to
+		// default-branch HEAD, which can exceed the manifest constraint. Preserve
+		// the original constraint in the lock via RequestedVersion so pinning the
+		// content does not freeze "^1.2" into a SHA.
+		constraint := u.RequestedVersion
+		result, err := p.Pull(ctx, u.Ref+"@"+u.LatestSHA, remote.PullOptions{
+			ItemType:         u.Type,
+			Force:            updateForce,
+			Blind:            updateBlind,
+			RequestedVersion: &constraint,
 		})
 		if err != nil {
 			switch classifyPullError(err) {

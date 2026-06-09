@@ -365,7 +365,7 @@ func findOutdatedEntries(ctx context.Context, entries []struct {
 		if repoURL == "" {
 			continue
 		}
-		latestSHA, err := resolveLatestSHA(ctx, repoURL, auth, factory, fetcherByURL)
+		latestSHA, err := latestWithinConstraintSHA(ctx, repoURL, e.Entry.RequestedVersion, auth, factory, fetcherByURL)
 		if err != nil {
 			continue
 		}
@@ -429,11 +429,14 @@ func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
 	}
 }
 
-// resolveLatestSHA returns the default-branch HEAD SHA for repoURL, reusing a
-// cached fetcher per URL (fetcherByURL is read and populated). It centralizes
-// the fetcher-create → ParseRepoURL → GetDefaultBranch → ResolveRef chain shared
-// by Relock and CheckOutdated. Shared by Relock and CheckOutdated.
-func resolveLatestSHA(ctx context.Context, repoURL string, auth remote.AuthConfig, factory FetcherFactory, fetcherByURL map[string]remote.Fetcher) (string, error) {
+// latestWithinConstraintSHA returns the newest commit repoURL allows under the
+// entry's version constraint — the highest tag in a semver range, the tip of a
+// branch, or (for a constraint-less entry) default-branch HEAD. This is what
+// makes `outdated` constraint-aware: a dependency pinned to a tag/range is only
+// reported outdated when a newer commit actually satisfies what the manifest
+// asked for, not merely when branch HEAD moves past a pinned tag. Reuses a cached
+// fetcher per URL (fetcherByURL is read and populated).
+func latestWithinConstraintSHA(ctx context.Context, repoURL, constraint string, auth remote.AuthConfig, factory FetcherFactory, fetcherByURL map[string]remote.Fetcher) (string, error) {
 	fetcher, ok := fetcherByURL[repoURL]
 	if !ok {
 		f, err := factory(repoURL, auth)
@@ -447,13 +450,12 @@ func resolveLatestSHA(ctx context.Context, repoURL string, auth remote.AuthConfi
 	if err != nil {
 		return "", err
 	}
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repoName)
+	res, err := remote.ResolveConstraint(ctx, constraint, remote.NewFetcherRepoVersions(fetcher, owner, repoName))
 	if err != nil {
 		return "", err
 	}
-	sha, err := fetcher.ResolveRef(ctx, owner, repoName, branch)
-	if err != nil {
-		return "", err
+	if res.SHA == "" {
+		return "", fmt.Errorf("no commit satisfies constraint %q for %s", constraint, repoURL)
 	}
-	return sha, nil
+	return res.SHA, nil
 }

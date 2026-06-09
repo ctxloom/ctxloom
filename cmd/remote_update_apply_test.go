@@ -65,18 +65,41 @@ func TestApplyUpdates_PullsProfilesBeforeBundles(t *testing.T) {
 		[]updateInfo{bundleUpd("bob/tools")})
 
 	// Profiles update before bundles so a re-pinned profile's new bundle refs
-	// are present when the bundles are processed.
-	if want := []string{"alice/sec", "bob/tools"}; !equalStrings(p.calls, want) {
+	// are present when the bundles are processed. Each is pulled at its exact
+	// constraint-bounded LatestSHA (a "<ref>@<sha>" pin), not the bare ref.
+	if want := []string{"alice/sec@bbbbbbb", "bob/tools@ddddddd"}; !equalStrings(p.calls, want) {
 		t.Fatalf("call order = %v, want %v", p.calls, want)
+	}
+}
+
+// TestApplyUpdates_PinsSHAButPreservesConstraint verifies the version-model
+// invariant: apply pulls the displayed constraint-bounded SHA for content, while
+// the manifest constraint is carried through to the lock (so "^1.2" is not frozen
+// into a SHA). detect already re-pins within the constraint; lock would re-derive
+// it, but apply must not corrupt the lock in the interim.
+func TestApplyUpdates_PinsSHAButPreservesConstraint(t *testing.T) {
+	var out bytes.Buffer
+	p := &recordingPuller{}
+	u := updateInfo{Type: remote.ItemTypeBundle, Ref: "bob/tools", LatestSHA: "bbbbbbb", RequestedVersion: "^1.2"}
+	applyUpdates(context.Background(), &out, p, nil, []updateInfo{u})
+
+	if len(p.calls) != 1 || p.calls[0] != "bob/tools@bbbbbbb" {
+		t.Fatalf("expected a single pinned pull bob/tools@bbbbbbb, got %v", p.calls)
+	}
+	rv := p.opts[0].RequestedVersion
+	if rv == nil || *rv != "^1.2" {
+		t.Fatalf("apply must preserve the manifest constraint in the lock; got RequestedVersion=%v", rv)
 	}
 }
 
 func TestApplyUpdates_ClassifiesErrors(t *testing.T) {
 	var out bytes.Buffer
+	// errByRef keys are the pinned "<ref>@<LatestSHA>" forms apply now pulls
+	// (bundleUpd sets LatestSHA "ddddddd").
 	p := &recordingPuller{errByRef: map[string]error{
-		"x/skip":   fmt.Errorf("wrap: %w", errs.ErrCancelled),
-		"x/gone":   fmt.Errorf("wrap: %w", errs.ErrRemoteContentNotFound),
-		"x/broken": fmt.Errorf("boom"),
+		"x/skip@ddddddd":   fmt.Errorf("wrap: %w", errs.ErrCancelled),
+		"x/gone@ddddddd":   fmt.Errorf("wrap: %w", errs.ErrRemoteContentNotFound),
+		"x/broken@ddddddd": fmt.Errorf("boom"),
 	}}
 	updated, failed, removed := applyUpdates(context.Background(), &out, p, nil,
 		[]updateInfo{bundleUpd("x/skip"), bundleUpd("x/gone"), bundleUpd("x/broken"), bundleUpd("x/ok")})

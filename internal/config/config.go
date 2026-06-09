@@ -495,7 +495,14 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 			// Config file is optional
 			return nil
 		}
-		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		// An existing-but-unreadable config (EACCES, a directory in its place, a
+		// transient I/O error) must not block startup any more than a malformed one
+		// does: warn and continue with the default-overlaid empty config. CLAUDE.md
+		// is explicit that missing/unreadable files produce warnings, never a hard
+		// stop — and the sibling parse/validate branches below already degrade.
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to read config at %s: %v", configPath, err))
+		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
+		return nil
 	}
 
 	// Upgrade older on-disk schema generations to the current one *in memory*

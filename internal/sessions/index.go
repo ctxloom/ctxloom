@@ -23,6 +23,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
@@ -138,11 +139,7 @@ func (m *Manager) CommitUpgrade() error {
 	}
 	defer unlock()
 
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, m.pendingUpgrade.Data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, m.path); err != nil {
+	if err := iox.WriteFileAtomic(m.path, m.pendingUpgrade.Data, 0o644); err != nil {
 		return err
 	}
 	m.pendingUpgrade = nil
@@ -411,11 +408,7 @@ func (m *Manager) saveLocked(idx *Index) error {
 	if err != nil {
 		return fmt.Errorf("marshal index: %w", err)
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, m.path); err != nil {
+	if err := iox.WriteFileAtomic(m.path, data, 0o644); err != nil {
 		return err
 	}
 	// The file is now canonical, so any upgrade staged by the load that preceded

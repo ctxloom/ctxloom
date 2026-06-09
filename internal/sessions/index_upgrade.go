@@ -69,7 +69,12 @@ func normalizeTimestampNode(n *yaml.Node) bool {
 	}
 	t, ok := parseTimestamp(n.Value)
 	if !ok {
-		t = time.Time{} // degrade unparseable to zero time
+		// Degrade an unparseable timestamp to NOW, not the zero time. The zero time
+		// (year 1) sorts a session to the bottom of the picker AND falls before its
+		// day-horizon cutoff, so the session silently vanishes — the opposite of
+		// fault tolerance. "now" keeps the row visible (sorts as recent) while still
+		// canonicalizing the value so the plain decoder won't choke on it.
+		t = time.Now()
 	}
 	t = t.UTC()
 	if n.Value == t.Format(time.RFC3339Nano) {

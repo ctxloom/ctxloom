@@ -236,8 +236,10 @@ func TestSave_NormalizesLegacyTimestampsToRFC3339(t *testing.T) {
 }
 
 func TestLoad_UnparseableTimestampDoesNotBlockLoad(t *testing.T) {
-	// Fault tolerance: one unrecognized timestamp must not fail the whole
-	// load. The entry loads with a zero StartedAt; everything else survives.
+	// Fault tolerance: one unrecognized timestamp must not fail the whole load,
+	// and it must degrade to ~now (recent), NOT the zero time — zero sorts the
+	// session below the picker's day-horizon and hides it, the opposite of what
+	// graceful degradation should do.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "index.yaml")
 	const bad = `sessions:
@@ -253,7 +255,9 @@ func TestLoad_UnparseableTimestampDoesNotBlockLoad(t *testing.T) {
 	require.NoError(t, err, "unparseable timestamp must not fail the load")
 	require.Len(t, idx.Sessions, 1)
 	assert.Equal(t, "busted", idx.Sessions[0].HarpName)
-	assert.True(t, idx.Sessions[0].StartedAt.IsZero(), "bad timestamp degrades to zero time")
+	got := idx.Sessions[0].StartedAt
+	assert.False(t, got.IsZero(), "bad timestamp must not degrade to zero time (would hide the session)")
+	assert.WithinDuration(t, time.Now(), got, time.Minute, "bad timestamp degrades to ~now, keeping the session visible")
 }
 
 func TestEntry_TimestampRoundTrip(t *testing.T) {

@@ -278,7 +278,9 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	if sessionID == "" {
 		metas, lerr := pb.NewSessionReader(backendName, 0).ListSessions(ctx)
 		if lerr != nil {
-			return nil, nil, fmt.Errorf("lookup previous session: %w", lerr)
+			// A flaky transcript listing must not turn a recovery convenience into a
+			// tool error: warn and fall through to the "no previous session" result.
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: list previous sessions: %v\n", lerr)
 		}
 		if len(metas) >= 2 {
 			sessionID = metas[1].ID
@@ -316,7 +318,13 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 
 	session, err := source.GetSession(ctx, sessionID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get session %s: %w", sessionID, err)
+		// Degrade a lookup failure to a usable "couldn't load" message rather than a
+		// tool error — recovery must never block the agent (CLAUDE.md).
+		return nil, &loadSessionResult{
+			Loaded:  false,
+			Message: fmt.Sprintf("Couldn't load session %s: %v", sessionID, err),
+			PID:     pid,
+		}, nil
 	}
 	if len(session.Entries) == 0 {
 		return nil, &loadSessionResult{
@@ -371,6 +379,8 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 		model = s.cfg.GetCompactionModel()
 	}
 
+	// Recovery must never block the agent (CLAUDE.md): a compactor/distill failure
+	// degrades to a usable "couldn't distill" message rather than a tool error.
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		LLM:       s.cfg.GetCompactionLLM(),
 		Model:     model,
@@ -382,17 +392,17 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 		HarpName:  harp,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create compactor: %w", err)
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err), PID: pid}, nil
 	}
 
 	compactResult, err := compactor.Compact(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("distillation failed: %w", err)
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distillation failed for session %s: %v", sessionID, err), PID: pid}, nil
 	}
 
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("load distilled result: %w", err)
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", sessionID, err), PID: pid}, nil
 	}
 
 	return &loadSessionResult{

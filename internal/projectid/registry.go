@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -94,11 +95,7 @@ func (m *Manager) saveLocked(reg *Registry) error {
 	if err != nil {
 		return fmt.Errorf("marshal registry: %w", err)
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, m.path)
+	return iox.WriteFileAtomic(m.path, data, 0o644)
 }
 
 // ResolveByPath returns a copy of the entry whose path matches projectDir, or

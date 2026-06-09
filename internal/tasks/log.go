@@ -314,6 +314,16 @@ func (l *eventLog) remove(harpID string) (Task, error) {
 func (l *eventLog) snapshot() ([]Task, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Take a SHARED cross-process lock for the read. Mutators hold the EXCLUSIVE
+	// lock while appending (see lock()), so without this a fold could observe a
+	// partially written final line from another process — the malformed-line skip
+	// would then silently drop a just-added task, surfacing as a transient
+	// "task not found" to a peer process. Best-effort: a lock failure falls back to
+	// an unlocked read rather than failing, since reads must never block (the
+	// in-process mu still serializes same-process access).
+	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+		defer unlock()
+	}
 	f, err := l.fold()
 	if err != nil {
 		return nil, err

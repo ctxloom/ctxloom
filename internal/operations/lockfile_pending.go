@@ -18,6 +18,9 @@ func DropPendingBundle(cfg *config.Config, name string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("load pending lockfile: %w", err)
 	}
+	// Accept the same "<alias>/<path>" short form as the other review
+	// commands; pending lockfile keys are canonical refs.
+	name = CanonicalizeRemoteRef(cfg, name, remote.ItemTypeBundle)
 	if _, ok := pending.GetEntry(remote.ItemTypeBundle, name); !ok {
 		return false, nil
 	}

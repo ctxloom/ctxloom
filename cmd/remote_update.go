@@ -46,9 +46,8 @@ func runRemoteUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	auth := remote.LoadAuth("")
-	lockManager := remote.NewLockfileManager(".ctxloom")
-
 	cfg := loadConfigOrFallback(GetConfig, os.Stderr)
+	lockManager := remote.NewLockfileManager(projectAppDir(cfg))
 
 	// If specific reference provided, update just that
 	if len(args) > 0 {
@@ -66,26 +65,15 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	}
 
 	// Canonical refs carry the repo URL directly.
-	repoURL := ref.URL
-	if repoURL == "" {
+	if ref.URL == "" {
 		return fmt.Errorf("reference has no repository URL: %s", refStr)
 	}
 
-	refreshRemoteClone(cmd.Context(), cfg, repoURL)
+	refreshRemoteClone(cmd.Context(), cfg, ref.URL)
 
-	fetcher, err := operations.GetCachedFetcher(cfg, repoURL)
+	fetcher, err := operations.GetCachedFetcher(cfg, ref.URL)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
-	}
-
-	owner, repo, err := remote.ParseRepoURL(repoURL)
-	if err != nil {
-		return fmt.Errorf("invalid remote URL: %w", err)
-	}
-
-	latestSHA, err := resolveLatestRemoteSHA(cmd.Context(), fetcher, owner, repo)
-	if err != nil {
-		return err
 	}
 
 	lockfile, err := lockManager.Load()
@@ -93,12 +81,10 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return err
 	}
 
-	// Look up by the canonical identity, not the raw input: lockfile keys are
-	// Reference.CanonicalString() (version-suffix stripped), so an input carrying
-	// an explicit "@version" would otherwise miss its own locked entry and be
-	// reported as untracked.
-	currentSHA, itemType := lookupLockedSHA(lockfile, ref.CanonicalString())
-	itemType, upToDate := reportUpdateStatus(refStr, currentSHA, latestSHA, itemType)
+	u, upToDate, err := detectSingleUpdate(cmd.Context(), os.Stdout, fetcher, lockfile, refStr)
+	if err != nil {
+		return err
+	}
 	if upToDate {
 		return nil
 	}
@@ -108,11 +94,61 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return nil
 	}
 
-	return applyUpdate(cmd.Context(), cfg, registry, auth, refStr, itemType)
+	// Apply through the same batch machinery as `update --apply`, so the
+	// single-ref path shares the constraint-pinned pull (ref@LatestSHA with
+	// RequestedVersion carried into the lock) and the removed/skip handling.
+	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
+	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", []updateInfo{u})
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager)
+	if failed > 0 {
+		return fmt.Errorf("update failed for %s", refStr)
+	}
+	return nil
+}
+
+// detectSingleUpdate resolves one ref's update status against the lockfile,
+// constraint-aware: the latest SHA is the newest commit the entry's
+// RequestedVersion allows (latestWithinConstraint), never bare default-branch
+// HEAD, which can exceed the manifest constraint. The lock entry is found by
+// the ref's canonical identity, so a version-suffixed input still matches.
+// Prints the status to out; returns the pending update when one exists.
+func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetcher, lockfile *remote.Lockfile, refStr string) (updateInfo, bool, error) {
+	ref, err := remote.ParseReference(refStr)
+	if err != nil || ref.URL == "" {
+		return updateInfo{}, false, fmt.Errorf("invalid reference: %s", refStr)
+	}
+	canonical := ref.CanonicalString()
+	entry, itemType := lookupLockedEntry(lockfile, canonical)
+
+	latestSHA, ok := latestWithinConstraint(ctx, fetcher, ref.URL, entry.RequestedVersion)
+	if !ok {
+		return updateInfo{}, false, fmt.Errorf("failed to resolve latest version for %s", refStr)
+	}
+
+	itemType, upToDate := reportUpdateStatus(out, refStr, entry.SHA, latestSHA, itemType)
+	return updateInfo{
+		Type:             itemType,
+		Ref:              canonical,
+		CurrentSHA:       entry.SHA,
+		LatestSHA:        latestSHA,
+		RequestedVersion: entry.RequestedVersion,
+	}, upToDate, nil
+}
+
+// projectAppDir returns the project's .ctxloom dir for lockfile/cleanup paths.
+// cfg.AppPaths[0] is resolved by config.Load, which walks up from cwd to the
+// project root — so `remote update` works from subdirectories. The bare
+// relative name is only the last resort when config resolution found nothing.
+func projectAppDir(cfg *config.Config) string {
+	if cfg != nil && len(cfg.AppPaths) > 0 && cfg.AppPaths[0] != "" {
+		return cfg.AppPaths[0]
+	}
+	return ".ctxloom"
 }
 
 // refreshRemoteClone fetches the latest into the local clone so updates can be
 // detected. Fault-tolerant: a fetch failure warns and the stale clone is used.
+//
 func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string) {
 	cache := operations.NewRepoCache(cfg)
 	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
@@ -122,66 +158,37 @@ func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string)
 	}
 }
 
-// resolveLatestRemoteSHA resolves the default branch to its latest commit SHA.
-func resolveLatestRemoteSHA(ctx context.Context, fetcher remote.Fetcher, owner, repo string) (string, error) {
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-	if err != nil {
-		return "", fmt.Errorf("failed to get default branch: %w", err)
-	}
-	sha, err := fetcher.ResolveRef(ctx, owner, repo, branch)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve ref: %w", err)
-	}
-	return sha, nil
-}
 
-// lookupLockedSHA finds refStr's current SHA and item type in the lockfile,
-// trying bundles then profiles. Returns ("", "") when not present.
-func lookupLockedSHA(lockfile *remote.Lockfile, refStr string) (string, remote.ItemType) {
+// lookupLockedEntry finds refStr's lock entry and item type, trying bundles
+// then profiles. Returns a zero entry and empty type when not present.
+func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEntry, remote.ItemType) {
 	for _, it := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
 		if entry, ok := lockfile.GetEntry(it, refStr); ok {
-			return entry.SHA, it
+			return entry, it
 		}
 	}
-	return "", ""
+	return remote.LockEntry{}, ""
 }
 
 // reportUpdateStatus prints the update status and returns the item type to pull
 // plus whether the ref is already up to date. A ref absent from the lockfile
 // defaults to bundle.
-func reportUpdateStatus(refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
+func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
 	switch currentSHA {
 	case "":
-		fmt.Printf("%s not found in lockfile, checking latest version...\n", refStr)
+		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
 		return remote.ItemTypeBundle, false
 	case latestSHA:
-		fmt.Printf("%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
+		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
 		return itemType, true
 	default:
-		fmt.Printf("%s has update available:\n", refStr)
-		fmt.Printf("  Current: %s\n", shortSHA(currentSHA))
-		fmt.Printf("  Latest:  %s\n", shortSHA(latestSHA))
+		fmt.Fprintf(out, "%s has update available:\n", refStr)
+		fmt.Fprintf(out, "  Current: %s\n", shortSHA(currentSHA))
+		fmt.Fprintf(out, "  Latest:  %s\n", shortSHA(latestSHA))
 		return itemType, false
 	}
 }
 
-// applyUpdate pulls the ref at the latest SHA and reports the result.
-func applyUpdate(ctx context.Context, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, refStr string, itemType remote.ItemType) error {
-	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
-	opts := remote.PullOptions{
-		ItemType: itemType,
-		Force:    updateForce,
-		Blind:    updateBlind,
-	}
-
-	result, err := puller.Pull(ctx, refStr, opts)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\nUpdated %s → %s\n", refStr, shortSHA(result.SHA))
-	return nil
-}
 
 func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager) error {
 	lockfile, err := lockManager.Load()
@@ -226,14 +233,14 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
 	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, profileUpdates, bundleUpdates)
 
-	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), ".ctxloom", removedFromRemote, lockfile, lockManager)
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager)
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
 
 	// Bundle-reference issues (orphans/missing/invalid) only matter when a
 	// profile changed and may have altered its bundle list.
 	if len(profileUpdates) > 0 {
-		reportBundleIssues(os.Stdout, analyzeBundleReferences(lockfile))
+		reportBundleIssues(os.Stdout, analyzeBundleReferences(lockfile, projectAppDir(cfg)))
 	}
 
 	reportMissingDefaults(os.Stdout, checkDefaultProfiles())
@@ -518,8 +525,8 @@ func reportMissingDefaults(out io.Writer, missing []string) {
 
 // analyzeBundleReferences cross-checks the lockfile against the bundle
 // references declared by local profiles, via the operations core.
-func analyzeBundleReferences(lockfile *remote.Lockfile) *operations.BundleAnalysis {
-	return operations.AnalyzeBundleReferences(operations.AnalyzeBundleReferencesRequest{Lockfile: lockfile, AppDir: ".ctxloom"})
+func analyzeBundleReferences(lockfile *remote.Lockfile, appDir string) *operations.BundleAnalysis {
+	return operations.AnalyzeBundleReferences(operations.AnalyzeBundleReferencesRequest{Lockfile: lockfile, AppDir: appDir})
 }
 
 func shortSHA(sha string) string {

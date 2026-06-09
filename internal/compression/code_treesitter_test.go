@@ -57,7 +57,7 @@ func generateID() int {
 }
 `
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeGo, input, 0.5)
 	require.NoError(t, err)
 
 	// Should preserve package
@@ -144,7 +144,7 @@ def main():
     print(user)
 `
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypePython, input, 0.5)
 	require.NoError(t, err)
 
 	// Should preserve imports
@@ -222,7 +222,7 @@ export function createApp() {
 }
 `
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input, 0.5)
 	require.NoError(t, err)
 
 	// Should preserve imports
@@ -293,7 +293,7 @@ fn generate_id() -> u64 {
 }
 `
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeRust, input, 0.5)
 	require.NoError(t, err)
 
 	// Should preserve use statements
@@ -346,7 +346,7 @@ public class User {
 }
 `
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJava, input, 0.5)
 	require.NoError(t, err)
 
 	// Should preserve package
@@ -404,7 +404,7 @@ type Reader interface {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := c.Compress(ctx, tt.input, 0.5)
+			result, err := c.Compress(ctx, ContentTypeGo, tt.input, 0.5)
 			require.NoError(t, err)
 
 			for _, exp := range tt.expected {

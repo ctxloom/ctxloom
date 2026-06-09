@@ -13,7 +13,7 @@ func TestJSONCompressor_InvalidJSONDegradesToVerbatim(t *testing.T) {
 	c := NewJSONCompressor()
 	input := `{not valid json,,,`
 
-	result, err := c.Compress(context.Background(), input, 0.5)
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
 	require.NoError(t, err, "invalid JSON must degrade, not error")
 	assert.Equal(t, input, result.Content, "content should pass through verbatim")
 	assert.Equal(t, 1.0, result.Ratio)
@@ -31,7 +31,7 @@ func TestJSONCompressor_Basic(t *testing.T) {
   "created_at": "2024-01-15T10:30:00Z"
 }`
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
 	require.NoError(t, err)
 
 	// Should be valid JSON
@@ -78,7 +78,7 @@ func TestJSONCompressor_Array(t *testing.T) {
   ]
 }`
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -124,7 +124,7 @@ func TestJSONCompressor_NestedObjects(t *testing.T) {
   }
 }`
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -166,7 +166,7 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := `{"value": "` + tt.value + `"}`
-			result, err := c.Compress(ctx, input, 0.5)
+			result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
 			require.NoError(t, err)
 
 			var parsed map[string]any
@@ -209,7 +209,7 @@ func TestJSONCompressor_PreservesStructure(t *testing.T) {
   "meta": null
 }`
 
-	result, err := c.Compress(ctx, input, 0.5)
+	result, err := c.Compress(ctx, ContentTypeJSON, input, 0.5)
 	require.NoError(t, err)
 
 	var parsed map[string]any
@@ -256,4 +256,18 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// TestJSONCompressor_PreservesBigIntegers pins the UseNumber decode:
+// PreserveNumbers exists for IDs, and IDs beyond float64's 2^53 mantissa
+// (snowflake IDs) were re-marshaled in scientific notation through the
+// float64 round-trip.
+func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {
+	c := NewJSONCompressor()
+	input := `{"id": 9223372036854775807}`
+
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, "9223372036854775807",
+		"big integer IDs must round-trip verbatim, not as float64 scientific notation")
 }

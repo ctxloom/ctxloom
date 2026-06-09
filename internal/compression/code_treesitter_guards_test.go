@@ -29,6 +29,7 @@ import (
 // "function"/"const").
 type langCase struct {
 	name           string
+	ct             ContentType
 	source         string
 	mustContain    []string // signatures / structure that must be preserved
 	mustNotContain []string // body-only tokens that must be elided
@@ -38,6 +39,7 @@ func TestCodeCompressor_AllLanguages_SignaturesPreservedBodiesElided(t *testing.
 	cases := []langCase{
 		{
 			name: "go",
+			ct:   ContentTypeGo,
 			source: `package widgets
 
 import "fmt"
@@ -53,6 +55,7 @@ func Adder(a, b int) int {
 		},
 		{
 			name: "python",
+			ct:   ContentTypePython,
 			source: `import os
 
 def compute(name: str) -> str:
@@ -64,6 +67,7 @@ def compute(name: str) -> str:
 		},
 		{
 			name: "javascript",
+			ct:   ContentTypeJavaScript,
 			source: `function greet(name) {
   const secretJsBodyToken = "hi";
   return secretJsBodyToken + name;
@@ -74,7 +78,7 @@ def compute(name: str) -> str:
 		},
 		{
 			name: "typescript",
-			// Avoid "function" and "const" so detectLanguage routes to TS, not JS.
+			ct:   ContentTypeTypeScript,
 			source: `interface Greeter {
   greet(name: string): string;
 }
@@ -91,6 +95,7 @@ class EnglishGreeter implements Greeter {
 		},
 		{
 			name: "rust",
+			ct:   ContentTypeRust,
 			source: `pub fn add(a: i32, b: i32) -> i32 {
     let secret_rust_body_token = a + b;
     secret_rust_body_token
@@ -101,9 +106,7 @@ class EnglishGreeter implements Greeter {
 		},
 		{
 			name: "java",
-			// No leading "package " line: detectLanguage checks Go's "package "
-			// prefix before Java's "public class ", so a package line would
-			// misroute the fixture to the Go parser.
+			ct:   ContentTypeJava,
 			source: `public class Service {
     public int add(int a, int b) {
         int secretJavaBodyToken = a + b;
@@ -123,7 +126,7 @@ class EnglishGreeter implements Greeter {
 		t.Run(tc.name, func(t *testing.T) {
 			// Zero panics is itself part of the assertion: a slice-bounds panic
 			// in any extractor would crash the test rather than fail it.
-			result, err := c.Compress(ctx, tc.source, 0.5)
+			result, err := c.Compress(ctx, tc.ct, tc.source, 0.5)
 			require.NoError(t, err)
 			require.NotEmpty(t, result.Content)
 
@@ -157,7 +160,7 @@ type Reader interface {
 `
 
 	require.NotPanics(t, func() {
-		result, err := c.Compress(ctx, source, 0.5)
+		result, err := c.Compress(ctx, ContentTypeGo, source, 0.5)
 		require.NoError(t, err)
 		assert.Contains(t, result.Content, "Reader")
 	})
@@ -182,7 +185,7 @@ func TestCodeCompressor_JavaNoBodyMethod(t *testing.T) {
 `
 
 	require.NotPanics(t, func() {
-		result, err := c.Compress(ctx, source, 0.5)
+		result, err := c.Compress(ctx, ContentTypeJava, source, 0.5)
 		require.NoError(t, err)
 		assert.Contains(t, result.Content, "findById")
 	})
@@ -208,7 +211,7 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 		// cleanly (no panic, no error) per the fault-tolerance rule.
 		for _, junk := range []string{"", "}{)(", "\x00\x01\x02 not code", strings.Repeat("???", 100)} {
 			require.NotPanics(t, func() {
-				_, err := c.Compress(ctx, junk, 0.5)
+				_, err := c.Compress(ctx, ContentTypeGo, junk, 0.5)
 				require.NoError(t, err)
 			})
 		}
@@ -216,7 +219,7 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 
 	t.Run("invalid JSON degrades to verbatim Ratio 1.0", func(t *testing.T) {
 		jc := NewJSONCompressor()
-		result, err := jc.Compress(context.Background(), "{not valid json", 0.5)
+		result, err := jc.Compress(context.Background(), ContentTypeJSON, "{not valid json", 0.5)
 		require.NoError(t, err)
 		assert.Equal(t, 1.0, result.Ratio)
 		assert.Equal(t, "{not valid json", result.Content)

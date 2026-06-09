@@ -25,7 +25,7 @@ func NewRouter() *Router {
 func (r *Router) CompressWithType(ctx context.Context, contentType ContentType, content string, ratio float64) (Result, error) {
 	for _, c := range r.compressors {
 		if c.CanHandle(contentType) {
-			return c.Compress(ctx, content, ratio)
+			return c.Compress(ctx, contentType, content, ratio)
 		}
 	}
 

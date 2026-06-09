@@ -44,11 +44,16 @@ func (c *JSONCompressor) CanHandle(ct ContentType) bool {
 }
 
 // Compress reduces JSON size while preserving structure.
-func (c *JSONCompressor) Compress(ctx context.Context, content string, ratio float64) (Result, error) {
-	// Parse JSON. Fault tolerance: invalid JSON degrades to verbatim
+func (c *JSONCompressor) Compress(ctx context.Context, _ ContentType, content string, ratio float64) (Result, error) {
+	// Parse JSON with UseNumber so integers beyond float64's 2^53 mantissa
+	// (snowflake IDs, hashes-as-ints) round-trip verbatim instead of being
+	// re-marshaled in scientific notation — PreserveNumbers exists exactly
+	// for IDs. Fault tolerance: invalid JSON degrades to verbatim
 	// pass-through rather than failing the caller.
+	dec := json.NewDecoder(strings.NewReader(content))
+	dec.UseNumber()
 	var data any
-	if err := json.Unmarshal([]byte(content), &data); err != nil {
+	if err := dec.Decode(&data); err != nil {
 		return verbatimResult(content, "json-compressor"), nil
 	}
 
@@ -91,7 +96,7 @@ func (c *JSONCompressor) compressValue(v any, depth int) (any, compressStats) {
 	case string:
 		return c.compressString(val, &stats), stats
 
-	case float64:
+	case float64, json.Number:
 		if c.PreserveNumbers {
 			stats.preserved = append(stats.preserved, "number")
 		}

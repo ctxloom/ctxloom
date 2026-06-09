@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -25,8 +26,10 @@ type CodeCompressor struct {
 	// MaxBodyLines limits function body preview lines (0 = elide entirely).
 	MaxBodyLines int
 
-	// parsers cached by language
-	parsers map[ContentType]*sitter.Parser
+	// parsers cached by language; parsersMu guards concurrent first-use
+	// population when one compressor instance is shared across goroutines.
+	parsersMu sync.Mutex
+	parsers   map[ContentType]*sitter.Parser
 }
 
 // NewCodeCompressor creates a code compressor with default settings.
@@ -49,9 +52,16 @@ func (c *CodeCompressor) CanHandle(ct ContentType) bool {
 }
 
 // Compress extracts structural elements from code, eliding function bodies.
-func (c *CodeCompressor) Compress(ctx context.Context, content string, ratio float64) (Result, error) {
-	// Detect language from content if not obvious
-	ct := c.detectLanguage(content)
+// The routed contentType picks the grammar; content sniffing is only a
+// fallback for an unknown type, and an unsniffable input degrades to verbatim
+// — parsing under a guessed grammar silently loses the content.
+func (c *CodeCompressor) Compress(ctx context.Context, ct ContentType, content string, ratio float64) (Result, error) {
+	if !c.CanHandle(ct) {
+		ct = c.detectLanguage(content)
+	}
+	if ct == ContentTypeUnknown {
+		return verbatimResult(content, "ast:unknown"), nil
+	}
 
 	// Fault tolerance: a missing parser or a parse failure degrades to
 	// verbatim pass-through rather than failing the caller.
@@ -117,7 +127,10 @@ func (s languageSignature) matches(content string) bool {
 	return len(s.any) == 0
 }
 
-// detectLanguage guesses a language from content heuristics, defaulting to Go.
+// detectLanguage guesses a language from content heuristics. Unrecognized
+// content returns ContentTypeUnknown — the old default-to-Go behavior parsed
+// non-Go content under the Go grammar, which finds no Go nodes and compresses
+// the content to near-empty.
 func (c *CodeCompressor) detectLanguage(content string) ContentType {
 	if strings.HasPrefix(content, "package ") {
 		return ContentTypeGo
@@ -127,10 +140,12 @@ func (c *CodeCompressor) detectLanguage(content string) ContentType {
 			return sig.ct
 		}
 	}
-	return ContentTypeGo // Default
+	return ContentTypeUnknown
 }
 
 func (c *CodeCompressor) getParser(ct ContentType) (*sitter.Parser, error) {
+	c.parsersMu.Lock()
+	defer c.parsersMu.Unlock()
 	if p, ok := c.parsers[ct]; ok {
 		return p, nil
 	}

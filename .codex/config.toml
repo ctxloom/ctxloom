@@ -15,3 +15,7 @@ type = 'command'
 [mcp_servers.ctxloom]
 args = ['mcp']
 command = 'ctxloom'
+
+[mcp_servers.sequential-thinking]
+args = ['-y', '@anthropics/mcp-server-sequential-thinking']
+command = 'npx'

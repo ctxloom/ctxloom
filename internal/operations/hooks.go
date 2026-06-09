@@ -220,6 +220,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// Load fragments from default profiles using bundles
 	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
 	var allFragments []config.FragmentRef
+	profileVars := make(map[string]string)
 
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		// Use the shared resolver so directory profiles (.ctxloom/profiles/<name>.yaml)
@@ -230,6 +231,13 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		profile, err := resolveProfile(cfg, profileName, loader, nil)
 		if err != nil {
 			continue
+		}
+
+		// Variables merge later-wins, mirroring collectProfileFragments — the
+		// regenerated context must match AssembleContext's output, or the
+		// injected file ships literal {{var}} tags.
+		for k, v := range profile.Variables {
+			profileVars[k] = v
 		}
 
 		// Add fragments from tags (priority 0)
@@ -262,7 +270,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:         content.Name,
-			Content:      content.Content,
+			Content:      substituteVariables(content.Content, profileVars, func(string) {}),
 			Installation: content.Installation,
 		})
 	}
@@ -271,6 +279,13 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		return "", nil
 	}
 
-	contextHash, _ := agent.WriteContextFile(workDir, backendFrags, opts...)
+	contextHash, err := agent.WriteContextFile(workDir, backendFrags, opts...)
+	if err != nil {
+		// Degrade (the SessionStart injection hook is simply omitted), but
+		// say so — a silent skip leaves the user wondering where their
+		// context went.
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: context file write failed; SessionStart injection skipped: %v\n", err)
+		return "", nil
+	}
 	return contextHash, nil
 }

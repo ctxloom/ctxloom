@@ -605,6 +605,58 @@ fragments:
 	assert.NotEmpty(t, result.ContextHash) // Should have context hash since fragments were found
 }
 
+// TestApplyHooks_RegenerateContextSubstitutesVariables pins parity with
+// AssembleContext: profile-declared variables must be substituted into the
+// regenerated context file. regenerateContext is a second assembly of the
+// same fragments — without substitution the agent-injected context ships
+// literal {{var}} tags whenever profiles define variables.
+func TestApplyHooks_RegenerateContextSubstitutesVariables(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	bundleContent := `version: "1.0"
+description: Test bundle
+fragments:
+  greeting:
+    content: |
+      Hello {{project_name}}.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+
+	mockConfigLoader := func() (*config.Config, error) {
+		return &config.Config{
+			AppPaths: []string{appDir},
+			Profiles: config.ProfilesConfig{
+				Defaults: []string{"default"},
+				Definitions: map[string]config.Profile{
+					"default": {
+						Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
+						Variables: map[string]string{"project_name": "ctxloom"},
+					},
+				},
+			},
+		}, nil
+	}
+
+	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		Backend:           "claude-code",
+		RegenerateContext: true,
+		ExecPath:          "/usr/bin/ctxloom",
+		ConfigLoader:      mockConfigLoader,
+		WorkDir:           tmpDir,
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.ContextHash)
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, agent.SCMContextSubdir, result.ContextHash+".md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Hello ctxloom.", "profile variables must be substituted")
+	assert.NotContains(t, string(data), "{{project_name}}", "no literal mustache tags in the injected context")
+}
+
 // TestApplyHooks_RegenerateContextWithFragments tests regenerateContext with direct fragments.
 func TestApplyHooks_RegenerateContextWithFragments(t *testing.T) {
 	tmpDir := t.TempDir()

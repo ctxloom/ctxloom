@@ -78,11 +78,24 @@ func (c GeminiConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
+// CodexConfig holds configuration for exporting prompts as Codex CLI custom prompts.
+type CodexConfig struct {
+	Enabled      *bool  `yaml:"enabled"`       // nil = true (opt-out model)
+	Description  string `yaml:"description"`   // For the /prompts listing
+	ArgumentHint string `yaml:"argument_hint"` // Autocomplete hint
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c CodexConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
 	Gemini     GeminiConfig     `yaml:"gemini"`
+	Codex      CodexConfig      `yaml:"codex"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

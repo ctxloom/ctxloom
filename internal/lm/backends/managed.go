@@ -37,7 +37,7 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 
 // commandExportsFor maps loaded bundle content to the named backend's command
 // exports (resolving that backend's per-prompt enablement + metadata), or nil
-// for a backend without slash-command export. Reuses the same claude/gemini
+// for a backend without slash-command export. Reuses the same per-backend
 // mappers as WriteCommandFilesFor so the two paths can't diverge.
 func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
 	switch backendName {
@@ -45,6 +45,8 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 		return claudeExports(prompts)
 	case "gemini":
 		return geminiExports(prompts)
+	case "codex":
+		return codexExports(prompts)
 	default:
 		return nil
 	}

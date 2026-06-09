@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/claude"
+	"github.com/ctxloom/codex"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
@@ -22,6 +23,8 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 		return claude.WriteCommandFiles(workDir, claudeExports(prompts), opts...)
 	case "gemini":
 		return gemini.WriteCommandFiles(workDir, geminiExports(prompts), opts...)
+	case "codex":
+		return codex.WriteCommandFiles(workDir, codexExports(prompts), opts...)
 	default:
 		return nil
 	}
@@ -59,6 +62,24 @@ func geminiExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 			Content:     p.Content,
 			Enabled:     g.IsEnabled(),
 			Description: g.Description,
+		})
+	}
+	return out
+}
+
+// codexExports maps loaded bundle content to Codex command exports, resolving
+// the codex per-prompt LLM export config.
+func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+	names := exportNames(prompts)
+	out := make([]agent.CommandExport, 0, len(prompts))
+	for _, p := range prompts {
+		cx := p.LLM.Codex
+		out = append(out, agent.CommandExport{
+			Name:         names[p.Name],
+			Content:      p.Content,
+			Enabled:      cx.IsEnabled(),
+			Description:  cx.Description,
+			ArgumentHint: cx.ArgumentHint,
 		})
 	}
 	return out

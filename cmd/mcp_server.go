@@ -219,8 +219,11 @@ func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.B
 // bundle hooks are not executed — they only run after a CLI approval merges
 // them into active.
 func (s *ctxServer) applyStartupHooks(ctx context.Context) {
+	// "all": the server doesn't know which agent hosts it, and every backend
+	// with settings must see the same regenerated context/hooks/commands —
+	// refreshing only one leaves the others serving stale managed sets.
 	if _, err := operations.ApplyHooks(ctx, s.cfg, operations.ApplyHooksRequest{
-		Backend:           "claude-code",
+		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)

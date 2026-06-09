@@ -279,8 +279,11 @@ func activeBundleDiff(ctx context.Context, cfg *config.Config, name string, newD
 // lockfile, so newly-approved bundles' hooks/context take effect. Best-effort:
 // a failure warns but never fails the command.
 func applyHooksAfterReview(ctx context.Context, cfg *config.Config) {
+	// "all": an approval changes the active lockfile for every backend, so
+	// each one's settings/commands/context must be refreshed, not just
+	// claude-code's.
 	if _, err := operations.ApplyHooks(ctx, cfg, operations.ApplyHooksRequest{
-		Backend:           "claude-code",
+		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)

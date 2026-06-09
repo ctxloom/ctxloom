@@ -540,7 +540,8 @@ func warnNoEnginesDetected() {
 	fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-	fmt.Fprintln(os.Stderr, "  gemini:       pip install google-gemini-cli")
+	fmt.Fprintln(os.Stderr, "  gemini:       npm install -g @google/gemini-cli")
+	fmt.Fprintln(os.Stderr, "  codex:        npm install -g @openai/codex")
 	fmt.Fprintln(os.Stderr, "")
 }
 

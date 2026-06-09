@@ -63,6 +63,9 @@ func builtinPrompts() []*bundles.LoadedContent {
 				Gemini: bundles.GeminiConfig{
 					Description: description,
 				},
+				Codex: bundles.CodexConfig{
+					Description: description,
+				},
 			},
 		})
 	}

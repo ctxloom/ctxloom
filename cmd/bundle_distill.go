@@ -315,9 +315,13 @@ func distillWithLLM(llmName, model string, env map[string]string, name, content,
 		builder.WriteString("- Compress knowing this content will be loaded alongside those siblings\n\n")
 	}
 
-	builder.WriteString("<content_to_compress>\n# ")
+	// The item name rides as a tag attribute (metadata the distill prompt
+	// already forbids echoing), not an injected `# name` markdown heading —
+	// injecting a heading made the model emit it on top of the content's own
+	// H1, doubling the title in the distilled output.
+	builder.WriteString("<content_to_compress name=\"")
 	builder.WriteString(name)
-	builder.WriteString("\n\n")
+	builder.WriteString("\">\n")
 	builder.WriteString(content)
 	builder.WriteString("\n</content_to_compress>")
 

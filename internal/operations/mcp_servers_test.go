@@ -12,7 +12,7 @@
 //
 // The backend parameter controls where servers are stored:
 //   - "" or "unified": The unified servers map
-//   - "claude-code", "gemini": Backend-specific maps
+//   - "claude-code", "antigravity": Backend-specific maps
 //
 // # Test Injection Patterns
 //
@@ -224,7 +224,7 @@ func TestSetMCPAutoRegisterResult_Fields(t *testing.T) {
 }
 
 func TestMCPBackendValues(t *testing.T) {
-	validBackends := []string{"unified", "claude-code", "gemini", ""}
+	validBackends := []string{"unified", "claude-code", "antigravity", ""}
 
 	for _, backend := range validBackends {
 		req := AddMCPServerRequest{
@@ -552,16 +552,16 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 	result, err := AddMCPServer(context.Background(), cfg, AddMCPServerRequest{
 		Name:       "new-server",
 		Command:    "node",
-		Backend:    "gemini",
+		Backend:    "antigravity",
 		TestConfig: cfg,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, "added", result.Status)
-	assert.Equal(t, "gemini", result.Backend)
+	assert.Equal(t, "antigravity", result.Backend)
 	assert.NotNil(t, cfg.MCP.Plugins)
-	assert.NotNil(t, cfg.MCP.Plugins["gemini"])
-	assert.Contains(t, cfg.MCP.Plugins["gemini"], "new-server")
+	assert.NotNil(t, cfg.MCP.Plugins["antigravity"])
+	assert.Contains(t, cfg.MCP.Plugins["antigravity"], "new-server")
 }
 
 func TestRemoveMCPServer_FromUnified(t *testing.T) {
@@ -667,8 +667,8 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 					"multi-server": {Command: "claude-cmd"}, // Same name in backend
 					"other":        {Command: "other-cmd"},
 				},
-				"gemini": {
-					"multi-server": {Command: "gemini-cmd"}, // Same name in another backend
+				"antigravity": {
+					"multi-server": {Command: "antigravity-cmd"}, // Same name in another backend
 				},
 			},
 		},
@@ -691,8 +691,8 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	assert.False(t, existsInUnified)
 	_, existsInClaude := cfg.MCP.Plugins["claude-code"]["multi-server"]
 	assert.False(t, existsInClaude)
-	_, existsInGemini := cfg.MCP.Plugins["gemini"]["multi-server"]
-	assert.False(t, existsInGemini)
+	_, existsInAntigravity := cfg.MCP.Plugins["antigravity"]["multi-server"]
+	assert.False(t, existsInAntigravity)
 
 	// Other servers should remain
 	assert.Contains(t, cfg.MCP.Servers, "keep")

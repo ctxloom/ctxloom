@@ -68,14 +68,15 @@ func (c ClaudeCodeConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// GeminiConfig holds configuration for exporting prompts as Gemini CLI slash commands.
-type GeminiConfig struct {
+// AntigravityConfig holds configuration for exporting prompts as Antigravity
+// CLI (agy) skill files.
+type AntigravityConfig struct {
 	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
-	Description string `yaml:"description"` // For /help display
+	Description string `yaml:"description"` // For skill listings
 }
 
 // IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c GeminiConfig) IsEnabled() bool {
+func (c AntigravityConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
@@ -94,9 +95,9 @@ func (c CodexConfig) IsEnabled() bool {
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
-	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
-	Gemini     GeminiConfig     `yaml:"gemini"`
-	Codex      CodexConfig      `yaml:"codex"`
+	ClaudeCode  ClaudeCodeConfig  `yaml:"claude-code"`
+	Antigravity AntigravityConfig `yaml:"antigravity"`
+	Codex       CodexConfig       `yaml:"codex"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

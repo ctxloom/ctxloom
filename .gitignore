@@ -70,3 +70,6 @@ resources/schema/gen/
 
 # ctxloom private working state (synced bundles, session/context, project id)
 .codex/config.toml
+
+# ctxloom private working state (synced bundles, session/context, project id)
+.agents/

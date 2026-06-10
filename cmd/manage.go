@@ -413,7 +413,7 @@ func init() {
 	manageHooksCmd.AddCommand(manageHooksUninstallCmd)
 	manageHooksCmd.AddCommand(manageHooksStatusCmd)
 	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
-		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, gemini, or all)")
+		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, antigravity, or all)")
 	}
 
 	// mcp: own-server registration + configured-server CRUD (re-parented).

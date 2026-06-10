@@ -58,7 +58,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}
 
 	// Distillation runs on its own labeled config, independent of the primary
-	// role, so a project can pair (say) a gemini-fast label for distill with a
+	// role, so a project can pair (say) an antigravity label for distill with a
 	// claude-opus label for coding. The --llm flag names a config label;
 	// otherwise the fast role's label is used.
 	label := bundleDistillLLM

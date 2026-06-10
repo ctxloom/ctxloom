@@ -47,8 +47,8 @@ func TestDecodeBackendConfigForType_DeterministicWithoutPrimary(t *testing.T) {
 
 func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 	cfg := twoLabelConfig()
-	cfg.LM.Configs["gem"] = config.LLMConfig{Type: "gemini", Body: map[string]interface{}{}}
-	cfg.LM.Defaults.Primary = "gem"
+	cfg.LM.Configs["agy"] = config.LLMConfig{Type: "antigravity", Body: map[string]interface{}{}}
+	cfg.LM.Defaults.Primary = "agy"
 
 	assert.Equal(t, "model-alpha", decodedClaudeModel(t, cfg),
 		"a primary of a different type falls back to the sorted-label scan")

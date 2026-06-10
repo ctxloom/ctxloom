@@ -62,9 +62,12 @@ func TestBuildInitialConfig(t *testing.T) {
 			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "claude-haiku-4-5-20251001",
 		},
 		{
-			name: "gemini wires pro + flash", engine: "gemini",
-			wantPrimary: "gemini-code", wantBackend: "gemini", wantModel: "gemini-2.5-pro",
-			wantFast: "gemini-fast", wantFastBE: "gemini", wantFastMod: "gemini-2.5-flash",
+			// The shipped registry pins no model for antigravity: agy's own
+			// configured default applies, and the lone role-marked entry
+			// serves both the primary and fast roles.
+			name: "antigravity wires its single role-marked entry to both roles", engine: "antigravity",
+			wantPrimary: "antigravity", wantBackend: "antigravity", wantModel: "",
+			wantFast: "antigravity", wantFastBE: "antigravity", wantFastMod: "",
 		},
 		{
 			name: "engine without role markers falls back to a single entry", engine: "codex",

@@ -6,11 +6,11 @@ import (
 	"os"
 	"slices"
 
+	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 )
 
@@ -61,7 +61,7 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 	switch c := bc.(type) {
 	case *claude.ClaudeConfig:
 		return c.Env
-	case *gemini.GeminiConfig:
+	case *antigravity.AntigravityConfig:
 		return c.Env
 	case *codex.CodexConfig:
 		return c.Env
@@ -78,7 +78,7 @@ func llmBinaryArgsFor(cfg *config.Config, label string) (binary string, args []s
 	switch c := bc.(type) {
 	case *claude.ClaudeConfig:
 		return c.BinaryPath, c.Args
-	case *gemini.GeminiConfig:
+	case *antigravity.AntigravityConfig:
 		return c.BinaryPath, c.Args
 	case *codex.CodexConfig:
 		return c.BinaryPath, c.Args

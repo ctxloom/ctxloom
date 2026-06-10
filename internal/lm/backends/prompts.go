@@ -68,7 +68,7 @@ func builtinPrompts() []*bundles.LoadedContent {
 				ClaudeCode: bundles.ClaudeCodeConfig{
 					Description: description,
 				},
-				Gemini: bundles.GeminiConfig{
+				Antigravity: bundles.AntigravityConfig{
 					Description: description,
 				},
 				Codex: bundles.CodexConfig{

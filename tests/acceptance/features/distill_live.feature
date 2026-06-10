@@ -17,7 +17,7 @@ Feature: Live distillation with a real agent
     Examples:
       | agent  |
       | Claude |
-      | Gemini |
+      | Antigravity |
 
   Scenario Outline: Distilling a prompt records a compressed rendering
     Given a real <agent> agent is available
@@ -29,7 +29,7 @@ Feature: Live distillation with a real agent
     Examples:
       | agent  |
       | Claude |
-      | Gemini |
+      | Antigravity |
 
   Scenario Outline: Distilling a whole bundle distills its fragment
     Given a real <agent> agent is available
@@ -42,4 +42,4 @@ Feature: Live distillation with a real agent
     Examples:
       | agent  |
       | Claude |
-      | Gemini |
+      | Antigravity |

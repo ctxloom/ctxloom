@@ -16,15 +16,15 @@ import (
 )
 
 // HookInput represents the JSON input from AI tool hooks.
-// Claude Code provides session_id; Gemini CLI provides transcript_path directly.
+// Claude Code provides session_id; Codex provides transcript_path directly.
 type HookInput struct {
 	SessionID      string `json:"session_id"`      // Claude Code: session identifier
-	TranscriptPath string `json:"transcript_path"` // Gemini CLI: full path to transcript file
+	TranscriptPath string `json:"transcript_path"` // Codex: full path to transcript file
 	Source         string `json:"source"`          // Claude Code SessionStart source: startup|resume|clear|compact
 }
 
 // HookOutput represents the JSON output format for AI tool hooks.
-// This format is compatible with both Claude Code and Gemini CLI SessionStart hooks.
+// This format is compatible with Claude Code and Codex SessionStart hooks.
 type HookOutput struct {
 	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
 }
@@ -47,7 +47,7 @@ var hookInjectContextCmd = &cobra.Command{
 	Long: `Reads the context file (.ctxloom/context/<hash>.md) and outputs JSON suitable for
 AI tool SessionStart hooks.
 
-This command is invoked automatically by AI tools (Claude Code, Gemini CLI) during
+This command is invoked automatically by AI tools (Claude Code, Codex) during
 their SessionStart event to inject fresh context on startup, resume, or /clear.
 
 Arguments:

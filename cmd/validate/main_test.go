@@ -132,7 +132,7 @@ config:
 llm:
   configs:
     big:    { type: claude-code, model: opus }
-    g:      { type: gemini, model: gemini-pro }
+    g:      { type: antigravity, model: gemini-3-pro }
   defaults:
     primary: big
     fast: big

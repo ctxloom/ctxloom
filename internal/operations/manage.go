@@ -16,7 +16,7 @@ import (
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from
 // backend config files.
 type RemoveHooksRequest struct {
-	Backend string   `json:"backend"` // claude-code, gemini, or all
+	Backend string   `json:"backend"` // claude-code, antigravity, or all
 	FS      afero.Fs `json:"-"`       // Optional filesystem for testing
 	WorkDir string   `json:"-"`       // Optional work directory (defaults to git root)
 }

@@ -19,9 +19,9 @@ func TestPickDefaultEngine(t *testing.T) {
 		primary  []string
 		want     string
 	}{
-		{"explicit selection wins", "gemini", []string{"claude-code"}, "gemini"},
-		{"explicit wins even with empty primary", "gemini", nil, "gemini"},
-		{"first primary when none selected", "", []string{"claude-code", "gemini"}, "claude-code"},
+		{"explicit selection wins", "antigravity", []string{"claude-code"}, "antigravity"},
+		{"explicit wins even with empty primary", "antigravity", nil, "antigravity"},
+		{"first primary when none selected", "", []string{"claude-code", "antigravity"}, "claude-code"},
 		{"hardcoded fallback when nothing available", "", nil, "claude-code"},
 		{"hardcoded fallback with empty slice", "", []string{}, "claude-code"},
 	}
@@ -39,7 +39,7 @@ func TestPickDefaultEngine(t *testing.T) {
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "gemini"); err != nil {
+	if err := writeInitialConfig(appDir, "antigravity"); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -56,7 +56,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "gemini") {
+	if !strings.Contains(string(cfg), "antigravity") {
 		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
 	}
 
@@ -76,14 +76,14 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	if err := writeInitialConfig(appDir, "claude-code"); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "gemini"); err != nil {
+	if err := writeInitialConfig(appDir, "antigravity"); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "gemini") {
-		t.Errorf("second write should have overwritten engine to gemini; got:\n%s", cfg)
+	if !strings.Contains(string(cfg), "antigravity") {
+		t.Errorf("second write should have overwritten engine to antigravity; got:\n%s", cfg)
 	}
 }

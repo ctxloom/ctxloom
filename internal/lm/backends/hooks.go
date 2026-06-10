@@ -1,9 +1,9 @@
 package backends
 
 import (
+	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
@@ -53,8 +53,8 @@ var settingsWriterRegistry = map[string]func(*settingsOptions) SettingsWriter{
 	"claude-code": func(o *settingsOptions) SettingsWriter {
 		return claude.NewWriter(*o)
 	},
-	"gemini": func(o *settingsOptions) SettingsWriter { return gemini.NewWriter(*o) },
-	"codex":  func(o *settingsOptions) SettingsWriter { return codex.NewWriter(*o) },
+	"antigravity": func(o *settingsOptions) SettingsWriter { return antigravity.NewWriter(*o) },
+	"codex":       func(o *settingsOptions) SettingsWriter { return codex.NewWriter(*o) },
 }
 
 // newSettingsWriter constructs the named backend's writer from the resolved
@@ -83,5 +83,5 @@ func BackendsWithSettings() []string {
 
 // The per-agent settings-writer helpers (hook-hash, managed-command detection,
 // fs/atomic-write, ctxloom binary/args) now live in shared/agent and are used
-// directly by the claude/gemini/codex writer modules — the transitional wrappers
+// directly by the claude/antigravity/codex writer modules — the transitional wrappers
 // that used to bridge them here are gone.

@@ -72,5 +72,5 @@ func init() {
 
 	bundleDistillCmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
 	bundleDistillCmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
-	bundleDistillCmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, gemini-code, gemini-fast); overrides the configured default")
+	bundleDistillCmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default")
 }

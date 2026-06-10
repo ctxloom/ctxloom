@@ -26,7 +26,7 @@ version: 3
 llm:
   configs:
     big: { type: claude-code, model: opus }
-    g:   { type: gemini, model: gemini-2.5-pro, trust_workspace: true }
+    g:   { type: antigravity, model: gemini-3-pro }
   defaults:
     primary: big
     fast: big

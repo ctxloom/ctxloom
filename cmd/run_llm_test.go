@@ -15,15 +15,15 @@ func TestResolveRunLLM(t *testing.T) {
 	cfg := &config.Config{LM: config.LMConfig{
 		Configs: map[string]config.LLMConfig{
 			"claude-fast": {Type: "claude-code"},
-			"gemini-code": {Type: "gemini"},
+			"agy-code":    {Type: "antigravity"},
 		},
 		Defaults: config.RoleDefaults{Primary: "claude-fast"},
 	}}
 
 	t.Run("override wins over profile and primary", func(t *testing.T) {
-		got, err := resolveRunLLM(cfg, "gemini-code", "claude-fast")
+		got, err := resolveRunLLM(cfg, "agy-code", "claude-fast")
 		assert.NoError(t, err)
-		assert.Equal(t, "gemini-code", got)
+		assert.Equal(t, "agy-code", got)
 	})
 
 	t.Run("invalid override is a hard error", func(t *testing.T) {
@@ -33,9 +33,9 @@ func TestResolveRunLLM(t *testing.T) {
 	})
 
 	t.Run("profile llm used when no override", func(t *testing.T) {
-		got, err := resolveRunLLM(cfg, "", "gemini-code")
+		got, err := resolveRunLLM(cfg, "", "agy-code")
 		assert.NoError(t, err)
-		assert.Equal(t, "gemini-code", got)
+		assert.Equal(t, "agy-code", got)
 	})
 
 	t.Run("bad profile llm falls back to primary, no error", func(t *testing.T) {

@@ -18,13 +18,13 @@ func mapTestConfig() *config.Config {
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"claude-fast": {Type: "claude-code"},
-				"gemini-code": {Type: "gemini"},
+				"agy-code":    {Type: "antigravity"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"a": {LLM: "claude-fast", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
-			"b": {LLM: "gemini-code", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
+			"b": {LLM: "agy-code", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
 		}},
 	}
 }
@@ -64,9 +64,9 @@ func TestMapProfiles_OrderLabelingAndFaultTolerance(t *testing.T) {
 		assert.Contains(t, parts[1].Err, "nonexistent")
 		assert.Empty(t, parts[1].Output)
 
-		// Member b → gemini backend.
+		// Member b → antigravity backend.
 		assert.False(t, parts[2].Failed())
-		assert.Equal(t, "gemini", parts[2].Backend)
+		assert.Equal(t, "antigravity", parts[2].Backend)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestMapProfiles_Empty(t *testing.T) {
 func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := mapTestConfig()
-	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "gemini-code"}
+	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
 
 	factory := func(string, string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
 
@@ -116,10 +116,10 @@ func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	assert.Equal(t, "legacy", res.Parts[2].Profile)
 	assert.Equal(t, "old finding", res.Parts[2].Output)
 
-	// Synthesizer ran on its own llm (gemini) and produced the report.
+	// Synthesizer ran on its own llm (antigravity) and produced the report.
 	require.NotNil(t, res.Synthesizer)
 	assert.Equal(t, "synth", res.Synthesizer.Profile)
-	assert.Equal(t, "gemini", res.Synthesizer.Backend)
+	assert.Equal(t, "antigravity", res.Synthesizer.Backend)
 
 	// Report (echoed synthesis input) carries the framing + every labeled part.
 	assert.Contains(t, res.Report, "## Specialist outputs")

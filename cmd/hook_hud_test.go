@@ -19,7 +19,7 @@ func TestAgentSession_ModelName(t *testing.T) {
 		want string
 	}{
 		{"object_display_name", `{"display_name":"Claude Sonnet","id":"claude-x"}`, "Claude Sonnet"},
-		{"object_name", `{"name":"gemini-2.5-flash"}`, "gemini-2.5-flash"},
+		{"object_name", `{"name":"gemini-3-flash"}`, "gemini-3-flash"},
 		{"object_id_fallback", `{"id":"o3-mini"}`, "o3-mini"},
 		{"bare_string", `"gpt-5-codex"`, "gpt-5-codex"},
 		{"empty", ``, ""},

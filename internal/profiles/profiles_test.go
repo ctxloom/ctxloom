@@ -382,7 +382,7 @@ variables:
 func TestLoader_ResolveProfile_LLM(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	parent := "llm: gemini-code\nbundles:\n  - parent-bundle\n"
+	parent := "llm: agy-code\nbundles:\n  - parent-bundle\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
 
 	// Child overrides the parent's llm.
@@ -401,7 +401,7 @@ func TestLoader_ResolveProfile_LLM(t *testing.T) {
 
 	inheritorResolved, err := loader.ResolveProfile("inheritor", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "gemini-code", inheritorResolved.LLM, "child should inherit parent llm")
+	assert.Equal(t, "agy-code", inheritorResolved.LLM, "child should inherit parent llm")
 }
 
 // TestLoader_ResolveProfile_CircularReference verifies circular dependency detection.

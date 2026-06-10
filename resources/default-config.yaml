@@ -20,14 +20,9 @@ llm:
       type: claude-code
       model: claude-haiku-4-5-20251001
       role: fast
-    gemini-code:
-      type: gemini
-      model: gemini-2.5-pro
+    antigravity:
+      type: antigravity
       role: primary
-    gemini-fast:
-      type: gemini
-      model: gemini-2.5-flash
-      role: fast
   defaults:
     primary: claude-code
     fast: claude-fast

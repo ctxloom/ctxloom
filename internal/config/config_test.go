@@ -35,7 +35,7 @@ import (
 // IMPORTANT BEHAVIORS:
 // - Profile inheritance is depth-first, parents processed in order
 // - Hooks are deduplicated by command+matcher combination
-// - MCP servers can be scoped to specific backends (claude-code, gemini)
+// - MCP servers can be scoped to specific backends (claude-code, antigravity)
 // - Config is fault-tolerant: invalid entries warn but don't block startup
 //
 // =============================================================================
@@ -50,11 +50,11 @@ func TestGetDefaultLLM(t *testing.T) {
 	t.Run("resolves the primary label's backend type", func(t *testing.T) {
 		cfg := &Config{LM: LMConfig{
 			Configs: map[string]LLMConfig{
-				"big": {Type: "gemini", Body: map[string]interface{}{"model": "pro"}},
+				"big": {Type: "antigravity", Body: map[string]interface{}{"model": "pro"}},
 			},
 			Defaults: RoleDefaults{Primary: "big"},
 		}}
-		assert.Equal(t, "gemini", cfg.GetDefaultLLM())
+		assert.Equal(t, "antigravity", cfg.GetDefaultLLM())
 	})
 
 	t.Run("returns claude-code as fallback when no label resolves", func(t *testing.T) {
@@ -88,13 +88,13 @@ func TestFastLabel_FallsBackToPrimary(t *testing.T) {
 // unknown label degrades to the built-in default backend with no model.
 func TestResolveLLM(t *testing.T) {
 	cfg := &Config{LM: LMConfig{Configs: map[string]LLMConfig{
-		"g":    {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-pro"}},
+		"g":    {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 		"bare": {Type: "claude-code"},
 	}}}
 
 	backend, model := cfg.ResolveLLM("g")
-	assert.Equal(t, "gemini", backend)
-	assert.Equal(t, "gemini-2.5-pro", model)
+	assert.Equal(t, "antigravity", backend)
+	assert.Equal(t, "gemini-3-pro", model)
 
 	backend, model = cfg.ResolveLLM("bare")
 	assert.Equal(t, "claude-code", backend)
@@ -374,9 +374,9 @@ func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
 							Command: "child-claude-cmd",
 						},
 					},
-					"gemini": {
-						"gemini-server": {
-							Command: "gemini-cmd",
+					"antigravity": {
+						"antigravity-server": {
+							Command: "antigravity-cmd",
 						},
 					},
 				},
@@ -399,9 +399,9 @@ func TestResolveProfile_MCPBackendInheritance(t *testing.T) {
 		t.Error("expected child-claude-server to be present")
 	}
 
-	// Should have gemini server
-	if _, ok := resolved.MCP.Plugins["gemini"]["gemini-server"]; !ok {
-		t.Error("expected gemini-server to be present")
+	// Should have antigravity server
+	if _, ok := resolved.MCP.Plugins["antigravity"]["antigravity-server"]; !ok {
+		t.Error("expected antigravity-server to be present")
 	}
 }
 
@@ -934,7 +934,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 		LM: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
-				"fast": {Type: "gemini", Body: map[string]interface{}{"model": "haiku"}},
+				"fast": {Type: "antigravity", Body: map[string]interface{}{"model": "haiku"}},
 			},
 			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
 		},
@@ -948,7 +948,7 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "big", loaded.LM.Defaults.Primary)
 	assert.Equal(t, "fast", loaded.LM.Defaults.Fast)
-	assert.Equal(t, "gemini", loaded.GetCompactionLLM())
+	assert.Equal(t, "antigravity", loaded.GetCompactionLLM())
 	assert.Equal(t, "haiku", loaded.GetCompactionModel())
 	assert.Equal(t, 4096, loaded.GetCompactionChunkSize())
 	assert.Equal(t, "vim", loaded.Editor.Command)
@@ -1011,8 +1011,8 @@ profiles:
 
 // TestLoad_PreservesEnvKeyCase is a regression guard: the Load path must not
 // lowercase case-sensitive keys inside a backend's polymorphic Body. The previous
-// decoder (viper) lowercased every key, so `env: {GEMINI_API_KEY: ...}` reached the
-// launched process as `gemini_api_key` and the engine never saw its credential.
+// decoder (viper) lowercased every key, so `env: {SOME_API_KEY: ...}` reached the
+// launched process as `some_api_key` and the engine never saw its credential.
 // ParseConfig (init) was always correct, which masked the divergence.
 func TestLoad_PreservesEnvKeyCase(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -1023,24 +1023,24 @@ func TestLoad_PreservesEnvKeyCase(t *testing.T) {
 version: 3
 llm:
   configs:
-    gem:
-      type: gemini
+    agy:
+      type: antigravity
       env:
-        GEMINI_API_KEY: secret
+        SOME_API_KEY: secret
         Mixed_Case: x
   defaults:
-    primary: gem
+    primary: agy
 `
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	env, ok := cfg.LM.Configs["gem"].Body["env"].(map[string]any)
-	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.LM.Configs["gem"].Body["env"])
-	assert.Equal(t, "secret", env["GEMINI_API_KEY"], "uppercase env key must be preserved verbatim")
+	env, ok := cfg.LM.Configs["agy"].Body["env"].(map[string]any)
+	require.True(t, ok, "env should decode into Body as a map, got %#v", cfg.LM.Configs["agy"].Body["env"])
+	assert.Equal(t, "secret", env["SOME_API_KEY"], "uppercase env key must be preserved verbatim")
 	assert.Contains(t, env, "Mixed_Case")
-	assert.NotContains(t, env, "gemini_api_key", "env key must not be lowercased")
+	assert.NotContains(t, env, "some_api_key", "env key must not be lowercased")
 }
 
 func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
@@ -1050,7 +1050,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 
 	legacy := "# my config\n" +
 		"llm:\n  plugins:\n    claude-code:\n      model: opus\n" +
-		"defaults:\n  profiles:\n    - test\n  llm_plugin: gemini\n"
+		"defaults:\n  profiles:\n    - test\n  llm_plugin: antigravity\n"
 	cfgPath := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(legacy), 0644))
 
@@ -1058,7 +1058,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 
 	// In-memory config reflects the full v1→v2→v3 upgrade chain.
-	assert.Equal(t, "gemini", cfg.LM.Defaults.Primary, "llm_plugin → llm.defaults.primary")
+	assert.Equal(t, "antigravity", cfg.LM.Defaults.Primary, "llm_plugin → llm.defaults.primary")
 	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins → llm.configs")
 	assert.Equal(t, "claude-code", cfg.LM.Configs["claude-code"].Type, "v3 adds the type discriminator")
 	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Body["model"])
@@ -2224,10 +2224,10 @@ func TestGetDefaultLLMModel(t *testing.T) {
 func TestGetCompactionLLM(t *testing.T) {
 	t.Run("returns the fast role's backend", func(t *testing.T) {
 		cfg := &Config{LM: LMConfig{
-			Configs:  map[string]LLMConfig{"f": {Type: "gemini"}},
+			Configs:  map[string]LLMConfig{"f": {Type: "antigravity"}},
 			Defaults: RoleDefaults{Fast: "f"},
 		}}
-		assert.Equal(t, "gemini", cfg.GetCompactionLLM())
+		assert.Equal(t, "antigravity", cfg.GetCompactionLLM())
 	})
 
 	t.Run("falls back to the primary role when no fast role", func(t *testing.T) {

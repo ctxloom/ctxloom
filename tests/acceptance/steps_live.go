@@ -13,8 +13,8 @@ import (
 )
 
 // realHomeDir is the user's actual home, captured in TestMain before any
-// scenario overrides HOME. Used to locate ~/.claude and ~/.gemini for the
-// subscription-auth path.
+// scenario overrides HOME. Used to locate ~/.claude and ~/.gemini (where
+// Antigravity CLI keeps its auth) for the subscription-auth path.
 var realHomeDir string
 
 // liveAgent describes a real backend the @live suite can drive. The same
@@ -34,7 +34,7 @@ type liveAgent struct {
 	copyCreds func(realHome, fakeHome string)
 }
 
-// liveAgents maps the lowercased scenario token ("claude", "gemini") to its
+// liveAgents maps the lowercased scenario token ("claude", "antigravity") to its
 // backend wiring. Each uses a cheap model so the paid calls stay inexpensive.
 var liveAgents = map[string]liveAgent{
 	"claude": {
@@ -54,22 +54,24 @@ profiles:
 `,
 		copyCreds: copyClaudeCredentials,
 	},
-	"gemini": {
-		apiKeyEnvs: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-		credDir:    ".gemini",
+	// Antigravity CLI (agy) authenticates via OAuth only — there is no
+	// API-key env path — and stores its auth under ~/.gemini (shared with
+	// the retired Gemini CLI's directory layout). No model is pinned: agy's
+	// own configured default applies.
+	"antigravity": {
+		credDir: ".gemini",
 		config: `version: 3
 llm:
   configs:
-    gemini:
-      type: gemini
-      model: gemini-2.5-flash
+    antigravity:
+      type: antigravity
   defaults:
-    primary: gemini
-    fast: gemini
+    primary: antigravity
+    fast: antigravity
 profiles:
   defaults: []
 `,
-		copyCreds: copyGeminiCredentials,
+		copyCreds: copyAntigravityCredentials,
 	},
 }
 
@@ -104,7 +106,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// The gate-and-skip: every @live scenario starts here, so the hermetic run
 	// (which excludes @live) never touches credentials, and a credential-less
 	// live run skips rather than fails. The agent token comes from the Scenario
-	// Outline Examples table ("Claude", "Gemini").
+	// Outline Examples table ("Claude", "Antigravity").
 	ctx.Step(`^a real (\S+) agent is available$`, func(c context.Context, name string) error {
 		a, ok := liveAgents[strings.ToLower(name)]
 		if !ok {
@@ -285,20 +287,23 @@ func copyClaudeCredentials(realHome, fakeHome string) {
 	}
 }
 
-// copyGeminiCredentials copies just the auth-relevant files from the real
-// ~/.gemini into the isolated home, best effort — never the whole tree (which
-// holds the tmp transcript cache and command exports). oauth_creds.json and
-// google_accounts.json carry the subscription login; installation_id and
+// copyAntigravityCredentials copies just the auth-relevant files for
+// Antigravity CLI (agy) into the isolated home, best effort — never the whole
+// tree (which holds the brain conversation store and caches). agy keeps its
+// OAuth state under ~/.gemini and ~/.gemini/antigravity-cli: oauth_creds.json
+// and google_accounts.json carry the subscription login; installation_id and
 // settings.json keep the CLI out of its interactive first-run flow.
-func copyGeminiCredentials(realHome, fakeHome string) {
-	srcDir := filepath.Join(realHome, ".gemini")
-	dstDir := filepath.Join(fakeHome, ".gemini")
-	_ = os.MkdirAll(dstDir, 0o755)
-	for _, name := range []string{"oauth_creds.json", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
-		data, err := os.ReadFile(filepath.Join(srcDir, name))
-		if err != nil {
-			continue
+func copyAntigravityCredentials(realHome, fakeHome string) {
+	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
+		srcDir := filepath.Join(realHome, sub)
+		dstDir := filepath.Join(fakeHome, sub)
+		_ = os.MkdirAll(dstDir, 0o755)
+		for _, name := range []string{"oauth_creds.json", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
+			data, err := os.ReadFile(filepath.Join(srcDir, name))
+			if err != nil {
+				continue
+			}
+			_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
 		}
-		_ = os.WriteFile(filepath.Join(dstDir, name), data, 0o600)
 	}
 }

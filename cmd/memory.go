@@ -59,7 +59,7 @@ context window limits.
 Examples:
   ctxloom memory compact                    # Compact most recent session
   ctxloom memory compact --session abc123   # Compact specific session
-  ctxloom memory compact --model gemini     # Use specific model`,
+  ctxloom memory compact --model antigravity # Use specific model`,
 	RunE: runMemoryCompact,
 }
 

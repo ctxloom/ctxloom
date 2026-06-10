@@ -48,7 +48,7 @@ func TestBuildInjectContextOutput(t *testing.T) {
 		out := buildInjectContextOutput("anything", "", 1, 1)
 		require.NotNil(t, out.HookSpecificOutput)
 		assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName,
-			"hook event name MUST be SessionStart — Claude/Gemini route by this string")
+			"hook event name MUST be SessionStart — agent hook writers route by this string")
 	})
 }
 

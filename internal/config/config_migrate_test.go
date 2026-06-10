@@ -28,31 +28,31 @@ func llmMap(t *testing.T, root map[string]any) map[string]any {
 // assertions check the v3 end-state the whole chain produces.
 func TestConfigUpgrades_LLMRename(t *testing.T) {
 	t.Run("moves defaults.llm_plugin to llm.defaults.primary", func(t *testing.T) {
-		root, applied := runConfigUpgrades("defaults:\n  llm_plugin: gemini\n  use_distilled: true\n")
+		root, applied := runConfigUpgrades("defaults:\n  llm_plugin: antigravity\n  use_distilled: true\n")
 		require.NotEmpty(t, applied)
 
 		llm := llmMap(t, root)
 		defaults := llm["defaults"].(map[string]any)
-		assert.Equal(t, "gemini", defaults["primary"])
+		assert.Equal(t, "antigravity", defaults["primary"])
 		// use_distilled moved into the config block; defaults is gone.
 		assert.NotContains(t, root, "defaults")
 		assert.Equal(t, true, root["config"].(map[string]any)["use_distilled"])
 	})
 
 	t.Run("renames llm.plugins to llm.configs and stamps type", func(t *testing.T) {
-		root, applied := runConfigUpgrades("llm:\n  plugins:\n    claude-code: {}\n    gemini:\n      model: pro\n")
+		root, applied := runConfigUpgrades("llm:\n  plugins:\n    claude-code: {}\n    antigravity:\n      model: pro\n")
 		require.NotEmpty(t, applied)
 		llm := llmMap(t, root)
 		assert.NotContains(t, llm, "plugins")
 		configs := llm["configs"].(map[string]any)
 		assert.Equal(t, "claude-code", configs["claude-code"].(map[string]any)["type"])
-		gemini := configs["gemini"].(map[string]any)
-		assert.Equal(t, "gemini", gemini["type"])
-		assert.Equal(t, "pro", gemini["model"])
+		antigravity := configs["antigravity"].(map[string]any)
+		assert.Equal(t, "antigravity", antigravity["type"])
+		assert.Equal(t, "pro", antigravity["model"])
 	})
 
 	t.Run("preserves comments and 2-space indent", func(t *testing.T) {
-		in := "# top comment\nllm:\n  plugins:\n    claude-code: {}\ndefaults:\n  # keep me\n  use_distilled: true\n  llm_plugin: gemini\n"
+		in := "# top comment\nllm:\n  plugins:\n    claude-code: {}\ndefaults:\n  # keep me\n  use_distilled: true\n  llm_plugin: antigravity\n"
 		out, applied := configUpgrades.Run([]byte(in))
 		require.NotEmpty(t, applied)
 		assert.Contains(t, string(out), "# top comment")
@@ -69,11 +69,11 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 		"  default: claude-code\n" +
 		"  configs:\n" +
 		"    claude-code: {}\n" +
-		"    gemini:\n" +
-		"      model: gemini-2.5-pro\n" +
+		"    antigravity:\n" +
+		"      model: pro-model\n" +
 		"  compaction:\n" +
-		"    llm: gemini\n" +
-		"    model: gemini-2.5-flash\n" +
+		"    llm: antigravity\n" +
+		"    model: flash-model\n" +
 		"    chunks: 4096\n" +
 		"defaults:\n" +
 		"  profiles:\n" +
@@ -93,15 +93,15 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	defaults := llm["defaults"].(map[string]any)
 	assert.Equal(t, "claude-code", defaults["primary"])
 	// compaction.llm → defaults.fast
-	assert.Equal(t, "gemini", defaults["fast"])
+	assert.Equal(t, "antigravity", defaults["fast"])
 
 	// each config gains its type discriminator
 	configs := llm["configs"].(map[string]any)
 	assert.Equal(t, "claude-code", configs["claude-code"].(map[string]any)["type"])
-	gemini := configs["gemini"].(map[string]any)
-	assert.Equal(t, "gemini", gemini["type"])
+	antigravity := configs["antigravity"].(map[string]any)
+	assert.Equal(t, "antigravity", antigravity["type"])
 	// compaction.model folded onto the fast label's model
-	assert.Equal(t, "gemini-2.5-flash", gemini["model"])
+	assert.Equal(t, "flash-model", antigravity["model"])
 
 	// compaction block is gone
 	assert.NotContains(t, llm, "compaction")

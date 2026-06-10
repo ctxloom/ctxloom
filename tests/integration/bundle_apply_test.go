@@ -34,8 +34,10 @@ hooks:
 
 // applyHooksForProfile lays out an .ctxloom app dir with the demo bundle and the
 // given profiles, makes defaultProfile the active default, runs operations.ApplyHooks
-// against a fresh project dir, and returns the three written settings files.
-func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, geminiJSON, claudeJSON string) {
+// against a fresh project dir, and returns the written settings files
+// (Claude's .mcp.json, Antigravity's hooks.json + mcp_config.json, and
+// Claude's settings.json).
+func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, agyHooksJSON, agyMCPJSON, claudeJSON string) {
 	t.Helper()
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
@@ -64,7 +66,8 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	require.NoError(t, err)
 
 	return readOrEmpty(t, filepath.Join(projectDir, ".mcp.json")),
-		readOrEmpty(t, filepath.Join(projectDir, ".gemini", "settings.json")),
+		readOrEmpty(t, filepath.Join(projectDir, ".agents", "hooks.json")),
+		readOrEmpty(t, filepath.Join(projectDir, ".agents", "mcp_config.json")),
 		readOrEmpty(t, filepath.Join(projectDir, ".claude", "settings.json"))
 }
 
@@ -79,22 +82,23 @@ func readOrEmpty(t *testing.T, path string) string {
 }
 
 // assertBundleApplied checks the demo bundle's MCP server reached the Claude
-// (.mcp.json) and Gemini settings, and its hook reached the Claude settings.
-func assertBundleApplied(t *testing.T, mcpJSON, geminiJSON, claudeJSON string) {
+// (.mcp.json) and Antigravity (.agents/mcp_config.json) stores, and its hook
+// reached the Claude settings.
+func assertBundleApplied(t *testing.T, mcpJSON, agyMCPJSON, claudeJSON string) {
 	t.Helper()
 	assert.Contains(t, mcpJSON, "demo-server", "MCP server must land in .mcp.json")
 	assert.Contains(t, mcpJSON, "demo-mcp", "MCP server command must land in .mcp.json")
-	assert.Contains(t, geminiJSON, "demo-server", "MCP server must land in .gemini/settings.json")
+	assert.Contains(t, agyMCPJSON, "demo-server", "MCP server must land in .agents/mcp_config.json")
 	assert.Contains(t, claudeJSON, "demo-hook", "bundle hook must land in .claude/settings.json")
 }
 
 // TestBundleApply_DirectProfile: the demo bundle is referenced directly by the
 // default profile. Baseline that MCP + hooks flow through apply.
 func TestBundleApply_DirectProfile(t *testing.T) {
-	mcpJSON, geminiJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
+	mcpJSON, _, agyMCPJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
 	})
-	assertBundleApplied(t, mcpJSON, geminiJSON, claudeJSON)
+	assertBundleApplied(t, mcpJSON, agyMCPJSON, claudeJSON)
 }
 
 // TestBundleApply_InheritedProfile: the demo bundle is referenced only by a
@@ -102,24 +106,24 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 // spotty-unstirred-anatomist regression driven end-to-end through ApplyHooks:
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
-	mcpJSON, geminiJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
+	mcpJSON, _, agyMCPJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
 		"parent": "name: parent\nbundles:\n  - demo\n",
 		"child":  "name: child\nparents:\n  - parent\n",
 	})
-	assertBundleApplied(t, mcpJSON, geminiJSON, claudeJSON)
+	assertBundleApplied(t, mcpJSON, agyMCPJSON, claudeJSON)
 }
 
-// TestBundleApply_GeminiHookNestedSchema drives ApplyHooks end-to-end and asserts
-// the bundle's session_start hook reaches .gemini/settings.json in Gemini's
+// TestBundleApply_AntigravityHookNestedSchema drives ApplyHooks end-to-end and
+// asserts the bundle's session_start hook reaches .agents/hooks.json in agy's
 // required nested shape (event → [{hooks:[{type:"command", command}]}]). A flat
-// {command} object — the shape ctxloom emitted before — is silently ignored by
-// Gemini, so this is the contract that makes Gemini hooks actually fire. The
-// built-in `hook session-bind` hook (the recovery producer) must also be present.
-func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
-	_, geminiJSON, _ := applyHooksForProfile(t, "base", map[string]string{
+// {command} object is silently ignored by agy, so this is the contract that
+// makes Antigravity hooks actually fire. The built-in `hook session-bind` hook
+// (the recovery producer) must also be present.
+func TestBundleApply_AntigravityHookNestedSchema(t *testing.T) {
+	_, agyHooksJSON, _, _ := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
 	})
-	require.NotEmpty(t, geminiJSON, ".gemini/settings.json must be written")
+	require.NotEmpty(t, agyHooksJSON, ".agents/hooks.json must be written")
 
 	var settings struct {
 		Hooks map[string][]struct {
@@ -129,7 +133,7 @@ func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(geminiJSON), &settings))
+	require.NoError(t, json.Unmarshal([]byte(agyHooksJSON), &settings))
 
 	groups := settings.Hooks["SessionStart"]
 	require.NotEmpty(t, groups, "SessionStart must have hook groups in nested form")
@@ -138,7 +142,7 @@ func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
 	for _, g := range groups {
 		require.NotEmpty(t, g.Hooks, "each group must carry a nested hooks[] array")
 		for _, e := range g.Hooks {
-			assert.Equal(t, "command", e.Type, "every Gemini hook entry needs type:command")
+			assert.Equal(t, "command", e.Type, "every Antigravity hook entry needs type:command")
 			if strings.Contains(e.Command, "demo-hook") {
 				sawBundleHook = true
 			}
@@ -147,6 +151,6 @@ func TestBundleApply_GeminiHookNestedSchema(t *testing.T) {
 			}
 		}
 	}
-	assert.True(t, sawBundleHook, "bundle session_start hook must reach .gemini in nested form")
-	assert.True(t, sawSessionBind, "built-in `hook session-bind` (recovery producer) must reach .gemini")
+	assert.True(t, sawBundleHook, "bundle session_start hook must reach .agents/hooks.json in nested form")
+	assert.True(t, sawSessionBind, "built-in `hook session-bind` (recovery producer) must reach .agents/hooks.json")
 }

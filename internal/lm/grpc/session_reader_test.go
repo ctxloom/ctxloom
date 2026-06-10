@@ -16,7 +16,7 @@ func TestSessionReader_GetSession(t *testing.T) {
 			return &agent.Session{ID: id}, nil
 		},
 	}
-	r := NewSessionReaderWithFactory("gemini", 0, MockClientFactory(mock))
+	r := NewSessionReaderWithFactory("antigravity", 0, MockClientFactory(mock))
 
 	got, err := r.GetSession(context.Background(), "sess-1")
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestSessionReader_CurrentSession_ResolvesMostRecent(t *testing.T) {
 			return &agent.Session{ID: id}, nil
 		},
 	}
-	r := NewSessionReaderWithFactory("gemini", 0, MockClientFactory(mock))
+	r := NewSessionReaderWithFactory("antigravity", 0, MockClientFactory(mock))
 
 	got, err := r.CurrentSession(context.Background())
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestSessionReader_CurrentSession_Empty(t *testing.T) {
 	mock := &MockClient{
 		ListSessionsFunc: func(context.Context) ([]agent.SessionMeta, error) { return nil, nil },
 	}
-	r := NewSessionReaderWithFactory("gemini", 0, MockClientFactory(mock))
+	r := NewSessionReaderWithFactory("antigravity", 0, MockClientFactory(mock))
 
 	got, err := r.CurrentSession(context.Background())
 	require.NoError(t, err)
@@ -75,11 +75,11 @@ func TestSessionReader_CurrentSession_Empty(t *testing.T) {
 
 func TestSessionReader_DialFailureWrapped(t *testing.T) {
 	factory := func(string, string, int) (Client, error) { return nil, errors.New("spawn failed") }
-	r := NewSessionReaderWithFactory("gemini", 0, factory)
+	r := NewSessionReaderWithFactory("antigravity", 0, factory)
 
 	_, err := r.GetSession(context.Background(), "x")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "start gemini plugin")
+	assert.Contains(t, err.Error(), "start antigravity plugin")
 }
 
 func TestSessionReader_TearsDownOnRPCError(t *testing.T) {
@@ -88,7 +88,7 @@ func TestSessionReader_TearsDownOnRPCError(t *testing.T) {
 			return nil, errors.New("rpc boom")
 		},
 	}
-	r := NewSessionReaderWithFactory("gemini", 0, MockClientFactory(mock))
+	r := NewSessionReaderWithFactory("antigravity", 0, MockClientFactory(mock))
 
 	_, err := r.GetSession(context.Background(), "x")
 	require.Error(t, err)

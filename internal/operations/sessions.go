@@ -57,8 +57,8 @@ type PreviousSessionRef struct {
 //
 // This replaces the per-backend GetPreviousSession readers: ctxloom decides
 // WHICH session is previous (and which agent owns it); the agent server only
-// materializes a given id. Gemini in particular no longer needs the index, so it
-// stops importing internal/sessions.
+// materializes a given id. This also keeps agent modules from
+// importing internal/sessions.
 func ResolvePreviousSession(projectDir, activeHarp string) (*PreviousSessionRef, error) {
 	entries, err := ListSessionsForProject(projectDir)
 	if err != nil {

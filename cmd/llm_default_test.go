@@ -1,5 +1,5 @@
 // Plugin discovery tests verify that ctxloom correctly identifies built-in LM plugins
-// (claude-code, gemini, aider) and any user-configured plugins. This is essential
+// (claude-code, antigravity, codex) and any user-configured plugins. This is essential
 // for the `ctxloom run` command to know which backends are available for context injection.
 package cmd
 
@@ -21,8 +21,8 @@ func TestIsKnownLLM_BuiltIn(t *testing.T) {
 	if !isKnownLLM(cfg, "claude-code") {
 		t.Error("expected claude-code to be known")
 	}
-	if !isKnownLLM(cfg, "gemini") {
-		t.Error("expected gemini to be known")
+	if !isKnownLLM(cfg, "antigravity") {
+		t.Error("expected antigravity to be known")
 	}
 }
 
@@ -46,7 +46,7 @@ func TestAvailableLLMNames_IncludesBuiltIns(t *testing.T) {
 
 	expected := map[string]bool{
 		"claude-code": false,
-		"gemini":      false,
+		"antigravity": false,
 		"codex":       false,
 	}
 

@@ -2,7 +2,7 @@
 //
 // Hooks are the glue between ctxloom configuration and LLM backend settings files.
 // ApplyHooks transforms ctxloom's unified hook config into backend-specific formats
-// (e.g., .claude/settings.json, .gemini/settings.json) and regenerates context.
+// (e.g., .claude/settings.json, .agents/hooks.json) and regenerates context.
 //
 // # What ApplyHooks Does
 //
@@ -80,18 +80,18 @@ func TestApplyHooksRequest_ClaudeCode(t *testing.T) {
 	assert.Equal(t, "claude-code", req.Backend)
 }
 
-func TestApplyHooksRequest_Gemini(t *testing.T) {
+func TestApplyHooksRequest_Antigravity(t *testing.T) {
 	req := ApplyHooksRequest{
-		Backend: "gemini",
+		Backend: "antigravity",
 	}
 
-	assert.Equal(t, "gemini", req.Backend)
+	assert.Equal(t, "antigravity", req.Backend)
 }
 
 func TestApplyHooksResult_Fields(t *testing.T) {
 	result := ApplyHooksResult{
 		Status:      "applied",
-		Backends:    []string{"claude-code", "gemini"},
+		Backends:    []string{"claude-code", "antigravity"},
 		ContextHash: "abc123",
 	}
 
@@ -111,7 +111,7 @@ func TestApplyHooksResult_NoContextHash(t *testing.T) {
 }
 
 func TestApplyHooksRequest_BackendValues(t *testing.T) {
-	validBackends := []string{"all", "claude-code", "gemini", ""}
+	validBackends := []string{"all", "claude-code", "antigravity", ""}
 
 	for _, backend := range validBackends {
 		req := ApplyHooksRequest{
@@ -173,8 +173,8 @@ func TestWriteSettings_ClaudeCode(t *testing.T) {
 	assert.Contains(t, string(content), "SessionStart")
 }
 
-// TestWriteSettings_Gemini tests writing Gemini settings with FS injection.
-func TestWriteSettings_Gemini(t *testing.T) {
+// TestWriteSettings_Antigravity tests writing Antigravity hooks with FS injection.
+func TestWriteSettings_Antigravity(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	hooks := &wire.HooksConfig{
@@ -185,17 +185,17 @@ func TestWriteSettings_Gemini(t *testing.T) {
 		},
 	}
 
-	err := backends.WriteSettings("gemini", hooks, nil, nil, "/project",
+	err := backends.WriteSettings("antigravity", hooks, nil, nil, "/project",
 		backends.WithSettingsFS(fs))
 	require.NoError(t, err)
 
-	// Verify settings file was created
-	exists, err := afero.Exists(fs, "/project/.gemini/settings.json")
+	// Verify hooks file was created
+	exists, err := afero.Exists(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
-	assert.True(t, exists, ".gemini/settings.json should be created")
+	assert.True(t, exists, ".agents/hooks.json should be created")
 
 	// Read and verify content contains hooks
-	content, err := afero.ReadFile(fs, "/project/.gemini/settings.json")
+	content, err := afero.ReadFile(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "hooks")
 }
@@ -344,21 +344,21 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.NotContains(t, result.Backends, "gemini")
+	assert.NotContains(t, result.Backends, "antigravity")
 
 	// Verify Claude Code settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// Verify Gemini settings file was NOT created
-	exists, err = afero.Exists(fs, "/project/.gemini/settings.json")
+	// Verify Antigravity hooks file was NOT created
+	exists, err = afero.Exists(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
 
-// TestApplyHooks_GeminiOnly tests applying hooks to Gemini backend only.
-func TestApplyHooks_GeminiOnly(t *testing.T) {
+// TestApplyHooks_AntigravityOnly tests applying hooks to the Antigravity backend only.
+func TestApplyHooks_AntigravityOnly(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
 
@@ -375,7 +375,7 @@ func TestApplyHooks_GeminiOnly(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
-		Backend:      "gemini",
+		Backend:      "antigravity",
 		FS:           fs,
 		ExecPath:     "/usr/bin/ctxloom",
 		ConfigLoader: mockConfigLoader,
@@ -384,11 +384,11 @@ func TestApplyHooks_GeminiOnly(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Contains(t, result.Backends, "gemini")
+	assert.Contains(t, result.Backends, "antigravity")
 	assert.NotContains(t, result.Backends, "claude-code")
 
-	// Verify Gemini settings file was created
-	exists, err := afero.Exists(fs, "/project/.gemini/settings.json")
+	// Verify Antigravity hooks file was created
+	exists, err := afero.Exists(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
@@ -422,7 +422,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	assert.Equal(t, "applied", result.Status)
 	assert.Len(t, result.Backends, 3)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.Contains(t, result.Backends, "gemini")
+	assert.Contains(t, result.Backends, "antigravity")
 	assert.Contains(t, result.Backends, "codex")
 
 	// Verify each backend's settings file was created
@@ -430,7 +430,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	exists, err = afero.Exists(fs, "/project/.gemini/settings.json")
+	exists, err = afero.Exists(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 

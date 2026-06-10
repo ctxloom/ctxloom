@@ -45,13 +45,13 @@ func oneshotTestConfig() *config.Config {
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"claude-fast": {Type: "claude-code"},
-				"gemini-code": {Type: "gemini"},
+				"agy-code":    {Type: "antigravity"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"rev": {
-				LLM:       "gemini-code",
+				LLM:       "agy-code",
 				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
 			},
 		}},
@@ -77,10 +77,10 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Profile's llm (gemini-code) resolved to the gemini backend.
-	assert.Equal(t, "gemini-code", res.Label)
-	assert.Equal(t, "gemini", res.Backend)
-	assert.Equal(t, "gemini", gotBackend)
+	// Profile's llm (agy-code) resolved to the antigravity backend.
+	assert.Equal(t, "agy-code", res.Label)
+	assert.Equal(t, "antigravity", res.Backend)
+	assert.Equal(t, "antigravity", gotBackend)
 
 	// Output captured and trimmed.
 	assert.Equal(t, "REVIEW FINDINGS", res.Output)
@@ -95,13 +95,13 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 
 func TestResolveBackend(t *testing.T) {
 	cfg := &config.Config{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
-		"gemini-code": {Type: "gemini", Body: map[string]any{"model": "gemini-2.5-pro"}},
+		"agy-code": {Type: "antigravity", Body: map[string]any{"model": "gemini-3-pro"}},
 	}}}
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "gemini-code")
-		assert.Equal(t, "gemini", backend)
-		assert.Equal(t, "gemini-2.5-pro", model)
+		backend, model := ResolveBackend(cfg, "agy-code")
+		assert.Equal(t, "antigravity", backend)
+		assert.Equal(t, "gemini-3-pro", model)
 	})
 
 	t.Run("unknown non-backend label degrades to the default", func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {
 	}
 
 	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-		Profile: "rev", // declares gemini-code
+		Profile: "rev", // declares agy-code
 		Task:    "x",
 		LLM:     "claude-fast", // override wins
 		Loader:  loader,

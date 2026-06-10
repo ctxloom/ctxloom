@@ -1,10 +1,10 @@
 //go:build conformance
 
 // The cross-agent equity suite. Gated behind the `conformance` build tag (see
-// doc.go) and kept in its own package so it composes claude/gemini/codex without
+// doc.go) and kept in its own package so it composes claude/antigravity/codex without
 // touching their per-module test files — safe alongside concurrent work. Every
 // assertion goes through the public agent.SettingsWriter interface, so it is
-// format-agnostic (claude JSON, gemini JSON, codex TOML all pass the same suite).
+// format-agnostic (claude JSON, antigravity JSON, codex TOML all pass the same suite).
 package conformance
 
 import (
@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/wire"
 )
@@ -35,7 +35,7 @@ type agentCase struct {
 func agentCases() []agentCase {
 	return []agentCase{
 		{"claude-code", claude.NewWriter, `{"theme":"dark"}`, "dark"},
-		{"gemini", gemini.NewWriter, `{"theme":"dark"}`, "dark"},
+		{"antigravity", antigravity.NewWriter, `{"theme":"dark"}`, "dark"},
 		{"codex", codex.NewWriter, "model = \"o3\"\n", "o3"},
 	}
 }
@@ -106,7 +106,7 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 
 // TestConformance_HookEventCoverage: every unified hook event must reach the
 // settings file. (This is the assertion that catches a missing per-event mapping
-// like gemini's earlier absent PreShell/PostFileEdit.)
+// like an agent's absent PreShell/PostFileEdit mapping.)
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {

@@ -34,14 +34,14 @@ If no .ctxloom directory exists when running ctxloom commands, the user home ~/.
 is used as a fallback.
 
 When run interactively (TTY detected), init will guide you through:
-  1. Selecting an AI engine (claude-code, gemini, etc.)
+  1. Selecting an AI engine (claude-code, antigravity, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI to help discover and configure profiles
 
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
-  ctxloom init --engine gemini     # Pre-select engine
+  ctxloom init --engine antigravity # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts`,
 	RunE: runInit,
 }
@@ -68,7 +68,7 @@ func bindInitFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
 	cmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
+	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, antigravity, etc.)")
 	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
 	cmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 }
@@ -161,7 +161,7 @@ func isPrintableASCII(b byte) bool {
 }
 
 // primaryEngines are shown first in the selection menu (curated list).
-var primaryEngines = []string{"claude-code", "gemini"}
+var primaryEngines = []string{"claude-code", "antigravity"}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
@@ -546,7 +546,7 @@ func warnNoEnginesDetected() {
 	fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-	fmt.Fprintln(os.Stderr, "  gemini:       npm install -g @google/gemini-cli")
+	fmt.Fprintln(os.Stderr, "  antigravity:  curl -fsSL https://antigravity.google/cli/install.sh | bash")
 	fmt.Fprintln(os.Stderr, "  codex:        npm install -g @openai/codex")
 	fmt.Fprintln(os.Stderr, "")
 }

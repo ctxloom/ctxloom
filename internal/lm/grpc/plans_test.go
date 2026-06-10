@@ -73,7 +73,7 @@ func TestSessionReader_GetPlans(t *testing.T) {
 			return []agent.PlanFile{{Name: harp}}, nil
 		},
 	}
-	r := NewSessionReaderWithFactory("gemini", 0, MockClientFactory(mock))
+	r := NewSessionReaderWithFactory("antigravity", 0, MockClientFactory(mock))
 	got, err := r.GetPlans(context.Background(), "h1")
 	require.NoError(t, err)
 	require.Len(t, got, 1)

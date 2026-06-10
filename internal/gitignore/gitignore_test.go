@@ -38,13 +38,13 @@ func TestEnsure_AppendsOnlyMissingPatterns(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("node_modules/\n.ctxloom/ephemeral/\n"), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".ctxloom/ephemeral/", ".gemini/"))
+	require.NoError(t, Ensure(dir, testComment, ".ctxloom/ephemeral/", ".agents/"))
 
 	got := readGitignore(t, dir)
 	// The already-present pattern is not duplicated.
 	assert.Equal(t, 1, countOccurrences(got, ".ctxloom/ephemeral/"))
 	// The missing pattern is appended.
-	assert.Contains(t, got, ".gemini/")
+	assert.Contains(t, got, ".agents/")
 	// User content is preserved.
 	assert.Contains(t, got, "node_modules/")
 }
@@ -52,10 +52,10 @@ func TestEnsure_AppendsOnlyMissingPatterns(t *testing.T) {
 func TestEnsure_NoMissingPatternsLeavesFileUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
-	original := "node_modules/\n.gemini/\n"
+	original := "node_modules/\n.agents/\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".gemini/"))
+	require.NoError(t, Ensure(dir, testComment, ".agents/"))
 
 	assert.Equal(t, original, readGitignore(t, dir))
 }
@@ -74,20 +74,20 @@ func TestEnsure_InsertsSeparatorWhenFileLacksTrailingNewline(t *testing.T) {
 	path := filepath.Join(dir, ".gitignore")
 	require.NoError(t, os.WriteFile(path, []byte("node_modules/"), 0644))
 
-	require.NoError(t, Ensure(dir, testComment, ".gemini/"))
+	require.NoError(t, Ensure(dir, testComment, ".agents/"))
 
 	got := readGitignore(t, dir)
 	// The pre-existing line stays intact on its own line.
 	assert.Contains(t, got, "node_modules/\n")
-	assert.Contains(t, got, ".gemini/")
+	assert.Contains(t, got, ".agents/")
 }
 
 func TestEnsure_IsIdempotentAcrossRuns(t *testing.T) {
 	dir := t.TempDir()
 
-	require.NoError(t, Ensure(dir, testComment, ".gemini/", "*.ctxloom.bak"))
+	require.NoError(t, Ensure(dir, testComment, ".agents/", "*.ctxloom.bak"))
 	first := readGitignore(t, dir)
-	require.NoError(t, Ensure(dir, testComment, ".gemini/", "*.ctxloom.bak"))
+	require.NoError(t, Ensure(dir, testComment, ".agents/", "*.ctxloom.bak"))
 	second := readGitignore(t, dir)
 
 	assert.Equal(t, first, second)

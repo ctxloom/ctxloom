@@ -31,7 +31,7 @@ func fixtureConfig() *config.Config {
 	cfg.Settings.CompactionChunks = 8000
 	cfg.LM.Defaults.Primary = "big"
 	cfg.LM.Configs = map[string]config.LLMConfig{
-		"big": {Type: "gemini", Body: map[string]interface{}{"model": "gemini-2.5-pro"}},
+		"big": {Type: "antigravity", Body: map[string]interface{}{"model": "gemini-3-pro"}},
 	}
 	cfg.MCP.Servers = map[string]wire.MCPServer{
 		"fs": {Command: "mcp-fs"},
@@ -48,7 +48,7 @@ func TestResolveConfigSection_KnownSections(t *testing.T) {
 		contains string // substring expected in the marshaled YAML
 	}{
 		{"config", "config", "compaction_chunks"},
-		{"llm", "llm", "gemini-2.5-pro"},
+		{"llm", "llm", "gemini-3-pro"},
 		{"mcp", "mcp", "mcp-fs"},
 		{"profiles", "profiles", "developer"},
 	}

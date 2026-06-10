@@ -97,7 +97,7 @@ degrades to a one-line warning, never a broken session:
 - [**taskloom**](https://github.com/ctxloom/taskloom) — per-project task
   tracking: an append-only task log with a CLI and an MCP server
   (`task_list`/`task_add`/`task_set_status`/`task_edit`). Standalone use:
-  `taskloom manage install` registers it with Claude Code, Gemini, or Codex
+  `taskloom manage install` registers it with Claude Code, Antigravity, or Codex
   directly.
 - [**llm-tool-killer (`ltk`)**](https://github.com/ctxloom/llm-tool-killer) —
   a pre-tool hook that redirects commands you'd rather the agent not run

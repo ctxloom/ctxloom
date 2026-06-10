@@ -80,7 +80,7 @@ func TestSessionMetaRoundTrip(t *testing.T) {
 
 func TestGRPCServer_GetSession_DelegatesToHistory(t *testing.T) {
 	hist := &fakeHistory{session: &agent.Session{ID: "sess-9", Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "x"}}}}
-	srv := &GRPCServer{Impl: &fakeBackend{name: "gemini", history: hist}}
+	srv := &GRPCServer{Impl: &fakeBackend{name: "antigravity", history: hist}}
 
 	out, err := srv.GetSession(context.Background(), &GetSessionRequest{SessionId: "sess-9"})
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestGRPCServer_GetSession_NoHistory(t *testing.T) {
 
 func TestGRPCServer_ListSessions_DelegatesToHistory(t *testing.T) {
 	hist := &fakeHistory{metas: []agent.SessionMeta{{ID: "a"}, {ID: "b"}}}
-	srv := &GRPCServer{Impl: &fakeBackend{name: "gemini", history: hist}}
+	srv := &GRPCServer{Impl: &fakeBackend{name: "antigravity", history: hist}}
 
 	out, err := srv.ListSessions(context.Background(), &ListSessionsRequest{})
 	require.NoError(t, err)

@@ -20,7 +20,7 @@ type ConfigLoaderFunc func() (*config.Config, error)
 
 // ApplyHooksRequest contains parameters for applying hooks.
 type ApplyHooksRequest struct {
-	Backend           string           `json:"backend"`            // claude-code, gemini, or all
+	Backend           string           `json:"backend"`            // claude-code, antigravity, or all
 	RegenerateContext bool             `json:"regenerate_context"` // Also regenerate context file
 	FS                afero.Fs         `json:"-"`                  // Optional filesystem for testing
 	ExecPath          string           `json:"-"`                  // Optional executable path for testing
@@ -84,7 +84,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	}
 
 	// Self-heal the transient-artifact ignores (settings backups, generated
-	// .gemini/) so they stay covered after any hook apply, not just at init.
+	// .agents/) so they stay covered after any hook apply, not just at init.
 	// Skipped when a test FS is injected — the os-based writer would miss it.
 	if req.FS == nil {
 		if gitErr := gitignore.Ensure(workDir, gitignore.Comment, gitignore.TransientArtifactPatterns...); gitErr != nil {

@@ -58,37 +58,41 @@ func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, RemoveSettings("claude-code", "/empty", WithSettingsFS(fs)))
-	require.NoError(t, RemoveSettings("gemini", "/empty", WithSettingsFS(fs)))
+	require.NoError(t, RemoveSettings("antigravity", "/empty", WithSettingsFS(fs)))
 
 	// Uninstall must never create config files.
 	exists, _ := afero.Exists(fs, "/empty/.claude/settings.json")
 	assert.False(t, exists)
-	exists, _ = afero.Exists(fs, "/empty/.gemini/settings.json")
+	exists, _ = afero.Exists(fs, "/empty/.agents/hooks.json")
+	assert.False(t, exists)
+	exists, _ = afero.Exists(fs, "/empty/.agents/mcp_config.json")
 	assert.False(t, exists)
 }
 
-func TestGeminiRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
+func TestAntigravityRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const dir = "/project"
 
-	require.NoError(t, fs.MkdirAll(dir+"/.gemini", 0755))
-	userSettings := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
-	require.NoError(t, afero.WriteFile(fs, dir+"/.gemini/settings.json", []byte(userSettings), 0644))
+	// Seed a user-owned MCP server in agy's dedicated mcp_config.json that
+	// ctxloom must not touch.
+	require.NoError(t, fs.MkdirAll(dir+"/.agents", 0755))
+	userMCP := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
+	require.NoError(t, afero.WriteFile(fs, dir+"/.agents/mcp_config.json", []byte(userMCP), 0644))
 
-	require.NoError(t, WriteSettings("gemini", ctxloomManagedHooks(), nil, nil, dir, WithSettingsFS(fs)))
+	require.NoError(t, WriteSettings("antigravity", ctxloomManagedHooks(), nil, nil, dir, WithSettingsFS(fs)))
 
-	before, err := BackendStatus("gemini", dir, WithSettingsFS(fs))
+	before, err := BackendStatus("antigravity", dir, WithSettingsFS(fs))
 	require.NoError(t, err)
 	require.True(t, before.HooksPresent, "ctxloom hooks should be wired")
 
-	require.NoError(t, RemoveSettings("gemini", dir, WithSettingsFS(fs)))
+	require.NoError(t, RemoveSettings("antigravity", dir, WithSettingsFS(fs)))
 
-	after, err := BackendStatus("gemini", dir, WithSettingsFS(fs))
+	after, err := BackendStatus("antigravity", dir, WithSettingsFS(fs))
 	require.NoError(t, err)
 	assert.False(t, after.Wired())
 
-	settings := readJSON(t, fs, dir+"/.gemini/settings.json")
-	assert.Contains(t, mustMarshal(t, settings), "user-server")
+	mcp := readJSON(t, fs, dir+"/.agents/mcp_config.json")
+	assert.Contains(t, mustMarshal(t, mcp), "user-server")
 }
 
 func TestBackendStatus_UnsupportedBackendIsUnwired(t *testing.T) {

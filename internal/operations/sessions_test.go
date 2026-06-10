@@ -12,7 +12,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 	// Entries arrive most-recent-first; the active harp ("self") is index 0.
 	entries := []sessions.Entry{
 		{HarpName: "self", SessionID: "s-self", Backend: "claude-code"},
-		{HarpName: "prev", SessionID: "s-prev", Backend: "gemini"},
+		{HarpName: "prev", SessionID: "s-prev", Backend: "antigravity"},
 		{HarpName: "old", SessionID: "s-old", Backend: "claude-code"},
 	}
 
@@ -20,7 +20,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 		ref := selectPreviousEntry(entries, "self")
 		require.NotNil(t, ref)
 		assert.Equal(t, "s-prev", ref.SessionID)
-		assert.Equal(t, "gemini", ref.Backend, "agent-of-origin must come through for cross-agent handoff")
+		assert.Equal(t, "antigravity", ref.Backend, "agent-of-origin must come through for cross-agent handoff")
 	})
 
 	t.Run("skips entries not yet bound to a session id", func(t *testing.T) {

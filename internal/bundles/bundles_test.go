@@ -570,18 +570,18 @@ func TestWithFS(t *testing.T) {
 	assert.Equal(t, dirs, loader.searchDirs)
 }
 
-func TestGeminiConfig_IsEnabled(t *testing.T) {
+func TestAntigravityConfig_IsEnabled(t *testing.T) {
 	trueBool := true
 	falseBool := false
 
 	tests := []struct {
 		name   string
-		config GeminiConfig
+		config AntigravityConfig
 		want   bool
 	}{
-		{"nil enabled (default true)", GeminiConfig{}, true},
-		{"explicitly enabled", GeminiConfig{Enabled: &trueBool}, true},
-		{"explicitly disabled", GeminiConfig{Enabled: &falseBool}, false},
+		{"nil enabled (default true)", AntigravityConfig{}, true},
+		{"explicitly enabled", AntigravityConfig{Enabled: &trueBool}, true},
+		{"explicitly disabled", AntigravityConfig{Enabled: &falseBool}, false},
 	}
 
 	for _, tt := range tests {

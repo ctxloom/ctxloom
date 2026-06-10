@@ -262,7 +262,7 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 		AppPaths: []string{testBaseDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
-				LLM:       "gemini-code",
+				LLM:       "agy-code",
 				Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}},
 			},
 			"plain": {
@@ -273,7 +273,7 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 
 	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Loader: loader})
 	require.NoError(t, err)
-	assert.Equal(t, "gemini-code", withLLM.ProfileLLM)
+	assert.Equal(t, "agy-code", withLLM.ProfileLLM)
 
 	withoutLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Loader: loader})
 	require.NoError(t, err)

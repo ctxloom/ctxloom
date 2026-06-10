@@ -14,7 +14,7 @@ Feature: LLM backends
 
   Scenario: Set the default backend
     Given an initialized ctxloom project
-    When I run "ctxloom llm default gemini"
+    When I run "ctxloom llm default antigravity"
     Then the command succeeds
     When I run "ctxloom llm default"
-    Then the output contains "gemini"
+    Then the output contains "antigravity"

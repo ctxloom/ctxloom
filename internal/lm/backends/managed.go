@@ -51,8 +51,8 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 	switch backendName {
 	case "claude-code":
 		return claudeExports(prompts)
-	case "gemini":
-		return geminiExports(prompts)
+	case "antigravity":
+		return antigravityExports(prompts)
 	case "codex":
 		return codexExports(prompts)
 	default:

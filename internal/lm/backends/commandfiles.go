@@ -3,10 +3,10 @@ package backends
 import (
 	"strings"
 
+	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 )
 
@@ -15,14 +15,14 @@ import (
 // WriteSettings): it lives in the wiring layer because it maps ctxloom's bundle
 // content to the agent-agnostic agent.CommandExport for the target backend —
 // resolving that backend's enablement + metadata — so the per-agent writers
-// (claude.WriteCommandFiles, gemini.WriteCommandFiles) never import bundles.
-// Unsupported backends silently succeed.
+// (claude.WriteCommandFiles, antigravity.WriteCommandFiles) never import
+// bundles. Unsupported backends silently succeed.
 func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...agent.CommandFileOption) error {
 	switch backendName {
 	case "claude-code":
 		return claude.WriteCommandFiles(workDir, claudeExports(prompts), opts...)
-	case "gemini":
-		return gemini.WriteCommandFiles(workDir, geminiExports(prompts), opts...)
+	case "antigravity":
+		return antigravity.WriteCommandFiles(workDir, antigravityExports(prompts), opts...)
 	case "codex":
 		return codex.WriteCommandFiles(workDir, codexExports(prompts), opts...)
 	default:
@@ -50,18 +50,18 @@ func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return out
 }
 
-// geminiExports maps loaded bundle content to Gemini command exports, resolving
-// the gemini per-prompt LLM export config.
-func geminiExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+// antigravityExports maps loaded bundle content to Antigravity command
+// exports, resolving the antigravity per-prompt LLM export config.
+func antigravityExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	names := exportNames(prompts)
 	out := make([]agent.CommandExport, 0, len(prompts))
 	for _, p := range prompts {
-		g := p.LLM.Gemini
+		a := p.LLM.Antigravity
 		out = append(out, agent.CommandExport{
 			Name:        names[p.Name],
 			Content:     p.Content,
-			Enabled:     g.IsEnabled(),
-			Description: g.Description,
+			Enabled:     a.IsEnabled(),
+			Description: a.Description,
 		})
 	}
 	return out

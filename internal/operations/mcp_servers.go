@@ -137,7 +137,7 @@ type AddMCPServerRequest struct {
 	Name         string   `json:"name"`
 	Command      string   `json:"command"`
 	Args         []string `json:"args"`
-	Backend      string   `json:"backend"`      // unified, claude-code, gemini
+	Backend      string   `json:"backend"`      // unified, claude-code, antigravity
 	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
 	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
 
@@ -260,7 +260,7 @@ func saveMCPConfig(cfg *config.Config, testConfig *config.Config) error {
 // RemoveMCPServerRequest contains parameters for removing an MCP server.
 type RemoveMCPServerRequest struct {
 	Name    string `json:"name"`
-	Backend string `json:"backend"` // unified, claude-code, gemini, or empty for all
+	Backend string `json:"backend"` // unified, claude-code, antigravity, or empty for all
 
 	// TestConfig is an optional pre-loaded config (for testing).
 	// When set, skips config.Load() and Save(), returning modified config in result.

@@ -240,12 +240,10 @@
           "additionalProperties": false
         },
         {
-          "title": "gemini",
+          "title": "antigravity",
           "properties": {
-            "type": { "const": "gemini" },
-            "model": { "type": "string", "examples": ["gemini-2.5-pro", "gemini-2.5-flash"] },
-            "trust_workspace": { "type": "boolean" },
-            "approval_mode": { "type": "string" },
+            "type": { "const": "antigravity" },
+            "model": { "type": "string", "examples": ["gemini-3-pro"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }

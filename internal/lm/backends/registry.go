@@ -3,9 +3,9 @@ package backends
 import (
 	"os/exec"
 
+	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
-	"github.com/ctxloom/gemini"
 	"github.com/ctxloom/shared/agent"
 )
 
@@ -90,13 +90,13 @@ func init() {
 		return decodeBody(body, &claude.ClaudeConfig{})
 	})
 
-	Register("gemini", func() agent.Backend {
-		b := gemini.NewGemini(WriteSettings)
+	Register("antigravity", func() agent.Backend {
+		b := antigravity.NewAntigravity(WriteSettings)
 		b.SetLauncher(RunLaunchSpec)
 		return b
 	})
-	RegisterConfig("gemini", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &gemini.GeminiConfig{})
+	RegisterConfig("antigravity", func(body map[string]interface{}) (agent.BackendConfig, error) {
+		return decodeBody(body, &antigravity.AntigravityConfig{})
 	})
 
 	Register("codex", func() agent.Backend {

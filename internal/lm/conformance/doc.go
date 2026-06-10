@@ -1,5 +1,5 @@
 // Package conformance holds the cross-agent equity suite: table-driven tests
-// asserting every supported agent's SettingsWriter (claude/gemini/codex) honors
+// asserting every supported agent's SettingsWriter (claude/antigravity/codex) honors
 // the shared contract — fault-tolerant load, atomic write + backup, full
 // hook-event coverage, MCP auto-register, and managed removal that preserves the
 // user's own settings.

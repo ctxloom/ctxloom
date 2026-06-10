@@ -69,7 +69,7 @@ func bindInitFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	cmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
 	cmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, gemini, aider, etc.)")
-	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a remote (owner/repo or URL); repeatable")
+	cmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
 	cmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 }
 
@@ -302,6 +302,8 @@ func (p *initPrompts) promptAllEngines(primary, secondary []string) (string, err
 
 // promptPersonalRepos optionally asks for one or more personal ctxloom repos.
 // Returns the repos in entry order; an empty slice if the user has none.
+// The trust consequence is stated BEFORE entry, not after: adding a repo here
+// marks it trusted, and the user must know that while deciding what to type.
 func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 	fmt.Print("\nDo you have any personal ctxloom repositories? (y/N): ")
 	input, err := p.readCleanLine()
@@ -314,6 +316,9 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 		return nil, nil
 	}
 
+	fmt.Println("Repos you add here are marked TRUSTED: their bundle changes apply on pull")
+	fmt.Println("without a review prompt. Only add repos you control or trust; revoke any")
+	fmt.Println("time with `ctxloom remote untrust <name>`.")
 	fmt.Println("Enter GitHub repos (e.g., 'myuser/ctxloom-profiles'), one per line. Blank line when done.")
 	var repos []string
 	for {
@@ -488,6 +493,8 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
 	fmt.Printf("Default AI engine: %s\n", engine)
+	fmt.Println("Seeded remote \"ctxloom-default\" (official curated repo, trusted — its bundle")
+	fmt.Println("changes apply on pull without review; revoke with: ctxloom remote untrust ctxloom-default)")
 
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.

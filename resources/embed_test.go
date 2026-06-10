@@ -101,6 +101,11 @@ func TestGetDefaultRemotes(t *testing.T) {
 	if !strings.Contains(string(data), "ctxloom-default") {
 		t.Error("default-remotes.yaml should declare the ctxloom-default remote")
 	}
+	// The official curated repo ships trusted so a fresh init runs without a
+	// review gate — a deliberate, security-relevant default worth pinning.
+	if !strings.Contains(string(data), "trust_bundles: true") {
+		t.Error("default-remotes.yaml should mark ctxloom-default as trusted")
+	}
 }
 
 func TestGetBuiltinBundle(t *testing.T) {

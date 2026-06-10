@@ -2,5 +2,9 @@
 # Pre-configured remotes for common ctxloom bundles and profiles
 
 remotes:
+  # The official curated repo ships trusted: its bundle changes apply on pull
+  # without a review prompt, so a fresh init runs out of the box. Revoke with:
+  # ctxloom remote untrust ctxloom-default
   ctxloom-default:
     url: https://github.com/ctxloom/ctxloom-default
+    trust_bundles: true

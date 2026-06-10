@@ -21,10 +21,13 @@ ctxloom organizes context into reusable **bundles** that can be:
 ## Quick Start
 
 ```bash
-# Install — macOS (Homebrew)
-brew install ctxloom/tap/ctxloom-full   # full build (tree-sitter); use ctxloom for the lighter build
+# Install — macOS (Homebrew): ctxloom + companions (taskloom, ltk)
+brew install ctxloom/tap/{ctxloom-full,taskloom,ltk}   # ctxloom instead of ctxloom-full for the lighter build
 
-# Install — Linux / Windows (script)
+# Install — Linux / Windows (script): installs companions too (--no-companions to skip)
+# Note: script installs are unsigned binaries — macOS/Windows may need a trust
+# step; see https://ctxloom.dev/getting-started/binary-trust. On macOS, pass
+# `--brew` (… | bash -s -- --brew) to delegate to Homebrew and skip that entirely.
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
 
 # Initialize a project
@@ -84,9 +87,37 @@ See [CLI Reference](docs/cli-reference.md) for complete documentation.
 - [Environment Variables](docs/environment.md)
 - [Contributing](https://ctxloom.dev/contributing)
 
-## Related projects
+## Bundled companions
 
-- [**llm-tool-killer (`ltk`)**](https://github.com/ctxloom/llm-tool-killer) — a small static binary that hooks an AI coding agent's pre-tool step and redirects commands you'd rather it not run (e.g. `go test` → "use the task runner" → the agent retries `just test`). Pairs well with ctxloom: ctxloom shapes the *context* the agent sees, ltk guides the *commands* it runs.
+ctxloom ships with two standalone companion tools, delivered by the install
+script and brew (each also installs on its own). ctxloom's built-in bundles
+wire them into your agent **when the binary is on PATH** — a missing companion
+degrades to a one-line warning, never a broken session:
+
+- [**taskloom**](https://github.com/ctxloom/taskloom) — per-project task
+  tracking: an append-only task log with a CLI and an MCP server
+  (`task_list`/`task_add`/`task_set_status`/`task_edit`). Standalone use:
+  `taskloom manage install` registers it with Claude Code, Gemini, or Codex
+  directly.
+- [**llm-tool-killer (`ltk`)**](https://github.com/ctxloom/llm-tool-killer) —
+  a pre-tool hook that redirects commands you'd rather the agent not run
+  (e.g. `go test` → "use the task runner" → the agent retries `just test`).
+  ctxloom registers the hook; rules are opt-in per project via
+  `.ltk/config.yaml` (without one, ltk allows everything). Standalone use:
+  `ltk manage install`.
+
+What works with what:
+
+| Installed | You get |
+|---|---|
+| ctxloom only | Context assembly, profiles, remotes — task tools and command redirects disabled (warned once) |
+| + taskloom | `task_*` MCP tools in every backend, `taskloom` CLI, `ctxloom run --seed-task` |
+| + ltk | Pre-tool command redirects per project rules |
+| taskloom/ltk without ctxloom | Each fully works standalone; self-register with `<tool> manage install` |
+
+Opt out at install time: `--no-taskloom`, `--no-ltk`, `--no-companions`
+(script) or just don't `brew install` them. Check wiring anytime:
+`ctxloom manage status`.
 
 ## Development
 

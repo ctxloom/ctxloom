@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/filelock"
-	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/shared/filelock"
+	"github.com/ctxloom/shared/iox"
 	"github.com/ctxloom/shared/wire"
 )
 

@@ -13,4 +13,5 @@ use (
 	./ctxloom/main
 	./gemini/main
 	./shared/main
+	./taskloom/main
 )

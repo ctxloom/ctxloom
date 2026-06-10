@@ -31,10 +31,27 @@ Homebrew casks are macOS-only. On Linux or Windows, use the install script or ma
 
 ## Quick Install (Recommended)
 
+:::note[Unsigned binaries]
+Script and manual installs place **unsigned binaries** — macOS Gatekeeper or
+Windows SmartScreen may require a one-time trust step. The script clears
+macOS quarantine automatically where it can; if anything is still blocked,
+see [Trusting the Binaries](/getting-started/binary-trust/). Homebrew
+installs never need this — pass `--brew` to the script to delegate to brew.
+:::
+
 ### macOS / Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash
+```
+
+The script also installs the companions [taskloom](https://github.com/ctxloom/taskloom)
+and [ltk](https://github.com/ctxloom/llm-tool-killer) (opt out:
+`--no-companions`, `--no-taskloom`, `--no-ltk`). With Homebrew available,
+delegate the whole install to brew — no unsigned-binary trust steps:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.sh | bash -s -- --brew
 ```
 
 Or download and review first (recommended for the security-conscious):

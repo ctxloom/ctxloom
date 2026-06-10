@@ -224,14 +224,15 @@ test-acceptance-live-container: container-build-acceptance
     # tree has mixed perms (some 0600 files) it could not otherwise read; staging
     # + a+rX avoids mutating your tree.
     # Stage the org-mirror layout (go.work + ctxloom + shared + claude + gemini +
-    # codex) so the runtime build resolves the sibling modules from local source
-    # via go.work.
-    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main" "$staging/src/codex/main"
+    # codex + taskloom) so the runtime build resolves the sibling modules from local
+    # source via go.work.
+    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main" "$staging/src/codex/main" "$staging/src/taskloom/main"
     tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src/ctxloom/main"
     ( cd ../../shared/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/shared/main"
     ( cd ../../claude/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/claude/main"
     ( cd ../../gemini/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/gemini/main"
     ( cd ../../codex/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/codex/main"
+    ( cd ../../taskloom/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/taskloom/main"
     cp go.work.container "$staging/src/go.work"
     # Materialize a COMPLETE go.work.sum for the staged workspace. The in-container
     # build runs offline against a read-only /workspace + read-only module cache,
@@ -642,13 +643,14 @@ _run +ARGS:
             user_flag=()
         fi
         # Mount the org-mirror layout so go.work resolves sibling modules
-        # (shared, claude, gemini, codex) from local source. ctxloom is the writable
+        # (shared, claude, gemini, codex, taskloom) from local source. ctxloom is the writable
         # build target; the siblings are read-only. go.work.container is overlaid as
         # the root go.work, found by walking up from the ctxloom module.
         shared_dir="$(cd ../../shared/main && pwd)"
         claude_dir="$(cd ../../claude/main && pwd)"
         gemini_dir="$(cd ../../gemini/main && pwd)"
         codex_dir="$(cd ../../codex/main && pwd)"
+        tasks_dir="$(cd ../../taskloom/main && pwd)"
         # Reuse the host module cache (read-only) and keep Go's writable caches
         # in the container tmpdir. Without this, HOME/GOCACHE resolve under the
         # cwd and the build spills a .cache/ into the source tree (and re-downloads
@@ -666,6 +668,7 @@ _run +ARGS:
             -v "$claude_dir:/workspace/claude/main:ro" \
             -v "$gemini_dir:/workspace/gemini/main:ro" \
             -v "$codex_dir:/workspace/codex/main:ro" \
+            -v "$tasks_dir:/workspace/taskloom/main:ro" \
             -v "$(pwd)/go.work.container:/workspace/go.work:ro" \
             -v "$(pwd)/justfile.container:/workspace/ctxloom/main/justfile:ro" \
             -w /workspace/ctxloom/main \

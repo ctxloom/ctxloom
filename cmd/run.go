@@ -22,9 +22,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/tasks"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/taskloom"
+	taskops "github.com/ctxloom/taskloom/operations"
 )
 
 var (
@@ -261,9 +262,9 @@ func resolveSelfExecutable() string {
 // return — seeding never blocks the launch.
 func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	if status == "" {
-		status = tasks.StatusInProgress
+		status = taskloom.StatusInProgress
 	}
-	res, err := operations.SetTaskStatus(operations.TaskContext{
+	res, err := taskops.SetTaskStatus(taskops.TaskContext{
 		WorkDir:     workDir,
 		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
 		SessionHarp: activeHarp,
@@ -570,7 +571,7 @@ Examples:
 		// Resolve the project's stable identity (ADR 0025) and export it into the
 		// session env. Fault-tolerant — any failure warns and leaves
 		// CTXLOOM_PROJECT_ID unset; the task store degrades rather than blocking.
-		if pid, warning, err := operations.ResolveProjectIdentity(workDir); err != nil {
+		if pid, warning, err := taskops.ResolveProjectIdentity(workDir); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: project identity unresolved: %v\n", err)
 		} else {
 			runEnv["CTXLOOM_PROJECT_ID"] = pid

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/shared/wire"
 )
 

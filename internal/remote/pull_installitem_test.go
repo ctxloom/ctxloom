@@ -100,7 +100,6 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.False(t, inMain, "the bundle entry must NOT land in the main lockfile")
 	})
 
-
 	t.Run("lockfile write failure warns but does not fail the install", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		// A read-only lockfile fs makes Save fail; the puller's own fs stays

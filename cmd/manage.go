@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -185,6 +186,34 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 			continue
 		}
 		fmt.Printf("  %s: hooks=%v statusline=%v mcp=%v\n", b.Backend, b.HooksPresent, b.StatusLine, b.MCPPresent)
+	}
+	fmt.Println()
+	printCompanionStatus()
+}
+
+// companions are the standalone binaries the builtin bundles wire in when
+// present on PATH. Absence degrades the feature; status names the gap and how
+// to fill it.
+var companions = []struct {
+	bin     string
+	feature string
+	install string
+}{
+	{"taskloom", "task tools (task_list/task_add/...)", "brew install ctxloom/tap/taskloom"},
+	{"ltk", "command-redirect pre-tool hook", "brew install ctxloom/tap/ltk"},
+}
+
+// printCompanionStatus reports each companion binary's presence; builtin
+// bundle entries for missing ones are skipped at resolve time.
+func printCompanionStatus() {
+	fmt.Println("Companions:")
+	for _, c := range companions {
+		path, err := exec.LookPath(c.bin)
+		if err != nil {
+			fmt.Printf("  %s: NOT FOUND — %s disabled (install: %s)\n", c.bin, c.feature, c.install)
+			continue
+		}
+		fmt.Printf("  %s: %s\n", c.bin, path)
 	}
 }
 

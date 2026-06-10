@@ -43,10 +43,10 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.
@@ -89,7 +89,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 				Bundles: []string{
 					"https://github.com/test/ctxloom@bundles/go-tools", // Remote
 					"local-bundle", // Local (no scheme)
-					"https://gitlab.com/test/sec@bundles/security",     // Remote
+					"https://gitlab.com/test/sec@bundles/security", // Remote
 				},
 				Parents: []string{
 					"https://github.com/test/ctxloom@profiles/parent", // Remote

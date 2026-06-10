@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/agent"
 )
 
 // This file carries the session-history transport: the backend (plugin) is

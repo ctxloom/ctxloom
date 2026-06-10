@@ -243,5 +243,4 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
 	s.registerMemoryTools(server)
-	s.registerTaskTools(server)
 }

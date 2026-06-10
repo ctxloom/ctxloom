@@ -34,7 +34,6 @@ var excludedLeaves = map[string]string{
 	"ctxloom map":                   "fans a task out across parallel LLM sessions; @live-only, no hermetic fixture",
 	"ctxloom weave":                 "map + an LLM synthesis pass over the results; @live-only, no hermetic fixture",
 	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/prompt/bundle distill paths cover the distiller",
-	"ctxloom tasks run":             "TTY-only interactive picker; only scriptable paths are covered",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",

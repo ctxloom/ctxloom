@@ -221,6 +221,15 @@ release:
     irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 | iex
     ```
 
+    Both scripts also install the companion tools [taskloom](https://github.com/ctxloom/taskloom)
+    (task tracking) and [ltk](https://github.com/ctxloom/llm-tool-killer) (command
+    guardrails); opt out with `--no-companions` / `-NoCompanions`.
+
+    **macOS (Homebrew), everything:**
+    ```bash
+    brew install ctxloom/tap/{ctxloom,taskloom,ltk}
+    ```
+
     ### Which Build?
 
     | Build | Size | Features |

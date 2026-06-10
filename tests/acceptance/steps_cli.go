@@ -67,9 +67,6 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 
 func runCLI(c context.Context, cmdline, stdin string) error {
 	w := worldFrom(c)
-	// {task} expands to the harp_id captured from the most recent task tool call,
-	// so CLI task mutations can target a task created over MCP.
-	cmdline = strings.ReplaceAll(cmdline, "{task}", w.lastTaskHarp)
 	args, err := ctxloomArgs(cmdline)
 	if err != nil {
 		return err

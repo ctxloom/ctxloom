@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -17,14 +16,13 @@ import (
 // Phase 4.1 foundation. Resources are the LCD-cheap counterpart to tools:
 // they consume no per-resource schema budget on initialize and clients
 // pull them on demand. Today this file registers a small starter set —
-// help, recent sessions, task summary — establishing the pattern so the
+// help, recent sessions — establishing the pattern so the
 // listing-tool → resource migration (list_bundles/get_fragment/etc.) can
 // happen incrementally without re-architecting the server each time.
 
 const (
 	resourceHelpURI           = "ctxloom://help"
 	resourceSessionsRecentURI = "ctxloom://sessions/recent"
-	resourceTasksSummaryURI   = "ctxloom://tasks/summary"
 	resourceFragmentsURI      = "ctxloom://fragments"
 	resourceProfilesURI       = "ctxloom://profiles"
 	resourcePromptsURI        = "ctxloom://prompts"
@@ -47,13 +45,6 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Description: "Harp-named sessions for the current project, most recent first. YAML, with harp_name, started_at, summary.",
 		MIMEType:    "application/yaml",
 	}, s.handleResourceSessionsRecent)
-
-	server.AddResource(&mcp.Resource{
-		URI:         resourceTasksSummaryURI,
-		Name:        "task summary",
-		Description: "Per-status task counts plus harp IDs currently in-progress. Cheap; safe to poll.",
-		MIMEType:    "application/yaml",
-	}, s.handleResourceTasksSummary)
 
 	// Listing resources (Phase 4 Lever A migration). Each one mirrors a
 	// formerly-MCP-tool listing endpoint. The corresponding tools have
@@ -137,8 +128,9 @@ func (s *ctxServer) handleResourceHelp(_ context.Context, req *mcp.ReadResourceR
 
 ctxloom exposes read-only listings as MCP resources. Fetch them via the MCP
 client's resources/read with the URI. Retrieval tools (assemble_context,
-search_content, search_library, session and task tools) are the only tools;
-all management is done with the ctxloom CLI.
+search_content, search_library, session tools) are the only tools;
+all management is done with the ctxloom CLI. Task tracking lives in the
+separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + `).
 
 ## Available URIs
 
@@ -151,8 +143,6 @@ all management is done with the ctxloom CLI.
 - ` + "`ctxloom://sessions`" + ` — all recorded sessions for this project.
 - ` + "`ctxloom://sessions/recent`" + ` — harp-named sessions for the current project,
   most recent first. Each row: harp_name, started_at, summary, session_id.
-- ` + "`ctxloom://tasks/summary`" + ` — per-status task counts + in-progress harp IDs
-  from .ctxloom/tasks.md. Equivalent to task_list(include_summary=true).summary.
 `)
 	return resourceText(req.Params.URI, "text/markdown", body), nil
 }
@@ -187,34 +177,6 @@ func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.Rea
 	out, err := yaml.Marshal(map[string]any{"sessions": rows})
 	if err != nil {
 		return nil, fmt.Errorf("marshal sessions: %w", err)
-	}
-	return resourceText(req.Params.URI, "application/yaml", string(out)), nil
-}
-
-func (s *ctxServer) handleResourceTasksSummary(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	res, err := operations.ListTasks(taskContext(), nil, "", false, true)
-	if err != nil {
-		return nil, err
-	}
-	warnTask(res.Warning)
-	sum := res.Summary
-	// Stable key order for diff-friendly output.
-	keys := make([]string, 0, len(sum.Counts))
-	for k := range sum.Counts {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	counts := make(map[string]int, len(keys))
-	for _, k := range keys {
-		counts[k] = sum.Counts[k]
-	}
-	out, err := yaml.Marshal(map[string]any{
-		"path":        res.Path,
-		"counts":      counts,
-		"in_progress": sum.InProgress,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal summary: %w", err)
 	}
 	return resourceText(req.Params.URI, "application/yaml", string(out)), nil
 }

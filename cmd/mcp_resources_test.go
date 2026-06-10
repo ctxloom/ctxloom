@@ -76,27 +76,9 @@ func TestHandleResourceHelp(t *testing.T) {
 	for _, uri := range []string{
 		"ctxloom://help",
 		"ctxloom://sessions/recent",
-		"ctxloom://tasks/summary",
 	} {
 		assert.Contains(t, body, uri, "help body must mention %s", uri)
 	}
-}
-
-// TestHandleResourceTasksSummary exercises the tasks-summary handler
-// against a fresh tasks.md (empty store). The contract: empty store ⇒
-// empty counts + empty in_progress, no error. The handler should not
-// crash on missing files; tasks.Open returns a Store whose Summarize
-// gracefully handles "no file".
-func TestHandleResourceTasksSummary(t *testing.T) {
-	withProjectDir(t)
-	s := &ctxServer{}
-	req := &mcp.ReadResourceRequest{Params: &mcp.ReadResourceParams{URI: resourceTasksSummaryURI}}
-	res, err := s.handleResourceTasksSummary(t.Context(), req)
-	require.NoError(t, err)
-	require.Len(t, res.Contents, 1)
-	body := res.Contents[0].Text
-	assert.Contains(t, body, "counts:")
-	assert.Contains(t, body, "in_progress:")
 }
 
 // TestHandleResourceSessionsRecent_EmptyIndex confirms the handler

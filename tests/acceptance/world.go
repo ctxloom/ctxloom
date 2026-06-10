@@ -21,11 +21,10 @@ type World struct {
 	mock *testenv.MockLM          // deterministic LLM backend (set by fixtures)
 	mcp  *testenv.MCPClient       // mock agent: JSON-RPC stdio client (lazy)
 
-	lastTool     testenv.ToolResult // last tools/call envelope
-	lastInner    map[string]any     // unwrapped inner result of lastTool
-	lastRes      string             // last resources/read text
-	lastMime     string             // last resources/read MIME type
-	lastTaskHarp string             // harp_id of the most recent task tool result
+	lastTool  testenv.ToolResult // last tools/call envelope
+	lastInner map[string]any     // unwrapped inner result of lastTool
+	lastRes   string             // last resources/read text
+	lastMime  string             // last resources/read MIME type
 
 	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
 }

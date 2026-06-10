@@ -68,22 +68,6 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the agent sets the last task to "([^"]*)"$`, func(c context.Context, status string) error {
-		w := worldFrom(c)
-		if w.lastTaskHarp == "" {
-			return fmt.Errorf("no task harp_id captured from a prior task tool call")
-		}
-		return callTool(c, "task_set_status", map[string]any{"harp_id": w.lastTaskHarp, "status": status})
-	})
-
-	ctx.Step(`^the agent edits the last task to "([^"]*)"$`, func(c context.Context, text string) error {
-		w := worldFrom(c)
-		if w.lastTaskHarp == "" {
-			return fmt.Errorf("no task harp_id captured from a prior task tool call")
-		}
-		return callTool(c, "task_edit", map[string]any{"harp_id": w.lastTaskHarp, "text": text})
-	})
-
 	ctx.Step(`^the agent reads resource "([^"]*)"$`, func(c context.Context, uri string) error {
 		w := worldFrom(c)
 		agent, err := w.agent()
@@ -135,11 +119,6 @@ func callTool(c context.Context, name string, args map[string]any) error {
 	}
 	w.lastTool = res
 	w.lastInner, _ = res.Inner()
-	if harp, ok := lookupField(w.lastInner, "task.harp_id"); ok {
-		if s, ok := harp.(string); ok && s != "" {
-			w.lastTaskHarp = s
-		}
-	}
 	return nil
 }
 
@@ -156,7 +135,7 @@ func tableToArgs(table *godog.Table) (map[string]any, error) {
 	return args, nil
 }
 
-// lookupField walks a dotted path (e.g. "task.harp_id") through a decoded JSON
+// lookupField walks a dotted path (e.g. "result.name") through a decoded JSON
 // object.
 func lookupField(obj map[string]any, path string) (any, bool) {
 	cur := any(obj)

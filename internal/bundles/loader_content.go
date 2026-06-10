@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 )
 
 // LoadedContent is a fully resolved fragment or prompt with its bundle

@@ -9,8 +9,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/iox"
 )
 
 var bundleViewCmd = &cobra.Command{

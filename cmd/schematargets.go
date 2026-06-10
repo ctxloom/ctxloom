@@ -15,10 +15,6 @@ import (
 // they don't collide with the operations.* result of the same base name.
 func SchemaTargets() []schemagen.Target {
 	return []schemagen.Target{
-		schemagen.Of(reflect.TypeOf(taskListResult{}), "mcp-task-list-result"),
-		schemagen.Of(reflect.TypeOf(taskAddResult{}), "mcp-task-add-result"),
-		schemagen.Of(reflect.TypeOf(taskSetStatusResult{}), "mcp-task-set-status-result"),
-		schemagen.Of(reflect.TypeOf(taskEditResult{}), "mcp-task-edit-result"),
 		schemagen.Of(reflect.TypeOf(compactSessionResult{}), "mcp-compact-session-result"),
 		schemagen.Of(reflect.TypeOf(loadSessionResult{}), "mcp-load-session-result"),
 		schemagen.Of(reflect.TypeOf(HookOutput{}), "hook-output"),

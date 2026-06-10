@@ -88,7 +88,7 @@ func TestCallbacksConsolidatedUnderHook(t *testing.T) {
 	assert.Nil(t, findSub(rootCmd, "meta"), "the meta namespace should be removed")
 	assert.Nil(t, findSub(findSub(rootCmd, "session"), "session-bind"), "session-bind moved to hook")
 	assert.Nil(t, findSub(findSub(rootCmd, "session"), "bind"), "session bind moved to hook")
-	assert.Nil(t, findSub(findSub(rootCmd, "tasks"), "stamp-plan"), "stamp-plan moved to hook")
+	assert.Nil(t, findSub(rootCmd, "tasks"), "the tasks namespace moved to the standalone tasks binary")
 }
 
 // TestCallbackCommandsAreHidden locks in the invariant that every machine

@@ -15,7 +15,7 @@
       {
         "hooks": [
           {
-            "command": "ltk evaluate --config .ltk/config.yaml",
+            "command": "ltk evaluate",
             "type": "command"
           }
         ],

@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/iox"
 )
 
 const (

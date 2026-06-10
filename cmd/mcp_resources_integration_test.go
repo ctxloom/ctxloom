@@ -80,7 +80,6 @@ func TestMCP_WireProtocol_ResourcesList(t *testing.T) {
 		"ctxloom://help",
 		"ctxloom://sessions",
 		"ctxloom://sessions/recent",
-		"ctxloom://tasks/summary",
 		"ctxloom://fragments",
 		"ctxloom://profiles",
 		"ctxloom://prompts",
@@ -104,24 +103,6 @@ func TestMCP_WireProtocol_ReadHelp(t *testing.T) {
 	assert.Equal(t, "text/markdown", mime)
 	assert.Contains(t, body, "ctxloom://help")
 	assert.Contains(t, body, "ctxloom://sessions/recent")
-	assert.Contains(t, body, "ctxloom://tasks/summary")
-}
-
-// TestMCP_WireProtocol_ReadTasksSummary confirms the tasks/summary
-// resource serves valid YAML against an empty store (project with no
-// .ctxloom/tasks.md yet). Specific keys must be present even when the
-// counts are zero — clients pattern-match the YAML shape.
-func TestMCP_WireProtocol_ReadTasksSummary(t *testing.T) {
-	binPath := buildCtxloomBinary(t)
-	workDir := stageMinimalProject(t)
-	c := startMCPServer(t, binPath, workDir)
-	initSession(t, c)
-
-	body, mime := readResource(t, c, 102, "ctxloom://tasks/summary")
-	assert.Equal(t, "application/yaml", mime)
-	assert.Contains(t, body, "counts:")
-	assert.Contains(t, body, "in_progress:")
-	assert.Contains(t, body, "path:")
 }
 
 // TestMCP_WireProtocol_ReadSessionsRecent confirms the cwd-filtered

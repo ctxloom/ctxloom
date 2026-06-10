@@ -1,4 +1,4 @@
-package tasks
+package memory
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/iox"
+	"github.com/ctxloom/shared/iox"
 )
 
 // StampPlanFile ensures the file's YAML frontmatter contains `sessions:`

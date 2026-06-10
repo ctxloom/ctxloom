@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1435,26 +1436,59 @@ func TestResolveProfile_DepthLimit(t *testing.T) {
 // ResolveBundleMCPServers Tests
 // =============================================================================
 
+// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond the
+// built-in bundles' servers (currently the taskloom bundle's `taskloom mcp`),
+// which apply unconditionally — no profile reference required, mirroring
+// ResolveBundleHooks.
+func onlyBuiltinMCPServers(t *testing.T, result map[string]wire.MCPServer) {
+	t.Helper()
+	for name, server := range result {
+		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:"),
+			"unexpected non-builtin MCP server %q (SCM %q)", name, server.SCM)
+	}
+	assert.Contains(t, result, "taskloom", "builtin taskloom MCP server must always resolve")
+}
+
+// stubLookPath pins the companion-gating seam: every binary resolves except
+// those named missing, so assertions don't depend on what the host machine
+// happens to have installed.
+func stubLookPath(t *testing.T, missing ...string) {
+	t.Helper()
+	gone := make(map[string]bool, len(missing))
+	for _, m := range missing {
+		gone[m] = true
+	}
+	orig := lookPath
+	lookPath = func(bin string) (string, error) {
+		if gone[bin] {
+			return "", exec.ErrNotFound
+		}
+		return "/stub/" + bin, nil
+	}
+	t.Cleanup(func() { lookPath = orig })
+}
+
 func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
+	stubLookPath(t)
 	cfg := &Config{
 		AppPaths: []string{"/project/.ctxloom"},
 	}
 
-	result := cfg.ResolveBundleMCPServers()
-	assert.Empty(t, result)
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
 }
 
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
+	stubLookPath(t)
 	cfg := &Config{
 		Profiles: ProfilesConfig{Defaults: []string{"test"}},
 		AppPaths: []string{},
 	}
 
-	result := cfg.ResolveBundleMCPServers()
-	assert.Empty(t, result)
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
 }
 
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
+	stubLookPath(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/project/.ctxloom"
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
@@ -1465,8 +1499,52 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 		fs:       fs,
 	}
 
-	result := cfg.ResolveBundleMCPServers()
-	assert.Empty(t, result)
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
+}
+
+// Companion gating: a builtin bundle's MCP server whose binary is absent from
+// PATH must degrade to no entry — a broken server in every backend is worse
+// than a missing feature (fault-tolerance over completeness).
+func TestResolveBuiltinBundleMCPServers_MissingBinarySkipped(t *testing.T) {
+	stubLookPath(t, "taskloom")
+	got := resolveBuiltinBundleMCPServers()
+	assert.NotContains(t, got, "taskloom", "missing companion binary must not register a server")
+}
+
+// Companion gating for hooks: the ltk bundle's pre_tool hook applies only when
+// the ltk binary resolves; ctxloom's own hooks (session-bind, stamp-plan) are
+// never gated.
+func TestResolveBuiltinBundleHooks_CompanionGating(t *testing.T) {
+	hasLtkHook := func(hooks wire.UnifiedHooks) bool {
+		for _, h := range hooks.PreTool {
+			if strings.HasPrefix(h.Command, "ltk ") {
+				return true
+			}
+		}
+		return false
+	}
+	hasStampPlan := func(hooks wire.UnifiedHooks) bool {
+		for _, h := range hooks.PostFileEdit {
+			if strings.Contains(h.Command, "hook stamp-plan") {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("ltk present registers the pre-tool hook", func(t *testing.T) {
+		stubLookPath(t)
+		hooks := resolveBuiltinBundleHooks()
+		assert.True(t, hasLtkHook(hooks), "ltk on PATH must surface the builtin pre-tool hook")
+		assert.True(t, hasStampPlan(hooks))
+	})
+
+	t.Run("ltk absent degrades to no hook, ctxloom hooks remain", func(t *testing.T) {
+		stubLookPath(t, "ltk")
+		hooks := resolveBuiltinBundleHooks()
+		assert.False(t, hasLtkHook(hooks), "missing ltk must not register a broken hook")
+		assert.True(t, hasStampPlan(hooks), "ctxloom's own hooks are never gated")
+	})
 }
 
 // Regression: a bundle reachable only through profile inheritance must still
@@ -1617,10 +1695,10 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"a ghost bundle ref contributes no hooks")
-		// The builtin tasks bundle always contributes its stamp-plan hook.
+		// The builtin taskloom bundle always contributes its stamp-plan hook.
 		foundBuiltin := false
 		for _, h := range result.PostFileEdit {
-			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:builtin:tasks" {
+			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:builtin:taskloom" {
 				foundBuiltin = true
 			}
 		}
@@ -1758,35 +1836,42 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 
 	// The tasks bundle ships no PostTool hook: TodoWrite auto-capture was
 	// removed. Tasks are created/updated only via the MCP tools or CLI.
-	assert.Empty(t, hooks.PostTool, "tasks bundle must not ship a PostTool (TodoWrite capture) hook")
+	assert.Empty(t, hooks.PostTool, "taskloom bundle must not ship a PostTool (TodoWrite capture) hook")
 
-	require.NotEmpty(t, hooks.PostFileEdit, "tasks bundle must contribute a PostFileEdit hook (stamp-plan)")
+	require.NotEmpty(t, hooks.PostFileEdit, "taskloom bundle must contribute a PostFileEdit hook (stamp-plan)")
 	foundStamp := false
 	for _, h := range hooks.PostFileEdit {
 		if strings.Contains(h.Command, "hook stamp-plan") {
 			foundStamp = true
-			assert.Equal(t, "bundle:builtin:tasks", h.SCM)
+			assert.Equal(t, "bundle:builtin:taskloom", h.SCM)
 		}
 	}
-	assert.True(t, foundStamp, "stamp-plan hook missing from builtin tasks bundle")
+	assert.True(t, foundStamp, "stamp-plan hook missing from builtin taskloom bundle")
 }
 
 // TestResolveBuiltinBundleMCPServers asserts the built-in MCP-server
-// path doesn't error against the embedded YAMLs and that any servers
-// that DO ship from a built-in are tagged with the builtin SCM marker.
-// The current sole built-in (tasks.yaml) ships no MCP servers, so the
-// real call must produce an empty (non-nil) map. The SCM-tag invariant
-// is exercised via extractMCPFromBundle with "builtin:<name>" as the
-// source — the same code path resolveBuiltinBundleMCPServers takes.
+// path doesn't error against the embedded YAMLs and that every server
+// shipped from a built-in is tagged with the builtin SCM marker. The
+// taskloom bundle registers the standalone task-store server (`taskloom mcp`),
+// so the real call must surface it. The SCM-tag invariant is also pinned
+// via extractMCPFromBundle with "builtin:<name>" as the source — the
+// same code path resolveBuiltinBundleMCPServers takes.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
+	stubLookPath(t)
 	got := resolveBuiltinBundleMCPServers()
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
 
-	// Sanity: any future built-in MCP server must carry the builtin SCM
-	// marker so apply-mcp can identify it as ctxloom-managed.
+	// The taskloom bundle ships the standalone task-store MCP server.
+	require.Contains(t, got, "taskloom", "builtin taskloom bundle must register the taskloom MCP server")
+	assert.Equal(t, "taskloom", got["taskloom"].Command)
+	assert.Equal(t, []string{"mcp"}, got["taskloom"].Args)
+
+	// Every built-in MCP server must carry the builtin SCM marker
+	// (extractMCPFromBundle prepends "bundle:" to the "builtin:<name>"
+	// source) so apply-mcp can identify it as ctxloom-managed.
 	for name, server := range got {
-		assert.True(t, strings.HasPrefix(server.SCM, "builtin:"),
-			"server %q from built-in bundle must have SCM prefix builtin:, got %q", name, server.SCM)
+		assert.True(t, strings.HasPrefix(server.SCM, "bundle:builtin:"),
+			"server %q from built-in bundle must have SCM prefix bundle:builtin:, got %q", name, server.SCM)
 	}
 
 	// Pin the contract directly: a synthetic builtin source through

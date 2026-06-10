@@ -21,11 +21,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/filelock"
-	"github.com/ctxloom/ctxloom/internal/harp"
-	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/filelock"
+	"github.com/ctxloom/shared/harp"
+	"github.com/ctxloom/shared/iox"
 )
 
 // Entry is one row in index.yaml.

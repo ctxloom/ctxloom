@@ -2,6 +2,14 @@
 
 Living implementation doc for [ADR 0025](adr/0025-per-project-task-log.md). The ADR holds the *why* and the decisions; this holds the *how* and the sequencing. Keep it in sync as work lands.
 
+> **2026-06: extracted.** The task subsystem described here (store, log,
+> project identity, CLI, MCP tools) now lives in the standalone
+> [ctxloom/taskloom](https://github.com/ctxloom/taskloom) repo as the `taskloom`
+> binary; ctxloom keeps only the `run --seed-task` integration and the
+> CTXLOOM_PROJECT_ID export. The legacy markdown store and the pre-ADR-0025
+> migration were dropped in the extraction. File paths below refer to the
+> pre-extraction ctxloom tree.
+
 ## What we're building
 
 Replace the three current task-storage paths (legacy `<projectDir>/.ctxloom/tasks.md`, per-session `~/.ctxloom/sessions/<harp>/tasks.md`, and the move-on-resume migration) with:

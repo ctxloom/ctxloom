@@ -4,8 +4,8 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/iox"
 )
 
 // loadConfigOrFallback loads ctxloom config via loader, falling back to a

@@ -57,6 +57,30 @@ readonly DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="ctxloom"
 
+# Companion tools - standalone binaries ctxloom's built-in bundles wire in
+# when present on PATH (taskloom: task tracking MCP server; ltk: command
+# guardrail pre-tool hook). Installed by default; each is opt-out via flag
+# (--no-taskloom, --no-ltk, --no-companions) or env (CTXLOOM_NO_TASKLOOM=1,
+# CTXLOOM_NO_LTK=1, CTXLOOM_NO_COMPANIONS=1). A companion that fails to
+# download is a warning, never a failed ctxloom install.
+INSTALL_TASKLOOM="${CTXLOOM_NO_TASKLOOM:+no}"
+INSTALL_LTK="${CTXLOOM_NO_LTK:+no}"
+if [[ -n "${CTXLOOM_NO_COMPANIONS:-}" ]]; then
+    INSTALL_TASKLOOM="no"
+    INSTALL_LTK="no"
+fi
+readonly TASKLOOM_REPO="ctxloom/taskloom"
+readonly LTK_REPO="ctxloom/llm-tool-killer"
+
+# --brew: delegate everything to Homebrew instead of fetching archives.
+# Brew-installed binaries skip the unsigned-binary trust dance entirely
+# (the casks clear macOS quarantine in a post-install hook).
+USE_BREW="no"
+
+# Where the unsigned-binary story is documented (Gatekeeper, SmartScreen,
+# manual un-quarantine steps).
+readonly TRUST_DOC_URL="https://ctxloom.dev/getting-started/binary-trust"
+
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Helper functions - the unsung heroes of shell scripting                   ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -151,6 +175,58 @@ get_latest_version() {
     echo "${version}"
 }
 
+# Like get_latest_version, but for any repo and non-fatal: prints nothing on
+# failure so companion installs can degrade to a warning.
+get_latest_version_for() {
+    local repo="$1" version=""
+    local url="https://api.github.com/repos/${repo}/releases/latest"
+    if command_exists curl; then
+        version=$(curl -sL "${url}" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/' | head -1)
+    elif command_exists wget; then
+        version=$(wget -qO- "${url}" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/' | head -1)
+    fi
+    echo "${version}"
+}
+
+# fetch_file <url> <dest>: download quietly, return non-zero on failure.
+fetch_file() {
+    local url="$1" dest="$2"
+    if command_exists curl; then
+        curl -fsSL "${url}" -o "${dest}"
+    else
+        wget -q "${url}" -O "${dest}"
+    fi
+}
+
+# verify_checksum <archive-path> <archive-name> <checksums-file>
+# Verifies the archive against the release's checksums.txt. Returns non-zero
+# (with a logged error) on mismatch; missing tooling degrades to a warning —
+# integrity check, not a substitute for reading this script.
+verify_checksum() {
+    local archive_path="$1" archive_name="$2" checksums="$3"
+    local expected actual
+    expected=$(grep "  ${archive_name}\$" "${checksums}" | awk '{print $1}' | head -1)
+    if [[ -z "${expected}" ]]; then
+        log_warn "No checksum entry for ${archive_name}; skipping verification"
+        return 0
+    fi
+    if command_exists sha256sum; then
+        actual=$(sha256sum "${archive_path}" | awk '{print $1}')
+    elif command_exists shasum; then
+        actual=$(shasum -a 256 "${archive_path}" | awk '{print $1}')
+    else
+        log_warn "sha256sum/shasum not found; skipping checksum verification"
+        return 0
+    fi
+    if [[ "${expected}" != "${actual}" ]]; then
+        log_error "Checksum mismatch for ${archive_name}"
+        log_error "  expected: ${expected}"
+        log_error "  actual:   ${actual}"
+        return 1
+    fi
+    return 0
+}
+
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Download function - the actual work (finally!)                            ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
@@ -184,6 +260,15 @@ download_and_install() {
     fi
 
     log_success "Downloaded"
+
+    # Verify against the release's checksums.txt (trust, but verify)
+    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt" || exit 1
+        log_success "Checksum verified"
+    else
+        log_warn "Could not fetch checksums.txt; skipping verification"
+    fi
+
     log_info "Extracting..."
 
     # Extract the archive (unboxing video, but for binaries)
@@ -205,23 +290,104 @@ download_and_install() {
     ${use_sudo} mv "${temp_dir}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
     ${use_sudo} chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-    # macOS Gatekeeper handling (because Apple loves to "protect" us from ourselves)
-    # On macOS Sequoia+, unsigned binaries downloaded from the internet get both
-    # com.apple.quarantine and com.apple.provenance xattrs. The quarantine flag
-    # triggers the "are you sure?" dialog, while provenance can cause the kernel
-    # to outright kill the process ("zsh: killed") before it even starts.
-    # Removing quarantine + re-signing ad-hoc clears both issues.
-    if [[ "${os}" == "darwin" ]]; then
-        if command_exists xattr; then
-            ${use_sudo} xattr -d com.apple.quarantine "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
-            ${use_sudo} xattr -d com.apple.provenance "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
-        fi
-        if command_exists codesign; then
-            ${use_sudo} codesign --force --sign - "${INSTALL_DIR}/${BINARY_NAME}" 2>/dev/null || true
-        fi
-    fi
+    clear_macos_quarantine "${os}" "${INSTALL_DIR}/${BINARY_NAME}" "${use_sudo}"
 
     log_success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
+}
+
+# macOS Gatekeeper handling (because Apple loves to "protect" us from ourselves)
+# On macOS Sequoia+, unsigned binaries downloaded from the internet get both
+# com.apple.quarantine and com.apple.provenance xattrs. The quarantine flag
+# triggers the "are you sure?" dialog, while provenance can cause the kernel
+# to outright kill the process ("zsh: killed") before it even starts.
+# Removing quarantine + re-signing ad-hoc clears both issues.
+clear_macos_quarantine() {
+    local os="$1" target="$2" use_sudo="$3"
+    if [[ "${os}" != "darwin" ]]; then
+        return
+    fi
+    if command_exists xattr; then
+        ${use_sudo} xattr -d com.apple.quarantine "${target}" 2>/dev/null || true
+        ${use_sudo} xattr -d com.apple.provenance "${target}" 2>/dev/null || true
+    fi
+    if command_exists codesign; then
+        ${use_sudo} codesign --force --sign - "${target}" 2>/dev/null || true
+    fi
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Companion tools - taskloom and ltk ride along (unless told not to)        ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# install_companion <repo> <binary> <os> <arch>
+# Best-effort: any failure logs a warning and returns 0 so the ctxloom install
+# never fails over a companion. Same flow as ctxloom itself: latest release →
+# archive → checksum → extract → install → de-quarantine.
+install_companion() {
+    local repo="$1" binary="$2" os="$3" arch="$4"
+    local version archive_name download_url temp_dir use_sudo=""
+
+    version=$(get_latest_version_for "${repo}")
+    if [[ -z "${version}" ]]; then
+        log_warn "${binary}: no release found for ${repo}; skipping"
+        log_warn "  install later: go install github.com/${repo}/cmd/${binary}@latest"
+        return 0
+    fi
+
+    archive_name="${binary}_${version}_${os}_${arch}.tar.gz"
+    download_url="https://github.com/${repo}/releases/download/v${version}/${archive_name}"
+    temp_dir=$(mktemp -d)
+    # Subshell-safe cleanup: no trap stacking with the main installer's
+    rm_temp() { rm -rf "${temp_dir}"; }
+
+    log_info "Installing companion ${binary} v${version}..."
+
+    if ! fetch_file "${download_url}" "${temp_dir}/${archive_name}"; then
+        log_warn "${binary}: download failed; skipping (https://github.com/${repo}/releases)"
+        rm_temp; return 0
+    fi
+
+    if fetch_file "https://github.com/${repo}/releases/download/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
+            log_warn "${binary}: checksum mismatch; NOT installing"
+            rm_temp; return 0
+        fi
+    else
+        log_warn "${binary}: could not fetch checksums.txt; skipping verification"
+    fi
+
+    if ! tar -xzf "${temp_dir}/${archive_name}" -C "${temp_dir}"; then
+        log_warn "${binary}: extraction failed; skipping"
+        rm_temp; return 0
+    fi
+
+    if [[ ! -w "${INSTALL_DIR}" ]]; then
+        use_sudo="sudo"
+    fi
+    if ! ${use_sudo} mv "${temp_dir}/${binary}" "${INSTALL_DIR}/${binary}" || ! ${use_sudo} chmod +x "${INSTALL_DIR}/${binary}"; then
+        log_warn "${binary}: could not install to ${INSTALL_DIR}; skipping"
+        rm_temp; return 0
+    fi
+
+    clear_macos_quarantine "${os}" "${INSTALL_DIR}/${binary}" "${use_sudo}"
+
+    log_success "Installed companion: ${INSTALL_DIR}/${binary}"
+    rm_temp
+    return 0
+}
+
+install_companions() {
+    local os="$1" arch="$2"
+    if [[ "${INSTALL_TASKLOOM}" != "no" ]]; then
+        install_companion "${TASKLOOM_REPO}" "taskloom" "${os}" "${arch}"
+    else
+        log_info "Skipping taskloom (opted out)"
+    fi
+    if [[ "${INSTALL_LTK}" != "no" ]]; then
+        install_companion "${LTK_REPO}" "ltk" "${os}" "${arch}"
+    else
+        log_info "Skipping ltk (opted out)"
+    fi
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -364,7 +530,95 @@ setup_fish_completion() {
 # ║ Main function - where the magic happens (or at least tries to)            ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-companions)
+                INSTALL_TASKLOOM="no"
+                INSTALL_LTK="no"
+                ;;
+            --no-taskloom) INSTALL_TASKLOOM="no" ;;
+            --no-ltk) INSTALL_LTK="no" ;;
+            --brew) USE_BREW="yes" ;;
+            -h|--help)
+                echo "Usage: install.sh [--brew] [--no-companions] [--no-taskloom] [--no-ltk]"
+                echo ""
+                echo "Installs ctxloom plus its companion tools (taskloom: task tracking;"
+                echo "ltk: command guardrails). Piped form takes the same flags:"
+                echo "  curl -fsSL .../install.sh | bash -s -- --no-ltk"
+                echo ""
+                echo "  --brew   Delegate to Homebrew (brew install ctxloom/tap/...) instead"
+                echo "           of fetching release archives. Requires brew on PATH. Avoids"
+                echo "           the unsigned-binary trust steps: ${TRUST_DOC_URL}"
+                echo ""
+                echo "Env equivalents: CTXLOOM_NO_COMPANIONS, CTXLOOM_NO_TASKLOOM, CTXLOOM_NO_LTK"
+                exit 0
+                ;;
+            *)
+                log_warn "Unknown option: $1 (ignored)"
+                ;;
+        esac
+        shift
+    done
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Brew delegation - let the package manager do package manager things       ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# install_via_brew: the --brew path. ctxloom itself is fatal on failure;
+# companions are best-effort (a cask may not exist yet — warn + continue).
+# Installs the standard build, mirroring the archive path; full-build users:
+# brew install ctxloom/tap/ctxloom-full directly.
+install_via_brew() {
+    if ! command_exists brew; then
+        log_error "--brew given but brew is not on PATH."
+        log_error "Install Homebrew (https://brew.sh) or rerun without --brew."
+        exit 1
+    fi
+
+    log_info "Installing via Homebrew (casks handle quarantine; no trust steps needed)"
+
+    if ! brew install ctxloom/tap/ctxloom; then
+        log_error "brew install ctxloom/tap/ctxloom failed."
+        log_error "If a script-installed copy conflicts, see: brew doctor"
+        exit 1
+    fi
+    log_success "Installed ctxloom via brew"
+
+    local companion
+    for companion in taskloom ltk; do
+        case "${companion}" in
+            taskloom) [[ "${INSTALL_TASKLOOM}" == "no" ]] && { log_info "Skipping taskloom (opted out)"; continue; } ;;
+            ltk)      [[ "${INSTALL_LTK}" == "no" ]] && { log_info "Skipping ltk (opted out)"; continue; } ;;
+        esac
+        if brew install "ctxloom/tap/${companion}"; then
+            log_success "Installed companion ${companion} via brew"
+        else
+            log_warn "${companion}: brew install failed (cask may not be published yet); skipping"
+        fi
+    done
+}
+
+# warn_trust_steps: after an archive-path install, tell the user what the
+# script did about Gatekeeper and where the manual steps live if it wasn't
+# enough. Brew installs never need this.
+warn_trust_steps() {
+    local os="$1"
+    if [[ "${os}" != "darwin" ]]; then
+        return
+    fi
+    echo ""
+    log_warn "These are unsigned binaries. This script removed macOS quarantine and"
+    log_warn "ad-hoc signed them, but if anything is still blocked (Gatekeeper dialog"
+    log_warn "or a bare 'zsh: killed'), the manual steps are documented here:"
+    log_warn "  ${TRUST_DOC_URL}"
+    log_warn "Tip: rerun with --brew to install via Homebrew and skip this entirely."
+}
+
 main() {
+    parse_args "$@"
+
     echo ""
     echo -e "${CYAN}ctxloom installer${NC}"
     echo ""
@@ -375,18 +629,32 @@ main() {
     arch=$(detect_arch)
     log_success "Detected ${os}/${arch}"
 
-    # Get latest version (asking GitHub nicely)
-    version=$(get_latest_version)
-    log_success "Latest version: v${version}"
+    if [[ "${USE_BREW}" == "yes" ]]; then
+        # Brew path: package manager owns download, placement, and quarantine.
+        install_via_brew
+        verify_installation
+        setup_completion
+    else
+        # Archive path: fetch, verify, place — then own the trust story.
+        version=$(get_latest_version)
+        log_success "Latest version: v${version}"
 
-    # Download and install (the main event)
-    download_and_install "${version}" "${os}" "${arch}"
+        # Download and install (the main event)
+        download_and_install "${version}" "${os}" "${arch}"
 
-    # Verify (because trust issues are valid)
-    verify_installation
+        # Verify (because trust issues are valid)
+        verify_installation
 
-    # Set up shell completion (the cherry on top)
-    setup_completion
+        # Companions ride along (taskloom + ltk; opt out with --no-* flags).
+        # Failures here warn and continue — ctxloom is already installed.
+        install_companions "${os}" "${arch}"
+
+        # Set up shell completion (the cherry on top)
+        setup_completion
+
+        # Unsigned binaries: say what we did and where the manual steps live.
+        warn_trust_steps "${os}"
+    fi
 
     echo ""
     echo "Get started:"

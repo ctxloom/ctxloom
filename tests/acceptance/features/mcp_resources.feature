@@ -51,8 +51,3 @@ Feature: MCP resources
     When the agent reads resource "ctxloom://sessions/recent"
     Then the resource MIME type is "application/yaml"
 
-  Scenario: The tasks summary resource reflects the task store
-    Given an initialized ctxloom project
-    And I run "ctxloom tasks add summary me"
-    When the agent reads resource "ctxloom://tasks/summary"
-    Then the resource MIME type is "application/yaml"

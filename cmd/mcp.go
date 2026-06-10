@@ -24,12 +24,12 @@ RUNNING AS MCP SERVER:
   Available tools when running as server:
     Context:  assemble_context, search_content, search_library
     Sessions: compact_session, load_session, get_previous_session, recover_session
-    Tasks:    task_add, task_list, task_set_status, task_edit
 
   Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
   sessions) are exposed as MCP resources (ctxloom://...), not tools. All
   management (bundles, remotes, review/approve, trust, pinning) is done with
-  the ctxloom CLI, not MCP tools.
+  the ctxloom CLI, not MCP tools. Task tracking moved to the standalone
+  taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.
 
 Manage configured MCP servers and ctxloom's own auto-registration under
 'ctxloom manage mcp'.`,

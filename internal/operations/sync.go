@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
 
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 )
 
 // SyncDependenciesRequest contains parameters for syncing dependencies.

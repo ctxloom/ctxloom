@@ -12,6 +12,18 @@
         "matcher": "Edit|Write"
       }
     ],
+    "BeforeTool": [
+      {
+        "hooks": [
+          {
+            "command": "ltk evaluate",
+            "name": "ctxloom-managed",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
@@ -37,6 +49,12 @@
         "@anthropics/mcp-server-sequential-thinking"
       ],
       "command": "npx"
+    },
+    "taskloom": {
+      "args": [
+        "mcp"
+      ],
+      "command": "taskloom"
     }
   }
 }

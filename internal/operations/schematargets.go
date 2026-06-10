@@ -70,8 +70,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(SetRemoteTrustResult{})},
 		{Type: reflect.TypeOf(SetStatuslineResult{})},
 		{Type: reflect.TypeOf(SyncDependenciesResult{})},
-		{Type: reflect.TypeOf(TaskListResult{})},
-		{Type: reflect.TypeOf(TaskResult{})},
 		{Type: reflect.TypeOf(UpdateBundleResult{})},
 		{Type: reflect.TypeOf(UpdateProfileResult{})},
 		{Type: reflect.TypeOf(UpdateRemoteResult{})},

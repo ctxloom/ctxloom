@@ -109,7 +109,7 @@ func TestGetDefaultRemotes(t *testing.T) {
 }
 
 func TestGetBuiltinBundle(t *testing.T) {
-	data, err := GetBuiltinBundle("tasks")
+	data, err := GetBuiltinBundle("taskloom")
 	if err != nil {
 		t.Fatalf("GetBuiltinBundle(tasks): %v", err)
 	}
@@ -145,7 +145,7 @@ func TestListBuiltinBundles(t *testing.T) {
 	// Must include the tasks bundle ctxloom embeds.
 	found := false
 	for _, n := range names {
-		if n == "tasks" {
+		if n == "taskloom" {
 			found = true
 		}
 		if strings.HasSuffix(n, ".yaml") {
@@ -153,7 +153,7 @@ func TestListBuiltinBundles(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected 'tasks' bundle in list, got %v", names)
+		t.Errorf("expected 'taskloom' bundle in list, got %v", names)
 	}
 }
 

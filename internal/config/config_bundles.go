@@ -2,7 +2,11 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"os/exec"
+	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -10,6 +14,51 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/wire"
 )
+
+// lookPath is the PATH-resolution seam for tests.
+var lookPath = exec.LookPath
+
+// missingWarned tracks binaries already warned about, so a missing companion
+// produces one hint per process, not one per resolve pass.
+var (
+	missingWarnedMu sync.Mutex
+	missingWarned   = map[string]bool{}
+)
+
+// missingCompanion reports whether the command's executable is a companion
+// binary absent from PATH. Commands run by ctxloom itself (`ctxloom hook ...`)
+// always pass — gating exists for foreign binaries shipped separately
+// (taskloom, ltk), whose builtin-bundle entries must degrade to absent rather
+// than register a broken server or hook.
+func missingCompanion(command string) (string, bool) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "", false
+	}
+	bin := fields[0]
+	if bin == "ctxloom" {
+		return "", false
+	}
+	if _, err := lookPath(bin); err != nil {
+		return bin, true
+	}
+	return "", false
+}
+
+// warnMissingCompanion emits the one-shot install hint for an absent binary.
+func warnMissingCompanion(bin, hint string) {
+	missingWarnedMu.Lock()
+	defer missingWarnedMu.Unlock()
+	if missingWarned[bin] {
+		return
+	}
+	missingWarned[bin] = true
+	msg := "ctxloom: warning: " + bin + " not found on PATH; its tools are disabled for this session"
+	if hint != "" {
+		msg += " (" + strings.TrimSpace(hint) + ")"
+	}
+	fmt.Fprintln(os.Stderr, msg)
+}
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
 // default profiles, plus servers shipped by built-in bundles embedded in
@@ -22,9 +71,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality and aren't gated on profile membership. Run them
 	// first so profile-sourced servers can intentionally override.
-	for name, server := range resolveBuiltinBundleMCPServers() {
-		result[name] = server
-	}
+	maps.Copy(result, resolveBuiltinBundleMCPServers())
 
 	defaultProfiles := c.GetDefaultProfiles()
 	if len(defaultProfiles) == 0 {
@@ -101,6 +148,13 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 			continue
 		}
 		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name) {
+			// Builtin bundles wire in standalone companion binaries; a
+			// missing one degrades to no entry (and one install hint)
+			// rather than a broken server in every backend.
+			if bin, missing := missingCompanion(server.Command); missing {
+				warnMissingCompanion(bin, server.Installation)
+				continue
+			}
 			out[serverName] = server
 		}
 	}
@@ -181,9 +235,34 @@ func resolveBuiltinBundleHooks() wire.UnifiedHooks {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
 			continue
 		}
-		out.Append(extractHooksFromBundle(&b, "builtin:"+name))
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name)))
 	}
 	return out
+}
+
+// filterMissingCompanionHooks drops hooks whose executable is a companion
+// binary absent from PATH (one install hint per binary). ctxloom's own hooks
+// always pass; see missingCompanion.
+func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
+	keep := func(hooks []wire.Hook) []wire.Hook {
+		var out []wire.Hook
+		for _, h := range hooks {
+			if bin, missing := missingCompanion(h.Command); missing {
+				warnMissingCompanion(bin, "")
+				continue
+			}
+			out = append(out, h)
+		}
+		return out
+	}
+	return wire.UnifiedHooks{
+		PreTool:      keep(in.PreTool),
+		PostTool:     keep(in.PostTool),
+		SessionStart: keep(in.SessionStart),
+		SessionEnd:   keep(in.SessionEnd),
+		PreShell:     keep(in.PreShell),
+		PostFileEdit: keep(in.PostFileEdit),
+	}
 }
 
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like

@@ -338,7 +338,6 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	}, nil
 }
 
-
 // UpdateProfileRequest contains parameters for updating a profile.
 type UpdateProfileRequest struct {
 	Name          string   `json:"name"`

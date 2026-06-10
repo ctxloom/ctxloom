@@ -1,4 +1,4 @@
-package tasks
+package memory
 
 import (
 	"os"

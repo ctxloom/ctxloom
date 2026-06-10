@@ -288,13 +288,13 @@ func TestMCP_ToolsList(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
-	// The MCP surface is retrieval + task tracking only: read-only listings moved
-	// to resources (ctxloom://...) and all management (bundles, remotes, hooks)
-	// moved to the CLI. Assert on tools that remain on the surface.
+	// The MCP surface is retrieval only: read-only listings moved to resources
+	// (ctxloom://...), management (bundles, remotes, hooks) moved to the CLI,
+	// and task tracking moved to the standalone tasks binary's MCP server.
+	// Assert on tools that remain on the surface.
 	assert.Contains(t, output, "assemble_context")
 	assert.Contains(t, output, "search_content")
 	assert.Contains(t, output, "search_library")
-	assert.Contains(t, output, "task_add")
 }
 
 func TestMCP_ListFragments(t *testing.T) {

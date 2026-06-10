@@ -189,7 +189,8 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"bundles, profiles, fragments, and prompts; `ctxloom remote pull`, `ctxloom remote " +
 				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
 				"MCP tools are only for retrieving context during the session — searching and loading " +
-				"fragments, prompts (skills), and prior session history — plus task tracking._"
+				"fragments, prompts (skills), and prior session history. Task tracking is the " +
+				"separate `tasks` MCP server and `tasks` CLI._"
 			if total > 1 {
 				preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
 			}

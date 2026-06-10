@@ -77,7 +77,19 @@ param(
     [switch]$NoPath,
 
     [Parameter()]
-    [string]$Version
+    [string]$Version,
+
+    # Companion opt-outs: taskloom (task tracking MCP server) and ltk (command
+    # guardrail pre-tool hook) install alongside ctxloom by default. A
+    # companion that fails to download is a warning, never a failed install.
+    [Parameter()]
+    [switch]$NoCompanions,
+
+    [Parameter()]
+    [switch]$NoTaskloom,
+
+    [Parameter()]
+    [switch]$NoLtk
 )
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -90,6 +102,12 @@ $ProgressPreference = "SilentlyContinue"  # Makes downloads faster. Science!
 $Repo = "ctxloom/ctxloom"
 $ReleasesUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $DownloadBase = "https://github.com/$Repo/releases/download"
+
+# Companion tools, installed best-effort after ctxloom itself.
+$Companions = @(
+    @{ Repo = "ctxloom/taskloom"; Binary = "taskloom"; Skip = ($NoCompanions -or $NoTaskloom) },
+    @{ Repo = "ctxloom/llm-tool-killer"; Binary = "ltk"; Skip = ($NoCompanions -or $NoLtk) }
+)
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Pretty printing - because stdout deserves aesthetics                      ║
@@ -327,6 +345,78 @@ function Install-Completion {
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║ Companions - taskloom and ltk ride along (unless told not to)             ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# Install-Companion: best-effort sibling of Install-Ctxloom. Any failure warns
+# and returns so the ctxloom install never fails over a companion. Verifies
+# the archive against the release's checksums.txt when available.
+function Install-Companion {
+    param(
+        [string]$CompanionRepo,
+        [string]$Binary,
+        [string]$Arch,
+        [string]$Destination
+    )
+
+    $version = $null
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$CompanionRepo/releases/latest" -Headers @{
+            "User-Agent" = "ctxloom-installer"
+        }
+        $version = $release.tag_name -replace '^v', ''
+    }
+    catch {
+        Write-Warn "${Binary}: no release found for $CompanionRepo; skipping"
+        Write-Warn "  install later: go install github.com/$CompanionRepo/cmd/$Binary@latest"
+        return
+    }
+
+    $archiveName = "${Binary}_${version}_windows_${Arch}.zip"
+    $base = "https://github.com/$CompanionRepo/releases/download/v$version"
+    $tempDir = Join-Path $env:TEMP "$Binary-install-$(Get-Random)"
+    $archivePath = Join-Path $tempDir $archiveName
+
+    try {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        Write-Info "Installing companion $Binary v$version..."
+        Invoke-WebRequest -Uri "$base/$archiveName" -OutFile $archivePath
+
+        # Checksum verification (integrity, not a substitute for reading this script)
+        try {
+            $checksumsPath = Join-Path $tempDir "checksums.txt"
+            Invoke-WebRequest -Uri "$base/checksums.txt" -OutFile $checksumsPath
+            $expectedLine = Select-String -Path $checksumsPath -Pattern ([regex]::Escape($archiveName)) | Select-Object -First 1
+            if ($expectedLine) {
+                $expected = ($expectedLine.Line -split '\s+')[0]
+                $actual = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLower()
+                if ($expected.ToLower() -ne $actual) {
+                    Write-Warn "${Binary}: checksum mismatch; NOT installing"
+                    return
+                }
+            }
+        }
+        catch {
+            Write-Warn "${Binary}: could not verify checksum; continuing"
+        }
+
+        Expand-Archive -Path $archivePath -DestinationPath $tempDir -Force
+        $dest = Join-Path $Destination "$Binary.exe"
+        if (Test-Path $dest) { Remove-Item $dest -Force }
+        Move-Item (Join-Path $tempDir "$Binary.exe") $dest -Force
+        Write-Success "Installed companion: $dest"
+    }
+    catch {
+        Write-Warn "${Binary}: install failed ($_); skipping"
+    }
+    finally {
+        if (Test-Path $tempDir) {
+            Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║ Main - where the magic happens (PowerShell edition)                       ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
@@ -361,8 +451,24 @@ function Main {
     # Verify (trust but verify)
     Test-Installation -Directory $InstallDir | Out-Null
 
+    # Companions ride along (taskloom + ltk; opt out with -No* switches).
+    foreach ($c in $Companions) {
+        if ($c.Skip) {
+            Write-Info "Skipping $($c.Binary) (opted out)"
+            continue
+        }
+        Install-Companion -CompanionRepo $c.Repo -Binary $c.Binary -Arch $arch -Destination $InstallDir
+    }
+
     # Set up tab completion (the cherry on top)
     Install-Completion -Directory $InstallDir
+
+    # Unsigned binaries: SmartScreen may interpose on first run.
+    Write-Host ""
+    Write-Warn "These are unsigned binaries. If SmartScreen blocks one ('Windows"
+    Write-Warn "protected your PC'), choose 'More info -> Run anyway', or clear the"
+    Write-Warn "Mark of the Web: Unblock-File $InstallDir\ctxloom.exe"
+    Write-Warn "Details: https://ctxloom.dev/getting-started/binary-trust"
 
     Write-Host ""
     Write-Host "Get started:"

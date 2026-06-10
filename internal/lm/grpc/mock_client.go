@@ -112,7 +112,7 @@ func NewMockClient() *MockClient {
 
 // MockClientFactory returns a ClientFactory that always returns the provided mock.
 func MockClientFactory(mock *MockClient) ClientFactory {
-	return func(backendName string, verbosity int) (Client, error) {
+	return func(backendName, label string, verbosity int) (Client, error) {
 		return mock, nil
 	}
 }

@@ -3,13 +3,16 @@ package remote
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/iox"
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
@@ -147,30 +150,9 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Write to a unique temp file and rename into place. The lockfile is the
-	// sole on-disk trust/provenance record; a torn write would corrupt it.
-	// Rename is atomic on the same filesystem (pattern from commit 4caf8e2).
-	path := m.Path()
-	tmp, err := afero.TempFile(m.fs, m.baseDir, ".lock-*.yaml.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temp lockfile: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = m.fs.Remove(tmpName)
-		return fmt.Errorf("failed to write lockfile: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = m.fs.Remove(tmpName)
-		return fmt.Errorf("failed to write lockfile: %w", err)
-	}
-	if err := m.fs.Chmod(tmpName, 0644); err != nil {
-		_ = m.fs.Remove(tmpName)
-		return fmt.Errorf("failed to write lockfile: %w", err)
-	}
-	if err := m.fs.Rename(tmpName, path); err != nil {
-		_ = m.fs.Remove(tmpName)
+	// The lockfile is the sole on-disk trust/provenance record; a torn write
+	// would corrupt it, so replace atomically.
+	if err := iox.WriteFileAtomicFs(m.fs, m.Path(), data, 0644); err != nil {
 		return fmt.Errorf("failed to write lockfile: %w", err)
 	}
 
@@ -252,33 +234,68 @@ func (l *Lockfile) Count() int {
 }
 
 // GetCanonicalURL builds a canonical URL from a lockfile entry.
-// The localName should be in format "remote/path" (e.g., "ctxloom-github/core-practices").
-// Returns the full canonical URL including content version for reproducibility.
+// localName may be an exact canonical lockfile key or a short bundle/profile
+// name, which is resolved against the canonical keys by full path or last path
+// segment. Returns the full canonical URL including content version for
+// reproducibility, found=false when no entry matches, or an error when a short
+// name matches more than one entry. Pre-canonical ("remote/path") lockfile
+// keys are not supported; a fresh pull rewrites the lockfile with canonical
+// keys.
 //
 // Format: <url>@<type>/<path>@<content_version>
 //
 // If RequestedVersion is set, uses that; otherwise uses SHA.
-func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string, bool) {
-	entry, ok := l.GetEntry(itemType, localName)
-	if !ok {
-		return "", false
+func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string, bool, error) {
+	if entry, ok := l.GetEntry(itemType, localName); ok {
+		ref, err := ParseReference(localName)
+		if err != nil {
+			return "", false, nil
+		}
+		return canonicalURLFor(itemType, ref.Path, entry), true, nil
 	}
 
-	// Extract path from local name (everything after first /)
-	slashIdx := strings.Index(localName, "/")
-	if slashIdx == -1 {
-		return "", false
+	// Short name: resolve against the canonical keys of this item type.
+	var entries map[string]LockEntry
+	switch itemType {
+	case ItemTypeBundle:
+		entries = l.Bundles
+	case ItemTypeProfile:
+		entries = l.Profiles
 	}
-	itemPath := localName[slashIdx+1:]
+	// A "remote/path" ref matches on the path after its remote-alias prefix;
+	// the ambiguity error below guards same-path collisions across remotes.
+	_, prefixStripped, hasPrefix := strings.Cut(localName, "/")
+	var keys []string
+	for key := range entries {
+		ref, err := ParseReference(key)
+		if err != nil {
+			continue
+		}
+		if ref.Path == localName || path.Base(ref.Path) == localName ||
+			(hasPrefix && ref.Path == prefixStripped) {
+			keys = append(keys, key)
+		}
+	}
+	switch len(keys) {
+	case 0:
+		return "", false, nil
+	case 1:
+		ref, _ := ParseReference(keys[0])
+		return canonicalURLFor(itemType, ref.Path, entries[keys[0]]), true, nil
+	}
+	sort.Strings(keys)
+	return "", false, fmt.Errorf("%s %q is ambiguous in the lockfile; use a canonical ref (candidates: %s)",
+		itemType, localName, strings.Join(keys, ", "))
+}
 
-	// Use requested_version if available, else SHA for reproducibility
+// canonicalURLFor renders an entry's full canonical URL, versioned by the
+// requested constraint when present, else the locked SHA.
+func canonicalURLFor(itemType ItemType, itemPath string, entry LockEntry) string {
 	contentVersion := entry.RequestedVersion
 	if contentVersion == "" {
 		contentVersion = entry.SHA
 	}
-
-	typeName := itemType.DirName()
-	return fmt.Sprintf("%s@%s/%s@%s", entry.URL, typeName, itemPath, contentVersion), true
+	return fmt.Sprintf("%s@%s/%s@%s", entry.URL, itemType.DirName(), itemPath, contentVersion)
 }
 
 // FindByURL searches for a lockfile entry by repository URL.

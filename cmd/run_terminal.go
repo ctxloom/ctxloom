@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"golang.org/x/term"
@@ -13,8 +15,11 @@ import (
 // run: it puts the real terminal in raw mode (so keystrokes pass through
 // untouched to the agent's pty) and returns os.Stdin as the keystroke source
 // plus a resize channel fed from the terminal size, to pump over the bidi Run
-// stream. The returned restore func undoes raw mode. When stdin is not a
-// terminal it returns (nil, nil, no-op) and the run proceeds without a pty owner.
+// stream. The returned restore func undoes raw mode; it is idempotent, so
+// callers should defer it immediately (panic safety) and may also call it
+// inline to put the terminal back before any normal-path output. When stdin is
+// not a terminal it returns (nil, nil, no-op) and the run proceeds without a
+// pty owner.
 func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *pb.WindowSize, func()) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
@@ -24,5 +29,13 @@ func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *pb.WindowSize,
 	if err != nil {
 		return nil, nil, func() {}
 	}
-	return os.Stdin, watchResize(ctx, os.Stdin), func() { _ = term.Restore(fd, oldState) }
+	var once sync.Once
+	restore := func() {
+		once.Do(func() {
+			if rerr := term.Restore(fd, oldState); rerr != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to restore terminal state: %v\n", rerr)
+			}
+		})
+	}
+	return os.Stdin, watchResize(ctx, os.Stdin), restore
 }

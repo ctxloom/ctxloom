@@ -14,6 +14,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/textutil"
 	"github.com/ctxloom/shared/agent"
 )
 
@@ -206,10 +207,10 @@ func runMemoryShow(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Tokens: %d\n", distilled.TokensOut)
 		fmt.Println()
 
-		// Truncate if very long
+		// Truncate if very long (rune-safe: a byte slice can split a multibyte rune)
 		content := distilled.Body
 		if !showFull && len(content) > 2000 {
-			content = content[:2000] + "\n\n... [truncated, use --full to see all]"
+			content = textutil.TruncateBytes(content, 2000) + "\n\n... [truncated, use --full to see all]"
 		}
 		fmt.Println(content)
 	}

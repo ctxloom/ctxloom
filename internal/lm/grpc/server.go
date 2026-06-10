@@ -118,6 +118,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	go func() {
 		defer func() { _ = stdinW.Close() }()
 		defer close(resizeCh)
+		stdinClosed := false
 		for {
 			in, rerr := stream.Recv()
 			if rerr != nil {
@@ -125,8 +126,16 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			}
 			switch v := in.GetInput().(type) {
 			case *RunInput_Stdin:
+				if stdinClosed {
+					continue
+				}
 				if _, werr := stdinW.Write(v.Stdin); werr != nil {
-					return
+					// The pty's stdin copier exited and closed the read end
+					// (ErrClosedPipe). Stop forwarding keystrokes, but KEEP
+					// draining Recv: resize messages must still reach the pty,
+					// and abandoning the stream here would leave the run with
+					// no consumer.
+					stdinClosed = true
 				}
 			case *RunInput_Resize:
 				// Latest-wins coalescing: when a stale size is still pending,
@@ -166,16 +175,18 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 
 	// Execute the backend
 	result, err := s.Impl.Execute(stream.Context(), execReq, stdoutWriter, stderrWriter)
+
+	// Cleanup runs on both Execute paths — a failed launch must still release
+	// the backend's resources. And a teardown hiccup must not mask the Execute
+	// result: after a successful run it would report a completed session as
+	// "AI plugin failed" (partial success is success, CLAUDE.md), and after a
+	// failed one it would bury the real error. Warn and carry on, matching how
+	// Setup degrades above.
+	if cerr := s.Impl.Cleanup(stream.Context()); cerr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: backend cleanup failed: %v\n", cerr)
+	}
 	if err != nil {
 		return err
-	}
-
-	// Cleanup. A teardown hiccup after a successful run must not eat the
-	// agent's exit code — failing the stream here reports a completed session
-	// as "AI plugin failed" (partial success is success, CLAUDE.md). Warn and
-	// still send, matching how Setup degrades above.
-	if err := s.Impl.Cleanup(stream.Context()); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: backend cleanup failed: %v\n", err)
 	}
 
 	// Send the exit code and model info as the final message

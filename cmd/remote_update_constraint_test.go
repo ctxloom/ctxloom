@@ -82,4 +82,20 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 		require.False(t, upToDate)
 		require.Equal(t, "relsha2", u.LatestSHA)
 	})
+
+	t.Run("unlocked ref takes its type from the ref, not a bundle default", func(t *testing.T) {
+		// A ref with no lock entry must still pull as what its @profiles/ or
+		// @bundles/ segment says — pulling a profile as a bundle installs it
+		// under the wrong type.
+		empty := &remote.Lockfile{}
+		var out strings.Builder
+		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, empty, "https://github.com/o/r@profiles/p")
+		require.NoError(t, err)
+		require.False(t, upToDate)
+		require.Equal(t, remote.ItemTypeProfile, u.Type, "unlocked profile ref must keep its profile type")
+
+		u, _, err = detectSingleUpdate(ctx, &out, mock, empty, "https://github.com/o/r@bundles/x")
+		require.NoError(t, err)
+		require.Equal(t, remote.ItemTypeBundle, u.Type)
+	})
 }

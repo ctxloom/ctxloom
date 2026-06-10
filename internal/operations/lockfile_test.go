@@ -181,6 +181,29 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
 
+// A remote bundle referenced only by an INLINE config.yaml profile (no
+// directory profile) is part of sync's root set, so the post-sync lock rebuild
+// must keep it too — otherwise sync installs it and lock erases it on every
+// startup.
+func TestLockDependencies_InlineConfigProfileBundleSurvives(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := testConfigWithSCMPath(tmp)
+	cfg.Profiles = config.ProfilesConfig{Definitions: map[string]config.Profile{
+		"inline": {Bundles: []string{"https://github.com/test/repo@bundles/demo@abc123def456"}},
+	}}
+
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+	assert.Equal(t, "generated", result.Status)
+	assert.Equal(t, 1, result.ItemCount)
+
+	lf, err := remote.NewLockfileManager(tmp).Load()
+	require.NoError(t, err)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "https://github.com/test/repo@bundles/demo")
+	require.True(t, ok, "the inline profile's bundle survives the lock rebuild")
+	assert.Equal(t, "abc123def456", entry.SHA)
+}
+
 func TestLockDependencies_ConflictSurfacedImmediately(t *testing.T) {
 	tmp := t.TempDir()
 	writeLocalProfile(t, tmp, "a", "bundles:\n  - https://github.com/test/repo@bundles/demo@aaaaaaa\n")

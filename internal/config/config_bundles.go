@@ -55,10 +55,19 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 			continue
 		}
 
-		// Process each bundle URL in the resolved profile
+		// Process each bundle URL in the resolved profile, honoring the
+		// profile's exclude_mcp list (same name-based filter the inline
+		// config-profile path applies in profileBuilder.toProfile).
+		excluded := make(map[string]bool, len(resolved.ExcludeMCP))
+		for _, name := range resolved.ExcludeMCP {
+			excluded[name] = true
+		}
 		for _, bundleRef := range resolved.Bundles {
 			servers := loadMCPFromBundleRef(bundleRef, bundleLoader)
 			for name, server := range servers {
+				if excluded[name] {
+					continue
+				}
 				result[name] = server
 			}
 		}

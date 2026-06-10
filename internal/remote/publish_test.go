@@ -312,11 +312,12 @@ func TestTransformProfileForExport(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		lm := NewLockfileManager("/test", WithLockfileFS(fs))
 
-		// Create lockfile with entry
+		// Create lockfile with canonical-keyed entry; the profile references it
+		// by the remote-prefixed short form.
 		lockfile := &Lockfile{
 			Version: 1,
 			Bundles: map[string]LockEntry{
-				"alice/security": {
+				"https://github.com/alice/ctxloom@bundles/security": {
 					SHA: "abc123",
 					URL: "https://github.com/alice/ctxloom",
 				},

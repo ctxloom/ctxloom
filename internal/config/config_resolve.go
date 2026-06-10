@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -149,11 +150,46 @@ func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 	}
 }
 
+// NewExclusionSet builds the match set for exclude_fragments entries. Each
+// exclusion is inserted as written plus, when written as a full ref
+// ("bundle#fragments/name"), its bare fragment name. Fragment names reach the
+// filters in both shapes — bare from tag matching, full refs from bundle
+// expansion — and the fragment's origin bundle is not recoverable from a bare
+// name, so a full-ref exclusion deliberately excludes its fragment name from
+// every bundle, exactly like the bare form. Every exclusion seam must build
+// its set here and match via IsExcludedFragment so any written form catches
+// any arriving shape.
+func NewExclusionSet(exclusions []string) collections.Set[string] {
+	set := collections.NewSet[string]()
+	for _, e := range exclusions {
+		set.Add(e)
+		if name, ok := remote.FragmentName(e); ok {
+			set.Add(name)
+		}
+	}
+	return set
+}
+
+// IsExcludedFragment reports whether a fragment ref is excluded by a set
+// built with NewExclusionSet. A ref matches on its full form or on the
+// fragment name after its "#fragments/" selector — the shape bundle
+// expansion produces.
+func IsExcludedFragment(name string, excluded collections.Set[string]) bool {
+	if excluded.Has(name) {
+		return true
+	}
+	if bare, ok := remote.FragmentName(name); ok {
+		return excluded.Has(bare)
+	}
+	return false
+}
+
 func (b *profileBuilder) toProfile() *Profile {
 	// Filter excluded fragments
+	excluded := NewExclusionSet(b.ExcludeFragments.Items())
 	var filteredFragments []FragmentRef
 	for _, frag := range b.fragmentsOrder {
-		if !b.ExcludeFragments.Has(frag.Name) {
+		if !IsExcludedFragment(frag.Name, excluded) {
 			filteredFragments = append(filteredFragments, frag)
 		}
 	}

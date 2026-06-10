@@ -569,6 +569,38 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	assert.Contains(t, err.Error(), "profile nonexistent-profile")
 }
 
+// TestAssembleContext_UnresolvableDefaultProfileDegrades verifies the
+// fault-tolerance split: an unresolvable profile picked up from configured
+// defaults warns and is skipped (startup must not block), while the explicit
+// --profile path above stays a hard error.
+func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{
+			Defaults:    []string{"https://github.com/example/repo@profiles/missing"},
+			Definitions: map[string]config.Profile{},
+		},
+	}
+
+	mockLoader := &mockProfileLoader{
+		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
+			return nil, errors.New("profile not found")
+		},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Loader: loader,
+		ProfileLoaderFunc: func() ProfileLoader {
+			return mockLoader
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.FragmentsLoaded)
+	assert.Empty(t, result.Context)
+}
+
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
@@ -602,6 +634,80 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, result.Context, "DirProject")
 	assert.Contains(t, result.Context, "2.0.0")
+}
+
+// TestAssembleContext_DirectoryProfileExcludesFragments is the regression test
+// for directory-profile exclusions being silently ignored: ResolvedProfile now
+// carries exclude_fragments through resolution, and the bundle-expansion seam
+// in resolveProfile filters them — an excluded fragment from an inherited
+// bundle must not land in the assembled context.
+func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}}, // Empty config profiles
+	}
+
+	mockLoader := &mockProfileLoader{
+		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
+			if name == "excluding-profile" {
+				return &profiles.ResolvedProfile{
+					Bundles:          []string{"dev"}, // whole bundle: all four fragments
+					ExcludeFragments: []string{"go-patterns"},
+				}, nil
+			}
+			return nil, errors.New("not found")
+		},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "excluding-profile",
+		Loader:  loader,
+		ProfileLoaderFunc: func() ProfileLoader {
+			return mockLoader
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Context, "Security Rules", "non-excluded fragments still load")
+	assert.NotContains(t, result.Context, "Go Patterns", "excluded fragment must not be assembled")
+	assert.NotContains(t, result.FragmentsLoaded, "dev#fragments/go-patterns")
+}
+
+// TestAssembleContext_DirectoryProfileExcludesTaggedFragment verifies that
+// exclusions also win over tag-matched fragments — a profile that pulls
+// fragments in by tag can still name-exclude one of them ("exclusions always
+// win"). Request-level tags remain unfiltered; only profile-pushed content is.
+func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
+	}
+
+	mockLoader := &mockProfileLoader{
+		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
+			if name == "tagged-profile" {
+				return &profiles.ResolvedProfile{
+					Tags:             []string{"security", "go"},
+					ExcludeFragments: []string{"security-rules"},
+				}, nil
+			}
+			return nil, errors.New("not found")
+		},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "tagged-profile",
+		Loader:  loader,
+		ProfileLoaderFunc: func() ProfileLoader {
+			return mockLoader
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, result.Context, "Go Patterns", "non-excluded tag match still loads")
+	assert.NotContains(t, result.Context, "Security Rules", "excluded tag match must be dropped")
 }
 
 // =============================================================================

@@ -40,6 +40,16 @@ type LMConfig struct {
 // DefaultLLM is the backend type used when no config resolves a label.
 const DefaultLLM = "claude-code"
 
+// EffectiveType returns the backend type the entry drives, degrading to
+// DefaultLLM when Type is unset. Every consumer of LLMConfig.Type must
+// resolve it through this method so the defaulting rule lives in one place.
+func (c LLMConfig) EffectiveType() string {
+	if c.Type == "" {
+		return DefaultLLM
+	}
+	return c.Type
+}
+
 // hasAny reports whether the LM config carries anything worth persisting.
 func (c LMConfig) hasAny() bool {
 	return len(c.Configs) > 0 || c.Defaults.Primary != "" || c.Defaults.Fast != ""

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // LoadedContent is a fully resolved fragment or prompt with its bundle
@@ -440,7 +441,7 @@ func (l *Loader) expandBundleRef(ref string) []string {
 	}
 	names := make([]string, 0, len(b.Fragments))
 	for fragName := range b.Fragments {
-		names = append(names, ref+"#fragments/"+fragName)
+		names = append(names, ref+remote.FragmentSelector+fragName)
 	}
 	sort.Strings(names)
 	return names

@@ -25,8 +25,9 @@ type RunOneshotRequest struct {
 
 	// Loader is an optional pre-configured bundle loader (test seam).
 	Loader *bundles.Loader
-	// Factory builds the plugin client; nil uses pb.DefaultClientFactory()
-	// (self-invoke the compiled-in backend). The seam lets map/weave and tests
+	// Factory builds the plugin client; nil self-invokes the compiled-in
+	// backend carrying the resolved config label
+	// (pb.DefaultClientFactoryForLabel). The seam lets map/weave and tests
 	// inject a client without spawning real backends.
 	Factory pb.ClientFactory
 }
@@ -81,7 +82,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	if factory == nil {
 		factory = pb.DefaultClientFactory()
 	}
-	client, err := factory(backendName, req.Verbosity)
+	client, err := factory(backendName, label, req.Verbosity)
 	if err != nil {
 		return nil, fmt.Errorf("start plugin: %w", err)
 	}

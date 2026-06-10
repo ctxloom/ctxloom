@@ -253,9 +253,6 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	}
 
 	backendName := s.cfg.GetDefaultLLM()
-	if backendName == "" {
-		backendName = "claude-code"
-	}
 
 	// Index-authoritative: ctxloom decides which session is previous and which
 	// agent produced it (cross-agent aware); the owning agent server materializes

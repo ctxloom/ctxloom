@@ -35,11 +35,18 @@ type DependencyConflict struct {
 // hashless identity, plus any conflict where the same identity appears at more
 // than one hash. Local (ctxloom:local) refs carry no hash and are not tracked.
 //
-// profileNames selects the roots; empty means every local profile on disk.
+// profileNames selects the roots; empty means every local profile — inline
+// config.yaml definitions plus directory profiles on disk, plus any remote
+// refs in the configured default profiles — the same root set sync's
+// collectRemoteReferences walks (so nothing sync installs is erased by
+// the post-sync lock rebuild).
 func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict) {
 	loader := profileLoader(cfg)
 	names := profileNames
 	if len(names) == 0 {
+		for name := range cfg.Profiles.Definitions {
+			names = append(names, name)
+		}
 		if ps, err := loader.List(); err == nil {
 			for _, p := range ps {
 				names = append(names, p.Name)
@@ -47,9 +54,40 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 		}
 	}
 	var roots []*profiles.Profile
+	seen := map[string]struct{}{}
 	for _, name := range names {
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		// Inline config definitions win over a same-named directory profile,
+		// matching sync's collectProfileReferences resolution order.
+		if def, ok := cfg.Profiles.Definitions[name]; ok {
+			roots = append(roots, &profiles.Profile{Name: name, Bundles: def.Bundles, Parents: def.Parents})
+			continue
+		}
 		if p, err := loader.Load(name); err == nil {
 			roots = append(roots, p)
+		}
+	}
+	// Remote refs in the configured default profiles (the init-seeded default,
+	// or home-config defaults) are closure roots even though no local profile
+	// names them. They enter as parents of a synthetic root — the walker
+	// resolves remote parents from the clone cache directly, so this works on
+	// the very first lock when no lockfile entry exists yet to seed the loader.
+	if len(profileNames) == 0 {
+		defaults := cfg.ExplicitDefaultProfiles()
+		if len(defaults) == 0 {
+			defaults = homeDefaultProfiles()
+		}
+		var remoteDefaults []string
+		for _, name := range defaults {
+			if isRemoteReference(name) {
+				remoteDefaults = append(remoteDefaults, name)
+			}
+		}
+		if len(remoteDefaults) > 0 {
+			roots = append(roots, &profiles.Profile{Name: "<config-defaults>", Parents: remoteDefaults})
 		}
 	}
 	return FlattenProfileRoots(ctx, cfg, loader, roots)

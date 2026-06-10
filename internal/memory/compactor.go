@@ -427,7 +427,7 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	}
 
 	// Create plugin client using the factory
-	client, err := c.clientFactory(c.config.LLM, 0)
+	client, err := c.clientFactory(c.config.LLM, "", 0)
 	if err != nil {
 		return "", fmt.Errorf("start plugin: %w", err)
 	}

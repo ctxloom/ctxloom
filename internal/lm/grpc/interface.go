@@ -38,15 +38,19 @@ type Client interface {
 }
 
 // ClientFactory creates plugin clients.
-// This type enables dependency injection for client creation.
-type ClientFactory func(backendName string, verbosity int) (Client, error)
+// This type enables dependency injection for client creation. The label is
+// the resolved config label, carried into the self-invoked serve subprocess:
+// with an empty label, serve falls back to a map-ordered scan over same-type
+// config entries and may configure an arbitrary label's binary/args/env, so
+// callers that resolved a specific label (run, oneshot/map/weave) must pass it.
+type ClientFactory func(backendName, label string, verbosity int) (Client, error)
 
 // Ensure LLMRunner implements Client interface.
 var _ Client = (*LLMRunner)(nil)
 
 // DefaultClientFactory returns the default factory that creates real plugin clients.
 func DefaultClientFactory() ClientFactory {
-	return func(backendName string, verbosity int) (Client, error) {
-		return NewSelfInvokingClient(backendName, verbosity)
+	return func(backendName, label string, verbosity int) (Client, error) {
+		return NewSelfInvokingClientForLabel(backendName, label, verbosity)
 	}
 }

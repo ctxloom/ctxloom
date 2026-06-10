@@ -64,7 +64,7 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 
 	stub := &stubClient{out: "  REVIEW FINDINGS  \n"}
 	var gotBackend string
-	factory := func(backendName string, _ int) (pb.Client, error) {
+	factory := func(backendName, _ string, _ int) (pb.Client, error) {
 		gotBackend = backendName
 		return stub, nil
 	}
@@ -116,7 +116,7 @@ func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {
 	cfg := oneshotTestConfig()
 
 	var gotBackend string
-	factory := func(backendName string, _ int) (pb.Client, error) {
+	factory := func(backendName, _ string, _ int) (pb.Client, error) {
 		gotBackend = backendName
 		return &stubClient{out: "ok"}, nil
 	}

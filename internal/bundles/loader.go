@@ -11,8 +11,9 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 )
 
 // Loader loads bundles from disk (and an optional in-memory seed), caching
@@ -111,13 +112,21 @@ func (l *Loader) Load(name string) (*Bundle, error) {
 }
 
 // lookupSeeded returns the seeded bundle for name, if any. Cheap read-only.
-// Seeded bundles are keyed by their canonical ref.
+// Seeded bundles are keyed by their version-less canonical ref (the lockfile
+// key shape), so a ref carrying a content version ("...@<sha>") is normalized
+// to that form when the exact lookup misses.
 func (l *Loader) lookupSeeded(name string) (*Bundle, bool) {
 	if l.seeded == nil {
 		return nil, false
 	}
-	b, ok := l.seeded[name]
-	return b, ok
+	if b, ok := l.seeded[name]; ok {
+		return b, true
+	}
+	if key, ok := remote.CanonicalKey(name); ok && key != name {
+		b, ok := l.seeded[key]
+		return b, ok
+	}
+	return nil, false
 }
 
 // Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").

@@ -36,10 +36,11 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 		return nil
 	}
 	return &mcpLLMDistillerSDK{
-		llmName: backend,
-		llmEnv:  llmEnvFor(cfg, label),
-		model:   model,
-		prompt:  prompt,
+		llmName:  backend,
+		llmLabel: label,
+		llmEnv:   llmEnvFor(cfg, label),
+		model:    model,
+		prompt:   prompt,
 	}
 }
 
@@ -47,10 +48,11 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 // interface. State is captured at construction so each Distill call is
 // self-contained.
 type mcpLLMDistillerSDK struct {
-	llmName string
-	llmEnv  map[string]string
-	model   string // cheap compression model (e.g. "haiku"); empty = backend default
-	prompt  string
+	llmName  string
+	llmLabel string // resolved config label, so serve configures exactly this entry
+	llmEnv   map[string]string
+	model    string // cheap compression model (e.g. "haiku"); empty = backend default
+	prompt   string
 }
 
 func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
@@ -65,7 +67,7 @@ func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRe
 	if req.Bundle != nil {
 		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
 	}
-	distilled, modelID, err := distillWithModel(d.llmName, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	distilled, modelID, err := distillWithModel(d.llmName, d.llmLabel, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
 	if err != nil {
 		return operations.DistillResult{}, err
 	}

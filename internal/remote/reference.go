@@ -297,24 +297,23 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	typeStr := parts[0]
 	pathWithVersion := parts[1]
 
-	// Check for content version suffix: path@contentVersion
-	if atIdx := strings.LastIndex(pathWithVersion, "@"); atIdx != -1 {
-		itemPath = pathWithVersion[:atIdx]
-		contentVersion = pathWithVersion[atIdx+1:]
-	} else {
-		itemPath = pathWithVersion
-		contentVersion = ""
-	}
-
 	// Strip a fragment/prompt selector (`#fragments/<name>`) — it identifies an
 	// item WITHIN the bundle, not the bundle's identity. Keeping it here would
 	// bake the selector into the canonical ref / lockfile key, so the fetcher
 	// would look for a file literally named "<bundle>#fragments/<name>.yaml".
 	// The selector is split off and re-applied at assembly time by the bundle
-	// loader (see loader_content.go splitItemRef). Done after the @version split
-	// so a "<path>#sel@<sha>" form keeps its version.
-	if hashIdx := strings.Index(itemPath, "#"); hashIdx != -1 {
-		itemPath = itemPath[:hashIdx]
+	// loader (see loader_content.go splitItemRef). Done BEFORE the @version
+	// split so the "<path>@<version>#sel" form (what ResolveRefString emits)
+	// doesn't fold the selector into the version.
+	itemPath, selector := splitItemPath(pathWithVersion)
+
+	// Check for content version suffix: path@contentVersion. The legacy
+	// "<path>#sel@<version>" ordering carries its version inside the selector.
+	if atIdx := strings.LastIndex(itemPath, "@"); atIdx != -1 {
+		contentVersion = itemPath[atIdx+1:]
+		itemPath = itemPath[:atIdx]
+	} else if atIdx := strings.LastIndex(selector, "@"); atIdx != -1 {
+		contentVersion = selector[atIdx+1:]
 	}
 
 	if itemPath == "" {

@@ -320,7 +320,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 	}{
 		{
 			name:      "bundle with requested version",
-			localName: "ctxloom-github/core-practices",
+			localName: "https://github.com/alice/ctxloom@bundles/core-practices",
 			entry: LockEntry{
 				SHA:              "abc123",
 				URL:              "https://github.com/alice/ctxloom",
@@ -332,7 +332,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 		},
 		{
 			name:      "bundle without requested version uses SHA",
-			localName: "ctxloom-github/tools",
+			localName: "https://github.com/bob/ctxloom@bundles/tools",
 			entry: LockEntry{
 				SHA: "def456",
 				URL: "https://github.com/bob/ctxloom",
@@ -343,7 +343,7 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 		},
 		{
 			name:      "profile entry",
-			localName: "ctxloom-github/secure",
+			localName: "https://github.com/alice/ctxloom@profiles/secure",
 			entry: LockEntry{
 				SHA: "ghi789",
 				URL: "https://github.com/alice/ctxloom",
@@ -361,6 +361,17 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			wantOk:    false,
 		},
 		{
+			name:      "legacy remote/path key is not supported",
+			localName: "ctxloom-github/core-practices",
+			entry: LockEntry{
+				SHA: "abc123",
+				URL: "https://github.com/alice/ctxloom",
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "",
+			wantOk:   false,
+		},
+		{
 			name:      "invalid local name (no slash)",
 			localName: "invalid",
 			entry: LockEntry{
@@ -370,6 +381,17 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			itemType: ItemTypeBundle,
 			wantURL:  "",
 			wantOk:   false,
+		},
+		{
+			name:      "canonical key",
+			localName: "https://github.com/alice/ctxloom@bundles/core-practices",
+			entry: LockEntry{
+				SHA: "abc123",
+				URL: "https://github.com/alice/ctxloom",
+			},
+			itemType: ItemTypeBundle,
+			wantURL:  "https://github.com/alice/ctxloom@bundles/core-practices@abc123",
+			wantOk:   true,
 		},
 	}
 
@@ -384,7 +406,10 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 				lockfile.AddEntry(tt.itemType, tt.localName, tt.entry)
 			}
 
-			gotURL, gotOk := lockfile.GetCanonicalURL(tt.itemType, tt.localName)
+			gotURL, gotOk, err := lockfile.GetCanonicalURL(tt.itemType, tt.localName)
+			if err != nil {
+				t.Fatalf("GetCanonicalURL() unexpected error: %v", err)
+			}
 			if gotOk != tt.wantOk {
 				t.Errorf("GetCanonicalURL() ok = %v, want %v", gotOk, tt.wantOk)
 			}
@@ -393,6 +418,76 @@ func TestLockfile_GetCanonicalURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Lockfile keys are canonical refs ("<url>@bundles/<path>"); publish resolves
+// a profile's short bundle name against them by full path or last segment,
+// erroring rather than guessing when the name matches more than one entry.
+func TestLockfile_GetCanonicalURL_ShortNameResolution(t *testing.T) {
+	lockfile := &Lockfile{
+		Bundles: map[string]LockEntry{
+			"https://github.com/alice/ctxloom@bundles/core-practices": {SHA: "abc123", URL: "https://github.com/alice/ctxloom"},
+			"https://github.com/alice/ctxloom@bundles/lang/go":        {SHA: "def456", URL: "https://github.com/alice/ctxloom"},
+			"https://github.com/bob/ctxloom@bundles/tools/go":         {SHA: "fed654", URL: "https://github.com/bob/ctxloom"},
+		},
+		Profiles: make(map[string]LockEntry),
+	}
+
+	t.Run("short name resolves against canonical key", func(t *testing.T) {
+		got, ok, err := lockfile.GetCanonicalURL(ItemTypeBundle, "core-practices")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected the short name to resolve")
+		}
+		want := "https://github.com/alice/ctxloom@bundles/core-practices@abc123"
+		if got != want {
+			t.Errorf("GetCanonicalURL() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nested full path resolves uniquely", func(t *testing.T) {
+		got, ok, err := lockfile.GetCanonicalURL(ItemTypeBundle, "lang/go")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected the full path to resolve")
+		}
+		want := "https://github.com/alice/ctxloom@bundles/lang/go@def456"
+		if got != want {
+			t.Errorf("GetCanonicalURL() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("ambiguous last segment errors with candidates", func(t *testing.T) {
+		_, ok, err := lockfile.GetCanonicalURL(ItemTypeBundle, "go")
+		if ok {
+			t.Fatal("expected ok = false for an ambiguous name")
+		}
+		if err == nil {
+			t.Fatal("expected an ambiguity error")
+		}
+		for _, candidate := range []string{
+			"https://github.com/alice/ctxloom@bundles/lang/go",
+			"https://github.com/bob/ctxloom@bundles/tools/go",
+		} {
+			if !strings.Contains(err.Error(), candidate) {
+				t.Errorf("error %q should list candidate %q", err, candidate)
+			}
+		}
+	})
+
+	t.Run("unknown short name is not found", func(t *testing.T) {
+		_, ok, err := lockfile.GetCanonicalURL(ItemTypeBundle, "missing")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ok {
+			t.Fatal("expected ok = false")
+		}
+	})
 }
 
 func TestLockfile_FindByURL(t *testing.T) {

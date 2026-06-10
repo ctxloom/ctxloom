@@ -312,7 +312,7 @@ func TestMockClientFactory(t *testing.T) {
 	mock := &pb.MockClient{}
 	factory := pb.MockClientFactory(mock)
 
-	client, err := factory("any-backend", 0)
+	client, err := factory("any-backend", "", 0)
 	require.NoError(t, err)
 
 	assert.Same(t, mock, client)

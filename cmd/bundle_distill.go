@@ -263,7 +263,7 @@ var compressionRouter = compression.NewRouter()
 // distillWithModel sends content through compression and returns distilled content and model ID.
 // It first tries AST-based compression for code and JSON structure compression for JSON content.
 // For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
-func distillWithModel(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithModel(llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	ctx := context.Background()
 
 	// Detect content type and try AST/JSON compression first
@@ -280,7 +280,7 @@ func distillWithModel(llmName, model string, env map[string]string, name, conten
 	}
 
 	// For text content or when AST compression isn't effective, use LLM
-	return distillWithLLM(llmName, model, env, name, content, distillPrompt, siblingCtx)
+	return distillWithLLM(llmName, llmLabel, model, env, name, content, distillPrompt, siblingCtx)
 }
 
 // isStructuredContent returns true for content types that can be compressed structurally.
@@ -330,11 +330,12 @@ func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string
 }
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(llmName, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithLLM(llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
 
-	// Create plugin client
-	client, err := pb.NewSelfInvokingClient(llmName, 0)
+	// Create plugin client. The label rides along so serve configures the exact
+	// entry the distill resolved (--llm or the fast role), not a type-scan pick.
+	client, err := pb.NewSelfInvokingClientForLabel(llmName, llmLabel, 0)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start plugin: %w", err)
 	}

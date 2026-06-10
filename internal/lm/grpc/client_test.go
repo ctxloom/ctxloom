@@ -292,6 +292,36 @@ func TestNewLLMRunner_HappyPath(t *testing.T) {
 	assert.Equal(t, 1, fake.killCalls)
 }
 
+// TestDefaultClientFactory_PassesLabelToServe pins the oneshot fix: the
+// factory must carry the resolved config label into the self-invoked
+// `llm serve` argv, or serve's map-ordered type scan picks an arbitrary
+// same-type label's binary/args/env.
+func TestDefaultClientFactory_PassesLabelToServe(t *testing.T) {
+	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
+	fake := &fakeLLMConnection{
+		clientResult: &fakeClientProtocol{dispenseResult: grpcClient},
+	}
+	var gotArgs []string
+	orig := dialLLMConnection
+	dialLLMConnection = func(cmd string, args []string, logger hclog.Logger) llmConnection {
+		gotArgs = args
+		return fake
+	}
+	t.Cleanup(func() { dialLLMConnection = orig })
+
+	t.Run("label rides as --label", func(t *testing.T) {
+		_, err := DefaultClientFactory()("claude-code", "claude-fast", 0)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"llm", "serve", "claude-code", "--label", "claude-fast"}, gotArgs)
+	})
+
+	t.Run("empty label is omitted", func(t *testing.T) {
+		_, err := DefaultClientFactory()("claude-code", "", 0)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"llm", "serve", "claude-code"}, gotArgs)
+	})
+}
+
 func TestNewLLMRunner_KillIsNilSafe(t *testing.T) {
 	// A LLMRunner with nil conn (constructed for tests) must not
 	// panic when Kill is called.

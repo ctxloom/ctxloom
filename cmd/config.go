@@ -157,14 +157,15 @@ func projectConfigPath() string {
 	return paths.ConfigPath(appDir)
 }
 
-// openInEditor launches $EDITOR (falling back to vi) on path, wired to the
-// current terminal.
+// openInEditor launches the environment-resolved editor (VISUAL → EDITOR →
+// nano; multi-word values are split) on path, wired to the current terminal.
+// This command edits the config file itself — possibly a broken one — so it
+// must not depend on config load; it uses the shared env-only half of the
+// editor policy instead of cfg.GetEditorCommand. (The last-resort fallback
+// changed from vi to nano to match the config-aware path.)
 func openInEditor(path string) error {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-	c := exec.Command(editor, path)
+	editor, args := config.EditorFromEnv()
+	c := exec.Command(editor, append(args, path)...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return c.Run()
 }

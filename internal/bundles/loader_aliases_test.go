@@ -29,3 +29,25 @@ func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 	}
 	assert.Equal(t, []string{canonical}, names, "listed once under its canonical name")
 }
+
+// Seed keys are version-less canonical refs (the lockfile key shape), but a
+// remote profile's resolved bundle refs carry a pinned version
+// ("...@<sha>"). The lookup must normalize, or the seeded bundle is missed
+// and dropped from the assembled context.
+func TestLoader_SeededCanonical_VersionCarryingRefResolves(t *testing.T) {
+	b := &Bundle{
+		Version:   "1.0.0",
+		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
+	}
+	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
+	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{canonical: b}))
+
+	for _, ref := range []string{
+		canonical + "@0123456789abcdef0123456789abcdef01234567",
+		canonical + "@v1.2.0",
+	} {
+		got, err := loader.Load(ref)
+		require.NoError(t, err, "version-carrying ref %s should hit the version-less seed", ref)
+		assert.Same(t, b, got)
+	}
+}

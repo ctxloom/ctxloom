@@ -119,6 +119,17 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 	}
 	canonical := ref.CanonicalString()
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
+	if itemType == "" {
+		// Unlocked ref: trust the ref's own type segment (@profiles/ vs
+		// @bundles/) rather than assuming bundle — pulling a profile as a
+		// bundle would install it under the wrong type. Canonical refs always
+		// carry a type; the bundle fallback is defensive only.
+		itemType = ref.ItemType
+		if itemType == "" {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s does not carry an item type; assuming bundle\n", refStr)
+			itemType = remote.ItemTypeBundle
+		}
+	}
 
 	latestSHA, ok := latestWithinConstraint(ctx, fetcher, ref.URL, entry.RequestedVersion)
 	if !ok {
@@ -169,13 +180,14 @@ func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEnt
 }
 
 // reportUpdateStatus prints the update status and returns the item type to pull
-// plus whether the ref is already up to date. A ref absent from the lockfile
-// defaults to bundle.
+// plus whether the ref is already up to date. itemType is the caller's resolved
+// type (lock entry, falling back to the ref's own type segment) and is passed
+// through unchanged — an unlocked profile must still pull as a profile.
 func reportUpdateStatus(out io.Writer, refStr, currentSHA, latestSHA string, itemType remote.ItemType) (remote.ItemType, bool) {
 	switch currentSHA {
 	case "":
 		fmt.Fprintf(out, "%s not found in lockfile, checking latest version...\n", refStr)
-		return remote.ItemTypeBundle, false
+		return itemType, false
 	case latestSHA:
 		fmt.Fprintf(out, "%s is up to date (SHA: %s)\n", refStr, shortSHA(latestSHA))
 		return itemType, true

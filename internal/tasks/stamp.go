@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/iox"
 )
 
 // StampPlanFile ensures the file's YAML frontmatter contains `sessions:`
@@ -45,7 +47,7 @@ func prependFrontmatter(path, content, harpName string) error {
 	if !strings.HasPrefix(content, "\n") && content != "" {
 		prefix += "\n"
 	}
-	return atomicWriteString(path, prefix+content)
+	return iox.WriteFileAtomic(path, []byte(prefix+content), 0o644)
 }
 
 // updateFrontmatter parses content's leading frontmatter, adds harpName to its
@@ -83,7 +85,7 @@ func updateFrontmatter(path, content, harpName string) error {
 	if body != "" {
 		newContent += "\n" + body
 	}
-	return atomicWriteString(path, newContent)
+	return iox.WriteFileAtomic(path, []byte(newContent), 0o644)
 }
 
 // addHarpToSessionsNode looks for a top-level `sessions:` key in the parsed
@@ -140,12 +142,4 @@ func addHarpToSessionsNode(root *yaml.Node, harpName string) bool {
 		&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{{Kind: yaml.ScalarNode, Value: harpName}}},
 	)
 	return true
-}
-
-func atomicWriteString(path, content string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }

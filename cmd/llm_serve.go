@@ -73,15 +73,9 @@ var llmServeLabel string
 // run path passes the label through.
 func serveBackendConfig(cfg *config.Config, backendName, label string) agent.BackendConfig {
 	if label != "" {
-		if entry, ok := cfg.LM.Configs[label]; ok {
-			t := entry.Type
-			if t == "" {
-				t = config.DefaultLLM
-			}
-			if t == backendName {
-				if bc := decodeBackendConfig(cfg, label); bc != nil {
-					return bc
-				}
+		if entry, ok := cfg.LM.Configs[label]; ok && entry.EffectiveType() == backendName {
+			if bc := decodeBackendConfig(cfg, label); bc != nil {
+				return bc
 			}
 		}
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: label %q does not resolve to backend %s; falling back to type lookup\n", label, backendName)

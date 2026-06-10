@@ -74,7 +74,7 @@ func TestSessionReader_CurrentSession_Empty(t *testing.T) {
 }
 
 func TestSessionReader_DialFailureWrapped(t *testing.T) {
-	factory := func(string, int) (Client, error) { return nil, errors.New("spawn failed") }
+	factory := func(string, string, int) (Client, error) { return nil, errors.New("spawn failed") }
 	r := NewSessionReaderWithFactory("gemini", 0, factory)
 
 	_, err := r.GetSession(context.Background(), "x")

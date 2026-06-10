@@ -103,7 +103,9 @@ func newInitPrompts() *initPrompts {
 			// Restore to cooked mode by making raw then restoring
 			// This is a workaround since there's no "MakeCooked" function
 			_, _ = term.MakeRaw(int(os.Stdin.Fd()))
-			_ = term.Restore(int(os.Stdin.Fd()), oldState)
+			if rerr := term.Restore(int(os.Stdin.Fd()), oldState); rerr != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to restore terminal state: %v\n", rerr)
+			}
 		}
 	}
 
@@ -340,38 +342,6 @@ var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
-	// Save terminal state before launching subprocess
-	// This ensures we can restore it even if the subprocess corrupts it
-	var oldState *term.State
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		var err error
-		oldState, err = term.GetState(int(os.Stdin.Fd()))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to save terminal state: %v\n", err)
-		}
-	}
-
-	// Ensure terminal is restored on any exit path
-	restoreTerminal := func() {
-		if oldState != nil {
-			_ = term.Restore(int(os.Stdin.Fd()), oldState)
-		}
-	}
-	defer restoreTerminal()
-
-	// Set up signal handler to restore terminal on interrupt
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	go func() {
-		<-sigCh
-		restoreTerminal()
-		// Re-raise signal for default handling
-		signal.Stop(sigCh)
-		p, _ := os.FindProcess(os.Getpid())
-		_ = p.Signal(os.Interrupt)
-	}()
-	defer signal.Stop(sigCh)
-
 	client, err := pb.NewSelfInvokingClient(engine, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to launch %s: %v\n", engine, err)
@@ -388,7 +358,35 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 		},
 	}
 
-	_, err = client.Run(ctx, req, nil, os.Stdout, os.Stderr, nil)
+	// The discovery session is interactive, so the frontend must own the
+	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
+	// events are pumped over the bidi Run stream into the agent's pty (the
+	// plugin subprocess never inherits our terminal). Off a TTY this degrades
+	// to a non-interactive stream — warn and continue (CLAUDE.md).
+	stdin, resize, restoreTerm := interactiveTerminal(ctx)
+	defer restoreTerm()
+	if stdin == nil {
+		fmt.Fprintln(os.Stderr, "ctxloom: warning: stdin is not a terminal; discovery session will not accept input")
+	}
+
+	// Restore the terminal before dying on an interrupt delivered from
+	// outside (in raw mode a user's ^C is just bytes forwarded to the agent,
+	// not a SIGINT to us). restoreTerm is idempotent, so this races safely
+	// with the deferred and inline calls.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		<-sigCh
+		restoreTerm()
+		// Re-raise signal for default handling
+		signal.Stop(sigCh)
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(os.Interrupt)
+	}()
+	defer signal.Stop(sigCh)
+
+	_, err = client.Run(ctx, req, stdin, os.Stdout, os.Stderr, resize)
+	restoreTerm()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: AI session ended: %v\n", err)
 	}
@@ -495,6 +493,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// collected, so a fully non-interactive run can still register personal repos.
 	addPersonalRemotes(cmd, append(append([]string{}, initRemotes...), personalRepos...), initForge)
 	cloneConfiguredRemotes(cmd)
+	pullSeededDependencies(cmd)
 	applyInitHooks(cmd)
 
 	// Exclude ctxloom's private working state from version control.
@@ -633,6 +632,30 @@ func cloneConfiguredRemotes(cmd *cobra.Command) {
 	}
 	if len(cloneRes.Cloned) > 0 {
 		fmt.Printf("Cloned remotes for discovery: %s\n", strings.Join(cloneRes.Cloned, ", "))
+	}
+}
+
+// pullSeededDependencies pulls and locks the remote dependencies the fresh
+// config references — most importantly the seeded default profile, which
+// resolves only through a lockfile entry. Without this step the very first
+// `ctxloom run` after init fails to assemble. Fault-tolerant: failures warn
+// and continue (offline init still completes; run degrades per assembly).
+func pullSeededDependencies(cmd *cobra.Command) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for dependency pull: %v\n", err)
+		return
+	}
+	result, syncErr := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
+		Lock:       true,
+		ApplyHooks: false, // applyInitHooks runs right after
+	})
+	if syncErr != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to pull seeded dependencies: %v\n", syncErr)
+		return
+	}
+	if result.Installed > 0 {
+		fmt.Printf("Pulled %d seeded dependencies\n", result.Installed)
 	}
 }
 

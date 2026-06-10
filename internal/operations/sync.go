@@ -309,6 +309,23 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 		collectProfileReferencesRecursive(cfg, profileName, bundleSet, profileSet, visited)
 	}
 
+	// Config-level default profiles are dependency roots too: the init-seeded
+	// default (and home-config defaults) may name remote profiles that no
+	// local profile references. A remote profile resolves only through its
+	// lockfile entry, so a default that is never collected here can never be
+	// pulled — and the first `ctxloom run` after init fails to assemble.
+	if len(profileNames) == 0 {
+		defaults := cfg.ExplicitDefaultProfiles()
+		if len(defaults) == 0 {
+			defaults = homeDefaultProfiles()
+		}
+		for _, name := range defaults {
+			if isRemoteReference(name) {
+				profileSet.Add(name)
+			}
+		}
+	}
+
 	// Convert sets to slices
 	bundleRefs = bundleSet.Items()
 	profileRefs = profileSet.Items()

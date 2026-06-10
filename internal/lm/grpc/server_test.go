@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
@@ -245,12 +247,65 @@ func TestGRPCServer_Run_SkipSetup(t *testing.T) {
 
 func TestGRPCServer_Run_ExecuteErrorPropagates(t *testing.T) {
 	want := errors.New("execute failed")
-	srv := &GRPCServer{Impl: &fakeBackend{executeErr: want}}
+	backend := &fakeBackend{executeErr: want}
+	srv := &GRPCServer{Impl: backend}
 	stream := newFakeRunServer()
 
 	stream.recv = []*RunInput{runStartInput(&RunStart{Options: &RunOptions{}})}
 	err := srv.Run(stream)
 	assert.ErrorIs(t, err, want)
+	// A failed launch must still release the backend's resources — and the
+	// warn-only cleanup must not mask the Execute error asserted above.
+	assert.True(t, backend.cleanupCalled, "Cleanup must run even when Execute fails")
+}
+
+// stdinClosingBackend simulates the pty stdin copier exiting mid-run: Execute
+// consumes one stdin byte, closes the wire stdin (the io.PipeReader the
+// server's stream pump writes into), then waits for a resize to prove the pump
+// kept draining Recv after the stdin write started failing.
+type stdinClosingBackend struct {
+	fakeBackend
+	resize   agent.WindowSize
+	resizeOK bool
+}
+
+func (f *stdinClosingBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	buf := make([]byte, 1)
+	if _, err := req.Stdin.Read(buf); err != nil {
+		return nil, fmt.Errorf("read stdin: %w", err)
+	}
+	if c, ok := req.Stdin.(io.Closer); ok {
+		_ = c.Close()
+	}
+	select {
+	case ws, ok := <-req.Resize:
+		f.resize, f.resizeOK = ws, ok
+	case <-time.After(5 * time.Second):
+		return nil, errors.New("resize never arrived: the stream pump stopped draining after the stdin pipe closed")
+	}
+	return &agent.ExecuteResult{ExitCode: 0}, nil
+}
+
+// TestGRPCServer_Run_ResizeStillFlowsAfterStdinPipeCloses is the regression
+// for the wedged-pump bug: once the pty's stdin copier closed the pipe reader,
+// the pump's next stdinW.Write must fail fast (not park forever) and the pump
+// must keep consuming Recv so resize messages still reach the pty.
+func TestGRPCServer_Run_ResizeStillFlowsAfterStdinPipeCloses(t *testing.T) {
+	backend := &stdinClosingBackend{}
+	srv := &GRPCServer{Impl: backend}
+	stream := newFakeRunServer()
+
+	stream.recv = []*RunInput{
+		runStartInput(&RunStart{Options: &RunOptions{SkipSetup: true}}),
+		{Input: &RunInput_Stdin{Stdin: []byte("a")}}, // consumed by Execute, which then closes the pipe
+		{Input: &RunInput_Stdin{Stdin: []byte("b")}}, // hits the closed pipe → ErrClosedPipe, not a parked Write
+		{Input: &RunInput_Resize{Resize: &WindowSize{Rows: 50, Cols: 120}}},
+	}
+	err := srv.Run(stream)
+	require.NoError(t, err)
+	require.True(t, backend.resizeOK, "resize must be delivered after the stdin pipe closes")
+	assert.Equal(t, uint16(50), backend.resize.Rows)
+	assert.Equal(t, uint16(120), backend.resize.Cols)
 }
 
 func TestGRPCServer_Run_NilOptionsTreatedAsEmpty(t *testing.T) {

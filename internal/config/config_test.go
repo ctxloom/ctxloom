@@ -492,6 +492,45 @@ func TestResolveProfile_ExclusionsAccumulate(t *testing.T) {
 	assert.Contains(t, fragNames, "frag-c")
 }
 
+func TestResolveProfile_ExcludeFragmentsSelectorForm(t *testing.T) {
+	// A fragment declared by full ref ("bundle#fragments/name") is excluded by
+	// its bare name, matching the bundle-expansion seam's semantics.
+	profiles := map[string]Profile{
+		"parent": {
+			Fragments: []FragmentRef{
+				{Name: "remote/bundle#fragments/frag-a"},
+				{Name: "remote/bundle#fragments/frag-b"},
+			},
+		},
+		"child": {
+			Parents:          []string{"parent"},
+			ExcludeFragments: []string{"frag-a"},
+		},
+	}
+
+	resolved, err := ResolveProfile(profiles, "child")
+	require.NoError(t, err)
+
+	fragNames := make([]string, len(resolved.Fragments))
+	for i, f := range resolved.Fragments {
+		fragNames[i] = f.Name
+	}
+	assert.NotContains(t, fragNames, "remote/bundle#fragments/frag-a")
+	assert.Contains(t, fragNames, "remote/bundle#fragments/frag-b")
+}
+
+func TestExclusionSet_FullRefExclusionMatchesBareName(t *testing.T) {
+	// Tag-matched fragments arrive as bare names; a full-ref exclusion must
+	// still catch them. The origin bundle of a bare name is unknowable, so a
+	// full-ref exclusion deliberately behaves like its bare form.
+	excluded := NewExclusionSet([]string{"dev#fragments/security-rules"})
+
+	assert.True(t, IsExcludedFragment("security-rules", excluded))
+	assert.True(t, IsExcludedFragment("dev#fragments/security-rules", excluded))
+	assert.True(t, IsExcludedFragment("other#fragments/security-rules", excluded))
+	assert.False(t, IsExcludedFragment("security", excluded))
+}
+
 func TestResolveProfile_ExclusionsPreserved(t *testing.T) {
 	profiles := map[string]Profile{
 		"child": {
@@ -554,6 +593,41 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			wantCmd:  "nano",
 			wantArgs: nil,
 		},
+		{
+			// "code --wait" must split into binary + flag, not be exec'd as
+			// one binary named "code --wait" (which never exists).
+			name:     "EDITOR with flags is split",
+			config:   Config{},
+			editor:   "code --wait",
+			wantCmd:  "code",
+			wantArgs: []string{"--wait"},
+		},
+		{
+			name:     "VISUAL with flags wins over EDITOR",
+			config:   Config{},
+			visual:   "emacsclient -t",
+			editor:   "nano",
+			wantCmd:  "emacsclient",
+			wantArgs: []string{"-t"},
+		},
+		{
+			// A multi-word config command splits too, with editor.args
+			// appended after the inline flags.
+			name:     "config command with flags plus args",
+			config:   Config{Editor: EditorConfig{Command: "code --wait", Args: []string{"-n"}}},
+			editor:   "vim",
+			wantCmd:  "code",
+			wantArgs: []string{"--wait", "-n"},
+		},
+		{
+			// A blank (whitespace-only) config command is no choice at all and
+			// falls through to the environment.
+			name:     "blank config command falls back to env",
+			config:   Config{Editor: EditorConfig{Command: "   "}},
+			editor:   "vim",
+			wantCmd:  "vim",
+			wantArgs: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -564,6 +638,33 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 			t.Setenv("EDITOR", tt.editor)
 
 			cmd, args := tt.config.GetEditorCommand()
+			assert.Equal(t, tt.wantCmd, cmd)
+			assert.Equal(t, tt.wantArgs, args)
+		})
+	}
+}
+
+// EditorFromEnv is the pre-config-load half of the editor policy (used by
+// `manage config edit`): VISUAL → EDITOR → nano, with whitespace splitting.
+func TestEditorFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		visual   string
+		editor   string
+		wantCmd  string
+		wantArgs []string
+	}{
+		{name: "VISUAL wins", visual: "code --wait", editor: "vim", wantCmd: "code", wantArgs: []string{"--wait"}},
+		{name: "EDITOR fallback", editor: "vim -n", wantCmd: "vim", wantArgs: []string{"-n"}},
+		{name: "default nano", wantCmd: "nano", wantArgs: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testsupport.Isolate(t)
+			t.Setenv("VISUAL", tt.visual)
+			t.Setenv("EDITOR", tt.editor)
+
+			cmd, args := EditorFromEnv()
 			assert.Equal(t, tt.wantCmd, cmd)
 			assert.Equal(t, tt.wantArgs, args)
 		})
@@ -1383,6 +1484,33 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 	result := cfg.ResolveBundleMCPServers()
 	assert.Contains(t, result, "sequential-thinking",
 		"MCP server from a parent-inherited bundle should resolve")
+}
+
+// Regression: a directory profile's exclude_mcp must filter bundle-shipped
+// servers, matching the name-based filter the inline config-profile path
+// applies in profileBuilder.toProfile.
+func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
+		[]byte("name: dev\nbundles:\n  - mcp-bundle\nexclude_mcp:\n  - noisy-server\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
+		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
+
+	cfg := &Config{
+		Profiles: ProfilesConfig{Defaults: []string{"dev"}},
+		AppPaths: []string{appDir},
+	}
+
+	result := cfg.ResolveBundleMCPServers()
+	assert.Contains(t, result, "quiet-server",
+		"non-excluded MCP server should resolve")
+	assert.NotContains(t, result, "noisy-server",
+		"exclude_mcp server should be filtered out")
 }
 
 // hookBundleYAML is a bundle that ships one hook per several event types, used

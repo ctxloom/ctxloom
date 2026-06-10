@@ -759,3 +759,55 @@ func TestParseReference_ContentVersion(t *testing.T) {
 		})
 	}
 }
+
+// ResolveRefString emits "<url>@<kind>/<path>@<hash>#<selector>" — the version
+// BEFORE the selector — while authored refs may put the selector first. Both
+// orderings must keep their version and keep the selector out of Path.
+func TestParseReference_SelectorVersionOrderings(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantPath    string
+		wantVersion string
+	}{
+		{
+			name:        "sha before selector",
+			input:       "https://github.com/o/r@bundles/demo@abc123#fragments/x",
+			wantPath:    "demo",
+			wantVersion: "abc123",
+		},
+		{
+			name:        "semver before selector",
+			input:       "https://github.com/o/r@bundles/demo@v1.2.0#fragments/x",
+			wantPath:    "demo",
+			wantVersion: "v1.2.0",
+		},
+		{
+			name:        "selector before sha",
+			input:       "https://github.com/o/r@bundles/demo#fragments/x@abc123",
+			wantPath:    "demo",
+			wantVersion: "abc123",
+		},
+		{
+			name:        "selector without version",
+			input:       "https://github.com/o/r@bundles/demo#fragments/x",
+			wantPath:    "demo",
+			wantVersion: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.input)
+			if err != nil {
+				t.Fatalf("ParseReference(%q) unexpected error: %v", tt.input, err)
+			}
+			if got.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+			}
+			if got.ContentVersion != tt.wantVersion {
+				t.Errorf("ContentVersion = %q, want %q", got.ContentVersion, tt.wantVersion)
+			}
+		})
+	}
+}

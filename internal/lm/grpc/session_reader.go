@@ -65,7 +65,7 @@ func NewSessionReaderWithFactory(backendName string, verbosity int, factory Clie
 // withClient dials a plugin, runs fn against it, and always tears the plugin
 // down afterward.
 func (r *SessionReader) withClient(fn func(Client) error) error {
-	c, err := r.factory(r.backendName, r.verbosity)
+	c, err := r.factory(r.backendName, "", r.verbosity)
 	if err != nil {
 		return fmt.Errorf("start %s plugin: %w", r.backendName, err)
 	}

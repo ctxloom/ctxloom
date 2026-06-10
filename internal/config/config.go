@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/afero"
@@ -100,26 +101,46 @@ type EditorConfig struct {
 	Args    []string `mapstructure:"args" yaml:"args,omitempty"`       // Additional arguments
 }
 
-// GetEditorCommand returns the editor command to use.
-// Checks in order: config, VISUAL env, EDITOR env, then defaults to nano.
+// GetEditorCommand returns the editor binary and arguments to use. This is the
+// single editor-resolution policy: config (editor.command, with editor.args
+// appended), then the VISUAL and EDITOR environment variables, then nano.
+// Multi-word values like "code --wait" are whitespace-split into binary +
+// leading args (strings.Fields — full shell quoting is not supported).
 func (c *Config) GetEditorCommand() (string, []string) {
-	// Config takes precedence
-	if c.Editor.Command != "" {
-		return c.Editor.Command, c.Editor.Args
+	if bin, args := splitEditorCommand(c.Editor.Command); bin != "" {
+		return bin, append(args, c.Editor.Args...)
 	}
+	return EditorFromEnv()
+}
 
-	// Check VISUAL environment variable
-	if visual := os.Getenv("VISUAL"); visual != "" {
-		return visual, nil
+// EditorFromEnv resolves the editor from the environment alone: VISUAL, then
+// EDITOR, then nano. It exists for callers that must run BEFORE any config is
+// loaded (e.g. `manage config edit`, which edits a possibly-broken config), so
+// they share the env half of GetEditorCommand's policy instead of duplicating
+// it. Values are whitespace-split like GetEditorCommand.
+func EditorFromEnv() (string, []string) {
+	for _, key := range []string{"VISUAL", "EDITOR"} {
+		if bin, args := splitEditorCommand(os.Getenv(key)); bin != "" {
+			return bin, args
+		}
 	}
-
-	// Check EDITOR environment variable
-	if editor := os.Getenv("EDITOR"); editor != "" {
-		return editor, nil
-	}
-
-	// Default to nano
 	return "nano", nil
+}
+
+// splitEditorCommand splits an editor value into binary + args on whitespace.
+// Quoting is intentionally not supported; a binary whose path contains spaces
+// must be configured via editor.command + editor.args instead. An empty or
+// blank value returns "".
+func splitEditorCommand(value string) (string, []string) {
+	fields := strings.Fields(value)
+	switch len(fields) {
+	case 0:
+		return "", nil
+	case 1:
+		return fields[0], nil
+	default:
+		return fields[0], fields[1:]
+	}
 }
 
 // ExplicitDefaultProfiles returns profiles named in the canonical
@@ -204,10 +225,7 @@ func (c *Config) ResolveLLM(label string) (backend, model string) {
 	if !ok {
 		return DefaultLLM, ""
 	}
-	backend = entry.Type
-	if backend == "" {
-		backend = DefaultLLM
-	}
+	backend = entry.EffectiveType()
 	if m, ok := entry.Body["model"].(string); ok {
 		model = m
 	}

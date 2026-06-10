@@ -37,7 +37,7 @@ func TestMapProfiles_OrderLabelingAndFaultTolerance(t *testing.T) {
 
 	// Factory echoes the backend name as output, so each part's output proves
 	// which backend its member resolved to.
-	factory := func(backendName string, _ int) (pb.Client, error) {
+	factory := func(backendName, _ string, _ int) (pb.Client, error) {
 		return &stubClient{out: backendName}, nil
 	}
 
@@ -97,7 +97,7 @@ func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 	cfg := mapTestConfig()
 	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "gemini-code"}
 
-	factory := func(string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
+	factory := func(string, string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
 
 	res, err := Weave(context.Background(), cfg, WeaveRequest{
 		Members:       []string{"a", "b"},
@@ -131,7 +131,7 @@ func TestWeave_MembersInjectedAndSynthesis(t *testing.T) {
 func TestWeave_NoSynthesizeEmitsPartsOnly(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := mapTestConfig()
-	factory := func(string, int) (pb.Client, error) { return &stubClient{out: "x"}, nil }
+	factory := func(string, string, int) (pb.Client, error) { return &stubClient{out: "x"}, nil }
 
 	res, err := Weave(context.Background(), cfg, WeaveRequest{
 		Members:      []string{"a"},

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -125,20 +126,54 @@ exact version pin in the manifest.)`,
 		if err != nil {
 			return err
 		}
-		// Drop any pending change for it so we don't re-surface what we just held.
-		_, _ = operations.DropPendingBundle(cfg, args[0])
-		found, err := operations.SetItemPin(cfg, args[0], true)
+		held, err := holdItem(cfg, args[0], cmd.OutOrStdout())
 		if err != nil {
 			return err
 		}
-		if !found {
-			fmt.Printf("%q is not in the active lockfile; nothing to hold.\n", args[0])
-			return nil
+		if held {
+			applyHooksAfterReview(cmd.Context(), cfg)
 		}
-		applyHooksAfterReview(cmd.Context(), cfg)
-		fmt.Printf("Held %q at its locked SHA.\n", args[0])
 		return nil
 	},
+}
+
+// holdItem pins name's active lockfile entry and reports the outcome to out.
+// Order matters: the pin is placed BEFORE any pending change is dropped, so a
+// bundle that exists only as a staged NEW change in the pending lockfile is
+// never silently destroyed — it stays pending for an explicit approve/decline.
+// Returns whether a hold was placed (the caller re-applies hooks only then).
+func holdItem(cfg *config.Config, name string, out io.Writer) (bool, error) {
+	found, err := operations.SetItemPin(cfg, name, true)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		if pendingBundleExists(cfg, name) {
+			fmt.Fprintf(out, "%q is only staged for review (not in the active lockfile); approve or decline it first:\n  ctxloom bundle approve\n  ctxloom bundle decline %s\n", name, name)
+			return false, nil
+		}
+		fmt.Fprintf(out, "%q is not in the active lockfile; nothing to hold.\n", name)
+		return false, nil
+	}
+	// Drop any pending change for it so we don't re-surface what we just held.
+	// The hold itself succeeded, so a drop failure warns rather than failing.
+	if _, err := operations.DropPendingBundle(cfg, name); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: drop pending change for %q: %v\n", name, err)
+	}
+	fmt.Fprintf(out, "Held %q at its locked SHA.\n", name)
+	return true, nil
+}
+
+// pendingBundleExists reports whether name (short or canonical form) is staged
+// in the pending lockfile. Best-effort: a load failure reads as "not pending".
+func pendingBundleExists(cfg *config.Config, name string) bool {
+	pending, err := operations.LoadPendingLockfile(cfg)
+	if err != nil || pending == nil {
+		return false
+	}
+	canonical := operations.CanonicalizeRemoteRef(cfg, name, remote.ItemTypeBundle)
+	_, ok := pending.GetEntry(remote.ItemTypeBundle, canonical)
+	return ok
 }
 
 var bundleUnholdCmd = &cobra.Command{

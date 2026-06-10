@@ -20,10 +20,12 @@
 package profiles
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -146,6 +148,20 @@ func TestLoader_Load_NotFound(t *testing.T) {
 	_, err := loader.Load("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestLoader_Load_RemoteRefNotSeeded verifies the not-found error for a
+// remote-shaped ref points at the actual remediation: remote profiles only
+// resolve through the lockfile-built seed, so the miss means "not pulled",
+// not "doesn't exist upstream".
+func TestLoader_Load_RemoteRefNotSeeded(t *testing.T) {
+	tmpDir := t.TempDir()
+	loader := NewLoader([]string{tmpDir})
+
+	_, err := loader.Load("https://github.com/owner/repo@profiles/default")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
+	assert.Contains(t, err.Error(), "ctxloom remote pull")
 }
 
 func TestLoader_Load_YmlExtension(t *testing.T) {
@@ -840,4 +856,127 @@ bundles:
 	assert.Contains(t, resolved.Bundles, "local-tools")
 	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
+}
+
+// =============================================================================
+// Seeded Remote Profile Tests
+// =============================================================================
+
+// seededGoBase is a remote profile as the config seed builds it: keyed and
+// named by its version-less canonical ref, never materialized to disk.
+func seededGoBase(canonical string) map[string]*Profile {
+	return map[string]*Profile{
+		canonical: {
+			Name:      canonical,
+			Path:      "<remote>:" + canonical + "@abc1234",
+			Bundles:   []string{"go-tools"},
+			Tags:      []string{"golang"},
+			Variables: map[string]string{"go_version": "1.21"},
+		},
+	}
+}
+
+// TestLoader_Load_SeededCanonicalRef verifies that Load finds a seeded remote
+// profile under its version-less canonical key, including when the requested
+// ref carries a content version ("...@<sha>"). Remote profiles are never
+// written to disk, so this seed lookup is the only way they resolve.
+func TestLoader_Load_SeededCanonicalRef(t *testing.T) {
+	const canonical = "https://github.com/owner/repo@profiles/go-base"
+	loader := NewLoader([]string{t.TempDir()}, WithSeededProfiles(seededGoBase(canonical)))
+
+	exact, err := loader.Load(canonical)
+	require.NoError(t, err)
+	assert.Equal(t, canonical, exact.Name)
+
+	versioned, err := loader.Load(canonical + "@abc1234")
+	require.NoError(t, err)
+	assert.Equal(t, canonical, versioned.Name, "versioned ref should normalize to the seed key")
+}
+
+// TestLoader_ResolveProfile_SeededCanonicalParent is the regression test for
+// remote parent profiles never resolving: the seed map keys by version-less
+// canonical ref, but parent resolution used to convert the ref to its local
+// materialized name ("github.com/owner/repo/go-base") — which matched neither
+// the seed nor any file on disk, so the parent's content silently vanished
+// behind a "not installed" warning.
+func TestLoader_ResolveProfile_SeededCanonicalParent(t *testing.T) {
+	const canonical = "https://github.com/owner/repo@profiles/go-base"
+
+	for _, tc := range []struct {
+		name      string
+		parentRef string
+	}{
+		{"version-less canonical ref", canonical},
+		{"version-suffixed ref", canonical + "@abc1234"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
+			child := "parents:\n  - " + tc.parentRef + "\nbundles:\n  - project-tools\n"
+			require.NoError(t, afero.WriteFile(fs,
+				"/project/.ctxloom/persistent/profiles/project-dev.yaml",
+				[]byte(child), 0644))
+
+			loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"},
+				WithFS(fs), WithSeededProfiles(seededGoBase(canonical)))
+
+			// Capture stderr: a regression re-introduces the
+			// "parent ... not installed; skipping" warning.
+			oldStderr := os.Stderr
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			os.Stderr = w
+			resolved, resolveErr := loader.ResolveProfile("project-dev", nil)
+			require.NoError(t, w.Close())
+			os.Stderr = oldStderr
+			captured, err := io.ReadAll(r)
+			require.NoError(t, err)
+
+			require.NoError(t, resolveErr)
+			assert.NotContains(t, string(captured), "not installed",
+				"seeded parent must resolve without a skip warning")
+
+			// Parent content merged with the child's own.
+			assert.Contains(t, resolved.Bundles, "go-tools")
+			assert.Contains(t, resolved.Bundles, "project-tools")
+			assert.Contains(t, resolved.Tags, "golang")
+			assert.Equal(t, "1.21", resolved.Variables["go_version"])
+		})
+	}
+}
+
+// =============================================================================
+// Exclusion Resolution Tests
+// =============================================================================
+
+// TestLoader_ResolveProfile_Exclusions verifies that exclude_fragments and
+// exclude_mcp survive directory-profile resolution and accumulate through the
+// parent chain — a child cannot un-exclude what a parent excluded, matching
+// the inline config-map profile semantics.
+func TestLoader_ResolveProfile_Exclusions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `bundles:
+  - shared-bundle
+exclude_fragments:
+  - verbose-logging
+exclude_mcp:
+  - slow-server
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `parents:
+  - parent
+exclude_fragments:
+  - deprecated-style
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{"verbose-logging", "deprecated-style"}, resolved.ExcludeFragments,
+		"exclusions accumulate from parent and child")
+	assert.Equal(t, []string{"slow-server"}, resolved.ExcludeMCP)
 }

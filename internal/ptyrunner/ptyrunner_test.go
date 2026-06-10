@@ -11,6 +11,7 @@ package ptyrunner
 import (
 	"bytes"
 	"context"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -245,4 +246,40 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	assert.Contains(t, stdout.String(), "line1")
 	assert.Contains(t, stdout.String(), "line2")
 	assert.Contains(t, stdout.String(), "line3")
+}
+
+// TestRunInteractive_ClosesPipeReaderWhenCopierExits is the regression for the
+// wedged-stream-pump bug: the wire stdin is an io.Pipe, and a Write into a pipe
+// nobody reads parks forever — once the stdin copier stopped reading without
+// closing the reader, the server's stream pump blocked on its next stdin
+// forward and never drained another resize. The copier must close the
+// *io.PipeReader on exit so pending/future writes fail with ErrClosedPipe.
+func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "sleep 0.1")
+
+	stdinR, stdinW := io.Pipe()
+	result, err := RunInteractive(ctx, cmd, stdinR, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+
+	// The run is over; the copier may still be parked in stdinR.Read. The
+	// first write below is consumed by that final Read (after which the copier
+	// observes done and exits, closing the reader); every later write must
+	// fail fast with ErrClosedPipe instead of parking the writer forever.
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, werr := stdinW.Write([]byte("x")); werr != nil {
+				errCh <- werr
+				return
+			}
+		}
+	}()
+	select {
+	case werr := <-errCh:
+		assert.ErrorIs(t, werr, io.ErrClosedPipe)
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdinW.Write still blocked after the run ended; the stdin reader was not closed")
+	}
 }

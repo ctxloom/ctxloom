@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
@@ -21,11 +23,7 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	if !ok {
 		return nil
 	}
-	backendType := entry.Type
-	if backendType == "" {
-		backendType = config.DefaultLLM
-	}
-	bc, err := backends.DecodeLLMConfig(backendType, entry.Body)
+	bc, err := backends.DecodeLLMConfig(entry.EffectiveType(), entry.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: LLM config %q: %v\n", label, err)
 		return nil
@@ -33,16 +31,23 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	return bc
 }
 
-// decodeBackendConfigForType returns the decoded config of the first labeled
-// entry whose type matches backendType. Used where only a backend type is
-// known (the self-invoked serve transport); ties resolve to map order.
+// decodeBackendConfigForType returns the decoded config of a labeled entry
+// whose type matches backendType. Used where only a backend type is known
+// (the self-invoked serve transport without --label). Selection is
+// deterministic: the primary role's label wins when its type matches, then
+// the lexicographically first matching label — never Go map order, which
+// with two labels of the same type would configure a random entry per
+// process.
 func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.BackendConfig {
-	for label, entry := range cfg.LM.Configs {
-		t := entry.Type
-		if t == "" {
-			t = config.DefaultLLM
-		}
-		if t == backendType {
+	matchesType := func(label string) bool {
+		entry, ok := cfg.LM.Configs[label]
+		return ok && entry.EffectiveType() == backendType
+	}
+	if primary := cfg.PrimaryLabel(); matchesType(primary) {
+		return decodeBackendConfig(cfg, primary)
+	}
+	for _, label := range slices.Sorted(maps.Keys(cfg.LM.Configs)) {
+		if matchesType(label) {
 			return decodeBackendConfig(cfg, label)
 		}
 	}

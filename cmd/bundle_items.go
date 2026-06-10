@@ -118,20 +118,12 @@ func editInEditor(cfg *config.Config, content, filename string) (string, error) 
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 
-	// Get editor command
-	editor := cfg.Editor.Command
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "nano"
-		}
-	}
-
-	// Build command
-	args := append(cfg.Editor.Args, tmpFile)
+	// Resolve the editor through the one shared policy (config → VISUAL →
+	// EDITOR → nano), which also splits multi-word values like "code --wait".
+	editor, editorArgs := cfg.GetEditorCommand()
 
 	// Run editor
-	editorCmd := exec.Command(editor, args...)
+	editorCmd := exec.Command(editor, append(editorArgs, tmpFile)...)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr

@@ -9,9 +9,9 @@ import (
 	"github.com/cbroglie/mustache"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/shared/collections"
 )
 
 // Mustache tag types from cbroglie/mustache.
@@ -64,7 +64,12 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	profileNames := resolveContextProfileNames(cfg, req)
 
-	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc)
+	// Profiles picked up from configured defaults (rather than an explicit
+	// --profile ask) degrade per fault-tolerance: a default that fails to
+	// resolve is warned about and skipped, never blocking startup.
+	fromDefaults := req.Profile == ""
+
+	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc, fromDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +138,7 @@ func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.Fragment
 // its tag-matched + explicit fragments and variables. It also reports the
 // effective declared LLM: the first non-empty profile.LLM across the resolved
 // set, warning to stderr if a later profile disagrees.
-func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader) ([]config.FragmentRef, map[string]string, string, error) {
+func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader, fromDefaults bool) ([]config.FragmentRef, map[string]string, string, error) {
 	var allFragments []config.FragmentRef
 	profileVars := make(map[string]string)
 	effectiveLLM := ""
@@ -141,6 +146,13 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 	for _, pName := range profileNames {
 		profile, err := resolveProfile(cfg, pName, loader, profileLoaderFunc)
 		if err != nil {
+			// An explicitly requested profile failing is the user's signal to
+			// fix the ask. A configured default failing must not block startup
+			// (CLAUDE.md fault tolerance): warn, skip, assemble what's left.
+			if fromDefaults {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping default profile %s: %v\n", pName, err)
+				continue
+			}
 			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
 		}
 
@@ -162,7 +174,17 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}
-		allFragments = append(allFragments, tagFragments...)
+		// Exclusions always win (see profiles.md): a tag-matched fragment the
+		// profile excludes is dropped, matching the bundle-expansion filter in
+		// resolveProfile. Request-level tags/fragments are never filtered —
+		// they are explicit user asks, not profile-pushed content.
+		excluded := config.NewExclusionSet(profile.ExcludeFragments)
+		for _, ref := range tagFragments {
+			if config.IsExcludedFragment(ref.Name, excluded) {
+				continue
+			}
+			allFragments = append(allFragments, ref)
+		}
 		allFragments = append(allFragments, profile.Fragments...)
 	}
 
@@ -283,21 +305,32 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			return nil, fmt.Errorf("profile %s: %w", name, rerr)
 		}
 		profile = &config.Profile{
-			Tags:      resolved.Tags,
-			Bundles:   resolved.Bundles,
-			Variables: resolved.Variables,
-			LLM:       resolved.LLM,
+			Tags:             resolved.Tags,
+			Bundles:          resolved.Bundles,
+			Variables:        resolved.Variables,
+			LLM:              resolved.LLM,
+			ExcludeFragments: resolved.ExcludeFragments,
+			ExcludeMCP:       resolved.ExcludeMCP,
 		}
 	}
 
 	// Expand Bundles and BundleItems into FragmentRefs via the bundle loader.
 	// Without this, profiles that only list bundles (the common case for
 	// directory profiles) would resolve to zero fragments.
+	//
+	// The profile's exclude_fragments filter applies here: the inline-profile
+	// resolver only filters fragments declared inline (profileBuilder.toProfile),
+	// so bundle-expanded fragments — the only kind a directory profile has —
+	// must be filtered at this expansion seam or exclusions silently no-op.
 	if loader != nil {
+		excluded := config.NewExclusionSet(profile.ExcludeFragments)
 		refs := make([]string, 0, len(profile.Bundles)+len(profile.BundleItems))
 		refs = append(refs, profile.Bundles...)
 		refs = append(refs, profile.BundleItems...)
 		for _, expandedName := range loader.ExpandBundleRefs(refs) {
+			if config.IsExcludedFragment(expandedName, excluded) {
+				continue
+			}
 			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: expandedName, Priority: 0})
 		}
 	}

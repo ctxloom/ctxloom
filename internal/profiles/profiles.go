@@ -151,13 +151,23 @@ func WithSeededProfiles(seeded map[string]*Profile) LoaderOption {
 	}
 }
 
-// lookupSeeded returns the seeded profile for name (or nil+false).
+// lookupSeeded returns the seeded profile for name, if any. Seeded profiles
+// are keyed by their version-less canonical ref (the lockfile key shape), so a
+// URL ref carrying a content version ("...@<sha>") is normalized to that form
+// when the exact lookup misses — the profile-side mirror of
+// bundles.Loader.lookupSeeded.
 func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
 	if l.seeded == nil {
 		return nil, false
 	}
-	p, ok := l.seeded[name]
-	return p, ok
+	if p, ok := l.seeded[name]; ok {
+		return p, true
+	}
+	if key, ok := remote.CanonicalKey(name); ok && key != name {
+		p, ok := l.seeded[key]
+		return p, ok
+	}
+	return nil, false
 }
 
 // PendingUpgrades returns the in-memory schema upgrades Load applied to older
@@ -262,7 +272,12 @@ func (l *Loader) List() ([]*Profile, error) {
 	return profiles, nil
 }
 
-// Load loads a profile by name (supports subdirectory paths like "github/profile-name").
+// Load loads a profile by name (supports subdirectory paths like
+// "github/profile-name"). URL refs are normalized at this boundary so every
+// caller benefits: a seeded remote profile is found under its version-less
+// canonical key (lockfiles and the seed map both use that shape), and a URL
+// ref with no seed entry falls back to its local materialized name (e.g.
+// "github.com/owner/repo/name") for the fs lookup.
 func (l *Loader) Load(name string) (*Profile, error) {
 	// Seeded remote profiles win over any fs lookup.
 	if p, ok := l.lookupSeeded(name); ok {
@@ -270,7 +285,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	}
 
 	// Convert forward slashes to OS-specific separator for file lookup
-	osName := filepath.FromSlash(name)
+	osName := filepath.FromSlash(toLocalProfileName(name))
 
 	for _, dir := range l.dirs {
 		for _, ext := range []string{".yaml", ".yml"} {
@@ -285,7 +300,23 @@ func (l *Loader) Load(name string) (*Profile, error) {
 			}
 		}
 	}
+	// A remote-shaped ref that reached the fs fallback has no seed entry:
+	// remote profiles are never materialized to disk, so the only way this
+	// lookup succeeds is via the lockfile-built seed map. Say so — the bare
+	// "not found" otherwise reads as "the profile doesn't exist upstream".
+	if isRemoteProfileRef(name) {
+		return nil, fmt.Errorf("%w: %s (remote profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
+	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
+}
+
+// isRemoteProfileRef reports whether name is a scheme-qualified remote
+// reference (the canonical URL form remote profiles are addressed by).
+func isRemoteProfileRef(name string) bool {
+	return strings.HasPrefix(name, "https://") ||
+		strings.HasPrefix(name, "http://") ||
+		strings.HasPrefix(name, "git@") ||
+		strings.HasPrefix(name, "file://")
 }
 
 // Exists checks if a profile exists.
@@ -487,12 +518,19 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// references and depth-limit overruns remain fatal because continuing
 	// would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
-		// Convert URL references to local profile names
-		localParentName := toLocalProfileName(parent)
+		// Load normalizes the ref (seeded remote profiles are keyed by their
+		// version-less canonical ref; unseeded URL refs fall back to the local
+		// materialized name), so the parent ref recurses as-is. Canonicalize
+		// the recursion name so the visited map treats "...@profiles/p" and
+		// "...@profiles/p@<sha>" as the same profile.
+		parentName := parent
+		if key, ok := remote.CanonicalKey(parent); ok {
+			parentName = key
+		}
 
 		// Clone visited map for this parent branch
 		parentVisited := cloneVisited(visited)
-		parentResolved, err := l.resolveProfileRecursive(localParentName, parentVisited, depth+1)
+		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1)
 		if err != nil {
 			if errors.Is(err, errs.ErrProfileNotFound) {
 				fmt.Fprintf(os.Stderr,
@@ -515,6 +553,11 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	if profile.LLM != "" {
 		resolved.LLM = profile.LLM
 	}
+	// Exclusions accumulate through the chain — a child cannot un-exclude
+	// what a parent excluded. Mirrors mergeProfileValues for inline
+	// config-map profiles (config_resolve.go).
+	resolved.ExcludeFragments = appendUnique(resolved.ExcludeFragments, profile.ExcludeFragments...)
+	resolved.ExcludeMCP = appendUnique(resolved.ExcludeMCP, profile.ExcludeMCP...)
 
 	return resolved, nil
 }
@@ -534,6 +577,12 @@ type ResolvedProfile struct {
 	Tags      []string
 	Variables map[string]string
 	LLM       string // Preferred config label/backend (empty = inherit primary)
+
+	// Exclusions accumulated through the parent chain (a child cannot
+	// un-exclude what a parent excluded), matching the inline config-map
+	// profile semantics in config_resolve.go.
+	ExcludeFragments []string
+	ExcludeMCP       []string
 }
 
 // Merge adds items from another resolved profile.
@@ -549,6 +598,9 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	if r.LLM == "" {
 		r.LLM = other.LLM
 	}
+	// Exclusions always accumulate (cannot un-exclude).
+	r.ExcludeFragments = appendUnique(r.ExcludeFragments, other.ExcludeFragments...)
+	r.ExcludeMCP = appendUnique(r.ExcludeMCP, other.ExcludeMCP...)
 }
 
 func appendUnique(slice []string, items ...string) []string {

@@ -18,10 +18,13 @@ const Comment = "# ctxloom private working state (synced bundles, session/contex
 var PrivateStatePatterns = []string{".ctxloom/ephemeral/", ".ctxloom/project-id"}
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
-// during hook application: the per-file settings backups and the generated
-// Gemini harness directory. Scoped narrowly so files a content repo may legitimately
-// track (.claude/commands/*.md, .mcp.json) stay the project's choice.
-var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".gemini/"}
+// during hook application: the per-file settings backups, the generated Gemini
+// harness directory, and the generated Codex project config. Scoped narrowly so
+// files a content repo may legitimately track (.claude/commands/*.md, .mcp.json)
+// stay the project's choice — .gemini/ is ignored wholesale because ctxloom
+// generates the whole directory (settings.json plus exported commands), while
+// for Codex only config.toml is generated, so only that file is ignored.
+var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".gemini/", ".codex/config.toml"}
 
 // Ensure appends the given patterns to projectDir/.gitignore under a single
 // comment header, creating the file if absent. It is idempotent: only patterns

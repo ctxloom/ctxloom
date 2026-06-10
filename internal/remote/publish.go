@@ -452,7 +452,10 @@ func profileHasLocalBundleRefs(bundles []interface{}) bool {
 func canonicalizeBundleRef(ref string, lockfile *Lockfile) (string, error) {
 	localName, itemPath := splitItemPath(ref)
 
-	canonicalURL, found := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
+	canonicalURL, found, err := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
+	if err != nil {
+		return "", err
+	}
 	if !found {
 		return "", fmt.Errorf("bundle %q not found in lockfile; pull it first before publishing", localName)
 	}

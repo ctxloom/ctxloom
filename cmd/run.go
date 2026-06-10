@@ -371,7 +371,10 @@ Examples:
 		// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
 		// on missing parent profiles or bundles that sync would have fetched.
 		// In a TTY, confirm with the user before installing anything new.
-		if cfg.Sync.ShouldAutoSync() && confirmSyncInstall(ctx, cfg) {
+		// Skipped under --dry-run: a dry run must be side-effect free and
+		// non-interactive (no network, no installs, no confirm prompt), so it
+		// previews assembly against the library as it exists on disk.
+		if cfg.Sync.ShouldAutoSync() && !runDryRun && confirmSyncInstall(ctx, cfg) {
 			syncCtx, syncCancel := context.WithTimeout(ctx, 60*time.Second)
 			result, syncErr := operations.SyncOnStartup(syncCtx, cfg)
 			syncCancel()
@@ -465,6 +468,47 @@ Examples:
 		// Determine work directory: CTXLOOM_ROOT override, else git root if in
 		// repo, else current directory.
 		workDir := projectroot.WorkDir()
+
+		// Dry run mode - show the assembled context and prompt, then stop
+		// before anything stateful or interactive happens: no resume picker,
+		// no session-index writes (AssignSession / MarkSessionEnded), no
+		// task seeding, no plugin launch.
+		if runDryRun {
+			fmt.Println("=== LLM ===")
+			fmt.Printf("%s (%s)\n", label, backendName)
+			fmt.Println("\n=== Profiles ===")
+			if len(ctxResult.Profiles) > 0 {
+				for _, p := range ctxResult.Profiles {
+					fmt.Printf("  %s\n", p)
+				}
+			} else {
+				fmt.Println("(no profiles)")
+			}
+			fmt.Println("\n=== Fragments Loaded ===")
+			if len(ctxResult.FragmentsLoaded) > 0 {
+				for _, f := range ctxResult.FragmentsLoaded {
+					fmt.Printf("  %s\n", f)
+				}
+			} else {
+				fmt.Println("(no fragments)")
+			}
+			fmt.Println("\n=== Assembled Context ===")
+			if ctxResult.Context != "" {
+				fmt.Println(ctxResult.Context)
+			} else {
+				fmt.Println("(no context)")
+			}
+			fmt.Println("\n=== Prompt ===")
+			if prompt != "" {
+				fmt.Println(prompt)
+			} else {
+				fmt.Println("(interactive mode)")
+			}
+			// Show context file that would be written
+			fmt.Println("\n=== Context File ===")
+			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, agent.SCMContextSubdir))
+			return nil
+		}
 
 		// Phase 3 session resolution: optional pre-launch resume picker,
 		// followed by a fresh harp assignment for the new session.
@@ -576,44 +620,6 @@ Examples:
 			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir)),
 		}
 
-		// Dry run mode - show the assembled context and prompt
-		if runDryRun {
-			fmt.Println("=== LLM ===")
-			fmt.Printf("%s (%s)\n", label, backendName)
-			fmt.Println("\n=== Profiles ===")
-			if len(ctxResult.Profiles) > 0 {
-				for _, p := range ctxResult.Profiles {
-					fmt.Printf("  %s\n", p)
-				}
-			} else {
-				fmt.Println("(no profiles)")
-			}
-			fmt.Println("\n=== Fragments Loaded ===")
-			if len(ctxResult.FragmentsLoaded) > 0 {
-				for _, f := range ctxResult.FragmentsLoaded {
-					fmt.Printf("  %s\n", f)
-				}
-			} else {
-				fmt.Println("(no fragments)")
-			}
-			fmt.Println("\n=== Assembled Context ===")
-			if ctxResult.Context != "" {
-				fmt.Println(ctxResult.Context)
-			} else {
-				fmt.Println("(no context)")
-			}
-			fmt.Println("\n=== Prompt ===")
-			if prompt != "" {
-				fmt.Println(prompt)
-			} else {
-				fmt.Println("(interactive mode)")
-			}
-			// Show context file that would be written
-			fmt.Println("\n=== Context File ===")
-			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, agent.SCMContextSubdir))
-			return nil
-		}
-
 		// Create plugin client
 		var client *pb.LLMRunner
 		if llmBinary != "" {
@@ -638,6 +644,10 @@ Examples:
 		restoreTerm := func() {}
 		if mode == pb.ExecutionMode_INTERACTIVE {
 			stdin, resize, restoreTerm = interactiveTerminal(ctx)
+			// Deferred so a panic inside client.Run can't strand the shell
+			// in raw mode. restoreTerm is idempotent; the inline call below
+			// still restores before any normal-path output.
+			defer restoreTerm()
 		}
 
 		// Run the AI plugin

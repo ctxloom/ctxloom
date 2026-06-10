@@ -166,7 +166,11 @@ directly. In a non-interactive shell a task harp id is required.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// All of the project's tasks live in one append-only log now (ADR
 		// 0025); each carries the harp of the session that originated it.
-		res, err := operations.ListTasks(taskContext(), nil, "", false, false)
+		// Fetch EVERY status (includeDone=true): the picker hides completed
+		// tasks by default itself (filterLocated), so its `a` toggle can
+		// reveal them, and a direct harp-id launch of a Done/Archived task
+		// still resolves.
+		res, err := operations.ListTasks(taskContext(), nil, "", true, false)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}

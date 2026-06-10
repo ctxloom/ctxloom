@@ -416,8 +416,8 @@ func TestMockClientFactory_ReturnsProvidedMock(t *testing.T) {
 	factory := MockClientFactory(mock)
 
 	// Call factory multiple times with different params
-	client1, err1 := factory("backend-a", 0)
-	client2, err2 := factory("backend-b", 5)
+	client1, err1 := factory("backend-a", "", 0)
+	client2, err2 := factory("backend-b", "some-label", 5)
 
 	assert.NoError(t, err1)
 	assert.NoError(t, err2)

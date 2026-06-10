@@ -2,6 +2,7 @@
 description: Discover and install profiles, bundles, and fragments
 ---
 
+
 Scan the current project and discover matching ctxloom content from configured remotes.
 
 ## Surface (read this first)

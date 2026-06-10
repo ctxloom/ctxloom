@@ -35,6 +35,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/filelock"
 	"github.com/ctxloom/ctxloom/internal/harp"
+	"github.com/ctxloom/ctxloom/internal/iox"
 )
 
 // Default status names. flesler is configurable via env vars; we hardcode
@@ -457,38 +458,14 @@ func (s *Store) snapshot() ([]Task, error) {
 }
 
 // write atomically rewrites the file. Callers must hold s.mu and the file
-// lock. A unique temp name (rather than a fixed "<path>.tmp") keeps
-// concurrent writers — even ones that slip past the advisory lock — from
-// clobbering each other's in-flight temp file before the rename.
+// lock. iox.WriteFileAtomic's unique temp name keeps concurrent writers —
+// even ones that slip past the advisory lock — from clobbering each other's
+// in-flight temp file before the rename.
 func (s *Store) write(tasks []Task) error {
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	body := renderFile(tasks)
-	tmp, err := os.CreateTemp(dir, ".tasks-*.md.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.WriteString(body); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return iox.WriteFileAtomic(s.path, []byte(renderFile(tasks)), 0o644)
 }
 
 func statusIsDone(status string) bool {

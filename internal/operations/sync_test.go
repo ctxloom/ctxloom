@@ -123,6 +123,46 @@ func TestCollectRemoteReferences(t *testing.T) {
 	}
 }
 
+// TestCollectRemoteReferences_DefaultProfilesAreRoots verifies that remote
+// refs in profiles.defaults are collected even when no local profile
+// references them. This is the init-seeded default profile case: it resolves
+// only through a lockfile entry, so pull must treat it as a dependency root
+// or the first `ctxloom run` after init can never assemble it.
+func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	seededDefault := "https://github.com/ctxloom/ctxloom-default@profiles/default"
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{
+			Defaults: []string{
+				seededDefault,
+				"go-dev", // local name — not a remote ref, stays out of the pull set
+			},
+			Definitions: map[string]config.Profile{},
+		},
+		AppPaths: []string{testBaseDir},
+	}
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	_, profiles, err := collectRemoteReferences(cfg, nil, fs)
+	if err != nil {
+		t.Fatalf("collectRemoteReferences failed: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0] != seededDefault {
+		t.Errorf("expected default profile %q as the sole profile root, got %v", seededDefault, profiles)
+	}
+
+	// An explicit profile filter scopes the sync to those profiles only —
+	// config defaults must not leak into a targeted sync.
+	_, profiles, err = collectRemoteReferences(cfg, []string{"go-dev"}, fs)
+	if err != nil {
+		t.Fatalf("collectRemoteReferences (filtered) failed: %v", err)
+	}
+	if len(profiles) != 0 {
+		t.Errorf("expected no profile roots for a targeted sync, got %v", profiles)
+	}
+}
+
 // TestIsRemoteReference tests the heuristic for remote detection.
 //
 // NON-OBVIOUS: A reference is considered remote if it has a slash OR looks

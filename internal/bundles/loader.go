@@ -96,6 +96,9 @@ func seededNameFromPath(path string) (string, bool) {
 // Name can be:
 // - Simple name: "go-tools" -> searches for go-tools.yaml or go-tools/bundle.yaml
 // - Remote-qualified: "alice/go-tools" -> searches in alice/ subdirectory
+// - Local canonical: "ctxloom:local@bundles/go-tools" -> same fs search as the
+//   simple name; this is the qualified identity the assembly pipeline carries
+//   (see remote.CanonicalBundleRef).
 //
 // Seeded bundles (see WithSeededBundles) win over fs hits with the same
 // name; this is how remote-pinned bundles delivered by operations.
@@ -103,6 +106,9 @@ func seededNameFromPath(path string) (string, bool) {
 func (l *Loader) Load(name string) (*Bundle, error) {
 	if b, ok := l.lookupSeeded(name); ok {
 		return b, nil
+	}
+	if ref, err := remote.ParseReference(name); err == nil && ref.IsLocal && ref.ItemType == remote.ItemTypeBundle {
+		name = ref.Path
 	}
 	path, err := l.Find(name)
 	if err != nil {

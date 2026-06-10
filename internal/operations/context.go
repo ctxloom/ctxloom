@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/shared/collections"
 )
 
@@ -74,9 +75,12 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		return nil, err
 	}
 
-	// Add request fragments (priority 0) and request-tag fragments.
+	// Add request fragments (priority 0) and request-tag fragments. Bare asks
+	// resolve to their qualified pipeline name at intake (deterministic pick +
+	// warning when the bare name is ambiguous across bundles), so downstream
+	// dedup and ordering operate on exact identities only.
 	for _, f := range req.Fragments {
-		allFragments = append(allFragments, config.FragmentRef{Name: f, Priority: 0})
+		allFragments = append(allFragments, config.FragmentRef{Name: loader.ResolveFragmentAsk(f), Priority: 0})
 	}
 	reqTagFragments, err := fragmentsFromTags(loader, req.Tags)
 	if err != nil {
@@ -118,7 +122,10 @@ func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) 
 }
 
 // fragmentsFromTags resolves tag-matched fragments to priority-0 refs. An empty
-// tag list yields no refs.
+// tag list yields no refs. Names are emitted fully qualified
+// ("<canonical-bundle>#fragments/<name>") — the origin bundle is known here,
+// and discarding it would make same-named fragments from different bundles
+// indistinguishable downstream (exclusion matching, dedup).
 func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.FragmentRef, error) {
 	if len(tags) == 0 {
 		return nil, nil
@@ -129,7 +136,8 @@ func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.Fragment
 	}
 	refs := make([]config.FragmentRef, 0, len(taggedInfos))
 	for _, info := range taggedInfos {
-		refs = append(refs, config.FragmentRef{Name: info.Name, Priority: 0})
+		name := remote.CanonicalBundleRef(info.Bundle) + remote.FragmentSelector + info.Name
+		refs = append(refs, config.FragmentRef{Name: name, Priority: 0})
 	}
 	return refs, nil
 }

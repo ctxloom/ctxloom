@@ -143,12 +143,13 @@ func TestAssembleContext_DirectoryProfileWithBundles_ReturnsAllFragments(t *test
 
 	// All three expected fragments resolve; the suppressed one does not.
 	// FragmentsLoaded echoes the canonical refs we asked the loader for, in
-	// the "<bundle>#fragments/<name>" form emitted by ExpandBundleRefs.
+	// the "<canonical-bundle>#fragments/<name>" form emitted by
+	// ExpandBundleRefs — local bundles carry the ctxloom:local identity.
 	assert.ElementsMatch(t,
 		[]string{
-			"test/alpha#fragments/a1",
-			"test/alpha#fragments/a2",
-			"test/beta#fragments/two",
+			"ctxloom:local@bundles/test/alpha#fragments/a1",
+			"ctxloom:local@bundles/test/alpha#fragments/a2",
+			"ctxloom:local@bundles/test/beta#fragments/two",
 		},
 		result.FragmentsLoaded,
 		"FragmentsLoaded must include every expanded fragment")

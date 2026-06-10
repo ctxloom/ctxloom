@@ -150,35 +150,34 @@ func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 	}
 }
 
-// NewExclusionSet builds the match set for exclude_fragments entries. Each
-// exclusion is inserted as written plus, when written as a full ref
-// ("bundle#fragments/name"), its bare fragment name. Fragment names reach the
-// filters in both shapes — bare from tag matching, full refs from bundle
-// expansion — and the fragment's origin bundle is not recoverable from a bare
-// name, so a full-ref exclusion deliberately excludes its fragment name from
-// every bundle, exactly like the bare form. Every exclusion seam must build
-// its set here and match via IsExcludedFragment so any written form catches
-// any arriving shape.
+// NewExclusionSet builds the match set for exclude_fragments entries. Bare
+// names are kept verbatim — a bare exclusion matches its fragment name in
+// any bundle, by design (the inherit-three-bundles case shouldn't need three
+// qualified exclusions). Qualified refs canonicalize their bundle part
+// (remote.CanonicalFragmentRef) so they compare exactly against pipeline
+// names, which always carry canonical bundle identities: a qualified
+// exclusion drops only that bundle's fragment, leaving same-named fragments
+// from other bundles intact. Every exclusion seam must build its set here
+// and match via IsExcludedFragment.
 func NewExclusionSet(exclusions []string) collections.Set[string] {
 	set := collections.NewSet[string]()
 	for _, e := range exclusions {
-		set.Add(e)
-		if name, ok := remote.FragmentName(e); ok {
-			set.Add(name)
-		}
+		set.Add(remote.CanonicalFragmentRef(e))
 	}
 	return set
 }
 
-// IsExcludedFragment reports whether a fragment ref is excluded by a set
-// built with NewExclusionSet. A ref matches on its full form or on the
-// fragment name after its "#fragments/" selector — the shape bundle
-// expansion produces.
+// IsExcludedFragment reports whether a fragment name is excluded by a set
+// built with NewExclusionSet. The name's bundle part is canonicalized before
+// comparison, so any reference spelling of the same bundle matches; a name
+// matches on its canonical qualified form (qualified exclusions) or on its
+// bare fragment name (bare exclusions).
 func IsExcludedFragment(name string, excluded collections.Set[string]) bool {
-	if excluded.Has(name) {
+	canonical := remote.CanonicalFragmentRef(name)
+	if excluded.Has(canonical) {
 		return true
 	}
-	if bare, ok := remote.FragmentName(name); ok {
+	if bare, ok := remote.FragmentName(canonical); ok {
 		return excluded.Has(bare)
 	}
 	return false

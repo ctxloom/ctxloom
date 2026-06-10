@@ -1270,10 +1270,11 @@ func TestLoader_ExpandBundleRefs_WholeBundleExpandsAllFragmentsSorted(t *testing
 	got := loader.ExpandBundleRefs([]string{"test/alpha"})
 
 	// Whole-bundle ref returns every fragment, alphabetically sorted to keep
-	// downstream context hashes stable across map-iteration randomness.
+	// downstream context hashes stable across map-iteration randomness. Local
+	// bundle names canonicalize to their ctxloom:local identity.
 	assert.Equal(t, []string{
-		"test/alpha#fragments/a1",
-		"test/alpha#fragments/a2",
+		"ctxloom:local@bundles/test/alpha#fragments/a1",
+		"ctxloom:local@bundles/test/alpha#fragments/a2",
 	}, got)
 }
 
@@ -1282,7 +1283,7 @@ func TestLoader_ExpandBundleRefs_CanonicalHashSyntaxPassesThrough(t *testing.T) 
 
 	got := loader.ExpandBundleRefs([]string{"test/alpha#fragments/a2"})
 
-	assert.Equal(t, []string{"test/alpha#fragments/a2"}, got)
+	assert.Equal(t, []string{"ctxloom:local@bundles/test/alpha#fragments/a2"}, got)
 }
 
 func TestLoader_ExpandBundleRefs_ColonSyntaxRewrittenToHash(t *testing.T) {
@@ -1290,7 +1291,7 @@ func TestLoader_ExpandBundleRefs_ColonSyntaxRewrittenToHash(t *testing.T) {
 
 	got := loader.ExpandBundleRefs([]string{"test/beta:fragments/two"})
 
-	assert.Equal(t, []string{"test/beta#fragments/two"}, got)
+	assert.Equal(t, []string{"ctxloom:local@bundles/test/beta#fragments/two"}, got)
 }
 
 func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
@@ -1342,8 +1343,8 @@ func TestLoader_ExpandBundleRefs_MissingBundleSkippedSilently(t *testing.T) {
 	// The missing bundle is dropped without an error so the rest of the
 	// profile still resolves — same tolerance LoadMultiple uses.
 	assert.Equal(t, []string{
-		"test/alpha#fragments/a1",
-		"test/alpha#fragments/a2",
+		"ctxloom:local@bundles/test/alpha#fragments/a1",
+		"ctxloom:local@bundles/test/alpha#fragments/a2",
 	}, got)
 }
 
@@ -1356,9 +1357,11 @@ func TestLoader_ExpandBundleRefs_DeduplicatesAcrossRefs(t *testing.T) {
 		"test/alpha:fragments/a2", // duplicate of a2 via colon syntax
 	})
 
+	// Every spelling canonicalizes to the same identity, so the duplicates
+	// collapse — the dedup guarantee canonicalization exists to provide.
 	assert.Equal(t, []string{
-		"test/alpha#fragments/a1",
-		"test/alpha#fragments/a2",
+		"ctxloom:local@bundles/test/alpha#fragments/a1",
+		"ctxloom:local@bundles/test/alpha#fragments/a2",
 	}, got)
 }
 
@@ -1368,4 +1371,27 @@ func TestLoader_ExpandBundleRefs_EmptyInputs(t *testing.T) {
 	assert.Nil(t, loader.ExpandBundleRefs(nil))
 	assert.Nil(t, loader.ExpandBundleRefs([]string{}))
 	assert.Nil(t, loader.ExpandBundleRefs([]string{""}))
+}
+
+// The names ExpandBundleRefs emits must load: the ctxloom:local canonical
+// identity round-trips through GetFragment back to the fs bundle.
+func TestLoader_GetFragment_LocalCanonicalRefRoundTrips(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got, err := loader.GetFragment("ctxloom:local@bundles/test/alpha#fragments/a1")
+	require.NoError(t, err)
+	assert.Equal(t, "ALPHA-ONE", got.Content)
+}
+
+func TestLoader_ResolveFragmentAsk(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	// A bare unique name qualifies to its canonical pipeline form.
+	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1",
+		loader.ResolveFragmentAsk("a1"))
+	// Qualified asks canonicalize their bundle part.
+	assert.Equal(t, "ctxloom:local@bundles/test/alpha#fragments/a1",
+		loader.ResolveFragmentAsk("test/alpha#fragments/a1"))
+	// Unknown names pass through unchanged for the load step to report.
+	assert.Equal(t, "nope", loader.ResolveFragmentAsk("nope"))
 }

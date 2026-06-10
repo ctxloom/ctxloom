@@ -56,3 +56,57 @@ func TestCanonicalKey(t *testing.T) {
 		})
 	}
 }
+
+func TestCanonicalBundleRef(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"dev", "ctxloom:local@bundles/dev"},
+		{"team/dev", "ctxloom:local@bundles/team/dev"},
+		{"ctxloom:local@bundles/dev", "ctxloom:local@bundles/dev"},
+		{"ctxloom:local@bundles/dev@rev1", "ctxloom:local@bundles/dev"},
+		{"https://github.com/o/r@bundles/demo", "https://github.com/o/r@bundles/demo"},
+		{"https://github.com/o/r@bundles/demo@abc123", "https://github.com/o/r@bundles/demo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := CanonicalBundleRef(tt.input); got != tt.want {
+				t.Errorf("CanonicalBundleRef(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanonicalFragmentRef(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"dev#fragments/x", "ctxloom:local@bundles/dev#fragments/x"},
+		{"ctxloom:local@bundles/dev#fragments/x", "ctxloom:local@bundles/dev#fragments/x"},
+		{"https://github.com/o/r@bundles/demo#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
+		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
+		// No fragment selector → unchanged (bare names, prompt selectors).
+		{"x", "x"},
+		{"dev#prompts/x", "dev#prompts/x"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := CanonicalFragmentRef(tt.input); got != tt.want {
+				t.Errorf("CanonicalFragmentRef(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFragmentName(t *testing.T) {
+	if name, ok := FragmentName("dev#fragments/x"); !ok || name != "x" {
+		t.Errorf("FragmentName(dev#fragments/x) = %q, %v", name, ok)
+	}
+	if _, ok := FragmentName("dev"); ok {
+		t.Error("FragmentName(dev) should not match")
+	}
+}

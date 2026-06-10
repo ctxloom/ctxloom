@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -32,6 +33,20 @@ func (b *bundleWarner) unresolved(ref string, err error) {
 	}
 	b.seen[ref] = struct{}{}
 	fmt.Fprintf(b.out, "ctxloom: warning: skipping unresolved bundle %q: %v\n", ref, err)
+}
+
+// ambiguous warns that a bare fragment ask matched several bundles, once per
+// name for this warner's life.
+func (b *bundleWarner) ambiguous(name string, matches []string, chosen string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := "ambiguous:" + name
+	if _, ok := b.seen[key]; ok {
+		return
+	}
+	b.seen[key] = struct{}{}
+	fmt.Fprintf(b.out, "ctxloom: warning: fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly\n",
+		name, strings.Join(matches, ", "), chosen)
 }
 
 // unresolvedBundleWarner is the process-wide default, writing to stderr.

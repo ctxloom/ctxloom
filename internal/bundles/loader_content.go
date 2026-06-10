@@ -242,6 +242,41 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent
 	return l.fragmentContent(bundle, fragName, frag), nil
 }
 
+// ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
+// name shape the assembly pipeline carries (see ExpandBundleRefs). A
+// qualified ask ("bundle#fragments/name") canonicalizes its bundle part
+// directly. A bare name searches all bundles: a unique match qualifies it;
+// several matches resolve deterministically to the first in List order (List
+// sorts by bundle name) with a warning naming the alternatives; no match
+// returns the ask unchanged so the load step reports it (fault-tolerance:
+// an explicit ask is never dropped silently).
+func (l *Loader) ResolveFragmentAsk(name string) string {
+	if strings.Contains(name, "#") {
+		return remote.CanonicalFragmentRef(name)
+	}
+	bundleInfos, err := l.List()
+	if err != nil {
+		return name
+	}
+	var matches []string
+	for _, bundleInfo := range bundleInfos {
+		bundle, err := l.LoadFile(bundleInfo.Path)
+		if err != nil {
+			continue
+		}
+		if _, ok := bundle.Fragments[name]; ok {
+			matches = append(matches, remote.CanonicalBundleRef(bundleInfo.Name))
+		}
+	}
+	if len(matches) == 0 {
+		return name
+	}
+	if len(matches) > 1 {
+		unresolvedBundleWarner.ambiguous(name, matches, matches[0])
+	}
+	return matches[0] + remote.FragmentSelector + name
+}
+
 // searchFragment scans every bundle for a fragment with the given name.
 func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
@@ -379,7 +414,10 @@ func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
 //
 // The returned names are deduplicated and stable: whole-bundle expansions
 // are sorted alphabetically by fragment name so the resulting context hash
-// is reproducible.
+// is reproducible. Bundle identities are canonicalized
+// (remote.CanonicalBundleRef) — remote refs to their version-less canonical
+// URL, plain local names to ctxloom:local form — so names from different
+// reference spellings of the same bundle compare and dedupe exactly.
 func (l *Loader) ExpandBundleRefs(refs []string) []string {
 	seen := collections.NewSet[string]()
 	var out []string
@@ -426,7 +464,7 @@ func (l *Loader) expandBundleRef(ref string) []string {
 			// Targeted at prompts, mcp, or unknown — not a fragment ref.
 			return nil
 		}
-		return []string{bundleName + "#" + rest}
+		return []string{remote.CanonicalBundleRef(bundleName) + "#" + rest}
 	}
 
 	// Whole-bundle ref: enumerate every fragment in the bundle.
@@ -440,8 +478,9 @@ func (l *Loader) expandBundleRef(ref string) []string {
 		return nil
 	}
 	names := make([]string, 0, len(b.Fragments))
+	canonical := remote.CanonicalBundleRef(ref)
 	for fragName := range b.Fragments {
-		names = append(names, ref+remote.FragmentSelector+fragName)
+		names = append(names, canonical+remote.FragmentSelector+fragName)
 	}
 	sort.Strings(names)
 	return names

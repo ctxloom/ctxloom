@@ -519,15 +519,28 @@ func TestResolveProfile_ExcludeFragmentsSelectorForm(t *testing.T) {
 	assert.Contains(t, fragNames, "remote/bundle#fragments/frag-b")
 }
 
-func TestExclusionSet_FullRefExclusionMatchesBareName(t *testing.T) {
-	// Tag-matched fragments arrive as bare names; a full-ref exclusion must
-	// still catch them. The origin bundle of a bare name is unknowable, so a
-	// full-ref exclusion deliberately behaves like its bare form.
+func TestExclusionSet_QualifiedExclusionIsBundleScoped(t *testing.T) {
+	// A qualified exclusion drops only its own bundle's fragment — same-named
+	// fragments from other bundles survive (the repo-name-collision case).
+	// Any reference spelling of the bundle matches via canonicalization.
 	excluded := NewExclusionSet([]string{"dev#fragments/security-rules"})
+
+	assert.True(t, IsExcludedFragment("dev#fragments/security-rules", excluded))
+	assert.True(t, IsExcludedFragment("ctxloom:local@bundles/dev#fragments/security-rules", excluded))
+	assert.False(t, IsExcludedFragment("other#fragments/security-rules", excluded))
+	assert.False(t, IsExcludedFragment("https://github.com/o/r@bundles/dev#fragments/security-rules", excluded))
+	assert.False(t, IsExcludedFragment("security-rules", excluded),
+		"a bare name carries no origin; a qualified exclusion must not match it")
+}
+
+func TestExclusionSet_BareExclusionMatchesEveryBundle(t *testing.T) {
+	// A bare exclusion is the name-wide kill switch: it matches its fragment
+	// name wherever it comes from.
+	excluded := NewExclusionSet([]string{"security-rules"})
 
 	assert.True(t, IsExcludedFragment("security-rules", excluded))
 	assert.True(t, IsExcludedFragment("dev#fragments/security-rules", excluded))
-	assert.True(t, IsExcludedFragment("other#fragments/security-rules", excluded))
+	assert.True(t, IsExcludedFragment("https://github.com/o/r@bundles/tools#fragments/security-rules", excluded))
 	assert.False(t, IsExcludedFragment("security", excluded))
 }
 

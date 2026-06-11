@@ -162,32 +162,23 @@ func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
 	})
 }
 
-// ResolveRef converts a git reference to a commit SHA.
+// ResolveRef converts a git reference to a commit SHA. Resolution order is
+// load-bearing: refs/remotes/origin/<ref> is tried BEFORE the bare revision.
+// git fetch advances the remote-tracking refs but never the clone's local
+// branches (refs/heads/*), and go-git's bare ResolveRevision walks the rev-parse
+// rules — including refs/heads/<ref> — so resolving a branch name bare returns
+// the stale clone-time commit. Trying origin/ first makes a branch name (e.g. a
+// default branch named "develop") resolve to the freshly-fetched tip; a SHA or
+// tag falls through to the bare resolution. This mirrors resolveToCommitHash.
 func (f *GitCloneFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (string, error) {
-	// Try as a full commit SHA or abbreviated SHA
-	if len(ref) >= 7 && len(ref) <= 40 {
-		hash, err := f.repo.ResolveRevision(plumbing.Revision(ref))
-		if err == nil {
+	for _, rev := range []string{
+		"refs/remotes/origin/" + ref,
+		"refs/tags/" + ref,
+		ref,
+	} {
+		if hash, err := f.repo.ResolveRevision(plumbing.Revision(rev)); err == nil {
 			return hash.String(), nil
 		}
-	}
-
-	// Try as origin/branch
-	hash, err := f.repo.ResolveRevision(plumbing.Revision("refs/remotes/origin/" + ref))
-	if err == nil {
-		return hash.String(), nil
-	}
-
-	// Try as a tag
-	hash, err = f.repo.ResolveRevision(plumbing.Revision("refs/tags/" + ref))
-	if err == nil {
-		return hash.String(), nil
-	}
-
-	// Try as a direct revision (go-git handles various formats)
-	hash, err = f.repo.ResolveRevision(plumbing.Revision(ref))
-	if err == nil {
-		return hash.String(), nil
 	}
 
 	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)

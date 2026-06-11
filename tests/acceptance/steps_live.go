@@ -40,7 +40,7 @@ var liveAgents = map[string]liveAgent{
 	"claude": {
 		apiKeyEnvs: []string{"ANTHROPIC_API_KEY"},
 		credDir:    ".claude",
-		config: `version: 3
+		config: `version: 4
 llm:
   configs:
     claude:
@@ -60,7 +60,7 @@ profiles:
 	// own configured default applies.
 	"antigravity": {
 		credDir: ".gemini",
-		config: `version: 3
+		config: `version: 4
 llm:
   configs:
     antigravity:

@@ -10,13 +10,12 @@ import (
 // configDecoder turns an LLM entry's raw body into a backend's typed config.
 type configDecoder func(body map[string]interface{}) (agent.BackendConfig, error)
 
-// configRegistry holds the per-backend decoders keyed by type discriminator.
-var configRegistry = make(map[string]configDecoder)
-
 // RegisterConfig registers a backend's config decoder under its type
-// discriminator. Backends call this from init alongside Register.
+// discriminator on the descriptor table. Built-in backends set decodeConfig
+// directly in their descriptor (registry.go init); this entry point remains
+// for piecemeal registration alongside Register.
 func RegisterConfig(backendType string, decode configDecoder) {
-	configRegistry[backendType] = decode
+	descriptorFor(backendType).decodeConfig = decode
 }
 
 // DecodeLLMConfig decodes a labeled entry's raw body into the typed config for
@@ -24,11 +23,11 @@ func RegisterConfig(backendType string, decode configDecoder) {
 // (fault tolerance). The label that keyed the entry is NOT consulted — only the
 // explicit type drives which decoder runs.
 func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.BackendConfig, error) {
-	decode, ok := configRegistry[backendType]
-	if !ok {
+	d, ok := descriptors[backendType]
+	if !ok || d.decodeConfig == nil {
 		return nil, fmt.Errorf("unknown LLM backend type %q", backendType)
 	}
-	return decode(body)
+	return d.decodeConfig(body)
 }
 
 // decodeBody is the shared mapstructure pass each backend's decoder uses to

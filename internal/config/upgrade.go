@@ -10,4 +10,5 @@ import "github.com/ctxloom/ctxloom/internal/upgrade"
 var configUpgrades = upgrade.Pipeline{
 	llmRenameUpgrade{},
 	labeledConfigUpgrade{},
+	geminiToAntigravityUpgrade{},
 }

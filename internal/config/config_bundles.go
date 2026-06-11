@@ -288,13 +288,14 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedH
 		out := make([]wire.Hook, len(in))
 		for i, h := range in {
 			out[i] = wire.Hook{
-				Matcher: h.Matcher,
-				Command: h.Command,
-				Type:    h.Type,
-				Prompt:  h.Prompt,
-				Timeout: h.Timeout,
-				Async:   h.Async,
-				SCM:     marker,
+				Matcher:         h.Matcher,
+				Command:         h.Command,
+				Type:            h.Type,
+				Prompt:          h.Prompt,
+				Timeout:         h.Timeout,
+				Async:           h.Async,
+				SCM:             marker,
+				PreToolFallback: h.PreToolFallback,
 			}
 		}
 		return out

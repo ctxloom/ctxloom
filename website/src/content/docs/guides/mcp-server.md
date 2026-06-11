@@ -174,7 +174,7 @@ mcp:
   "name": "string (required)",
   "command": "string (required)",
   "args": ["string"],
-  "backend": "unified|claude-code|gemini"
+  "backend": "unified|claude-code|antigravity"
 }
 ```
 

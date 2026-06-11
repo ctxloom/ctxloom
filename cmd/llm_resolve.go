@@ -26,6 +26,12 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	bc, err := backends.DecodeLLMConfig(entry.EffectiveType(), entry.Body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: LLM config %q: %v\n", label, err)
+		if entry.EffectiveType() == "gemini" {
+			// Removed backend with a known successor: point at the fix. The
+			// config upgrade rewrites this on load; the hint covers configs
+			// where that rewrite has not been committed yet.
+			fmt.Fprintf(os.Stderr, "ctxloom: note: the \"gemini\" backend was replaced by \"antigravity\" (Antigravity CLI, binary agy); update the entry's type to \"antigravity\" or re-run ctxloom to apply the config upgrade\n")
+		}
 		return nil
 	}
 	return bc

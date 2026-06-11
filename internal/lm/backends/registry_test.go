@@ -118,6 +118,36 @@ func TestDecodeLLMConfig(t *testing.T) {
 	})
 }
 
+// TestDescriptorTable_Invariants pins the descriptor registry's shape: every
+// built-in agent is registered as ONE complete descriptor (backend ctor +
+// config decoder + settings writer + command export/writer), keyed by the
+// name its module's Name() reports. The mock backend is the deliberate
+// exception — it registers only backend+config (no settings, no commands).
+// A descriptor that loses a capability field silently degrades that backend
+// (WriteSettings/WriteCommandFilesFor no-op), so this must fail loudly.
+func TestDescriptorTable_Invariants(t *testing.T) {
+	require.NotEmpty(t, descriptors)
+	for name, d := range descriptors {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, name, d.name, "descriptor keyed under a different name than it carries")
+			require.NotNil(t, d.newBackend, "every descriptor must construct a backend")
+			require.NotNil(t, d.decodeConfig, "every descriptor must decode its config")
+			assert.Equal(t, name, d.newBackend().Name(),
+				"registry name must match the module's Name()")
+
+			if name == "mock" {
+				assert.Nil(t, d.newWriter, "mock must not gain settings support silently")
+				assert.Nil(t, d.exports, "mock must not gain command export silently")
+				assert.Nil(t, d.writeCommands, "mock must not gain command export silently")
+				return
+			}
+			assert.NotNil(t, d.newWriter, "non-mock backend must have a settings writer")
+			assert.NotNil(t, d.exports, "non-mock backend must have a command-export mapper")
+			assert.NotNil(t, d.writeCommands, "non-mock backend must have a command-file writer")
+		})
+	}
+}
+
 // TestConfiguredBackend builds a backend from a typed config and applies it.
 func TestConfiguredBackend(t *testing.T) {
 	b := ConfiguredBackend(&claude.ClaudeConfig{BinaryPath: "/custom/claude"})

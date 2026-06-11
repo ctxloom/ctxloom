@@ -205,10 +205,11 @@ Settings are merged from multiple sources (later overrides earlier):
 - **Hooks:** `.claude/settings.json` → `hooks.SessionStart`
 - **MCP:** `.claude/settings.json` → `mcpServers.ctxloom`
 
-### Gemini
+### Antigravity
 
-- **Hooks:** `.gemini/settings.json` → `hooks.SessionStart`
-- **MCP:** `.gemini/settings.json` → `mcpServers.ctxloom`
+- **Hooks:** `.agents/hooks.json` → `hooks.PreToolUse` (agy has no SessionStart event)
+- **Context:** ctxloom-managed section in `.agents/AGENTS.md` (read by agy at session start)
+- **MCP:** `.agents/mcp_config.json` → `mcpServers.ctxloom` (managed entries tracked in `.agents/.ctxloom-mcp-managed`)
 
 ## Extension Points
 

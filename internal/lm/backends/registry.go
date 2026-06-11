@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/claude"
 	"github.com/ctxloom/codex"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/shared/agent"
 )
 
@@ -16,35 +17,88 @@ type Configurable interface {
 	Configure(cfg agent.BackendConfig)
 }
 
-// registry holds all registered backends.
-var registry = make(map[string]func() agent.Backend)
+// agentDescriptor is the single per-agent registration record. Every
+// cross-backend dispatch in this package (backend construction, config
+// decoding, settings writing, slash-command export/writing) is a view over
+// this table, so adding an agent means registering ONE descriptor here —
+// not touching four separate maps/switches.
+//
+// Only name and newBackend are mandatory. The optional fields gate
+// capability-specific dispatch: a nil newWriter means the backend doesn't
+// support settings (WriteSettings no-ops, BackendsWithSettings omits it); nil
+// exports/writeCommands mean no slash-command export (WriteCommandFilesFor
+// and commandExportsFor no-op). The mock backend registers only
+// backend+config.
+type agentDescriptor struct {
+	// name is the backend's registry key and must match its module's Name().
+	name string
+	// newBackend constructs a fresh backend instance (wrapping the module
+	// ctor + launcher injection for local-CLI agents).
+	newBackend func() agent.Backend
+	// decodeConfig turns a labeled LLM entry's raw body into the backend's
+	// typed config (see DecodeLLMConfig).
+	decodeConfig configDecoder
+	// newWriter constructs the backend's settings writer from resolved
+	// options. nil = backend has no settings support.
+	newWriter func(agent.SettingsOptions) agent.SettingsWriter
+	// exports maps loaded bundle content to this backend's command exports,
+	// resolving its per-prompt enablement + metadata. nil = no command export.
+	// Shared by WriteCommandFilesFor and commandExportsFor so the two paths
+	// can't diverge.
+	exports func([]*bundles.LoadedContent) []agent.CommandExport
+	// writeCommands writes the backend's slash-command files (the module's
+	// WriteCommandFiles). nil = no command export.
+	writeCommands func(string, []agent.CommandExport, ...agent.CommandFileOption) error
+}
+
+// descriptors holds the per-agent descriptor table, keyed by backend name.
+var descriptors = make(map[string]*agentDescriptor)
+
+// registerDescriptor installs a backend's complete descriptor.
+func registerDescriptor(d agentDescriptor) {
+	descriptors[d.name] = &d
+}
+
+// descriptorFor returns the named descriptor, creating an empty one if absent.
+// It backs the incremental Register/RegisterConfig entry points, which remain
+// for callers (and tests) that register a backend piecemeal.
+func descriptorFor(name string) *agentDescriptor {
+	d, ok := descriptors[name]
+	if !ok {
+		d = &agentDescriptor{name: name}
+		descriptors[name] = d
+	}
+	return d
+}
 
 // Register adds a backend constructor to the registry.
 func Register(name string, constructor func() agent.Backend) {
-	registry[name] = constructor
+	descriptorFor(name).newBackend = constructor
 }
 
 // Get returns a new instance of the named backend.
 func Get(name string) agent.Backend {
-	if constructor, ok := registry[name]; ok {
-		return constructor()
+	if d, ok := descriptors[name]; ok && d.newBackend != nil {
+		return d.newBackend()
 	}
 	return nil
 }
 
 // List returns all registered backend names.
 func List() []string {
-	names := make([]string, 0, len(registry))
-	for name := range registry {
-		names = append(names, name)
+	names := make([]string, 0, len(descriptors))
+	for name, d := range descriptors {
+		if d.newBackend != nil {
+			names = append(names, name)
+		}
 	}
 	return names
 }
 
 // Exists returns true if a backend with the given name is registered.
 func Exists(name string) bool {
-	_, ok := registry[name]
-	return ok
+	d, ok := descriptors[name]
+	return ok && d.newBackend != nil
 }
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
@@ -77,39 +131,62 @@ func IsAvailable(name string) bool {
 }
 
 func init() {
-	// Register all built-in backends along with their config decoders. The
-	// decoder turns a labeled entry's raw body into the backend's typed config.
-	// Each local-CLI backend gets ctxloom's pty-backed launcher injected — the
-	// substrate no longer execs processes itself.
-	Register("claude-code", func() agent.Backend {
-		b := claude.NewClaudeCode(WriteSettings)
-		b.SetLauncher(RunLaunchSpec)
-		return b
-	})
-	RegisterConfig("claude-code", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &claude.ClaudeConfig{})
-	})
-
-	Register("antigravity", func() agent.Backend {
-		b := antigravity.NewAntigravity(WriteSettings)
-		b.SetLauncher(RunLaunchSpec)
-		return b
-	})
-	RegisterConfig("antigravity", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &antigravity.AntigravityConfig{})
+	// Register all built-in backends — ONE descriptor per agent covering
+	// construction, config decoding, settings writing, and slash-command
+	// export. Each local-CLI backend gets ctxloom's pty-backed launcher
+	// injected — the substrate no longer execs processes itself.
+	registerDescriptor(agentDescriptor{
+		name: "claude-code",
+		newBackend: func() agent.Backend {
+			b := claude.NewClaudeCode(WriteSettings)
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &claude.ClaudeConfig{})
+		},
+		newWriter:     claude.NewWriter,
+		exports:       claudeExports,
+		writeCommands: claude.WriteCommandFiles,
 	})
 
-	Register("codex", func() agent.Backend {
-		b := codex.NewCodex(WriteSettings)
-		b.SetLauncher(RunLaunchSpec)
-		return b
-	})
-	RegisterConfig("codex", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &codex.CodexConfig{})
+	registerDescriptor(agentDescriptor{
+		name: "antigravity",
+		newBackend: func() agent.Backend {
+			b := antigravity.NewAntigravity(WriteSettings)
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &antigravity.AntigravityConfig{})
+		},
+		newWriter:     antigravity.NewWriter,
+		exports:       antigravityExports,
+		writeCommands: antigravity.WriteCommandFiles,
 	})
 
-	Register("mock", func() agent.Backend { return NewMock() })
-	RegisterConfig("mock", func(body map[string]interface{}) (agent.BackendConfig, error) {
-		return decodeBody(body, &MockConfig{})
+	registerDescriptor(agentDescriptor{
+		name: "codex",
+		newBackend: func() agent.Backend {
+			b := codex.NewCodex(WriteSettings)
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &codex.CodexConfig{})
+		},
+		newWriter:     codex.NewWriter,
+		exports:       codexExports,
+		writeCommands: codex.WriteCommandFiles,
+	})
+
+	// Mock registers only backend+config: no settings writer, no command
+	// export (descriptor fields are optional).
+	registerDescriptor(agentDescriptor{
+		name:       "mock",
+		newBackend: func() agent.Backend { return NewMock() },
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &MockConfig{})
+		},
 	})
 }

@@ -328,10 +328,6 @@ func (m *mockBackend) Version() string { return "1.0.0" }
 func (m *mockBackend) SupportedModes() []agent.ExecutionMode {
 	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
 }
-func (m *mockBackend) Lifecycle() agent.LifecycleHandler                { return nil }
-func (m *mockBackend) Skills() agent.SkillRegistry                      { return nil }
-func (m *mockBackend) Context() agent.ContextProvider                   { return nil }
-func (m *mockBackend) MCP() agent.MCPManager                            { return nil }
 func (m *mockBackend) History() agent.SessionHistory                    { return m.history }
 func (m *mockBackend) WorkDir() string                                  { return "" }
 func (m *mockBackend) SetWorkDir(string)                                {}

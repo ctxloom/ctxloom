@@ -3,31 +3,24 @@ package backends
 import (
 	"strings"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
-	"github.com/ctxloom/codex"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/shared/agent"
 )
 
 // WriteCommandFilesFor writes slash-command files for the named backend,
-// dispatching to the per-agent writer. This is the cross-backend dispatch (like
-// WriteSettings): it lives in the wiring layer because it maps ctxloom's bundle
-// content to the agent-agnostic agent.CommandExport for the target backend —
-// resolving that backend's enablement + metadata — so the per-agent writers
-// (claude.WriteCommandFiles, antigravity.WriteCommandFiles) never import
-// bundles. Unsupported backends silently succeed.
+// dispatching to the per-agent writer via the descriptor table (registry.go).
+// This is the cross-backend dispatch (like WriteSettings): it lives in the
+// wiring layer because it maps ctxloom's bundle content to the agent-agnostic
+// agent.CommandExport for the target backend — resolving that backend's
+// enablement + metadata — so the per-agent writers (claude.WriteCommandFiles,
+// antigravity.WriteCommandFiles) never import bundles. Unsupported backends
+// silently succeed.
 func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.LoadedContent, opts ...agent.CommandFileOption) error {
-	switch backendName {
-	case "claude-code":
-		return claude.WriteCommandFiles(workDir, claudeExports(prompts), opts...)
-	case "antigravity":
-		return antigravity.WriteCommandFiles(workDir, antigravityExports(prompts), opts...)
-	case "codex":
-		return codex.WriteCommandFiles(workDir, codexExports(prompts), opts...)
-	default:
+	d, ok := descriptors[backendName]
+	if !ok || d.exports == nil || d.writeCommands == nil {
 		return nil
 	}
+	return d.writeCommands(workDir, d.exports(prompts), opts...)
 }
 
 // claudeExports maps loaded bundle content to Claude command exports, resolving

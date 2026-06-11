@@ -409,7 +409,7 @@ Add an MCP server to the configuration.
 | `name` | string | Yes | Server name (unique identifier) |
 | `command` | string | Yes | Command to run the MCP server |
 | `args` | string[] | No | Command arguments |
-| `backend` | string | No | Backend: `unified`, `claude-code`, or `gemini` (default: `unified`) |
+| `backend` | string | No | Backend: `unified`, `claude-code`, or `antigravity` (default: `unified`) |
 
 **Example:**
 ```json
@@ -433,7 +433,7 @@ Remove an MCP server from the configuration.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `name` | string | Yes | Server name to remove |
-| `backend` | string | No | Backend to remove from: `unified`, `claude-code`, or `gemini` (default: all) |
+| `backend` | string | No | Backend to remove from: `unified`, `claude-code`, or `antigravity` (default: all) |
 
 ### set_mcp_auto_register
 
@@ -500,13 +500,13 @@ Check which remote dependencies are not installed locally.
 
 ### apply_hooks
 
-Apply/reapply ctxloom hooks to backend configuration files (`.claude/settings.json`, `.gemini/settings.json`).
+Apply/reapply ctxloom hooks to backend configuration files (`.claude/settings.json`, `.agents/hooks.json`).
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `backend` | string | No | Backend: `claude-code`, `gemini`, or `all` (default: `all`) |
+| `backend` | string | No | Backend: `claude-code`, `antigravity`, or `all` (default: `all`) |
 | `regenerate_context` | boolean | No | Also regenerate the context file (default: true) |
 
 ---
@@ -525,7 +525,7 @@ Compact current or specified session log into a distilled summary.
 |------|------|----------|-------------|
 | `session_id` | string | No | Session ID to compact (defaults to current session) |
 | `model` | string | No | LLM model for distillation (default: haiku) |
-| `backend` | string | No | Backend to read from: `claude-code` or `gemini` (default: `claude-code`) |
+| `backend` | string | No | Backend to read from: `claude-code` or `antigravity` (default: `claude-code`) |
 
 ### list_sessions
 
@@ -535,7 +535,7 @@ List all sessions from the backend with their compaction status.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `backend` | string | No | Backend to list from: `claude-code` or `gemini` (default: `claude-code`) |
+| `backend` | string | No | Backend to list from: `claude-code` or `antigravity` (default: `claude-code`) |
 
 ### load_session
 

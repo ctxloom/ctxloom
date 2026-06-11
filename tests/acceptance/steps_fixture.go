@@ -15,14 +15,14 @@ import (
 // layer bundles, profiles, and LLM config on top via the CLI itself, so the
 // fixtures exercise real create paths rather than hand-written YAML. The editor
 // is pinned to a no-op so `edit` commands run non-interactively.
-const minimalConfig = "version: 3\neditor:\n  command: \"true\"\nprofiles:\n  defaults: []\n"
+const minimalConfig = "version: 4\neditor:\n  command: \"true\"\nprofiles:\n  defaults: []\n"
 
 // markerEditorConfig pins the editor to a command that appends a fixed marker to
 // the file it is given, so `edit` round-trips produce an observable change. sh
 // receives `-c <script> editor <tmpfile>`, so "$1" is the temp file editInEditor
 // writes the content to. The marker is free text, fine for fragment/prompt
 // content (it would corrupt profile YAML, so those edits use other paths).
-const markerEditorConfig = `version: 3
+const markerEditorConfig = `version: 4
 editor:
   command: sh
   args:

@@ -177,7 +177,7 @@ func TestClaudeCodeHookWriter_WritesBareCtxloomCommands(t *testing.T) {
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
 	}}
-	require.NoError(t, writer.WriteHooks(cfg, tmpDir))
+	require.NoError(t, writer.WriteSettings(cfg, nil, nil, tmpDir))
 
 	settingsData, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)

@@ -10,7 +10,7 @@ type SettingsStatus = agent.SettingsStatus
 // RemoveSettings strips ctxloom-managed artifacts from the named backend's
 // config files. Unsupported backends are a no-op. Use WithSettingsFS for tests.
 func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) error {
-	options := &settingsOptions{}
+	options := &agent.SettingsOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
@@ -24,7 +24,7 @@ func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) erro
 // BackendStatus reports the named backend's ctxloom wiring. Unsupported
 // backends report an empty (un-wired) status.
 func BackendStatus(backendName, projectDir string, opts ...SettingsOption) (SettingsStatus, error) {
-	options := &settingsOptions{}
+	options := &agent.SettingsOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}

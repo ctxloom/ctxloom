@@ -49,8 +49,9 @@ llm:
       args: []                   # Extra CLI arguments
       env:                       # Environment variables
         CUSTOM_VAR: "value"
-    gemini:
-      model: "gemini-2.0-flash"
+    antigravity:
+      type: antigravity          # Antigravity CLI (binary: agy)
+      model: "gemini-3-pro"      # Optional; agy's own default when unset
   compaction:                    # LLM used for distillation (optional)
     llm: claude-code
     model: haiku
@@ -114,7 +115,7 @@ Available LLM backends:
 | LLM | CLI | Description |
 |--------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
-| `gemini` | [Gemini CLI](https://github.com/google/generative-ai-cli) | Google's Gemini |
+| `antigravity` | [Antigravity CLI](https://antigravity.google) (`agy`) | Google's Antigravity |
 | `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI (provisional) |
 
 Select the default with `llm.default` (or per-run with `--llm <name>`). Override a
@@ -130,6 +131,31 @@ llm:
       env:
         ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
 ```
+
+### Antigravity
+
+The `antigravity` backend wraps Google's Antigravity CLI (`agy`,
+`curl -fsSL https://antigravity.google/cli/install.sh | bash`). Authentication
+is Google OAuth handled by `agy` itself — there are no API key environment
+variables to configure. Supported fields are `model` (optional; agy's own
+default is used when unset), `binary_path` (default `agy`), `args`, and `env`:
+
+```yaml
+llm:
+  configs:
+    antigravity:
+      type: antigravity
+      model: "gemini-3-pro"    # Optional
+      binary_path: "agy"       # Optional
+```
+
+:::note[Migrating from the gemini backend]
+Google discontinued Gemini CLI in June 2026, and ctxloom's `gemini` backend was
+replaced by `antigravity` (config version 4). Older v3 configs with
+`type: gemini` are auto-migrated on load: the type flips to `antigravity`, and
+the gemini-only `trust_workspace` and `approval_mode` knobs (which have no
+antigravity equivalent) are dropped.
+:::
 
 ## Defaults
 
@@ -173,9 +199,11 @@ ctxloom injects context via **SessionStart hooks** rather than editing `CLAUDE.m
 
 - Keeps `CLAUDE.md` clean for your own project documentation
 - Injects fresh context at the start of each session
-- Works with both Claude Code and Gemini CLI
 
-Context is written to `.ctxloom/context/[hash].md` and injected via hook. See [Hooks and Context Injection](/guides/hooks) for details.
+Context is written to `.ctxloom/context/[hash].md` and injected via hook. For
+the Antigravity backend (which has no SessionStart event), context is delivered
+via a ctxloom-managed section in `.agents/AGENTS.md` instead. See
+[Hooks and Context Injection](/guides/hooks) for details.
 
 ## Sync Configuration
 

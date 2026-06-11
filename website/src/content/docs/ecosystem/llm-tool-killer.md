@@ -42,5 +42,5 @@ ltk manage uninstall       # cleanly remove the hook again
 Commit `.ltk/config.yaml` alongside your code. Rules are YAML; the first matching `deny` wins and returns your `message`/`suggest` to the model.
 
 :::note
-Claude Code is the only supported agent today; Codex and Gemini are planned. See the [llm-tool-killer README](https://github.com/ctxloom/llm-tool-killer) for the full rule syntax and behavior.
+Claude Code and Antigravity CLI (`agy`) are the supported agents today; Codex is planned. See the [llm-tool-killer README](https://github.com/ctxloom/llm-tool-killer) for the full rule syntax and behavior.
 :::

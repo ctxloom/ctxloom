@@ -14,7 +14,7 @@ const versionKey = "version"
 // version (cmd.Version, a string like "v0.6.4"). Bump it whenever a new Upgrader
 // is appended to configUpgrades. A config with no `version` is treated as the
 // pre-versioning generation (version 0/1) and is upgraded on load.
-const CurrentConfigVersion = 3
+const CurrentConfigVersion = 4
 
 // llmRenameUpgrade is the v1→v2 config upgrade: the schema generation that
 // renamed the "plugin" abstraction to "llm". It rewrites pre-rename keys so
@@ -227,6 +227,87 @@ func migrateProfilesV3(root *yaml.Node) {
 		upgrade.MapSet(newProfiles, "definitions", legacyDefs)
 	}
 	upgrade.MapSet(root, "profiles", newProfiles)
+}
+
+// geminiToAntigravityUpgrade is the v3→v4 config upgrade: the "gemini" backend
+// was removed and replaced by "antigravity" (the Antigravity CLI, binary agy).
+// It is a comment-preserving yaml.Node rewrite (via the shared upgrade helpers).
+// The moves:
+//
+//   - llm.configs.* with `type: gemini` → `type: antigravity`. The gemini-only
+//     knobs trust_workspace and approval_mode have no antigravity equivalent
+//     (they are schema-invalid now) and are dropped. binary_path pointed at the
+//     gemini binary, which antigravity cannot run, so it is dropped too — the
+//     default agy binary resolution is correct. model/args/env are kept: a
+//     stale gemini model name is still schema-valid and the user's to update.
+//   - hooks.plugins.gemini → hooks.plugins.antigravity (key renamed in place;
+//     when an antigravity block already exists the dead gemini block is dropped
+//     rather than clobbering it — the gemini backend it targeted is gone).
+//   - mcp.plugins.gemini → mcp.plugins.antigravity, same rule.
+//
+// Labels (llm.configs keys, llm.defaults role references) are never touched: a
+// label named "gemini" is just a name; only the type discriminator matters.
+type geminiToAntigravityUpgrade struct{}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (geminiToAntigravityUpgrade) Name() string { return "gemini→antigravity backend (v3→v4)" }
+
+// Apply performs the replacement and stamps version 4, a no-op once at
+// version 4+. As with earlier steps, stamping the version is itself a valid
+// upgrade, so a gemini-free v3 config upgrades simply by gaining `version: 4`.
+func (geminiToAntigravityUpgrade) Apply(root *yaml.Node) (changed bool) {
+	if upgrade.Version(root, versionKey) >= 4 {
+		return false
+	}
+
+	// llm.configs entries typed gemini flip to antigravity and shed the
+	// gemini-only fields.
+	if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
+		if configs := upgrade.MapValue(llm, "configs"); configs != nil && configs.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(configs.Content); i += 2 {
+				entry := configs.Content[i+1]
+				if entry.Kind != yaml.MappingNode {
+					continue
+				}
+				typ := upgrade.MapValue(entry, "type")
+				if typ == nil || typ.Kind != yaml.ScalarNode || typ.Value != "gemini" {
+					continue
+				}
+				// Rewrite the scalar in place so the node's comments survive.
+				typ.Value = "antigravity"
+				upgrade.MapDelete(entry, "trust_workspace")
+				upgrade.MapDelete(entry, "approval_mode")
+				upgrade.MapDelete(entry, "binary_path")
+			}
+		}
+	}
+
+	// hooks.plugins.gemini / mcp.plugins.gemini follow the backend rename.
+	for _, section := range []string{"hooks", "mcp"} {
+		sec := upgrade.MapValue(root, section)
+		if sec == nil || sec.Kind != yaml.MappingNode {
+			continue
+		}
+		plugins := upgrade.MapValue(sec, "plugins")
+		if plugins == nil || plugins.Kind != yaml.MappingNode {
+			continue
+		}
+		keyNode, _ := mapEntry(plugins, "gemini")
+		if keyNode == nil {
+			continue
+		}
+		if upgrade.MapValue(plugins, "antigravity") != nil {
+			// An antigravity block already exists; the gemini block targeted a
+			// backend that no longer exists, so it is dead — drop, don't merge.
+			upgrade.MapDelete(plugins, "gemini")
+		} else {
+			// Rename the key node in place so its comments ride along.
+			keyNode.Value = "antigravity"
+		}
+	}
+
+	upgrade.SetVersion(root, versionKey, 4)
+	return true
 }
 
 // mapEntry returns the key and value nodes for key in a mapping node (both nil

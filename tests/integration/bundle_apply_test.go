@@ -114,11 +114,13 @@ func TestBundleApply_InheritedProfile(t *testing.T) {
 }
 
 // TestBundleApply_AntigravityHookNestedSchema drives ApplyHooks end-to-end and
-// asserts the bundle's session_start hook reaches .agents/hooks.json in agy's
-// required nested shape (event → [{hooks:[{type:"command", command}]}]). A flat
-// {command} object is silently ignored by agy, so this is the contract that
-// makes Antigravity hooks actually fire. The built-in `hook session-bind` hook
-// (the recovery producer) must also be present.
+// asserts bundle hooks reach .agents/hooks.json in agy's required nested shape
+// (event → [{hooks:[{type:"command", command}]}]). A flat {command} object is
+// silently ignored by agy, so this is the contract that makes Antigravity
+// hooks actually fire. The built-in `hook session-bind` (the recovery
+// producer) declares pre_tool_fallback, so on agy it must land under
+// PreToolUse with a catch-all matcher — agy never fires SessionStart, and a
+// SessionStart registration would be a dead entry.
 func TestBundleApply_AntigravityHookNestedSchema(t *testing.T) {
 	_, agyHooksJSON, _, _ := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
@@ -127,7 +129,8 @@ func TestBundleApply_AntigravityHookNestedSchema(t *testing.T) {
 
 	var settings struct {
 		Hooks map[string][]struct {
-			Hooks []struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
 				Type    string `json:"type"`
 				Command string `json:"command"`
 			} `json:"hooks"`
@@ -135,22 +138,28 @@ func TestBundleApply_AntigravityHookNestedSchema(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(agyHooksJSON), &settings))
 
-	groups := settings.Hooks["SessionStart"]
-	require.NotEmpty(t, groups, "SessionStart must have hook groups in nested form")
-
-	var sawBundleHook, sawSessionBind bool
-	for _, g := range groups {
+	var sawBundleHook bool
+	for _, g := range settings.Hooks["SessionStart"] {
 		require.NotEmpty(t, g.Hooks, "each group must carry a nested hooks[] array")
 		for _, e := range g.Hooks {
 			assert.Equal(t, "command", e.Type, "every Antigravity hook entry needs type:command")
 			if strings.Contains(e.Command, "demo-hook") {
 				sawBundleHook = true
 			}
-			if strings.Contains(e.Command, "session-bind") {
-				sawSessionBind = true
-			}
+			assert.NotContains(t, e.Command, "session-bind",
+				"session-bind must not register under SessionStart on agy (it would never fire)")
 		}
 	}
 	assert.True(t, sawBundleHook, "bundle session_start hook must reach .agents/hooks.json in nested form")
-	assert.True(t, sawSessionBind, "built-in `hook session-bind` (recovery producer) must reach .agents/hooks.json")
+
+	var sawSessionBind bool
+	for _, g := range settings.Hooks["PreToolUse"] {
+		for _, e := range g.Hooks {
+			if strings.Contains(e.Command, "session-bind") {
+				sawSessionBind = true
+				assert.Equal(t, ".*", g.Matcher, "the diverted bind fires on every tool (first one binds)")
+			}
+		}
+	}
+	assert.True(t, sawSessionBind, "built-in `hook session-bind` must divert to PreToolUse on agy (pre_tool_fallback)")
 }

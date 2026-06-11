@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/antigravity"
+	"github.com/ctxloom/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -132,12 +134,14 @@ var sessionForgetCmd = &cobra.Command{
 	},
 }
 
-// sessionBindCmd is the SessionStart hook target and the sole path for
-// recording the harp → session_id mapping in the index: Claude Code (and
+// sessionBindCmd is the session-bind hook target and the sole path for
+// recording the harp → session_id mapping in the index. Claude Code (and
 // other backends with SessionStart hooks) fire this exactly once per
 // session, with the backend's session ID and transcript path already in
-// the documented hook payload. The compactor also forward-binds at
-// compact time as a backstop.
+// the documented hook payload. Antigravity has no session-start event, so
+// there the hook is installed with pre_tool_fallback and fires on
+// PreToolUse — the bind is first-bind-wins, so repeat firings are no-ops.
+// The compactor also forward-binds at compact time as a backstop.
 var sessionBindCmd = &cobra.Command{
 	Use:    "session-bind",
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
@@ -153,7 +157,13 @@ var sessionBindCmd = &cobra.Command{
 		// project context (inject-context) is configured. Best-effort: a hook must
 		// never fail the host backend's startup, so failures past this point only
 		// skip the index bind — the marker is already on stdout.
-		emitHarpMarker(cmd.OutOrStdout(), harp)
+		//
+		// Skipped for Antigravity payloads: there this command runs as a
+		// PreToolUse hook, where stdout is reserved for decision JSON — the
+		// SessionStart additionalContext envelope would be junk at best.
+		if !isAntigravityHookPayload(raw) {
+			emitHarpMarker(cmd.OutOrStdout(), harp)
+		}
 		if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: session bind failed: %v\n", err)
 		}
@@ -170,7 +180,7 @@ func emitHarpMarker(w io.Writer, harp string) {
 		return
 	}
 	out := HookOutput{HookSpecificOutput: &HookSpecificOutput{
-		HookEventName:     "SessionStart",
+		HookEventName:     claude.HookEventSessionStart,
 		AdditionalContext: marker,
 	}}
 	// Best-effort: a marshal/write failure must not fail the bind hook.
@@ -195,16 +205,30 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	if err != nil {
 		return fmt.Errorf("read payload: %w", err)
 	}
-	var payload struct {
-		SessionID      string `json:"session_id"`
-		TranscriptPath string `json:"transcript_path"`
-	}
+	var payload claude.SessionStartPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil // malformed payload — no-op
+	}
+	// Antigravity fires this as a PreToolUse hook with its own payload shape
+	// (camelCase, decoded via the agy module's wire types): the conversation
+	// ID is the session ID and the transcript path comes on every payload.
+	if payload.SessionID == "" {
+		if p, err := antigravity.DecodeHookPayload(raw); err == nil && p.ConversationID != "" {
+			payload.SessionID = p.ConversationID
+			payload.TranscriptPath = p.TranscriptPath
+		}
 	}
 	// operations.BindSession applies first-bind-wins and no-ops a harp that is
 	// absent or already bound.
 	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)
+}
+
+// isAntigravityHookPayload reports whether raw is an Antigravity hook payload
+// (identified structurally by its conversationId field — Claude payloads
+// carry session_id instead).
+func isAntigravityHookPayload(raw []byte) bool {
+	p, err := antigravity.DecodeHookPayload(raw)
+	return err == nil && p.ConversationID != ""
 }
 
 var sessionDistillCmd = &cobra.Command{

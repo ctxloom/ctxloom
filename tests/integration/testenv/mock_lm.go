@@ -109,7 +109,7 @@ func (m *MockLM) WriteConfig() error {
 
 	// Build config with mock settings (schema v3: labeled configs + role map).
 	var config strings.Builder
-	config.WriteString("version: 3\n")
+	config.WriteString("version: 4\n")
 	config.WriteString("llm:\n")
 	config.WriteString("  configs:\n")
 	config.WriteString("    mock:\n")

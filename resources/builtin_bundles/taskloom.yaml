@@ -50,16 +50,20 @@ installation: |
 
 hooks:
   session_start:
-    # Fires once per backend session with the session_id and
-    # transcript_path in the JSON payload. ctxloom hook session-bind reads
-    # those, looks up CTXLOOM_SESSION_HARP from env, and records the
-    # mapping in ~/.ctxloom/sessions/index.yaml. This is the primary
-    # bind path — `ctxloom session distill` and the resume picker rely
-    # on the resulting index entry. The MCP-side bind middleware and
-    # the time-window fallback in `session distill` remain as defense
-    # in depth.
+    # Fires once per backend session with the session id and transcript
+    # path in the JSON payload. ctxloom hook session-bind reads those,
+    # looks up CTXLOOM_SESSION_HARP from env, and records the mapping in
+    # ~/.ctxloom/sessions/index.yaml. This is the primary bind path —
+    # `ctxloom session distill` and the resume picker rely on the
+    # resulting index entry. The compactor's forward-bind at compact
+    # time remains as defense in depth.
+    #
+    # pre_tool_fallback: the bind is first-bind-wins idempotent, so on
+    # agents without a session-start event (Antigravity) it may fire on
+    # PreToolUse instead — the session binds at the first tool call.
     - command: ctxloom hook session-bind
       type: command
+      pre_tool_fallback: true
   post_file_edit:
     # Matcher intentionally omitted — defaults to Edit|Write per
     # internal/lm/backends/hooks.go::PostFileEdit translation. Plan-file

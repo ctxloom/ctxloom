@@ -1083,7 +1083,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(committed), "llm_plugin")
 	assert.NotContains(t, string(committed), "plugins:")
-	assert.Contains(t, string(committed), "version: 3", "upgrade stamps the current schema version")
+	assert.Contains(t, string(committed), "version: 4", "upgrade stamps the current schema version")
 	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
 }
 
@@ -1092,14 +1092,14 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 3\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "version: 4\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Nil(t, cfg.PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, 3, cfg.Version)
+	assert.Equal(t, 4, cfg.Version)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {

@@ -45,19 +45,15 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 
 // commandExportsFor maps loaded bundle content to the named backend's command
 // exports (resolving that backend's per-prompt enablement + metadata), or nil
-// for a backend without slash-command export. Reuses the same per-backend
-// mappers as WriteCommandFilesFor so the two paths can't diverge.
+// for a backend without slash-command export. Reads the descriptor table's
+// exports field — the same mapper WriteCommandFilesFor uses — so the two
+// paths can't diverge.
 func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
-	switch backendName {
-	case "claude-code":
-		return claudeExports(prompts)
-	case "antigravity":
-		return antigravityExports(prompts)
-	case "codex":
-		return codexExports(prompts)
-	default:
+	d, ok := descriptors[backendName]
+	if !ok || d.exports == nil {
 		return nil
 	}
+	return d.exports(prompts)
 }
 
 // assembleManagedMCP builds the merged MCP server set: config-level servers then

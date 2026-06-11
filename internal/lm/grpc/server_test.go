@@ -138,10 +138,6 @@ type fakeBackend struct {
 func (f *fakeBackend) Name() string                          { return f.name }
 func (f *fakeBackend) Version() string                       { return f.version }
 func (f *fakeBackend) SupportedModes() []agent.ExecutionMode { return f.modes }
-func (f *fakeBackend) Skills() agent.SkillRegistry           { return nil }
-func (f *fakeBackend) MCP() agent.MCPManager                 { return nil }
-func (f *fakeBackend) Context() agent.ContextProvider        { return nil }
-func (f *fakeBackend) Lifecycle() agent.LifecycleHandler     { return nil }
 func (f *fakeBackend) History() agent.SessionHistory         { return f.history }
 
 func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error {

@@ -43,18 +43,6 @@ func NewMock() *Mock {
 	}
 }
 
-// Lifecycle returns nil - Mock doesn't support lifecycle hooks.
-func (b *Mock) Lifecycle() agent.LifecycleHandler { return nil }
-
-// Skills returns nil - Mock doesn't support skills.
-func (b *Mock) Skills() agent.SkillRegistry { return nil }
-
-// Context returns nil - Mock doesn't need a context provider.
-func (b *Mock) Context() agent.ContextProvider { return nil }
-
-// MCP returns nil - Mock doesn't support MCP servers.
-func (b *Mock) MCP() agent.MCPManager { return nil }
-
 // History returns nil - Mock doesn't support session history.
 func (b *Mock) History() agent.SessionHistory { return &NilSessionHistory{} }
 

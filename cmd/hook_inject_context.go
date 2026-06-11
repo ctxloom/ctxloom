@@ -10,33 +10,26 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/claude"
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
 )
 
-// HookInput represents the JSON input from AI tool hooks.
-// Claude Code provides session_id; Codex provides transcript_path directly.
-type HookInput struct {
-	SessionID      string `json:"session_id"`      // Claude Code: session identifier
-	TranscriptPath string `json:"transcript_path"` // Codex: full path to transcript file
-	Source         string `json:"source"`          // Claude Code SessionStart source: startup|resume|clear|compact
-}
+// HookInput is the JSON input from AI tool SessionStart hooks. The wire shape
+// lives in the claude module (the org's single source of truth for the hook
+// contract; Codex adopted the same shape and provides transcript_path
+// directly).
+type HookInput = claude.SessionStartPayload
 
-// HookOutput represents the JSON output format for AI tool hooks.
-// This format is compatible with Claude Code and Codex SessionStart hooks.
-type HookOutput struct {
-	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
-}
+// HookOutput is the JSON output format for AI tool SessionStart hooks,
+// compatible with Claude Code and Codex.
+type HookOutput = claude.SessionStartOutput
 
 // HookSpecificOutput contains hook-specific data to inject.
-type HookSpecificOutput struct {
-	HookEventName     string `json:"hookEventName"`
-	AdditionalContext string `json:"additionalContext,omitempty"`
-}
+type HookSpecificOutput = claude.SessionStartSpecificOutput
 
 var injectContextProject string
-var injectContextBackend string
 var injectContextPart int
 var injectContextTotal int
 
@@ -205,7 +198,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 
 	return HookOutput{
 		HookSpecificOutput: &HookSpecificOutput{
-			HookEventName:     "SessionStart",
+			HookEventName:     claude.HookEventSessionStart,
 			AdditionalContext: body,
 		},
 	}
@@ -286,10 +279,6 @@ func resolveInjectContextWorkDir(flagVal string, findRoot func(string) (string, 
 
 func init() {
 	hookInjectContextCmd.Flags().StringVar(&injectContextProject, "project", "", "Project directory (defaults to git root or current directory)")
-	// The injection output is backend-independent; the flag is accepted only
-	// so previously-generated hook commands that pass it keep working.
-	hookInjectContextCmd.Flags().StringVar(&injectContextBackend, "backend", "", "Unused; retained for compatibility")
-	_ = hookInjectContextCmd.Flags().MarkHidden("backend")
 	hookInjectContextCmd.Flags().IntVar(&injectContextPart, "part", 0, "1-based chunk index when context is split across multiple ordered hooks")
 	hookInjectContextCmd.Flags().IntVar(&injectContextTotal, "of", 0, "total number of context chunks (omit or 0 for single-shot whole-content injection)")
 	hookCmd.AddCommand(hookInjectContextCmd)

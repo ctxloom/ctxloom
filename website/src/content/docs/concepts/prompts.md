@@ -2,7 +2,7 @@
 title: "Prompts"
 ---
 
-A **prompt** is a saved prompt template within a bundle. Prompts help standardize common AI interactions and are automatically exposed as **slash commands** in both Claude Code and Gemini CLI.
+A **prompt** is a saved prompt template within a bundle. Prompts help standardize common AI interactions and are automatically exposed as **slash commands** in both Claude Code and the Antigravity CLI.
 
 ## Prompt Structure
 
@@ -37,14 +37,14 @@ prompts:
 **Prompts are automatically exposed as slash commands.** When you define a prompt, it becomes available in your AI CLI:
 
 ```bash
-# Claude Code or Gemini CLI:
+# Claude Code or Antigravity CLI:
 /code-review
 /refactor
 ```
 
 ctxloom writes command files to the appropriate location:
 - **Claude Code**: `.claude/commands/ctxloom/*.md`
-- **Gemini CLI**: `.gemini/commands/ctxloom/*.toml`
+- **Antigravity CLI**: `.agents/skills/*.md`
 
 ### Command Configuration
 
@@ -65,8 +65,8 @@ prompts:
           - Read
           - Grep
         model: "sonnet"            # Override model
-      gemini:
-        enabled: true              # Also expose in Gemini CLI
+      antigravity:
+        enabled: true              # Also expose in Antigravity CLI
         description: "Review code"
 ```
 
@@ -93,7 +93,7 @@ prompts:
     llm:
       claude-code:
         enabled: false
-      gemini:
+      antigravity:
         enabled: false
 ```
 
@@ -102,7 +102,7 @@ prompts:
 ### As Slash Commands
 
 ```bash
-# In Claude Code or Gemini CLI, just use the slash command:
+# In Claude Code or Antigravity CLI, just use the slash command:
 /code-review
 /refactor
 
@@ -144,7 +144,7 @@ ctxloom prompt edit my-bundle#prompts/code-review
 | Purpose | Context/instructions | Specific actions/requests |
 | Usage | Combined with user input | Standalone commands or combined |
 | Typical content | Guidelines, patterns, standards | Review requests, generation tasks |
-| In Claude/Gemini | Injected as context | Exposed as slash commands |
+| In Claude/Antigravity | Injected as context | Exposed as slash commands |
 
 **Fragments** provide context that's always available. **Prompts** provide specific actions you invoke when needed.
 
@@ -154,7 +154,7 @@ ctxloom prompt edit my-bundle#prompts/code-review
 # Fragment provides context, prompt defines the action
 ctxloom run -f python-standards --saved-prompt code-review
 
-# In Claude Code or Gemini CLI:
+# In Claude Code or Antigravity CLI:
 # 1. Context from fragments is already injected
 # 2. Just invoke the command:
 /code-review

@@ -8,7 +8,7 @@
 # marks it as its backend type's default primary or fast pick, so selecting an
 # engine resolves its pair (primary + fast) by scanning for matching type+role.
 # `role` is registry-only metadata, stripped from any persisted user config.
-version: 3
+version: 4
 
 llm:
   configs:

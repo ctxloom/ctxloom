@@ -40,9 +40,14 @@ ctxloom adds a hook to `.claude/settings.json`:
 }
 ```
 
-### Gemini
+### Antigravity
 
-Similar configuration in `.gemini/settings.json`.
+For the Antigravity CLI (`agy`), hooks live in the workspace `.agents/hooks.json`, using the same Claude-style nested shape (`PreToolUse`/`PostToolUse`).
+
+Antigravity has **no SessionStart event**, so context injection works differently:
+
+- Assembled context is delivered via a ctxloom-managed section in `.agents/AGENTS.md`, which agy reads at the start of each session.
+- The session-bind hook fires on **PreToolUse** instead. Bundle hooks can declare `pre_tool_fallback: true` to run an idempotent `session_start` hook on PreToolUse for this backend.
 
 ## Manual Hook Management
 

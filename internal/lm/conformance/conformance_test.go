@@ -21,11 +21,19 @@ import (
 	"github.com/ctxloom/shared/wire"
 )
 
+// settingsWriter is the suite's view of an agent writer: the shared
+// agent.SettingsWriter contract plus the concrete writers' SettingsPath method
+// (no longer part of the interface; every concrete writer still exposes it).
+type settingsWriter interface {
+	agent.SettingsWriter
+	SettingsPath(projectDir string) string
+}
+
 // agentCase is one agent under test: its writer constructor plus a valid
 // settings file carrying a user-authored entry the writer must preserve.
 type agentCase struct {
 	name       string
-	newWriter  func(agent.SettingsOptions) agent.SettingsWriter
+	newWriter  func(agent.SettingsOptions) settingsWriter
 	userFile   string // a valid settings file (in the agent's format) with a user entry
 	userMarker string // substring of userFile that must survive write + remove
 }
@@ -33,10 +41,13 @@ type agentCase struct {
 // agentCases returns every supported agent. Add a new agent here and it inherits
 // the whole equity suite.
 func agentCases() []agentCase {
+	asSettingsWriter := func(newWriter func(agent.SettingsOptions) agent.SettingsWriter) func(agent.SettingsOptions) settingsWriter {
+		return func(o agent.SettingsOptions) settingsWriter { return newWriter(o).(settingsWriter) }
+	}
 	return []agentCase{
-		{"claude-code", claude.NewWriter, `{"theme":"dark"}`, "dark"},
-		{"antigravity", antigravity.NewWriter, `{"theme":"dark"}`, "dark"},
-		{"codex", codex.NewWriter, "model = \"o3\"\n", "o3"},
+		{"claude-code", asSettingsWriter(claude.NewWriter), `{"theme":"dark"}`, "dark"},
+		{"antigravity", asSettingsWriter(antigravity.NewWriter), `{"theme":"dark"}`, "dark"},
+		{"codex", asSettingsWriter(codex.NewWriter), "model = \"o3\"\n", "o3"},
 	}
 }
 

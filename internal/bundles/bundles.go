@@ -56,6 +56,10 @@ type BundleHook struct {
 	Prompt  string `yaml:"prompt,omitempty"`
 	Timeout int    `yaml:"timeout,omitempty"`
 	Async   bool   `yaml:"async,omitempty"`
+	// PreToolFallback (session_start only): the hook is idempotent and may
+	// fire on PreToolUse instead on agents without a session-start event.
+	// See wire.Hook.PreToolFallback.
+	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty"`
 }
 
 // BundleHooks mirrors wire.UnifiedHooks. Same lifecycle events; backend-

@@ -18,26 +18,6 @@ func TestNewMock(t *testing.T) {
 	assert.NotNil(t, mock.Env)
 }
 
-func TestMock_Lifecycle(t *testing.T) {
-	mock := NewMock()
-	assert.Nil(t, mock.Lifecycle())
-}
-
-func TestMock_Skills(t *testing.T) {
-	mock := NewMock()
-	assert.Nil(t, mock.Skills())
-}
-
-func TestMock_Context(t *testing.T) {
-	mock := NewMock()
-	assert.Nil(t, mock.Context())
-}
-
-func TestMock_MCP(t *testing.T) {
-	mock := NewMock()
-	assert.Nil(t, mock.MCP())
-}
-
 func TestMock_Setup(t *testing.T) {
 	mock := NewMock()
 

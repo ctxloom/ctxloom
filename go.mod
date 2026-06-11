@@ -6,10 +6,10 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/cbroglie/mustache v1.4.0
-	github.com/ctxloom/antigravity v0.0.0-20260610205750-319c78567fd2
-	github.com/ctxloom/claude v0.0.0-20260606132140-fb6dbce7594d
-	github.com/ctxloom/codex v0.0.0-20260608022300-9cc26897cfa4
-	github.com/ctxloom/shared v0.0.0-20260606132132-d587886b4479
+	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
+	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
+	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
+	github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1
 	github.com/cucumber/godog v0.14.1
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/go-viper/mapstructure/v2 v2.4.0
@@ -31,6 +31,8 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/ctxloom/taskloom v0.0.0-20260611004300-50d6c734a262
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -62,7 +64,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/oklog/run v1.1.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
@@ -81,6 +83,10 @@ require (
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
+	// genproto (monolith) pinned past the googleapis/rpc split: the go.work
+	// graph pulls the pre-split 2022 monolith via ltk's lint tooling, which
+	// makes grpc's googleapis/rpc/status import ambiguous without this pin.
+	// go mod tidy (module-scoped) wants to drop it — keep it.
 	google.golang.org/genproto v0.0.0-20260610202329-623566214e0c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

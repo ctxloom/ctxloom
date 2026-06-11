@@ -8,8 +8,8 @@ Get up and running with ctxloom in minutes.
 
 | Capability | Description |
 |------------|-------------|
-| **Context Assembly** | Combine fragments into profiles, inject into Claude/Gemini via MCP |
-| **Slash Commands** | Prompts become `/commands` in Claude Code and Gemini automatically |
+| **Context Assembly** | Combine fragments into profiles, inject into Claude/Antigravity via MCP |
+| **Slash Commands** | Prompts become `/commands` in Claude Code and Antigravity automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | AST-aware distillation compresses code/prose 70-90% |
@@ -101,7 +101,7 @@ ctxloom run -f go-development --dry-run --print
 
 ## Use Slash Commands
 
-Prompts in bundles become slash commands in Claude Code and Gemini CLI:
+Prompts in bundles become slash commands in Claude Code and Antigravity CLI:
 
 ```yaml
 # .ctxloom/bundles/my-tools.yaml

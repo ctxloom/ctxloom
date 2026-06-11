@@ -28,10 +28,6 @@ type concurrentWriteBackend struct {
 func (b *concurrentWriteBackend) Name() string                          { return "concurrent" }
 func (b *concurrentWriteBackend) Version() string                       { return "test" }
 func (b *concurrentWriteBackend) SupportedModes() []agent.ExecutionMode { return nil }
-func (b *concurrentWriteBackend) Skills() agent.SkillRegistry           { return nil }
-func (b *concurrentWriteBackend) MCP() agent.MCPManager                 { return nil }
-func (b *concurrentWriteBackend) Context() agent.ContextProvider        { return nil }
-func (b *concurrentWriteBackend) Lifecycle() agent.LifecycleHandler     { return nil }
 func (b *concurrentWriteBackend) History() agent.SessionHistory         { return nil }
 func (b *concurrentWriteBackend) Setup(context.Context, *agent.SetupRequest) error {
 	return nil

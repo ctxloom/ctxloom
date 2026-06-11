@@ -45,7 +45,7 @@ of `ctxloom map`, or text from another tool).
 ctxloom run -p developer "implement error handling"
 ctxloom run -f python-tools#fragments/typing "add type hints"
 ctxloom run -t security "check for vulnerabilities"
-ctxloom run -l gemini-code "use Gemini"
+ctxloom run -l antigravity "use Antigravity"
 ctxloom run --dry-run  # Preview only
 
 # Synthesize piped input with a high-power profile:
@@ -311,7 +311,7 @@ Manage MCP server configuration.
 |------|-------------|
 | `-c, --command` | Command to run (required) |
 | `-a, --args` | Command arguments (repeatable) |
-| `-b, --backend` | Backend scope: `unified`, `claude-code`, `gemini` |
+| `-b, --backend` | Backend scope: `unified`, `claude-code`, `antigravity` |
 
 ### Examples
 
@@ -341,7 +341,7 @@ Manage session memory.
 ctxloom memory compact                       # Compact current session
 ctxloom memory compact --session abc123      # Compact specific session
 ctxloom memory list                          # List all sessions
-ctxloom memory list --backend gemini         # List Gemini sessions
+ctxloom memory list --backend antigravity    # List Antigravity sessions
 ctxloom memory load abc123def                # Load specific session
 ctxloom memory query "authentication flow"  # Search session history
 ```

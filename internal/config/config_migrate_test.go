@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,7 +87,7 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
 
-	assert.Equal(t, 3, root["version"])
+	assert.Equal(t, 4, root["version"], "full pipeline lands on the current version")
 
 	llm := llmMap(t, root)
 	// default → defaults.primary
@@ -140,7 +141,7 @@ func TestConfigUpgrades_V2toV3_PreservesComments(t *testing.T) {
 	require.NotEmpty(t, applied)
 	assert.Contains(t, string(out), "# header", "top-level comment survives")
 	assert.Contains(t, string(out), "# keep me", "relocated use_distilled keeps its comment")
-	assert.Contains(t, string(out), "version: 3")
+	assert.Contains(t, string(out), "version: 4")
 }
 
 func TestConfigUpgrades_V2toV3_Idempotent(t *testing.T) {
@@ -152,12 +153,136 @@ func TestConfigUpgrades_V2toV3_Idempotent(t *testing.T) {
 	assert.Equal(t, string(once), string(twice))
 }
 
+// TestConfigUpgrades_V3toV4 covers the gemini→antigravity backend replacement:
+// typed entries flip their discriminator and shed the gemini-only knobs, and
+// the per-backend plugins blocks follow the rename.
+func TestConfigUpgrades_V3toV4_GeminiToAntigravity(t *testing.T) {
+	in := "version: 3\n" +
+		"llm:\n" +
+		"  configs:\n" +
+		"    gem:\n" +
+		"      type: gemini\n" +
+		"      model: gemini-2.5-flash\n" +
+		"      binary_path: /usr/local/bin/gemini\n" +
+		"      trust_workspace: true\n" +
+		"      approval_mode: yolo\n" +
+		"      args: [--sandbox]\n" +
+		"      env:\n" +
+		"        GEMINI_API_KEY: secret\n" +
+		"    claude-code: { type: claude-code }\n" +
+		"  defaults:\n" +
+		"    primary: gem\n" +
+		"hooks:\n" +
+		"  plugins:\n" +
+		"    gemini:\n" +
+		"      PreToolUse: []\n" +
+		"mcp:\n" +
+		"  plugins:\n" +
+		"    gemini:\n" +
+		"      srv:\n" +
+		"        command: x\n"
+
+	root, applied := runConfigUpgrades(in)
+	require.NotEmpty(t, applied)
+	assert.Equal(t, 4, root["version"])
+
+	llm := llmMap(t, root)
+	configs := llm["configs"].(map[string]any)
+	gem := configs["gem"].(map[string]any)
+	assert.Equal(t, "antigravity", gem["type"])
+	// gemini-only knobs have no antigravity equivalent (now schema-invalid).
+	assert.NotContains(t, gem, "trust_workspace")
+	assert.NotContains(t, gem, "approval_mode")
+	// binary_path pointed at the gemini binary; the default agy binary is correct.
+	assert.NotContains(t, gem, "binary_path")
+	// A stale-but-schema-valid model is the user's to update; args/env survive.
+	assert.Equal(t, "gemini-2.5-flash", gem["model"])
+	assert.Equal(t, []any{"--sandbox"}, gem["args"])
+	assert.Equal(t, map[string]any{"GEMINI_API_KEY": "secret"}, gem["env"])
+
+	// Sibling entries and labels (incl. role references) are untouched.
+	assert.Equal(t, "claude-code", configs["claude-code"].(map[string]any)["type"])
+	assert.Equal(t, "gem", llm["defaults"].(map[string]any)["primary"])
+
+	// hooks.plugins.gemini / mcp.plugins.gemini follow the backend rename.
+	hooks := root["hooks"].(map[string]any)["plugins"].(map[string]any)
+	assert.NotContains(t, hooks, "gemini")
+	require.Contains(t, hooks, "antigravity")
+	mcp := root["mcp"].(map[string]any)["plugins"].(map[string]any)
+	assert.NotContains(t, mcp, "gemini")
+	require.Contains(t, mcp, "antigravity")
+	srv := mcp["antigravity"].(map[string]any)["srv"].(map[string]any)
+	assert.Equal(t, "x", srv["command"])
+}
+
+// A legacy v2 config keyed by backend chains through v2→v3 (type stamped from
+// the key) into v3→v4 (gemini type flipped to antigravity, label preserved).
+func TestConfigUpgrades_V3toV4_ChainsFromV2BackendKey(t *testing.T) {
+	in := "version: 2\nllm:\n  default: gemini\n  configs:\n    gemini:\n      model: gemini-2.5-flash\n      approval_mode: auto\n"
+	root, applied := runConfigUpgrades(in)
+	require.NotEmpty(t, applied)
+	assert.Equal(t, 4, root["version"])
+
+	llm := llmMap(t, root)
+	// The label stays "gemini" — it is just a label; only the type changes.
+	gem := llm["configs"].(map[string]any)["gemini"].(map[string]any)
+	assert.Equal(t, "antigravity", gem["type"])
+	assert.NotContains(t, gem, "approval_mode")
+	assert.Equal(t, "gemini-2.5-flash", gem["model"])
+	assert.Equal(t, "gemini", llm["defaults"].(map[string]any)["primary"])
+}
+
+// When an antigravity plugins block already exists, the dead gemini block is
+// dropped rather than clobbering the user's antigravity hooks.
+func TestConfigUpgrades_V3toV4_DoesNotClobberExistingAntigravityPlugins(t *testing.T) {
+	in := "version: 3\nhooks:\n  plugins:\n    antigravity:\n      PreToolUse: [keep]\n    gemini:\n      PreToolUse: [old]\n"
+	root, applied := runConfigUpgrades(in)
+	require.NotEmpty(t, applied)
+
+	hooks := root["hooks"].(map[string]any)["plugins"].(map[string]any)
+	assert.NotContains(t, hooks, "gemini")
+	pre := hooks["antigravity"].(map[string]any)["PreToolUse"].([]any)
+	assert.Equal(t, []any{"keep"}, pre)
+}
+
+func TestConfigUpgrades_V3toV4_PreservesComments(t *testing.T) {
+	in := "# header\nversion: 3\nllm:\n  configs:\n    gem:\n      # my gemini entry\n      type: gemini\n      model: gemini-2.5-flash\n      trust_workspace: true\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied)
+	assert.Contains(t, string(out), "# header", "top-level comment survives")
+	assert.Contains(t, string(out), "# my gemini entry", "comment on the retyped entry survives")
+	assert.Contains(t, string(out), "type: antigravity")
+	assert.NotContains(t, string(out), "trust_workspace")
+	assert.Contains(t, string(out), "version: 4")
+}
+
+func TestConfigUpgrades_V3toV4_Idempotent(t *testing.T) {
+	in := "version: 3\nllm:\n  configs:\n    gem:\n      type: gemini\n      approval_mode: auto\n"
+	once, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied)
+	twice, again := configUpgrades.Run(once)
+	assert.Empty(t, again, "already-v4 config must pass through unchanged")
+	assert.Equal(t, string(once), string(twice))
+}
+
+// A v3 config without any gemini reference only gains the version stamp —
+// nothing else in the document changes.
+func TestConfigUpgrades_V3toV4_CleanConfigOnlyGainsVersionStamp(t *testing.T) {
+	// Block style throughout: re-encoding normalizes flow-map spacing, which
+	// would fail the byte-for-byte comparison without being a real change.
+	in := "version: 3\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n  defaults:\n    primary: claude-code\nhooks:\n  plugins:\n    claude-code:\n      PreToolUse: []\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	require.NotEmpty(t, applied, "stamping the version is itself a valid upgrade")
+	assert.Equal(t, strings.Replace(in, "version: 3", "version: 4", 1), string(out),
+		"a gemini-free config changes only its version stamp")
+}
+
 func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 	// Even an already-key-correct but unversioned config upgrades by gaining the
 	// current schema version stamp.
 	out, applied := configUpgrades.Run([]byte("llm:\n  configs:\n    claude-code: { type: claude-code }\n"))
 	require.NotEmpty(t, applied, "unversioned config must upgrade (stamp version)")
-	assert.Contains(t, string(out), "version: 3")
+	assert.Contains(t, string(out), "version: 4")
 
 	var root map[string]any
 	require.NoError(t, yaml.Unmarshal(out, &root))
@@ -166,7 +291,7 @@ func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 
 func TestConfigUpgrades_NoOpWhenCurrent(t *testing.T) {
 	// A config already at the current version is returned verbatim (no rewrite).
-	in := []byte("version: 3\nllm:\n  defaults:\n    primary: claude-code\n")
+	in := []byte("version: 4\nllm:\n  defaults:\n    primary: claude-code\n")
 	out, applied := configUpgrades.Run(in)
 	assert.Empty(t, applied)
 	assert.Equal(t, string(in), string(out), "current config must not be reserialized")

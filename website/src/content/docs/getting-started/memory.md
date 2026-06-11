@@ -126,17 +126,17 @@ Memory is stored in:
 
 ### Cross-Agent Workflows
 
-**Distilled memory** is portable across agents - it's stored as plain markdown. **Raw session history** is currently backend-specific (Claude and Gemini use different transcript formats).
+**Distilled memory** is portable across agents - it's stored as plain markdown. **Raw session history** is currently backend-specific (Claude and Antigravity use different transcript formats).
 
 ```bash
 # Morning: Write code with Claude
 ctxloom run --llm claude-code "implement the auth module"
 # When done, compact the session (or let it auto-compact on context limit)
 
-# Afternoon: Review with Gemini
-ctxloom run --llm gemini
+# Afternoon: Review with Antigravity
+ctxloom run --llm antigravity
 "Load the distilled session from this morning"
-# Gemini loads the markdown summary, continues the work
+# Antigravity loads the markdown summary, continues the work
 ```
 
 Use cases:
@@ -147,7 +147,7 @@ Use cases:
 The distilled markdown captures decisions, progress, and next steps - everything the next agent needs to continue the work.
 
 :::note
-Cross-backend session history (not just distilled summaries) is not yet implemented. If you need to browse Claude sessions from Gemini or vice versa, [open an issue](https://github.com/ctxloom/ctxloom/issues).
+Cross-backend session history (not just distilled summaries) is not yet implemented. If you need to browse Claude sessions from Antigravity or vice versa, [open an issue](https://github.com/ctxloom/ctxloom/issues).
 :::
 
 ## MCP Tools

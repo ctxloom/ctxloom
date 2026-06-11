@@ -271,3 +271,47 @@ func TestNormalizeCloneURL(t *testing.T) {
 		})
 	}
 }
+
+// TestRepoCache_ConcurrentEnsureSameDir pins the per-directory clone lock:
+// concurrent EnsureRepo/EnsureRef/UpdateRepo calls for the same repo URL —
+// including through INDEPENDENT RepoCache instances, as the bundle- and
+// profile-side prewarm goroutines do — must serialize inside the cache. The
+// unsynchronized RemoveAll+clone race corrupted the directory ("directory not
+// empty") whenever two goroutines raced a cold cache.
+func TestRepoCache_ConcurrentEnsureSameDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceRepo := createTestRepo(t, tmpDir)
+	cloneURL := "file://" + sourceRepo
+	cacheDir := filepath.Join(tmpDir, "cache")
+
+	const workers = 8
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		go func() {
+			// Independent instances per goroutine: caller discipline must not be
+			// required for safety.
+			cache := NewRepoCache(cacheDir, AuthConfig{})
+			var err error
+			switch i % 3 {
+			case 0:
+				_, err = cache.EnsureRepo(context.Background(), cloneURL, ForgeGitHub)
+			case 1:
+				_, err = cache.EnsureRef(context.Background(), cloneURL, ForgeGitHub, "")
+			default:
+				_, err = cache.UpdateRepo(context.Background(), cloneURL, ForgeGitHub)
+			}
+			errs <- err
+		}()
+	}
+	for i := 0; i < workers; i++ {
+		require.NoError(t, <-errs, "concurrent clone-cache access must serialize, not corrupt the directory")
+	}
+
+	// The resulting clone is usable.
+	cache := NewRepoCache(cacheDir, AuthConfig{})
+	repoDir, err := cache.EnsureRepo(context.Background(), cloneURL, ForgeGitHub)
+	require.NoError(t, err)
+	_, err = git.PlainOpen(repoDir)
+	require.NoError(t, err)
+}

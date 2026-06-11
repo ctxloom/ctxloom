@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -58,6 +59,16 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 	}
 	if conc > len(req.Profiles) {
 		conc = len(req.Profiles)
+	}
+
+	// Resolve inherited defaults ONCE on this goroutine before fanning out: a
+	// member with an empty profile makes AssembleContext call
+	// EnsureDefaultProfiles, which writes cfg's run-only default state — done
+	// concurrently from member goroutines that's a data race on the shared
+	// cfg. After this call, the goroutines' EnsureDefaultProfiles calls are
+	// read-only fast paths.
+	if slices.Contains(req.Profiles, "") {
+		EnsureDefaultProfiles(cfg)
 	}
 
 	sem := make(chan struct{}, conc)

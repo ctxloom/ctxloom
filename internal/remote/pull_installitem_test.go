@@ -123,3 +123,108 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.Contains(t, out.String(), "failed to update lockfile", "the failure is surfaced as a warning")
 	})
 }
+
+// TestInstallPulledItem_StageUntrustedNew pins the non-interactive security
+// gate: with StageUntrustedNew (set by sync, whose pulls are Blind and so skip
+// the interactive security review), a FIRST install from an untrusted remote
+// must land in the pending lockfile — never the active one — so its hooks/MCP/
+// context cannot activate until the user approves it. Trusted remotes and
+// already-locked items keep today's behavior.
+func TestInstallPulledItem_StageUntrustedNew(t *testing.T) {
+	const bundleKey = "https://github.com/alice/ctxloom@bundles/security"
+	newItem := func(rem *Remote) *fetchedItem {
+		return &fetchedItem{rem: rem, localName: bundleKey, sha: "sha-new", content: []byte("description: a bundle\n")}
+	}
+	stagedOpts := func(itemType ItemType, out *bytes.Buffer) PullOptions {
+		return PullOptions{ItemType: itemType, LocalDir: "/test", Blind: true, StageUntrustedNew: true, Stdout: out, Stdin: strings.NewReader("")}
+	}
+
+	t.Run("untrusted first install is staged in pending, not active", func(t *testing.T) {
+		fs, registry := installItemEnv(t)
+		active := NewLockfileManager("/test", WithLockfileFS(fs))
+		pending := NewLockfileManager("/test", WithLockfileFS(fs), WithPendingLockfile())
+		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
+
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}
+		var out bytes.Buffer
+		res, err := puller.installPulledItem(context.Background(), ref, stagedOpts(ItemTypeBundle, &out), newItem(installItemRemote))
+		require.NoError(t, err)
+		assert.True(t, res.Staged, "the result must report the staging redirect")
+
+		activeLock, _ := active.Load()
+		_, inActive := activeLock.GetEntry(ItemTypeBundle, bundleKey)
+		assert.False(t, inActive, "an unreviewed first install must NOT reach the active lockfile")
+
+		pendingLock, _ := pending.Load()
+		entry, inPending := pendingLock.GetEntry(ItemTypeBundle, bundleKey)
+		require.True(t, inPending, "the first install is staged for review")
+		assert.Equal(t, "sha-new", entry.SHA)
+	})
+
+	t.Run("trusted first install goes straight to active", func(t *testing.T) {
+		fs, registry := installItemEnv(t)
+		require.NoError(t, registry.SetTrustBundles("alice", true))
+		trusted, err := registry.Get("alice")
+		require.NoError(t, err)
+		require.True(t, trusted.TrustBundles)
+
+		active := NewLockfileManager("/test", WithLockfileFS(fs))
+		pending := NewLockfileManager("/test", WithLockfileFS(fs), WithPendingLockfile())
+		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
+
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}
+		var out bytes.Buffer
+		res, err := puller.installPulledItem(context.Background(), ref, stagedOpts(ItemTypeBundle, &out), newItem(trusted))
+		require.NoError(t, err)
+		assert.False(t, res.Staged)
+
+		activeLock, _ := active.Load()
+		entry, inActive := activeLock.GetEntry(ItemTypeBundle, bundleKey)
+		require.True(t, inActive, "trust means apply without review — same as before")
+		assert.Equal(t, "sha-new", entry.SHA)
+
+		pendingLock, _ := pending.Load()
+		assert.True(t, pendingLock.IsEmpty(), "nothing staged for a trusted remote")
+	})
+
+	t.Run("already-locked item updates active even when untrusted", func(t *testing.T) {
+		fs, registry := installItemEnv(t)
+		active := NewLockfileManager("/test", WithLockfileFS(fs))
+		seeded := &Lockfile{Version: 1, Bundles: map[string]LockEntry{}, Profiles: map[string]LockEntry{}}
+		seeded.AddEntry(ItemTypeBundle, bundleKey, LockEntry{SHA: "sha-old", URL: "https://github.com/alice/ctxloom"})
+		require.NoError(t, active.Save(seeded))
+		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
+
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeBundle, Path: "security"}
+		var out bytes.Buffer
+		res, err := puller.installPulledItem(context.Background(), ref, stagedOpts(ItemTypeBundle, &out), newItem(installItemRemote))
+		require.NoError(t, err)
+		assert.False(t, res.Staged, "an item the user already has locked is not a first install")
+
+		activeLock, _ := active.Load()
+		entry, _ := activeLock.GetEntry(ItemTypeBundle, bundleKey)
+		assert.Equal(t, "sha-new", entry.SHA, "sync still installs the pinned set for known items")
+	})
+
+	t.Run("untrusted first-install profile is staged too", func(t *testing.T) {
+		fs, registry := installItemEnv(t)
+		active := NewLockfileManager("/test", WithLockfileFS(fs))
+		pending := NewLockfileManager("/test", WithLockfileFS(fs), WithPendingLockfile())
+		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
+
+		const profileKey = "https://github.com/alice/ctxloom@profiles/dev"
+		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "dev"}
+		item := &fetchedItem{rem: installItemRemote, localName: profileKey, sha: "sha-prof", content: []byte("bundles: []\n")}
+		var out bytes.Buffer
+		res, err := puller.installPulledItem(context.Background(), ref, stagedOpts(ItemTypeProfile, &out), item)
+		require.NoError(t, err)
+		assert.True(t, res.Staged)
+
+		activeLock, _ := active.Load()
+		_, inActive := activeLock.GetEntry(ItemTypeProfile, profileKey)
+		assert.False(t, inActive)
+		pendingLock, _ := pending.Load()
+		_, inPending := pendingLock.GetEntry(ItemTypeProfile, profileKey)
+		assert.True(t, inPending)
+	})
+}

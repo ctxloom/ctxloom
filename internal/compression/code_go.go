@@ -61,7 +61,9 @@ func (c *CodeCompressor) extractGoFunc(node *sitter.Node, source []byte, out *st
 		if child == nil {
 			continue
 		}
-		if child.Type() == "identifier" && funcName == "" {
+		// function_declaration names are identifier nodes;
+		// method_declaration names are field_identifier nodes.
+		if (child.Type() == "identifier" || child.Type() == "field_identifier") && funcName == "" {
 			funcName = c.nodeText(child, source)
 		}
 		if child.Type() == "block" {

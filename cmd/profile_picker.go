@@ -46,7 +46,7 @@ func runProfilePicker(profilesList []operations.ProfileEntry, in io.Reader, out 
 	renderProfileMenu(profilesList, out)
 	scanner := bufio.NewScanner(in)
 	for {
-		fmt.Fprint(out, "select profile [1-", len(profilesList), ", n=none, q=quit]: ")
+		fmt.Fprint(out, "select profile [1-", len(profilesList), ", Enter/n=none, q=quit]: ")
 		if !scanner.Scan() {
 			// EOF / no input: degrade to "none" rather than hang or quit.
 			fmt.Fprintln(out)

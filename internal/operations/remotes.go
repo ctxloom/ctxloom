@@ -176,14 +176,21 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	valid, _ := fetcher.ValidateRepo(ctx, owner, repo)
 
 	// Trust on add (e.g. the user's own personal repos during init): bundle
-	// changes from a trusted remote auto-apply without review.
+	// changes from a trusted remote auto-apply without review. Roll the
+	// registration back on failure like every other failure path above, or a
+	// retry of the same add would fail on the duplicate name.
 	if req.Trust {
 		if err := registry.SetTrustBundles(req.Name, true); err != nil {
+			_ = registry.Remove(req.Name)
 			return nil, fmt.Errorf("trust remote %q: %w", req.Name, err)
 		}
 	}
 
-	rem, _ := registry.Get(req.Name)
+	rem, err := registry.Get(req.Name)
+	if err != nil || rem == nil {
+		_ = registry.Remove(req.Name)
+		return nil, fmt.Errorf("remote %q vanished after add: %w", req.Name, err)
+	}
 
 	result := &AddRemoteResult{
 		Status: "added",

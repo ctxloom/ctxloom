@@ -24,9 +24,17 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// GetConfig returns the project configuration.
+// GetConfig returns the project configuration. Warnings that config.Load
+// downgraded from hard errors (unreadable/malformed/schema-invalid files —
+// CLAUDE.md fault tolerance) are echoed to stderr here so every GetConfig-based
+// command surfaces them instead of silently operating on a partial config.
 func GetConfig() (*config.Config, error) {
-	return config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	printConfigWarnings(os.Stderr, cfg.Warnings)
+	return cfg, nil
 }
 
 var rootCmd = &cobra.Command{

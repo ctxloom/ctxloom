@@ -538,7 +538,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", ItemTypeBundle, rem, "abc123def456", "v1.0.0")
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "v1.0.0")
 
 		require.NoError(t, err)
 
@@ -568,10 +568,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", ItemTypeBundle, rem, "abc123", "v1.0.0")
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0")
 		require.NoError(t, err)
 
-		err = puller.updateLockfile("alice/testing", ItemTypeBundle, rem, "def456", "v2.0.0")
+		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0")
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -603,7 +603,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
-		require.NoError(t, puller.updateLockfile(ref, ItemTypeBundle, rem, "newhead", ""))
+		requireUpdateLockfile(t, puller, ref, "newhead", "", rem)
 
 		loaded, err := lm.Load()
 		require.NoError(t, err)
@@ -632,7 +632,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		puller := NewPuller(registry, AuthConfig{}, WithPullerFS(fs), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		require.NoError(t, puller.updateLockfile(ref, ItemTypeBundle, rem, "v2sha", "v2.0.0"))
+		requireUpdateLockfile(t, puller, ref, "v2sha", "v2.0.0", rem)
 
 		loaded, err := lm.Load()
 		require.NoError(t, err)
@@ -641,4 +641,12 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
 		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
 	})
+}
+
+// requireUpdateLockfile calls updateLockfile with a bundle PullOptions and
+// fails the test on error (helper for the pin-preservation cases above).
+func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
+	t.Helper()
+	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion)
+	require.NoError(t, err)
 }

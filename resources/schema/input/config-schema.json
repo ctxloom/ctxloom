@@ -165,10 +165,30 @@
           },
           "fragments": {
             "type": "array",
-            "description": "Explicit fragment paths to include",
+            "description": "Explicit fragment references to include: a plain path string, or an object with a name and optional priority (FragmentRef.UnmarshalYAML accepts both)",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Fragment path/name",
+                      "minLength": 1
+                    },
+                    "priority": {
+                      "type": "integer",
+                      "description": "Higher = more important; bookend-placed in context (default: 0)"
+                    }
+                  },
+                  "required": ["name"],
+                  "additionalProperties": false
+                }
+              ]
             }
           },
           "bundles": {
@@ -225,9 +245,8 @@
   "$defs": {
     "llmConfig": {
       "type": "object",
-      "description": "One labeled backend config. `type` is the discriminator; the remaining fields are that backend's own config.",
-      "required": ["type"],
-      "oneOf": [
+      "description": "One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code — see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.",
+      "anyOf": [
         {
           "title": "claude-code",
           "properties": {

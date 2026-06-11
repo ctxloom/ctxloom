@@ -219,38 +219,22 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...agent.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles
 	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
-	var allFragments []config.FragmentRef
-	profileVars := make(map[string]string)
 
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		// Use the shared resolver so directory profiles (.ctxloom/profiles/<name>.yaml)
-		// fall back correctly and Profile.Bundles entries get expanded into
-		// fragment refs. Without this, a profile that only lists bundles
-		// produces zero fragments and apply_hooks silently skips writing the
-		// SessionStart context-injection hook.
-		profile, err := resolveProfile(cfg, profileName, loader, nil)
-		if err != nil {
-			continue
-		}
+	// Resolve defaults the way AssembleContext does (resolveContextProfileNames):
+	// ApplyHooks reloads a fresh config, so without EnsureDefaultProfiles a
+	// project inheriting its defaults from the home config would regenerate an
+	// EMPTY context file here while assembly injects a full one.
+	EnsureDefaultProfiles(cfg)
 
-		// Variables merge later-wins, mirroring collectProfileFragments — the
-		// regenerated context must match AssembleContext's output, or the
-		// injected file ships literal {{var}} tags.
-		for k, v := range profile.Variables {
-			profileVars[k] = v
-		}
-
-		// Add fragments from tags (priority 0)
-		if len(profile.Tags) > 0 {
-			taggedInfos, _ := loader.ListByTags(profile.Tags)
-			for _, info := range taggedInfos {
-				allFragments = append(allFragments, config.FragmentRef{Name: info.Name, Priority: 0})
-			}
-		}
-
-		// Add explicit fragments with their priorities (bundle expansions
-		// were already appended by resolveProfile).
-		allFragments = append(allFragments, profile.Fragments...)
+	// Collect through the same path AssembleContext uses: collectProfileFragments
+	// emits tag-matched fragments under their canonical qualified names (so
+	// dedupeFragmentRefs actually collapses duplicates) and applies each
+	// profile's exclude_fragments to them. This function's output MUST match
+	// AssembleContext — any divergence ships a SessionStart-injected context
+	// that disagrees with what `ctxloom run` assembles.
+	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.GetDefaultProfiles(), nil, true)
+	if err != nil {
+		return "", err
 	}
 
 	// Dedupe and sort using bookend strategy

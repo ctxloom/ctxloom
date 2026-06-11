@@ -107,6 +107,11 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// a different ctxloom shadowing the running binary on PATH.
 	agent.WarnOnCtxloomPathSkew()
 
+	// Log which companion binaries (taskloom, ltk) this session is wired
+	// with, version-probed via `<bin> version --format json`. The wiring itself
+	// happens in applyStartupHooks below via the built-in bundles.
+	reportCompanions(os.Stderr)
+
 	purgeLegacyBundles(cfg)
 
 	if ctx.Err() != nil {
@@ -149,9 +154,7 @@ func loadStartupConfig() *config.Config {
 			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
 		}
 	}
-	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
-	}
+	printConfigWarnings(os.Stderr, cfg.Warnings)
 	return cfg
 }
 

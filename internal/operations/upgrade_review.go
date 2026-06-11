@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -52,14 +54,17 @@ func StageUpgrade(ctx context.Context, cfg *config.Config) (UpgradeResult, error
 	}
 
 	// Advance every referenced clone to live HEAD (and fetch tags) so resolution
-	// sees the newest commit each constraint permits.
-	refreshRepoCaches(ctx, newRepoCache(cfg), directRepoURLs(roots))
+	// sees the newest commit each constraint permits. The direct refs alone miss
+	// repos reached only through transitive parents, leaving their clones stale
+	// (or absent) when offline — union in every repo URL the active lock already
+	// records so the whole known closure refreshes.
+	refreshRepoCaches(ctx, newRepoCache(cfg), unionLockedRepoURLs(directRepoURLs(roots), active))
 
 	// Re-resolve the whole closure (upgrade mode): every unheld ref advances to
 	// the newest commit its constraint allows; held entries stay put. Conflicts
 	// abort before anything is written.
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
+	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
 	if len(conflicts) > 0 {
 		return res, ConflictError(conflicts)
 	}
@@ -93,6 +98,24 @@ func StageUpgrade(ctx context.Context, cfg *config.Config) (UpgradeResult, error
 			// Untrusted brand-new dependency: staged only, kept out of active until
 			// the user approves it.
 			res.Staged++
+		}
+	}
+
+	// An INCOMPLETE closure (a remote parent profile could not be expanded) must
+	// not erase healthy entries: carry forward every active entry the proposed
+	// closure no longer reaches, so the wholesale Save(newActive) below cannot
+	// lose lock state to a transient fetch failure. The unexpanded subtrees'
+	// entries simply don't advance this round.
+	if len(unexpanded) > 0 {
+		preserved := 0
+		for _, e := range active.AllEntries() {
+			if _, ok := newActive.GetEntry(e.Type, e.Ref); !ok {
+				newActive.AddEntry(e.Type, e.Ref, e.Entry)
+				preserved++
+			}
+		}
+		if preserved > 0 {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)\n", len(unexpanded), preserved)
 		}
 	}
 
@@ -170,6 +193,30 @@ func directRepoURLs(profs []*profiles.Profile) []string {
 	for _, p := range profs {
 		add(p.Bundles)
 		add(p.Parents)
+	}
+	return urls
+}
+
+// unionLockedRepoURLs appends every repo URL recorded in the lock's entries to
+// urls (dedup'd), covering repos reached only through transitive parent
+// profiles — directRepoURLs sees only the roots' direct refs.
+func unionLockedRepoURLs(urls []string, lock *remote.Lockfile) []string {
+	if lock == nil {
+		return urls
+	}
+	seen := map[string]struct{}{}
+	for _, u := range urls {
+		seen[u] = struct{}{}
+	}
+	for _, e := range lock.AllEntries() {
+		if e.Entry.URL == "" {
+			continue
+		}
+		if _, dup := seen[e.Entry.URL]; dup {
+			continue
+		}
+		seen[e.Entry.URL] = struct{}{}
+		urls = append(urls, e.Entry.URL)
 	}
 	return urls
 }

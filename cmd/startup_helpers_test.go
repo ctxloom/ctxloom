@@ -46,6 +46,34 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 		"warning must tell the user where the fallback is rooted")
 }
 
+// printConfigWarnings is how `ctxloom run`, `ctxloom mcp`, and GetConfig-based
+// commands surface the errors config.Load downgraded to warnings (CLAUDE.md
+// fault tolerance) — without it a corrupted config.yaml silently launches an
+// empty-context session.
+func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
+	var buf bytes.Buffer
+
+	printConfigWarnings(&buf, []string{
+		"config.yaml is malformed: yaml: line 3: mapping values are not allowed",
+		"profile \"dev\" failed schema validation",
+	})
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	assert.Len(t, lines, 2, "one line per warning")
+	for _, line := range lines {
+		assert.True(t, strings.HasPrefix(line, "ctxloom: warning: "),
+			"each warning must carry the project-standard prefix, got %q", line)
+	}
+	assert.Contains(t, buf.String(), "config.yaml is malformed")
+	assert.Contains(t, buf.String(), "failed schema validation")
+}
+
+func TestPrintConfigWarnings_NoWarningsIsSilent(t *testing.T) {
+	var buf bytes.Buffer
+	printConfigWarnings(&buf, nil)
+	assert.Empty(t, buf.String())
+}
+
 func TestWriteSyncSummary_NilResultIsNoop(t *testing.T) {
 	var buf bytes.Buffer
 	writeSyncSummary(&buf, nil)
@@ -147,4 +175,50 @@ func TestWriteSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 		"partial-success summary must still warn about the failures")
 	assert.Contains(t, out, "myorg/broken",
 		"partial-success summary must still name failed items")
+}
+
+func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
+	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreProbe := config.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+		return []byte(`{"name":"x","version":"v9.9.9"}`), nil
+	})
+	defer restoreProbe()
+	var buf bytes.Buffer
+
+	reportCompanions(&buf)
+
+	assert.Contains(t, buf.String(), "ctxloom: companion taskloom v9.9.9")
+	assert.Contains(t, buf.String(), "ctxloom: companion ltk v9.9.9")
+}
+
+func TestReportCompanions_MissingBinariesStaySilent(t *testing.T) {
+	restoreLook := config.SetLookPathForTesting(func(string) (string, error) {
+		return "", errors.New("not found")
+	})
+	defer restoreLook()
+	var buf bytes.Buffer
+
+	reportCompanions(&buf)
+
+	assert.Empty(t, buf.String(), "install hints belong to the bundle resolvers, not the boot report")
+}
+
+func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
+	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	restoreProbe := config.SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+		return nil, errors.New("exec format error")
+	})
+	defer restoreProbe()
+	var buf bytes.Buffer
+
+	reportCompanions(&buf)
+
+	assert.Contains(t, buf.String(), "ctxloom: warning: companion taskloom")
+	assert.Contains(t, buf.String(), "ctxloom: warning: companion ltk")
 }

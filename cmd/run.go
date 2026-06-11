@@ -21,6 +21,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/shared/agent"
@@ -132,14 +133,24 @@ func sessionSourceForBackend(name string) pb.SessionSource {
 	return pb.NewSessionReader(name, runVerbosity)
 }
 
+// rawTranscriptsTimeout bounds the pre-launch raw-transcript scan. The read
+// is best-effort picker input; a hung backend plugin must narrow the picker,
+// never stall the launch.
+const rawTranscriptsTimeout = 5 * time.Second
+
 // rawTranscripts lists the backend's raw transcripts via the agent server,
-// best-effort. The agent self-situates its workspace; no dir is passed.
+// best-effort and deadline-bounded. The agent self-situates its workspace; no
+// dir is passed. Any failure (including timeout) warns and returns nil so the
+// picker degrades to indexed sessions only.
 func rawTranscripts(source pb.SessionSource) []agent.SessionMeta {
 	if source == nil {
 		return nil
 	}
-	metas, err := source.ListSessions(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), rawTranscriptsTimeout)
+	defer cancel()
+	metas, err := source.ListSessions(ctx)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: listing raw backend transcripts failed (%v); the resume picker shows indexed sessions only\n", err)
 		return nil
 	}
 	return metas
@@ -218,41 +229,12 @@ func shellOutDistill(harpName string) error {
 	return c.Run()
 }
 
-// osExecutable and osStat are seams the tests override to drive the
-// resolveSelfExecutable decision tree without depending on the real
-// filesystem or the real binary path.
-var (
-	osExecutable = os.Executable
-	osStat       = os.Stat
-)
-
 // resolveSelfExecutable returns the path to use when re-invoking ctxloom
-// from inside a running ctxloom process. Prefers the OS-reported absolute
-// path (one syscall: `readlink /proc/self/exe` on Linux, `_NSGetExecutablePath`
-// on macOS, `GetModuleFileNameW` on Windows), and falls back to bare
-// `"ctxloom"` (a PATH lookup) in two cases:
-//
-//  1. The OS call itself errored (rare; AIX, some sandboxed environments).
-//  2. The returned path no longer points at a live binary. On Linux,
-//     `os.Executable()` returns a literal `"<path> (deleted)"` string after
-//     the binary is replaced via unlink+recreate (the typical `go install`
-//     upgrade pattern). exec'ing that path fails at .Run() time, which is
-//     recoverable but ugly. We strip the suffix, stat the result, and only
-//     use it if the file still exists.
+// from inside a running ctxloom process, surviving in-place upgrades that
+// unlink the executing inode. The logic lives in internal/selfexec so the
+// gRPC client (which cmd cannot be imported by) shares it.
 func resolveSelfExecutable() string {
-	const fallback = "ctxloom"
-	exe, err := osExecutable()
-	if err != nil {
-		return fallback
-	}
-	// Linux: "/path/ctxloom (deleted)" after the running inode is unlinked.
-	if trimmed, ok := strings.CutSuffix(exe, " (deleted)"); ok {
-		exe = trimmed
-	}
-	if _, err := osStat(exe); err != nil {
-		return fallback
-	}
-	return exe
+	return selfexec.Path()
 }
 
 // seedTaskIntoSession marks the task with harpID In Progress (or the given
@@ -330,6 +312,10 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
+		// config.Load downgrades unreadable/malformed/schema-invalid files to
+		// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
+		// config.yaml never silently launches an empty-context session.
+		printConfigWarnings(os.Stderr, cfg.Warnings)
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.PendingUpgrade, cfg.CommitUpgrade)
@@ -395,11 +381,20 @@ Examples:
 			fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(pending.All()))
 		}
 
+		// Log which companion binaries (taskloom, ltk) this session is wired
+		// with, version-probed via `<bin> version --format json`. Skipped under
+		// --dry-run, which previews assembly without executing anything.
+		if !runDryRun {
+			reportCompanions(os.Stderr)
+		}
+
 		// When nothing selects context (no -p, -f, or -t) and no default profile
 		// is configured, offer an interactive profile picker on a TTY. Off a TTY
 		// or with no installed profiles this is a no-op and assembly degrades to
-		// the empty context as before (CLAUDE.md fault tolerance).
-		if runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
+		// the empty context as before (CLAUDE.md fault tolerance). Skipped under
+		// --dry-run, which is documented non-interactive: it previews assembly
+		// with the empty profile instead of blocking on a prompt.
+		if !runDryRun && runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
 			choice := resolveProfileSelection(cfg)
 			if choice.Quit {
 				fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
@@ -563,9 +558,14 @@ Examples:
 			// OSC2 escape sequence. Most terminals (xterm, iTerm2,
 			// alacritty, WezTerm, kitty, Windows Terminal) render it;
 			// the rest silently ignore the sequence. Skipped for
-			// non-TTY (CI, piped) so we don't pollute pipelines.
-			if isInteractiveTerminal() {
-				fmt.Fprintf(os.Stderr, "\033]2;ctxloom · %s\007", entry.HarpName)
+			// non-TTY (CI, piped) so we don't pollute pipelines — the
+			// stderr check matters too, or `2>log` captures would
+			// collect raw escape bytes. The XTWINOPS push (22;0t) /
+			// pop (23;0t) pair restores the previous title on exit
+			// where supported; elsewhere it is silently ignored.
+			if isInteractiveTerminal() && stderrIsTerminal() {
+				fmt.Fprintf(os.Stderr, "\033[22;0t\033]2;ctxloom · %s\007", entry.HarpName)
+				defer fmt.Fprint(os.Stderr, "\033[23;0t")
 			}
 		}
 		// Resolve the project's stable identity (ADR 0025) and export it into the
@@ -753,6 +753,10 @@ func init() {
 	runCmd.Flags().StringVar(&runResumeTasksFrom, "tasks-from", "", "Start a fresh session but hydrate tasks from the named harp session. Skips the picker.")
 	runCmd.Flags().BoolVar(&runResumeNewSession, "new-session", false, "Start a fresh session without resume. Skips the picker.")
 	runCmd.Flags().BoolVar(&runResumeNoTasks, "no-tasks", false, "When combined with --session, skip task restoration (essence only).")
+	// Contradictory resume intents are rejected up front rather than silently
+	// resolved by flag precedence.
+	runCmd.MarkFlagsMutuallyExclusive("session", "new-session")
+	runCmd.MarkFlagsMutuallyExclusive("tasks-from", "no-tasks")
 
 	// Internal: used by `ctxloom tasks run` to seed one browsed task into the
 	// new session's store. Hidden — not part of the public run surface.

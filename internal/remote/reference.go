@@ -168,13 +168,10 @@ func parseLocalReference(ref string) (*Reference, error) {
 func parseHTTPSReference(ref string) (*Reference, error) {
 	// Split at @ to separate the repo URL from the item path
 	// Format: https://github.com/owner/repo@type/path[@contentVersion]
-	atIdx := strings.Index(ref, "@")
-	if atIdx == -1 {
+	repoURL, remainder, found := strings.Cut(ref, "@") // remainder: type/path[@contentVersion]
+	if !found {
 		return nil, fmt.Errorf("URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
-
-	repoURL := ref[:atIdx]
-	remainder := ref[atIdx+1:] // type/path[@contentVersion]
 
 	// Parse the remainder: type/path[@contentVersion]
 	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
@@ -203,22 +200,16 @@ func parseSSHReference(ref string) (*Reference, error) {
 	afterGit := ref[4:]
 
 	// Find colon that separates host from path
-	colonIdx := strings.Index(afterGit, ":")
-	if colonIdx == -1 {
+	hostPart, pathPart, found := strings.Cut(afterGit, ":")
+	if !found {
 		return nil, fmt.Errorf("invalid SSH URL format: %s", ref)
 	}
 
-	hostPart := afterGit[:colonIdx]
-	pathPart := afterGit[colonIdx+1:]
-
 	// Find @ that separates repo from item path
-	atIdx := strings.Index(pathPart, "@")
-	if atIdx == -1 {
+	repoPath, remainder, found := strings.Cut(pathPart, "@") // remainder: type/path[@contentVersion]
+	if !found {
 		return nil, fmt.Errorf("SSH URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
-
-	repoPath := pathPart[:atIdx]
-	remainder := pathPart[atIdx+1:] // type/path[@contentVersion]
 
 	// Reconstruct SSH URL without type/path
 	repoURL := fmt.Sprintf("git@%s:%s", hostPart, repoPath)
@@ -253,13 +244,10 @@ func parseFileReference(ref string) (*Reference, error) {
 	fullPath := u.Path
 
 	// Find @ that separates repo path from item path
-	atIdx := strings.Index(fullPath, "@")
-	if atIdx == -1 {
+	repoPath, remainder, found := strings.Cut(fullPath, "@") // remainder: type/path[@contentVersion]
+	if !found {
 		return nil, fmt.Errorf("file URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
-
-	repoPath := fullPath[:atIdx]
-	remainder := fullPath[atIdx+1:] // type/path[@contentVersion]
 
 	// Reconstruct file URL without type/path
 	repoURL := "file://" + repoPath
@@ -319,6 +307,12 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	if itemPath == "" {
 		return "", "", "", fmt.Errorf("empty path")
 	}
+	// SECURITY: the item path is later joined under a repo root (BuildFilePath)
+	// and, for filesystem-backed sources, under a directory root (fsVCS) —
+	// reject traversal at parse time so no read path has to re-check.
+	if err := validateItemPath(itemPath); err != nil {
+		return "", "", "", err
+	}
 
 	// Parse item type (only bundles and profiles supported)
 	switch typeStr {
@@ -331,6 +325,23 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	}
 
 	return itemType, itemPath, contentVersion, nil
+}
+
+// validateItemPath rejects item paths that could escape their root when joined:
+// absolute paths and "."/".." segments (checked across both slash flavors, since
+// the path is eventually handed to filepath.Join on the host OS). Git tree
+// lookups happen to contain these today, but the filesystem-backed VCS does
+// not — so the grammar itself forbids them.
+func validateItemPath(p string) error {
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") {
+		return fmt.Errorf("invalid item path %q: absolute paths are not allowed", p)
+	}
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == "." || seg == ".." {
+			return fmt.Errorf("invalid item path %q: %q path segments are not allowed", p, seg)
+		}
+	}
+	return nil
 }
 
 // stripLegacySchemaSegment removes a leading schema-version segment from a

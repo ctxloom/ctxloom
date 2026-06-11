@@ -59,7 +59,7 @@ Examples:
 
 		// Print errors
 		for _, errMsg := range result.Errors {
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", errMsg)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", errMsg)
 		}
 
 		if result.Count == 0 {
@@ -129,7 +129,7 @@ func interactiveAdd(cmd *cobra.Command, repos []operations.RepoEntry) error {
 // returned num of 0 (with quit false) means an invalid entry the caller should
 // re-prompt, otherwise num is a 1-based index into the repo list.
 func readRepoChoice(reader *bufio.Reader, count int) (num int, quit bool) {
-	fmt.Print("Add remote? Enter number (or 'q' to quit): ")
+	fmt.Print("Add remote? Enter number ('q' or Enter to quit): ")
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return 0, true // EOF is ok
@@ -170,7 +170,7 @@ func addDiscoveredRemote(cmd *cobra.Command, cfg *config.Config, name, url strin
 		return
 	}
 	if result.Warning != "" {
-		fmt.Printf("Warning: %s\n", result.Warning)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", result.Warning)
 	}
 	fmt.Printf("Added remote '%s' → %s\n\n", result.Name, result.URL)
 }

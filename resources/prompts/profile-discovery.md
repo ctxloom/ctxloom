@@ -48,4 +48,8 @@ Defaults are a list; a default may be a local name or a remote ref, and
 `ctxloom profile default --unset <name>` clears one. Confirm the final default
 profile(s) with the user before exiting.
 
+**When setup is complete**, tell the user to exit this session. The profiles,
+hooks, and MCP servers just installed are NOT active in this discovery session;
+on exit, ctxloom offers to relaunch into a fresh session that picks them all up.
+
 If you'd prefer to skip this setup, just say "skip" and configure manually later.

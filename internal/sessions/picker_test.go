@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -183,25 +184,36 @@ func TestPicker_MKeystrokeExpandsHorizon(t *testing.T) {
 }
 
 func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
-	entries := makeEntries(1, time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC))
+	// Hermetic index: the picker's post-distill reload must hit the injected
+	// index, never the real user-global ~/.ctxloom one.
+	indexPath := filepath.Join(t.TempDir(), "index.yaml")
+	mgr, err := Open(indexPath)
+	require.NoError(t, err)
+	seeded, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
 	var out bytes.Buffer
 	called := false
 	gotHarp := ""
 	p := &Picker{
-		Entries: entries,
-		In:      strings.NewReader("d1\n1\n"),
-		Out:     &out,
-		Now:     fixedNow(time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)),
+		Entries:   []Entry{seeded},
+		In:        strings.NewReader("d1\n1\n"),
+		Out:       &out,
+		Now:       time.Now,
+		OpenIndex: func() (*Manager, error) { return Open(indexPath) },
 		Distill: func(harp string) error {
 			called = true
 			gotHarp = harp
-			return nil
+			return mgr.SetSummary(harp, "freshly distilled summary")
 		},
 	}
-	_, err := p.Run()
+	dec, err := p.Run()
 	require.NoError(t, err)
 	assert.True(t, called, "d1 must invoke the picker's Distill callback")
-	assert.Equal(t, "row-a", gotHarp)
+	assert.Equal(t, seeded.HarpName, gotHarp)
+	assert.Equal(t, ResumeAction, dec.Action)
+	assert.Contains(t, out.String(), "freshly distilled summary",
+		"post-distill reload must surface the updated summary from the injected index")
 }
 
 func TestPicker_DistillKeystroke_WithoutCallback(t *testing.T) {

@@ -96,13 +96,13 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		return res, nil
 	}
 
-	distillFragments(ctx, bundle, fragTargets, req.Distiller)
-	distillPrompts(ctx, bundle, promptTargets, req.Distiller)
+	failedFrags := distillFragments(ctx, bundle, fragTargets, req.Distiller)
+	failedPrompts := distillPrompts(ctx, bundle, promptTargets, req.Distiller)
 	for _, n := range fragTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy))
+		res.Items = append(res.Items, distillOutcome(ItemKindFragment, n, bundle.Fragments[n].DistilledBy, failedFrags.Has(n)))
 	}
 	for _, n := range promptTargets {
-		res.Items = append(res.Items, distillOutcome(ItemKindPrompt, n, bundle.Prompts[n].DistilledBy))
+		res.Items = append(res.Items, distillOutcome(ItemKindPrompt, n, bundle.Prompts[n].DistilledBy, failedPrompts.Has(n)))
 	}
 
 	if len(fragTargets)+len(promptTargets) > 0 {
@@ -130,13 +130,15 @@ func planBundleItemDistill(kind ItemKind, name string, noDistill, needsDistill, 
 	return DistillBundleItem{}, false
 }
 
-// distillOutcome classifies one already-attempted item by whether the distiller
-// stamped a model on it. distillFragments/distillPrompts warn-and-skip on a
-// per-item error, leaving DistilledBy empty and the content raw — so an empty
-// DistilledBy is a FAILURE that must be reported skipped, not a success. Reporting
-// it as distilled (with an empty model id) was a silent lie in the summary.
-func distillOutcome(kind ItemKind, name, distilledBy string) DistillBundleItem {
-	if distilledBy == "" {
+// distillOutcome classifies one already-attempted item. distillFragments/
+// distillPrompts warn-and-skip on a per-item error and report it via their
+// failed set: post-state alone is not enough, because a failed RE-distill
+// leaves the previous Distilled/DistilledBy intact — reporting that stale
+// model id as a fresh success was a silent lie in the summary. A first-time
+// failure also leaves DistilledBy empty, which the empty-check still catches
+// for callers without a failed set.
+func distillOutcome(kind ItemKind, name, distilledBy string, failed bool) DistillBundleItem {
+	if failed || distilledBy == "" {
 		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "distill_failed"}
 	}
 	return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusDistilled, ModelID: distilledBy}

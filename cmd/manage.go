@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
@@ -119,7 +120,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 	for _, e := range result.Errors {
-		fmt.Printf("  warning: %s\n", e)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
 	}
 	return nil
 }
@@ -156,7 +157,7 @@ func runManageUninstall(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Removed ctxloom harness from: %v\n", result.Backends)
 	for _, e := range result.Errors {
-		fmt.Printf("  warning: %s\n", e)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
 	}
 	fmt.Println("The .ctxloom directory and its contents were left in place.")
 	return nil
@@ -191,29 +192,46 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 	printCompanionStatus()
 }
 
-// companions are the standalone binaries the builtin bundles wire in when
-// present on PATH. Absence degrades the feature; status names the gap and how
-// to fill it.
-var companions = []struct {
-	bin     string
+// companionHint describes what a missing companion binary disables and how to
+// install it.
+type companionHint struct {
 	feature string
 	install string
-}{
-	{"taskloom", "task tools (task_list/task_add/...)", "brew install ctxloom/tap/taskloom"},
-	{"ltk", "command-redirect pre-tool hook", "brew install ctxloom/tap/ltk"},
+}
+
+// companionHints carries the per-companion status text. The companion list
+// itself is derived from the embedded built-in bundles (see
+// config.BuiltinCompanionBins) so a future builtin's companion shows up here
+// automatically; an entry missing from this map gets the generic fallback.
+var companionHints = map[string]companionHint{
+	"taskloom": {"task tools (task_list/task_add/...)", "brew install ctxloom/tap/taskloom"},
+	"ltk":      {"command-redirect pre-tool hook", "brew install ctxloom/tap/ltk"},
+}
+
+// hintForCompanion returns the install-hint text for bin, falling back to a
+// generic description for companions without a curated entry.
+func hintForCompanion(bin string) companionHint {
+	if h, ok := companionHints[bin]; ok {
+		return h
+	}
+	return companionHint{
+		feature: "its built-in bundle wiring",
+		install: "brew install ctxloom/tap/" + bin,
+	}
 }
 
 // printCompanionStatus reports each companion binary's presence; builtin
 // bundle entries for missing ones are skipped at resolve time.
 func printCompanionStatus() {
 	fmt.Println("Companions:")
-	for _, c := range companions {
-		path, err := exec.LookPath(c.bin)
+	for _, bin := range config.BuiltinCompanionBins() {
+		hint := hintForCompanion(bin)
+		path, err := exec.LookPath(bin)
 		if err != nil {
-			fmt.Printf("  %s: NOT FOUND — %s disabled (install: %s)\n", c.bin, c.feature, c.install)
+			fmt.Printf("  %s: NOT FOUND — %s disabled (install: %s)\n", bin, hint.feature, hint.install)
 			continue
 		}
-		fmt.Printf("  %s: %s\n", c.bin, path)
+		fmt.Printf("  %s: %s\n", bin, path)
 	}
 }
 
@@ -244,7 +262,7 @@ var manageHooksInstallCmd = &cobra.Command{
 		}
 		fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 		for _, e := range result.Errors {
-			fmt.Printf("  warning: %s\n", e)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
 		}
 		return nil
 	},
@@ -265,7 +283,7 @@ var manageHooksUninstallCmd = &cobra.Command{
 		}
 		fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 		for _, e := range result.Errors {
-			fmt.Printf("  warning: %s\n", e)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
 		}
 		return nil
 	},

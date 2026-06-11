@@ -239,3 +239,88 @@ func TestGitCloneFetcher_SearchRepos(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not supported")
 }
+
+// TestGitCloneFetcher_ResolveTag_TagWinsOverSameNamedBranch pins the semver
+// pinning security fix: when upstream carries BOTH a tag and a branch named
+// "v1.0.0", the generic ResolveRef resolves the branch (origin/<ref> is tried
+// first), so a lock built from it would silently track the branch tip.
+// ResolveTag must resolve through refs/tags only, and ResolveConstraint (which
+// KNOWS it selected a tag) must pin the tag's commit.
+func TestGitCloneFetcher_ResolveTag_TagWinsOverSameNamedBranch(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Origin: c1 carries the tags; a branch named exactly like each tag points
+	// at the later c2.
+	originDir := filepath.Join(tmpDir, "origin")
+	origin, err := git.PlainInit(originDir, false)
+	require.NoError(t, err)
+	originWT, err := origin.Worktree()
+	require.NoError(t, err)
+	commit := func(content string) plumbing.Hash {
+		require.NoError(t, os.WriteFile(filepath.Join(originDir, "file.txt"), []byte(content), 0o644))
+		_, aerr := originWT.Add("file.txt")
+		require.NoError(t, aerr)
+		h, cerr := originWT.Commit(content, &git.CommitOptions{
+			Author: &object.Signature{Name: "t", Email: "t@t.com", When: time.Now()},
+		})
+		require.NoError(t, cerr)
+		return h
+	}
+	c1 := commit("first")
+	_, err = origin.CreateTag("v1.0.0", c1, nil) // lightweight
+	require.NoError(t, err)
+	_, err = origin.CreateTag("v2.0.0", c1, &git.CreateTagOptions{ // annotated
+		Message: "v2.0.0",
+		Tagger:  &object.Signature{Name: "t", Email: "t@t.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	c2 := commit("second")
+	require.NotEqual(t, c1, c2)
+	for _, name := range []string{"v1.0.0", "v2.0.0"} {
+		require.NoError(t, origin.Storer.SetReference(
+			plumbing.NewHashReference(plumbing.NewBranchReferenceName(name), c2)))
+	}
+
+	// Clone: refs/remotes/origin/v1.0.0 (branch, c2) and refs/tags/v1.0.0 (c1)
+	// now collide on the bare name.
+	cloneDir := filepath.Join(tmpDir, "clone")
+	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{URL: "file://" + originDir})
+	require.NoError(t, err)
+
+	fetcher, err := NewGitCloneFetcher(cloneDir, "file://"+originDir, ForgeGitHub, nil)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Prove the fixture creates a real collision: the generic resolution picks
+	// the BRANCH tip (this is the documented ambiguous-ref order, unchanged).
+	got, err := fetcher.ResolveRef(ctx, "owner", "repo", "v1.0.0")
+	require.NoError(t, err)
+	require.Equal(t, c2.String(), got, "fixture sanity: generic ResolveRef must see the colliding branch")
+
+	t.Run("ResolveTag resolves the lightweight tag's commit", func(t *testing.T) {
+		sha, terr := fetcher.ResolveTag(ctx, "owner", "repo", "v1.0.0")
+		require.NoError(t, terr)
+		assert.Equal(t, c1.String(), sha)
+	})
+
+	t.Run("ResolveTag dereferences the annotated tag's commit", func(t *testing.T) {
+		sha, terr := fetcher.ResolveTag(ctx, "owner", "repo", "v2.0.0")
+		require.NoError(t, terr)
+		assert.Equal(t, c1.String(), sha)
+	})
+
+	t.Run("ResolveTag misses a non-tag", func(t *testing.T) {
+		_, terr := fetcher.ResolveTag(ctx, "owner", "repo", "master")
+		require.Error(t, terr)
+	})
+
+	t.Run("semver constraint resolution pins the tag, not the branch", func(t *testing.T) {
+		for _, expr := range []string{"v1.0.0", "v2.0.0"} {
+			res, rerr := ResolveConstraint(ctx, expr, NewFetcherRepoVersions(fetcher, "owner", "repo"))
+			require.NoError(t, rerr)
+			assert.Equal(t, c1.String(), res.SHA, "constraint %q must pin the tag's commit, not the same-named branch tip", expr)
+			assert.Equal(t, expr, res.Version)
+		}
+	})
+}

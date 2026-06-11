@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/iox"
 )
 
 const (
@@ -140,8 +141,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// Plans are the session's own .plan.md documents, read from its ctxloom
 	// session directory and served by the agent server — not mined from the
 	// transcript. They bypass the LLM compression pass and are re-attached
-	// verbatim. Best-effort: a retrieval failure just omits them.
-	planFiles, _ := c.plans(ctx, harpName)
+	// verbatim. Best-effort: a retrieval failure warns and omits them.
+	planFiles, err := c.plans(ctx, harpName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: plan retrieval failed, omitting plan blocks: %v\n", err)
+	}
 	plans := planFilesToBlocks(planFiles)
 
 	// Convert entries to text for chunking. Plans live in separate files now, so
@@ -153,7 +157,20 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	chunks := c.chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
-	combined := strings.Join(c.distillChunks(ctx, chunks), "\n\n---\n\n")
+	distilled, failedChunks := c.distillChunks(ctx, chunks)
+	// A totally failed distillation (e.g. LLM backend down) would replace a
+	// previously good essence with nothing but failure markers — that's data
+	// loss, not graceful degradation. Abort the save and keep the old essence.
+	// Partial success still saves, per the fault-tolerance philosophy.
+	if len(chunks) > 0 && failedChunks == len(chunks) {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: distillation failed for all %d chunks; keeping previous essence\n", len(chunks))
+		return nil, fmt.Errorf("distillation failed for all %d chunks", len(chunks))
+	}
+	if failedChunks > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: distillation failed for %d of %d chunks; summary is incomplete\n", failedChunks, len(chunks))
+	}
+
+	combined := strings.Join(distilled, "\n\n---\n\n")
 	result.TotalTokensOut = estimateTokens(combined)
 
 	if result.TotalTokensOut > c.config.ChunkSize && len(chunks) > 1 {
@@ -227,22 +244,25 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	return session, nil
 }
 
-// distillChunks distills each chunk in order. Per CLAUDE.md fault tolerance, a
-// failed chunk is warned and replaced with an HTML-comment marker rather than
-// aborting the whole compaction.
-func (c *Compactor) distillChunks(ctx context.Context, chunks []string) []string {
+// distillChunks distills each chunk in order, returning the outputs plus how
+// many chunks failed. Per CLAUDE.md fault tolerance, a failed chunk is warned
+// and replaced with an HTML-comment marker rather than aborting the whole
+// compaction; the caller decides whether a total failure aborts the save.
+func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]string, int) {
 	distilled := make([]string, 0, len(chunks))
+	failed := 0
 	for i, chunk := range chunks {
 		fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, len(chunks))
 		out, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
 			distilled = append(distilled, fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err))
+			failed++
 			continue
 		}
 		distilled = append(distilled, out)
 	}
-	return distilled
+	return distilled, failed
 }
 
 // finalCompressionPass re-distills the combined output once more (chunkNum/total
@@ -390,6 +410,14 @@ func (c *Compactor) chunkText(text string, targetTokens int) []string {
 			}
 		}
 
+		// Never cut mid-rune: back the boundary off to the nearest UTF-8 rune
+		// start (the textutil.TruncateBytes technique). A mid-rune split makes
+		// the chunk invalid UTF-8, which fails proto3 string marshaling and
+		// silently turns the chunk into a failure marker — content loss.
+		if end := len(textutil.TruncateBytes(remaining, chunkEnd)); end > 0 {
+			chunkEnd = end
+		}
+
 		chunk := remaining[:chunkEnd]
 		chunks = append(chunks, strings.TrimSpace(chunk))
 
@@ -400,8 +428,15 @@ func (c *Compactor) chunkText(text string, targetTokens int) []string {
 			break
 		}
 
-		// Move forward, keeping some overlap for context
+		// Move forward, keeping some overlap for context. The advance point
+		// must also land on a rune boundary, or the next chunk would start
+		// with the trailing bytes of a split rune.
 		advance := chunkEnd - overlapChars
+		if advance > 0 {
+			if a := len(textutil.TruncateBytes(remaining, advance)); a > 0 {
+				advance = a
+			}
+		}
 		if advance <= 0 {
 			advance = chunkEnd
 		}
@@ -583,33 +618,52 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 
 	// Phase 3.6 harp-dir layout: when a harp name is known, that's the
 	// primary write target; the legacy path is also written so existing
-	// sessionID-keyed lookups continue working.
+	// sessionID-keyed lookups continue working. Every fallthrough to
+	// legacy-only warns: the essence.md the picker and SessionStart hook
+	// read was NOT written, and silence would hide that.
 	if meta.HarpName != "" {
-		harpDir, err := harpSessionDir(meta.HarpName)
-		if err == nil {
-			if err := os.MkdirAll(harpDir, 0o755); err == nil {
-				essencePath := filepath.Join(harpDir, paths.EssenceFileName)
-				if err := os.WriteFile(essencePath, docBytes, 0o644); err == nil {
-					// NB: the active task store already lives at
-					// <harpDir>/tasks.md (see tasks.OpenSession migration), so
-					// we deliberately do NOT copy the legacy project
-					// .ctxloom/tasks.md here — that read is a no-op once the
-					// project file has migrated away, and would clobber the
-					// live store if a stray project file lingered.
-					//
-					// Mirror essence to legacy path so sessionID lookups still work.
-					_ = os.WriteFile(legacyPath, docBytes, 0o644)
-					return essencePath, nil
-				}
-			}
+		if essencePath, ok := c.saveEssence(meta.HarpName, legacyPath, docBytes); ok {
+			return essencePath, nil
 		}
-		// Fall through to legacy-only on any error above (graceful degrade).
 	}
 
-	if err := os.WriteFile(legacyPath, docBytes, 0o644); err != nil {
+	// All writes are atomic (temp file + rename): a crash mid-write must not
+	// truncate the essence that recovery and the resume picker depend on.
+	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
 		return "", err
 	}
 	return legacyPath, nil
+}
+
+// saveEssence writes the harp-dir essence.md plus its legacy mirror. Returns
+// ok=false (after warning) when the harp-dir write failed and the caller
+// should degrade to the legacy-only layout.
+func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (string, bool) {
+	harpDir, err := harpSessionDir(harpName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: resolve harp dir for %s: %v; writing legacy layout only\n", harpName, err)
+		return "", false
+	}
+	if err := os.MkdirAll(harpDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: create harp dir %s: %v; writing legacy layout only\n", harpDir, err)
+		return "", false
+	}
+	essencePath := filepath.Join(harpDir, paths.EssenceFileName)
+	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: write essence %s: %v; writing legacy layout only\n", essencePath, err)
+		return "", false
+	}
+	// NB: the active task store already lives at <harpDir>/tasks.md (see
+	// tasks.OpenSession migration), so we deliberately do NOT copy the legacy
+	// project .ctxloom/tasks.md here — that read is a no-op once the project
+	// file has migrated away, and would clobber the live store if a stray
+	// project file lingered.
+	//
+	// Mirror essence to legacy path so sessionID lookups still work.
+	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: mirror essence to %s: %v\n", legacyPath, err)
+	}
+	return essencePath, true
 }
 
 // harpSessionDir returns ~/.ctxloom/sessions/<harp>/. Errors when home

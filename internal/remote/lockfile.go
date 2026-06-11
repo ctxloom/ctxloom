@@ -77,6 +77,13 @@ func (m *LockfileManager) Path() string {
 // IsPending reports whether this manager operates on lock.pending.yaml.
 func (m *LockfileManager) IsPending() bool { return m.filename == pendingLockfileName }
 
+// PendingCounterpart returns a manager over the pending lockfile in the same
+// directory and filesystem. Used by the puller to stage an untrusted first
+// install for review instead of writing it to the active lockfile.
+func (m *LockfileManager) PendingCounterpart() *LockfileManager {
+	return &LockfileManager{baseDir: m.baseDir, fs: m.fs, filename: pendingLockfileName}
+}
+
 // Delete removes the lockfile from disk (no-op if it doesn't exist). Used
 // after acknowledge_bundle_review to drop the pending file once its
 // contents have been merged into active.

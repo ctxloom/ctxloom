@@ -87,6 +87,45 @@ func TestConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
 	}
 }
 
+// TestConfigSchema_AcceptsParserAcceptedNestedForms is the nested-drift gate:
+// every snippet here is a form the PARSER deliberately accepts, so the schema
+// must validate it too — otherwise each load emits a spurious validation
+// warning. Two real regressions are pinned: the FragmentRef struct form
+// ({name, priority} — FragmentRef.UnmarshalYAML) and an llm.configs entry
+// without `type` (defaulted by LLMConfig.EffectiveType).
+func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
+	v, err := schema.NewConfigValidator()
+	require.NoError(t, err)
+
+	for _, c := range []struct {
+		name string
+		yaml string
+	}{
+		{
+			"fragment struct form with priority",
+			"profiles:\n  definitions:\n    dev:\n      fragments:\n        - go-style\n        - name: testing\n          priority: 10\n",
+		},
+		{
+			"llm config entry without type",
+			"llm:\n  configs:\n    main:\n      model: claude-opus-4-8\n",
+		},
+		{
+			"llm config entry with explicit type",
+			"llm:\n  configs:\n    main:\n      type: codex\n      model: gpt-codex\n",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The parser accepts it...
+			cfg, perr := ParseConfig([]byte(c.yaml))
+			require.NoError(t, perr)
+			require.NotNil(t, cfg)
+			// ...so the schema must too.
+			assert.NoError(t, v.ValidateBytes([]byte(c.yaml)),
+				"the parser accepts this form, so validating it must not warn")
+		})
+	}
+}
+
 func TestConfigSchema_ShippedConfigsValidate(t *testing.T) {
 	v, err := schema.NewConfigValidator()
 	require.NoError(t, err)

@@ -81,12 +81,30 @@ type RepoVersions interface {
 	DefaultBranch(ctx context.Context) (string, error)
 }
 
+// TagResolver is the optional RepoVersions capability to resolve a name through
+// the tag namespace ONLY (refs/tags/<tag>). The semver resolver uses it when
+// present so the tag it selected can never be shadowed by a same-named branch —
+// the generic ResolveRef strategy order tries the branch namespace first.
+// Probed by type assertion, mirroring tagLister.
+type TagResolver interface {
+	// ResolveTag resolves a tag name to its commit SHA, considering tags only.
+	ResolveTag(ctx context.Context, tag string) (string, error)
+}
+
 // tagLister is the optional Fetcher capability to enumerate a repository's tags.
 // The local-clone fetcher provides it and the cache fetcher forwards it; a
 // backend without it yields no tags, so a semver range simply finds nothing to
 // match. Probed by type assertion, mirroring itemHistorySource / Versioned.
 type tagLister interface {
 	ListTags(ctx context.Context, owner, repo string) ([]string, error)
+}
+
+// fetcherTagResolver is the optional Fetcher capability for tag-namespace-only
+// resolution (the Fetcher-shaped counterpart of TagResolver). The clone-backed
+// fetchers and the GitHub API fetcher provide it; fetcherRepoVersions forwards
+// it through the RepoVersions seam.
+type fetcherTagResolver interface {
+	ResolveTag(ctx context.Context, owner, repo, tag string) (string, error)
 }
 
 // fetcherRepoVersions adapts a forge Fetcher bound to one repository to the
@@ -115,6 +133,16 @@ func (a *fetcherRepoVersions) ListTags(ctx context.Context) ([]string, error) {
 
 func (a *fetcherRepoVersions) ResolveRef(ctx context.Context, ref string) (string, error) {
 	return a.fetcher.ResolveRef(ctx, a.owner, a.repo, ref)
+}
+
+// ResolveTag resolves a tag through the tag namespace only when the underlying
+// fetcher offers that capability, falling back to the generic ResolveRef for
+// backends that don't distinguish namespaces (e.g. test mocks).
+func (a *fetcherRepoVersions) ResolveTag(ctx context.Context, tag string) (string, error) {
+	if tr, ok := a.fetcher.(fetcherTagResolver); ok {
+		return tr.ResolveTag(ctx, a.owner, a.repo, tag)
+	}
+	return a.fetcher.ResolveRef(ctx, a.owner, a.repo, tag)
 }
 
 func (a *fetcherRepoVersions) DefaultBranch(ctx context.Context) (string, error) {
@@ -204,11 +232,24 @@ func resolveSemver(ctx context.Context, expr string, rv RepoVersions) (Resolutio
 		return Resolution{}, fmt.Errorf("no tag satisfies version constraint %q", expr)
 	}
 	// Original() preserves the tag's authored form (e.g. the 'v' prefix), which
-	// is the actual ref name to resolve back to a commit.
+	// is the actual ref name to resolve back to a commit. We KNOW this is a tag,
+	// so resolve through the tag namespace when the backend can (TagResolver) —
+	// the generic ResolveRef tries branches first, and a branch upstream named
+	// like the tag would silently make the lock track the branch tip.
 	tag := best.Original()
-	sha, err := rv.ResolveRef(ctx, tag)
+	sha, err := resolveTagSHA(ctx, rv, tag)
 	if err != nil {
 		return Resolution{}, fmt.Errorf("resolve matched tag %q: %w", tag, err)
 	}
 	return Resolution{SHA: sha, Version: tag}, nil
+}
+
+// resolveTagSHA resolves a known-tag name to its commit: through the optional
+// TagResolver capability when present (tag namespace only), else the generic
+// ResolveRef.
+func resolveTagSHA(ctx context.Context, rv RepoVersions, tag string) (string, error) {
+	if tr, ok := rv.(TagResolver); ok {
+		return tr.ResolveTag(ctx, tag)
+	}
+	return rv.ResolveRef(ctx, tag)
 }

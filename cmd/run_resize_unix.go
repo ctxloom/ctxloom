@@ -14,7 +14,10 @@ import (
 
 // watchResize emits the terminal size now and on every SIGWINCH, for the client
 // to pump over the bidi Run stream so the controller resizes the agent's pty.
-// The goroutine stops when ctx is done.
+// When ctx is done the goroutine unregisters the SIGWINCH handler and closes
+// the channel so the client's resize pump finishes cleanly (matching the
+// Windows variant's contract) — otherwise long-lived processes that run more
+// than once (the init flow) leak a pump goroutine and a signal handler per run.
 func watchResize(ctx context.Context, f *os.File) <-chan *pb.WindowSize {
 	ch := make(chan *pb.WindowSize, 1)
 	sig := make(chan os.Signal, 1)
@@ -41,6 +44,7 @@ func watchResize(ctx context.Context, f *os.File) <-chan *pb.WindowSize {
 	emit() // initial size so the pty matches the terminal immediately
 
 	go func() {
+		defer close(ch) // sole sender after the initial emit, so this is safe
 		defer signal.Stop(sig)
 		for {
 			select {

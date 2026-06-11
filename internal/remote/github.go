@@ -312,6 +312,24 @@ func (f *GitHubFetcher) resolveAsTag(ctx context.Context, client GitHubClient, o
 	return f.retryRefWithFallback(ctx, owner, repo, ref, allowRetry, tagResp, err)
 }
 
+// ResolveTag resolves a tag name to its commit SHA through the tag namespace
+// ONLY (refs/tags/<tag>), dereferencing annotated tags. SECURITY: see
+// GitCloneFetcher.ResolveTag — callers that know the ref is a tag must not go
+// through the generic ResolveRef strategy order, where a same-named branch
+// would win.
+func (f *GitHubFetcher) ResolveTag(ctx context.Context, owner, repo, tag string) (string, error) {
+	client := f.client
+	tagRef, resp, err := client.Git().GetRef(ctx, owner, repo, "tags/"+tag)
+	if err != nil && f.shouldRetry401(resp, err) {
+		client = f.fallback
+		tagRef, _, err = client.Git().GetRef(ctx, owner, repo, "tags/"+tag)
+	}
+	if err != nil {
+		return "", fmt.Errorf("tag not found: %s: %w", tag, errs.ErrRemoteContentNotFound)
+	}
+	return f.resolveTagObjectSHA(ctx, client, owner, repo, tagRef)
+}
+
 // resolveTagObjectSHA returns the commit SHA a tag points to, dereferencing an
 // annotated tag object (lightweight tags point straight at the commit).
 func (f *GitHubFetcher) resolveTagObjectSHA(ctx context.Context, client GitHubClient, owner, repo string, tagRef *github.Reference) (string, error) {

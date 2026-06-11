@@ -51,6 +51,7 @@ type Picker struct {
 	Out           io.Writer        // rendering target (typically os.Stderr)
 	Distill       DistillFunc      // optional: invoked by the `d<N>` keystroke
 	Adopt         AdoptFunc        // optional: invoked when a raw (unadopted) row is selected
+	OpenIndex     OpenIndexFunc    // optional: index source for the post-distill reload; nil → Open("") (the user-global index)
 	HorizonCount  int              // 0 → DefaultHorizonCount
 	HorizonDays   int              // 0 → DefaultHorizonDays
 	Now           func() time.Time // injectable clock for tests; nil → time.Now
@@ -244,6 +245,11 @@ type DistillFunc func(harpName string) error
 // When nil, selecting a raw row surfaces a helpful message instead.
 type AdoptFunc func(sessionID, transcriptPath string) (harpName string, err error)
 
+// OpenIndexFunc returns the index manager the picker reloads entries from
+// after a distill. Injectable so tests can point at a hermetic index instead
+// of the real user-global one.
+type OpenIndexFunc func() (*Manager, error)
+
 // distillRow invokes the picker's distill callback for visible row n
 // (1-based). On success the index entry now has a summary, so the
 // picker re-render will show it. On failure the error is surfaced
@@ -269,11 +275,24 @@ func (p *Picker) distillRow(n int) {
 		w.Printf("distill failed: %v\n", err)
 		return
 	}
-	// Reload the entry from disk so the summary surfaces on re-render.
-	if mgr, err := Open(""); err == nil {
-		if updated, _ := mgr.Find(harp); updated != nil {
-			p.Entries[visible[n-1]] = *updated
-		}
+	// Reload the entry from disk so the summary surfaces on re-render. A
+	// failed reload only means a stale row — warn and keep looping.
+	open := p.OpenIndex
+	if open == nil {
+		open = func() (*Manager, error) { return Open("") }
+	}
+	mgr, err := open()
+	if err != nil {
+		w.Printf("reload after distill failed: %v\n", err)
+		return
+	}
+	updated, err := mgr.Find(harp)
+	if err != nil {
+		w.Printf("reload after distill failed: %v\n", err)
+		return
+	}
+	if updated != nil {
+		p.Entries[visible[n-1]] = *updated
 	}
 }
 

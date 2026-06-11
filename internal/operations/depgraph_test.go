@@ -26,7 +26,7 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 	t.Run("local refs are not tracked as remote pins", func(t *testing.T) {
 		w := newTestWalker(remote.NewMockFetcher())
 		w.record("ctxloom:local@bundles/x", remote.ItemTypeBundle)
-		pins, conflicts := w.result()
+		pins, conflicts, _ := w.result()
 		assert.Empty(t, pins)
 		assert.Empty(t, conflicts)
 	})
@@ -35,7 +35,7 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 		w := newTestWalker(remote.NewMockFetcher())
 		w.record("https://github.com/o/r@bundles/demo@aaaaaaa", remote.ItemTypeBundle)
 		w.record("https://github.com/o/r@bundles/demo@bbbbbbb", remote.ItemTypeBundle)
-		pins, conflicts := w.result()
+		pins, conflicts, _ := w.result()
 
 		require.Len(t, conflicts, 1)
 		assert.Equal(t, "https://github.com/o/r@bundles/demo", conflicts[0].Item)
@@ -47,7 +47,7 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 		w := newTestWalker(remote.NewMockFetcher())
 		w.record("https://github.com/o/r@bundles/demo@aaaaaaa", remote.ItemTypeBundle)
 		w.record("https://github.com/o/r@bundles/demo@aaaaaaa", remote.ItemTypeBundle)
-		_, conflicts := w.result()
+		_, conflicts, _ := w.result()
 		assert.Empty(t, conflicts)
 	})
 }
@@ -71,7 +71,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	}
 	w.walkProfile(root, remote.LocalSource, "")
 
-	pins, conflicts := w.result()
+	pins, conflicts, _ := w.result()
 
 	// X (from both P and A) and A itself are pinned.
 	identities := map[string]string{}

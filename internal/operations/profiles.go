@@ -46,7 +46,7 @@ func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
 func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, bool) {
 	profilesDir := paths.ProfilesPath(getBaseDir(cfg))
 	rel, err := filepath.Rel(profilesDir, localPath)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == "." || isOutsideRel(rel) {
 		return "", false
 	}
 	rel = filepath.ToSlash(rel)
@@ -69,13 +69,22 @@ func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, boo
 //
 //   - If the project config already lists explicit defaults.profiles, do
 //     nothing — the user has made their choice.
-//   - Otherwise load the HOME config and, if it has defaults.profiles, copy
-//     them into the in-memory cfg.Profiles.Defaults for this run only. Nothing
-//     is written to disk and no synthetic profile is created.
+//   - Otherwise load the HOME config and, if it has defaults.profiles, record
+//     them as cfg's run-only INHERITED defaults (SetInheritedDefaults).
+//     GetDefaultProfiles falls back to them, but they are kept out of
+//     cfg.Profiles.Defaults so a later cfg.Save() from an unrelated operation
+//     never materializes them into the project config.yaml, and
+//     ExplicitDefaultProfiles stays empty so first-profile auto-promotion is
+//     not suppressed. Nothing is written to disk and no synthetic profile is
+//     created.
 //   - If home has none either, surface the choice: print a clear stderr
 //     instruction telling the user to set defaults.profiles (or run discovery).
 //     Per fault-tolerance we still return cleanly so the LLM starts; context
 //     assembly simply has no profile to expand (degraded, not crashed).
+//
+// The lookup runs at most once per cfg: subsequent calls are read-only, so
+// concurrent context assembly (operations.MapProfiles) is safe after the main
+// goroutine resolves once.
 func EnsureDefaultProfiles(cfg *config.Config) {
 	if cfg == nil {
 		return
@@ -86,11 +95,17 @@ func EnsureDefaultProfiles(cfg *config.Config) {
 		return
 	}
 
-	// Inherit from the home config if it defines defaults.profiles.
-	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
-		cfg.Profiles.Defaults = append([]string(nil), homeProfiles...)
+	// Already resolved this run (possibly to "none") — read-only fast path.
+	if cfg.Profiles.InheritedDefaultsResolved() {
 		return
 	}
+
+	// Inherit from the home config if it defines defaults.profiles.
+	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
+		cfg.Profiles.SetInheritedDefaults(homeProfiles)
+		return
+	}
+	cfg.Profiles.SetInheritedDefaults(nil) // looked, found none — don't look again
 
 	// Neither project nor home defines defaults.profiles — surface the choice.
 	fmt.Fprintln(os.Stderr, "ctxloom: warning: no default profiles configured (project or home).")
@@ -384,6 +399,21 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		return nil, fmt.Errorf("profile %q not found", req.Name)
 	}
 
+	// A seeded remote profile is the shared in-memory copy of a read-only
+	// reference: reject before ANY mutation, or the edits would corrupt the
+	// seed for every later reader this run and then evaporate (Save refuses
+	// the sentinel path anyway).
+	if profiles.IsSeededPath(profile.Path) {
+		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom remote pull'", req.Name)
+	}
+
+	// Validate new parents up front so a bad parent halts before any mutation —
+	// including the cfg default-flag change, which an unrelated cfg.Save()
+	// would otherwise persist despite this update failing.
+	if err := requireProfilesExist(loader, req.AddParents); err != nil {
+		return nil, err
+	}
+
 	changes := []string{}
 
 	// Update description.
@@ -404,11 +434,6 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 
 	// Reflect the default flag into cfg (persisted below via cfg.Save).
 	changes = append(changes, applyDefaultFlag(cfg, req.Name, req.Default)...)
-
-	// Validate new parents up front so a bad parent halts before any mutation.
-	if err := requireProfilesExist(loader, req.AddParents); err != nil {
-		return nil, err
-	}
 
 	// Every list field shares one add/remove primitive (see applyListEdits).
 	profile.Parents, changes = applyListEdits(profile.Parents, req.AddParents, req.RemoveParents, "parent", changes)
@@ -617,7 +642,10 @@ func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultPr
 
 // profileLoader creates a profile loader using the config. It wires the remote
 // resolvers so read paths (show/list) canonicalize legacy bare/alias bundle refs
-// the same way assembly does.
+// the same way assembly does, and the same lockfile-built remote-profile seed
+// as config.GetProfileLoader so locked remote profiles are visible here too —
+// without it `profile list`/`profile show <canonical-ref>` would not see what
+// assembly resolves.
 func profileLoader(cfg *config.Config) *profiles.Loader {
 	profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(profileDirs) == 0 && len(cfg.AppPaths) > 0 {
@@ -631,5 +659,6 @@ func profileLoader(cfg *config.Config) *profiles.Loader {
 	if resolveURL := cfg.ProfileRemoteURLResolver(); resolveURL != nil {
 		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
 	}
+	opts = append(opts, cfg.ProfileSeedOptions()...)
 	return profiles.NewLoader(profileDirs, opts...)
 }

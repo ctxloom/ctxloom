@@ -146,10 +146,10 @@ func runSearches(ctx context.Context, cfg *config.Config, p searchParams) ([]ope
 	wg.Wait()
 
 	if localErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: local search error: %v\n", localErr)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: local search error: %v\n", localErr)
 	}
 	if remoteErr != nil {
-		fmt.Fprintf(os.Stderr, "Warning: remote search error: %v\n", remoteErr)
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: remote search error: %v\n", remoteErr)
 	}
 	return localResults, remoteResults
 }

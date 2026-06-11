@@ -1,4 +1,8 @@
-//go:generate protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative plugin.proto
+// Code generation: llm.pb.go and llm_grpc.pb.go are generated from llm.proto
+// by buf (the canonical pipeline — see buf.gen.yaml at the repo root). Run
+// `just proto`, or `buf generate` from the repo root inside the devcontainer.
+// Deliberately not a //go:generate directive: buf must run from the repo root,
+// not this package directory.
 
 package grpc
 

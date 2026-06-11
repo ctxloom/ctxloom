@@ -259,6 +259,10 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 					if err == nil {
 						bundles = append(bundles, bundleInfo)
 						seen.Add(bundleName)
+					} else {
+						// Degrade, but say so: a corrupt bundle silently
+						// vanishing from list output is undiagnosable.
+						fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", bundlePath, err)
 					}
 				}
 				return nil
@@ -276,6 +280,8 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 				if err == nil {
 					bundles = append(bundles, bundleInfo)
 					seen.Add(bundleName)
+				} else {
+					fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", path, err)
 				}
 			}
 			return nil

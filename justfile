@@ -223,27 +223,15 @@ test-acceptance-live-container: container-build-acceptance
     # can read it. Rootless docker maps that user to a subuid, and the working
     # tree has mixed perms (some 0600 files) it could not otherwise read; staging
     # + a+rX avoids mutating your tree.
-    # Stage the org-mirror layout (go.work + ctxloom + shared + claude + gemini +
-    # codex + taskloom) so the runtime build resolves the sibling modules from local
-    # source via go.work.
-    mkdir -p "$staging/src/ctxloom/main" "$staging/src/shared/main" "$staging/src/claude/main" "$staging/src/gemini/main" "$staging/src/codex/main" "$staging/src/taskloom/main"
-    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src/ctxloom/main"
-    ( cd ../../shared/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/shared/main"
-    ( cd ../../claude/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/claude/main"
-    ( cd ../../gemini/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/gemini/main"
-    ( cd ../../codex/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/codex/main"
-    ( cd ../../taskloom/main && tar -cf - --exclude=./.git --exclude='*.test' . ) | tar -xf - -C "$staging/src/taskloom/main"
-    cp go.work.container "$staging/src/go.work"
-    # Materialize a COMPLETE go.work.sum for the staged workspace. The in-container
-    # build runs offline against a read-only /workspace + read-only module cache,
-    # so it can neither write go.work.sum nor reach the network sumdb. The host's
-    # go.work.sum carries only go.mod hashes for workspace-upgraded deps (the host
-    # build fills the full module hashes from the proxy/sumdb at build time) — so
-    # seed from it, then `go work sync` here (host has proxy + cache) to record the
-    # missing full hashes. Without this the container dies on either
-    # "go.work.sum: read-only file system" or a sumdb lookup.
-    if [ -f ../../go.work.sum ]; then cp ../../go.work.sum "$staging/src/go.work.sum"; fi
-    ( cd "$staging/src" && go work sync )
+    # Module mode (GOWORK=off below): github.com/ctxloom/* resolve from the
+    # go.mod pins via the mounted host module cache (or the proxy), never from
+    # sibling checkouts — the container build sees exactly what a release build
+    # sees. Pushing sibling changes and bumping the pin is the way to pick up
+    # cross-module work here. Warm the host cache first so the read-only mount
+    # has every pinned module and the build runs offline.
+    GOWORK=off go mod download
+    mkdir -p "$staging/src"
+    tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
     chmod -R a+rX "$staging"
 
     mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/.gemini:/home/ctxloom/.gemini:ro" -v "$staging/src:/workspace:ro")
@@ -268,7 +256,8 @@ test-acceptance-live-container: container-build-acceptance
         -e GOMODCACHE=/home/ctxloom/go/pkg/mod \
         -e GOPATH=/home/ctxloom/go \
         -e GOFLAGS=-mod=readonly \
-        -w /workspace/ctxloom/main \
+        -e GOWORK=off \
+        -w /workspace \
         {{registry}}/ctxloom-acceptance:latest \
         bash -c 'set -e; \
             go build -o /home/ctxloom/ctxloom . && \
@@ -642,15 +631,13 @@ _run +ARGS:
         if {{container_cmd}} info 2>/dev/null | grep -q "rootless"; then
             user_flag=()
         fi
-        # Mount the org-mirror layout so go.work resolves sibling modules
-        # (shared, claude, gemini, codex, taskloom) from local source. ctxloom is the writable
-        # build target; the siblings are read-only. go.work.container is overlaid as
-        # the root go.work, found by walking up from the ctxloom module.
-        shared_dir="$(cd ../../shared/main && pwd)"
-        claude_dir="$(cd ../../claude/main && pwd)"
-        gemini_dir="$(cd ../../gemini/main && pwd)"
-        codex_dir="$(cd ../../codex/main && pwd)"
-        tasks_dir="$(cd ../../taskloom/main && pwd)"
+        # Module mode (GOWORK=off): github.com/ctxloom/* resolve from the go.mod
+        # pins via the mounted host module cache (or the proxy), never from host
+        # sibling checkouts — the container build sees exactly what a release
+        # build sees. Push sibling changes and bump the pin to pick up
+        # cross-module work here. Warm the host cache so the read-only mount
+        # already holds every pinned module.
+        GOWORK=off go mod download
         # Reuse the host module cache (read-only) and keep Go's writable caches
         # in the container tmpdir. Without this, HOME/GOCACHE resolve under the
         # cwd and the build spills a .cache/ into the source tree (and re-downloads
@@ -663,15 +650,10 @@ _run +ARGS:
             -e HOME=/tmp \
             -e GOMODCACHE=/tmp/gomodcache \
             -e GOCACHE=/tmp/.gocache \
-            -v "$(pwd):/workspace/ctxloom/main" \
-            -v "$shared_dir:/workspace/shared/main:ro" \
-            -v "$claude_dir:/workspace/claude/main:ro" \
-            -v "$gemini_dir:/workspace/gemini/main:ro" \
-            -v "$codex_dir:/workspace/codex/main:ro" \
-            -v "$tasks_dir:/workspace/taskloom/main:ro" \
-            -v "$(pwd)/go.work.container:/workspace/go.work:ro" \
-            -v "$(pwd)/justfile.container:/workspace/ctxloom/main/justfile:ro" \
-            -w /workspace/ctxloom/main \
+            -e GOWORK=off \
+            -v "$(pwd):/workspace" \
+            -v "$(pwd)/justfile.container:/workspace/justfile:ro" \
+            -w /workspace \
             {{devcontainer_image}}:latest \
             just {{ARGS}}
     fi

@@ -32,14 +32,14 @@ notes: |
   ltk is fully standalone: outside ctxloom, `ltk manage install` registers
   the same hook directly (and scaffolds a starter config). ctxloom users get
   registration from this bundle; rule authoring stays with ltk
-  (`ltk manage install --config-path .ltk/config.yaml` scaffolds defaults).
+  (`ltk manage install --config .ltk/config.yaml` scaffolds defaults).
 
 installation: |
   The ctxloom install script and `brew install ctxloom/tap/ltk` ship the ltk
   binary (fallback: go install github.com/ctxloom/llm-tool-killer/cmd/ltk@latest).
   A missing binary degrades to no hook, never a blocked startup. To activate
   rules for a project, scaffold .ltk/config.yaml with
-  `ltk manage install --config-path .ltk/config.yaml --print-only` or write
+  `ltk manage install --config .ltk/config.yaml --print` or write
   one by hand; without it the hook allows everything.
 
 hooks:

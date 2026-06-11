@@ -95,6 +95,17 @@ func (f *cacheFetcher) GetDefaultBranch(ctx context.Context, owner, repo string)
 	return gf.GetDefaultBranch(ctx, owner, repo)
 }
 
+// ResolveTag forwards tag-namespace-only resolution to the local clone, so a
+// semver pin can never be hijacked by a same-named branch (see
+// GitCloneFetcher.ResolveTag).
+func (f *cacheFetcher) ResolveTag(ctx context.Context, owner, repo, tag string) (string, error) {
+	gf, err := f.localFetcher(ctx, tag)
+	if err != nil {
+		return "", err
+	}
+	return gf.ResolveTag(ctx, owner, repo, tag)
+}
+
 // ListTags forwards to the local clone (ensuring it is present first), so semver
 // range resolution reads the repo's tags from the cache with no forge API traffic.
 func (f *cacheFetcher) ListTags(ctx context.Context, owner, repo string) ([]string, error) {

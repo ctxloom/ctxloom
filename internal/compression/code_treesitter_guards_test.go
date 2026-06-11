@@ -94,6 +94,43 @@ class EnglishGreeter implements Greeter {
 			mustNotContain: []string{"secretTsBodyToken"},
 		},
 		{
+			// Exported type definitions and export clauses must survive: the
+			// compressor's contract is that type definitions survive, and the
+			// export_statement path used to emit a dangling "export " and drop
+			// interface/type-alias/re-export/default forms entirely.
+			name: "typescript exported types and re-exports",
+			ct:   ContentTypeTypeScript,
+			source: `export interface Shape {
+  area(): number;
+}
+
+export type Alias = string | number;
+
+export { helper } from './helpers';
+
+export * from './more';
+
+export function makeShape(): Shape {
+  let secretTsExportBodyToken = 1;
+  return { area: () => secretTsExportBodyToken };
+}
+
+const internal = 1;
+
+export default internal;
+`,
+			mustContain: []string{
+				"export interface Shape",
+				"area(): number",
+				"export type Alias = string | number",
+				"export { helper } from './helpers'",
+				"export * from './more'",
+				"export function makeShape",
+				"export default internal",
+			},
+			mustNotContain: []string{"secretTsExportBodyToken"},
+		},
+		{
 			name: "rust",
 			ct:   ContentTypeRust,
 			source: `pub fn add(a: i32, b: i32) -> i32 {

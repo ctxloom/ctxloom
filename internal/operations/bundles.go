@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitutil"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/collections"
 )
 
 // DistillKind tags whether a Distill call is for a fragment or a prompt.
@@ -310,12 +311,17 @@ func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
 	return listBundleInfos(context.Background(), cfg)
 }
 
-// GetBundle loads a single bundle by name through the configured bundle store.
+// GetBundle loads a single bundle by name. This is a READ path, so it goes
+// through the seeded loader (like GetItemContent/GetBundleMCP in items.go):
+// remote bundles exist only as lockfile-seeded references, and the unseeded
+// store would report "not found" for every canonical ref ListBundles just
+// displayed. Mutation paths (Update/Delete) keep the unseeded store — seeded
+// bundles are read-only.
 func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	return bundleStore(cfg, nil).Load(name)
+	return bundleLoader(cfg).Load(name)
 }
 
 // bundleStore returns the injected bundle store or the default filesystem
@@ -1010,10 +1016,13 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundlePromptInpu
 // distillFragments invokes the Distiller for each named fragment, populating
 // Distilled / DistilledBy / ContentHash on success. Distill errors are warned
 // but non-fatal: the bundle still saves with the raw content (fault-tolerance
-// philosophy in CLAUDE.md). A nil Distiller is a no-op.
-func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) {
+// philosophy in CLAUDE.md). A nil Distiller is a no-op. The returned set names
+// the items whose attempt FAILED — a re-distill failure leaves the old
+// Distilled/DistilledBy intact, so post-state alone cannot reveal it.
+func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
+	failed := collections.NewSet[string]()
 	if d == nil || len(names) == 0 {
-		return
+		return failed
 	}
 	for _, name := range names {
 		frag := b.Fragments[name]
@@ -1025,6 +1034,7 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of fragment %q failed: %v\n", name, err)
+			failed.Add(name)
 			continue
 		}
 		frag.Distilled = res.Distilled
@@ -1032,12 +1042,14 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 		frag.ContentHash = frag.ComputeContentHash()
 		b.Fragments[name] = frag
 	}
+	return failed
 }
 
 // distillPrompts mirrors distillFragments for prompts.
-func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) {
+func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
+	failed := collections.NewSet[string]()
 	if d == nil || len(names) == 0 {
-		return
+		return failed
 	}
 	for _, name := range names {
 		p := b.Prompts[name]
@@ -1049,6 +1061,7 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of prompt %q failed: %v\n", name, err)
+			failed.Add(name)
 			continue
 		}
 		p.Distilled = res.Distilled
@@ -1056,4 +1069,5 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 		p.ContentHash = p.ComputeContentHash()
 		b.Prompts[name] = p
 	}
+	return failed
 }

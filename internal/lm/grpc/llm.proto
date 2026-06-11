@@ -143,6 +143,7 @@ message ManagedConfig {
   HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
   MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
+  map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
 }
 
 // CommandExport mirrors agent.CommandExport: one prompt's agent-agnostic

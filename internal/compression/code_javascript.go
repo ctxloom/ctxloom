@@ -43,23 +43,47 @@ func (c *CodeCompressor) extractJS(node *sitter.Node, source []byte, out *string
 	}
 }
 
-// extractJSExport emits an exported function/class/const declaration.
+// extractJSExport emits an exported declaration with its body elided. Exported
+// type definitions (interface_declaration, type_alias_declaration) are kept
+// verbatim, same as their unexported forms in jsVerbatim. Export forms with no
+// declaration child — export clauses and re-exports (`export { a } from './b'`,
+// `export * from './b'`) and `export default <expr>` — are kept verbatim too:
+// emitting a dangling "export " and dropping the rest is content loss in a
+// compressor whose contract is that type definitions survive.
 func (c *CodeCompressor) extractJSExport(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
-	out.WriteString("export ")
+	prefix := "export "
 	for j := 0; j < int(node.ChildCount()); j++ {
 		exp := node.Child(j)
 		if exp == nil {
 			continue
 		}
+		if v, ok := jsVerbatim[exp.Type()]; ok {
+			out.WriteString(prefix)
+			c.emitVerbatim(exp, source, out, preserved, v)
+			return
+		}
 		switch exp.Type() {
+		case "default":
+			prefix += "default "
 		case "function_declaration":
+			out.WriteString(prefix)
 			c.extractJSFunc(exp, source, out, preserved)
-		case "class_declaration":
+			return
+		case "class_declaration", "abstract_class_declaration":
+			out.WriteString(prefix)
 			c.extractJSClass(exp, source, out, preserved)
-		case "lexical_declaration":
+			return
+		case "lexical_declaration", "variable_declaration":
+			out.WriteString(prefix)
 			c.extractJSLexical(exp, source, out, preserved)
+			return
 		}
 	}
+	// No compressible declaration child: export clause, re-export, or default
+	// expression. These carry no function body to elide — keep the statement.
+	out.WriteString(c.nodeText(node, source))
+	out.WriteString("\n")
+	*preserved = append(*preserved, "export")
 }
 
 func (c *CodeCompressor) extractJSFunc(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {

@@ -237,8 +237,14 @@ func (e *TestEnvironment) InitGitRepo() error {
 	return nil
 }
 
-// isolatedEnv returns environment variables with home directory properly isolated.
-// This ensures ctxloom uses our fake home directory, not the real one.
+// isolatedEnv returns environment variables with home directory properly
+// isolated and ambient ctxloom session state scrubbed. Replacing HOME alone is
+// not enough: when the suite itself runs inside a ctxloom session, inherited
+// vars like CTXLOOM_ROOT (the authoritative project root) and
+// CTXLOOM_SESSION_HARP would steer the spawned binary at the LIVE repo's
+// .ctxloom instead of the fake project. scrubSessionEnv drops the canonical
+// testsupport.EnvKeys set so Run/RunWithStdin/Command/StartMCP are all
+// isolated the same way.
 func (e *TestEnvironment) isolatedEnv() []string {
 	// Variables to replace with our test paths
 	replacements := map[string]string{
@@ -249,7 +255,7 @@ func (e *TestEnvironment) isolatedEnv() []string {
 	}
 
 	var env []string
-	for _, v := range os.Environ() {
+	for _, v := range scrubSessionEnv(os.Environ()) {
 		key := strings.SplitN(v, "=", 2)[0]
 		if _, shouldReplace := replacements[key]; shouldReplace {
 			continue // Skip, we'll add our own

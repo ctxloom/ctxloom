@@ -5,6 +5,11 @@
 # - Static builds: no CGO features
 # - CGO builds: treesitter (CGO but static-linkable)
 
+# Containers build in plain module mode: github.com/ctxloom/* come from the
+# go.mod pins (module cache/proxy), never from a host go.work or sibling
+# checkouts. Push sibling changes and bump the pin to pick them up here.
+export GOWORK := "off"
+
 # Get version from versionator (with fallback)
 # Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
 version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`

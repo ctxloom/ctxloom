@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -40,7 +42,13 @@ type DependencyConflict struct {
 // refs in the configured default profiles — the same root set sync's
 // collectRemoteReferences walks (so nothing sync installs is erased by
 // the post-sync lock rebuild).
-func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict) {
+//
+// The third return lists remote parent profiles that could NOT be expanded
+// (fetch/parse failure) — the closure is INCOMPLETE when it is non-empty, and
+// a caller about to rewrite the lockfile wholesale must preserve existing
+// entries instead of dropping the unexpanded subtrees (a transient fetch
+// failure must never erase healthy lock entries).
+func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict, []string) {
 	loader := profileLoader(cfg)
 	var roots []*profiles.Profile
 	if len(profileNames) == 0 {
@@ -121,8 +129,9 @@ func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
 
 // FlattenProfileRoots flattens the closure of the given in-memory root profiles.
 // Used by `update` to flatten the PROPOSED state (roots with refs re-pinned to
-// HEAD) without writing the proposed profiles to disk first.
-func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict) {
+// HEAD) without writing the proposed profiles to disk first. The third return
+// is the unexpanded-parent set (see FlattenDependencies).
+func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
 	factory := remote.FetcherFactory(newCachedFetcherFactory(cfg))
 	auth := remote.LoadAuth(getBaseDir(cfg))
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
@@ -136,7 +145,8 @@ func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 // flattenRootsWith walks the closure of roots using a caller-supplied hash
 // resolver, so the lock path (carry-forward) and the upgrade path (re-resolve)
 // share one traversal and differ only in how each ref's constraint resolves.
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, bool)) ([]PinnedRef, []DependencyConflict) {
+// The third return is the unexpanded-parent set (see FlattenDependencies).
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, bool)) ([]PinnedRef, []DependencyConflict, []string) {
 	w := &depWalker{
 		ctx:         ctx,
 		loader:      loader,
@@ -170,6 +180,22 @@ type depWalker struct {
 	pins    map[string]PinnedRef           // identity -> first-seen pin
 	hashes  map[string]map[string]struct{} // identity -> set of hashes (for conflict detection)
 	visited map[string]struct{}            // identity@hash, recursion guard
+
+	// unexpanded records the identities of remote parent profiles whose content
+	// could not be read or parsed during the walk: their subtrees are MISSING
+	// from pins, so the closure is incomplete. Callers that rebuild the lockfile
+	// wholesale consult this to avoid erasing entries under a failed subtree.
+	unexpanded map[string]struct{}
+}
+
+// markUnexpanded records identity as a parent whose subtree could not be
+// walked, and emits the project-standard warning.
+func (w *depWalker) markUnexpanded(identity string, cause error) {
+	if w.unexpanded == nil {
+		w.unexpanded = map[string]struct{}{}
+	}
+	w.unexpanded[identity] = struct{}{}
+	fmt.Fprintf(os.Stderr, "ctxloom: warning: could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)\n", identity, cause)
 }
 
 // resolvedHash resolves ref via the injected resolver, or — when none is set —
@@ -266,16 +292,22 @@ func (w *depWalker) recurseParent(parentRef string) {
 
 	data, ferr := remote.FetchRefBytes(w.ctx, w.factory, w.auth, rec, hash)
 	if ferr != nil {
-		return // fault tolerant: a parent we can't read just isn't expanded
+		// Fault tolerant: a parent we can't read just isn't expanded — but the
+		// closure is now INCOMPLETE, so warn and record it; a silent skip here
+		// let a transient fetch failure permanently erase the subtree's lock
+		// entries on the next wholesale rewrite.
+		w.markUnexpanded(rec.CanonicalString(), ferr)
+		return
 	}
 	child, perr := profiles.ParseProfile(data)
 	if perr != nil {
+		w.markUnexpanded(rec.CanonicalString(), perr)
 		return
 	}
 	w.walkProfile(child, rec.URL, hash)
 }
 
-func (w *depWalker) result() ([]PinnedRef, []DependencyConflict) {
+func (w *depWalker) result() ([]PinnedRef, []DependencyConflict, []string) {
 	pins := make([]PinnedRef, 0, len(w.pins))
 	for _, p := range w.pins {
 		pins = append(pins, p)
@@ -295,7 +327,13 @@ func (w *depWalker) result() ([]PinnedRef, []DependencyConflict) {
 		conflicts = append(conflicts, DependencyConflict{Item: identity, Hashes: list})
 	}
 	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].Item < conflicts[j].Item })
-	return pins, conflicts
+
+	var unexpanded []string
+	for identity := range w.unexpanded {
+		unexpanded = append(unexpanded, identity)
+	}
+	sort.Strings(unexpanded)
+	return pins, conflicts, unexpanded
 }
 
 // ConflictError renders dependency conflicts as a single error suitable for

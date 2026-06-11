@@ -155,8 +155,8 @@ func collectItemPaths(tree *object.Tree, base string, out map[string]struct{}) {
 	files := sub.Files()
 	defer files.Close()
 	_ = files.ForEach(func(file *object.File) error {
-		if strings.HasSuffix(file.Name, ".yaml") {
-			out[strings.TrimSuffix(file.Name, ".yaml")] = struct{}{}
+		if name, ok := strings.CutSuffix(file.Name, ".yaml"); ok {
+			out[name] = struct{}{}
 		}
 		return nil
 	})
@@ -182,6 +182,30 @@ func (f *GitCloneFetcher) ResolveRef(ctx context.Context, owner, repo, ref strin
 	}
 
 	return "", fmt.Errorf("ref not found: %s: %w", ref, errs.ErrRemoteContentNotFound)
+}
+
+// ResolveTag resolves a tag name to its commit SHA through the tag namespace
+// ONLY (refs/tags/<tag>), dereferencing annotated tags to their commit.
+// SECURITY: callers that already know the ref is a tag (semver resolution) must
+// use this instead of ResolveRef — ResolveRef's generic strategy order tries
+// refs/remotes/origin/<ref> first, so a branch upstream named like the tag
+// would silently win and the lock would track the branch tip instead of the
+// immutable tag.
+func (f *GitCloneFetcher) ResolveTag(ctx context.Context, owner, repo, tag string) (string, error) {
+	tagRef, err := f.repo.Tag(tag)
+	if err != nil {
+		return "", fmt.Errorf("tag not found: %s: %w", tag, errs.ErrRemoteContentNotFound)
+	}
+	// Annotated tag — dereference the tag object to its commit.
+	if tagObj, terr := f.repo.TagObject(tagRef.Hash()); terr == nil {
+		commit, cerr := tagObj.Commit()
+		if cerr != nil {
+			return "", fmt.Errorf("failed to resolve annotated tag %s: %w", tag, cerr)
+		}
+		return commit.Hash.String(), nil
+	}
+	// Lightweight tag — the ref hash is the commit directly.
+	return tagRef.Hash().String(), nil
 }
 
 // ListTags returns the repository's tag names (e.g. "v1.2.3"), lightweight and

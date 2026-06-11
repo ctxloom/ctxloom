@@ -3,8 +3,11 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -85,6 +88,13 @@ func stdinIsPiped() bool {
 	return !term.IsTerminal(int(os.Stdin.Fd()))
 }
 
+// stderrIsTerminal reports whether stderr is a terminal. Checked before
+// writing terminal escape sequences to stderr so `2>log` captures don't
+// collect raw escape bytes.
+func stderrIsTerminal() bool {
+	return term.IsTerminal(int(os.Stderr.Fd()))
+}
+
 // initPrompts handles interactive user prompts during init.
 type initPrompts struct {
 	reader   *bufio.Reader
@@ -92,7 +102,14 @@ type initPrompts struct {
 }
 
 func newInitPrompts() *initPrompts {
-	p := &initPrompts{reader: bufio.NewReader(os.Stdin)}
+	return newInitPromptsFrom(os.Stdin)
+}
+
+// newInitPromptsFrom is newInitPrompts reading from r instead of os.Stdin
+// directly — used after a discovery run, when stdin is owned by the shared
+// handoff and must be read through a lease (see stdinHandoff).
+func newInitPromptsFrom(r io.Reader) *initPrompts {
+	p := &initPrompts{reader: bufio.NewReader(r)}
 
 	// If stdin is a terminal, save state and ensure canonical mode
 	// This handles cases where parent process left terminal in raw mode
@@ -351,11 +368,13 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 
 // launchEngineWithPrompt starts the AI with the profile discovery prompt.
+// Errors (failed launch, errored session) are returned for the caller to
+// degrade on — init never fails because of them, but a clean return is the
+// signal that offering a relaunch into `ctxloom run` is safe.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	client, err := pb.NewSelfInvokingClient(engine, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to launch %s: %v\n", engine, err)
-		return nil // Fault tolerant - don't fail init
+		return fmt.Errorf("failed to launch %s: %w", engine, err)
 	}
 	defer client.Kill()
 
@@ -379,6 +398,19 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 		fmt.Fprintln(os.Stderr, "ctxloom: warning: stdin is not a terminal; discovery session will not accept input")
 	}
 
+	// Unlike one-shot `ctxloom run`, init keeps prompting on stdin after this
+	// run ends (offerSessionRelaunch). The client's stdin pump would otherwise
+	// stay parked in os.Stdin.Read and swallow the user's first answer line,
+	// so the pump reads through a detachable lease on the shared handoff and
+	// is detached as soon as the run returns — any byte it had in flight is
+	// then delivered to the relaunch prompt instead of being lost.
+	var runStdin io.Reader
+	if stdin != nil {
+		lease := sharedStdinHandoff().Attach()
+		defer lease.Detach()
+		runStdin = lease
+	}
+
 	// Restore the terminal before dying on an interrupt delivered from
 	// outside (in raw mode a user's ^C is just bytes forwarded to the agent,
 	// not a SIGINT to us). restoreTerm is idempotent, so this races safely
@@ -395,10 +427,10 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	}()
 	defer signal.Stop(sigCh)
 
-	_, err = client.Run(ctx, req, stdin, os.Stdout, os.Stderr, resize)
+	_, err = client.Run(ctx, req, runStdin, os.Stdout, os.Stderr, resize)
 	restoreTerm()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: AI session ended: %v\n", err)
+		return fmt.Errorf("AI session ended: %w", err)
 	}
 
 	return nil
@@ -431,7 +463,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	primary, _ := getAvailableEngines()
 	selectedEngine = pickDefaultEngine(selectedEngine, primary)
 
-	launchDiscovery(cmd, selectedEngine, appDir, interactive)
+	if launchDiscovery(cmd, selectedEngine, appDir, interactive) {
+		return offerSessionRelaunch()
+	}
 	return nil
 }
 
@@ -692,16 +726,72 @@ func applyInitHooks(cmd *cobra.Command) {
 
 // launchDiscovery auto-launches the engine with a profile-discovery prompt in
 // interactive mode (unless --skip-launch). A launch failure warns, never fatal.
-func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) {
+// Returns true only when a discovery session ran and ended cleanly — the
+// signal that offering a relaunch into `ctxloom run` is safe; an errored
+// session must not chain into a possibly-broken setup.
+func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) bool {
 	if !interactive || initSkipLaunch {
-		return
+		return false
 	}
 	fmt.Printf("\nLaunching %s to help you discover profiles...\n", engine)
-	fmt.Println("(Use Ctrl+C to exit the AI session when done)")
+	fmt.Println("(Exit the AI session when done — ctxloom will then offer to start your configured session)")
 	fmt.Println()
 
 	workDir := filepath.Dir(appDir)
 	if launchErr := launchEngineWithPrompt(cmd.Context(), engine, workDir); launchErr != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", launchErr)
+		return false
 	}
+	return true
+}
+
+// wantsRelaunch interprets the answer to the post-discovery relaunch prompt.
+// Empty input means yes (the default); only an explicit n/no declines, so a
+// typo lands the user in their session rather than silently back at the shell.
+func wantsRelaunch(input string) bool {
+	answer := strings.ToLower(strings.TrimSpace(input))
+	return answer != "n" && answer != "no"
+}
+
+// printRunHint tells the user how to pick up the new configuration later.
+func printRunHint() {
+	fmt.Println("Run `ctxloom run` when ready — it picks up everything init installed.")
+}
+
+// offerSessionRelaunch asks whether to start the configured session now and,
+// on yes, runs `ctxloom run` as a child on this terminal. Discovery installs
+// profiles, hooks, and MCP servers that the discovery session itself cannot
+// see; a fresh run assembles them into the launch config. Declining — or any
+// failure on the way to the launch — degrades to a hint (fault tolerant);
+// only the child session's own exit code propagates, as ExitError, matching
+// `ctxloom run` itself.
+func offerSessionRelaunch() error {
+	fmt.Print("\nStart your session now to pick up the new configuration? (Y/n): ")
+	// Read through the shared stdin handoff: the discovery run's stdin pump
+	// read through it too, so a byte it had in flight when the run ended is
+	// delivered here rather than lost (see stdinHandoff). The lease is
+	// detached before the relaunch so the child owns os.Stdin uncontested —
+	// demand-driven reads leave no fd read outstanding once the answer line
+	// is consumed.
+	lease := sharedStdinHandoff().Attach()
+	input, err := newInitPromptsFrom(lease).readCleanLine()
+	lease.Detach()
+	if err != nil || !wantsRelaunch(input) {
+		printRunHint()
+		return nil
+	}
+
+	run := exec.Command(resolveSelfExecutable(), "run")
+	run.Stdin = os.Stdin
+	run.Stdout = os.Stdout
+	run.Stderr = os.Stderr
+	if runErr := run.Run(); runErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			return &ExitError{Code: childExitCode(exitErr)}
+		}
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to start session: %v\n", runErr)
+		printRunHint()
+	}
+	return nil
 }

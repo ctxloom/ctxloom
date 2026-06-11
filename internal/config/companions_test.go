@@ -1,0 +1,165 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// The built-in bundles ship the taskloom MCP server and the ltk pre-tool
+// hook; the boot probe must discover both binaries from the embedded YAML
+// rather than a hardcoded list, so new built-ins are picked up automatically.
+func TestBuiltinCompanionBins_DerivedFromEmbeddedBundles(t *testing.T) {
+	bins := BuiltinCompanionBins()
+	assert.Equal(t, []string{"ltk", "taskloom"}, bins, "sorted, deduped, ctxloom excluded")
+}
+
+func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+	var probed []string
+	restoreProbe := SetCompanionVersionOutputForTesting(func(path string) ([]byte, error) {
+		probed = append(probed, path)
+		return []byte(`{"name":"x","version":"v1.2.3"}`), nil
+	})
+	defer restoreProbe()
+
+	statuses := ProbeCompanions()
+	require.Len(t, statuses, 2)
+	for _, st := range statuses {
+		assert.Equal(t, "/usr/bin/"+st.Bin, st.Path)
+		assert.Equal(t, "v1.2.3", st.Version)
+		assert.NoError(t, st.Err)
+	}
+	assert.ElementsMatch(t, []string{"/usr/bin/ltk", "/usr/bin/taskloom"}, probed)
+}
+
+func TestProbeCompanions_MissingBinaryYieldsEmptyPathAndNoProbe(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(string) (string, error) {
+		return "", exec.ErrNotFound
+	})
+	defer restoreLook()
+	restoreProbe := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+		t.Fatal("version probe must not run for a missing binary")
+		return nil, nil
+	})
+	defer restoreProbe()
+
+	for _, st := range ProbeCompanions() {
+		assert.Empty(t, st.Path)
+		assert.Empty(t, st.Version)
+		assert.NoError(t, st.Err, "missing is a state, not a probe error")
+	}
+}
+
+func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		return "/usr/bin/" + bin, nil
+	})
+	defer restoreLook()
+
+	t.Run("exec error", func(t *testing.T) {
+		restore := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+			return nil, errors.New("boom")
+		})
+		defer restore()
+		for _, st := range ProbeCompanions() {
+			assert.NotEmpty(t, st.Path, "binary still counts as present")
+			assert.Error(t, st.Err)
+		}
+	})
+
+	t.Run("unparseable output", func(t *testing.T) {
+		restore := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+			return []byte("not json"), nil
+		})
+		defer restore()
+		for _, st := range ProbeCompanions() {
+			assert.Error(t, st.Err)
+			assert.Empty(t, st.Version)
+		}
+	})
+
+	t.Run("missing version field", func(t *testing.T) {
+		restore := SetCompanionVersionOutputForTesting(func(string) ([]byte, error) {
+			return []byte(`{"name":"ltk"}`), nil
+		})
+		defer restore()
+		for _, st := range ProbeCompanions() {
+			assert.Error(t, st.Err)
+		}
+	})
+}
+
+// writeFakeCompanion drops an executable shell script named name into dir and
+// returns its path.
+func writeFakeCompanion(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
+	return path
+}
+
+// shrinkProbeDurations shortens the probe timeout and wait-delay so the
+// stall-path tests run in milliseconds, restoring them on cleanup.
+func shrinkProbeDurations(t *testing.T, timeout, waitDelay time.Duration) {
+	t.Helper()
+	origTimeout, origDelay := companionProbeTimeout, companionProbeWaitDelay
+	companionProbeTimeout, companionProbeWaitDelay = timeout, waitDelay
+	t.Cleanup(func() {
+		companionProbeTimeout, companionProbeWaitDelay = origTimeout, origDelay
+	})
+}
+
+// TestCompanionVersionOutput_RealExec exercises the production seam body —
+// the actual `version --format json` argv, the probe timeout, and the
+// WaitDelay pipe bound — against fake companion binaries. Every other test
+// replaces the seam, so without this the real exec path has zero coverage.
+func TestCompanionVersionOutput_RealExec(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake companions are sh scripts")
+	}
+	dir := t.TempDir()
+
+	t.Run("valid JSON output", func(t *testing.T) {
+		// The script proves the argv contract too: it only answers the
+		// version when called exactly as `version --format json`.
+		bin := writeFakeCompanion(t, dir, "goodtool",
+			`[ "$1 $2 $3" = "version --format json" ] || exit 2
+echo '{"name":"goodtool","version":"v9.9.9"}'`)
+		version, err := companionVersion(bin)
+		require.NoError(t, err)
+		assert.Equal(t, "v9.9.9", version)
+	})
+
+	t.Run("wedged companion hits the probe timeout", func(t *testing.T) {
+		shrinkProbeDurations(t, 200*time.Millisecond, 100*time.Millisecond)
+		bin := writeFakeCompanion(t, dir, "wedged", "sleep 30")
+		start := time.Now()
+		_, err := companionVersion(bin)
+		require.Error(t, err, "a wedged companion must fail the probe, not hang it")
+		assert.Less(t, time.Since(start), 5*time.Second, "probe must be bounded by timeout+WaitDelay")
+	})
+
+	t.Run("grandchild holding stdout is bounded by WaitDelay", func(t *testing.T) {
+		shrinkProbeDurations(t, 200*time.Millisecond, 100*time.Millisecond)
+		// The direct child exits immediately but leaves a background
+		// grandchild holding the inherited stdout pipe open. Without
+		// cmd.WaitDelay, Output blocks until that pipe closes (30s here;
+		// forever for a daemonized companion) and startup stalls.
+		bin := writeFakeCompanion(t, dir, "spawner", "sleep 30 &\nexit 0")
+		start := time.Now()
+		_, err := companionVersion(bin)
+		require.Error(t, err)
+		assert.Less(t, time.Since(start), 5*time.Second, "WaitDelay must cut the pipe wait short")
+	})
+}

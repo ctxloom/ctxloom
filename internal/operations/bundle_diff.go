@@ -4,14 +4,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// BundleChange describes one bundle that was added or modified since the
-// active lockfile snapshot. Size is the raw byte length of the new YAML
-// reported by the fetcher; left zero when unknown (the diff does not fetch
-// content just to compute size — that's the BundleReader's job at
+// BundleChange describes one item (bundle or profile) that was added or
+// modified since the active lockfile snapshot. Size is the raw byte length of
+// the new YAML reported by the fetcher; left zero when unknown (the diff does
+// not fetch content just to compute size — that's the BundleReader's job at
 // show_bundle_verbatim time).
 type BundleChange struct {
 	// Name is the lockfile key ("remoteName/path").
 	Name string
+	// Kind is the lockfile entry type (bundle or profile). Staged remote
+	// PROFILE changes are applied by ApproveUpgrade exactly like bundle
+	// changes, so they must surface in review too.
+	Kind remote.ItemType
 	// Remote is the registered remote this change originates from.
 	Remote string
 	// OldSHA is the SHA recorded in the active lockfile; empty for new bundles.
@@ -46,13 +50,17 @@ func (c *BundleChangeSet) All() []BundleChange {
 	return out
 }
 
-// DiffLockfiles returns the bundle-only delta between prev (active) and curr
-// (pending). Entries whose source remote carries TrustBundles=true are
-// filtered out — trusted remotes auto-apply without review.
+// DiffLockfiles returns the bundle and profile delta between prev (active) and
+// curr (pending). Entries whose source remote carries TrustBundles=true are
+// filtered out — trusted remotes auto-apply without review. Profile entries
+// are covered because ApproveUpgrade merges ALL pending entries into the
+// active lock — a staged profile change the review never showed would
+// otherwise be applied sight-unseen.
 //
 // A nil prev is treated as "everything in curr is new." A nil curr produces
-// an empty change set: removed bundles aren't shown for review (the user
-// removed them on purpose by editing the lockfile or removing the remote).
+// an empty change set: removed entries aren't shown for review (approval
+// never removes — the user removes them on purpose by editing the lockfile or
+// removing the remote).
 //
 // registry may be nil; in that case trust filtering is a no-op (no remote
 // is considered trusted).
@@ -63,11 +71,21 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 	}
 
 	prevBundles := map[string]remote.LockEntry{}
+	prevProfiles := map[string]remote.LockEntry{}
 	if prev != nil {
 		prevBundles = prev.Bundles
+		prevProfiles = prev.Profiles
 	}
 
-	for name, entry := range curr.Bundles {
+	diffEntryMaps(cs, registry, remote.ItemTypeBundle, prevBundles, curr.Bundles)
+	diffEntryMaps(cs, registry, remote.ItemTypeProfile, prevProfiles, curr.Profiles)
+	return cs
+}
+
+// diffEntryMaps appends curr's added/modified entries of one item type to cs,
+// applying the trust filter and the pinned-entry suppression.
+func diffEntryMaps(cs *BundleChangeSet, registry *remote.Registry, kind remote.ItemType, prevEntries, currEntries map[string]remote.LockEntry) {
+	for name, entry := range currEntries {
 		remoteName := remoteNameForKey(registry, name)
 		if remoteName != "" && isTrustedRemote(registry, remoteName) {
 			continue
@@ -75,9 +93,9 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 		if remoteName == "" {
 			remoteName = displayRemoteForKey(name)
 		}
-		old, existed := prevBundles[name]
+		old, existed := prevEntries[name]
 		// Pinned entries on the active side never surface a change:
-		// the user has explicitly frozen this bundle at the active SHA
+		// the user has explicitly frozen this item at the active SHA
 		// and doesn't want to see review noise for it. The pending
 		// lockfile still records the new SHA so an unpin + re-review
 		// flow remains possible later.
@@ -88,19 +106,20 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 		case !existed:
 			cs.Added = append(cs.Added, BundleChange{
 				Name:   name,
+				Kind:   kind,
 				Remote: remoteName,
 				NewSHA: entry.SHA,
 			})
 		case old.SHA != entry.SHA:
 			cs.Modified = append(cs.Modified, BundleChange{
 				Name:   name,
+				Kind:   kind,
 				Remote: remoteName,
 				OldSHA: old.SHA,
 				NewSHA: entry.SHA,
 			})
 		}
 	}
-	return cs
 }
 
 // remoteNameForKey resolves the registry remote alias for a canonical lockfile

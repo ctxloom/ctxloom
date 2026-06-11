@@ -38,21 +38,22 @@ const mcpRecvTimeout = 15 * time.Second
 // re-implementing the wire plumbing. Every method returns an error (no
 // *testing.T) so it composes with both Go tests and godog steps.
 type MCPClient struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	nextID int
+	cmd     *exec.Cmd
+	cancel  context.CancelFunc
+	stdin   io.WriteCloser
+	lines   chan string // server stdout, one line per receive; closed on read error
+	readErr error       // why lines closed; written before close, read only after
+	nextID  int
 }
 
 // StartMCP spawns the MCP server in the project directory with the isolated
-// environment, additionally scrubbing ambient session vars. extraEnv entries
+// (and session-scrubbed — see isolatedEnv) environment. extraEnv entries
 // ("KEY=VALUE") are appended last and win over the isolated environment.
 func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, e.AppBinary, "mcp")
 	cmd.Dir = e.ProjectDir
-	cmd.Env = append(scrubSessionEnv(e.isolatedEnv()), extraEnv...)
+	cmd.Env = append(e.isolatedEnv(), extraEnv...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -70,13 +71,32 @@ func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
 		cancel()
 		return nil, fmt.Errorf("start mcp server: %w", err)
 	}
-	return &MCPClient{
+	c := &MCPClient{
 		cmd:    cmd,
 		cancel: cancel,
 		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
+		lines:  make(chan string, 64),
 		nextID: 1,
-	}, nil
+	}
+	// Dedicated reader goroutine so recvByID can select on a timer: a
+	// wedged-but-alive server (stdout open, nothing arriving) then times out
+	// instead of hanging the suite inside a blocking ReadString. The goroutine
+	// exits when the server's stdout closes (server death or Close's kill).
+	go func() {
+		r := bufio.NewReader(stdout)
+		for {
+			line, err := r.ReadString('\n')
+			if line != "" {
+				c.lines <- line
+			}
+			if err != nil {
+				c.readErr = err
+				close(c.lines)
+				return
+			}
+		}
+	}()
+	return c, nil
 }
 
 // scrubSessionEnv returns env with the ambient session variables removed,
@@ -116,23 +136,29 @@ func (c *MCPClient) send(msg map[string]any) error {
 }
 
 // recvByID consumes lines until a response with the given id arrives, skipping
-// notifications and non-JSON noise.
+// notifications and non-JSON noise. The deadline is enforced even while no
+// line is arriving (reader goroutine + timer select), so a wedged-but-alive
+// server times the call out instead of hanging the suite.
 func (c *MCPClient) recvByID(id int) (map[string]any, error) {
-	deadline := time.Now().Add(mcpRecvTimeout)
-	for time.Now().Before(deadline) {
-		line, err := c.stdout.ReadString('\n')
-		if err != nil {
-			return nil, fmt.Errorf("read stdout (id=%d): %w", id, err)
-		}
-		var msg map[string]any
-		if json.Unmarshal([]byte(line), &msg) != nil {
-			continue
-		}
-		if rid, ok := msg["id"].(float64); ok && int(rid) == id {
-			return msg, nil
+	timer := time.NewTimer(mcpRecvTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case line, ok := <-c.lines:
+			if !ok {
+				return nil, fmt.Errorf("read stdout (id=%d): %w", id, c.readErr)
+			}
+			var msg map[string]any
+			if json.Unmarshal([]byte(line), &msg) != nil {
+				continue
+			}
+			if rid, ok := msg["id"].(float64); ok && int(rid) == id {
+				return msg, nil
+			}
+		case <-timer.C:
+			return nil, fmt.Errorf("timeout waiting for response id=%d", id)
 		}
 	}
-	return nil, fmt.Errorf("timeout waiting for response id=%d", id)
 }
 
 // Initialize performs the initialize / notifications/initialized handshake.

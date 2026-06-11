@@ -74,6 +74,11 @@ func generateID() int {
 	assert.Contains(t, result.Content, "func NewUser(name string)")
 	assert.Contains(t, result.Content, "func (u *User) GetFullName()")
 
+	// Both functions AND methods must be recorded in PreservedElements
+	// (method_declaration names are field_identifier nodes, not identifier).
+	assert.Contains(t, result.PreservedElements, "func NewUser")
+	assert.Contains(t, result.PreservedElements, "func GetFullName")
+
 	// Should elide function bodies
 	assert.Contains(t, result.Content, "{ ... }")
 

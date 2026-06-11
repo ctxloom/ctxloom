@@ -129,7 +129,7 @@ func expandDistillFiles(patterns []string) ([]string, error) {
 			if _, err := os.Stat(pattern); err == nil {
 				files = append(files, pattern)
 			} else {
-				fmt.Fprintf(os.Stderr, "Warning: no files match %q\n", pattern)
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: no files match %q\n", pattern)
 			}
 		} else {
 			files = append(files, matches...)

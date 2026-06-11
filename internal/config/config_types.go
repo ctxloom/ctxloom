@@ -1,6 +1,8 @@
 package config
 
 import (
+	"slices"
+
 	"github.com/ctxloom/shared/wire"
 	"gopkg.in/yaml.v3"
 )
@@ -18,7 +20,7 @@ type LLMConfig struct {
 	// freshly-selected engine, and the persist path strips it so user configs
 	// stay plain {type, model}. It never affects runtime label resolution.
 	Role string                 `mapstructure:"role" yaml:"role,omitempty"`
-	Body map[string]interface{} `mapstructure:",remain" yaml:",inline"`
+	Body map[string]any `mapstructure:",remain" yaml:",inline"`
 }
 
 // RoleDefaults maps a role to the config label that plays it. Roles select
@@ -82,7 +84,7 @@ func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // MarshalYAML outputs as string if priority is 0, otherwise as struct.
-func (f FragmentRef) MarshalYAML() (interface{}, error) {
+func (f FragmentRef) MarshalYAML() (any, error) {
 	if f.Priority == 0 {
 		return f.Name, nil
 	}
@@ -116,6 +118,39 @@ type Profile struct {
 type ProfilesConfig struct {
 	Defaults    []string           `mapstructure:"defaults" yaml:"defaults,omitempty"`       // Default profiles to load (supports multiple)
 	Definitions map[string]Profile `mapstructure:"definitions" yaml:"definitions,omitempty"` // Named profile definitions
+
+	// inheritedDefaults holds defaults inherited from the HOME config for this
+	// run only (operations.EnsureDefaultProfiles). They are deliberately
+	// unexported and yaml-invisible: GetDefaultProfiles consults them as a
+	// fallback, but Save never persists them and ExplicitDefaultProfiles never
+	// reports them — otherwise an unrelated cfg.Save() would silently
+	// materialize home defaults into the project config.yaml, and a run-only
+	// inheritance would suppress first-profile auto-promotion.
+	inheritedDefaults []string
+	// inheritedResolved records that the home-defaults lookup already ran this
+	// run (even if it found none), so repeated EnsureDefaultProfiles calls are
+	// read-only — concurrent profile assembly (operations.MapProfiles) relies
+	// on this after the main goroutine resolves once.
+	inheritedResolved bool
+}
+
+// SetInheritedDefaults records run-only defaults inherited from the home
+// config (pass nil to record "looked, found none"). See inheritedDefaults.
+func (p *ProfilesConfig) SetInheritedDefaults(names []string) {
+	p.inheritedDefaults = append([]string(nil), names...)
+	p.inheritedResolved = true
+}
+
+// InheritedDefaults returns the run-only defaults inherited from the home
+// config, or nil when none were inherited.
+func (p *ProfilesConfig) InheritedDefaults() []string {
+	return p.inheritedDefaults
+}
+
+// InheritedDefaultsResolved reports whether the home-defaults inheritance
+// lookup already ran this run.
+func (p *ProfilesConfig) InheritedDefaultsResolved() bool {
+	return p.inheritedResolved
 }
 
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
@@ -179,12 +214,7 @@ func (p *ProfilesConfig) RemoveDefaultProfile(name string) bool {
 
 // IsDefaultProfile checks if a profile is in the defaults list.
 func (p *ProfilesConfig) IsDefaultProfile(name string) bool {
-	for _, name2 := range p.Defaults {
-		if name2 == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.Defaults, name)
 }
 
 // SyncConfig holds configuration for dependency sync behavior.

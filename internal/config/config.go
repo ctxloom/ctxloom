@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,7 +173,9 @@ func (c *Config) ProfileDefinition(name string) (Profile, bool) {
 }
 
 // GetDefaultProfiles returns the default profiles to load for `ctxloom run`.
-// Reads the canonical defaults.profiles array. As a last-resort fallback, if
+// Reads the canonical defaults.profiles array, then any run-only defaults
+// inherited from the home config (see ProfilesConfig.SetInheritedDefaults —
+// these are never persisted and never explicit). As a last-resort fallback, if
 // no default is configured but exactly one profile is installed locally, that
 // profile is returned — otherwise `ctxloom run` would launch with empty
 // context.
@@ -182,6 +183,9 @@ func (c *Config) GetDefaultProfiles() []string {
 	defaults := c.ExplicitDefaultProfiles()
 	if len(defaults) > 0 {
 		return defaults
+	}
+	if inherited := c.Profiles.InheritedDefaults(); len(inherited) > 0 {
+		return inherited
 	}
 
 	// Fallback: if exactly one profile is installed, treat it as the default.
@@ -296,10 +300,21 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
 	// copy on disk (the profile-side mirror of SeededBundleLoader).
-	if seed := c.loadRemoteProfileSeed(); len(seed) > 0 {
-		opts = append(opts, profiles.WithSeededProfiles(seed))
-	}
+	opts = append(opts, c.ProfileSeedOptions()...)
 	return profiles.NewLoader(profileDirs, opts...)
+}
+
+// ProfileSeedOptions returns the loader option that seeds lockfile-listed
+// remote profiles from the git clone cache, or nil when there are none.
+// Exposed (like ProfileRemoteResolver/ProfileRemoteURLResolver) so other
+// profile-loader factories — e.g. operations.profileLoader — wire the exact
+// same seed as GetProfileLoader and the two never disagree about which remote
+// profiles exist.
+func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
+	if seed := c.loadRemoteProfileSeed(); len(seed) > 0 {
+		return []profiles.LoaderOption{profiles.WithSeededProfiles(seed)}
+	}
+	return nil
 }
 
 // loadRemoteProfileSeed reads every lockfile-listed profile from the local git
@@ -344,7 +359,9 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 		}
 		p.ResolveShortRefs(repoURL, entry.SHA)
 		p.Name = canonical
-		p.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
+		// The sentinel path marks the profile read-only for write paths
+		// (profiles.Loader.Save/Delete check IsSeededPath).
+		p.Path = fmt.Sprintf("%s%s@%s", profiles.SeededProfilePathPrefix, canonical, entry.SHA)
 		loaded[canonical] = p
 	}
 	if len(loaded) == 0 {
@@ -501,12 +518,18 @@ func mergeDefaultConfig(cfg *Config) {
 	if len(cfg.LM.Configs) > 0 {
 		return
 	}
-	// cfg gets its own entry map: the overlay snapshot must stay pristine so a
+	// cfg gets its own DEEP copy: the overlay snapshot must stay pristine so a
 	// later in-place registry mutation isn't mistaken for "still the default"
-	// and stripped by Save.
+	// and stripped by Save. A top-level maps.Copy is not enough — each entry's
+	// Body map would still be shared with the snapshot, so mutating e.g.
+	// Body["model"] in place would also rewrite the overlay and defeat the
+	// userAuthoredLM comparison.
 	overlay := LMConfig{Configs: def.LM.Configs}
 	cfg.LM.Configs = make(map[string]LLMConfig, len(def.LM.Configs))
-	maps.Copy(cfg.LM.Configs, def.LM.Configs)
+	for label, entry := range def.LM.Configs {
+		entry.Body = deepCopyBody(entry.Body)
+		cfg.LM.Configs[label] = entry
+	}
 	if cfg.LM.Defaults.Primary == "" {
 		cfg.LM.Defaults.Primary = def.LM.Defaults.Primary
 		overlay.Defaults.Primary = def.LM.Defaults.Primary
@@ -516,6 +539,37 @@ func mergeDefaultConfig(cfg *Config) {
 		overlay.Defaults.Fast = def.LM.Defaults.Fast
 	}
 	cfg.lmDefaultOverlay = &overlay
+}
+
+// deepCopyBody clones an LLMConfig.Body recursively (nested maps and slices —
+// the shapes yaml.Unmarshal produces), so a copy's mutations never reach the
+// original. Nil in, nil out.
+func deepCopyBody(body map[string]any) map[string]any {
+	if body == nil {
+		return nil
+	}
+	out := make(map[string]any, len(body))
+	for k, v := range body {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+// deepCopyValue clones the YAML-decoded value shapes that can alias storage.
+// Scalars are returned as-is.
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return deepCopyBody(val)
+	case []any:
+		out := make([]any, len(val))
+		for i, item := range val {
+			out[i] = deepCopyValue(item)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // loadConfigFile loads a config file into the provided Config struct.

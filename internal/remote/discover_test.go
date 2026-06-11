@@ -50,6 +50,15 @@ func TestRepoInfo_Fields(t *testing.T) {
 	if repo.Name != "ctxloom" {
 		t.Errorf("Name = %q, want %q", repo.Name, "ctxloom")
 	}
+	if repo.Description != "Test repo" {
+		t.Errorf("Description = %q, want %q", repo.Description, "Test repo")
+	}
+	if repo.URL != "https://github.com/alice/ctxloom" {
+		t.Errorf("URL = %q, want %q", repo.URL, "https://github.com/alice/ctxloom")
+	}
+	if repo.Language != "Go" {
+		t.Errorf("Language = %q, want %q", repo.Language, "Go")
+	}
 	if repo.Stars != 42 {
 		t.Errorf("Stars = %d, want %d", repo.Stars, 42)
 	}

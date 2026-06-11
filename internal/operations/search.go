@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -29,10 +30,11 @@ type SearchContentRequest struct {
 	SortOrder string   `json:"sort_order"` // asc, desc
 	Limit     int      `json:"limit"`
 
-	// Scope flags for unified search.
-	// When both are false, defaults to searching both local and remote.
+	// Scope flags for unified search. When neither is set, the search is
+	// LOCAL only — the historical default, and what the MCP search_content
+	// tool advertises (remote discovery is search_library's job).
 	SearchLocal  bool `json:"search_local"`  // Search local content (fragments, prompts, profiles, mcp_servers)
-	SearchRemote bool `json:"search_remote"` // Search remote content (bundles, profiles from remotes)
+	SearchRemote bool `json:"search_remote"` // Also search configured remotes' bundles/profiles (via SearchRemotes; clone-cache reads, no network)
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
@@ -68,21 +70,29 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		loader = bundleLoader(cfg)
 	}
 
-	// One searcher per content type; the requested-types set gates which run.
-	searchers := []struct {
-		typ string
-		run func() []SearchResult
-	}{
-		{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
-		{"prompt", func() []SearchResult { return searchPrompts(loader, query) }},
-		{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
-		{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
-	}
+	// Scope: local unless explicitly narrowed; remote is opt-in.
+	searchLocal := req.SearchLocal || !req.SearchRemote
+
 	var results []SearchResult
-	for _, s := range searchers {
-		if searchTypes.Has(s.typ) {
-			results = append(results, s.run()...)
+	if searchLocal {
+		// One searcher per content type; the requested-types set gates which run.
+		searchers := []struct {
+			typ string
+			run func() []SearchResult
+		}{
+			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
+			{"prompt", func() []SearchResult { return searchPrompts(loader, query) }},
+			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
+			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 		}
+		for _, s := range searchers {
+			if searchTypes.Has(s.typ) {
+				results = append(results, s.run()...)
+			}
+		}
+	}
+	if req.SearchRemote {
+		results = append(results, searchRemoteEntries(ctx, cfg, req, searchTypes)...)
 	}
 
 	sortBy := req.SortBy
@@ -161,30 +171,87 @@ func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
 	return results
 }
 
-// searchProfiles returns configured profiles matching query by name, then
-// description, then tag (first match wins, recorded in Match).
+// searchProfiles returns profiles matching query by name, then description,
+// then tag (first match wins, recorded in Match). It searches BOTH sources a
+// profile can come from: inline config definitions and the directory/seeded
+// loader ListProfiles uses — directory profiles are the common case, and the
+// seeded loader is what makes locked remote profiles visible at all. Loader
+// errors degrade to the inline definitions only.
 func searchProfiles(cfg *config.Config, query string) []SearchResult {
 	var results []SearchResult
-	for name, profile := range cfg.Profiles.Definitions {
+	seen := collections.NewSet[string]()
+	match := func(name, description string, tags []string) {
+		if seen.Has(name) {
+			return
+		}
 		matchType := ""
 		switch {
 		case strings.Contains(strings.ToLower(name), query):
 			matchType = "name"
-		case strings.Contains(strings.ToLower(profile.Description), query):
+		case strings.Contains(strings.ToLower(description), query):
 			matchType = "description"
-		case containsTag(profile.Tags, query):
+		case containsTag(tags, query):
 			matchType = "tag"
 		}
 		if matchType != "" {
+			seen.Add(name)
 			results = append(results, SearchResult{
 				Type:  "profile",
 				Name:  name,
-				Tags:  profile.Tags,
+				Tags:  tags,
 				Match: matchType,
 			})
 		}
 	}
+
+	for name, profile := range cfg.Profiles.Definitions {
+		match(name, profile.Description, profile.Tags)
+	}
+	if profileList, err := profileLoader(cfg).List(); err == nil {
+		for _, p := range profileList {
+			match(p.Name, p.Description, p.Tags)
+		}
+	}
 	return results
+}
+
+// searchRemoteEntries maps remote bundle/profile matches (SearchRemotes over
+// the local clone caches) into SearchResults, honoring the requested-types
+// filter. A remote failure degrades to local-only results with a warning —
+// search must not break because one remote is unreachable.
+func searchRemoteEntries(ctx context.Context, cfg *config.Config, req SearchContentRequest, searchTypes collections.Set[string]) []SearchResult {
+	if req.Query == "" {
+		return nil // tags-only searches have no remote counterpart
+	}
+	// "fragment" maps to bundles, mirroring searchTypeList: fragments live
+	// inside bundles, so a fragment search surfaces the bundles to pull.
+	wantBundle := searchTypes.Has("bundle") || searchTypes.Has("fragment")
+	wantProfile := searchTypes.Has("profile")
+	itemType := ""
+	switch {
+	case wantBundle && !wantProfile:
+		itemType = "bundle"
+	case wantProfile && !wantBundle:
+		itemType = "profile"
+	case !wantBundle && !wantProfile:
+		return nil
+	}
+	res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: req.Query, ItemType: itemType})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: remote search failed: %v\n", err)
+		return nil
+	}
+	out := make([]SearchResult, 0, len(res.Results))
+	for _, e := range res.Results {
+		out = append(out, SearchResult{
+			Type:   e.Type,
+			Name:   e.Name,
+			Tags:   e.Tags,
+			Source: e.Remote,
+			Match:  "name",
+		})
+	}
+	return out
 }
 
 // searchMCPServers returns configured MCP servers whose name or command matches

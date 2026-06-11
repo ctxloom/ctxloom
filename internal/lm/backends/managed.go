@@ -39,6 +39,7 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 		Prompts:          commandExportsFor(backendName, LoadPromptExports(cfg)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, ""),
 		MCP:              assembleManagedMCP(cfg),
+		BundleMCP:        cfg.ResolveBundleMCPServers(),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 	}
 }

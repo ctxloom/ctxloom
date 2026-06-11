@@ -42,18 +42,24 @@ var (
 // (taskloom, ltk), whose builtin-bundle entries must degrade to absent rather
 // than register a broken server or hook.
 func missingCompanion(command string) (string, bool) {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return "", false
-	}
-	bin := fields[0]
-	if bin == "ctxloom" {
+	bin := companionBin(command)
+	if bin == "" {
 		return "", false
 	}
 	if _, err := lookPath(bin); err != nil {
 		return bin, true
 	}
 	return "", false
+}
+
+// companionBin extracts the companion executable a command invokes: its first
+// field, unless the command is empty or runs ctxloom itself.
+func companionBin(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 || fields[0] == "ctxloom" {
+		return ""
+	}
+	return fields[0]
 }
 
 // warnMissingCompanion emits the one-shot install hint for an absent binary.

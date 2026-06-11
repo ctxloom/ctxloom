@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -77,7 +78,7 @@ Examples:
 		}
 
 		if result.Warning != "" {
-			fmt.Printf("Warning: %s\n", result.Warning)
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", result.Warning)
 		}
 
 		fmt.Printf("Added remote '%s' → %s\n", result.Name, result.URL)

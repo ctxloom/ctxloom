@@ -51,7 +51,7 @@ type ProfileByteSource interface {
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "updated", "skipped", "failed"
+	Status    string `json:"status"` // "installed", "updated", "skipped", "staged", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 }
@@ -62,6 +62,7 @@ type SyncDependenciesResult struct {
 	Synced    []SyncItem `json:"synced,omitempty"`
 	Skipped   []SyncItem `json:"skipped,omitempty"`
 	Failed    []SyncItem `json:"failed,omitempty"`
+	Staged    []SyncItem `json:"staged,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
 	Updated   int        `json:"updated"`
@@ -123,6 +124,12 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		return result, err
 	}
 
+	// SECURITY: surface staged first-installs loudly — they are inert (no
+	// hooks/MCP/context) until the user reviews and approves them.
+	if n := len(result.Staged); n > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: %d new bundle(s)/profile(s) staged pending review — run 'ctxloom bundle review'\n", n)
+	}
+
 	runSyncPostSteps(ctx, cfg, req, result, fs)
 
 	if result.Errors > 0 {
@@ -131,18 +138,20 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 
 	recordReviewState(cfg, registry, fs, result)
 
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d staged for review, %d failed",
+		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Staged), result.Errors)
 
 	return result, nil
 }
 
 // resolveSyncDeps returns the registry and puller for a sync, preferring
-// injected (test) instances. Sync installs exactly the pinned set and never
-// stages for review — it does NOT redirect to the pending lockfile. Surfacing
-// an upstream change is `remote upgrade`'s job (operations.StageUpgrade), and
-// the post-sync lock rebuilds the active lockfile from the pinned closure, so
-// the puller's writes are just a registration side effect.
+// injected (test) instances. Sync installs exactly the pinned set; surfacing
+// an upstream change to an already-locked item is `remote upgrade`'s job
+// (operations.StageUpgrade), and the post-sync lock rebuilds the active
+// lockfile from the pinned closure. The one exception is a FIRST install from
+// an untrusted remote: sync pulls are Blind (no security review), so syncItem
+// sets StageUntrustedNew and the puller stages such items into the pending
+// lockfile for `bundle review` instead of activating them.
 func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
 	registry := req.Registry
 	if registry == nil {
@@ -200,8 +209,10 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	if req.Lock && result.Installed+result.Updated > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
-		// second sync pass.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true}); err != nil {
+		// second sync pass. StageUntrustedNew keeps the closure rebuild from
+		// activating untrusted first-installs the puller just staged for review.
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true, StageUntrustedNew: true}); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to generate lockfile after sync: %v\n", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
@@ -213,6 +224,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks after sync: %v\n", err)
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}
@@ -427,16 +439,21 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 
 	// Pull the item. The pull must be Blind: there is no interactive
 	// confirmation to give — the bundle-review gate is the confirmation — and
-	// any content display would be premature. Stdout is pinned to stderr
+	// any content display would be premature. Because Blind skips the security
+	// review entirely, StageUntrustedNew is the compensating gate: a FIRST
+	// install from an untrusted remote lands in the pending lockfile for
+	// `ctxloom bundle review` instead of the active one, so its hooks/MCP/
+	// context cannot activate until approved. Stdout is pinned to stderr
 	// because sync runs inside the MCP server, whose process stdout carries
 	// the JSON-RPC stream; pull's informational output (Blind-mode notice,
 	// lockfile warnings) must never land there.
 	opts := remote.PullOptions{
-		LocalDir: baseDir,
-		Force:    force,
-		Blind:    true,
-		ItemType: itemType,
-		Stdout:   os.Stderr,
+		LocalDir:          baseDir,
+		Force:             force,
+		Blind:             true,
+		StageUntrustedNew: true,
+		ItemType:          itemType,
+		Stdout:            os.Stderr,
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)
@@ -447,9 +464,12 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	item.LocalPath = result.LocalPath
-	if result.Overwritten {
+	switch {
+	case result.Staged:
+		item.Status = "staged"
+	case result.Overwritten:
 		item.Status = "updated"
-	} else {
+	default:
 		item.Status = "installed"
 	}
 
@@ -467,6 +487,8 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 		result.Updated++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
+	case "staged":
+		result.Staged = append(result.Staged, item)
 	case "failed":
 		result.Failed = append(result.Failed, item)
 		result.Errors++

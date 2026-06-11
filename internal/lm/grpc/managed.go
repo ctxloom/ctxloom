@@ -23,6 +23,7 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 		Prompts:          commandExportsToProto(m.Prompts),
 		Hooks:            hooksConfigToProto(m.Hooks),
 		Mcp:              mcpConfigToProto(m.MCP),
+		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
 		ManageStatusline: m.ManageStatusline,
 	}
 }
@@ -37,6 +38,7 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 		Prompts:          commandExportsFromProto(m.GetPrompts()),
 		Hooks:            hooksConfigFromProto(m.GetHooks()),
 		MCP:              mcpConfigFromProto(m.GetMcp()),
+		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),
 		ManageStatusline: m.GetManageStatusline(),
 	}
 }
@@ -222,6 +224,32 @@ func mcpServerFromProto(s *MCPServer) wire.MCPServer {
 		Installation: s.GetInstallation(),
 		SCM:          s.GetScm(),
 	}
+}
+
+// mcpServerMapToProto converts a bare name→server map (the bundle MCP set) to
+// its proto form. Returns nil for an empty/nil map so the wire stays minimal and
+// managedConfigFromProto rebuilds a nil BundleMCP — matching the host's "no
+// bundle servers" shape rather than an empty non-nil map.
+func mcpServerMapToProto(in map[string]wire.MCPServer) map[string]*MCPServer {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]*MCPServer, len(in))
+	for name, s := range in {
+		out[name] = mcpServerToProto(s)
+	}
+	return out
+}
+
+func mcpServerMapFromProto(in map[string]*MCPServer) map[string]wire.MCPServer {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]wire.MCPServer, len(in))
+	for name, s := range in {
+		out[name] = mcpServerFromProto(s)
+	}
+	return out
 }
 
 func mcpConfigToProto(c *wire.MCPConfig) *MCPConfig {

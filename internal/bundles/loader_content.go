@@ -176,7 +176,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 				FileName: name + ".yaml",
 				Path:     bundleInfo.Path,
 				Source:   bundleInfo.Name,
-				Tags:     append(bundle.Tags, prompt.Tags...),
+				Tags:     slices.Concat(bundle.Tags, prompt.Tags),
 				Bundle:   bundleInfo.Name,
 				ItemType: "prompt",
 			})
@@ -203,12 +203,11 @@ func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
 // "#" was present at all; when it was, kind must equal want or an error is
 // returned. For a plain name (no "#"), isRef is false and the caller searches.
 func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, err error) {
-	idx := strings.Index(name, "#")
-	if idx == -1 {
+	bundleName, rest, found := strings.Cut(name, "#")
+	if !found {
 		return "", "", false, nil
 	}
-	bundleName = name[:idx]
-	parts := strings.SplitN(name[idx+1:], "/", 2)
+	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 || parts[0] != want {
 		return "", "", true, fmt.Errorf("invalid %s reference: %s", strings.TrimSuffix(want, "s"), name)
 	}
@@ -367,11 +366,8 @@ func (l *Loader) ListByTags(tags []string) ([]ContentInfo, error) {
 
 	var matched []ContentInfo
 	for _, info := range all {
-		for _, t := range info.Tags {
-			if tagSet.Has(t) {
-				matched = append(matched, info)
-				break
-			}
+		if slices.ContainsFunc(info.Tags, tagSet.Has) {
+			matched = append(matched, info)
 		}
 	}
 

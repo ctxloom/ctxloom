@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -807,6 +808,90 @@ func TestParseReference_SelectorVersionOrderings(t *testing.T) {
 			}
 			if got.ContentVersion != tt.wantVersion {
 				t.Errorf("ContentVersion = %q, want %q", got.ContentVersion, tt.wantVersion)
+			}
+		})
+	}
+}
+
+// TestParseReference_RejectsTraversal pins the parse-time path-traversal gate:
+// an item path is later joined under a repo root (BuildFilePath) and, for
+// filesystem-backed sources, under a directory root (fsVCS.ReadFile), so ".."
+// segments and absolute paths must be rejected at parse time with a clear
+// error rather than contained ad hoc at each read site.
+func TestParseReference_RejectsTraversal(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string // "" means the reference must parse
+	}{
+		{
+			name:    "dotdot escape in https ref",
+			input:   "https://github.com/o/r@bundles/../../../etc/passwd",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "interior dotdot segment",
+			input:   "https://github.com/o/r@bundles/sub/../other",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "trailing dotdot segment",
+			input:   "https://github.com/o/r@profiles/..",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "dot segment",
+			input:   "https://github.com/o/r@bundles/./demo",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "absolute item path",
+			input:   "https://github.com/o/r@bundles//etc/passwd",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "backslash dotdot segment",
+			input:   `https://github.com/o/r@bundles/..\demo`,
+			wantErr: "not allowed",
+		},
+		{
+			name:    "dotdot in local ref",
+			input:   "ctxloom:local@bundles/../secrets",
+			wantErr: "not allowed",
+		},
+		{
+			name:    "dotdot in ssh ref",
+			input:   "git@github.com:o/r@bundles/../x",
+			wantErr: "not allowed",
+		},
+		{
+			name:  "plain nested path still parses",
+			input: "https://github.com/o/r@bundles/lang/go/testing",
+		},
+		{
+			name:  "dotfile name (not a traversal) still parses",
+			input: "https://github.com/o/r@bundles/.hidden",
+		},
+		{
+			name:  "double-dot prefix in a name still parses",
+			input: "https://github.com/o/r@bundles/..weird",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.input)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ParseReference(%q) unexpected error: %v", tt.input, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ParseReference(%q) = %+v, want traversal error", tt.input, got)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not mention %q", err.Error(), tt.wantErr)
 			}
 		})
 	}

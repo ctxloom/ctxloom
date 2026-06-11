@@ -10,6 +10,8 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+
+	"github.com/ctxloom/ctxloom/internal/selfexec"
 )
 
 // GRPCClient is the client-side implementation that communicates with the plugin.
@@ -61,8 +63,15 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 		return nil, fmt.Errorf("send run start: %w", err)
 	}
 
-	// Pump keystrokes. The goroutine parks in stdin.Read at end of run; for the
-	// one-shot `ctxloom run` process that is harmless (the process exits).
+	// Pump keystrokes. At end of run the goroutine is typically parked in
+	// stdin.Read; it exits when that read returns (error, or a stray byte the
+	// dead stream rejects). For the one-shot `ctxloom run` process the parked
+	// read is moot — the process exits. A caller that keeps reading stdin in
+	// the same process after Run returns (e.g. init's post-discovery relaunch
+	// prompt) must NOT pass the raw os.Stdin here: the parked read would
+	// swallow the next reader's input. Such callers pass a detachable lease
+	// (see cmd's stdinHandoff) and detach it once Run returns, which unblocks
+	// this goroutine and hands any in-flight bytes to the next reader.
 	if stdin != nil {
 		go func() {
 			buf := make([]byte, 4096)
@@ -229,11 +238,11 @@ func NewSelfInvokingClient(backendName string, verbosity int) (*LLMRunner, error
 // specific label (the run path) pass it so serve configures exactly that
 // entry; label may be empty when only the type is known.
 func NewSelfInvokingClientForLabel(backendName, label string, verbosity int) (*LLMRunner, error) {
-	// Get the path to the current executable
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
+	// Resolve the running binary upgrade-safely: after an in-place upgrade,
+	// bare os.Executable() reports "/path/ctxloom (deleted)" on Linux, which a
+	// long-running MCP server (distill/recover tools) would then exec and
+	// fail. selfexec strips the suffix and falls back to a PATH lookup.
+	executable := selfexec.Path()
 
 	args := []string{"llm", "serve", backendName}
 	if label != "" {

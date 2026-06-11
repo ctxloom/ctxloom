@@ -25,6 +25,17 @@ type PullOptions struct {
 	// Use this for automated/batch operations. Implies Force.
 	Blind bool
 
+	// StageUntrustedNew redirects the lockfile write of a FIRST INSTALL (an
+	// item with no existing active lockfile entry) from a remote without
+	// TrustBundles into the pending lockfile (lock.pending.yaml) instead of
+	// the active one. SECURITY: Blind pulls skip the interactive security
+	// review, so non-interactive callers (startup/auto sync) set this so
+	// never-reviewed content cannot reach the active lockfile — and thus its
+	// hooks/MCP/context cannot activate — until the user approves it via
+	// `ctxloom bundle review` / `ctxloom bundle approve`. Items already in the
+	// active lockfile (previously installed or reviewed) are unaffected.
+	StageUntrustedNew bool
+
 	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
 
@@ -63,6 +74,13 @@ type PullResult struct {
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
 	// synthetic) and also for profiles (where it equals what was written).
 	Content []byte
+
+	// Staged reports that the item's lockfile entry was written to the
+	// PENDING lockfile for review instead of the active one (see
+	// PullOptions.StageUntrustedNew). A staged item is not installed: its
+	// content cannot resolve, and its hooks/MCP cannot activate, until the
+	// entry is approved into the active lockfile.
+	Staged bool
 }
 
 // FetcherFactory creates Fetcher instances. Allows mocking for tests.
@@ -384,11 +402,12 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	if err := p.updateLockfile(item.localName, opts.ItemType, item.rem, item.sha, requestedVersion); err != nil {
+	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion)
+	if err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
-	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}, nil
+	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content, Staged: staged}, nil
 }
 
 // writePulledContent records a pulled remote item. Remote bundles AND profiles
@@ -491,12 +510,18 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // bundleLockfileManager when one was configured (see WithBundleLockfileTarget),
 // so SyncOnStartup can land changes in lock.pending.yaml without touching
 // the active lock.yaml. Profiles always go to the main lockfile manager.
-func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Remote, sha string, requestedVersion string) error {
+//
+// With opts.StageUntrustedNew, a first install (no existing entry in the
+// target lockfile) from a remote without TrustBundles is staged into the
+// pending lockfile instead — the security gate for non-interactive pulls.
+// Returns staged=true when that redirect happened.
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion string) (staged bool, err error) {
+	itemType := opts.ItemType
 	target := p.lockfileTargetFor(itemType)
 	writingToPending := p.bundleLockfileManager != nil && target == p.bundleLockfileManager
 	lockfile, err := target.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load lockfile: %w", err)
+		return false, fmt.Errorf("failed to load lockfile: %w", err)
 	}
 
 	existing, hadExisting := lockfile.GetEntry(itemType, localName)
@@ -506,6 +531,24 @@ func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Rem
 		URL:              remote.URL,
 		RequestedVersion: requestedVersion,
 		FetchedAt:        time.Now().UTC(),
+	}
+
+	// SECURITY: an untrusted first install never reaches the active lockfile
+	// from a non-interactive pull — it is staged for `bundle review` instead.
+	// Trust mirrors StageUpgrade's routing: TrustBundles means "apply without
+	// review". Only applies when writing to the main (active) manager.
+	if opts.StageUntrustedNew && !hadExisting && !remote.TrustBundles &&
+		target == p.lockfileManager && !target.IsPending() {
+		pendingMgr := target.PendingCounterpart()
+		pending, perr := pendingMgr.Load()
+		if perr != nil {
+			return false, fmt.Errorf("failed to load pending lockfile: %w", perr)
+		}
+		pending.AddEntry(itemType, localName, entry)
+		if serr := pendingMgr.Save(pending); serr != nil {
+			return false, fmt.Errorf("failed to save pending lockfile: %w", serr)
+		}
+		return true, nil
 	}
 
 	// A pin is a deliberate "do not upgrade" decision; a content re-pull must
@@ -527,10 +570,10 @@ func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Rem
 	lockfile.AddEntry(itemType, localName, entry)
 
 	if err := target.Save(lockfile); err != nil {
-		return fmt.Errorf("failed to save lockfile: %w", err)
+		return false, fmt.Errorf("failed to save lockfile: %w", err)
 	}
 
-	return nil
+	return false, nil
 }
 
 // lockfileTargetFor picks the manager that should own a write for itemType.

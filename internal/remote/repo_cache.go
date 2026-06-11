@@ -10,7 +10,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+// cloneDirLocks serializes clone-cache mutations per repository directory. It
+// is process-global (not per-RepoCache) because concurrent callers routinely
+// hold independent RepoCache instances rooted at the same baseDir (e.g. the
+// bundle- and profile-side prewarm goroutines, or two remotes sharing a repo
+// URL): an unsynchronized RemoveAll+clone race corrupts the directory
+// ("directory not empty"). Keyed by the clone path.
+var cloneDirLocks sync.Map // map[string]*sync.Mutex
+
+// lockCloneDir locks the per-directory mutex for repoDir and returns the
+// unlock func.
+func lockCloneDir(repoDir string) func() {
+	m, _ := cloneDirLocks.LoadOrStore(repoDir, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
 
 // RepoCache manages local git clone caches of remote repositories.
 // Instead of making per-file API calls, repos are cloned locally and
@@ -73,9 +91,11 @@ func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeTyp
 // If the repo is not yet cloned, it clones it.
 func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
 	repoDir := c.repoDirForURL(repoURL)
+	unlock := lockCloneDir(repoDir)
+	defer unlock()
 
 	if !isGitRepo(repoDir) {
-		return c.ensureClone(ctx, repoURL, forgeType)
+		return c.ensureCloneLocked(ctx, repoURL, repoDir, forgeType)
 	}
 
 	if err := c.fetch(ctx, repoDir, repoURL, forgeType); err != nil {
@@ -86,10 +106,19 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 
 // ensureClone guarantees a usable full clone at the cache path. A missing or
 // corrupt directory is removed and freshly cloned; an existing clone is left
-// as-is (callers refresh explicitly via UpdateRepo).
+// as-is (callers refresh explicitly via UpdateRepo). Concurrent calls for the
+// same directory serialize on the per-directory lock regardless of which
+// RepoCache instance they go through.
 func (c *RepoCache) ensureClone(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
 	repoDir := c.repoDirForURL(repoURL)
+	unlock := lockCloneDir(repoDir)
+	defer unlock()
+	return c.ensureCloneLocked(ctx, repoURL, repoDir, forgeType)
+}
 
+// ensureCloneLocked is ensureClone's body; the caller must hold repoDir's
+// per-directory lock.
+func (c *RepoCache) ensureCloneLocked(ctx context.Context, repoURL, repoDir string, forgeType ForgeType) (string, error) {
 	if isGitRepo(repoDir) {
 		return repoDir, nil
 	}

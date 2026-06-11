@@ -18,6 +18,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 )
 
+// SeededProfilePathPrefix is the sentinel prefix carried in Profile.Path by
+// seeded remote profiles (config.loadRemoteProfileSeed builds
+// "<remote>:<canonical>@<sha>"). It is not a filesystem path: write paths use
+// IsSeededPath to refuse to treat it as one — the profile-side mirror of
+// bundles.seededPathPrefix.
+const SeededProfilePathPrefix = "<remote>:"
+
+// IsSeededPath reports whether path is the synthetic sentinel of a seeded
+// remote profile rather than a real filesystem path.
+func IsSeededPath(path string) bool {
+	return strings.HasPrefix(path, SeededProfilePathPrefix)
+}
+
 // ParseProfile unmarshals profile YAML into a Profile. Name and Path are not
 // set (they are not encoded in the file); callers assign them. Used to parse
 // remote profiles read from the git clone cache before seeding the loader.
@@ -98,7 +111,11 @@ type Loader struct {
 	remoteURLResolver func(alias string) string
 	// pending accumulates in-memory schema upgrades applied during Load that an
 	// interactive caller may persist with consent (see PendingUpgrades).
-	pending []*upgrade.Pending
+	// pendingPaths dedupes by file path: a legacy file loaded several times in
+	// one run (e.g. a shared parent profile) must yield one pending upgrade,
+	// not one consent prompt per load.
+	pending      []*upgrade.Pending
+	pendingPaths map[string]bool
 	// seeded holds remote profiles read from the git clone cache at their locked
 	// SHA, indexed by canonical ref. Remote profiles are pure references (never
 	// materialized to disk), so they enter the loader only via this seed — the
@@ -253,7 +270,10 @@ func (l *Loader) List() ([]*Profile, error) {
 
 			profile, err := l.loadFile(path, l.remoteFor(profileName))
 			if err != nil {
-				return nil // Skip profiles that fail to load
+				// Degrade, but say so: a corrupt profile silently vanishing
+				// from list output is undiagnosable.
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping profile %s: %v\n", path, err)
+				return nil
 			}
 			profile.Name = profileName
 			profiles = append(profiles, profile)
@@ -284,8 +304,17 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		return p, nil
 	}
 
+	// Names reach here from MCP tools and CLI args, so the local form must be
+	// confined to the profiles directories before it is joined into a path —
+	// the same guard Save applies (and the profile-side mirror of
+	// bundles.Loader.Find validating in the read path).
+	localName := toLocalProfileName(name)
+	if err := validateProfileName(localName); err != nil {
+		return nil, err
+	}
+
 	// Convert forward slashes to OS-specific separator for file lookup
-	osName := filepath.FromSlash(toLocalProfileName(name))
+	osName := filepath.FromSlash(localName)
 
 	for _, dir := range l.dirs {
 		for _, ext := range []string{".yaml", ".yml"} {
@@ -356,7 +385,13 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// (see upgrade.go).
 	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver).Run(data); len(applied) > 0 {
 		data = upgraded
-		l.pending = append(l.pending, &upgrade.Pending{Path: path, Data: upgraded, Applied: applied})
+		if !l.pendingPaths[path] {
+			if l.pendingPaths == nil {
+				l.pendingPaths = make(map[string]bool)
+			}
+			l.pendingPaths[path] = true
+			l.pending = append(l.pending, &upgrade.Pending{Path: path, Data: upgraded, Applied: applied})
+		}
 	}
 
 	var profile Profile
@@ -368,9 +403,16 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 }
 
 // Save saves a profile to disk.
+//
+// Seeded remote profiles are rejected: their Path is the "<remote>:" sentinel
+// (not a filesystem path), and writing one anywhere locally would silently
+// fork it from its source — the edit would evaporate on the next pull.
 func (l *Loader) Save(profile *Profile) error {
 	if len(l.dirs) == 0 {
 		return fmt.Errorf("no profiles directory configured")
+	}
+	if IsSeededPath(profile.Path) {
+		return fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom remote pull'", profile.Name)
 	}
 	if err := validateProfileName(profile.Name); err != nil {
 		return err
@@ -422,11 +464,17 @@ func validateProfileName(name string) error {
 	return nil
 }
 
-// Delete removes a profile file.
+// Delete removes a profile file. Load validates the name (traversal names are
+// rejected before any path join) and resolves the path inside the profiles
+// dirs; seeded remote profiles are read-only references with no local file to
+// remove.
 func (l *Loader) Delete(name string) error {
 	profile, err := l.Load(name)
 	if err != nil {
 		return err
+	}
+	if IsSeededPath(profile.Path) {
+		return fmt.Errorf("profile %q is a remote profile and read-only; remove its lockfile entry instead (see 'ctxloom remote')", profile.Name)
 	}
 	return l.fs.Remove(profile.Path)
 }
@@ -546,9 +594,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Then apply this profile's settings (overrides parents)
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
-	for k, v := range profile.Variables {
-		resolved.Variables[k] = v
-	}
+	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
 		resolved.LLM = profile.LLM
@@ -565,9 +611,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 // cloneVisited creates a copy of the visited map for branch isolation.
 func cloneVisited(visited map[string]bool) map[string]bool {
 	clone := make(map[string]bool, len(visited))
-	for k, v := range visited {
-		clone[k] = v
-	}
+	maps.Copy(clone, visited)
 	return clone
 }
 

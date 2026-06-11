@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -99,6 +101,65 @@ func TestStageUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
 	assert.Equal(t, c1, e1.SHA, "the held entry stays frozen at its locked SHA")
+}
+
+// TestStageUpgrade_PreservesInlineRootedEntry pins the canonical-root-set fix:
+// when a trusted change triggers the wholesale active-lock rewrite, a dependency
+// rooted ONLY in an inline config.yaml profile must not be erased. Using a
+// narrower root set (directory profiles only) dropped such entries, silently
+// re-resolving them without review on the next lock.
+func TestStageUpgrade_PreservesInlineRootedEntry(t *testing.T) {
+	tmp := t.TempDir()
+	baseDir := filepath.Join(tmp, ".ctxloom")
+
+	// Trusted bundle in repo A, referenced by a directory profile.
+	srcA := filepath.Join(tmp, "srcA")
+	a1 := initLocalRepoWithFile(t, srcA, "ctxloom/bundles/demoA.yaml", "name: demoA\n")
+	refA := "file://" + srcA + "@bundles/demoA"
+	writeLocalProfile(t, baseDir, "dirprof", "bundles:\n  - "+refA+"\n")
+
+	// Bundle in repo B, referenced ONLY by an inline config.yaml definition.
+	srcB := filepath.Join(tmp, "srcB")
+	b1 := initLocalRepoWithFile(t, srcB, "ctxloom/bundles/demoB.yaml", "name: demoB\n")
+	refB := "file://" + srcB + "@bundles/demoB"
+
+	cfg := testConfigWithSCMPath(baseDir)
+	cfg.Profiles.Definitions = map[string]config.Profile{
+		"inlineprof": {Bundles: []string{refB}},
+	}
+
+	// Register repo A as a TRUSTED remote so its advance auto-applies (which is
+	// what triggers Save(newActive)).
+	reg, err := remote.NewRegistry(paths.RemotesPath(baseDir))
+	require.NoError(t, err)
+	require.NoError(t, reg.Add("repoA", "file://"+srcA))
+	require.NoError(t, reg.SetTrustBundles("repoA", true))
+
+	ctx := context.Background()
+	_, err = LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	require.NoError(t, err)
+
+	active0 := mustLoadActive(t, baseDir)
+	_, okA := active0.GetEntry(remote.ItemTypeBundle, refA)
+	eB0, okB := active0.GetEntry(remote.ItemTypeBundle, refB)
+	require.True(t, okA, "trusted bundle locked")
+	require.True(t, okB, "inline-rooted bundle locked")
+	require.Equal(t, b1, eB0.SHA)
+
+	// Advance the TRUSTED bundle upstream and upgrade: the trusted change
+	// auto-applies, rewriting the active lock.
+	a2 := addFileToLocalRepo(t, srcA, "ctxloom/bundles/demoA2.yaml", "name: demoA2\n")
+	require.NotEqual(t, a1, a2)
+
+	res, err := StageUpgrade(ctx, cfg)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.TrustedApplied, "the trusted advance auto-applies and rewrites the active lock")
+
+	// The inline-rooted entry must survive the wholesale rewrite.
+	active1 := mustLoadActive(t, baseDir)
+	eB1, ok := active1.GetEntry(remote.ItemTypeBundle, refB)
+	assert.True(t, ok, "inline-config-rooted entry must survive the active-lock rewrite")
+	assert.Equal(t, b1, eB1.SHA)
 }
 
 func mustLoadActive(t *testing.T, baseDir string) *remote.Lockfile {

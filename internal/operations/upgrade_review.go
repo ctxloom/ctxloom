@@ -34,26 +34,32 @@ type UpgradeResult struct {
 func StageUpgrade(ctx context.Context, cfg *config.Config) (UpgradeResult, error) {
 	var res UpgradeResult
 	loader := profileLoader(cfg)
-	locals, err := loader.List()
-	if err != nil {
-		return res, err
-	}
+	// The closure roots must match FlattenDependencies' canonical set (inline
+	// config.yaml definitions, directory profiles, and config-default remote
+	// profiles). Using only directory profiles (loader.List) omits deps rooted in
+	// inline/config-default profiles, and the wholesale Save(newActive) below then
+	// erases their active lock entries — silently re-resolving untrusted deps
+	// without review on the next lock.
+	roots := closureRoots(cfg, loader)
 
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	factory := remote.FetcherFactory(newCachedFetcherFactory(cfg))
 	registry, _ := remote.NewRegistry(paths.RemotesPath(baseDir))
-	active, _ := remote.NewLockfileManager(baseDir).Load()
+	active, err := remote.NewLockfileManager(baseDir).Load()
+	if err != nil {
+		return res, err
+	}
 
 	// Advance every referenced clone to live HEAD (and fetch tags) so resolution
 	// sees the newest commit each constraint permits.
-	refreshRepoCaches(ctx, newRepoCache(cfg), directRepoURLs(locals))
+	refreshRepoCaches(ctx, newRepoCache(cfg), directRepoURLs(roots))
 
 	// Re-resolve the whole closure (upgrade mode): every unheld ref advances to
 	// the newest commit its constraint allows; held entries stay put. Conflicts
 	// abort before anything is written.
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
-	proposed, conflicts := flattenRootsWith(ctx, loader, factory, auth, locals, resolve)
+	proposed, conflicts := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
 	if len(conflicts) > 0 {
 		return res, ConflictError(conflicts)
 	}

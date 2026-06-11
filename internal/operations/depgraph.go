@@ -42,17 +42,19 @@ type DependencyConflict struct {
 // the post-sync lock rebuild).
 func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames []string) ([]PinnedRef, []DependencyConflict) {
 	loader := profileLoader(cfg)
-	names := profileNames
-	if len(names) == 0 {
-		for name := range cfg.Profiles.Definitions {
-			names = append(names, name)
-		}
-		if ps, err := loader.List(); err == nil {
-			for _, p := range ps {
-				names = append(names, p.Name)
-			}
-		}
+	var roots []*profiles.Profile
+	if len(profileNames) == 0 {
+		roots = closureRoots(cfg, loader)
+	} else {
+		roots = namedRoots(cfg, loader, profileNames)
 	}
+	return FlattenProfileRoots(ctx, cfg, loader, roots)
+}
+
+// namedRoots resolves profile names to in-memory root profiles. Inline
+// config.yaml definitions win over a same-named directory profile, matching
+// sync's collectProfileReferences resolution order; unknown names are skipped.
+func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) []*profiles.Profile {
 	var roots []*profiles.Profile
 	seen := map[string]struct{}{}
 	for _, name := range names {
@@ -60,8 +62,6 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 			continue
 		}
 		seen[name] = struct{}{}
-		// Inline config definitions win over a same-named directory profile,
-		// matching sync's collectProfileReferences resolution order.
 		if def, ok := cfg.Profiles.Definitions[name]; ok {
 			roots = append(roots, &profiles.Profile{Name: name, Bundles: def.Bundles, Parents: def.Parents})
 			continue
@@ -70,27 +70,53 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 			roots = append(roots, p)
 		}
 	}
-	// Remote refs in the configured default profiles (the init-seeded default,
-	// or home-config defaults) are closure roots even though no local profile
-	// names them. They enter as parents of a synthetic root — the walker
-	// resolves remote parents from the clone cache directly, so this works on
-	// the very first lock when no lockfile entry exists yet to seed the loader.
-	if len(profileNames) == 0 {
-		defaults := cfg.ExplicitDefaultProfiles()
-		if len(defaults) == 0 {
-			defaults = homeDefaultProfiles()
-		}
-		var remoteDefaults []string
-		for _, name := range defaults {
-			if isRemoteReference(name) {
-				remoteDefaults = append(remoteDefaults, name)
-			}
-		}
-		if len(remoteDefaults) > 0 {
-			roots = append(roots, &profiles.Profile{Name: "<config-defaults>", Parents: remoteDefaults})
+	return roots
+}
+
+// closureRoots builds the canonical root set for the WHOLE project closure:
+// every inline config.yaml definition, every directory profile on disk, plus a
+// synthetic root carrying the remote refs named in the configured default
+// profiles (the init-seeded default, or home-config defaults — closure roots
+// even though no local profile names them; the walker resolves remote parents
+// from the clone cache directly, so this works on the very first lock before any
+// lockfile entry exists). Lock AND upgrade must share this set: a wholesale lock
+// rewrite built from a narrower set (e.g. directory profiles only) silently
+// erases every entry rooted only in an inline or config-default profile.
+func closureRoots(cfg *config.Config, loader *profiles.Loader) []*profiles.Profile {
+	var names []string
+	for name := range cfg.Profiles.Definitions {
+		names = append(names, name)
+	}
+	if ps, err := loader.List(); err == nil {
+		for _, p := range ps {
+			names = append(names, p.Name)
 		}
 	}
-	return FlattenProfileRoots(ctx, cfg, loader, roots)
+	roots := namedRoots(cfg, loader, names)
+	if root := configDefaultsRoot(cfg); root != nil {
+		roots = append(roots, root)
+	}
+	return roots
+}
+
+// configDefaultsRoot returns a synthetic root profile whose parents are the
+// remote refs named in the configured default profiles, or nil when there are
+// none. See closureRoots.
+func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
+	defaults := cfg.ExplicitDefaultProfiles()
+	if len(defaults) == 0 {
+		defaults = homeDefaultProfiles()
+	}
+	var remoteDefaults []string
+	for _, name := range defaults {
+		if isRemoteReference(name) {
+			remoteDefaults = append(remoteDefaults, name)
+		}
+	}
+	if len(remoteDefaults) == 0 {
+		return nil
+	}
+	return &profiles.Profile{Name: "<config-defaults>", Parents: remoteDefaults}
 }
 
 // FlattenProfileRoots flattens the closure of the given in-memory root profiles.

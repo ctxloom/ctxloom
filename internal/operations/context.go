@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/cbroglie/mustache"
 
@@ -97,12 +98,38 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		return nil, err
 	}
 
+	// Built-in bundles inject their fragments unconditionally — the always-on
+	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
+	// — independent of profile selection, and skipped when their companion
+	// binary is absent. Appended after profile/request content.
+	contextContent, loadedNames = appendBuiltinFragments(cfg, contextContent, loadedNames)
+
 	return &AssembleContextResult{
 		Profiles:        profileNames,
 		FragmentsLoaded: loadedNames,
 		Context:         contextContent,
 		ProfileLLM:      profileLLM,
 	}, nil
+}
+
+// appendBuiltinFragments appends the always-on built-in bundle fragments to the
+// assembled context, joined with the same separator LoadMultiple uses so the
+// output is indistinguishable from loader-sourced fragments.
+func appendBuiltinFragments(cfg *config.Config, content string, loaded []string) (string, []string) {
+	builtins := cfg.ResolveBuiltinBundleFragments()
+	if len(builtins) == 0 {
+		return content, loaded
+	}
+	parts := make([]string, 0, len(builtins))
+	for _, f := range builtins {
+		parts = append(parts, strings.TrimSpace(f.Content))
+		loaded = append(loaded, f.Name)
+	}
+	joined := strings.Join(parts, "\n\n---\n\n")
+	if content == "" {
+		return joined, loaded
+	}
+	return content + "\n\n---\n\n" + joined, loaded
 }
 
 // resolveContextProfileNames picks the profiles to assemble from: the explicit

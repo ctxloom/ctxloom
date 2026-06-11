@@ -257,11 +257,6 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	uniqueFragments := dedupeFragmentRefs(allFragments)
 	allFragmentNames := sortFragmentsByPriority(uniqueFragments)
 
-	// Load and write context
-	if len(allFragmentNames) == 0 {
-		return "", nil
-	}
-
 	var backendFrags []*agent.Fragment
 	for _, name := range allFragmentNames {
 		content, err := loader.GetFragment(name)
@@ -272,6 +267,17 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			Name:         content.Name,
 			Content:      substituteVariables(content.Content, profileVars, func(string) {}),
 			Installation: content.Installation,
+		})
+	}
+
+	// Built-in bundles inject their fragments unconditionally — the always-on
+	// counterpart to their hooks/MCP — so the SessionStart-injected context file
+	// matches AssembleContext. Skipped when the companion binary is absent.
+	for _, bf := range cfg.ResolveBuiltinBundleFragments() {
+		backendFrags = append(backendFrags, &agent.Fragment{
+			Name:         bf.Name,
+			Content:      bf.Content,
+			Installation: bf.Installation,
 		})
 	}
 

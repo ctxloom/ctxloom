@@ -1511,6 +1511,47 @@ func TestResolveBuiltinBundleMCPServers_MissingBinarySkipped(t *testing.T) {
 	assert.NotContains(t, got, "taskloom", "missing companion binary must not register a server")
 }
 
+// Companion gating for fragments: a builtin bundle's always-on fragment is
+// injected only when the bundle's companion binary resolves — briefing the
+// agent about a tool that isn't installed is noise, matching the hook/MCP gate.
+func TestResolveBuiltinBundleFragments_CompanionGating(t *testing.T) {
+	names := func(frags []BuiltinFragment) []string {
+		out := make([]string, len(frags))
+		for i, f := range frags {
+			out[i] = f.Name
+		}
+		return out
+	}
+
+	t.Run("companions present inject their fragments", func(t *testing.T) {
+		stubLookPath(t)
+		cfg := &Config{}
+		got := names(cfg.ResolveBuiltinBundleFragments())
+		assert.Contains(t, got, "builtin:ltk#fragments/ltk")
+		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom")
+	})
+
+	t.Run("absent companion drops that bundle's fragments", func(t *testing.T) {
+		stubLookPath(t, "ltk")
+		cfg := &Config{}
+		got := names(cfg.ResolveBuiltinBundleFragments())
+		assert.NotContains(t, got, "builtin:ltk#fragments/ltk", "missing ltk must not inject its briefing")
+		assert.Contains(t, got, "builtin:taskloom#fragments/taskloom", "present companion still injects")
+	})
+
+	t.Run("fragments carry their content", func(t *testing.T) {
+		stubLookPath(t)
+		cfg := &Config{}
+		for _, f := range cfg.ResolveBuiltinBundleFragments() {
+			if f.Name == "builtin:ltk#fragments/ltk" {
+				assert.Contains(t, f.Content, "llm-tool-killer")
+				return
+			}
+		}
+		t.Fatal("ltk fragment not found")
+	})
+}
+
 // Companion gating for hooks: the ltk bundle's pre_tool hook applies only when
 // the ltk binary resolves; ctxloom's own hooks (session-bind, stamp-plan) are
 // never gated.

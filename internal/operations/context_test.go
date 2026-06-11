@@ -7,6 +7,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -320,6 +321,44 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 	assert.Empty(t, result.Profiles)
 	assert.Empty(t, result.FragmentsLoaded)
 	assert.Empty(t, result.Context)
+}
+
+// TestAssembleContext_InjectsBuiltinFragments verifies the always-on built-in
+// bundle fragments (ltk, taskloom) are appended to assembled context when their
+// companion binary is present — the fragment counterpart to the unconditional
+// hook/MCP injection — and absent when the companion is not on PATH.
+func TestAssembleContext_InjectsBuiltinFragments(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	t.Run("companions present → fragments injected", func(t *testing.T) {
+		restore := config.SetLookPathForTesting(func(bin string) (string, error) {
+			return "/usr/bin/" + bin, nil // every companion is "installed"
+		})
+		defer restore()
+
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+		require.NoError(t, err)
+		assert.Contains(t, result.Context, "llm-tool-killer", "ltk briefing injected")
+		assert.Contains(t, result.Context, "taskloom", "taskloom briefing injected")
+		assert.Contains(t, result.FragmentsLoaded, "builtin:ltk#fragments/ltk")
+		assert.Contains(t, result.FragmentsLoaded, "builtin:taskloom#fragments/taskloom")
+	})
+
+	t.Run("companion absent → that bundle's fragments skipped", func(t *testing.T) {
+		restore := config.SetLookPathForTesting(func(bin string) (string, error) {
+			if bin == "ltk" {
+				return "", exec.ErrNotFound // ltk not installed
+			}
+			return "/usr/bin/" + bin, nil
+		})
+		defer restore()
+
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+		require.NoError(t, err)
+		assert.NotContains(t, result.FragmentsLoaded, "builtin:ltk#fragments/ltk", "absent companion is skipped")
+		assert.Contains(t, result.FragmentsLoaded, "builtin:taskloom#fragments/taskloom", "present companion still injects")
+	})
 }
 
 func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {

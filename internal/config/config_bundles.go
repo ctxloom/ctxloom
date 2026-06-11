@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 
@@ -17,6 +18,16 @@ import (
 
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
+
+// SetLookPathForTesting overrides the companion-binary PATH-resolution seam and
+// returns a restore function. Tests in other packages use it to make companion
+// detection (built-in bundle hooks/MCP/fragments) deterministic regardless of
+// what is installed on the developer's machine.
+func SetLookPathForTesting(fn func(string) (string, error)) func() {
+	prev := lookPath
+	lookPath = fn
+	return func() { lookPath = prev }
+}
 
 // missingWarned tracks binaries already warned about, so a missing companion
 // produces one hint per process, not one per resolve pass.
@@ -263,6 +274,90 @@ func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
 		PreShell:     keep(in.PreShell),
 		PostFileEdit: keep(in.PostFileEdit),
 	}
+}
+
+// BuiltinFragment is one always-on fragment shipped by a built-in bundle,
+// ready for unconditional injection into assembled context.
+type BuiltinFragment struct {
+	Name         string // reporting identity ("builtin:<bundle>#fragments/<name>")
+	Content      string
+	Installation string
+}
+
+// ResolveBuiltinBundleFragments returns the fragments shipped by built-in
+// bundles embedded in the binary (resources/builtin_bundles), for unconditional
+// injection into assembled context — the always-on counterpart to
+// ResolveBundleHooks / ResolveBundleMCPServers, which wire in those same
+// bundles' hooks and MCP servers. A bundle whose companion binary (the
+// executable its hooks/MCP invoke, e.g. ltk, taskloom) is absent from PATH is
+// skipped: with the tool not installed, briefing the agent about it is noise,
+// and its hooks/MCP are skipped for the same reason. ctxloom-only built-in
+// bundles have no companion and always inject. Order is deterministic (bundle
+// name, then fragment name) for a stable context hash. The missing-companion
+// install hint is emitted by the hooks/MCP path; this resolver stays silent.
+func (c *Config) ResolveBuiltinBundleFragments() []BuiltinFragment {
+	names, err := resources.ListBuiltinBundles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		return nil
+	}
+	var out []BuiltinFragment
+	for _, name := range names {
+		data, err := resources.GetBuiltinBundle(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		var b bundles.Bundle
+		if err := yaml.Unmarshal(data, &b); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			continue
+		}
+		if _, missing := builtinBundleCompanionMissing(&b); missing {
+			continue
+		}
+		fragNames := make([]string, 0, len(b.Fragments))
+		for fragName := range b.Fragments {
+			fragNames = append(fragNames, fragName)
+		}
+		sort.Strings(fragNames)
+		for _, fragName := range fragNames {
+			frag := b.Fragments[fragName]
+			content := frag.EffectiveContent(c.ShouldUseDistilled())
+			if strings.TrimSpace(content) == "" {
+				continue
+			}
+			out = append(out, BuiltinFragment{
+				Name:         "builtin:" + name + "#fragments/" + fragName,
+				Content:      content,
+				Installation: frag.Installation,
+			})
+		}
+	}
+	return out
+}
+
+// builtinBundleCompanionMissing reports the companion binary a built-in bundle
+// depends on (the first executable its hooks or MCP servers invoke that isn't
+// ctxloom itself) and whether it is absent from PATH. A bundle with no companion
+// returns ("", false). Mirrors the gating applied to the bundle's hooks/MCP.
+func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
+	for _, hs := range [][]bundles.BundleHook{
+		b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
+		b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,
+	} {
+		for _, h := range hs {
+			if bin, missing := missingCompanion(h.Command); missing {
+				return bin, true
+			}
+		}
+	}
+	for _, m := range b.MCP {
+		if bin, missing := missingCompanion(m.Command); missing {
+			return bin, true
+		}
+	}
+	return "", false
 }
 
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like

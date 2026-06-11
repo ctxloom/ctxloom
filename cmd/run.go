@@ -24,8 +24,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/taskloom"
-	taskops "github.com/ctxloom/taskloom/operations"
+	"github.com/ctxloom/shared/tasks"
+	taskops "github.com/ctxloom/shared/tasks/operations"
 )
 
 var (
@@ -262,7 +262,7 @@ func resolveSelfExecutable() string {
 // return — seeding never blocks the launch.
 func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	if status == "" {
-		status = taskloom.StatusInProgress
+		status = tasks.StatusInProgress
 	}
 	res, err := taskops.SetTaskStatus(taskops.TaskContext{
 		WorkDir:     workDir,

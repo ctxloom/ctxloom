@@ -9,7 +9,7 @@ require (
 	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
 	github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9
 	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260611004045-74721c6839c1
+	github.com/ctxloom/shared v0.0.0-20260611011520-176f588f453e
 	github.com/cucumber/godog v0.14.1
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/go-viper/mapstructure/v2 v2.4.0
@@ -31,8 +31,6 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-require github.com/ctxloom/taskloom v0.0.0-20260611004300-50d6c734a262
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

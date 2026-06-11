@@ -212,11 +212,16 @@ func (p *initPrompts) promptEngineSelection() (string, error) {
 	return p.readEngineChoice(primary, secondary, maxOption)
 }
 
-// selectSoleEngine returns (and announces) the only available engine.
+// selectSoleEngine returns (and announces) the only available engine. Exactly
+// one of primary/secondary is non-empty here (the sole-engine switch case), so
+// the primary list is consulted before indexing secondary — indexing secondary
+// unconditionally panics when the only engine is a primary one.
 func selectSoleEngine(primary, secondary []string) string {
-	engine := secondary[0]
+	var engine string
 	if len(primary) > 0 {
 		engine = primary[0]
+	} else {
+		engine = secondary[0]
 	}
 	fmt.Printf("\nUsing %s (only available engine)\n", engine)
 	return engine

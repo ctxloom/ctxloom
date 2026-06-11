@@ -34,6 +34,29 @@ func TestPickDefaultEngine(t *testing.T) {
 	}
 }
 
+// selectSoleEngine announces and returns the single available engine. It must
+// consult primary before indexing secondary: when the only engine is a primary
+// one (the common claude-code-only setup) secondary is empty, and indexing it
+// unconditionally panicked.
+func TestSelectSoleEngine(t *testing.T) {
+	tests := []struct {
+		name      string
+		primary   []string
+		secondary []string
+		want      string
+	}{
+		{"sole primary engine", []string{"claude-code"}, nil, "claude-code"},
+		{"sole secondary engine", nil, []string{"codex"}, "codex"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := selectSoleEngine(tt.primary, tt.secondary); got != tt.want {
+				t.Fatalf("selectSoleEngine(%v, %v) = %q, want %q", tt.primary, tt.secondary, got, tt.want)
+			}
+		})
+	}
+}
+
 // writeInitialConfig creates the .ctxloom skeleton: the dir tree plus config.yaml
 // (carrying the chosen engine) and remotes.yaml (default remotes).
 func TestWriteInitialConfig(t *testing.T) {

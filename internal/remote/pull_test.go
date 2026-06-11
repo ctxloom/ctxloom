@@ -580,4 +580,65 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		assert.Contains(t, loaded.Bundles, "https://github.com/alice/ctxloom@bundles/security")
 		assert.Contains(t, loaded.Bundles, "alice/testing")
 	})
+
+	// A blanket re-pull (no explicit version, as in `remote pull --force`) must
+	// not silently un-pin a pinned entry or advance its frozen SHA. The pin is a
+	// "do not upgrade" decision; force repairs, it does not move past the pin.
+	t.Run("blanket re-pull preserves pin and frozen SHA on the active lockfile", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
+
+		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
+		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+
+		const ref = "https://github.com/alice/ctxloom@bundles/security"
+		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}
+		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
+			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
+			Version: "v1.0.0", RequestedVersion: "v1.0.0", Pinned: true,
+		})
+		require.NoError(t, lm.Save(seeded))
+
+		puller := NewPuller(registry, AuthConfig{}, WithPullerFS(fs), WithLockfileManager(lm))
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
+
+		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
+		require.NoError(t, puller.updateLockfile(ref, ItemTypeBundle, rem, "newhead", ""))
+
+		loaded, err := lm.Load()
+		require.NoError(t, err)
+		entry := loaded.Bundles[ref]
+		assert.True(t, entry.Pinned, "pin must survive a blanket re-pull")
+		assert.Equal(t, "pinnedsha", entry.SHA, "frozen SHA must not advance to HEAD")
+		assert.Equal(t, "v1.0.0", entry.Version)
+	})
+
+	// An explicit version pull is a deliberate move; it advances a pinned entry
+	// but keeps it pinned at the new SHA (the flag is never silently dropped).
+	t.Run("explicit version pull advances a pinned entry but keeps the pin", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
+
+		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
+		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
+
+		const ref = "https://github.com/alice/ctxloom@bundles/security"
+		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}
+		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
+			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Pinned: true,
+		})
+		require.NoError(t, lm.Save(seeded))
+
+		puller := NewPuller(registry, AuthConfig{}, WithPullerFS(fs), WithLockfileManager(lm))
+		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
+
+		require.NoError(t, puller.updateLockfile(ref, ItemTypeBundle, rem, "v2sha", "v2.0.0"))
+
+		loaded, err := lm.Load()
+		require.NoError(t, err)
+		entry := loaded.Bundles[ref]
+		assert.True(t, entry.Pinned, "pin must survive an explicit move")
+		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
+		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
+	})
 }

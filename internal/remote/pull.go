@@ -493,16 +493,35 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // the active lock.yaml. Profiles always go to the main lockfile manager.
 func (p *Puller) updateLockfile(localName string, itemType ItemType, remote *Remote, sha string, requestedVersion string) error {
 	target := p.lockfileTargetFor(itemType)
+	writingToPending := p.bundleLockfileManager != nil && target == p.bundleLockfileManager
 	lockfile, err := target.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load lockfile: %w", err)
 	}
+
+	existing, hadExisting := lockfile.GetEntry(itemType, localName)
 
 	entry := LockEntry{
 		SHA:              sha,
 		URL:              remote.URL,
 		RequestedVersion: requestedVersion,
 		FetchedAt:        time.Now().UTC(),
+	}
+
+	// A pin is a deliberate "do not upgrade" decision; a content re-pull must
+	// never silently clear it. Always carry the flag forward. On the ACTIVE
+	// lockfile a blanket pull (no explicit version requested, e.g.
+	// `remote pull --force`) also keeps the entry's frozen SHA/Version — force
+	// repairs a clone, it does not advance past a pin. The pending lockfile
+	// still receives the new SHA so the user can unpin and review it later
+	// (see LockEntry.Pinned).
+	if hadExisting && existing.Pinned {
+		entry.Pinned = true
+		if !writingToPending && requestedVersion == "" {
+			entry.SHA = existing.SHA
+			entry.Version = existing.Version
+			entry.RequestedVersion = existing.RequestedVersion
+		}
 	}
 
 	lockfile.AddEntry(itemType, localName, entry)

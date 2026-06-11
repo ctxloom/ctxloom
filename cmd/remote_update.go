@@ -99,6 +99,13 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	// RequestedVersion carried into the lock) and the removed/skip handling.
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
 	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", []updateInfo{u})
+	// Reload after the apply so cleanup prunes from the freshly-pulled lockfile
+	// rather than reverting it (see updateAll).
+	if reloaded, rerr := lockManager.Load(); rerr == nil {
+		lockfile = reloaded
+	} else {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: reload lockfile after apply: %v\n", rerr)
+	}
 	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager)
 	if failed > 0 {
 		return fmt.Errorf("update failed for %s", refStr)
@@ -241,6 +248,16 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	fmt.Println("\nApplying updates...")
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
 	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, profileUpdates, bundleUpdates)
+
+	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).
+	// Reload before cleanup so the wholesale lockfile rewrite in RemoveLocalItems
+	// prunes removed entries from the FRESH lockfile — passing the stale pre-pull
+	// snapshot would silently revert every update just applied.
+	if reloaded, rerr := lockManager.Load(); rerr == nil {
+		lockfile = reloaded
+	} else {
+		fmt.Fprintf(os.Stderr, "ctxloom: warning: reload lockfile after apply: %v\n", rerr)
+	}
 
 	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager)
 

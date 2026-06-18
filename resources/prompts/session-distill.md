@@ -50,7 +50,7 @@ The log contains markers like `[plan-block #N — Label, preserved below]` where
 
 - Be extremely concise - target 30-50% of original size
 - Use bullet points and short sentences
-- Preserve exact file paths, function names, and code references
+- **Never drop identifiers under compression.** Preserve verbatim, character-for-character: exact file paths, directory paths, function/type/symbol names, command lines, session IDs and harp names (e.g. `soft-idle-scone`, UUIDs), URLs, and `plan-block #N` references. These are load-bearing for resuming work — paraphrasing or omitting one loses the thread. When in doubt, keep the identifier.
 - Keep error messages and their solutions
 - Skip failed attempts unless the lesson learned is important
 - Skip verbose tool outputs - just note what was done

@@ -38,6 +38,10 @@ type Entry struct {
 	EndedAt        *time.Time `yaml:"ended_at,omitempty"`
 	TranscriptPath string     `yaml:"transcript_path,omitempty"`
 	Summary        string     `yaml:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
+	// Detail holds extra picker lines (the distilled Open Items) shown under the
+	// summary. Kept separate from Summary so the single-line consumers (session
+	// list table, MCP resource) stay one line while the picker can render more.
+	Detail []string `yaml:"detail,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -398,9 +402,10 @@ func (m *Manager) Forget(harpName string) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
-// SetSummary updates the one-line summary cached on the index entry.
-// Mirrors the `summary:` line from the compacted essence.md frontmatter.
-func (m *Manager) SetSummary(harpName, summary string) error {
+// SetSummary updates the cached summary and detail lines on the index entry.
+// summary mirrors the `summary:` line from the compacted essence.md frontmatter;
+// detail holds the extra picker lines (Open Items). Passing nil detail clears it.
+func (m *Manager) SetSummary(harpName, summary string, detail []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -419,6 +424,7 @@ func (m *Manager) SetSummary(harpName, summary string) error {
 			continue
 		}
 		idx.Sessions[i].Summary = summary
+		idx.Sessions[i].Detail = detail
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

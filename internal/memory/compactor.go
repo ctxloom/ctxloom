@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,6 +29,11 @@ const (
 	ChunkOverlapTokens = 500
 	// CharsPerToken is a rough estimate for token counting.
 	CharsPerToken = 4
+	// distillConcurrency bounds how many chunks are distilled in parallel. Each
+	// chunk distillation spawns its own LLM plugin subprocess, so this caps
+	// concurrent subprocesses (and provider rate pressure) while still cutting
+	// wall-clock from sum-of-chunks to roughly slowest-chunk × ceil(n/limit).
+	distillConcurrency = 4
 )
 
 // CompactionConfig holds settings for session compaction.
@@ -191,6 +198,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// distilled session never renders as "(no summary)" in the picker.
 	summary = deriveSummary(summary, cleanedBody)
 
+	// Extra picker lines: the leading Open Items, so a resume row shows "what +
+	// what's left" instead of a lone subject. Derived from the LLM body before
+	// plan blocks are re-attached.
+	detail := buildPickerDetail(cleanedBody)
+
 	body := assembleBody(cleanedBody, plans)
 
 	// Save distilled output
@@ -207,7 +219,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	}
 	result.DistilledPath = distilledPath
 
-	updateSessionIndex(harpName, session.ID, summary)
+	updateSessionIndex(harpName, session.ID, summary, detail)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -244,33 +256,53 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	return session, nil
 }
 
-// distillChunks distills each chunk in order, returning the outputs plus how
-// many chunks failed. Per CLAUDE.md fault tolerance, a failed chunk is warned
-// and replaced with an HTML-comment marker rather than aborting the whole
-// compaction; the caller decides whether a total failure aborts the save.
+// distillChunks distills the chunks concurrently (bounded by distillConcurrency)
+// and returns the outputs in chunk order plus how many chunks failed. Chunks are
+// independent — the overlap between them is context padding, not a data
+// dependency — so they distill in parallel; results are written into their own
+// slice slots so order is preserved regardless of completion order. Per CLAUDE.md
+// fault tolerance, a failed chunk is warned and replaced with an HTML-comment
+// marker rather than aborting; the caller decides whether a total failure aborts
+// the save. A failing chunk does NOT cancel its siblings.
 func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]string, int) {
-	distilled := make([]string, 0, len(chunks))
-	failed := 0
+	distilled := make([]string, len(chunks))
+	var failed atomic.Int64
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, distillConcurrency)
+	total := len(chunks)
+
 	for i, chunk := range chunks {
-		fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, len(chunks))
-		out, err := c.distillChunk(ctx, chunk, i+1, len(chunks))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
-			distilled = append(distilled, fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err))
-			failed++
-			continue
-		}
-		distilled = append(distilled, out)
+		wg.Add(1)
+		sem <- struct{}{} // acquire a slot; blocks once distillConcurrency are in flight
+		go func(i int, chunk string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			// Fprintf formats into one buffer and emits a single Write, so
+			// concurrent chunk progress lines don't interleave mid-line.
+			fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, total)
+			out, err := c.distillChunk(ctx, chunk, i+1, total)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
+				distilled[i] = fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err)
+				failed.Add(1)
+				return
+			}
+			distilled[i] = out
+		}(i, chunk)
 	}
-	return distilled, failed
+	wg.Wait()
+	return distilled, int(failed.Load())
 }
 
-// finalCompressionPass re-distills the combined output once more (chunkNum/total
-// = 0,0 signals "final pass"). On failure it warns and returns the input
-// unchanged — a too-large summary beats no summary.
+// finalCompressionPass merges the per-chunk distillations into one coherent
+// essence using the dedicated reduce prompt (which knows its input is already-
+// distilled partial summaries to unify, not a raw transcript to re-summarize,
+// and re-asserts the mandatory YAML frontmatter + identifier preservation). On
+// failure it warns and returns the input unchanged — a too-large summary beats
+// no summary.
 func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) string {
 	fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
-	final, err := c.distillChunk(ctx, combined, 0, 0)
+	final, err := c.runDistill(ctx, sessionDistillReducePrompt, combined)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)
 		return combined
@@ -304,8 +336,9 @@ func (c *Compactor) resolveHarpName() string {
 
 // updateSessionIndex best-effort records the session ID against the harp (so a
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
-// picker summary. No-op without a harp name; all failures warn, never fatal.
-func updateSessionIndex(harpName, sessionID, summary string) {
+// picker summary and detail lines. No-op without a harp name; all failures warn,
+// never fatal.
+func updateSessionIndex(harpName, sessionID, summary string, detail []string) {
 	if harpName == "" {
 		return
 	}
@@ -319,10 +352,51 @@ func updateSessionIndex(harpName, sessionID, summary string) {
 		}
 	}
 	if summary != "" {
-		if err := mgr.SetSummary(harpName, summary); err != nil {
+		if err := mgr.SetSummary(harpName, summary, detail); err != nil {
 			fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
 		}
 	}
+}
+
+// maxPickerDetailLines caps the Open Items shown under a picker row. With the
+// subject line that's up to 5 lines per session, enough to disambiguate a
+// resume target without the picker growing unwieldy.
+const maxPickerDetailLines = 4
+
+// buildPickerDetail extracts the leading bullets of the body's "### Open Items"
+// section as extra picker lines (the "what's left to do" the resume picker cares
+// about most). Each returned line is normalized to a single line capped at 80
+// bytes; the "- " bullet marker is preserved for readability. Returns nil when
+// the body has no Open Items section.
+func buildPickerDetail(body string) []string {
+	lines := strings.Split(body, "\n")
+	inOpen := false
+	var detail []string
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "#") {
+			// A heading ends the Open Items section once we're inside it; before
+			// that, look for the Open Items heading specifically.
+			if inOpen {
+				break
+			}
+			if strings.Contains(strings.ToLower(t), "open items") {
+				inOpen = true
+			}
+			continue
+		}
+		if !inOpen || t == "" {
+			continue
+		}
+		if !strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "*") {
+			continue
+		}
+		detail = append(detail, firstLineSummary(t))
+		if len(detail) >= maxPickerDetailLines {
+			break
+		}
+	}
+	return detail
 }
 
 // sessionToText converts a session to readable text for distillation. Plans
@@ -449,18 +523,23 @@ func (c *Compactor) chunkText(text string, targetTokens int) []string {
 	return chunks
 }
 
-// distillChunk sends a chunk through the LLM for distillation.
+// distillChunk distills one transcript chunk (the map step), tagging the prompt
+// with the chunk's position so the LLM knows it sees a slice of a larger log.
 func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, totalChunks int) (string, error) {
-	// Build the distillation prompt
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString(sessionDistillPrompt)
-
 	if chunkNum > 0 && totalChunks > 1 {
 		_, _ = fmt.Fprintf(&promptBuilder, "\n\nThis is chunk %d of %d from the session log.\n", chunkNum, totalChunks)
-	} else if chunkNum == 0 {
-		promptBuilder.WriteString("\n\nThis is a final compression pass combining previously distilled chunks.\n")
 	}
+	return c.runDistill(ctx, promptBuilder.String(), chunk)
+}
 
+// runDistill executes one LLM distillation call: a fresh plugin subprocess given
+// systemPrompt as its instruction fragment and content wrapped in <session_log>
+// as its prompt, run one-shot in minimal mode. Both the map (distillChunk) and
+// reduce (finalCompressionPass) passes go through here so the request shape stays
+// in one place.
+func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string) (string, error) {
 	// Create plugin client using the factory
 	client, err := c.clientFactory(c.config.LLM, "", 0)
 	if err != nil {
@@ -472,10 +551,10 @@ func (c *Compactor) distillChunk(ctx context.Context, chunk string, chunkNum, to
 	// SkipSetup=true for minimal startup (no hooks/skills/context)
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
-			Content: fmt.Sprintf("<session_log>\n%s\n</session_log>", chunk),
+			Content: fmt.Sprintf("<session_log>\n%s\n</session_log>", content),
 		},
 		Fragments: []*pb.Fragment{
-			{Content: promptBuilder.String()},
+			{Content: systemPrompt},
 		},
 		Options: &pb.RunOptions{
 			AutoApprove: true,
@@ -763,3 +842,10 @@ func estimateTokens(text string) int {
 // a second LLM call. Body sections are ordered with Open Items first
 // to optimize the resume use case ("what do I need to pick up?").
 var sessionDistillPrompt = resources.MustGetPromptText("session-distill")
+
+// sessionDistillReducePrompt drives the final compression pass. Unlike the map
+// prompt it tells the model its input is already-distilled partial summaries to
+// merge and dedupe (not a raw transcript), re-asserts the mandatory YAML
+// frontmatter the picker needs, and forbids dropping file paths / plan-block
+// references / session IDs during the merge.
+var sessionDistillReducePrompt = resources.MustGetPromptText("session-distill-reduce")

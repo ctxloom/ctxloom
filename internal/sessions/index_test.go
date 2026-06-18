@@ -118,9 +118,10 @@ func TestMarkEnded(t *testing.T) {
 func TestSetSummary(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup."))
+	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}))
 	found, _ := m.Find(e.HarpName)
 	assert.Equal(t, "Designed bundle review on startup.", found.Summary)
+	assert.Equal(t, []string{"- ship the picker", "- write tests"}, found.Detail)
 }
 
 func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {

@@ -642,11 +642,12 @@ func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
 			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: content}},
 		},
 	}}
-	calls := 0
+	// Fail chunk 1 deterministically by its position note, not call order:
+	// chunks distill concurrently, so a shared call counter would both race and
+	// fail an unpredictable chunk.
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			calls++
-			if calls == 1 {
+			if len(req.Fragments) > 0 && strings.Contains(req.Fragments[0].Content, "This is chunk 1 of") {
 				return 0, errors.New("flaky")
 			}
 			_, _ = stdout.Write([]byte("distilled ok"))
@@ -830,6 +831,113 @@ func TestDeriveSummary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, deriveSummary(tt.frontmatter, tt.body))
+		})
+	}
+}
+
+// =============================================================================
+// distillChunks — concurrency: results land in chunk order regardless of which
+// goroutine finishes first. Run with -race to also pin the shared-mock safety.
+// =============================================================================
+
+func TestCompactor_DistillChunks_PreservesOrderConcurrently(t *testing.T) {
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			// Echo the chunk body so we can assert each output landed in the slot
+			// matching its input, even though chunks distill concurrently.
+			body := strings.TrimSuffix(strings.TrimPrefix(req.Prompt.Content, "<session_log>\n"), "\n</session_log>")
+			_, _ = stdout.Write([]byte("D:" + body))
+			return 0, nil
+		},
+	}
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "test-plugin"},
+		clientFactory: pb.MockClientFactory(mock),
+	}
+
+	chunks := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"}
+	out, failed := c.distillChunks(context.Background(), chunks)
+
+	require.Equal(t, 0, failed)
+	require.Len(t, out, len(chunks))
+	for i, ch := range chunks {
+		assert.Equal(t, "D:"+ch, out[i], "chunk %d output landed in the wrong slot", i)
+	}
+}
+
+// =============================================================================
+// finalCompressionPass — uses the dedicated reduce prompt, not the map prompt.
+// The reduce prompt re-asserts the mandatory frontmatter and identifier
+// preservation the picker depends on.
+// =============================================================================
+
+func TestCompactor_FinalCompressionPass_UsesReducePrompt(t *testing.T) {
+	var gotFragment string
+	mock := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			if len(req.Fragments) > 0 {
+				gotFragment = req.Fragments[0].Content
+			}
+			_, _ = stdout.Write([]byte("merged essence"))
+			return 0, nil
+		},
+	}
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "test-plugin"},
+		clientFactory: pb.MockClientFactory(mock),
+	}
+
+	out := c.finalCompressionPass(context.Background(), "partial one\n---\npartial two")
+	assert.Equal(t, "merged essence", out)
+	assert.Equal(t, sessionDistillReducePrompt, gotFragment, "final pass must use the reduce prompt")
+	assert.NotEqual(t, sessionDistillPrompt, gotFragment, "final pass must not reuse the map prompt")
+}
+
+// =============================================================================
+// buildPickerDetail — extra picker lines from the body's Open Items section.
+// =============================================================================
+
+func TestBuildPickerDetail(t *testing.T) {
+	longBullet := "- " + strings.Repeat("x", 120)
+	tests := []struct {
+		name     string
+		body     string
+		expected []string
+	}{
+		{
+			name:     "extracts open items bullets",
+			body:     "### Open Items\n- finish the picker\n- write the tests\n\n### State\nin progress",
+			expected: []string{"- finish the picker", "- write the tests"},
+		},
+		{
+			name:     "stops at the next section heading",
+			body:     "### Open Items\n- only this one\n\n### Decisions\n- not this one",
+			expected: []string{"- only this one"},
+		},
+		{
+			name:     "caps at four bullets",
+			body:     "### Open Items\n- one\n- two\n- three\n- four\n- five\n- six",
+			expected: []string{"- one", "- two", "- three", "- four"},
+		},
+		{
+			name:     "caps each bullet at 80 bytes",
+			body:     "### Open Items\n" + longBullet,
+			expected: []string{longBullet[:80]},
+		},
+		{
+			name:     "nil when no open items section",
+			body:     "### State\n- this is state, not open items",
+			expected: nil,
+		},
+		{
+			name:     "ignores prose before the section",
+			body:     "Some intro prose.\n\n### Open Items\n- the real item",
+			expected: []string{"- the real item"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, buildPickerDetail(tt.body))
 		})
 	}
 }

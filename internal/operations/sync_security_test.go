@@ -130,8 +130,7 @@ func TestLockDependencies_StageUntrustedNewGate(t *testing.T) {
 	ctx := context.Background()
 	_ = ref
 
-	var stderr string
-	stderr = captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		result, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, StageUntrustedNew: true})
 		require.NoError(t, err)
 		assert.Equal(t, "empty", result.Status, "nothing reaches the active lockfile")

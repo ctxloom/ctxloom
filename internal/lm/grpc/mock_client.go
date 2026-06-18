@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"io"
+	"sync"
 
 	"github.com/ctxloom/shared/agent"
 )
@@ -31,7 +32,10 @@ type MockClient struct {
 	// KillFunc is called when Kill is invoked.
 	KillFunc func()
 
-	// Call tracking
+	// Call tracking. Guarded by mu because the compactor distills chunks
+	// concurrently through a single shared mock (MockClientFactory hands the
+	// same instance to every clientFactory call), so Run/Kill race otherwise.
+	mu                    sync.Mutex
 	InfoCalls             int
 	RunCalls              int
 	RunWithModelInfoCalls int
@@ -55,7 +59,9 @@ func (m *MockClient) Info(ctx context.Context) (*LLMInfo, error) {
 // Run executes the plugin and streams output to the provided writers. stdin and
 // resize are accepted to satisfy the Client interface but ignored by the mock.
 func (m *MockClient) Run(ctx context.Context, req *RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *WindowSize) (int32, error) {
+	m.mu.Lock()
 	m.RunCalls++
+	m.mu.Unlock()
 	if m.RunFunc != nil {
 		return m.RunFunc(ctx, req, stdout, stderr)
 	}
@@ -99,7 +105,9 @@ func (m *MockClient) GetPlans(ctx context.Context, harp string) ([]agent.PlanFil
 
 // Kill terminates the plugin process.
 func (m *MockClient) Kill() {
+	m.mu.Lock()
 	m.KillCalls++
+	m.mu.Unlock()
 	if m.KillFunc != nil {
 		m.KillFunc()
 	}

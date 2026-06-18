@@ -13,7 +13,7 @@ import (
 // SIGTERM), so that's what we propagate. Anything else unexpected (no
 // WaitStatus, negative code) degrades to a plain failure code.
 func childExitCode(err *exec.ExitError) int {
-	if ws, ok := err.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+	if ws, ok := err.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		return 128 + int(ws.Signal())
 	}
 	if code := err.ExitCode(); code >= 0 {

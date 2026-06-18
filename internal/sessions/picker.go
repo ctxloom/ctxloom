@@ -367,6 +367,11 @@ func (p *Picker) render() {
 		} else {
 			w.Printf("       session: (no summary)\n")
 		}
+		// Extra distilled Open Items, indented under the summary, so a row shows
+		// "what + what's left" without a second LLM call or opening the essence.
+		for _, line := range e.Detail {
+			w.Printf("                %s\n", line)
+		}
 	}
 	if len(visible) < len(p.Entries) {
 		w.Printf("\n  (%d older sessions hidden; press m to reveal)\n", len(p.Entries)-len(visible))

@@ -47,7 +47,7 @@ func (f *failAfterNWritesFs) Create(name string) (afero.File, error) {
 // a retry of the same `remote add` does not fail on the duplicate name.
 func TestAddRemote_TrustFailureRollsBack(t *testing.T) {
 	fs := &failAfterNWritesFs{Fs: afero.NewMemMapFs(), allowed: 1} // Add persists; trust persist fails
-	require.NoError(t, fs.Fs.MkdirAll(testBaseDir, 0o755))
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0o755))
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 

@@ -23,7 +23,9 @@ func TestMain(m *testing.M) {
 	os.Exit(func() int {
 		home, err := os.MkdirTemp("", "ctxloom-test-home-*")
 		if err == nil {
-			os.Setenv("HOME", home)
+			// TestMain has no *testing.T, so t.Setenv / testsupport.Isolate are
+			// unavailable here; set the process env directly for the whole package run.
+			os.Setenv("HOME", home) //nolint:forbidigo // no *testing.T in TestMain
 			defer os.RemoveAll(home)
 		}
 		restore := config.SetLookPathForTesting(func(string) (string, error) {

@@ -42,6 +42,21 @@ func runPicker(t *testing.T, entries []Entry, input string) (Decision, string) {
 	return dec, out.String()
 }
 
+func TestPicker_RendersDetailLines(t *testing.T) {
+	entries := []Entry{{
+		HarpName:   "row-detail",
+		ProjectDir: "/proj",
+		StartedAt:  time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC),
+		Summary:    "Parallelized chunk distillation",
+		Detail:     []string{"- finish the reduce prompt", "- widen the picker"},
+	}}
+	_, out := runPicker(t, entries, "q\n")
+
+	assert.Contains(t, out, "session: Parallelized chunk distillation")
+	assert.Contains(t, out, "- finish the reduce prompt", "detail Open Items render under the summary")
+	assert.Contains(t, out, "- widen the picker")
+}
+
 func TestPicker_EmptyIndex_FallsThroughToNew(t *testing.T) {
 	dec, _ := runPicker(t, nil, "")
 	assert.Equal(t, NewAction, dec.Action)
@@ -204,7 +219,7 @@ func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
 		Distill: func(harp string) error {
 			called = true
 			gotHarp = harp
-			return mgr.SetSummary(harp, "freshly distilled summary")
+			return mgr.SetSummary(harp, "freshly distilled summary", nil)
 		},
 	}
 	dec, err := p.Run()

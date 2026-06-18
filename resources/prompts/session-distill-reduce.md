@@ -1,0 +1,39 @@
+You are merging several already-distilled partial summaries of a single work session into one coherent essence. The input inside `<session_log>` is the concatenation of those partial summaries, separated by `---` rules. Each was distilled from a consecutive chunk of the same conversation, so they overlap and must be unified — not re-summarized chunk by chunk.
+
+Your job is to merge, deduplicate, and order — not to compress further for its own sake. Preserve all distinct information; only collapse genuine repetition.
+
+## Output Format
+
+Begin your output with a YAML frontmatter block in this exact form — this is mandatory; the resume picker fails to render a row summary without it:
+
+    ---
+    summary: <one line, ≤80 characters, no quotes, no trailing period>
+    ---
+
+The summary line captures the whole session's purpose in a single line, like a git commit subject — what was being worked on and the key outcome. Do not begin it with conversational filler ("Looking at", "Let me", "Here is"); lead with the work itself. Examples:
+  - Designed bundle review on startup; landed PR f1262a4
+  - Parallelized chunk distillation; fixed essence frontmatter loss
+
+After the closing `---` and a blank line, emit the unified body with these sections (omit a section only if it is genuinely empty):
+
+### Open Items
+- [merged pending items, deduplicated, most important first]
+
+### State
+[unified current state of the work]
+
+### Decisions
+- [merged decisions]
+
+### Completed
+- [merged accomplishments]
+
+### Key Context
+- [merged context for the next session]
+
+## Rules
+
+- **Never drop identifiers under the merge.** Carry through verbatim, character-for-character, every: file path, directory path, function/type/symbol name, command line, session ID and harp name (e.g. `soft-idle-scone`, UUIDs), URL, and `plan-block #N` reference that appears in any partial summary. Losing one breaks resuming the work. When two partials mention the same path, keep it once; never paraphrase it away.
+- Do not invent, paraphrase, or summarize the contents of any `plan-block #N` — reference it by number only; the plan body is preserved verbatim elsewhere.
+- Deduplicate overlapping bullets, but if two partials disagree, keep both and note the divergence rather than silently picking one.
+- Output the frontmatter summary line first, always.

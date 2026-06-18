@@ -104,22 +104,3 @@ func (c *mcpClient) recvByID(t *testing.T, id int) map[string]any {
 	t.Fatalf("timeout waiting for response with id=%d", id)
 	return nil
 }
-
-// extractToolResultJSON pulls the inner JSON from an MCP tool result —
-// MCP wraps tool returns in a content[]{type:text, text:<json>} envelope.
-func extractToolResultJSON(t *testing.T, msg map[string]any) map[string]any {
-	t.Helper()
-	require.Nil(t, msg["error"], "tool call returned an error: %v", msg["error"])
-	result, ok := msg["result"].(map[string]any)
-	require.True(t, ok, "result is not a map: %v", msg)
-	content, ok := result["content"].([]any)
-	require.True(t, ok, "result.content is not an array")
-	require.NotEmpty(t, content)
-	first, ok := content[0].(map[string]any)
-	require.True(t, ok)
-	text, ok := first["text"].(string)
-	require.True(t, ok)
-	var inner map[string]any
-	require.NoError(t, json.Unmarshal([]byte(text), &inner))
-	return inner
-}

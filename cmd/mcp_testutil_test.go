@@ -21,16 +21,3 @@ func initSession(t *testing.T, c *mcpClient) {
 		"jsonrpc": "2.0", "method": "notifications/initialized", "params": map[string]any{},
 	})
 }
-
-// callTool fires a tools/call request and returns the result envelope.
-func callTool(t *testing.T, c *mcpClient, id int, name string, args map[string]any) map[string]any {
-	t.Helper()
-	c.send(t, map[string]any{
-		"jsonrpc": "2.0", "id": id, "method": "tools/call",
-		"params": map[string]any{
-			"name":      name,
-			"arguments": args,
-		},
-	})
-	return c.recvByID(t, id)
-}

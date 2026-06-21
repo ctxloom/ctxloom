@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 
 	"github.com/spf13/cobra"
 )
@@ -17,31 +15,20 @@ type cmdVersionInfo struct {
 	Version string `json:"version"`
 }
 
-var versionFormat string
-
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version number",
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		return printVersion(cmd.OutOrStdout(), versionFormat)
+		return emit(cmd,
+			cmdVersionInfo{Name: "ctxloom", Version: Version},
+			func() error {
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), Version)
+				return err
+			},
+		)
 	},
 }
 
-func printVersion(w io.Writer, format string) error {
-	switch format {
-	case "text":
-		_, err := fmt.Fprintln(w, Version)
-		return err
-	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(cmdVersionInfo{Name: "ctxloom", Version: Version})
-	default:
-		return fmt.Errorf("unknown format %q (supported: text, json)", format)
-	}
-}
-
 func init() {
-	versionCmd.Flags().StringVar(&versionFormat, "format", "text", "Output format: text or json ({name, version})")
 	rootCmd.AddCommand(versionCmd)
 }

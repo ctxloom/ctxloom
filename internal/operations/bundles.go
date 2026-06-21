@@ -559,14 +559,14 @@ func DeleteBundle(_ context.Context, cfg *config.Config, req DeleteBundleRequest
 	return &DeleteBundleResult{Status: "deleted", Name: req.Name, Path: bundle.Path}, nil
 }
 
-// PushBundleRequest is the input for PushBundle.
-//
-// The user told us "file path *only*": the path identifies which bundle to
-// push and (via its directory layout / enclosing git tree) implies the
-// remote target. Callers don't need to specify the remote name — but they
-// can override commit metadata.
+// PushBundleRequest is the input for PushBundle: a bundle file path and the
+// resolved remote to publish it to. PushBundle does no remote inference — the
+// caller resolves Remote first with ResolveBundleRemote, so this operation stays
+// a single responsibility: validate the file and publish it to a named remote.
 type PushBundleRequest struct {
 	Path string `json:"path"`
+	// Remote is the resolved registry name to publish to. Required.
+	Remote string `json:"remote"`
 	// Title is the PR title (and commit subject). Kept separate from Message
 	// because GitHub PR titles cap at 256 bytes — collapsing a long commit
 	// message into the title silently truncates body detail.
@@ -601,14 +601,9 @@ type PushBundleResult struct {
 	Preview string `json:"preview,omitempty"`
 }
 
-// PushBundle publishes (or dry-runs) a local bundle file to a remote repo.
-// Remote inference order:
-//  1. <appPath>/cache/bundles/<remote>/<rest>.yaml — first segment is the remote
-//  2. <appPath>/cache/bundles/<rest>.yaml — registry default
-//  3. exactly one configured remote — use it
-//  4. error with candidate list
-//
-// Network is touched only for non-dry-run; this commit covers dry-run.
+// PushBundle publishes (or dry-runs) a local bundle file to req.Remote (a
+// resolved registry name — see ResolveBundleRemote). Network is touched only
+// for a non-dry-run.
 func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
 	if err := validatePushRequest(cfg, req); err != nil {
 		return nil, err
@@ -633,18 +628,13 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return nil, fmt.Errorf("load registry: %w", err)
 	}
 
-	remoteName, err := resolveRemoteForPath(cfg, registry, absPath)
+	rem, err := registry.Get(req.Remote)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("remote %q not found: %w", req.Remote, err)
 	}
 
 	// Bundle name in target repo = filename without .yaml extension.
 	bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
-
-	rem, err := registry.Get(remoteName)
-	if err != nil {
-		return nil, fmt.Errorf("remote %q not found: %w", remoteName, err)
-	}
 	targetPath := path.Join("ctxloom", "bundles", bundleName+".yaml")
 
 	// Resolve title/body the same way publish.go does, so the result accurately
@@ -653,7 +643,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 
 	result := &PushBundleResult{
 		Path:       absPath,
-		Remote:     remoteName,
+		Remote:     req.Remote,
 		TargetPath: targetPath,
 		Title:      title,
 		Message:    message,
@@ -667,13 +657,16 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return result, nil
 	}
 
-	return runPush(ctx, cfg, registry, remoteName, absPath, req, result)
+	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
 }
 
 // validatePushRequest checks the request preconditions for PushBundle.
 func validatePushRequest(cfg *config.Config, req PushBundleRequest) error {
 	if req.Path == "" {
 		return fmt.Errorf("path is required")
+	}
+	if req.Remote == "" {
+		return fmt.Errorf("remote is required (resolve it with ResolveBundleRemote)")
 	}
 	if cfg == nil || len(cfg.AppPaths) == 0 {
 		return fmt.Errorf("no .ctxloom directory configured")
@@ -729,8 +722,35 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 	return result, nil
 }
 
-// resolveRemoteForPath implements the inference order documented on
-// PushBundle. Returns the remote name to publish to.
+// ResolveBundleRemote decides which configured remote a bundle file publishes
+// to. An explicit override wins (after validating it exists); otherwise the
+// remote is inferred from the bundle's location — a cache path or enclosing git
+// origin, then the registry default, then a sole configured remote, else an
+// ambiguous-remote error listing the candidates. Both the CLI and the VSCode
+// companion call this before PushBundle, so neither re-implements the inference.
+func ResolveBundleRemote(cfg *config.Config, bundlePath, override string) (string, error) {
+	if cfg == nil || len(cfg.AppPaths) == 0 {
+		return "", fmt.Errorf("no .ctxloom directory configured")
+	}
+	absPath, err := filepath.Abs(bundlePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	registry, err := getRegistry(cfg)
+	if err != nil {
+		return "", fmt.Errorf("load registry: %w", err)
+	}
+	if override != "" {
+		if _, err := registry.Get(override); err != nil {
+			return "", fmt.Errorf("remote %q not found: %w", override, err)
+		}
+		return override, nil
+	}
+	return resolveRemoteForPath(cfg, registry, absPath)
+}
+
+// resolveRemoteForPath implements the location-based inference used by
+// ResolveBundleRemote. Returns the remote name to publish to.
 func resolveRemoteForPath(cfg *config.Config, registry *remote.Registry, absPath string) (string, error) {
 	// (1) Path under cache/bundles/<remote>/<rest>.yaml.
 	if name, ok := remoteFromCachePath(cfg, registry, absPath); ok {

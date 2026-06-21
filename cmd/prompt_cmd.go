@@ -119,7 +119,6 @@ var promptDistillForce bool
 
 var (
 	promptPushPR      bool
-	promptPushBranch  string
 	promptPushMessage string
 )
 
@@ -141,7 +140,7 @@ Examples:
 		if len(args) > 1 {
 			remoteName = args[1]
 		}
-		return pushBundle(cmd, args[0], remoteName, promptPushPR, promptPushBranch, promptPushMessage)
+		return pushBundle(cmd, args[0], remoteName, promptPushPR, promptPushMessage)
 	},
 }
 
@@ -161,6 +160,5 @@ func init() {
 	promptDistillCmd.Flags().BoolVarP(&promptDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	promptPushCmd.Flags().BoolVar(&promptPushPR, "pr", false, "Create a pull request")
-	promptPushCmd.Flags().StringVar(&promptPushBranch, "branch", "", "Target branch")
 	promptPushCmd.Flags().StringVarP(&promptPushMessage, "message", "m", "", "Commit message")
 }

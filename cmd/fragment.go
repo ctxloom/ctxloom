@@ -141,7 +141,6 @@ Examples:
 
 var (
 	fragmentPushPR      bool
-	fragmentPushBranch  string
 	fragmentPushMessage string
 )
 
@@ -163,7 +162,7 @@ Examples:
 		if len(args) > 1 {
 			remoteName = args[1]
 		}
-		return pushBundle(cmd, args[0], remoteName, fragmentPushPR, fragmentPushBranch, fragmentPushMessage)
+		return pushBundle(cmd, args[0], remoteName, fragmentPushPR, fragmentPushMessage)
 	},
 }
 
@@ -184,7 +183,6 @@ func init() {
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")
-	fragmentPushCmd.Flags().StringVar(&fragmentPushBranch, "branch", "", "Target branch")
 	fragmentPushCmd.Flags().StringVarP(&fragmentPushMessage, "message", "m", "", "Commit message")
 
 	fragmentSearchCmd.Flags().StringSliceVarP(&fragmentSearchTags, "tag", "t", nil, "Filter by tags (comma-separated)")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"unicode"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // titleCase capitalizes the first letter of a string.
@@ -384,8 +384,12 @@ func distillItem(ref string, itemType ItemType, force bool) error {
 	return nil
 }
 
-// pushBundle pushes a bundle to a remote.
-func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool, branch, message string) error {
+// pushBundle publishes the named bundle to a remote. Each step is an operations
+// call — resolve the bundle path, resolve the target remote (an explicit
+// override or inferred from the bundle's location), then publish — so the CLI
+// re-implements none of the push logic and the same path is reachable by any
+// frontend.
+func pushBundle(cmd *cobra.Command, bundleName, remoteOverride string, createPR bool, message string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -396,45 +400,37 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteName string, createPR bool
 		return fmt.Errorf("bundle not found: %s", bundleName)
 	}
 
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	if remoteName == "" {
-		remoteName = registry.GetDefault()
-		if remoteName == "" {
-			return fmt.Errorf("no remote specified and no default set")
-		}
-	}
-
-	auth := remote.LoadAuth("")
-
-	opts := remote.PublishOptions{
-		CreatePR: createPR,
-		Branch:   branch,
-		Message:  message,
-		ItemType: remote.ItemTypeBundle,
-	}
-
-	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
-
-	pm := remote.NewPublishManager(registry, auth)
-	result, err := pm.Publish(cmd.Context(), bundle.Path, remoteName, opts)
+	remoteName, err := operations.ResolveBundleRemote(cfg, bundle.Path, remoteOverride)
 	if err != nil {
 		return err
 	}
 
-	if result.PRURL != "" {
-		fmt.Printf("Created pull request: %s\n", result.PRURL)
-	} else {
-		action := "Created"
-		if !result.Created {
-			action = "Updated"
-		}
-		fmt.Printf("%s %s\n", action, result.Path)
-		fmt.Printf("Commit: %s\n", shortSHA(result.SHA))
+	result, err := operations.PushBundle(cmd.Context(), cfg, operations.PushBundleRequest{
+		Path:     bundle.Path,
+		Remote:   remoteName,
+		Message:  message,
+		CreatePR: createPR,
+	})
+	if err != nil {
+		return err
 	}
 
+	return emit(cmd, result, func() error { return printPushResult(cmd.OutOrStdout(), result) })
+}
+
+// printPushResult renders a push outcome for humans.
+func printPushResult(w io.Writer, r *operations.PushBundleResult) error {
+	if r.Status == "pr-created" {
+		_, err := fmt.Fprintf(w, "Created pull request: %s\n", r.PRURL)
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Pushed %s to %s\n", r.TargetPath, r.Remote); err != nil {
+		return err
+	}
+	if r.CommitSHA != "" {
+		if _, err := fmt.Fprintf(w, "Commit: %s\n", shortSHA(r.CommitSHA)); err != nil {
+			return err
+		}
+	}
 	return nil
 }

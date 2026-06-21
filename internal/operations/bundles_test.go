@@ -541,7 +541,7 @@ func writeRemotesYAML(t *testing.T, appDir, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "remotes.yaml"), []byte(content), 0644))
 }
 
-func TestPushBundle_DryRun_FromCachedPath(t *testing.T) {
+func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `remotes:
   personal:
@@ -549,22 +549,17 @@ func TestPushBundle_DryRun_FromCachedPath(t *testing.T) {
     version: v1
 `)
 
-	// Place a bundle under cache/bundles/<remote>/<name>.yaml
+	// A bundle under cache/bundles/<remote>/<name>.yaml resolves to <remote>.
 	bundlePath := filepath.Join(paths.BundlesPath(appDir), "personal", "rust-tdd.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
 	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
 
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:   bundlePath,
-		DryRun: true,
-	})
+	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
-	assert.Equal(t, "preview", result.Status)
-	assert.Equal(t, "personal", result.Remote, "<remote> segment of cache path is the source")
-	assert.Equal(t, "ctxloom/bundles/rust-tdd.yaml", result.TargetPath)
+	assert.Equal(t, "personal", remoteName, "<remote> segment of cache path is the source")
 }
 
-func TestPushBundle_DryRun_FromLocalPath_UsesDefaultRemote(t *testing.T) {
+func TestResolveBundleRemote_UsesDefaultRemote(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `default: personal
 remotes:
@@ -579,15 +574,12 @@ remotes:
 	createSeedBundle(t, cfg, "local-only") // lands at cache/bundles/local-only.yaml
 
 	bundlePath := filepath.Join(paths.BundlesPath(appDir), "local-only.yaml")
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:   bundlePath,
-		DryRun: true,
-	})
+	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
-	assert.Equal(t, "personal", result.Remote, "default remote used when path lacks remote prefix")
+	assert.Equal(t, "personal", remoteName, "default remote used when path lacks remote prefix")
 }
 
-func TestPushBundle_DryRun_FromLocalPath_SingleRemoteFallback(t *testing.T) {
+func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `remotes:
   only:
@@ -597,16 +589,13 @@ func TestPushBundle_DryRun_FromLocalPath_SingleRemoteFallback(t *testing.T) {
 	createSeedBundle(t, cfg, "x")
 
 	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:   bundlePath,
-		DryRun: true,
-	})
+	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
-	assert.Equal(t, "only", result.Remote,
+	assert.Equal(t, "only", remoteName,
 		"single configured remote is used when no default + no path prefix")
 }
 
-func TestPushBundle_DryRun_FromLocalPath_AmbiguousRemote_Errors(t *testing.T) {
+func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `remotes:
   a:
@@ -619,14 +608,34 @@ func TestPushBundle_DryRun_FromLocalPath_AmbiguousRemote_Errors(t *testing.T) {
 	createSeedBundle(t, cfg, "x")
 
 	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
-	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:   bundlePath,
-		DryRun: true,
-	})
+	_, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ambiguous", "error must surface that we can't pick")
 	assert.Contains(t, err.Error(), "a")
 	assert.Contains(t, err.Error(), "b")
+}
+
+func TestResolveBundleRemote_Override(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeRemotesYAML(t, appDir, `default: personal
+remotes:
+  personal:
+    url: https://github.com/example/personal
+    version: v1
+  other:
+    url: https://github.com/example/other
+    version: v1
+`)
+	createSeedBundle(t, cfg, "x")
+	bundlePath := filepath.Join(paths.BundlesPath(appDir), "x.yaml")
+
+	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "other")
+	require.NoError(t, err)
+	assert.Equal(t, "other", remoteName, "an explicit override wins over the default")
+
+	_, err = ResolveBundleRemote(cfg, bundlePath, "ghost")
+	require.Error(t, err, "an override that is not a configured remote is rejected")
+	assert.Contains(t, err.Error(), "ghost")
 }
 
 func TestPushBundle_FileMissing_Errors(t *testing.T) {
@@ -634,6 +643,7 @@ func TestPushBundle_FileMissing_Errors(t *testing.T) {
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:   "/no/such/file.yaml",
+		Remote: "any",
 		DryRun: true,
 	})
 	require.Error(t, err)
@@ -653,16 +663,17 @@ remotes:
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:   bogus,
+		Remote: "r",
 		DryRun: true,
 	})
 	require.Error(t, err)
 }
 
-// TestPushBundle_PathOutsideCtxloom_GitRemoteFallback covers the "bundle is
-// in a git tree" case: the user has a checked-out copy of a bundles repo and
-// pushes a bundle from there. We infer the remote by matching the git tree's
-// origin URL to a configured registry entry.
-func TestPushBundle_PathOutsideCtxloom_GitRemoteFallback(t *testing.T) {
+// TestResolveBundleRemote_GitRemoteFallback covers the "bundle is in a git
+// tree" case: the user has a checked-out copy of a bundles repo and pushes a
+// bundle from there. We infer the remote by matching the git tree's origin URL
+// to a configured registry entry.
+func TestResolveBundleRemote_GitRemoteFallback(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeRemotesYAML(t, appDir, `remotes:
   mine:
@@ -689,12 +700,9 @@ func TestPushBundle_PathOutsideCtxloom_GitRemoteFallback(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
 	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
 
-	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
-		Path:   bundlePath,
-		DryRun: true,
-	})
+	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
-	assert.Equal(t, "mine", result.Remote, "git origin URL should match registry remote 'mine'")
+	assert.Equal(t, "mine", remoteName, "git origin URL should match registry remote 'mine'")
 }
 
 // TestPushBundle_DryRun_PreviewShape — full result shape for a dry-run:
@@ -712,6 +720,7 @@ remotes:
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:     bundlePath,
+		Remote:   "personal",
 		Message:  "Add shape-test",
 		CreatePR: true,
 		DryRun:   true,
@@ -813,6 +822,7 @@ func TestPushBundle_DirectPush_CallsPublisher(t *testing.T) {
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:           bundlePath,
+		Remote:         "personal",
 		Message:        "Add for-push",
 		PublishManager: mgr,
 	})
@@ -835,6 +845,7 @@ func TestPushBundle_CreatePR_CallsPublisherWithPR(t *testing.T) {
 
 	result, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:           bundlePath,
+		Remote:         "personal",
 		CreatePR:       true,
 		PublishManager: mgr,
 	})
@@ -850,6 +861,7 @@ func TestPushBundle_DefaultMessage(t *testing.T) {
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:           bundlePath,
+		Remote:         "personal",
 		PublishManager: mgr,
 	})
 	require.NoError(t, err)
@@ -864,6 +876,7 @@ func TestPushBundle_PublisherError_Surfaces(t *testing.T) {
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
 		Path:           bundlePath,
+		Remote:         "personal",
 		PublishManager: mgr,
 	})
 	require.Error(t, err, "publisher errors must surface (unlike local-write fault tolerance)")

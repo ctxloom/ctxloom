@@ -52,7 +52,6 @@ func init() {
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
 	bundlePushCmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")
-	bundlePushCmd.Flags().StringVar(&bundlePushBranch, "branch", "", "Target branch (default: repository default)")
 	bundlePushCmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
 	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")

@@ -8,13 +8,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/shared/iox"
 )
 
 var (
 	bundlePushPR      bool
-	bundlePushBranch  string
 	bundlePushMessage string
 )
 
@@ -38,10 +36,9 @@ Examples:
 }
 
 func runBundlePush(cmd *cobra.Command, args []string) error {
-	bundleName := args[0]
-	remoteName := ""
+	remoteOverride := ""
 	if len(args) > 1 {
-		remoteName = args[1]
+		remoteOverride = args[1]
 	}
 
 	cfg, err := GetConfig()
@@ -49,37 +46,27 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	bundle, err := loadBundleForPush(cfg, bundleName)
+	bundle, err := loadBundleForPush(cfg, args[0])
 	if err != nil {
 		return err
 	}
 
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	remoteName, err = resolveDefaultRemote(registry, remoteName, "ctxloom bundle push <name> <remote>")
+	remoteName, err := operations.ResolveBundleRemote(cfg, bundle.Path, remoteOverride)
 	if err != nil {
 		return err
 	}
 
-	opts := remote.PublishOptions{
-		CreatePR: bundlePushPR,
-		Branch:   bundlePushBranch,
+	result, err := operations.PushBundle(cmd.Context(), cfg, operations.PushBundleRequest{
+		Path:     bundle.Path,
+		Remote:   remoteName,
 		Message:  bundlePushMessage,
-		ItemType: remote.ItemTypeBundle,
-	}
-	fmt.Printf("Publishing bundle %q to %s...\n", bundleName, remoteName)
-
-	pm := remote.NewPublishManager(registry, remote.LoadAuth(""))
-	result, err := pm.Publish(cmd.Context(), bundle.Path, remoteName, opts)
+		CreatePR: bundlePushPR,
+	})
 	if err != nil {
 		return err
 	}
 
-	printPublishResult(result)
-	return nil
+	return emit(cmd, result, func() error { return printPushResult(cmd.OutOrStdout(), result) })
 }
 
 // loadBundleForPush loads the named bundle through the operations read-path,

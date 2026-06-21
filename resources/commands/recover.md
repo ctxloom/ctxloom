@@ -2,7 +2,6 @@
 description: Recover context from previous session after /clear
 ---
 
-
 Recover context from the session before the last `/clear`.
 
 ## Steps

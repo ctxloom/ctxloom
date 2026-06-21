@@ -41,6 +41,35 @@ func TestGetBuiltinCommand(t *testing.T) {
 	}
 }
 
+func TestGetBuiltinCommand_Recover(t *testing.T) {
+	// /recover ships as a built-in so every ctxloom project gets it, not just
+	// the ctxloom repo's own .claude/commands. It wraps the get_previous_session
+	// MCP tool.
+	content, err := GetBuiltinCommand("recover")
+	if err != nil {
+		t.Fatalf("GetBuiltinCommand(recover): %v", err)
+	}
+	if !strings.Contains(string(content), "description:") {
+		t.Error("Expected description in frontmatter")
+	}
+	if !strings.Contains(string(content), "get_previous_session") {
+		t.Error("recover command should drive the get_previous_session MCP tool")
+	}
+}
+
+func TestListBuiltinCommands_IncludesRecover(t *testing.T) {
+	names, err := ListBuiltinCommands()
+	if err != nil {
+		t.Fatalf("ListBuiltinCommands: %v", err)
+	}
+	for _, name := range names {
+		if name == "recover" {
+			return
+		}
+	}
+	t.Errorf("expected 'recover' built-in command, got: %v", names)
+}
+
 func TestGetBuiltinCommand_Unknown(t *testing.T) {
 	_, err := GetBuiltinCommand("nope-no-such-command")
 	if err == nil {

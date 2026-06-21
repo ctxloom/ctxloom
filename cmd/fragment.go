@@ -26,7 +26,7 @@ var fragmentListCmd = &cobra.Command{
 
 Use --bundle to filter by a specific bundle.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return listItems(ItemTypeFragment, fragmentListBundle)
+		return listItems(cmd, ItemTypeFragment, fragmentListBundle)
 	},
 }
 

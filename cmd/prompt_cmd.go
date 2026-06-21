@@ -26,7 +26,7 @@ var promptListCmd = &cobra.Command{
 
 Use --bundle to filter by a specific bundle.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return listItems(ItemTypePrompt, promptListBundle)
+		return listItems(cmd, ItemTypePrompt, promptListBundle)
 	},
 }
 

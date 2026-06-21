@@ -29,19 +29,26 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 	}
 
 	bundleDirs := cfg.GetBundleDirs()
-	out := cmd.OutOrStdout()
-	if len(bundleDirs) == 0 {
-		w := iox.NewErrWriter(out)
-		w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/bundles")
-		return w.Err()
+	var bundleInfos []*bundles.BundleInfo
+	if len(bundleDirs) > 0 {
+		bundleInfos, err = operations.ListBundles(cfg)
+		if err != nil {
+			return fmt.Errorf("failed to list bundles: %w", err)
+		}
+	}
+	if bundleInfos == nil {
+		bundleInfos = []*bundles.BundleInfo{}
 	}
 
-	bundleInfos, err := operations.ListBundles(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to list bundles: %w", err)
-	}
-
-	return renderBundleList(out, bundleInfos)
+	return emit(cmd, bundleInfos, func() error {
+		out := cmd.OutOrStdout()
+		if len(bundleDirs) == 0 {
+			w := iox.NewErrWriter(out)
+			w.Println("No bundles directory found. Create one with: mkdir -p .ctxloom/bundles")
+			return w.Err()
+		}
+		return renderBundleList(out, bundleInfos)
+	})
 }
 
 // renderBundleList writes the human-readable summary of installed bundles

@@ -137,7 +137,7 @@ func printItemInfos(rows []itemRow, itemType ItemType) {
 }
 
 // listItems lists all items of the given type, optionally filtered by bundle.
-func listItems(itemType ItemType, bundleFilter string) error {
+func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -148,14 +148,20 @@ func listItems(itemType ItemType, bundleFilter string) error {
 		return fmt.Errorf("failed to list %ss: %w", itemType, err)
 	}
 
-	if len(rows) == 0 {
-		fmt.Printf("No %ss found.\n", itemType)
-		fmt.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
-		return nil
+	filtered := filterByBundle(rows, bundleFilter)
+	if filtered == nil {
+		filtered = []itemRow{}
 	}
-
-	printItemInfos(filterByBundle(rows, bundleFilter), itemType)
-	return nil
+	return emit(cmd, filtered, func() error {
+		if len(rows) == 0 {
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "No %ss found.\n", itemType)
+			fmt.Fprintln(out, "Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+			return nil
+		}
+		printItemInfos(filtered, itemType)
+		return nil
+	})
 }
 
 // loadBundleForItem resolves an item reference and loads its bundle, returning

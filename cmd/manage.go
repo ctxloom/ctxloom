@@ -172,8 +172,10 @@ func runManageStatus(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printHarnessStatus(result)
-	return nil
+	return emit(cmd, result, func() error {
+		printHarnessStatus(result)
+		return nil
+	})
 }
 
 // printHarnessStatus renders the wiring report.

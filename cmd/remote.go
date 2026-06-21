@@ -124,26 +124,28 @@ var remoteListCmd = &cobra.Command{
 			return err
 		}
 
-		if result.Count == 0 {
-			fmt.Println("No remotes configured.")
-			fmt.Println("Use 'ctxloom remote add <name> <url>' to add a remote.")
-			fmt.Println("Use 'ctxloom remote discover' to find public repositories.")
+		return emit(cmd, result, func() error {
+			out := cmd.OutOrStdout()
+			if result.Count == 0 {
+				fmt.Fprintln(out, "No remotes configured.")
+				fmt.Fprintln(out, "Use 'ctxloom remote add <name> <url>' to add a remote.")
+				fmt.Fprintln(out, "Use 'ctxloom remote discover' to find public repositories.")
+				return nil
+			}
+
+			fmt.Fprintln(out, "Configured remotes:")
+			for _, r := range result.Remotes {
+				var marks string
+				if r.Name == result.Default {
+					marks += " (default)"
+				}
+				if r.Trusted {
+					marks += " (trusted)"
+				}
+				fmt.Fprintf(out, "  %-15s %s%s\n", r.Name, r.URL, marks)
+			}
 			return nil
-		}
-
-		fmt.Println("Configured remotes:")
-		for _, r := range result.Remotes {
-			var marks string
-			if r.Name == result.Default {
-				marks += " (default)"
-			}
-			if r.Trusted {
-				marks += " (trusted)"
-			}
-			fmt.Printf("  %-15s %s%s\n", r.Name, r.URL, marks)
-		}
-
-		return nil
+		})
 	},
 }
 

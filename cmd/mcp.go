@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/wire"
 )
 
 var mcpCmd = &cobra.Command{
@@ -186,35 +186,47 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if srv, ok := cfg.MCP.Servers[name]; ok {
-		printMCPServerDetails(name, "unified (all backends)", srv)
-		return nil
+	result, err := operations.GetMCPServer(cmd.Context(), cfg, operations.GetMCPServerRequest{Name: name})
+	if err != nil {
+		return err
 	}
 
-	for backend, servers := range cfg.MCP.Plugins {
-		if srv, ok := servers[name]; ok {
-			printMCPServerDetails(name, backend+" only", srv)
-			return nil
+	return emit(cmd, result, func() error {
+		if !result.Found {
+			return fmt.Errorf("MCP server %q not found", name)
 		}
-	}
-
-	return fmt.Errorf("MCP server %q not found", name)
+		out := cmd.OutOrStdout()
+		for _, e := range result.Entries {
+			printMCPServerEntry(out, e)
+		}
+		return nil
+	})
 }
 
-// printMCPServerDetails prints an MCP server's scope, command, args, and env.
-func printMCPServerDetails(name, scope string, srv wire.MCPServer) {
-	fmt.Printf("MCP Server: %s\n", name)
-	fmt.Printf("Scope: %s\n", scope)
-	fmt.Printf("Command: %s\n", srv.Command)
-	if len(srv.Args) > 0 {
-		fmt.Printf("Args: %s\n", strings.Join(srv.Args, " "))
+// printMCPServerEntry writes one MCP server entry's scope, command, args, and
+// env to w.
+func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
+	fmt.Fprintf(w, "MCP Server: %s\n", e.Name)
+	fmt.Fprintf(w, "Scope: %s\n", mcpScopeLabel(e.Backend))
+	fmt.Fprintf(w, "Command: %s\n", e.Command)
+	if len(e.Args) > 0 {
+		fmt.Fprintf(w, "Args: %s\n", strings.Join(e.Args, " "))
 	}
-	if len(srv.Env) > 0 {
-		fmt.Println("Environment:")
-		for k, v := range srv.Env {
-			fmt.Printf("  %s=%s\n", k, v)
+	if len(e.Env) > 0 {
+		fmt.Fprintln(w, "Environment:")
+		for k, v := range e.Env {
+			fmt.Fprintf(w, "  %s=%s\n", k, v)
 		}
 	}
+}
+
+// mcpScopeLabel renders an entry's backend scope for human output, matching the
+// labels the previous direct-config lookup used.
+func mcpScopeLabel(backend string) string {
+	if backend == "unified" {
+		return "unified (all backends)"
+	}
+	return backend + " only"
 }
 
 func init() {

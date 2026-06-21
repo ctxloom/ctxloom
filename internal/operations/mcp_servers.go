@@ -14,12 +14,13 @@ import (
 
 // MCPServerEntry represents an MCP server in operation results.
 type MCPServerEntry struct {
-	Name         string   `json:"name"`
-	Command      string   `json:"command"`
-	Args         []string `json:"args,omitempty"`
-	Backend      string   `json:"backend"`
-	Notes        string   `json:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string   `json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
+	Name         string            `json:"name"`
+	Command      string            `json:"command"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Backend      string            `json:"backend"`
+	Notes        string            `json:"notes,omitempty"`        // Human-readable notes, not sent to AI
+	Installation string            `json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
 }
 
 // ListMCPServersRequest contains parameters for listing MCP servers.
@@ -86,6 +87,7 @@ func mcpEntry(name string, srv wire.MCPServer, backend string) MCPServerEntry {
 		Name:         name,
 		Command:      srv.Command,
 		Args:         srv.Args,
+		Env:          srv.Env,
 		Backend:      backend,
 		Notes:        srv.Notes,
 		Installation: srv.Installation,
@@ -130,6 +132,55 @@ func sortMCPServers(servers []MCPServerEntry, sortBy, sortOrder string) {
 	case "command":
 		sort.Slice(servers, func(i, j int) bool { return less(servers[i].Command, servers[j].Command) })
 	}
+}
+
+// GetMCPServerRequest identifies the server to look up by exact name.
+type GetMCPServerRequest struct {
+	Name string `json:"name"`
+
+	// TestConfig is an optional pre-loaded config (for testing); when set,
+	// skips config.Load().
+	TestConfig *config.Config `json:"-"`
+}
+
+// GetMCPServerResult holds every scope the named server is configured in — the
+// unified entry and/or per-backend entries. Found is false when no scope
+// matches; Entries is then empty (never nil), so a json consumer always reads a
+// list.
+type GetMCPServerResult struct {
+	Name    string           `json:"name"`
+	Found   bool             `json:"found"`
+	Entries []MCPServerEntry `json:"entries"`
+}
+
+// GetMCPServer returns the configured MCP server with the given exact name
+// across the unified scope and any per-backend scopes it appears in. It is the
+// single-name counterpart to ListMCPServers and reuses the same MCPServerEntry
+// shape, so a frontend reads identical structure from both.
+func GetMCPServer(ctx context.Context, cfg *config.Config, req GetMCPServerRequest) (*GetMCPServerResult, error) {
+	freshCfg, err := resolveListConfig(req.TestConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := []MCPServerEntry{}
+	if srv, ok := freshCfg.MCP.Servers[req.Name]; ok {
+		entries = append(entries, mcpEntry(req.Name, srv, "unified"))
+	}
+	for backend, backendServers := range freshCfg.MCP.Plugins {
+		if srv, ok := backendServers[req.Name]; ok {
+			entries = append(entries, mcpEntry(req.Name, srv, backend))
+		}
+	}
+	// Map iteration over per-backend scopes is non-deterministic; sort by scope
+	// for stable output (the unified entry sorts ahead of backend names).
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Backend < entries[j].Backend })
+
+	return &GetMCPServerResult{
+		Name:    req.Name,
+		Found:   len(entries) > 0,
+		Entries: entries,
+	}, nil
 }
 
 // AddMCPServerRequest contains parameters for adding an MCP server.

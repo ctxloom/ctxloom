@@ -58,10 +58,24 @@ type bundleRefCanonicalizeUpgrade struct {
 // Name identifies the upgrade in logs and the rewrite prompt.
 func (bundleRefCanonicalizeUpgrade) Name() string { return "canonicalize bundle refs" }
 
-// Apply canonicalizes entries in the top-level `bundles` sequence, returning
-// whether it changed anything.
-func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
-	seq := upgrade.MapValue(root, "bundles")
+// Apply canonicalizes the top-level `bundles` and `parents` sequences, reporting
+// whether it changed anything. Bundles accept the legacy short/alias forms and
+// are resolved to a repo URL; parents are only re-normalized when ALREADY
+// canonical — a bare parent names a local sibling profile, and resolving it
+// against a remote alias would silently turn a local parent into a remote ref.
+// Both paths collapse a legacy "v1/" schema directory (stripLegacySchemaSegment)
+// so a stored ref equals its own canonical identity.
+func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) bool {
+	bundlesChanged := mapScalarSeq(root, "bundles", u.canonicalize)
+	parentsChanged := mapScalarSeq(root, "parents", renormalizeStoredRef)
+	return bundlesChanged || parentsChanged
+}
+
+// mapScalarSeq rewrites every scalar entry of the named top-level sequence via
+// fn, replacing the value whenever fn reports a change. A missing or
+// non-sequence node is a no-op. Returns whether any entry changed.
+func mapScalarSeq(root *yaml.Node, key string, fn func(string) (string, bool)) (changed bool) {
+	seq := upgrade.MapValue(root, key)
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return false
 	}
@@ -69,24 +83,53 @@ func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 		if item.Kind != yaml.ScalarNode {
 			continue
 		}
-		if canonical, ok := u.canonicalize(item.Value); ok {
-			item.Value = canonical
+		if rewritten, ok := fn(item.Value); ok {
+			item.Value = rewritten
 			changed = true
 		}
 	}
 	return changed
 }
 
+// renormalizeStoredRef re-emits an already-canonical reference in normalized
+// stored form, collapsing a legacy schema directory (e.g. "v1/profiles/x" →
+// "profiles/x") so the stored ref equals its canonical identity. The content
+// version pin and item selector are preserved: CanonicalString drops the version
+// (correct for a lockfile key, but a profile document must keep the pin). A
+// non-canonical or unparseable ref is returned verbatim, so it is safe to hand
+// any parent ref here — bare local-sibling names and ctxloom:local refs are left
+// untouched.
+func renormalizeStoredRef(ref string) (string, bool) {
+	if !remote.IsCanonicalRef(ref) {
+		return ref, false
+	}
+	base, selector := splitBundleSelector(ref)
+	parsed, err := remote.ParseReference(base)
+	if err != nil {
+		return ref, false
+	}
+	normalized := parsed.CanonicalString()
+	if parsed.ContentVersion != "" {
+		normalized += "@" + parsed.ContentVersion
+	}
+	normalized += selector
+	if normalized == ref {
+		return ref, false
+	}
+	return normalized, true
+}
+
 // canonicalize rewrites a single bundle ref to canonical URL form, reporting
 // whether it changed. See the type doc for the resolution rules.
 func (u bundleRefCanonicalizeUpgrade) canonicalize(ref string) (string, bool) {
-	// A canonical URL ref is already fully qualified and must never be touched.
-	// Its scheme colon ("https://") would otherwise be mistaken for the cherry-pick
-	// ':' separator below, splitting the bundle name down to "https". (The
-	// resolver's expandBundleRef hit the same trap; see
-	// internal/bundles/loader_content.go.)
+	// A canonical URL ref is already fully qualified, so never re-resolve it —
+	// its scheme colon ("https://") would otherwise be mistaken for the
+	// cherry-pick ':' separator below, splitting the bundle name down to "https"
+	// (the resolver's expandBundleRef hit the same trap; see
+	// internal/bundles/loader_content.go). Still re-normalize its layout so a
+	// legacy "v1/" schema dir collapses to canonical storage.
 	if remote.IsCanonicalRef(ref) {
-		return ref, false
+		return renormalizeStoredRef(ref)
 	}
 
 	base, item := splitBundleSelector(ref)

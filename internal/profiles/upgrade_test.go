@@ -188,6 +188,55 @@ func TestCommitUpgrade_WritesCanonicalFileAndClearsPending(t *testing.T) {
 	assert.Empty(t, loader.PendingUpgrades(), "committed pending should be cleared")
 }
 
+// TestCanonicalize_StripsLegacyV1FromBundlesAndParents verifies the directory
+// normalization pass: a canonical ref carrying the dead "v1/" schema segment is
+// collapsed to the new layout in BOTH `bundles:` and `parents:`, so the stored
+// ref equals its CanonicalString. A version pin survives the rewrite.
+func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
+	in := []byte("parents:\n" +
+		"  - " + defaultURL + "@v1/profiles/rust-developer\n" +
+		"bundles:\n" +
+		"  - " + defaultURL + "@v1/bundles/git\n" +
+		"  - " + personalURL + "@v1/bundles/just@v1.2.3\n")
+
+	out, applied := runProfileUpgrade(personalURL, in)
+
+	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
+	got := string(out)
+	assert.Contains(t, got, "- "+defaultURL+"@profiles/rust-developer")
+	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
+	// The content-version pin is preserved across the layout normalization.
+	assert.Contains(t, got, "- "+personalURL+"@bundles/just@v1.2.3")
+	// No "v1/" schema segment may survive, in either section.
+	assert.NotContains(t, got, "@v1/")
+}
+
+// TestParentCanonicalize_LocalSiblingsUntouched verifies parents that are NOT
+// canonical URLs — a bare local sibling name and an alias-prefixed local profile
+// path — pass through verbatim. Resolving them against a remote alias would
+// wrongly promote a local parent into a remote ref.
+func TestParentCanonicalize_LocalSiblingsUntouched(t *testing.T) {
+	in := []byte("parents:\n" +
+		"  - base-profile\n" +
+		"  - personal/prototype\n")
+
+	out, applied := runProfileUpgrade(personalURL, in)
+
+	assert.Empty(t, applied, "local parent refs must not be canonicalized")
+	assert.Equal(t, string(in), string(out))
+}
+
+// TestParentCanonicalize_AlreadyCanonicalUntouched is an idempotency guard: a
+// parent that is already a normalized canonical URL passes through unchanged.
+func TestParentCanonicalize_AlreadyCanonicalUntouched(t *testing.T) {
+	in := []byte("parents:\n  - " + defaultURL + "@profiles/rust-developer\n")
+
+	out, applied := runProfileUpgrade(personalURL, in)
+
+	assert.Empty(t, applied, "already-canonical parent must not fire the upgrade")
+	assert.Equal(t, string(in), string(out))
+}
+
 // TestLoad_NoResolverIsNoOp verifies a loader constructed without remote
 // resolvers behaves exactly as before — bare refs untouched, no panics.
 func TestLoad_NoResolverIsNoOp(t *testing.T) {

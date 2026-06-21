@@ -28,20 +28,22 @@ import (
 	"github.com/ctxloom/shared/iox"
 )
 
-// Entry is one row in index.yaml.
+// Entry is one row in index.yaml. The json tags mirror the yaml keys so
+// `ctxloom session list --format json` and any frontend reading it (the VSCode
+// companion) share the same snake_case contract as the on-disk index.
 type Entry struct {
-	HarpName       string     `yaml:"harp_name"`
-	SessionID      string     `yaml:"session_id,omitempty"` // empty until backend binds on initialize
-	Backend        string     `yaml:"backend,omitempty"`
-	ProjectDir     string     `yaml:"project_dir"`
-	StartedAt      time.Time  `yaml:"started_at"`
-	EndedAt        *time.Time `yaml:"ended_at,omitempty"`
-	TranscriptPath string     `yaml:"transcript_path,omitempty"`
-	Summary        string     `yaml:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
+	HarpName       string     `yaml:"harp_name" json:"harp_name"`
+	SessionID      string     `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize
+	Backend        string     `yaml:"backend,omitempty" json:"backend,omitempty"`
+	ProjectDir     string     `yaml:"project_dir" json:"project_dir"`
+	StartedAt      time.Time  `yaml:"started_at" json:"started_at"`
+	EndedAt        *time.Time `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
+	TranscriptPath string     `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
+	Summary        string     `yaml:"summary,omitempty" json:"summary,omitempty"` // mirror of essence.md frontmatter, for fast picker render
 	// Detail holds extra picker lines (the distilled Open Items) shown under the
 	// summary. Kept separate from Summary so the single-line consumers (session
 	// list table, MCP resource) stay one line while the picker can render more.
-	Detail []string `yaml:"detail,omitempty"`
+	Detail []string `yaml:"detail,omitempty" json:"detail,omitempty"`
 }
 
 // Index is the on-disk form of the session index.

@@ -50,12 +50,17 @@ var sessionListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if len(entries) == 0 {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Println("(no sessions)")
-			return w.Err()
+		if entries == nil {
+			entries = []sessions.Entry{}
 		}
-		return renderSessionTable(cmd.OutOrStdout(), entries)
+		return emit(cmd, entries, func() error {
+			if len(entries) == 0 {
+				w := iox.NewErrWriter(cmd.OutOrStdout())
+				w.Println("(no sessions)")
+				return w.Err()
+			}
+			return renderSessionTable(cmd.OutOrStdout(), entries)
+		})
 	},
 }
 

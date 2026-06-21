@@ -38,26 +38,36 @@ var profileListCmd = &cobra.Command{
 		// The directory-existence check stays a CLI concern: it distinguishes
 		// "no profiles dir at all" (suggest mkdir) from "dir exists but empty"
 		// (suggest create). operations.ListProfiles would conflate the two by
-		// defaulting the dir.
+		// defaulting the dir. Resolve the structured list up front so --format
+		// json is honored uniformly (emitting [] in both empty cases); the human
+		// path keeps the dir-vs-empty hint messages.
 		profileDirs := profiles.GetProfileDirs(cfg.AppPaths)
-		if len(profileDirs) == 0 {
-			fmt.Println("No profiles directory found.")
-			fmt.Println("Create one with: mkdir -p .ctxloom/profiles")
-			return nil
+		var list []operations.ProfileEntry
+		if len(profileDirs) > 0 {
+			res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
+			if err != nil {
+				return err
+			}
+			list = res.Profiles
+		}
+		if list == nil {
+			list = []operations.ProfileEntry{}
 		}
 
-		res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
-		if err != nil {
-			return err
-		}
-
-		if res.Count == 0 {
-			fmt.Println("No profiles defined.")
-			fmt.Println("Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
-			return nil
-		}
-
-		return renderProfileList(cmd.OutOrStdout(), res.Profiles)
+		return emit(cmd, list, func() error {
+			out := cmd.OutOrStdout()
+			if len(profileDirs) == 0 {
+				fmt.Fprintln(out, "No profiles directory found.")
+				fmt.Fprintln(out, "Create one with: mkdir -p .ctxloom/profiles")
+				return nil
+			}
+			if len(list) == 0 {
+				fmt.Fprintln(out, "No profiles defined.")
+				fmt.Fprintln(out, "Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
+				return nil
+			}
+			return renderProfileList(out, list)
+		})
 	},
 }
 

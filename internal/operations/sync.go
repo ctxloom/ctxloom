@@ -101,6 +101,18 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		return nil, err
 	}
 
+	// Refresh each referenced clone to its live tip before pulling. A first
+	// install resolves an unpinned ref to the default-branch HEAD, and the
+	// cache serves an existing clone as-is (ensureClone never fetches — only an
+	// explicit UpdateRepo does). A stale clone — e.g. one predating an upstream
+	// layout migration (ctxloom/v1/<kind>/ → ctxloom/<kind>/) — would otherwise
+	// resolve to old content or 404 a moved path. CheckOutdated/Relock refresh
+	// for the same reason. Skipped when a Puller is injected (tests drive a mock
+	// fetcher with no real clone to advance); per-URL failures warn and continue.
+	if req.Puller == nil {
+		refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs, profileRefs))
+	}
+
 	// Installed-probe sources (reference-only model: lockfile entry + content
 	// retrievable from the clone cache, never a disk check).
 	bundleReader := req.BundleReader
@@ -280,6 +292,27 @@ func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
 	// refs), and DiffLockfiles filters trusted entries from review regardless, so
 	// there is nothing to promote here — just report the reviewable delta.
 	return computeBundleChanges(cfg, registry, fs)
+}
+
+// syncRefURLs returns the unique repo URLs behind the given canonical refs, in
+// first-seen order. Unparseable refs and local (ctxloom:local) refs carry no
+// URL and are skipped — only network remotes have a clone to refresh. Mirrors
+// uniqueRemoteURLs but works from raw refs (sync's input) rather than lockfile
+// entries.
+func syncRefURLs(refSets ...[]string) []string {
+	seen := collections.NewSet[string]()
+	var urls []string
+	for _, refs := range refSets {
+		for _, ref := range refs {
+			parsed, err := remote.ParseReference(ref)
+			if err != nil || parsed.URL == "" || seen.Has(parsed.URL) {
+				continue
+			}
+			seen.Add(parsed.URL)
+			urls = append(urls, parsed.URL)
+		}
+	}
+	return urls
 }
 
 // collectRemoteReferences collects all remote bundle and profile references from config.

@@ -180,7 +180,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	combined := strings.Join(distilled, "\n\n---\n\n")
 	result.TotalTokensOut = estimateTokens(combined)
 
-	if result.TotalTokensOut > c.config.ChunkSize && len(chunks) > 1 {
+	// Any multi-chunk session needs the reduce pass: it unifies the concatenated
+	// per-chunk summaries into one canonical essence (YAML frontmatter + the
+	// "### Open Items" section the picker derives its summary and detail lines
+	// from). Gating it on size left small multi-chunk sessions with raw map
+	// output — no frontmatter, no Open Items. Single-chunk sessions already
+	// produce one canonical map output, so they skip it.
+	if len(chunks) > 1 {
 		combined = c.finalCompressionPass(ctx, combined)
 		result.TotalTokensOut = estimateTokens(combined)
 	}
@@ -547,14 +553,14 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 	}
 	defer client.Kill()
 
-	// Build request with model specified in options
-	// SkipSetup=true for minimal startup (no hooks/skills/context)
+	// SkipSetup=true keeps distillation minimal (no hooks/skills/context), but
+	// the server delivers req.Fragments to the backend only via Setup — which
+	// SkipSetup bypasses. So the instructions must travel in the prompt itself,
+	// ahead of the transcript; sent as a Fragment they'd be silently dropped and
+	// the model would just answer the <session_log> conversationally.
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{
-			Content: fmt.Sprintf("<session_log>\n%s\n</session_log>", content),
-		},
-		Fragments: []*pb.Fragment{
-			{Content: systemPrompt},
+			Content: fmt.Sprintf("%s\n\n<session_log>\n%s\n</session_log>", systemPrompt, content),
 		},
 		Options: &pb.RunOptions{
 			AutoApprove: true,

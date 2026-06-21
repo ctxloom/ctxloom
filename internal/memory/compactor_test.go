@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 
@@ -520,6 +521,101 @@ func TestCompact_WithMockClient(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestCompact_MultiChunk_RunsReducePassUnderThreshold pins that the reduce
+// (unify) pass runs for any multi-chunk session, even when the combined map
+// output is well under ChunkSize. The reduce pass is the only stage that
+// normalizes the concatenated per-chunk summaries into the canonical essence
+// (YAML frontmatter + "### Open Items"); skipping it leaves raw map output the
+// picker can't derive a clean summary or detail lines from.
+func TestCompact_MultiChunk_RunsReducePassUnderThreshold(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	// Two large entries split into several chunks at a small ChunkSize, but each
+	// chunk distills to a tiny string so the combined output stays under
+	// ChunkSize — the exact case the old size gate skipped.
+	big := strings.Repeat("the session worked through many decisions and edits. ", 40)
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "multi-chunk-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: big},
+				{Type: agent.EntryTypeAssistant, Content: big},
+			},
+		},
+	}}
+
+	var mu sync.Mutex
+	var sawReduce bool
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			mu.Lock()
+			if strings.Contains(req.Prompt.Content, sessionDistillReducePrompt) {
+				sawReduce = true
+			}
+			mu.Unlock()
+			_, _ = stdout.Write([]byte("x")) // tiny output keeps combined under ChunkSize
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+		ChunkSize:       50, // 200 chars/chunk → the big entries split into many chunks
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err)
+	require.Greater(t, result.ChunksCreated, 1, "test needs multiple chunks to exercise the reduce pass")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.True(t, sawReduce, "reduce pass must run for multi-chunk sessions even when combined output is under ChunkSize")
+}
+
+// TestCompact_DeliversSystemPromptUnderSkipSetup pins the fragment-delivery
+// fix: distillation runs with SkipSetup, and the server only hands req.Fragments
+// to the backend through Setup — which SkipSetup bypasses. So the distill
+// instructions must ride in the prompt itself, or the model never sees them and
+// just answers the transcript conversationally (no frontmatter, no Open Items).
+func TestCompact_DeliversSystemPromptUnderSkipSetup(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID:      "sysprompt-session",
+			Entries: []agent.SessionEntry{{Type: agent.EntryTypeUser, Content: "hello"}},
+		},
+	}}
+
+	var sawPrompt string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			sawPrompt = req.Prompt.Content
+			_, _ = stdout.Write([]byte("---\nsummary: ok\n---\n\n### Open Items\n- x"))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	assert.Contains(t, sawPrompt, sessionDistillPrompt,
+		"the distill system prompt must reach the model in the prompt, since SkipSetup drops req.Fragments")
+	assert.Contains(t, sawPrompt, "hello", "the transcript must still be in the prompt")
+}
+
 func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	home := testsupport.Isolate(t)
 	tmpDir := t.TempDir()
@@ -633,8 +729,9 @@ func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// ~720 chars of transcript so a 100-token (400-char) chunk size yields
-	// multiple chunks, while the combined distilled output stays under the
-	// chunk size (no final compression pass to muddy the assertion).
+	// multiple chunks. The multi-chunk reduce pass is mocked as a pass-through
+	// (below) so the failure marker and successful chunks survive into the body
+	// unchanged, isolating the partial-failure guarantee.
 	content := strings.Repeat("## Section\nalpha beta gamma delta epsilon\n\n", 17)
 	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &agent.Session{
@@ -644,13 +741,20 @@ func TestCompact_PartialChunkFailure_StillSaves(t *testing.T) {
 	}}
 	// Fail chunk 1 deterministically by its position note, not call order:
 	// chunks distill concurrently, so a shared call counter would both race and
-	// fail an unpredictable chunk.
+	// fail an unpredictable chunk. The reduce (unify) pass runs for any
+	// multi-chunk session; mock it as a pass-through so the assertions see the
+	// combined map output verbatim.
 	mockClient := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			if len(req.Fragments) > 0 && strings.Contains(req.Fragments[0].Content, "This is chunk 1 of") {
+			prompt := req.Prompt.Content
+			switch {
+			case strings.Contains(prompt, sessionDistillReducePrompt):
+				_, _ = io.WriteString(stdout, prompt)
+			case strings.Contains(prompt, "This is chunk 1 of"):
 				return 0, errors.New("flaky")
+			default:
+				_, _ = stdout.Write([]byte("distilled ok"))
 			}
-			_, _ = stdout.Write([]byte("distilled ok"))
 			return 0, nil
 		},
 	}
@@ -844,8 +948,11 @@ func TestCompactor_DistillChunks_PreservesOrderConcurrently(t *testing.T) {
 	mock := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
 			// Echo the chunk body so we can assert each output landed in the slot
-			// matching its input, even though chunks distill concurrently.
-			body := strings.TrimSuffix(strings.TrimPrefix(req.Prompt.Content, "<session_log>\n"), "\n</session_log>")
+			// matching its input, even though chunks distill concurrently. The
+			// instructions precede the transcript in the prompt, so cut to the
+			// <session_log> body.
+			_, after, _ := strings.Cut(req.Prompt.Content, "<session_log>\n")
+			body := strings.TrimSuffix(after, "\n</session_log>")
 			_, _ = stdout.Write([]byte("D:" + body))
 			return 0, nil
 		},
@@ -872,12 +979,10 @@ func TestCompactor_DistillChunks_PreservesOrderConcurrently(t *testing.T) {
 // =============================================================================
 
 func TestCompactor_FinalCompressionPass_UsesReducePrompt(t *testing.T) {
-	var gotFragment string
+	var gotPrompt string
 	mock := &pb.MockClient{
 		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			if len(req.Fragments) > 0 {
-				gotFragment = req.Fragments[0].Content
-			}
+			gotPrompt = req.Prompt.Content
 			_, _ = stdout.Write([]byte("merged essence"))
 			return 0, nil
 		},
@@ -889,8 +994,8 @@ func TestCompactor_FinalCompressionPass_UsesReducePrompt(t *testing.T) {
 
 	out := c.finalCompressionPass(context.Background(), "partial one\n---\npartial two")
 	assert.Equal(t, "merged essence", out)
-	assert.Equal(t, sessionDistillReducePrompt, gotFragment, "final pass must use the reduce prompt")
-	assert.NotEqual(t, sessionDistillPrompt, gotFragment, "final pass must not reuse the map prompt")
+	assert.Contains(t, gotPrompt, sessionDistillReducePrompt, "final pass must use the reduce prompt")
+	assert.NotContains(t, gotPrompt, sessionDistillPrompt, "final pass must not reuse the map prompt")
 }
 
 // =============================================================================

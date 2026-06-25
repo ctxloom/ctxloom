@@ -186,7 +186,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	if in.SessionID == "" {
 		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
 	}
-	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, 0)
+	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, 0, false)
 }
 
 // loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
@@ -243,7 +243,10 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		targetSessionID = sessions[0].ID
 	}
 
-	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, 0)
+	// Recover always re-distills: the current session is live and still growing,
+	// so any cached essence (e.g. from an earlier /clear in this same session)
+	// covers only an earlier slice. forceFresh skips the cache.
+	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, 0, true)
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
@@ -291,7 +294,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, 0)
+	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, 0, false)
 }
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.
@@ -300,10 +303,12 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // loadOrDistillSession is the shared body for load_session, recover_session,
 // and get_previous_session. It returns the cached distilled content if
 // available; otherwise it runs the compactor on-demand and then loads what
-// was just written. The pid argument is only set by get_previous_session so
-// the response can carry it back; for the other callers it's zero and the
-// PID field stays omitted.
-func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int) (*mcp.CallToolResult, *loadSessionResult, error) {
+// was just written. When forceFresh is set (recover_session), the cache is
+// skipped and the session is always re-distilled — the current session is live
+// and a cached essence covers only an earlier slice of it. The pid argument is
+// only set by get_previous_session so the response can carry it back; for the
+// other callers it's zero and the PID field stays omitted.
+func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int, forceFresh bool) (*mcp.CallToolResult, *loadSessionResult, error) {
 	source, backendName, err := resolveSessionSource(s.cfg, backendName)
 	if err != nil {
 		return nil, nil, err
@@ -334,8 +339,12 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	sessionsDir := s.getSessionsDir()
 
 	// Cached path: the session was already distilled, return immediately.
-	if cached := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
-		return nil, cached, nil
+	// Skipped for recover (forceFresh): the live current session has grown past
+	// any cached essence, so recover must re-distill from the full transcript.
+	if !forceFresh {
+		if cached := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
+			return nil, cached, nil
+		}
 	}
 
 	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read

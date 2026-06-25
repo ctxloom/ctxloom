@@ -23,6 +23,24 @@ service LLM {
   // locating, reassembling, and translating its own native transcript format.
   rpc GetSession(GetSessionRequest) returns (SessionData);
 
+  // WatchSession streams a session's transcript as structured turns as they
+  // appear, so a frontend can render a native chat UI (messages, not raw pty
+  // bytes). The server polls the same GetSession reassembly and diffs against a
+  // high-water mark: each poll's new entries stream as `entry` events; when the
+  // transcript stops growing for a settle interval, that stable index is a
+  // stopping point and the server emits a `boundary` marking the just-completed
+  // response `[from,to)`. `heartbeat` keeps the stream warm while idle. Purely
+  // additive: no SessionHistory change, every backend gets it for free.
+  rpc WatchSession(WatchSessionRequest) returns (stream WatchEvent);
+
+  // Chat runs a structured, multi-turn conversation over the backend's NATIVE
+  // programmatic protocol (e.g. claude-code's stream-json mode) — messages in,
+  // normalized turn events out, no pty/TUI. It is OPTIONAL: the server checks
+  // whether the backend implements the StructuredChat capability and returns
+  // UNIMPLEMENTED if not. The first ChatInput MUST carry `start`; subsequent
+  // ones carry `user_message`. The frontend half-closes the stream to end input.
+  rpc Chat(stream ChatInput) returns (stream ChatEvent);
+
   // ListSessions returns metadata for the backend's transcripts (its raw store
   // view), used by ctxloom to adopt sessions its index has not bound.
   rpc ListSessions(ListSessionsRequest) returns (SessionList);
@@ -80,6 +98,98 @@ message SessionEntry {
   int64 timestamp_unix = 7;
 }
 
+// WatchSessionRequest locates the session to tail by its agent-agnostic id (the
+// same locator GetSession takes).
+message WatchSessionRequest {
+  string session_id = 1;
+}
+
+// WatchEvent is one message on the WatchSession stream: either a newly-appeared
+// transcript entry, a stopping-point boundary marking a completed response, or a
+// heartbeat keepalive while the session is idle.
+message WatchEvent {
+  oneof event {
+    SessionEntry     entry     = 1; // a newly-appended normalized turn
+    ResponseBoundary boundary  = 2; // the just-completed response: entries[from,to)
+    Heartbeat        heartbeat = 3; // idle keepalive
+  }
+}
+
+// ResponseBoundary marks a stopping point: entries[from_index, to_index) is the
+// response that just completed (growth stalled past the settle interval).
+message ResponseBoundary {
+  int32 from_index = 1;
+  int32 to_index = 2;
+}
+
+// Heartbeat is an empty keepalive emitted on a slow cadence while idle.
+message Heartbeat {}
+
+// ChatInput is one message on the Chat stream. The first MUST carry `start`;
+// thereafter the frontend sends `user_message` turns and half-closes to end input.
+message ChatInput {
+  oneof input {
+    ChatStart       start        = 1; // first message only
+    ChatUserMessage user_message = 2; // a structured user turn
+  }
+}
+
+// ChatStart configures a structured chat (mirrors the subset of RunStart a
+// programmatic, non-pty conversation needs).
+message ChatStart {
+  string work_dir = 1;
+  string model = 2;
+  map<string, string> env = 3;
+  bool auto_approve = 4;
+}
+
+// ChatUserMessage is one inbound user turn (plain text in v1).
+message ChatUserMessage {
+  string text = 1;
+}
+
+// ChatEvent is one normalized outbound event; exactly one is set. `entry` is
+// conversation content (many per response), `complete` the response's
+// completion + accounting (one per response), `session` one-time session info.
+message ChatEvent {
+  oneof event {
+    SessionEntry    entry    = 1;
+    TurnMeta        complete = 2;
+    ChatSessionInfo session  = 3;
+  }
+}
+
+// TurnMeta is per-response completion metadata a client can surface (context
+// gauge, cost, timing). Mirrors agent.TurnMeta.
+message TurnMeta {
+  int32  input_tokens          = 1;
+  int32  output_tokens         = 2;
+  int32  cache_read_tokens     = 3;
+  int32  cache_creation_tokens = 4;
+  int32  context_window        = 5;
+  int32  max_output_tokens     = 6;
+  double cost_usd              = 7;
+  string model                 = 8;
+  string stop_reason           = 9;
+  int32  duration_ms           = 10;
+  int32  num_turns             = 11;
+}
+
+// ChatSessionInfo is one-time session metadata emitted at chat start. Mirrors
+// agent.ChatSessionInfo.
+message ChatSessionInfo {
+  string model           = 1;
+  string permission_mode = 2;
+  int32  context_window  = 3;
+  repeated MCPStatus mcp_servers = 4;
+}
+
+// MCPStatus is the connection status of one MCP server at session start.
+message MCPStatus {
+  string name = 1;
+  string status = 2;
+}
+
 // ListSessionsRequest is empty: the self-situated agent server lists its own
 // workspace's transcripts. Kept as a named message for forward-compatible fields.
 message ListSessionsRequest {
@@ -111,10 +221,18 @@ message LLMInfo {
 // (SIGWINCH). Non-interactive/oneshot callers send only `start`.
 message RunInput {
   oneof input {
-    RunStart   start  = 1; // first message only
-    bytes      stdin  = 2; // terminal keystrokes for the agent's pty
-    WindowSize resize = 3; // terminal size change
+    RunStart    start        = 1; // first message only
+    bytes       stdin        = 2; // terminal keystrokes for the agent's pty
+    WindowSize  resize       = 3; // terminal size change
+    UserMessage user_message = 4; // structured turn input; backend submits it to the pty
   }
+}
+
+// UserMessage is a structured turn from a chat frontend. The backend translates
+// it to the agent's pty stdin (text + submit), so a frontend never has to encode
+// keystrokes. Multiple user_messages may be sent before a response boundary.
+message UserMessage {
+  string text = 1;
 }
 
 // WindowSize carries a terminal resize for the agent's pty.

@@ -35,6 +35,12 @@ func (s *stubClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, 
 	return &pb.RunResult{}, nil
 }
 func (s *stubClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
+func (s *stubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
+	return nil, nil, nil
+}
+func (s *stubClient) Chat(context.Context, agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
+	return nil, nil, nil, nil
+}
 func (s *stubClient) ListSessions(context.Context) ([]agent.SessionMeta, error)  { return nil, nil }
 func (s *stubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
 func (s *stubClient) Kill()                                                      {}

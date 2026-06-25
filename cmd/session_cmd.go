@@ -249,7 +249,7 @@ under the harp directory. Errors if the harp has no session_id bound
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionForgetCmd, sessionDistillCmd, sessionWatchCmd)
 	rootCmd.AddCommand(sessionCmd)
 
 	// session-bind is a machine callback (SessionStart hook target), so it lives

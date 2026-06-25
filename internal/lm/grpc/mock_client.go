@@ -23,6 +23,12 @@ type MockClient struct {
 	// GetSessionFunc is called when GetSession is invoked.
 	GetSessionFunc func(ctx context.Context, sessionID string) (*agent.Session, error)
 
+	// WatchSessionFunc is called when WatchSession is invoked.
+	WatchSessionFunc func(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error)
+
+	// ChatFunc is called when Chat is invoked.
+	ChatFunc func(ctx context.Context, req agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error)
+
 	// ListSessionsFunc is called when ListSessions is invoked.
 	ListSessionsFunc func(ctx context.Context) ([]agent.SessionMeta, error)
 
@@ -40,6 +46,7 @@ type MockClient struct {
 	RunCalls              int
 	RunWithModelInfoCalls int
 	GetSessionCalls       int
+	WatchSessionCalls     int
 	ListSessionsCalls     int
 	KillCalls             int
 }
@@ -84,6 +91,40 @@ func (m *MockClient) GetSession(ctx context.Context, sessionID string) (*agent.S
 		return m.GetSessionFunc(ctx, sessionID)
 	}
 	return &agent.Session{}, nil
+}
+
+// WatchSession returns a structured turn stream, defaulting to an immediately
+// closed (empty) stream so callers ranging over it terminate at once.
+func (m *MockClient) WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error) {
+	m.mu.Lock()
+	m.WatchSessionCalls++
+	m.mu.Unlock()
+	if m.WatchSessionFunc != nil {
+		return m.WatchSessionFunc(ctx, sessionID)
+	}
+	events := make(chan *WatchEvent)
+	errs := make(chan error)
+	close(events)
+	close(errs)
+	return events, errs, nil
+}
+
+// Chat drives a structured chat; the default drains the input channel and
+// returns immediately-closed event/error channels.
+func (m *MockClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
+	if m.ChatFunc != nil {
+		return m.ChatFunc(ctx, req)
+	}
+	in := make(chan string)
+	events := make(chan agent.ChatEvent)
+	errs := make(chan error)
+	go func() { //nolint:revive // drain so the caller never blocks writing input
+		for range in {
+		}
+	}()
+	close(events)
+	close(errs)
+	return in, events, errs, nil
 }
 
 // ListSessions returns transcript metadata, defaulting to none.

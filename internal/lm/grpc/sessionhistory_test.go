@@ -20,10 +20,16 @@ type fakeHistory struct {
 	metasErr   error
 	gotWorkDir string
 	gotID      string
+	// getSessionFunc, when set, overrides the static session/sessionErr so a
+	// test can script behavior across successive calls (WatchSession polls).
+	getSessionFunc func(workDir, id string) (*agent.Session, error)
 }
 
 func (h *fakeHistory) GetSession(workDir, id string) (*agent.Session, error) {
 	h.gotWorkDir, h.gotID = workDir, id
+	if h.getSessionFunc != nil {
+		return h.getSessionFunc(workDir, id)
+	}
 	return h.session, h.sessionErr
 }
 func (h *fakeHistory) ListSessions(workDir string) ([]agent.SessionMeta, error) {

@@ -32,6 +32,12 @@ type fakeLLMClient struct {
 	plansResp   *PlansData
 	plansErr    error
 
+	watchStream googlegrpc.ServerStreamingClient[WatchEvent]
+	watchErr    error
+
+	chatStream googlegrpc.BidiStreamingClient[ChatInput, ChatEvent]
+	chatErr    error
+
 	gotInfoCalls int
 	gotRunCalls  int
 }
@@ -51,6 +57,20 @@ func (f *fakeLLMClient) Run(ctx context.Context, opts ...googlegrpc.CallOption) 
 
 func (f *fakeLLMClient) GetSession(ctx context.Context, in *GetSessionRequest, opts ...googlegrpc.CallOption) (*SessionData, error) {
 	return f.sessionResp, f.sessionErr
+}
+
+func (f *fakeLLMClient) WatchSession(ctx context.Context, in *WatchSessionRequest, opts ...googlegrpc.CallOption) (googlegrpc.ServerStreamingClient[WatchEvent], error) {
+	if f.watchErr != nil {
+		return nil, f.watchErr
+	}
+	return f.watchStream, nil
+}
+
+func (f *fakeLLMClient) Chat(ctx context.Context, opts ...googlegrpc.CallOption) (googlegrpc.BidiStreamingClient[ChatInput, ChatEvent], error) {
+	if f.chatErr != nil {
+		return nil, f.chatErr
+	}
+	return f.chatStream, nil
 }
 
 func (f *fakeLLMClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...googlegrpc.CallOption) (*SessionList, error) {

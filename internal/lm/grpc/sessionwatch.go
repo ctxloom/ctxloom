@@ -1,0 +1,177 @@
+package grpc
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/agent"
+)
+
+// This file carries the WatchSession transport: a structured, turn-based view of
+// a live session's transcript so a frontend can render a native chat UI (messages,
+// not raw pty bytes). It is purely additive over the existing GetSession
+// reassembly — the server polls GetSession and diffs against a high-water mark, so
+// no SessionHistory change is needed and every backend gets it for free.
+
+const (
+	// defaultWatchPoll is how often the server re-reads the transcript. It also
+	// serves as the settle interval: a single poll with no growth is treated as a
+	// stopping point (response complete).
+	defaultWatchPoll = 250 * time.Millisecond
+
+	// watchHeartbeatEvery emits a heartbeat once every N fully-idle polls (no new
+	// entries, nothing pending a boundary) so the stream stays warm without
+	// spamming keepalives. At the default poll that is ~one heartbeat every 2s.
+	watchHeartbeatEvery = 8
+)
+
+// sessionWatcher tracks the high-water marks across successive polls of one
+// transcript and turns each poll into the WatchEvents to emit. It is the pure
+// core of WatchSession: given the latest reassembled session it decides what is
+// new, when a response has just completed, and when to keep the stream warm —
+// with no timers or I/O, so it is exhaustively unit-testable.
+type sessionWatcher struct {
+	sent           int // entries already streamed as `entry` events
+	lastBoundary   int // start index of the response not yet closed by a boundary
+	idleTicks      int // consecutive fully-idle polls (for heartbeat cadence)
+	heartbeatEvery int // emit a heartbeat every N idle polls (<=0 = every poll)
+}
+
+// step consumes the latest reassembled session and returns the events to emit:
+//   - new entries (entries[sent:len]) stream as `entry` events when the
+//     transcript grew;
+//   - otherwise, if material has accumulated since the last boundary, the stall
+//     is a stopping point and a `boundary` marking [lastBoundary, sent) is emitted;
+//   - otherwise the session is fully idle and a `heartbeat` is emitted on the
+//     configured slower cadence.
+func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
+	n := 0
+	if sess != nil {
+		n = len(sess.Entries)
+	}
+
+	if n > w.sent {
+		events := make([]*WatchEvent, 0, n-w.sent)
+		for _, e := range sess.Entries[w.sent:n] {
+			events = append(events, &WatchEvent{Event: &WatchEvent_Entry{Entry: entryToProto(e)}})
+		}
+		w.sent = n
+		w.idleTicks = 0
+		return events
+	}
+
+	// No growth this pass.
+	if w.sent > w.lastBoundary {
+		// Material accumulated since the last boundary and growth stalled: the
+		// just-completed response is entries[lastBoundary, sent).
+		boundary := &WatchEvent{Event: &WatchEvent_Boundary{Boundary: &ResponseBoundary{
+			FromIndex: int32(w.lastBoundary),
+			ToIndex:   int32(w.sent),
+		}}}
+		w.lastBoundary = w.sent
+		w.idleTicks = 0
+		return []*WatchEvent{boundary}
+	}
+
+	// Fully idle: nothing new and nothing pending a boundary.
+	w.idleTicks++
+	if w.heartbeatEvery <= 0 || w.idleTicks%w.heartbeatEvery == 0 {
+		return []*WatchEvent{{Event: &WatchEvent_Heartbeat{Heartbeat: &Heartbeat{}}}}
+	}
+	return nil
+}
+
+// watchPollInterval is the server's poll cadence, defaulting when unset so tests
+// can drive a faster loop.
+func (s *GRPCServer) watchPollInterval() time.Duration {
+	if s.watchPoll > 0 {
+		return s.watchPoll
+	}
+	return defaultWatchPoll
+}
+
+// WatchSession streams a session's transcript as structured turns. It polls the
+// backend's own GetSession reassembly and diffs against a high-water mark (see
+// sessionWatcher). Fault tolerance (CLAUDE.md): a transient GetSession error must
+// not kill a long-lived stream — it is logged and retried on the next tick. The
+// stream ends when the client cancels (ctx done) or Send fails.
+func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSessionServer) error {
+	hist := s.Impl.History()
+	if hist == nil {
+		return fmt.Errorf("backend %s has no session history", s.Impl.Name())
+	}
+
+	ctx := stream.Context()
+	id := req.GetSessionId()
+	w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
+
+	ticker := time.NewTicker(s.watchPollInterval())
+	defer ticker.Stop()
+
+	for {
+		sess, err := hist.GetSession(projectroot.WorkDir(), id)
+		if err != nil {
+			// Warn and retry next tick rather than terminating the stream.
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: watch session %s: %v\n", id, err)
+		} else {
+			for _, ev := range w.step(sess) {
+				if serr := stream.Send(ev); serr != nil {
+					return serr
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// --- client (host) methods ---
+
+// WatchSession opens the server stream and fans the structured WatchEvents onto
+// a channel, translating the server-streaming Recv loop into Go channels. The
+// events channel closes when the stream ends (EOF) or ctx is cancelled; a
+// non-EOF receive error is delivered on the errors channel (buffered, so the
+// goroutine never leaks waiting to report it) before both close. The caller must
+// keep the plugin alive for the stream's lifetime (see SessionReader.WatchSession).
+func (c *GRPCClient) WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error) {
+	stream, err := c.client.WatchSession(ctx, &WatchSessionRequest{SessionId: sessionID})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	events := make(chan *WatchEvent)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(events)
+		defer close(errs)
+		for {
+			ev, rerr := stream.Recv()
+			if rerr == io.EOF {
+				return
+			}
+			if rerr != nil {
+				errs <- rerr
+				return
+			}
+			select {
+			case events <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return events, errs, nil
+}
+
+// WatchSession delegates to the underlying gRPC client.
+func (p *LLMRunner) WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error) {
+	return p.grpc.WatchSession(ctx, sessionID)
+}

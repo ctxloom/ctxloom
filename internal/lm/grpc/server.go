@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/ctxloom/shared/agent"
 	"github.com/hashicorp/go-plugin"
@@ -35,6 +36,9 @@ func (p *LLMGRPCPlugin) GRPCClient(ctx context.Context, broker *plugin.GRPCBroke
 type GRPCServer struct {
 	UnimplementedLLMServer
 	Impl agent.Backend
+	// watchPoll overrides the WatchSession poll cadence; zero means the default.
+	// Tests set a small value to drive the loop quickly.
+	watchPoll time.Duration
 }
 
 // Info returns metadata about the plugin.

@@ -38,6 +38,7 @@ var (
 	runSavedPrompt      string
 	runDryRun           bool
 	runPrint            bool
+	runStructured       bool
 	runVerbosity        int
 	runAssumeYes        bool
 	runResumeSession    string
@@ -637,6 +638,12 @@ Examples:
 		}
 		defer client.Kill()
 
+		// --structured: drive the session as a structured turn REPL (the gRPC
+		// WatchSession + user_message interface) instead of owning the terminal.
+		if runStructured {
+			return runStructuredREPL(ctx, client, req, outputFormatOf(cmd), os.Stdin, os.Stdout)
+		}
+
 		// For an interactive run the frontend owns the terminal: raw mode + stdin
 		// + resize are pumped over the bidi Run stream to the controller's pty.
 		// Oneshot runs need none of that.
@@ -743,6 +750,8 @@ func init() {
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
+	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")
+	runCmd.MarkFlagsMutuallyExclusive("structured", "print")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 

@@ -220,19 +220,13 @@ message LLMInfo {
 // `start`; thereafter the frontend sends `stdin` (keystrokes) and `resize`
 // (SIGWINCH). Non-interactive/oneshot callers send only `start`.
 message RunInput {
+  reserved 4;                  // was user_message (pty-injection chat); see Chat RPC
+  reserved "user_message";
   oneof input {
-    RunStart    start        = 1; // first message only
-    bytes       stdin        = 2; // terminal keystrokes for the agent's pty
-    WindowSize  resize       = 3; // terminal size change
-    UserMessage user_message = 4; // structured turn input; backend submits it to the pty
+    RunStart    start  = 1; // first message only
+    bytes       stdin  = 2; // terminal keystrokes for the agent's pty
+    WindowSize  resize = 3; // terminal size change
   }
-}
-
-// UserMessage is a structured turn from a chat frontend. The backend translates
-// it to the agent's pty stdin (text + submit), so a frontend never has to encode
-// keystrokes. Multiple user_messages may be sent before a response boundary.
-message UserMessage {
-  string text = 1;
 }
 
 // WindowSize carries a terminal resize for the agent's pty.

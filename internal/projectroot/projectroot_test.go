@@ -127,3 +127,27 @@ func TestWorkDir(t *testing.T) {
 			"with no override and no git root, WorkDir resolves to the cwd")
 	})
 }
+
+func TestRootFromFallback(t *testing.T) {
+	t.Run("true_outside_repo_without_override", func(t *testing.T) {
+		testsupport.ProjectDir(t) // isolate env + chdir to a fresh non-git temp dir
+		assert.True(t, RootFromFallback(),
+			"no override and no git root means the cwd fallback — warn-worthy")
+	})
+
+	t.Run("false_with_valid_override", func(t *testing.T) {
+		testsupport.ProjectDir(t) // non-git cwd, so only the override can suppress it
+		dir := t.TempDir()
+		t.Setenv(EnvVar, dir)
+		assert.False(t, RootFromFallback(),
+			"a deliberate CTXLOOM_ROOT is not a silent fallback")
+	})
+
+	t.Run("false_inside_repo", func(t *testing.T) {
+		testsupport.Isolate(t) // clear env; the test runs inside the ctxloom repo
+		require.NoError(t, func() error { _, err := gitutil.FindRoot("."); return err }(),
+			"precondition: tests run inside a git repo")
+		assert.False(t, RootFromFallback(),
+			"a discovered git root is a stable project root, not a fallback")
+	})
+}

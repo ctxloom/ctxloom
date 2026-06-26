@@ -131,13 +131,32 @@ func homeDefaultProfiles() []string {
 
 // ProfileEntry represents a profile in operation results.
 type ProfileEntry struct {
-	Name        string   `json:"name"`
+	Name string `json:"name"`
+	// DisplayName is a short, human label for the profile: the segment after
+	// "@profiles/" for a remote reference (e.g. "default"), otherwise Name. It
+	// lets frontends show a friendly name without parsing refs themselves.
+	DisplayName string   `json:"display_name"`
 	Description string   `json:"description,omitempty"`
 	Parents     []string `json:"parents,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	Bundles     []string `json:"bundles,omitempty"`
 	Default     bool     `json:"default,omitempty"`
 	Path        string   `json:"path,omitempty"`
+	// IsRemote reports whether this profile is a seeded remote reference (its
+	// Path carries the "<remote>:" sentinel) versus a local file.
+	IsRemote bool `json:"is_remote"`
+}
+
+// profileDisplayName returns a short, human label for a profile reference: the
+// segment after "@profiles/" for a remote ref (e.g. "default"), else the name
+// unchanged. Centralizing this in the backend keeps frontends from re-deriving
+// display names by parsing remote refs.
+func profileDisplayName(name string) string {
+	const marker = "@profiles/"
+	if i := strings.LastIndex(name, marker); i >= 0 {
+		return name[i+len(marker):]
+	}
+	return name
 }
 
 // ListProfilesRequest contains parameters for listing profiles.
@@ -181,12 +200,14 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 		}
 		result = append(result, ProfileEntry{
 			Name:        p.Name,
+			DisplayName: profileDisplayName(p.Name),
 			Description: p.Description,
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
 			Default:     cfg.Profiles.IsDefaultProfile(p.Name),
 			Path:        p.Path,
+			IsRemote:    strings.HasPrefix(p.Path, profiles.SeededProfilePathPrefix),
 		})
 	}
 

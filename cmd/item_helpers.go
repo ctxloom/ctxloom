@@ -62,13 +62,17 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 }
 
 // itemRow is the normalized listing shape shared by the fragment and prompt
-// listings: a name, its merged tags, and the bundle it came from (the grouping
-// key). It flattens the operations FragmentEntry / PromptEntry projections so
-// the grouping/printing logic is type-agnostic.
+// listings: a name, its merged tags, the bundle it came from (the grouping
+// key), and the fully-qualified ref (bundle#fragments/name or
+// bundle#prompts/name) that `show` and assemble accept. It flattens the
+// operations FragmentEntry / PromptEntry projections so the grouping/printing
+// logic is type-agnostic. The json tags are snake_case (matching session list)
+// and expose `ref` so frontends don't have to reconstruct it from name+bundle.
 type itemRow struct {
-	Name   string
-	Tags   []string
-	Bundle string
+	Name   string   `json:"name"`
+	Tags   []string `json:"tags"`
+	Bundle string   `json:"bundle"`
+	Ref    string   `json:"ref"`
 }
 
 // listItemRows returns every item of the given type via the operations
@@ -84,7 +88,12 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		}
 		rows := make([]itemRow, 0, len(res.Fragments))
 		for _, f := range res.Fragments {
-			rows = append(rows, itemRow{Name: f.Name, Tags: f.Tags, Bundle: f.Source})
+			rows = append(rows, itemRow{
+				Name:   f.Name,
+				Tags:   f.Tags,
+				Bundle: f.Source,
+				Ref:    f.Source + "#" + itemType.prefix() + f.Name,
+			})
 		}
 		return rows, nil
 	case ItemTypePrompt:
@@ -94,7 +103,12 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		}
 		rows := make([]itemRow, 0, len(res.Prompts))
 		for _, p := range res.Prompts {
-			rows = append(rows, itemRow{Name: p.Name, Tags: p.Tags, Bundle: p.Source})
+			rows = append(rows, itemRow{
+				Name:   p.Name,
+				Tags:   p.Tags,
+				Bundle: p.Source,
+				Ref:    p.Source + "#" + itemType.prefix() + p.Name,
+			})
 		}
 		return rows, nil
 	}

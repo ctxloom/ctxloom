@@ -352,8 +352,19 @@ var profileShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-		return renderProfileShow(cmd.OutOrStdout(), res, cfg.Profiles.IsDefaultProfile(res.Name))
+		isDefault := cfg.Profiles.IsDefaultProfile(res.Name)
+		return emit(cmd, profileDetailJSON{GetProfileResult: res, Default: isDefault}, func() error {
+			return renderProfileShow(cmd.OutOrStdout(), res, isDefault)
+		})
 	},
+}
+
+// profileDetailJSON is the --format json shape for `profile show`: the declared
+// profile config plus whether it is a configured default. Frontends (the VSCode
+// profile composer) read this to render a profile's authored composition.
+type profileDetailJSON struct {
+	*operations.GetProfileResult
+	Default bool `json:"default"`
 }
 
 // renderProfileShow writes the human-readable detail view of one profile

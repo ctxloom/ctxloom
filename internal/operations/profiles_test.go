@@ -361,6 +361,28 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 	assert.Len(t, result.Profiles, 3)
 }
 
+func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
+	_, loader := setupProfileTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Profiles)
+	for _, p := range result.Profiles {
+		// The fixtures are local profiles: the display name is the plain name and
+		// none are seeded remote references.
+		assert.Equal(t, p.Name, p.DisplayName, "local profile display name should equal name")
+		assert.False(t, p.IsRemote, "local profile should not be flagged remote")
+	}
+}
+
+func TestProfileDisplayName(t *testing.T) {
+	assert.Equal(t, "default",
+		profileDisplayName("https://github.com/ctxloom/ctxloom-default@profiles/default"))
+	assert.Equal(t, "reviewer", profileDisplayName("some-bundle@profiles/reviewer"))
+	assert.Equal(t, "ts-dev", profileDisplayName("ts-dev"))
+}
+
 func TestListProfiles_WithQuery(t *testing.T) {
 	_, loader := setupProfileTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

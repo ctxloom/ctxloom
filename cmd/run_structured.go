@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/iox"
@@ -121,6 +122,17 @@ func renderChatEventText(w *iox.ErrWriter, ev agent.ChatEvent) {
 	}
 }
 
+// rfc3339OrEmpty formats a turn's timestamp for the NDJSON wire, returning ""
+// for the zero time so the field is omitted (the frontend then falls back to its
+// own clock). The backend stamps chat entries at receipt; transcript entries
+// carry their own time.
+func rfc3339OrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 // humanCount renders a token count compactly (e.g. 23933 → "23.9k", 1000000 → "1.0M").
 func humanCount(n int) string {
 	switch {
@@ -137,6 +149,7 @@ func humanCount(n int) string {
 
 type chatEntryJSON struct {
 	Type       string          `json:"type"`
+	Timestamp  string          `json:"timestamp,omitempty"` // RFC3339; the frontend's protocol resolves it (or now())
 	Content    string          `json:"content,omitempty"`
 	ToolName   string          `json:"toolName,omitempty"`
 	ToolInput  json.RawMessage `json:"toolInput,omitempty"`
@@ -183,6 +196,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 		e := ev.Entry
 		return chatEventJSON{Type: "entry", Entry: &chatEntryJSON{
 			Type:       string(e.Type),
+			Timestamp:  rfc3339OrEmpty(e.Timestamp),
 			Content:    e.Content,
 			ToolName:   e.ToolName,
 			ToolInput:  e.ToolInput,

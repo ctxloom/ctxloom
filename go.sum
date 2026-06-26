@@ -32,6 +32,8 @@ github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9 h1:Qee+XxRFM/koPqZy
 github.com/ctxloom/claude v0.0.0-20260611004131-c4eeed2d88f9/go.mod h1:JpPJ+oV9d0s7sklVE5G77ZDw/0LGMv063jeG2F0GH3U=
 github.com/ctxloom/claude v0.0.0-20260625162817-fb79e1e501b8 h1:VhBl0KhBzLfvVmjegbeMSBSEEVVRVPVWPeTOuN2+1xE=
 github.com/ctxloom/claude v0.0.0-20260625162817-fb79e1e501b8/go.mod h1:uxs8y7Ewm6BC9IVfex38Di6EzY4PeKyRAlSqs8Qzt4w=
+github.com/ctxloom/claude v0.0.0-20260626051225-ff9f625014f3 h1:OgsduobPYUWpQH8SUctS0jizADsmALtleyuD+Fkz2Hc=
+github.com/ctxloom/claude v0.0.0-20260626051225-ff9f625014f3/go.mod h1:artvN+8zUra7zNtR8+owjXXhPckcrXBlwxx9PMBCoR8=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867 h1:MHZxU02DhyRI+HGYzvsWkAG2hfRCEvLeSaLN8DDf6h8=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867/go.mod h1:V9CR/8WmzH0tWn1P+BeQtVhX8tOnU5LlBP9aXnvEBm4=
 github.com/ctxloom/shared v0.0.0-20260611050948-430c052e9d86 h1:c9UPP/MxVKIuRp38F+x5PvunLPuSBxZr75tj19iH6hQ=
@@ -40,6 +42,8 @@ github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735 h1:1sywPB95+nrF7Mg2
 github.com/ctxloom/shared v0.0.0-20260611185515-d1f81e460735/go.mod h1:vo1yigHJXdGn8C9DQv1/lOQ8GJS4YJw5yruTNekx0Qw=
 github.com/ctxloom/shared v0.0.0-20260625162745-338f8661748c h1:NrT70DUyeGWLsCRxxFNZUfiOSIabRWfl3nTYZeZvfsg=
 github.com/ctxloom/shared v0.0.0-20260625162745-338f8661748c/go.mod h1:vo1yigHJXdGn8C9DQv1/lOQ8GJS4YJw5yruTNekx0Qw=
+github.com/ctxloom/shared v0.0.0-20260626051133-bb2afb70d5b9 h1:ODR5Ra/pHQpX1CRTSAHV9GGBmgPJIGUpFbSHAOhsWNY=
+github.com/ctxloom/shared v0.0.0-20260626051133-bb2afb70d5b9/go.mod h1:vo1yigHJXdGn8C9DQv1/lOQ8GJS4YJw5yruTNekx0Qw=
 github.com/cucumber/gherkin/go/v26 v26.2.0 h1:EgIjePLWiPeslwIWmNQ3XHcypPsWAHoMCz/YEBKP4GI=
 github.com/cucumber/gherkin/go/v26 v26.2.0/go.mod h1:t2GAPnB8maCT4lkHL99BDCVNzCh1d7dBhCLt150Nr/0=
 github.com/cucumber/godog v0.14.1 h1:HGZhcOyyfaKclHjJ+r/q93iaTJZLKYW6Tv3HkmUE6+M=

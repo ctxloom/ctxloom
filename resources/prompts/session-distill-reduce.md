@@ -7,12 +7,12 @@ Your job is to merge, deduplicate, and order — not to compress further for its
 Begin your output with a YAML frontmatter block in this exact form — this is mandatory; the resume picker fails to render a row summary without it:
 
     ---
-    summary: <one line, ≤80 characters, no quotes, no trailing period>
+    summary: <a few words — a terse title, ≤40 characters, no quotes, no trailing period>
     ---
 
-The summary line captures the whole session's purpose in a single line, like a git commit subject — what was being worked on and the key outcome. Do not begin it with conversational filler ("Looking at", "Let me", "Here is"); lead with the work itself. Examples:
-  - Designed bundle review on startup; landed PR f1262a4
-  - Parallelized chunk distillation; fixed essence frontmatter loss
+The summary line is a very short title — just a few words naming what the whole session was about. It is used verbatim as the session's name, so make it terse and label-like (think a folder name, not a sentence). Do not begin it with conversational filler ("Looking at", "Let me", "Here is"); lead with the work itself. Examples:
+  - Bundle review on startup
+  - Parallelized chunk distillation
 
 After the closing `---` and a blank line, emit the unified body with these sections (omit a section only if it is genuinely empty):
 

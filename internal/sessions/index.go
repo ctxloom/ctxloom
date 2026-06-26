@@ -439,6 +439,41 @@ func (m *Manager) Forget(harpName string) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// Reconcile drops the entries that isDead reports as unrecoverable, persisting
+// the pruned index, and returns the survivors. The list path runs this so a dead
+// pointer — e.g. an entry whose bound transcript file has since been deleted,
+// with no distilled essence to fall back on — never reaches a frontend; the
+// removal is silent because such an entry is already unactionable. One atomic
+// load+save under the lock, and a no-op write when nothing is dead.
+func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := filelock.Lock(m.path + ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return nil, err
+	}
+	survivors := make([]Entry, 0, len(idx.Sessions))
+	for _, e := range idx.Sessions {
+		if !isDead(e) {
+			survivors = append(survivors, e)
+		}
+	}
+	if len(survivors) != len(idx.Sessions) {
+		idx.Sessions = survivors
+		if err := m.saveLocked(idx); err != nil {
+			return nil, err
+		}
+	}
+	return survivors, nil
+}
+
 // SetSummary updates the cached summary, detail lines, and source-size
 // fingerprint on the index entry. summary mirrors the `summary:` line from the
 // compacted essence.md frontmatter; detail holds the extra picker lines (Open

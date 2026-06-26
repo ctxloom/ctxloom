@@ -66,6 +66,45 @@ func TestBindSession_Idempotent(t *testing.T) {
 	require.NoError(t, m.BindSession(entry.HarpName, "uuid-1", "/t1"))
 }
 
+func harpNames(entries []Entry) []string {
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.HarpName)
+	}
+	return names
+}
+
+func TestReconcile_DropsDeadEntriesAndPersists(t *testing.T) {
+	m := newManager(t)
+	a, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	b, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+	c, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	dead := map[string]bool{b.HarpName: true}
+	survivors, err := m.Reconcile(func(e Entry) bool { return dead[e.HarpName] })
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{a.HarpName, c.HarpName}, harpNames(survivors))
+
+	// The drop is persisted: a fresh load no longer contains the dead harp.
+	idx, err := m.Load()
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{a.HarpName, c.HarpName}, harpNames(idx.Sessions))
+}
+
+func TestReconcile_NothingDeadIsANoop(t *testing.T) {
+	m := newManager(t)
+	a, err := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	survivors, err := m.Reconcile(func(Entry) bool { return false })
+	require.NoError(t, err)
+	require.Len(t, survivors, 1)
+	assert.Equal(t, a.HarpName, survivors[0].HarpName)
+}
+
 func TestBindSession_FirstBindWinsOnDifferentID(t *testing.T) {
 	m := newManager(t)
 	entry, _ := m.AssignHarp("/proj", "claude-code")

@@ -1,12 +1,38 @@
 package operations
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIsUnrecoverable(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "transcript.jsonl")
+	require.NoError(t, os.WriteFile(present, []byte("{}"), 0o644))
+	missing := filepath.Join(dir, "gone.jsonl")
+
+	t.Run("bound transcript missing, not distilled -> unrecoverable", func(t *testing.T) {
+		assert.True(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing}))
+	})
+
+	t.Run("bound transcript present -> recoverable", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: present}))
+	})
+
+	t.Run("pending entry with no transcript -> recoverable (still in flight)", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{}))
+	})
+
+	t.Run("distilled with missing transcript -> recoverable (essence stays)", func(t *testing.T) {
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Summary: "did things"}))
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Detail: []string{"open item"}}))
+	})
+}
 
 func TestSelectPreviousEntry(t *testing.T) {
 	// Entries arrive most-recent-first; the active harp ("self") is index 0.

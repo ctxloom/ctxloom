@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -17,24 +18,47 @@ func openSessions() (*sessions.Manager, error) {
 	return sessions.Open("")
 }
 
-// ListSessions returns every session index entry.
+// isUnrecoverable reports whether a session index entry can never be acted on
+// again, so listing should silently drop it (and forget the dangling row): its
+// transcript was bound but the file is now gone, AND it has no distilled essence
+// to fall back on. A still-pending entry (no transcript bound yet — a run in
+// flight) and a distilled entry are recoverable, so both are kept.
+func isUnrecoverable(e sessions.Entry) bool {
+	if e.Summary != "" || len(e.Detail) > 0 {
+		return false // distilled: essence.md is still viewable
+	}
+	if e.TranscriptPath == "" {
+		return false // pending/unbound: the session is still in progress
+	}
+	return !fileExists(e.TranscriptPath)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// ListSessions returns every session index entry, after reconciling away any
+// that have become unrecoverable (see isUnrecoverable) so a dead pointer never
+// reaches a frontend.
 func ListSessions() ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return nil, err
 	}
-	idx, err := mgr.Load()
-	if err != nil {
-		return nil, err
-	}
-	return idx.Sessions, nil
+	return mgr.Reconcile(isUnrecoverable)
 }
 
 // ListSessionsForProject returns the entries whose project dir matches,
-// most-recent-first.
+// most-recent-first, after reconciling the index so unrecoverable sessions are
+// silently dropped here too (the resume picker and the VSCode companion both
+// arrive through this path).
 func ListSessionsForProject(projectDir string) ([]sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
+		return nil, err
+	}
+	if _, err := mgr.Reconcile(isUnrecoverable); err != nil {
 		return nil, err
 	}
 	return mgr.ListForProject(projectDir)

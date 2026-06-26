@@ -357,6 +357,9 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 		if summary == "" {
 			summary = "(no summary)"
 		}
+		if stale, known := e.SourceStale(); known && stale {
+			summary += "  ⚠ out of date"
+		}
 		w.Printf("%s\t%s\t%s\n",
 			e.HarpName,
 			e.StartedAt.Local().Format("2006-01-02 15:04"),

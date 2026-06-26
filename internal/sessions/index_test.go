@@ -118,10 +118,59 @@ func TestMarkEnded(t *testing.T) {
 func TestSetSummary(t *testing.T) {
 	m := newManager(t)
 	e, _ := m.AssignHarp("/proj", "claude-code")
-	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}))
+	require.NoError(t, m.SetSummary(e.HarpName, "Designed bundle review on startup.", []string{"- ship the picker", "- write tests"}, 184320))
 	found, _ := m.Find(e.HarpName)
 	assert.Equal(t, "Designed bundle review on startup.", found.Summary)
 	assert.Equal(t, []string{"- ship the picker", "- write tests"}, found.Detail)
+	assert.Equal(t, int64(184320), found.SourceSize, "the source-size fingerprint must round-trip through the index")
+}
+
+func TestTranscriptStale(t *testing.T) {
+	// A real file on disk lets the size comparison run; the staleness fingerprint
+	// is the byte size stamped at distill time vs the live file.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "transcript.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0o644)) // 10 bytes
+
+	t.Run("unknown when never stamped", func(t *testing.T) {
+		stale, known := TranscriptStale(path, 0)
+		assert.False(t, known, "a zero stamped size means staleness can't be determined")
+		assert.False(t, stale)
+	})
+	t.Run("unknown when no transcript path", func(t *testing.T) {
+		stale, known := TranscriptStale("", 10)
+		assert.False(t, known)
+		assert.False(t, stale)
+	})
+	t.Run("unknown when transcript missing", func(t *testing.T) {
+		stale, known := TranscriptStale(filepath.Join(dir, "gone.jsonl"), 10)
+		assert.False(t, known, "a stat failure degrades to can't-tell, never an error")
+		assert.False(t, stale)
+	})
+	t.Run("current when size matches", func(t *testing.T) {
+		stale, known := TranscriptStale(path, 10)
+		assert.True(t, known)
+		assert.False(t, stale, "size unchanged → essence still current")
+	})
+	t.Run("stale when transcript grew", func(t *testing.T) {
+		stale, known := TranscriptStale(path, 4)
+		assert.True(t, known)
+		assert.True(t, stale, "live transcript is larger than the distilled slice → out of date")
+	})
+}
+
+func TestEntry_SourceStale_DelegatesToFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "transcript.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte("hello world"), 0o644)) // 11 bytes
+
+	stale, known := Entry{TranscriptPath: path, SourceSize: 5}.SourceStale()
+	assert.True(t, known)
+	assert.True(t, stale)
+
+	stale, known = Entry{TranscriptPath: path, SourceSize: 11}.SourceStale()
+	assert.True(t, known)
+	assert.False(t, stale)
 }
 
 func TestLoad_ToleratesLegacyPythonTimestamps(t *testing.T) {

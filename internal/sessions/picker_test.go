@@ -219,7 +219,7 @@ func TestPicker_DistillKeystroke_InvokesCallback(t *testing.T) {
 		Distill: func(harp string) error {
 			called = true
 			gotHarp = harp
-			return mgr.SetSummary(harp, "freshly distilled summary", nil)
+			return mgr.SetSummary(harp, "freshly distilled summary", nil, 0)
 		},
 	}
 	dec, err := p.Run()

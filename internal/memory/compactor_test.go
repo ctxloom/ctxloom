@@ -211,6 +211,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 		TokensIn:   2000,
 		TokensOut:  300,
 		PlanBlocks: 2,
+		SourceSize: 184320,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(tmpDir, "round-trip.md"), path)
@@ -222,6 +223,7 @@ func TestDistilledSession_RoundTrip(t *testing.T) {
 	assert.Equal(t, 2000, loaded.TokensIn)
 	assert.Equal(t, 300, loaded.TokensOut)
 	assert.Equal(t, 2, loaded.PlanBlocks)
+	assert.Equal(t, int64(184320), loaded.SourceSize, "the staleness fingerprint must survive the essence round-trip")
 	assert.False(t, loaded.DistilledAt.IsZero())
 	assert.Contains(t, loaded.Body, "## Summary")
 	assert.Contains(t, loaded.Body, "Distilled body.")

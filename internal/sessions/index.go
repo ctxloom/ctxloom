@@ -44,6 +44,14 @@ type Entry struct {
 	// summary. Kept separate from Summary so the single-line consumers (session
 	// list table, MCP resource) stay one line while the picker can render more.
 	Detail []string `yaml:"detail,omitempty" json:"detail,omitempty"`
+	// SourceSize is the byte size of the backend transcript at the moment this
+	// session was last distilled — the staleness fingerprint. `session list` and
+	// the resume picker stat the live transcript (TranscriptPath) and flag the
+	// row "out of date" once the size has moved past this. Append-only
+	// transcripts only grow, so any change means the essence covers an earlier
+	// slice. Zero when never distilled (or distilled before staleness tracking);
+	// omitempty keeps those rows clean.
+	SourceSize int64 `yaml:"source_size,omitempty" json:"source_size,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -315,6 +323,33 @@ func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	return out, nil
 }
 
+// TranscriptStale compares a transcript file's current byte size to the size
+// stamped when an essence was distilled from it (Entry.SourceSize). It reports
+// whether the essence is out of date and whether that could be determined at
+// all: known=false (stale=false) when there is no stamped size (never distilled,
+// or distilled before staleness tracking), no transcript path, or the stat
+// fails. Append-only transcripts only grow, so any size difference means the
+// essence covers an earlier slice. Read-only and best-effort per the
+// fault-tolerance philosophy — an unreadable transcript degrades to "can't
+// tell", never an error.
+func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known bool) {
+	if stampedSize == 0 || transcriptPath == "" {
+		return false, false
+	}
+	info, err := os.Stat(transcriptPath)
+	if err != nil {
+		return false, false
+	}
+	return info.Size() != stampedSize, true
+}
+
+// SourceStale reports whether this entry's distilled essence is out of date
+// relative to its source transcript, and whether that could be determined (see
+// TranscriptStale). The picker and `session list` use it to badge stale rows.
+func (e Entry) SourceStale() (stale, known bool) {
+	return TranscriptStale(e.TranscriptPath, e.SourceSize)
+}
+
 // MarkEnded sets EndedAt on the named entry. Idempotent.
 func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 	m.mu.Lock()
@@ -404,10 +439,13 @@ func (m *Manager) Forget(harpName string) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
-// SetSummary updates the cached summary and detail lines on the index entry.
-// summary mirrors the `summary:` line from the compacted essence.md frontmatter;
-// detail holds the extra picker lines (Open Items). Passing nil detail clears it.
-func (m *Manager) SetSummary(harpName, summary string, detail []string) error {
+// SetSummary updates the cached summary, detail lines, and source-size
+// fingerprint on the index entry. summary mirrors the `summary:` line from the
+// compacted essence.md frontmatter; detail holds the extra picker lines (Open
+// Items); sourceSize is the transcript byte size the essence was distilled from,
+// used for staleness detection (see TranscriptStale). Passing nil detail clears
+// it; a zero sourceSize leaves the fingerprint unset (no staleness badge).
+func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSize int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -427,6 +465,7 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string) error {
 		}
 		idx.Sessions[i].Summary = summary
 		idx.Sessions[i].Detail = detail
+		idx.Sessions[i].SourceSize = sourceSize
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // reductionPct formats the in→out token reduction as a percentage, guarding
@@ -243,9 +244,11 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		targetSessionID = sessions[0].ID
 	}
 
-	// Recover always re-distills: the current session is live and still growing,
-	// so any cached essence (e.g. from an earlier /clear in this same session)
-	// covers only an earlier slice. forceFresh skips the cache.
+	// Recover targets the live current session, which is still growing. Normally
+	// staleness is decided by the transcript's byte size (reuse the cache when it
+	// hasn't moved), but when that size can't be determined recover errs toward
+	// re-distilling — a cached essence from an earlier /clear in this same session
+	// covers only an earlier slice. redistillWhenUnknown=true encodes that bias.
 	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, 0, true)
 }
 
@@ -301,14 +304,21 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // Use ctxloom://sessions/recent for the AI-friendly summary view.
 
 // loadOrDistillSession is the shared body for load_session, recover_session,
-// and get_previous_session. It returns the cached distilled content if
-// available; otherwise it runs the compactor on-demand and then loads what
-// was just written. When forceFresh is set (recover_session), the cache is
-// skipped and the session is always re-distilled — the current session is live
-// and a cached essence covers only an earlier slice of it. The pid argument is
-// only set by get_previous_session so the response can carry it back; for the
-// other callers it's zero and the PID field stays omitted.
-func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int, forceFresh bool) (*mcp.CallToolResult, *loadSessionResult, error) {
+// and get_previous_session. It reuses the cached distilled essence when it is
+// still current and otherwise re-distills on demand, then loads what was just
+// written. Staleness is decided by the source transcript's byte size: the size
+// stamped at distill time (essence frontmatter) versus the live transcript file.
+//
+//   - cache is current (size unchanged)  -> return the cache
+//   - cache is stale (size changed)      -> re-distill from the full transcript
+//   - staleness can't be determined      -> redistillWhenUnknown decides:
+//     recover_session re-distills (the live session may have grown past the
+//     cache); load_session / get_previous_session keep the cache (a finished
+//     session rarely changes, so spending an LLM call on it isn't worth it).
+//
+// The pid argument is only set by get_previous_session so the response can carry
+// it back; for the other callers it's zero and the PID field stays omitted.
+func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int, redistillWhenUnknown bool) (*mcp.CallToolResult, *loadSessionResult, error) {
 	source, backendName, err := resolveSessionSource(s.cfg, backendName)
 	if err != nil {
 		return nil, nil, err
@@ -338,32 +348,41 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 
 	sessionsDir := s.getSessionsDir()
 
-	// Cached path: the session was already distilled, return immediately.
-	// Skipped for recover (forceFresh): the live current session has grown past
-	// any cached essence, so recover must re-distill from the full transcript.
-	if !forceFresh {
-		if cached := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
+	// Resolve the harp that owns this session so its plan files
+	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
+	// active one — when distilling a previous or cross-agent session, and so the
+	// staleness check stats the harp's bound transcript.
+	harp, _ := operations.HarpForSession(sessionID)
+	transcriptPath := ""
+	if harp != "" {
+		if entry, _ := operations.GetSession(harp); entry != nil {
+			transcriptPath = entry.TranscriptPath
+		}
+	}
+
+	// Cached path: reuse the essence when the transcript hasn't moved past it.
+	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
+		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
+		if (known && !stale) || (!known && !redistillWhenUnknown) {
 			return nil, cached, nil
 		}
+		// stale, or indeterminate with a re-distill bias: fall through.
 	}
 
 	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read
 	// is self-situated and ignores it.
 	workDir, _ := os.Getwd()
-	// Resolve the harp that owns this session so its plan files
-	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
-	// active one — when distilling a previous or cross-agent session.
-	harp, _ := operations.HarpForSession(sessionID)
 	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp, pid)
 	return nil, result, err
 }
 
 // loadCachedDistilledSession returns a result from an already-distilled session
-// on disk, or nil when none is cached.
-func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) *loadSessionResult {
+// on disk plus the transcript byte size stamped into its frontmatter (the
+// staleness fingerprint), or (nil, 0) when none is cached.
+func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) (*loadSessionResult, int64) {
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 	return &loadSessionResult{
 		Loaded:    true,
@@ -373,7 +392,7 @@ func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) *loadSes
 		Tokens:    distilled.TokensOut,
 		CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
 		PID:       pid,
-	}
+	}, distilled.SourceSize
 }
 
 // distillSession compacts a session and returns the freshly-distilled result.

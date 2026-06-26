@@ -92,6 +92,12 @@ type HarnessStatusResult struct {
 	AutoRegisterMCP  bool            `json:"auto_register_mcp"`
 	ManageStatusline bool            `json:"manage_statusline"`
 	Backends         []BackendWiring `json:"backends"`
+	// RootFallback reports that WorkDir is the bare cwd fallback — no
+	// CTXLOOM_ROOT override and not inside a git repository — so tasks, plans,
+	// and sessions are keyed off the launch directory rather than a stable repo
+	// root. The single source of truth for the not-a-stable-root warning, shared
+	// by `ctxloom run` and the VSCode companion's title-bar warning.
+	RootFallback bool `json:"root_fallback"`
 }
 
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
@@ -106,6 +112,7 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 		AutoRegisterMCP:  cfg.MCP.ShouldAutoRegisterCtxloom(),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 		Backends:         []BackendWiring{},
+		RootFallback:     projectroot.RootFromFallback(),
 	}
 	for _, name := range backends.BackendsWithSettings() {
 		status, err := backends.BackendStatus(name, workDir, opts...)

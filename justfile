@@ -1,10 +1,11 @@
 # Default recipe
 default: build
 
-# Get version from versionator (with fallback for CI without versionator)
-# Format: v0.0.1-abc1234.20240115103045 (uncommitted) or v0.0.1-abc1234 (clean)
-# Requires versionator >= v0.2.0 (DateTimeDirty + `output version` subcommand).
-version := `versionator output version -t "{{Prefix}}{{MajorMinorPatch}}{{PreReleaseWithDash}}" --prefix --prerelease="{{ShortHash}}{{DateTimeDirty}}" 2>/dev/null || echo "dev"`
+# Get version from versionator (with fallback for CI without versionator).
+# Standardized stamp format across the ctxloom family:
+#   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
+# versionator emits the compact datetime (no separator); sed inserts the 'T'.
+version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{CommitDateCompact}}" --prefix 2>/dev/null); then echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'; else echo dev; fi`
 
 # ===== Version management (versionator) =====
 

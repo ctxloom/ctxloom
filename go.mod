@@ -9,7 +9,7 @@ require (
 	github.com/ctxloom/antigravity v0.0.0-20260611004133-cf42cc1acc64
 	github.com/ctxloom/claude v0.0.0-20260626051225-ff9f625014f3
 	github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867
-	github.com/ctxloom/shared v0.0.0-20260626051133-bb2afb70d5b9
+	github.com/ctxloom/shared v0.0.0-20260627125252-4197aa292130
 	github.com/cucumber/godog v0.14.1
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/go-viper/mapstructure/v2 v2.4.0

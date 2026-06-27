@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/textutil"
+	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 )
 

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/claude"
-	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
 )

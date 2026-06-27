@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/upgrade"
 )
 
 // SeededProfilePathPrefix is the sentinel prefix carried in Profile.Path by

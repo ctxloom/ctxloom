@@ -16,7 +16,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/textutil"
+	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/iox"

@@ -17,7 +17,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/shared/gitutil"
 )
 
 // EnvVar is the project-root override variable. Documented in docs/environment.md

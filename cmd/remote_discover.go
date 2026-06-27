@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/textutil"
+	"github.com/ctxloom/shared/textutil"
 )
 
 var (

@@ -3,7 +3,7 @@ package config
 import (
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/upgrade"
 )
 
 // versionKey is the top-level integer schema-version field on config.yaml.

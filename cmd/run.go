@@ -23,7 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/tasks"
 	taskops "github.com/ctxloom/shared/tasks/operations"

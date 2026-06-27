@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/shared/filelock"
 	"github.com/ctxloom/shared/harp"
 	"github.com/ctxloom/shared/iox"

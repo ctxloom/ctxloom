@@ -18,7 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
-	"github.com/ctxloom/ctxloom/internal/upgrade"
+	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/shared/wire"

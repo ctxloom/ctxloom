@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/gitutil"
+	"github.com/ctxloom/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/ptyrunner"
+	"github.com/ctxloom/shared/ptyrunner"
 	"github.com/ctxloom/shared/agent"
 )
 

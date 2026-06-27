@@ -346,6 +346,31 @@ func TestSetDefaultProfile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "unchanged", res.Status)
 	})
+
+	t.Run("exclusive makes the named profile the sole default", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		cfg.Profiles.AddDefaultProfile("frontend")
+		cfg.Profiles.AddDefaultProfile("base")
+
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Exclusive: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "set", res.Status)
+		assert.Equal(t, []string{"go-developer"}, res.Defaults)
+		assert.False(t, cfg.Profiles.IsDefaultProfile("frontend"))
+		assert.False(t, cfg.Profiles.IsDefaultProfile("base"))
+
+		// Already the sole default: a second exclusive call is a no-op.
+		res, err = SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Exclusive: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "unchanged", res.Status)
+	})
+
+	t.Run("unset and exclusive together error", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Name: "go-developer", Unset: true, Exclusive: true, Loader: loader})
+		require.Error(t, err)
+	})
 }
 
 func TestListProfiles_AllProfiles(t *testing.T) {

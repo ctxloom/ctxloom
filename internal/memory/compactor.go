@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/textutil"
+	"github.com/ctxloom/ctxloom/internal/tokens"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/iox"
@@ -27,8 +28,9 @@ const (
 	DefaultChunkTokens = 8000
 	// ChunkOverlapTokens is the overlap between chunks for context continuity.
 	ChunkOverlapTokens = 500
-	// CharsPerToken is a rough estimate for token counting.
-	CharsPerToken = 4
+	// CharsPerToken is the chars-per-token ratio, owned by internal/tokens so the
+	// distillation estimate and the dry-run preview agree on one heuristic.
+	CharsPerToken = tokens.CharsPerToken
 	// distillConcurrency bounds how many chunks are distilled in parallel. Each
 	// chunk distillation spawns its own LLM plugin subprocess, so this caps
 	// concurrent subprocesses (and provider rate pressure) while still cutting
@@ -639,9 +641,9 @@ type distilledMeta struct {
 	// transcript path couldn't be resolved or statted (graceful: no staleness).
 	SourceSize int64 `yaml:"source_size,omitempty"`
 	EntryCount int   `yaml:"entry_count"`
-	TokensIn    int       `yaml:"tokens_in,omitempty"`
-	TokensOut   int       `yaml:"tokens_out,omitempty"`
-	PlanBlocks  int       `yaml:"plan_blocks"`
+	TokensIn   int   `yaml:"tokens_in,omitempty"`
+	TokensOut  int   `yaml:"tokens_out,omitempty"`
+	PlanBlocks int   `yaml:"plan_blocks"`
 	// Summary is the one-line essence emitted by the LLM in its own YAML
 	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
 	// no valid frontmatter (graceful degrade: picker shows "no summary").
@@ -885,7 +887,7 @@ func ListDistilledSessions(sessionsDir string) ([]string, error) {
 
 // estimateTokens provides a rough token count estimate.
 func estimateTokens(text string) int {
-	return len(text) / CharsPerToken
+	return tokens.Estimate(text)
 }
 
 // sessionDistillPrompt is the system prompt for session distillation.

@@ -598,6 +598,11 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 type SetDefaultProfileRequest struct {
 	Name  string `json:"name"`
 	Unset bool   `json:"unset"`
+	// Exclusive makes Name the SOLE default, unsetting every other default in one
+	// atomic step. Mutually exclusive with Unset. This is the "make this THE
+	// default" operation, owned here so a client never has to orchestrate an
+	// unset-each-then-add sequence (which a crash mid-way could leave inconsistent).
+	Exclusive bool `json:"exclusive"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *profiles.Loader `json:"-"`
@@ -606,7 +611,7 @@ type SetDefaultProfileRequest struct {
 // SetDefaultProfileResult reports the outcome of a default-profile change and
 // the resulting default set.
 type SetDefaultProfileResult struct {
-	Status   string   `json:"status"` // "added", "removed", "unchanged"
+	Status   string   `json:"status"` // "added", "removed", "set" (exclusive), "unchanged"
 	Name     string   `json:"name"`
 	Defaults []string `json:"defaults"`
 }
@@ -622,6 +627,9 @@ type SetDefaultProfileResult struct {
 func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultProfileRequest) (*SetDefaultProfileResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if req.Unset && req.Exclusive {
+		return nil, fmt.Errorf("unset and exclusive are mutually exclusive")
 	}
 
 	// Validate existence only for a bare local name we're adding: removals must
@@ -640,12 +648,19 @@ func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultPr
 	}
 
 	status := "unchanged"
-	if req.Unset {
+	switch {
+	case req.Unset:
 		if cfg.Profiles.RemoveDefaultProfile(req.Name) {
 			status = "removed"
 		}
-	} else if cfg.Profiles.AddDefaultProfile(req.Name) {
-		status = "added"
+	case req.Exclusive:
+		if cfg.Profiles.SetExclusiveDefaultProfile(req.Name) {
+			status = "set"
+		}
+	default:
+		if cfg.Profiles.AddDefaultProfile(req.Name) {
+			status = "added"
+		}
 	}
 
 	if status != "unchanged" {

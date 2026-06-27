@@ -52,6 +52,15 @@ type Entry struct {
 	// slice. Zero when never distilled (or distilled before staleness tracking);
 	// omitempty keeps those rows clean.
 	SourceSize int64 `yaml:"source_size,omitempty" json:"source_size,omitempty"`
+
+	// Distilled and EssencePath are COMPUTED at list/show time from the essence
+	// file's presence on disk — never persisted (yaml:"-"), so the index stays the
+	// source of truth for stored fields only. They let a client tell whether a
+	// session has an essence and open it, without reconstructing the backend's
+	// ~/.ctxloom/sessions/<harp>/essence.md layout. EssencePath is "" (and omitted)
+	// when the session isn't distilled.
+	Distilled   bool   `yaml:"-" json:"distilled"`
+	EssencePath string `yaml:"-" json:"essence_path,omitempty"`
 }
 
 // Index is the on-disk form of the session index.

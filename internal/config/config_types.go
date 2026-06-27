@@ -19,7 +19,7 @@ type LLMConfig struct {
 	// the shipped registry. It is registry-only metadata: init reads it to wire a
 	// freshly-selected engine, and the persist path strips it so user configs
 	// stay plain {type, model}. It never affects runtime label resolution.
-	Role string                 `mapstructure:"role" yaml:"role,omitempty"`
+	Role string         `mapstructure:"role" yaml:"role,omitempty"`
 	Body map[string]any `mapstructure:",remain" yaml:",inline"`
 }
 
@@ -215,6 +215,17 @@ func (p *ProfilesConfig) RemoveDefaultProfile(name string) bool {
 // IsDefaultProfile checks if a profile is in the defaults list.
 func (p *ProfilesConfig) IsDefaultProfile(name string) bool {
 	return slices.Contains(p.Defaults, name)
+}
+
+// SetExclusiveDefaultProfile makes name the sole default, dropping any others in
+// one step. Returns true if the default set changed (false when name was already
+// the only default).
+func (p *ProfilesConfig) SetExclusiveDefaultProfile(name string) bool {
+	if len(p.Defaults) == 1 && p.Defaults[0] == name {
+		return false
+	}
+	p.Defaults = []string{name}
+	return true
 }
 
 // SyncConfig holds configuration for dependency sync behavior.

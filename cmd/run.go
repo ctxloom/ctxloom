@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/tokens"
 	"github.com/ctxloom/ctxloom/internal/upgrade"
 	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/tasks"
@@ -59,7 +60,11 @@ type dryRunJSON struct {
 	Profiles  []string `json:"profiles"`
 	Fragments []string `json:"fragments"`
 	Context   string   `json:"context"`
-	Prompt    string   `json:"prompt,omitempty"`
+	// Tokens is the estimated token count of the assembled Context, computed by
+	// the backend (internal/tokens) so a client previewing a profile reads one
+	// authoritative estimate instead of re-deriving its own chars/token guess.
+	Tokens int    `json:"tokens"`
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // orEmpty returns a non-nil slice so json renders [] rather than null.
@@ -507,6 +512,7 @@ Examples:
 				Profiles:  orEmpty(ctxResult.Profiles),
 				Fragments: orEmpty(ctxResult.FragmentsLoaded),
 				Context:   ctxResult.Context,
+				Tokens:    tokens.Estimate(ctxResult.Context),
 				Prompt:    prompt,
 			}
 			return emit(cmd, payload, func() error {
@@ -528,7 +534,7 @@ Examples:
 				} else {
 					fmt.Println("(no fragments)")
 				}
-				fmt.Println("\n=== Assembled Context ===")
+				fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
 				if ctxResult.Context != "" {
 					fmt.Println(ctxResult.Context)
 				} else {

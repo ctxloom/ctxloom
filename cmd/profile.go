@@ -262,7 +262,10 @@ var profileDeleteCmd = &cobra.Command{
 	},
 }
 
-var profileDefaultUnset bool
+var (
+	profileDefaultUnset     bool
+	profileDefaultExclusive bool
+)
 
 var profileDefaultCmd = &cobra.Command{
 	Use:   "default [name|ref]",
@@ -277,7 +280,8 @@ Examples:
   ctxloom profile default                 # show current default(s)
   ctxloom profile default go-developer    # add a default
   ctxloom profile default https://github.com/user/ctxloom@profiles/dev
-  ctxloom profile default --unset go-developer`,
+  ctxloom profile default --unset go-developer
+  ctxloom profile default --exclusive go-developer  # make it the ONLY default`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -291,6 +295,9 @@ Examples:
 		if len(args) == 0 {
 			if profileDefaultUnset {
 				return fmt.Errorf("--unset requires a profile name or reference")
+			}
+			if profileDefaultExclusive {
+				return fmt.Errorf("--exclusive requires a profile name or reference")
 			}
 			defaults := cfg.ExplicitDefaultProfiles()
 			if len(defaults) == 0 {
@@ -310,8 +317,9 @@ Examples:
 		}
 
 		res, err := operations.SetDefaultProfile(cmd.Context(), cfg, operations.SetDefaultProfileRequest{
-			Name:  name,
-			Unset: profileDefaultUnset,
+			Name:      name,
+			Unset:     profileDefaultUnset,
+			Exclusive: profileDefaultExclusive,
 		})
 		if err != nil {
 			return err
@@ -320,12 +328,17 @@ Examples:
 		switch res.Status {
 		case "added":
 			w.Printf("Set %q as a default profile.\n", name)
+		case "set":
+			w.Printf("Set %q as the only default profile.\n", name)
 		case "removed":
 			w.Printf("Cleared %q from the default profiles.\n", name)
 		default:
-			if profileDefaultUnset {
+			switch {
+			case profileDefaultUnset:
 				w.Printf("%q was not a default profile.\n", name)
-			} else {
+			case profileDefaultExclusive:
+				w.Printf("%q is already the only default profile.\n", name)
+			default:
 				w.Printf("%q is already a default profile.\n", name)
 			}
 		}
@@ -352,8 +365,19 @@ var profileShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-		return renderProfileShow(cmd.OutOrStdout(), res, cfg.Profiles.IsDefaultProfile(res.Name))
+		isDefault := cfg.Profiles.IsDefaultProfile(res.Name)
+		return emit(cmd, profileDetailJSON{GetProfileResult: res, Default: isDefault}, func() error {
+			return renderProfileShow(cmd.OutOrStdout(), res, isDefault)
+		})
 	},
+}
+
+// profileDetailJSON is the --format json shape for `profile show`: the declared
+// profile config plus whether it is a configured default. Frontends (the VSCode
+// profile composer) read this to render a profile's authored composition.
+type profileDetailJSON struct {
+	*operations.GetProfileResult
+	Default bool `json:"default"`
 }
 
 // renderProfileShow writes the human-readable detail view of one profile
@@ -711,6 +735,8 @@ func init() {
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
 	profileDefaultCmd.Flags().BoolVar(&profileDefaultUnset, "unset", false, "Remove the named profile from the default set")
+	profileDefaultCmd.Flags().BoolVar(&profileDefaultExclusive, "exclusive", false, "Make the named profile the SOLE default, unsetting all others")
+	profileDefaultCmd.MarkFlagsMutuallyExclusive("unset", "exclusive")
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames

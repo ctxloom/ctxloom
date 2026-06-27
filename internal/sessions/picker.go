@@ -355,12 +355,13 @@ func (p *Picker) render() {
 			p.renderRawRow(w, i+1, entryIdx, e)
 			continue
 		}
-		w.Printf(" [%d] [s%s] [t%s] %s   %s\n",
+		w.Printf(" [%d] [s%s] [t%s] %s   %s%s\n",
 			i+1,
 			checkbox(p.checkSession[entryIdx]),
 			checkbox(p.checkTasks[entryIdx]),
 			e.HarpName,
 			e.StartedAt.Local().Format("2006-01-02 15:04"),
+			staleMarker(e),
 		)
 		if e.Summary != "" {
 			w.Printf("       session: %s\n", e.Summary)
@@ -409,6 +410,16 @@ func shortSessionID(id string) string {
 		return id
 	}
 	return id[:8] + "…"
+}
+
+// staleMarker returns the " ⚠ out of date" suffix for a row whose distilled
+// essence is older than its source transcript, or "" when the essence is current
+// or staleness can't be determined (never distilled, no transcript, stat fails).
+func staleMarker(e Entry) string {
+	if stale, known := e.SourceStale(); known && stale {
+		return "  ⚠ out of date"
+	}
+	return ""
 }
 
 func checkbox(checked bool) string {

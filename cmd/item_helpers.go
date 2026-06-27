@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // titleCase capitalizes the first letter of a string.
@@ -62,13 +63,65 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 }
 
 // itemRow is the normalized listing shape shared by the fragment and prompt
-// listings: a name, its merged tags, and the bundle it came from (the grouping
-// key). It flattens the operations FragmentEntry / PromptEntry projections so
-// the grouping/printing logic is type-agnostic.
+// listings: a name, its merged tags, the bundle it came from (the grouping
+// key), and the fully-qualified ref (bundle#fragments/name or
+// bundle#prompts/name) that `show` and assemble accept. It flattens the
+// operations FragmentEntry / PromptEntry projections so the grouping/printing
+// logic is type-agnostic. The json tags are snake_case (matching session list)
+// and expose `ref` so frontends don't have to reconstruct it from name+bundle.
 type itemRow struct {
-	Name   string
-	Tags   []string
-	Bundle string
+	Name   string   `json:"name"`
+	Tags   []string `json:"tags"`
+	Bundle string   `json:"bundle"`
+	Ref    string   `json:"ref"`
+	// Remote, BundleLabel and SourceURL are derived from the bundle ref by the
+	// backend so a client can group content by its owning remote and show a short
+	// bundle label without parsing the `@bundles/` ref grammar itself. Remote is
+	// the owning remote's NAME ("" for local/project content or an unregistered
+	// source); BundleLabel is the segment after `@bundles/` (or the whole source
+	// for a bare local bundle); SourceURL is the repo URL ("" for local).
+	Remote      string `json:"remote"`
+	BundleLabel string `json:"bundle_label"`
+	SourceURL   string `json:"source_url,omitempty"`
+}
+
+// remoteURLMap maps each configured remote's URL to its name (best-effort: a
+// registry failure yields an empty map, leaving items untagged rather than
+// failing the listing). It is the authoritative source→remote lookup the client
+// used to do by string-matching bundle prefixes against `remote list`.
+func remoteURLMap(cfg *config.Config) map[string]string {
+	m := map[string]string{}
+	res, err := operations.ListRemotes(context.Background(), cfg, operations.ListRemotesRequest{})
+	if err != nil {
+		return m
+	}
+	for _, r := range res.Remotes {
+		if r.URL != "" {
+			m[r.URL] = r.Name
+		}
+	}
+	return m
+}
+
+// classifySource splits a bundle source ref into the display fields a client
+// needs — owning remote name, short bundle label, and source URL — parsing the
+// canonical ref grammar here so the client never has to. A source that isn't a
+// canonical ref (a bare local bundle name) is reported as local: no remote/URL,
+// label = the source unchanged.
+func classifySource(source string, remotes map[string]string) (remoteName, bundleLabel, sourceURL string) {
+	bundleLabel = source
+	ref, err := remote.ParseReference(source)
+	if err != nil {
+		return "", bundleLabel, ""
+	}
+	if ref.Path != "" {
+		bundleLabel = ref.Path
+	}
+	if !ref.IsLocal {
+		sourceURL = ref.URL
+		remoteName = remotes[ref.URL]
+	}
+	return remoteName, bundleLabel, sourceURL
 }
 
 // listItemRows returns every item of the given type via the operations
@@ -76,6 +129,19 @@ type itemRow struct {
 // bundle name).
 func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 	ctx := context.Background()
+	remotes := remoteURLMap(cfg)
+	row := func(name string, tags []string, source string) itemRow {
+		remoteName, bundleLabel, sourceURL := classifySource(source, remotes)
+		return itemRow{
+			Name:        name,
+			Tags:        tags,
+			Bundle:      source,
+			Ref:         source + "#" + itemType.prefix() + name,
+			Remote:      remoteName,
+			BundleLabel: bundleLabel,
+			SourceURL:   sourceURL,
+		}
+	}
 	switch itemType {
 	case ItemTypeFragment:
 		res, err := operations.ListFragments(ctx, cfg, operations.ListFragmentsRequest{SortBy: "source"})
@@ -84,7 +150,7 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		}
 		rows := make([]itemRow, 0, len(res.Fragments))
 		for _, f := range res.Fragments {
-			rows = append(rows, itemRow{Name: f.Name, Tags: f.Tags, Bundle: f.Source})
+			rows = append(rows, row(f.Name, f.Tags, f.Source))
 		}
 		return rows, nil
 	case ItemTypePrompt:
@@ -94,7 +160,7 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		}
 		rows := make([]itemRow, 0, len(res.Prompts))
 		for _, p := range res.Prompts {
-			rows = append(rows, itemRow{Name: p.Name, Tags: p.Tags, Bundle: p.Source})
+			rows = append(rows, row(p.Name, p.Tags, p.Source))
 		}
 		return rows, nil
 	}

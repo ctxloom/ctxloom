@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/tasks"
 	taskops "github.com/ctxloom/shared/tasks/operations"
+	"github.com/ctxloom/shared/tokens"
 	"github.com/ctxloom/shared/upgrade"
 )
 
@@ -49,6 +50,31 @@ var (
 	runSeedTask         string
 	runSeedStatus       string
 )
+
+// dryRunJSON is the --format json shape for `run --dry-run`: the resolved
+// assembly a profile/flag set produces. The VSCode profile composer reads this
+// to preview the effective context (fully inheritance-resolved) without running
+// the agent.
+type dryRunJSON struct {
+	LLM       string   `json:"llm"`
+	Backend   string   `json:"backend"`
+	Profiles  []string `json:"profiles"`
+	Fragments []string `json:"fragments"`
+	Context   string   `json:"context"`
+	// Tokens is the estimated token count of the assembled Context, computed by
+	// the backend (internal/tokens) so a client previewing a profile reads one
+	// authoritative estimate instead of re-deriving its own chars/token guess.
+	Tokens int    `json:"tokens"`
+	Prompt string `json:"prompt,omitempty"`
+}
+
+// orEmpty returns a non-nil slice so json renders [] rather than null.
+func orEmpty(items []string) []string {
+	if items == nil {
+		return []string{}
+	}
+	return items
+}
 
 // resumeFlags bundles the four CLI flags that govern resume behavior
 // so resolveResumeIntent can be tested without setting package globals.
@@ -467,45 +493,65 @@ Examples:
 		// repo, else current directory.
 		workDir := projectroot.WorkDir()
 
+		// No override and no git root: workDir is just the launch directory. The
+		// project's identity — and with it its tasks, plans, and sessions under
+		// ~/.ctxloom — is keyed off this path, so they don't follow the directory
+		// if it moves and a launch one level up or down won't resume them. Warn,
+		// never block (CLAUDE.md fault tolerance).
+		if projectroot.RootFromFallback() {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.\n", workDir)
+		}
+
 		// Dry run mode - show the assembled context and prompt, then stop
 		// before anything stateful or interactive happens: no resume picker,
 		// no session-index writes (AssignSession / MarkSessionEnded), no
 		// task seeding, no plugin launch.
 		if runDryRun {
-			fmt.Println("=== LLM ===")
-			fmt.Printf("%s (%s)\n", label, backendName)
-			fmt.Println("\n=== Profiles ===")
-			if len(ctxResult.Profiles) > 0 {
-				for _, p := range ctxResult.Profiles {
-					fmt.Printf("  %s\n", p)
+			payload := dryRunJSON{
+				LLM:       label,
+				Backend:   backendName,
+				Profiles:  orEmpty(ctxResult.Profiles),
+				Fragments: orEmpty(ctxResult.FragmentsLoaded),
+				Context:   ctxResult.Context,
+				Tokens:    tokens.Estimate(ctxResult.Context),
+				Prompt:    prompt,
+			}
+			return emit(cmd, payload, func() error {
+				fmt.Println("=== LLM ===")
+				fmt.Printf("%s (%s)\n", label, backendName)
+				fmt.Println("\n=== Profiles ===")
+				if len(ctxResult.Profiles) > 0 {
+					for _, p := range ctxResult.Profiles {
+						fmt.Printf("  %s\n", p)
+					}
+				} else {
+					fmt.Println("(no profiles)")
 				}
-			} else {
-				fmt.Println("(no profiles)")
-			}
-			fmt.Println("\n=== Fragments Loaded ===")
-			if len(ctxResult.FragmentsLoaded) > 0 {
-				for _, f := range ctxResult.FragmentsLoaded {
-					fmt.Printf("  %s\n", f)
+				fmt.Println("\n=== Fragments Loaded ===")
+				if len(ctxResult.FragmentsLoaded) > 0 {
+					for _, f := range ctxResult.FragmentsLoaded {
+						fmt.Printf("  %s\n", f)
+					}
+				} else {
+					fmt.Println("(no fragments)")
 				}
-			} else {
-				fmt.Println("(no fragments)")
-			}
-			fmt.Println("\n=== Assembled Context ===")
-			if ctxResult.Context != "" {
-				fmt.Println(ctxResult.Context)
-			} else {
-				fmt.Println("(no context)")
-			}
-			fmt.Println("\n=== Prompt ===")
-			if prompt != "" {
-				fmt.Println(prompt)
-			} else {
-				fmt.Println("(interactive mode)")
-			}
-			// Show context file that would be written
-			fmt.Println("\n=== Context File ===")
-			fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, agent.SCMContextSubdir))
-			return nil
+				fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
+				if ctxResult.Context != "" {
+					fmt.Println(ctxResult.Context)
+				} else {
+					fmt.Println("(no context)")
+				}
+				fmt.Println("\n=== Prompt ===")
+				if prompt != "" {
+					fmt.Println(prompt)
+				} else {
+					fmt.Println("(interactive mode)")
+				}
+				// Show context file that would be written
+				fmt.Println("\n=== Context File ===")
+				fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(workDir, agent.SCMContextSubdir))
+				return nil
+			})
 		}
 
 		// Phase 3 session resolution: optional pre-launch resume picker,

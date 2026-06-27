@@ -132,13 +132,32 @@ func homeDefaultProfiles() []string {
 
 // ProfileEntry represents a profile in operation results.
 type ProfileEntry struct {
-	Name        string   `json:"name"`
+	Name string `json:"name"`
+	// DisplayName is a short, human label for the profile: the segment after
+	// "@profiles/" for a remote reference (e.g. "default"), otherwise Name. It
+	// lets frontends show a friendly name without parsing refs themselves.
+	DisplayName string   `json:"display_name"`
 	Description string   `json:"description,omitempty"`
 	Parents     []string `json:"parents,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 	Bundles     []string `json:"bundles,omitempty"`
 	Default     bool     `json:"default,omitempty"`
 	Path        string   `json:"path,omitempty"`
+	// IsRemote reports whether this profile is a seeded remote reference (its
+	// Path carries the "<remote>:" sentinel) versus a local file.
+	IsRemote bool `json:"is_remote"`
+}
+
+// profileDisplayName returns a short, human label for a profile reference: the
+// segment after "@profiles/" for a remote ref (e.g. "default"), else the name
+// unchanged. Centralizing this in the backend keeps frontends from re-deriving
+// display names by parsing remote refs.
+func profileDisplayName(name string) string {
+	const marker = "@profiles/"
+	if i := strings.LastIndex(name, marker); i >= 0 {
+		return name[i+len(marker):]
+	}
+	return name
 }
 
 // ListProfilesRequest contains parameters for listing profiles.
@@ -182,12 +201,14 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 		}
 		result = append(result, ProfileEntry{
 			Name:        p.Name,
+			DisplayName: profileDisplayName(p.Name),
 			Description: p.Description,
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
 			Default:     cfg.Profiles.IsDefaultProfile(p.Name),
 			Path:        p.Path,
+			IsRemote:    strings.HasPrefix(p.Path, profiles.SeededProfilePathPrefix),
 		})
 	}
 
@@ -578,6 +599,11 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 type SetDefaultProfileRequest struct {
 	Name  string `json:"name"`
 	Unset bool   `json:"unset"`
+	// Exclusive makes Name the SOLE default, unsetting every other default in one
+	// atomic step. Mutually exclusive with Unset. This is the "make this THE
+	// default" operation, owned here so a client never has to orchestrate an
+	// unset-each-then-add sequence (which a crash mid-way could leave inconsistent).
+	Exclusive bool `json:"exclusive"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *profiles.Loader `json:"-"`
@@ -586,7 +612,7 @@ type SetDefaultProfileRequest struct {
 // SetDefaultProfileResult reports the outcome of a default-profile change and
 // the resulting default set.
 type SetDefaultProfileResult struct {
-	Status   string   `json:"status"` // "added", "removed", "unchanged"
+	Status   string   `json:"status"` // "added", "removed", "set" (exclusive), "unchanged"
 	Name     string   `json:"name"`
 	Defaults []string `json:"defaults"`
 }
@@ -602,6 +628,9 @@ type SetDefaultProfileResult struct {
 func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultProfileRequest) (*SetDefaultProfileResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
+	}
+	if req.Unset && req.Exclusive {
+		return nil, fmt.Errorf("unset and exclusive are mutually exclusive")
 	}
 
 	// Validate existence only for a bare local name we're adding: removals must
@@ -620,12 +649,19 @@ func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultPr
 	}
 
 	status := "unchanged"
-	if req.Unset {
+	switch {
+	case req.Unset:
 		if cfg.Profiles.RemoveDefaultProfile(req.Name) {
 			status = "removed"
 		}
-	} else if cfg.Profiles.AddDefaultProfile(req.Name) {
-		status = "added"
+	case req.Exclusive:
+		if cfg.Profiles.SetExclusiveDefaultProfile(req.Name) {
+			status = "set"
+		}
+	default:
+		if cfg.Profiles.AddDefaultProfile(req.Name) {
+			status = "added"
+		}
 	}
 
 	if status != "unchanged" {

@@ -54,6 +54,18 @@ var sessionListCmd = &cobra.Command{
 		if entries == nil {
 			entries = []sessions.Entry{}
 		}
+		// Enrich each row with its essence presence + path (computed, not stored),
+		// so a client reads `distilled`/`essence_path` straight from the listing
+		// instead of re-deriving them or rebuilding the ~/.ctxloom path itself.
+		appDir := ""
+		if cfg, cErr := config.Load(); cErr == nil {
+			appDir = cfg.AppDir
+		}
+		for i := range entries {
+			path, distilled := sessionEssenceInfo(entries[i].HarpName, &entries[i], appDir)
+			entries[i].Distilled = distilled
+			entries[i].EssencePath = path
+		}
 		return emit(cmd, entries, func() error {
 			if len(entries) == 0 {
 				w := iox.NewErrWriter(cmd.OutOrStdout())
@@ -63,6 +75,20 @@ var sessionListCmd = &cobra.Command{
 			return renderSessionTable(cmd.OutOrStdout(), entries)
 		})
 	},
+}
+
+// SessionEssence is the structured result of `session show`. In json mode a
+// session that isn't distilled yet returns distilled:false with an empty essence
+// (not an error), so a frontend can show a "not distilled yet" hint on hover
+// without branching on an exit code.
+type SessionEssence struct {
+	Harp      string `json:"harp"`
+	Distilled bool   `json:"distilled"`
+	Essence   string `json:"essence"`
+	// EssencePath is the absolute path to the essence file when distilled, "" (and
+	// omitted) otherwise — so a client can open the real file rather than rebuild
+	// the ~/.ctxloom/sessions/<harp>/essence.md path itself.
+	EssencePath string `json:"essence_path,omitempty"`
 }
 
 var sessionShowCmd = &cobra.Command{
@@ -77,28 +103,74 @@ var sessionShowCmd = &cobra.Command{
 		if entry == nil {
 			return fmt.Errorf("harp not found: %q", args[0])
 		}
-		if entry.SessionID == "" {
-			return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])
+		essence, distilled := readSessionEssence(args[0], entry)
+		essencePath := ""
+		if distilled {
+			appDir := ""
+			if cfg, cErr := config.Load(); cErr == nil {
+				appDir = cfg.AppDir
+			}
+			essencePath, _ = sessionEssenceInfo(args[0], entry, appDir)
 		}
-		// Prefer the Phase 3.6 harp-dir layout (~/.ctxloom/sessions/<harp>/
-		// essence.md); fall back to the legacy <sessionsDir>/<sessionID>.md
-		// path for sessions distilled before 3.6 landed.
-		if data, err := readHarpEssence(args[0]); err == nil {
-			_, _ = cmd.OutOrStdout().Write(data)
+		return emit(cmd, SessionEssence{Harp: args[0], Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
+			if !distilled {
+				if entry.SessionID == "" {
+					return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])
+				}
+				return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", args[0], args[0])
+			}
+			_, _ = cmd.OutOrStdout().Write([]byte(essence))
 			return nil
-		}
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		path := filepath.Join(paths.ProjectSessionsDir(cfg.AppDir), entry.SessionID+".md")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read essence: %w (run `ctxloom session distill %s` to compact this session first)", err, args[0])
-		}
-		_, _ = cmd.OutOrStdout().Write(data)
-		return nil
+		})
 	},
+}
+
+// readSessionEssence returns a session's distilled essence and whether one was
+// found. It prefers the harp-dir layout (~/.ctxloom/sessions/<harp>/essence.md)
+// and falls back to the legacy <sessionsDir>/<sessionID>.md path. A pending
+// session (no bound id) or a missing essence yields ("", false) rather than an
+// error, so callers can present "not distilled yet" uniformly.
+func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
+	if data, err := readHarpEssence(harp); err == nil {
+		return string(data), true
+	}
+	if entry.SessionID == "" {
+		return "", false
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return "", false
+	}
+	path := filepath.Join(paths.ProjectSessionsDir(cfg.AppDir), entry.SessionID+".md")
+	if data, err := os.ReadFile(path); err == nil {
+		return string(data), true
+	}
+	return "", false
+}
+
+// sessionEssenceInfo resolves a session's essence file path and whether it
+// exists (i.e. the session is distilled), WITHOUT reading the file — so the
+// listing can report essence_path/distilled cheaply for every row. It mirrors
+// readSessionEssence's lookup order: the harp-dir layout first
+// (~/.ctxloom/sessions/<harp>/essence.md, which needs no config), then the
+// legacy <sessionsDir>/<sessionID>.md (which needs appDir; pass "" to skip it).
+func sessionEssenceInfo(harp string, entry *sessions.Entry, appDir string) (string, bool) {
+	if p, err := paths.HarpEssencePath(harp); err == nil && fileExists(p) {
+		return p, true
+	}
+	if entry.SessionID != "" && appDir != "" {
+		p := filepath.Join(paths.ProjectSessionsDir(appDir), entry.SessionID+".md")
+		if fileExists(p) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// fileExists reports whether p is an existing regular file (not a directory).
+func fileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
 }
 
 // readHarpEssence returns the bytes of ~/.ctxloom/sessions/<harp>/essence.md.
@@ -357,6 +429,9 @@ func renderSessionTable(out io.Writer, entries []sessions.Entry) error {
 		summary := e.Summary
 		if summary == "" {
 			summary = "(no summary)"
+		}
+		if stale, known := e.SourceStale(); known && stale {
+			summary += "  ⚠ out of date"
 		}
 		w.Printf("%s\t%s\t%s\n",
 			e.HarpName,

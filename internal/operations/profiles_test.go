@@ -346,6 +346,31 @@ func TestSetDefaultProfile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "unchanged", res.Status)
 	})
+
+	t.Run("exclusive makes the named profile the sole default", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		cfg := newCfg(fs)
+		cfg.Profiles.AddDefaultProfile("frontend")
+		cfg.Profiles.AddDefaultProfile("base")
+
+		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Exclusive: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "set", res.Status)
+		assert.Equal(t, []string{"go-developer"}, res.Defaults)
+		assert.False(t, cfg.Profiles.IsDefaultProfile("frontend"))
+		assert.False(t, cfg.Profiles.IsDefaultProfile("base"))
+
+		// Already the sole default: a second exclusive call is a no-op.
+		res, err = SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: "go-developer", Exclusive: true, Loader: loader})
+		require.NoError(t, err)
+		assert.Equal(t, "unchanged", res.Status)
+	})
+
+	t.Run("unset and exclusive together error", func(t *testing.T) {
+		fs, loader := setupProfileTestFS(t)
+		_, err := SetDefaultProfile(context.Background(), newCfg(fs), SetDefaultProfileRequest{Name: "go-developer", Unset: true, Exclusive: true, Loader: loader})
+		require.Error(t, err)
+	})
 }
 
 func TestListProfiles_AllProfiles(t *testing.T) {
@@ -359,6 +384,28 @@ func TestListProfiles_AllProfiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, result.Count) // base, go-developer, frontend
 	assert.Len(t, result.Profiles, 3)
+}
+
+func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
+	_, loader := setupProfileTestFS(t)
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
+
+	result, err := ListProfiles(context.Background(), cfg, ListProfilesRequest{Loader: loader})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Profiles)
+	for _, p := range result.Profiles {
+		// The fixtures are local profiles: the display name is the plain name and
+		// none are seeded remote references.
+		assert.Equal(t, p.Name, p.DisplayName, "local profile display name should equal name")
+		assert.False(t, p.IsRemote, "local profile should not be flagged remote")
+	}
+}
+
+func TestProfileDisplayName(t *testing.T) {
+	assert.Equal(t, "default",
+		profileDisplayName("https://github.com/ctxloom/ctxloom-default@profiles/default"))
+	assert.Equal(t, "reviewer", profileDisplayName("some-bundle@profiles/reviewer"))
+	assert.Equal(t, "ts-dev", profileDisplayName("ts-dev"))
 }
 
 func TestListProfiles_WithQuery(t *testing.T) {

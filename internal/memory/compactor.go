@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
 	"github.com/ctxloom/shared/textutil"
+	"github.com/ctxloom/shared/tokens"
 )
 
 const (
@@ -28,8 +29,9 @@ const (
 	DefaultChunkTokens = 8000
 	// ChunkOverlapTokens is the overlap between chunks for context continuity.
 	ChunkOverlapTokens = 500
-	// CharsPerToken is a rough estimate for token counting.
-	CharsPerToken = 4
+	// CharsPerToken is the chars-per-token ratio, owned by internal/tokens so the
+	// distillation estimate and the dry-run preview agree on one heuristic.
+	CharsPerToken = tokens.CharsPerToken
 	// distillConcurrency bounds how many chunks are distilled in parallel. Each
 	// chunk distillation spawns its own LLM plugin subprocess, so this caps
 	// concurrent subprocesses (and provider rate pressure) while still cutting
@@ -146,6 +148,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	result.SessionID = session.ID
 	harpName := c.resolveHarpName()
 
+	// Stamp the source transcript's byte size now — right after the entries were
+	// read and before the slow distill — so the fingerprint best matches the
+	// content actually distilled. If the live session appends during the distill,
+	// the next staleness check sees live > stamped and correctly re-distills.
+	sourceSize := transcriptSize(harpName)
+
 	// Plans are the session's own .plan.md documents, read from its ctxloom
 	// session directory and served by the agent server — not mined from the
 	// transcript. They bypass the LLM compression pass and are re-attached
@@ -220,13 +228,14 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		PlanBlocks: len(plans),
 		Summary:    summary,
 		HarpName:   harpName,
+		SourceSize: sourceSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("save distilled: %w", err)
 	}
 	result.DistilledPath = distilledPath
 
-	updateSessionIndex(harpName, session.ID, summary, detail)
+	updateSessionIndex(harpName, session.ID, summary, detail, sourceSize)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -343,9 +352,9 @@ func (c *Compactor) resolveHarpName() string {
 
 // updateSessionIndex best-effort records the session ID against the harp (so a
 // later `ctxloom session distill <harp>` finds the transcript) and updates the
-// picker summary and detail lines. No-op without a harp name; all failures warn,
-// never fatal.
-func updateSessionIndex(harpName, sessionID, summary string, detail []string) {
+// picker summary, detail lines, and source-size staleness fingerprint. No-op
+// without a harp name; all failures warn, never fatal.
+func updateSessionIndex(harpName, sessionID, summary string, detail []string, sourceSize int64) {
 	if harpName == "" {
 		return
 	}
@@ -358,11 +367,41 @@ func updateSessionIndex(harpName, sessionID, summary string, detail []string) {
 			clidiag.Warn("ctxloom", "index bind failed: %v", err)
 		}
 	}
+	// Guarded on a non-empty summary so a failed distill (no frontmatter) never
+	// clobbers a previously good summary; the size fingerprint rides along with
+	// it. The essence.md frontmatter carries SourceSize unconditionally, so the
+	// authoritative staleness check (loadOrDistillSession) works even here.
 	if summary != "" {
-		if err := mgr.SetSummary(harpName, summary, detail); err != nil {
+		if err := mgr.SetSummary(harpName, summary, detail, sourceSize); err != nil {
 			clidiag.Warn("ctxloom", "index summary update failed: %v", err)
 		}
 	}
+}
+
+// transcriptSize returns the byte size of the harp's bound transcript, or 0 when
+// it can't be determined (no harp, no bound path, or stat failure). This is the
+// staleness fingerprint stamped into the essence and index: `session list`, the
+// resume picker, and loadOrDistillSession stat the same TranscriptPath and flag
+// the essence out of date once the transcript has grown past it. Best-effort and
+// read-only per the fault-tolerance philosophy — an unresolvable path degrades
+// to "no fingerprint", never an error.
+func transcriptSize(harpName string) int64 {
+	if harpName == "" {
+		return 0
+	}
+	mgr, err := sessions.Open("")
+	if err != nil {
+		return 0
+	}
+	entry, _ := mgr.Find(harpName)
+	if entry == nil || entry.TranscriptPath == "" {
+		return 0
+	}
+	info, err := os.Stat(entry.TranscriptPath)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }
 
 // maxPickerDetailLines caps the Open Items shown under a picker row. With the
@@ -595,10 +634,17 @@ type distilledMeta struct {
 	DistilledAt time.Time `yaml:"distilled_at"`
 	SourcePath  string    `yaml:"source_path,omitempty"`
 	SourceMtime time.Time `yaml:"source_mtime,omitempty"`
-	EntryCount  int       `yaml:"entry_count"`
-	TokensIn    int       `yaml:"tokens_in,omitempty"`
-	TokensOut   int       `yaml:"tokens_out,omitempty"`
-	PlanBlocks  int       `yaml:"plan_blocks"`
+	// SourceSize is the backend transcript's byte size at distill time — the
+	// staleness fingerprint. loadOrDistillSession stats the live transcript and
+	// re-distills when it has moved past this; the resume picker badges the row
+	// "out of date". Append-only transcripts only grow, so a size change is a
+	// reliable "this essence covers an earlier slice" signal. Zero when the
+	// transcript path couldn't be resolved or statted (graceful: no staleness).
+	SourceSize int64 `yaml:"source_size,omitempty"`
+	EntryCount int   `yaml:"entry_count"`
+	TokensIn   int   `yaml:"tokens_in,omitempty"`
+	TokensOut  int   `yaml:"tokens_out,omitempty"`
+	PlanBlocks int   `yaml:"plan_blocks"`
 	// Summary is the one-line essence emitted by the LLM in its own YAML
 	// frontmatter; see parseLLMFrontmatter. Empty when distillation produced
 	// no valid frontmatter (graceful degrade: picker shows "no summary").
@@ -768,6 +814,7 @@ type DistilledSession struct {
 	DistilledAt time.Time
 	SourcePath  string
 	SourceMtime time.Time
+	SourceSize  int64
 	EntryCount  int
 	TokensIn    int
 	TokensOut   int
@@ -806,6 +853,7 @@ func parseDistilledMarkdown(data []byte) (*DistilledSession, error) {
 		DistilledAt: meta.DistilledAt,
 		SourcePath:  meta.SourcePath,
 		SourceMtime: meta.SourceMtime,
+		SourceSize:  meta.SourceSize,
 		EntryCount:  meta.EntryCount,
 		TokensIn:    meta.TokensIn,
 		TokensOut:   meta.TokensOut,
@@ -840,7 +888,7 @@ func ListDistilledSessions(sessionsDir string) ([]string, error) {
 
 // estimateTokens provides a rough token count estimate.
 func estimateTokens(text string) int {
-	return len(text) / CharsPerToken
+	return tokens.Estimate(text)
 }
 
 // sessionDistillPrompt is the system prompt for session distillation.

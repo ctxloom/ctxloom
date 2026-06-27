@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
@@ -34,7 +35,7 @@ func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
 		return false
 	}
 	if err := cfg.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: set %q as default profile in memory but failed to persist: %v\n", profileName, err)
+		clidiag.Warn("ctxloom", "set %q as default profile in memory but failed to persist: %v", profileName, err)
 		return false
 	}
 	return true
@@ -108,7 +109,7 @@ func EnsureDefaultProfiles(cfg *config.Config) {
 	cfg.Profiles.SetInheritedDefaults(nil) // looked, found none — don't look again
 
 	// Neither project nor home defines defaults.profiles — surface the choice.
-	fmt.Fprintln(os.Stderr, "ctxloom: warning: no default profiles configured (project or home).")
+	clidiag.Warn("ctxloom", "no default profiles configured (project or home).")
 	fmt.Fprintln(os.Stderr, "ctxloom: set defaults.profiles in .ctxloom/config.yaml (or ~/.ctxloom/config.yaml),")
 	fmt.Fprintln(os.Stderr, "ctxloom: or run discovery to install one. Continuing without a profile.")
 }

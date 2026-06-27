@@ -1,9 +1,7 @@
 package config
 
 import (
-	"fmt"
 	"maps"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -70,11 +69,11 @@ func warnMissingCompanion(bin, hint string) {
 		return
 	}
 	missingWarned[bin] = true
-	msg := "ctxloom: warning: " + bin + " not found on PATH; its tools are disabled for this session"
+	msg := bin + " not found on PATH; its tools are disabled for this session"
 	if hint != "" {
 		msg += " (" + strings.TrimSpace(hint) + ")"
 	}
-	fmt.Fprintln(os.Stderr, msg)
+	clidiag.Warn("ctxloom", "%s", msg)
 }
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
@@ -150,18 +149,18 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return out
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name) {
@@ -238,18 +237,18 @@ func resolveBuiltinBundleHooks() wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return out
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name)))
@@ -304,19 +303,19 @@ type BuiltinFragment struct {
 func (c *Config) ResolveBuiltinBundleFragments() []BuiltinFragment {
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return nil
 	}
 	var out []BuiltinFragment
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		if _, missing := builtinBundleCompanionMissing(&b); missing {

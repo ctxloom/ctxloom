@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
 	"time"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // companionProbeTimeout bounds the `<bin> version --format json` exec at
@@ -61,18 +61,18 @@ func BuiltinCompanionBins() []string {
 	seen := map[string]bool{}
 	names, err := resources.ListBuiltinBundles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: list builtin bundles: %v\n", err)
+		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
 		return nil
 	}
 	for _, name := range names {
 		data, err := resources.GetBuiltinBundle(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: read builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
 			continue
 		}
 		var b bundles.Bundle
 		if err := yaml.Unmarshal(data, &b); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: parse builtin bundle %q: %v\n", name, err)
+			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
 		for _, hs := range [][]bundles.BundleHook{

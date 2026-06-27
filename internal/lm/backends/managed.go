@@ -1,12 +1,10 @@
 package backends
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -32,7 +30,7 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 		// the reconciling writers then remove every previously-installed
 		// ctxloom hook/command for this run. Degrading is right (never block
 		// launch), but it must not be silent.
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: config load failed; launching without managed hooks/commands: %v\n", err)
+		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
 		return nil
 	}
 	return &agent.ManagedConfig{

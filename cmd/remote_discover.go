@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/textutil"
 )
 
@@ -59,7 +60,7 @@ Examples:
 
 		// Print errors
 		for _, errMsg := range result.Errors {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", errMsg)
+			clidiag.Warn("ctxloom", "%s", errMsg)
 		}
 
 		if result.Count == 0 {
@@ -170,7 +171,7 @@ func addDiscoveredRemote(cmd *cobra.Command, cfg *config.Config, name, url strin
 		return
 	}
 	if result.Warning != "" {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", result.Warning)
+		clidiag.Warn("ctxloom", "%s", result.Warning)
 	}
 	fmt.Printf("Added remote '%s' → %s\n\n", result.Name, result.URL)
 }

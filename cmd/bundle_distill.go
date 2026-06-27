@@ -16,8 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/shared/textutil"
 )
 
 var bundleDistillForce bool
@@ -129,7 +130,7 @@ func expandDistillFiles(patterns []string) ([]string, error) {
 			if _, err := os.Stat(pattern); err == nil {
 				files = append(files, pattern)
 			} else {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: no files match %q\n", pattern)
+				clidiag.Warn("ctxloom", "no files match %q", pattern)
 			}
 		} else {
 			files = append(files, matches...)

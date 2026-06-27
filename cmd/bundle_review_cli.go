@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // Bundle-review CLI. These commands operate directly on the on-disk pending
@@ -158,7 +158,7 @@ func holdItem(cfg *config.Config, name string, out io.Writer) (bool, error) {
 	// Drop any pending change for it so we don't re-surface what we just held.
 	// The hold itself succeeded, so a drop failure warns rather than failing.
 	if _, err := operations.DropPendingBundle(cfg, name); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: drop pending change for %q: %v\n", name, err)
+		clidiag.Warn("ctxloom", "drop pending change for %q: %v", name, err)
 	}
 	fmt.Fprintf(out, "Held %q at its locked SHA.\n", name)
 	return true, nil
@@ -320,7 +320,7 @@ func applyHooksAfterReview(ctx context.Context, cfg *config.Config) {
 		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
 	}
 }
 

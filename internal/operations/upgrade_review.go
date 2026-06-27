@@ -2,14 +2,13 @@ package operations
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // UpgradeResult reports the outcome of StageUpgrade.
@@ -115,7 +114,7 @@ func StageUpgrade(ctx context.Context, cfg *config.Config) (UpgradeResult, error
 			}
 		}
 		if preserved > 0 {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)\n", len(unexpanded), preserved)
+			clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", len(unexpanded), preserved)
 		}
 	}
 

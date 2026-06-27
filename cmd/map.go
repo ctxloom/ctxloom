@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var (
@@ -76,7 +77,7 @@ func runMap(cmd *cobra.Command, args []string) error {
 
 	if mapSaveParts != "" {
 		if err := saveParts(mapSaveParts, parts); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: saving parts failed: %v\n", err)
+			clidiag.Warn("ctxloom", "saving parts failed: %v", err)
 		}
 	}
 
@@ -86,7 +87,7 @@ func runMap(cmd *cobra.Command, args []string) error {
 	// success is success (CLAUDE.md).
 	for _, p := range parts {
 		if p.Failed() {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: member %q failed: %s\n", p.Profile, p.Err)
+			clidiag.Warn("ctxloom", "member %q failed: %s", p.Profile, p.Err)
 		}
 	}
 	return nil

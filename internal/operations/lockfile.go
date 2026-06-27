@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // Puller interface for pulling remote items (allows mocking in tests).
@@ -78,7 +78,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		if req.FailOnConflict {
 			return nil, ConflictError(conflicts)
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", ConflictError(conflicts))
+		clidiag.Warn("ctxloom", "%v", ConflictError(conflicts))
 		pins = dropConflicted(pins, conflicts)
 	}
 
@@ -145,7 +145,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 			}
 		}
 		if preserved > 0 {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)\n", len(unexpanded), preserved)
+			clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", len(unexpanded), preserved)
 		}
 	}
 
@@ -180,17 +180,17 @@ func stageNewForReview(baseDir string, fs afero.Fs, staged []PinnedRef) {
 	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
 	pending, err := pendingMgr.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load pending lockfile: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to load pending lockfile: %v", err)
 		return
 	}
 	for _, p := range staged {
 		pending.AddEntry(p.Type, p.Identity, remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version})
 	}
 	if err := pendingMgr.Save(pending); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to stage new bundles for review: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to stage new bundles for review: %v", err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: %d new bundle(s) staged pending review — run 'ctxloom bundle review'\n", len(staged))
+	clidiag.Warn("ctxloom", "%d new bundle(s) staged pending review — run 'ctxloom bundle review'", len(staged))
 }
 
 // dropConflicted removes every pin whose identity is in conflicts — used by the
@@ -496,11 +496,11 @@ func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
 	for _, url := range urls {
 		forgeType, _, err := remote.DetectForge(url)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: detect forge for %s: %v\n", url, err)
+			clidiag.Warn("ctxloom", "detect forge for %s: %v", url, err)
 			continue
 		}
 		if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", url, err)
+			clidiag.Warn("ctxloom", "fetch %s: %v", url, err)
 		}
 	}
 }

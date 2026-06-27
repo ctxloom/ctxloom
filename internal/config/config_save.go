@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/filelock"
 	"github.com/ctxloom/shared/iox"
 	"github.com/ctxloom/shared/wire"
@@ -61,7 +62,7 @@ func (c *Config) Save() error {
 		if unlock, lerr := filelock.Lock(configPath + ".lock"); lerr == nil {
 			defer unlock()
 		} else {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: config lock failed, saving unlocked: %v\n", lerr)
+			clidiag.Warn("ctxloom", "config lock failed, saving unlocked: %v", lerr)
 		}
 	}
 
@@ -109,7 +110,7 @@ func readExistingConfig(fs afero.Fs, configPath string) (map[string]interface{},
 	existing := make(map[string]interface{})
 	if len(existingData) > 0 {
 		if err := yaml.Unmarshal(existingData, &existing); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: existing config may be corrupted, unknown fields may be lost: %v\n", err)
+			clidiag.Warn("ctxloom", "existing config may be corrupted, unknown fields may be lost: %v", err)
 		}
 	}
 	return existing, nil

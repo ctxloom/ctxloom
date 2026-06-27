@@ -3,10 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
 	"github.com/ctxloom/shared/wire"
 )
@@ -283,8 +283,8 @@ func resolveProfileParents(profiles map[string]Profile, profile Profile, name st
 			continue
 		}
 		if errors.Is(err, errs.ErrProfileNotFound) {
-			fmt.Fprintf(os.Stderr,
-				"ctxloom: warning: profile %q: parent %q not found; skipping\n",
+			clidiag.Warn("ctxloom",
+				"profile %q: parent %q not found; skipping",
 				name, parentName)
 			continue
 		}

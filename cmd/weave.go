@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var (
@@ -97,7 +98,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 
 	if weaveSaveParts != "" && result != nil {
 		if err := saveParts(weaveSaveParts, result.Parts); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: saving parts failed: %v\n", err)
+			clidiag.Warn("ctxloom", "saving parts failed: %v", err)
 		}
 	}
 
@@ -106,7 +107,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	if result != nil {
 		for _, p := range result.Parts {
 			if p.Failed() {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: member %q failed: %s\n", p.Profile, p.Err)
+				clidiag.Warn("ctxloom", "member %q failed: %s", p.Profile, p.Err)
 			}
 		}
 	}
@@ -114,7 +115,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	// Synthesis failure: warn and fall back to the labeled parts so the work
 	// isn't lost.
 	if weaveErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v; emitting parts instead\n", weaveErr)
+		clidiag.Warn("ctxloom", "%v; emitting parts instead", weaveErr)
 		if result != nil {
 			fmt.Fprint(cmd.OutOrStdout(), operations.FormatParts(result.Parts))
 		}

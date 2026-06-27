@@ -1,13 +1,12 @@
 package backends
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // LoadPromptExports loads every prompt that exports as a slash command:
@@ -30,13 +29,13 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 		// The reconciling writers remove-all-then-re-add, so a transient load
 		// failure silently deletes the user's installed slash commands for
 		// this run unless it is at least surfaced.
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: bundle prompts unavailable; slash commands limited to builtins: %v\n", err)
+		clidiag.Warn("ctxloom", "bundle prompts unavailable; slash commands limited to builtins: %v", err)
 		return prompts
 	}
 	for _, info := range infos {
 		content, err := loader.GetPrompt(info.Name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping prompt %q: %v\n", info.Name, err)
+			clidiag.Warn("ctxloom", "skipping prompt %q: %v", info.Name, err)
 			continue
 		}
 		prompts = append(prompts, content)
@@ -49,7 +48,7 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 func builtinPrompts() []*bundles.LoadedContent {
 	names, err := resources.ListBuiltinCommands()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: builtin commands unavailable: %v\n", err)
+		clidiag.Warn("ctxloom", "builtin commands unavailable: %v", err)
 		return nil
 	}
 

@@ -10,13 +10,13 @@
 package projectroot
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/gitutil"
 )
 
@@ -61,7 +61,7 @@ func FromEnv(fs afero.Fs) (string, bool) {
 	root, ok, rawInvalid := resolve(fs)
 	if rawInvalid != "" {
 		warnOnce.Do(func() {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s=%q is not a valid directory; ignoring it and falling back to git root / current directory\n", EnvVar, rawInvalid)
+			clidiag.Warn("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
 		})
 	}
 	return root, ok

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler.
@@ -147,7 +148,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 func loadStartupConfig() *config.Config {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to load config: %v", err)
 		cfg = &config.Config{
 			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
 			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
@@ -165,7 +166,7 @@ func loadStartupConfig() *config.Config {
 // metadata) are preserved. Warn-and-continue: cleanup failure must not abort.
 func purgeLegacyBundles(cfg *config.Config) {
 	if removed, err := operations.PurgeExtractedBundles(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: legacy bundle cleanup failed: %v\n", err)
+		clidiag.Warn("ctxloom", "legacy bundle cleanup failed: %v", err)
 	} else if removed > 0 {
 		fmt.Fprintf(os.Stderr, "ctxloom: removed %d legacy extracted bundle YAML(s)\n", removed)
 	}
@@ -184,7 +185,7 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 	syncCancel()
 	if syncErr != nil {
 		if !errors.Is(syncErr, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
+			clidiag.Warn("ctxloom", "sync failed: %v", syncErr)
 		}
 		return
 	}
@@ -201,7 +202,7 @@ func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.B
 		return
 	}
 	if reviewBypassed() {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s=1, auto-approving %d bundle change(s):\n", reviewBypassEnvVar, len(changes.All()))
+		clidiag.Warn("ctxloom", "%s=1, auto-approving %d bundle change(s):", reviewBypassEnvVar, len(changes.All()))
 		for _, c := range changes.All() {
 			if c.OldSHA == "" {
 				fmt.Fprintf(os.Stderr, "  + %s @ %s (from %s)\n", c.Name, shortSHA(c.NewSHA), c.Remote)
@@ -210,7 +211,7 @@ func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.B
 			}
 		}
 		if _, err := operations.ApproveUpgrade(ctx, s.cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: auto-approve pending changes: %v\n", err)
+			clidiag.Warn("ctxloom", "auto-approve pending changes: %v", err)
 		}
 		return
 	}
@@ -229,7 +230,7 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
 	}
 }
 

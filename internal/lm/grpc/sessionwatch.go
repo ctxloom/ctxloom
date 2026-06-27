@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // This file carries the WatchSession transport: a structured, turn-based view of
@@ -116,7 +116,7 @@ func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSess
 		sess, err := hist.GetSession(projectroot.WorkDir(), id)
 		if err != nil {
 			// Warn and retry next tick rather than terminating the stream.
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: watch session %s: %v\n", id, err)
+			clidiag.Warn("ctxloom", "watch session %s: %v", id, err)
 		} else {
 			for _, ev := range w.step(sess) {
 				if serr := stream.Send(ev); serr != nil {

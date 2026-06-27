@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/spf13/cobra"
@@ -11,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var llmServeCmd = &cobra.Command{
@@ -38,7 +38,7 @@ var llmServeCmd = &cobra.Command{
 		if cfgErr != nil {
 			// Degrade to an unconfigured backend, but say so — every other
 			// startup path warns on a config-load failure.
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: config load failed; serving %s unconfigured: %v\n", backendName, cfgErr)
+			clidiag.Warn("ctxloom", "config load failed; serving %s unconfigured: %v", backendName, cfgErr)
 		}
 		if cfg != nil {
 			if bc := serveBackendConfig(cfg, backendName, llmServeLabel); bc != nil {
@@ -78,7 +78,7 @@ func serveBackendConfig(cfg *config.Config, backendName, label string) agent.Bac
 				return bc
 			}
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: label %q does not resolve to backend %s; falling back to type lookup\n", label, backendName)
+		clidiag.Warn("ctxloom", "label %q does not resolve to backend %s; falling back to type lookup", label, backendName)
 	}
 	return decodeBackendConfigForType(cfg, backendName)
 }

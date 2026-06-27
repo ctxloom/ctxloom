@@ -2,14 +2,13 @@ package operations
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
@@ -195,7 +194,7 @@ func (w *depWalker) markUnexpanded(identity string, cause error) {
 		w.unexpanded = map[string]struct{}{}
 	}
 	w.unexpanded[identity] = struct{}{}
-	fmt.Fprintf(os.Stderr, "ctxloom: warning: could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)\n", identity, cause)
+	clidiag.Warn("ctxloom", "could not expand remote parent profile %s: %v (its dependencies are preserved from the existing lockfile)", identity, cause)
 }
 
 // resolvedHash resolves ref via the injected resolver, or — when none is set —

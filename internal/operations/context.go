@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
 )
 
@@ -185,7 +185,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			// fix the ask. A configured default failing must not block startup
 			// (CLAUDE.md fault tolerance): warn, skip, assemble what's left.
 			if fromDefaults {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping default profile %s: %v\n", pName, err)
+				clidiag.Warn("ctxloom", "skipping default profile %s: %v", pName, err)
 				continue
 			}
 			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
@@ -195,8 +195,8 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			if effectiveLLM == "" {
 				effectiveLLM = profile.LLM
 			} else if profile.LLM != effectiveLLM {
-				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q declares llm %q but %q is already in effect; keeping %q\n",
+				clidiag.Warn("ctxloom",
+					"profile %q declares llm %q but %q is already in effect; keeping %q",
 					pName, profile.LLM, effectiveLLM, effectiveLLM)
 			}
 		}

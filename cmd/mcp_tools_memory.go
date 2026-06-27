@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // reductionPct formats the in→out token reduction as a percentage, guarding
@@ -280,7 +281,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		if lerr != nil {
 			// A flaky transcript listing must not turn a recovery convenience into a
 			// tool error: warn and fall through to the "no previous session" result.
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: list previous sessions: %v\n", lerr)
+			clidiag.Warn("ctxloom", "list previous sessions: %v", lerr)
 		}
 		if len(metas) >= 2 {
 			sessionID = metas[1].ID

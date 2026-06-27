@@ -16,10 +16,11 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/shared/textutil"
 )
 
 const (
@@ -151,7 +152,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// verbatim. Best-effort: a retrieval failure warns and omits them.
 	planFiles, err := c.plans(ctx, harpName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: plan retrieval failed, omitting plan blocks: %v\n", err)
+		clidiag.Warn("ctxloom", "plan retrieval failed, omitting plan blocks: %v", err)
 	}
 	plans := planFilesToBlocks(planFiles)
 
@@ -170,11 +171,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// loss, not graceful degradation. Abort the save and keep the old essence.
 	// Partial success still saves, per the fault-tolerance philosophy.
 	if len(chunks) > 0 && failedChunks == len(chunks) {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: distillation failed for all %d chunks; keeping previous essence\n", len(chunks))
+		clidiag.Warn("ctxloom", "distillation failed for all %d chunks; keeping previous essence", len(chunks))
 		return nil, fmt.Errorf("distillation failed for all %d chunks", len(chunks))
 	}
 	if failedChunks > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: distillation failed for %d of %d chunks; summary is incomplete\n", failedChunks, len(chunks))
+		clidiag.Warn("ctxloom", "distillation failed for %d of %d chunks; summary is incomplete", failedChunks, len(chunks))
 	}
 
 	combined := strings.Join(distilled, "\n\n---\n\n")
@@ -196,7 +197,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// shows "(no summary)" and the user can re-run distill on demand.
 	summary, cleanedBody, hadFM := parseLLMFrontmatter(strings.TrimSpace(combined))
 	if !hadFM {
-		fmt.Fprintln(os.Stderr, "ctxloom: warning: distillation lacks YAML frontmatter; deriving summary from body")
+		clidiag.Warn("ctxloom", "distillation lacks YAML frontmatter; deriving summary from body")
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
@@ -288,7 +289,7 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 			fmt.Fprintf(os.Stderr, "ctxloom: compacting chunk %d/%d...\n", i+1, total)
 			out, err := c.distillChunk(ctx, chunk, i+1, total)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: chunk %d failed: %v\n", i+1, err)
+				clidiag.Warn("ctxloom", "chunk %d failed: %v", i+1, err)
 				distilled[i] = fmt.Sprintf("<!-- Chunk %d failed: %v -->", i+1, err)
 				failed.Add(1)
 				return
@@ -310,7 +311,7 @@ func (c *Compactor) finalCompressionPass(ctx context.Context, combined string) s
 	fmt.Fprintf(os.Stderr, "ctxloom: final compression pass...\n")
 	final, err := c.runDistill(ctx, sessionDistillReducePrompt, combined)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: final pass failed, using combined: %v\n", err)
+		clidiag.Warn("ctxloom", "final pass failed, using combined: %v", err)
 		return combined
 	}
 	return final
@@ -354,12 +355,12 @@ func updateSessionIndex(harpName, sessionID, summary string, detail []string) {
 	}
 	if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
 		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: index bind failed: %v\n", err)
+			clidiag.Warn("ctxloom", "index bind failed: %v", err)
 		}
 	}
 	if summary != "" {
 		if err := mgr.SetSummary(harpName, summary, detail); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: index summary update failed: %v\n", err)
+			clidiag.Warn("ctxloom", "index summary update failed: %v", err)
 		}
 	}
 }
@@ -726,16 +727,16 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (string, bool) {
 	harpDir, err := harpSessionDir(harpName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: resolve harp dir for %s: %v; writing legacy layout only\n", harpName, err)
+		clidiag.Warn("ctxloom", "resolve harp dir for %s: %v; writing legacy layout only", harpName, err)
 		return "", false
 	}
 	if err := os.MkdirAll(harpDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: create harp dir %s: %v; writing legacy layout only\n", harpDir, err)
+		clidiag.Warn("ctxloom", "create harp dir %s: %v; writing legacy layout only", harpDir, err)
 		return "", false
 	}
 	essencePath := filepath.Join(harpDir, paths.EssenceFileName)
 	if err := iox.WriteFileAtomic(essencePath, docBytes, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: write essence %s: %v; writing legacy layout only\n", essencePath, err)
+		clidiag.Warn("ctxloom", "write essence %s: %v; writing legacy layout only", essencePath, err)
 		return "", false
 	}
 	// NB: the active task store already lives at <harpDir>/tasks.md (see
@@ -746,7 +747,7 @@ func (c *Compactor) saveEssence(harpName, legacyPath string, docBytes []byte) (s
 	//
 	// Mirror essence to legacy path so sessionID lookups still work.
 	if err := iox.WriteFileAtomic(legacyPath, docBytes, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: mirror essence to %s: %v\n", legacyPath, err)
+		clidiag.Warn("ctxloom", "mirror essence to %s: %v", legacyPath, err)
 	}
 	return essencePath, true
 }

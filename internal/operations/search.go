@@ -3,12 +3,12 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
 )
 
@@ -238,7 +238,7 @@ func searchRemoteEntries(ctx context.Context, cfg *config.Config, req SearchCont
 	}
 	res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: req.Query, ItemType: itemType})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: remote search failed: %v\n", err)
+		clidiag.Warn("ctxloom", "remote search failed: %v", err)
 		return nil
 	}
 	out := make([]SearchResult, 0, len(res.Results))

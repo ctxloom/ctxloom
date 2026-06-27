@@ -2,10 +2,9 @@ package operations
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // newConstraintResolver builds the dependency walker's hash resolver: it turns a
@@ -93,7 +92,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
 			return store(e.SHA, e.Version)
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: could not resolve %s@%s; skipping\n", identity, expr)
+		clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping", identity, expr)
 		return "", "", false
 	}
 }

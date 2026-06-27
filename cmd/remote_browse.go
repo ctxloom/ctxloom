@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var (
@@ -53,7 +54,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 			Recursive: browseRecursive,
 		})
 		if err != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "ctxloom: warning: failed to browse %ss: %v\n", itemType, err)
+			clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "failed to browse %ss: %v", itemType, err)
 			continue
 		}
 

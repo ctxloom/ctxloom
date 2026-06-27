@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/shared/clidiag"
 	"golang.org/x/term"
 )
 
@@ -33,7 +33,7 @@ func interactiveTerminal(ctx context.Context) (io.Reader, <-chan *pb.WindowSize,
 	restore := func() {
 		once.Do(func() {
 			if rerr := term.Restore(fd, oldState); rerr != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to restore terminal state: %v\n", rerr)
+				clidiag.Warn("ctxloom", "failed to restore terminal state: %v", rerr)
 			}
 		})
 	}

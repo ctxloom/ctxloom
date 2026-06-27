@@ -22,10 +22,11 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/filelock"
 	"github.com/ctxloom/shared/harp"
 	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/shared/upgrade"
 )
 
 // Entry is one row in index.yaml. The json tags mirror the yaml keys so
@@ -268,17 +269,17 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 	dir, err := paths.HarpDir(harpName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
 		return
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
 		return
 	}
 	link := filepath.Join(dir, "transcript.jsonl")
 	_ = os.Remove(link) // replace any stale link; ignore absence
 	if err := os.Symlink(transcriptPath, link); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: transcript link: %v\n", err)
+		clidiag.Warn("ctxloom", "transcript link: %v", err)
 	}
 }
 

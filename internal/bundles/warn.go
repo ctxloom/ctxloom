@@ -1,11 +1,12 @@
 package bundles
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // bundleWarner emits the "unresolved bundle" warning at most once per distinct
@@ -32,7 +33,7 @@ func (b *bundleWarner) unresolved(ref string, err error) {
 		return
 	}
 	b.seen[ref] = struct{}{}
-	fmt.Fprintf(b.out, "ctxloom: warning: skipping unresolved bundle %q: %v\n", ref, err)
+	clidiag.Fwarn(b.out, "ctxloom", "skipping unresolved bundle %q: %v", ref, err)
 }
 
 // ambiguous warns that a bare fragment ask matched several bundles, once per
@@ -45,7 +46,7 @@ func (b *bundleWarner) ambiguous(name string, matches []string, chosen string) {
 		return
 	}
 	b.seen[key] = struct{}{}
-	fmt.Fprintf(b.out, "ctxloom: warning: fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly\n",
+	clidiag.Fwarn(b.out, "ctxloom", "fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
 		name, strings.Join(matches, ", "), chosen)
 }
 

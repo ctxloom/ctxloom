@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
 )
 
@@ -23,7 +24,7 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 		// regardless, so a failed warning write has nowhere to go and is
 		// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 		ew := iox.NewErrWriter(w)
-		ew.Printf("ctxloom: warning: failed to load config (%v); using minimal default rooted at .ctxloom\n", err)
+		clidiag.Fwarn(ew, "ctxloom", "failed to load config (%v); using minimal default rooted at .ctxloom", err)
 		return &config.Config{AppPaths: []string{".ctxloom"}}
 	}
 	return cfg
@@ -41,7 +42,7 @@ func printConfigWarnings(w io.Writer, warnings []string) {
 	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 	ew := iox.NewErrWriter(w)
 	for _, warning := range warnings {
-		ew.Printf("ctxloom: warning: %s\n", warning)
+		clidiag.Fwarn(ew, "ctxloom", "%s", warning)
 	}
 }
 
@@ -64,7 +65,7 @@ func reportCompanions(w io.Writer) {
 		switch {
 		case st.Path == "":
 		case st.Err != nil:
-			ew.Printf("ctxloom: warning: companion %s (%s): %v\n", st.Bin, st.Path, st.Err)
+			clidiag.Fwarn(ew, "ctxloom", "companion %s (%s): %v", st.Bin, st.Path, st.Err)
 		default:
 			ew.Printf("ctxloom: companion %s %s\n", st.Bin, st.Version)
 		}
@@ -96,7 +97,7 @@ func writeSyncSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 		ew.Printf("ctxloom: %s\n", result.Message)
 	}
 	if result.Errors > 0 {
-		ew.Printf("ctxloom: warning: sync completed with %d errors\n", result.Errors)
+		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
 		}

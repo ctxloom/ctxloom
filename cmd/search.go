@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/textutil"
 )
 
@@ -146,10 +146,10 @@ func runSearches(ctx context.Context, cfg *config.Config, p searchParams) ([]ope
 	wg.Wait()
 
 	if localErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: local search error: %v\n", localErr)
+		clidiag.Warn("ctxloom", "local search error: %v", localErr)
 	}
 	if remoteErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: remote search error: %v\n", remoteErr)
+		clidiag.Warn("ctxloom", "remote search error: %v", remoteErr)
 	}
 	return localResults, remoteResults
 }

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 
@@ -10,6 +9,7 @@ import (
 
 	"github.com/ctxloom/antigravity"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // stampPlanCmd reads a PostToolUse file-edit hook payload on stdin
@@ -34,7 +34,7 @@ var stampPlanCmd = &cobra.Command{
 			// Machine hook: never fail the host agent's tool call over a
 			// stamping hiccup (the sibling hooks — session-bind,
 			// inject-context — follow the same warn-and-continue rule).
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: stamp-plan: read stdin: %v\n", err)
+			clidiag.Warn("ctxloom", "stamp-plan: read stdin: %v", err)
 			return nil
 		}
 		path, err := parseEditPayload(raw)
@@ -45,7 +45,7 @@ var stampPlanCmd = &cobra.Command{
 			return nil
 		}
 		if err := memory.StampPlanFile(path, harp); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: stamp-plan: %v\n", err)
+			clidiag.Warn("ctxloom", "stamp-plan: %v", err)
 		}
 		return nil
 	},

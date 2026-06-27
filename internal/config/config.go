@@ -18,9 +18,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
-	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/shared/wire"
 )
 
@@ -342,12 +343,12 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 	for _, canonical := range reader.ListProfileNames() {
 		data, rerr := reader.ReadProfileBytes(context.Background(), canonical)
 		if rerr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote profile %q from cache: %v\n", canonical, rerr))
+			warnOncePerRun(clidiag.Line("ctxloom", "failed to load remote profile %q from cache: %v", canonical, rerr))
 			continue
 		}
 		p, perr := profiles.ParseProfile(data)
 		if perr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote profile %q: %v\n", canonical, perr))
+			warnOncePerRun(clidiag.Line("ctxloom", "failed to parse remote profile %q: %v", canonical, perr))
 			continue
 		}
 		entry := lock.Profiles[canonical]
@@ -750,7 +751,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
 	for name, err := range failures {
-		warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to load remote bundle %q from cache: %v\n", name, err))
+		warnOncePerRun(clidiag.Line("ctxloom", "failed to load remote bundle %q from cache: %v", name, err))
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
@@ -761,7 +762,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		}
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
-			warnOncePerRun(fmt.Sprintf("ctxloom: warning: failed to parse remote bundle %q: %v\n", canonical, perr))
+			warnOncePerRun(clidiag.Line("ctxloom", "failed to parse remote bundle %q: %v", canonical, perr))
 			continue
 		}
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.

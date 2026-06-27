@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var updateApply bool
@@ -104,7 +105,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	if reloaded, rerr := lockManager.Load(); rerr == nil {
 		lockfile = reloaded
 	} else {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: reload lockfile after apply: %v\n", rerr)
+		clidiag.Warn("ctxloom", "reload lockfile after apply: %v", rerr)
 	}
 	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager)
 	if failed > 0 {
@@ -133,7 +134,7 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 		// carry a type; the bundle fallback is defensive only.
 		itemType = ref.ItemType
 		if itemType == "" {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s does not carry an item type; assuming bundle\n", refStr)
+			clidiag.Warn("ctxloom", "%s does not carry an item type; assuming bundle", refStr)
 			itemType = remote.ItemTypeBundle
 		}
 	}
@@ -170,7 +171,7 @@ func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string)
 	cache := operations.NewRepoCache(cfg)
 	if forgeType, _, ferr := remote.DetectForge(repoURL); ferr == nil {
 		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", repoURL, uerr)
+			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
 		}
 	}
 }
@@ -256,7 +257,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	if reloaded, rerr := lockManager.Load(); rerr == nil {
 		lockfile = reloaded
 	} else {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: reload lockfile after apply: %v\n", rerr)
+		clidiag.Warn("ctxloom", "reload lockfile after apply: %v", rerr)
 	}
 
 	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager)
@@ -317,7 +318,7 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, registry *remot
 			continue
 		}
 		if _, uerr := cache.UpdateRepo(ctx, repoURL, forgeType); uerr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: fetch %s: %v\n", repoURL, uerr)
+			clidiag.Warn("ctxloom", "fetch %s: %v", repoURL, uerr)
 		}
 	}
 }

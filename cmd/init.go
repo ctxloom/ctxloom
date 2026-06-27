@@ -23,6 +23,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var initCmd = &cobra.Command{
@@ -121,7 +122,7 @@ func newInitPromptsFrom(r io.Reader) *initPrompts {
 			// This is a workaround since there's no "MakeCooked" function
 			_, _ = term.MakeRaw(int(os.Stdin.Fd()))
 			if rerr := term.Restore(int(os.Stdin.Fd()), oldState); rerr != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to restore terminal state: %v\n", rerr)
+				clidiag.Warn("ctxloom", "failed to restore terminal state: %v", rerr)
 			}
 		}
 	}
@@ -395,7 +396,7 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	stdin, resize, restoreTerm := interactiveTerminal(ctx)
 	defer restoreTerm()
 	if stdin == nil {
-		fmt.Fprintln(os.Stderr, "ctxloom: warning: stdin is not a terminal; discovery session will not accept input")
+		clidiag.Warn("ctxloom", "stdin is not a terminal; discovery session will not accept input")
 	}
 
 	// Unlike one-shot `ctxloom run`, init keeps prompting on stdin after this
@@ -544,7 +545,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 
 	// Exclude ctxloom's private working state from version control.
 	if err := gitignore.Ensure(filepath.Dir(appDir), gitignore.Comment, gitignore.PrivateStatePatterns...); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to update .gitignore: %v", err)
 	}
 
 	return engine, nil
@@ -582,7 +583,7 @@ func noEnginesInstalled() bool {
 // warnNoEnginesDetected prints install guidance to stderr. Init continues with a
 // placeholder engine (fault tolerant).
 func warnNoEnginesDetected() {
-	fmt.Fprintln(os.Stderr, "ctxloom: warning: no AI engines detected")
+	clidiag.Warn("ctxloom", "no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
 	fmt.Fprintln(os.Stderr, "  antigravity:  curl -fsSL https://antigravity.google/cli/install.sh | bash")
@@ -601,13 +602,13 @@ func promptForEngineAndRepos() (engine string, repos []string, err error) {
 		if err == errNoEngines {
 			return "", nil, err
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read engine selection: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to read engine selection: %v", err)
 		engine = "claude-code"
 	}
 
 	repos, repoErr := prompts.promptPersonalRepos()
 	if repoErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to read repo selection: %v\n", repoErr)
+		clidiag.Warn("ctxloom", "failed to read repo selection: %v", repoErr)
 		repos = nil
 	}
 	return engine, repos, nil
@@ -650,12 +651,12 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 	}
 	cfg, loadErr := config.Load()
 	if loadErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for remote: %v\n", loadErr)
+		clidiag.Warn("ctxloom", "failed to load config for remote: %v", loadErr)
 		return
 	}
 	for _, req := range personalRemoteRequests(repos, forge) {
 		if _, addErr := operations.AddRemote(cmd.Context(), cfg, req); addErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to add remote %q (%s): %v\n", req.Name, req.URL, addErr)
+			clidiag.Warn("ctxloom", "failed to add remote %q (%s): %v", req.Name, req.URL, addErr)
 		} else {
 			fmt.Printf("Added remote %q: %s (trusted — revoke with: ctxloom remote untrust %s)\n", req.Name, req.URL, req.Name)
 		}
@@ -668,12 +669,12 @@ func addPersonalRemotes(cmd *cobra.Command, repos []string, forge string) {
 func cloneConfiguredRemotes(cmd *cobra.Command) {
 	cfg, loadErr := config.Load()
 	if loadErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for cloning remotes: %v\n", loadErr)
+		clidiag.Warn("ctxloom", "failed to load config for cloning remotes: %v", loadErr)
 		return
 	}
 	cloneRes, cloneErr := operations.EnsureRemoteClones(cmd.Context(), cfg)
 	if cloneErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clone remotes: %v\n", cloneErr)
+		clidiag.Warn("ctxloom", "failed to clone remotes: %v", cloneErr)
 		return
 	}
 	if len(cloneRes.Cloned) > 0 {
@@ -689,7 +690,7 @@ func cloneConfiguredRemotes(cmd *cobra.Command) {
 func pullSeededDependencies(cmd *cobra.Command) {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config for dependency pull: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to load config for dependency pull: %v", err)
 		return
 	}
 	result, syncErr := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
@@ -697,7 +698,7 @@ func pullSeededDependencies(cmd *cobra.Command) {
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
 	if syncErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to pull seeded dependencies: %v\n", syncErr)
+		clidiag.Warn("ctxloom", "failed to pull seeded dependencies: %v", syncErr)
 		return
 	}
 	if result.Installed > 0 {
@@ -710,7 +711,7 @@ func pullSeededDependencies(cmd *cobra.Command) {
 func applyInitHooks(cmd *cobra.Command) {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to load config: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to load config: %v", err)
 		return
 	}
 	result, applyErr := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
@@ -718,7 +719,7 @@ func applyInitHooks(cmd *cobra.Command) {
 		RegenerateContext: false,
 	})
 	if applyErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks: %v\n", applyErr)
+		clidiag.Warn("ctxloom", "failed to apply hooks: %v", applyErr)
 		return
 	}
 	fmt.Printf("Applied hooks for: %v\n", result.Backends)
@@ -739,7 +740,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 
 	workDir := filepath.Dir(appDir)
 	if launchErr := launchEngineWithPrompt(cmd.Context(), engine, workDir); launchErr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %v\n", launchErr)
+		clidiag.Warn("ctxloom", "%v", launchErr)
 		return false
 	}
 	return true
@@ -790,7 +791,7 @@ func offerSessionRelaunch() error {
 		if errors.As(runErr, &exitErr) {
 			return &ExitError{Code: childExitCode(exitErr)}
 		}
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to start session: %v\n", runErr)
+		clidiag.Warn("ctxloom", "failed to start session: %v", runErr)
 		printRunHint()
 	}
 	return nil

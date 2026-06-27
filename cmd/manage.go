@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // manageCmd is the home for everything that mutates the project harness:
@@ -120,7 +120,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 	for _, e := range result.Errors {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+		clidiag.Warn("ctxloom", "%s", e)
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func printInstallPlan(appDir, projectDir string) {
 func ensureHarnessGitignore(projectDir string) {
 	patterns := append(append([]string{}, gitignore.PrivateStatePatterns...), gitignore.TransientArtifactPatterns...)
 	if err := gitignore.Ensure(projectDir, gitignore.Comment, patterns...); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", err)
+		clidiag.Warn("ctxloom", "failed to update .gitignore: %v", err)
 	}
 }
 
@@ -157,7 +157,7 @@ func runManageUninstall(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Removed ctxloom harness from: %v\n", result.Backends)
 	for _, e := range result.Errors {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+		clidiag.Warn("ctxloom", "%s", e)
 	}
 	fmt.Println("The .ctxloom directory and its contents were left in place.")
 	return nil
@@ -264,7 +264,7 @@ var manageHooksInstallCmd = &cobra.Command{
 		}
 		fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 		for _, e := range result.Errors {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+			clidiag.Warn("ctxloom", "%s", e)
 		}
 		return nil
 	},
@@ -285,7 +285,7 @@ var manageHooksUninstallCmd = &cobra.Command{
 		}
 		fmt.Printf("Hooks %s for: %v\n", result.Status, result.Backends)
 		for _, e := range result.Errors {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+			clidiag.Warn("ctxloom", "%s", e)
 		}
 		return nil
 	},

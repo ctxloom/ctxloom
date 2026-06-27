@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/afero"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // RemoveHooksRequest contains parameters for stripping ctxloom's harness from
@@ -45,7 +45,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
 		if err := removeBackendHarness(name, workDir, settingsOpts, cmdOpts); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", err)
+			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
 		}

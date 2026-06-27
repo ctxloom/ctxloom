@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )
@@ -108,7 +108,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 			// agent unlaunchable. Warn and proceed to Execute rather than aborting,
 			// matching the documented startup sequence ("apply hooks: warn on
 			// errors, continue" / "always respond with initialized").
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: backend setup failed (launching anyway): %v\n", err)
+			clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
 		}
 	}
 
@@ -187,7 +187,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// failed one it would bury the real error. Warn and carry on, matching how
 	// Setup degrades above.
 	if cerr := s.Impl.Cleanup(stream.Context()); cerr != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: backend cleanup failed: %v\n", cerr)
+		clidiag.Warn("ctxloom", "backend cleanup failed: %v", cerr)
 	}
 	if err != nil {
 		return err

@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/harpmarker"
 	"github.com/ctxloom/shared/iox"
 )
@@ -170,7 +171,7 @@ var sessionBindCmd = &cobra.Command{
 			emitHarpMarker(cmd.OutOrStdout(), harp)
 		}
 		if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session bind failed: %v\n", err)
+			clidiag.Warn("ctxloom", "session bind failed: %v", err)
 		}
 		return nil
 	},
@@ -293,7 +294,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 			if cerr := os.Chdir(entry.ProjectDir); cerr != nil {
 				// Don't hard-fail: the ambient cwd may still resolve (same project),
 				// and a usable "couldn't distill" beats blocking the picker (CLAUDE.md).
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: could not enter project dir %q for %s: %v\n", entry.ProjectDir, harpName, cerr)
+				clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", entry.ProjectDir, harpName, cerr)
 			}
 		}
 	}

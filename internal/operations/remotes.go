@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
@@ -212,7 +213,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	}
 	if msg := ensureClone(ctx, cache, rem); msg != "" {
 		result.Warning = appendWarning(result.Warning, msg)
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+		clidiag.Warn("ctxloom", "%s", msg)
 	}
 
 	return result, nil
@@ -737,7 +738,7 @@ func EnsureRemoteClones(ctx context.Context, cfg *config.Config) (*EnsureRemoteC
 		if msg := ensureClone(ctx, cache, rem); msg != "" {
 			result.Failed = append(result.Failed, rem.Name)
 			result.Warnings = append(result.Warnings, msg)
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", msg)
+			clidiag.Warn("ctxloom", "%s", msg)
 			continue
 		}
 		result.Cloned = append(result.Cloned, rem.Name)

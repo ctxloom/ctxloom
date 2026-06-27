@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
 )
 
@@ -131,7 +132,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// failure leaves the (still-valid) in-memory lockfile untouched.
 	if strings.Contains(string(data), "ctxloom_version") {
 		if err := m.write(&lockfile); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to clean legacy lockfile %s: %v\n", path, err)
+			clidiag.Warn("ctxloom", "failed to clean legacy lockfile %s: %v", path, err)
 		}
 	}
 

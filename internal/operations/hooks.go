@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -11,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 )
@@ -88,7 +88,7 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	// Skipped when a test FS is injected — the os-based writer would miss it.
 	if req.FS == nil {
 		if gitErr := gitignore.Ensure(workDir, gitignore.Comment, gitignore.TransientArtifactPatterns...); gitErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to update .gitignore: %v\n", gitErr)
+			clidiag.Warn("ctxloom", "failed to update .gitignore: %v", gitErr)
 		}
 	}
 
@@ -149,7 +149,7 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 	}
 	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: regenerate context failed: %v\n", err)
+		clidiag.Warn("ctxloom", "regenerate context failed: %v", err)
 		return ""
 	}
 	return contextHash
@@ -186,7 +186,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 			return applied, applyErrors, ctx.Err()
 		}
 		if e := applyHooksToBackend(backendName, p); e != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", e)
+			clidiag.Warn("ctxloom", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
 			continue
 		}
@@ -274,7 +274,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 		// Degrade (the SessionStart injection hook is simply omitted), but
 		// say so — a silent skip leaves the user wondering where their
 		// context went.
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: context file write failed; SessionStart injection skipped: %v\n", err)
+		clidiag.Warn("ctxloom", "context file write failed; SessionStart injection skipped: %v", err)
 		return "", nil
 	}
 	return contextHash, nil

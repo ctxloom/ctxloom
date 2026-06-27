@@ -17,10 +17,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/shared/gitutil"
 )
 
 // DistillKind tags whether a Distill call is for a fragment or a prompt.
@@ -1053,7 +1054,7 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 			Bundle:  b,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of fragment %q failed: %v\n", name, err)
+			clidiag.Warn("ctxloom", "distill of fragment %q failed: %v", name, err)
 			failed.Add(name)
 			continue
 		}
@@ -1080,7 +1081,7 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 			Bundle:  b,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: distill of prompt %q failed: %v\n", name, err)
+			clidiag.Warn("ctxloom", "distill of prompt %q failed: %v", name, err)
 			failed.Add(name)
 			continue
 		}

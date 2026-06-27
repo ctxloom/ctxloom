@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
 )
 
@@ -262,7 +263,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 					} else {
 						// Degrade, but say so: a corrupt bundle silently
 						// vanishing from list output is undiagnosable.
-						fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", bundlePath, err)
+						clidiag.Warn("ctxloom", "skipping bundle %s: %v", bundlePath, err)
 					}
 				}
 				return nil
@@ -281,7 +282,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 					bundles = append(bundles, bundleInfo)
 					seen.Add(bundleName)
 				} else {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping bundle %s: %v\n", path, err)
+					clidiag.Warn("ctxloom", "skipping bundle %s: %v", path, err)
 				}
 			}
 			return nil

@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 // decodeBackendConfig decodes the labeled LLM entry into its backend's typed
@@ -25,7 +26,7 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	}
 	bc, err := backends.DecodeLLMConfig(entry.EffectiveType(), entry.Body)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: LLM config %q: %v\n", label, err)
+		clidiag.Warn("ctxloom", "LLM config %q: %v", label, err)
 		if entry.EffectiveType() == "gemini" {
 			// Removed backend with a known successor: point at the fix. The
 			// config upgrade rewrites this on load; the hint covers configs

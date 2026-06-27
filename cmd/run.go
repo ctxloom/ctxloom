@@ -23,10 +23,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/shared/upgrade"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/tasks"
 	taskops "github.com/ctxloom/shared/tasks/operations"
+	"github.com/ctxloom/shared/upgrade"
 )
 
 var (
@@ -151,7 +152,7 @@ func rawTranscripts(source pb.SessionSource) []agent.SessionMeta {
 	defer cancel()
 	metas, err := source.ListSessions(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: listing raw backend transcripts failed (%v); the resume picker shows indexed sessions only\n", err)
+		clidiag.Warn("ctxloom", "listing raw backend transcripts failed (%v); the resume picker shows indexed sessions only", err)
 		return nil
 	}
 	return metas
@@ -253,11 +254,11 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: seed task %s: %v\n", harpID, err)
+		clidiag.Warn("ctxloom", "seed task %s: %v", harpID, err)
 		return
 	}
 	if res.Warning != "" {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", res.Warning)
+		clidiag.Warn("ctxloom", "%s", res.Warning)
 	}
 	fmt.Fprintf(os.Stderr, "ctxloom: seeded task %s into %s (%s)\n", res.Task.HarpID, activeHarp, res.Task.Status)
 }
@@ -368,7 +369,7 @@ Examples:
 			syncCancel()
 			if syncErr != nil {
 				if !errors.Is(syncErr, context.Canceled) {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
+					clidiag.Warn("ctxloom", "sync failed: %v", syncErr)
 				}
 			} else {
 				writeSyncSummary(os.Stderr, result)
@@ -525,13 +526,13 @@ Examples:
 		// persist it before the upcoming AssignSession write (which would
 		// otherwise rewrite it as a side effect of creating the new session).
 		if pending, commit, upErr := operations.SessionIndexUpgrade(); upErr != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session index open failed: %v\n", upErr)
+			clidiag.Warn("ctxloom", "session index open failed: %v", upErr)
 		} else {
 			confirmUpgrade(pending, commit)
 		}
 		var activeHarp string
 		if entry, err := operations.AssignSession(workDir, backendName); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: session naming failed: %v\n", err)
+			clidiag.Warn("ctxloom", "session naming failed: %v", err)
 		} else {
 			activeHarp = entry.HarpName
 			runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
@@ -548,7 +549,7 @@ Examples:
 				if resumePartsIncludeSession(parts) {
 					if _, essErr := readHarpEssence(resume.FromHarp); essErr != nil {
 						if dErr := shellOutDistill(resume.FromHarp); dErr != nil {
-							fmt.Fprintf(os.Stderr, "ctxloom: warning: could not distill %s for resume essence: %v\n", resume.FromHarp, dErr)
+							clidiag.Warn("ctxloom", "could not distill %s for resume essence: %v", resume.FromHarp, dErr)
 						}
 					}
 				}
@@ -573,11 +574,11 @@ Examples:
 		// session env. Fault-tolerant — any failure warns and leaves
 		// CTXLOOM_PROJECT_ID unset; the task store degrades rather than blocking.
 		if pid, warning, err := taskops.ResolveProjectIdentity(workDir); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: project identity unresolved: %v\n", err)
+			clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		} else {
 			runEnv["CTXLOOM_PROJECT_ID"] = pid
 			if warning != "" {
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", warning)
+				clidiag.Warn("ctxloom", "%s", warning)
 			}
 		}
 
@@ -589,7 +590,7 @@ Examples:
 		if activeHarp != "" {
 			defer func() {
 				if err := operations.MarkSessionEnded(activeHarp, time.Now()); err != nil {
-					fmt.Fprintf(os.Stderr, "ctxloom: warning: session end-mark failed: %v\n", err)
+					clidiag.Warn("ctxloom", "session end-mark failed: %v", err)
 				}
 			}()
 		}
@@ -686,8 +687,8 @@ func resolveRunLLM(cfg *config.Config, override, profileLLM string) (string, err
 		if validated, err := validateExplicitLLM(cfg, profileLLM); err == nil {
 			return validated, nil
 		} else {
-			fmt.Fprintf(os.Stderr,
-				"ctxloom: warning: profile-declared llm %q is unusable (%v); falling back to the primary role\n",
+			clidiag.Warn("ctxloom",
+				"profile-declared llm %q is unusable (%v); falling back to the primary role",
 				profileLLM, err)
 		}
 	}
@@ -836,7 +837,7 @@ func confirmProfileUpgrades(cfg *config.Config) {
 // the in-memory config is valid regardless.
 func commitUpgrade(p *upgrade.Pending, commit func() error) {
 	if err := commit(); err != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: could not rewrite %s: %v\n", p.Path, err)
+		clidiag.Warn("ctxloom", "could not rewrite %s: %v", p.Path, err)
 	}
 }
 

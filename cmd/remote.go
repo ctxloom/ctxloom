@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/shared/clidiag"
 )
 
 var remoteCmd = &cobra.Command{
@@ -78,7 +78,7 @@ Examples:
 		}
 
 		if result.Warning != "" {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: %s\n", result.Warning)
+			clidiag.Warn("ctxloom", "%s", result.Warning)
 		}
 
 		fmt.Printf("Added remote '%s' → %s\n", result.Name, result.URL)

@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/iox"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -46,7 +46,7 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 	go func() {
 		defer close(renderDone)
 		if rerr := renderChatEvents(stdout, format, events); rerr != nil && ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: chat render failed: %v\n", rerr)
+			clidiag.Warn("ctxloom", "chat render failed: %v", rerr)
 			cancel()
 		}
 	}()
@@ -58,7 +58,7 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 
 	<-renderDone
 	if e := <-errs; e != nil && ctx.Err() == nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: chat stream ended: %v\n", e)
+		clidiag.Warn("ctxloom", "chat stream ended: %v", e)
 	}
 	return scanErr
 }

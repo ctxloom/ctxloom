@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/collections"
 )
 
@@ -139,7 +140,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// SECURITY: surface staged first-installs loudly — they are inert (no
 	// hooks/MCP/context) until the user reviews and approves them.
 	if n := len(result.Staged); n > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: warning: %d new bundle(s)/profile(s) staged pending review — run 'ctxloom bundle review'\n", n)
+		clidiag.Warn("ctxloom", "%d new bundle(s)/profile(s) staged pending review — run 'ctxloom bundle review'", n)
 	}
 
 	runSyncPostSteps(ctx, cfg, req, result, fs)
@@ -224,7 +225,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 		// second sync pass. StageUntrustedNew keeps the closure rebuild from
 		// activating untrusted first-installs the puller just staged for review.
 		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true, StageUntrustedNew: true}); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to generate lockfile after sync: %v\n", err)
+			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
 	}
@@ -236,7 +237,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: failed to apply hooks after sync: %v\n", err)
+			clidiag.Warn("ctxloom", "failed to apply hooks after sync: %v", err)
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}

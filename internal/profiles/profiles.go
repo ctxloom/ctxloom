@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/upgrade"
 )
 
@@ -272,7 +273,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			if err != nil {
 				// Degrade, but say so: a corrupt profile silently vanishing
 				// from list output is undiagnosable.
-				fmt.Fprintf(os.Stderr, "ctxloom: warning: skipping profile %s: %v\n", path, err)
+				clidiag.Warn("ctxloom", "skipping profile %s: %v", path, err)
 				return nil
 			}
 			profile.Name = profileName
@@ -581,8 +582,8 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1)
 		if err != nil {
 			if errors.Is(err, errs.ErrProfileNotFound) {
-				fmt.Fprintf(os.Stderr,
-					"ctxloom: warning: profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)\n",
+				clidiag.Warn("ctxloom",
+					"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
 					name, parent)
 				continue
 			}

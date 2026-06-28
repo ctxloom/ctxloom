@@ -56,6 +56,7 @@ func init() {
 	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
 	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
 	bundleViewCmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
+	bundleShowCmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and offer to mark the bundle trusted (interactive terminal only)")
 
 	// bundleEditCmd flags
 	bundleEditCmd.Flags().StringVarP(&bundleEditDesc, "description", "d", "", "New description")

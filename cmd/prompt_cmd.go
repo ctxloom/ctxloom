@@ -44,11 +44,14 @@ Examples:
   ctxloom prompt show go-tools#prompts/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return showItem(args[0], ItemTypePrompt, promptShowDistilled)
+		return showItem(cmd, args[0], ItemTypePrompt, promptShowDistilled, promptShowInteractive)
 	},
 }
 
-var promptShowDistilled bool
+var (
+	promptShowDistilled   bool
+	promptShowInteractive bool
+)
 
 var promptCreateCmd = &cobra.Command{
 	Use:   "create <bundle> <name>",
@@ -157,6 +160,7 @@ func init() {
 
 	promptListCmd.Flags().StringVarP(&promptListBundle, "bundle", "b", "", "Filter by bundle name")
 	promptShowCmd.Flags().BoolVarP(&promptShowDistilled, "distilled", "d", false, "Show distilled version")
+	promptShowCmd.Flags().BoolVarP(&promptShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	promptDistillCmd.Flags().BoolVarP(&promptDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	promptPushCmd.Flags().BoolVar(&promptPushPR, "pr", false, "Create a pull request")

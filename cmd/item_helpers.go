@@ -301,9 +301,13 @@ func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemTy
 	return "", "", nil
 }
 
-// showItem displays the content of a specific item.
-func showItem(ref string, itemType ItemType, showDistilled bool) error {
-	bundle, itemName, _, err := loadBundleForItem(ref, itemType)
+// showItem displays the content of a specific item. With interactive set AND an
+// interactive terminal, it then offers the TR4 trust review/marking surface; in
+// any non-interactive context (piped, redirected, scripted, or -i unset) it
+// behaves exactly as before — the content is written to cmd.OutOrStdout (os.Stdout
+// by default) with no trust UI, so piped output is byte-for-byte unchanged.
+func showItem(cmd *cobra.Command, ref string, itemType ItemType, showDistilled, interactive bool) error {
+	bundle, itemName, cfg, err := loadBundleForItem(ref, itemType)
 	if err != nil {
 		return err
 	}
@@ -313,17 +317,25 @@ func showItem(ref string, itemType ItemType, showDistilled bool) error {
 		return err
 	}
 
+	out := cmd.OutOrStdout()
 	if showDistilled && distilled != "" {
 		content = distilled
-		fmt.Println("# (distilled version)")
+		fmt.Fprintln(out, "# (distilled version)")
 	}
 
-	fmt.Printf("%s\n\n", itemName)
-	fmt.Print(content)
+	fmt.Fprintf(out, "%s\n\n", itemName)
+	fmt.Fprint(out, content)
 	if !strings.HasSuffix(content, "\n") {
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
 
+	// TTY-gated interactive trust review (-i). The content above is emitted
+	// identically whether or not -i is set, and all trust UI goes to stderr, so
+	// non-interactive/piped output never sees the trust surface. Viewing never
+	// trusts — only an explicit t/b choice mutates.
+	if interactive && isInteractiveTerminal() {
+		return offerItemTrust(cmd, cfg, ref)
+	}
 	return nil
 }
 

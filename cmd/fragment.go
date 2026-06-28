@@ -44,11 +44,14 @@ Examples:
   ctxloom fragment show go-tools#fragments/testing`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return showItem(args[0], ItemTypeFragment, fragmentShowDistilled)
+		return showItem(cmd, args[0], ItemTypeFragment, fragmentShowDistilled, fragmentShowInteractive)
 	},
 }
 
-var fragmentShowDistilled bool
+var (
+	fragmentShowDistilled   bool
+	fragmentShowInteractive bool
+)
 
 var fragmentCreateCmd = &cobra.Command{
 	Use:   "create <bundle> <name>",
@@ -180,6 +183,7 @@ func init() {
 
 	fragmentListCmd.Flags().StringVarP(&fragmentListBundle, "bundle", "b", "", "Filter by bundle name")
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowDistilled, "distilled", "d", false, "Show distilled version")
+	fragmentShowCmd.Flags().BoolVarP(&fragmentShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
 
 	fragmentPushCmd.Flags().BoolVar(&fragmentPushPR, "pr", false, "Create a pull request")

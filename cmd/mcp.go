@@ -259,7 +259,7 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return emit(cmd, result, func() error {
+	if err := emit(cmd, result, func() error {
 		if !result.Found {
 			return fmt.Errorf("MCP server %q not found", name)
 		}
@@ -268,8 +268,22 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 			printMCPServerEntry(out, e)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// TR4 interactive trust review. TTY-gated and json-suppressed so the entry
+	// output above is byte-for-byte unchanged; the review goes to stderr. These
+	// are configured-local servers (never auto-trusted, no SetItemTrust path), so
+	// the surface reviews the posture rather than offering a t/b action — see
+	// reviewLocalMCPTrust.
+	if mcpShowInteractive && result.Found && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
+		reviewLocalMCPTrust(cfg, result.Entries)
+	}
+	return nil
 }
+
+var mcpShowInteractive bool
 
 // printMCPServerEntry writes one MCP server entry's scope, command, args, and
 // env to w.
@@ -312,4 +326,6 @@ func init() {
 	_ = mcpAddCmd.MarkFlagRequired("command")
 
 	mcpRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove server from")
+
+	mcpShowCmd.Flags().BoolVarP(&mcpShowInteractive, "interactive", "i", false, "Review the server's effective trust (interactive terminal only)")
 }

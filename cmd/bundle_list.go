@@ -150,10 +150,23 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 	// Route through emit() so `bundle show --format json` yields the structured
 	// bundle, matching `bundle list` and the rest of the CLI; text stays the
 	// human view.
-	return emit(cmd, bundle, func() error {
+	if err := emit(cmd, bundle, func() error {
 		return renderBundleShow(cmd.OutOrStdout(), bundle)
-	})
+	}); err != nil {
+		return err
+	}
+
+	// TR4 interactive trust review: render per-item effective trust and offer to
+	// mark the bundle trusted. TTY-gated and json-suppressed so the bundle body
+	// above (and `--format json`) is byte-for-byte unchanged; all trust UI goes
+	// to stderr. Viewing never trusts.
+	if bundleShowInteractive && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
+		return offerBundleTrust(cmd, cfg, name, bundle)
+	}
+	return nil
 }
+
+var bundleShowInteractive bool
 
 // renderBundleShow writes the detailed bundle view to out. Sections
 // (MCP/Fragments/Prompts/Notes) are suppressed when empty. Fragment and

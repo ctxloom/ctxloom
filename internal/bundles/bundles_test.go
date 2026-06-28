@@ -56,7 +56,7 @@ func TestBundleFragment_ComputeContentHash(t *testing.T) {
 		{
 			name:    "multiline content",
 			content: "line1\nline2\nline3",
-			want:    "sha256:7fe73e5e5e7cd714f7a52c67d6c0b057d7bc9a4f9d3d6f32de0a1c4e9f8a7e6d",
+			want:    "sha256:6bb6a5ad9b9c43a7cb535e636578716b64ac42edea814a4cad102ba404946837",
 		},
 	}
 
@@ -65,9 +65,7 @@ func TestBundleFragment_ComputeContentHash(t *testing.T) {
 			f := &BundleFragment{Content: tt.content}
 			got := f.ComputeContentHash()
 			assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
-			if tt.name != "multiline content" { // multiline hash is computed dynamically
-				assert.Equal(t, tt.want, got)
-			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -229,6 +227,12 @@ func TestBundlePrompt_EffectiveContent(t *testing.T) {
 		want            string
 	}{
 		{
+			name:            "prefer distilled but none available",
+			prompt:          BundlePrompt{Content: "original"},
+			preferDistilled: true,
+			want:            "original",
+		},
+		{
 			name:            "prefer distilled and available",
 			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
 			preferDistilled: true,
@@ -254,6 +258,111 @@ func TestBundlePrompt_EffectiveContent(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// =============================================================================
+// Effective-content hash (trust rework TR0)
+// =============================================================================
+// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent returns and
+// reports their form. The trust gate binds to this — never the recorded
+// ContentHash field, never a raw fallback when distilled is served. A raw-form
+// grant must NOT validate a distilled exposure (different hash AND different form).
+
+func TestBundleFragment_EffectiveContentHash(t *testing.T) {
+	frag := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+
+	rawHash, rawForm := frag.EffectiveContentHash(false)
+	distHash, distForm := frag.EffectiveContentHash(true)
+
+	// Hashes cover exactly the bytes EffectiveContent would serve.
+	assert.Equal(t, hashContent([]byte("RAW-BYTES")), rawHash)
+	assert.Equal(t, hashContent([]byte("DISTILLED-BYTES")), distHash)
+	assert.Equal(t, FormRaw, rawForm)
+	assert.Equal(t, FormDistilled, distForm)
+
+	// Raw vs distilled exposure differ on BOTH hash and form, so a raw-form
+	// grant can never validate a distilled exposure.
+	assert.NotEqual(t, rawHash, distHash)
+	assert.NotEqual(t, rawForm, distForm)
+
+	// NoDistill pins the form to raw even when distilled is preferred — no
+	// raw fallback ambiguity: the served bytes are raw and the hash says raw.
+	noDistill := BundleFragment{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES", NoDistill: true}
+	h, form := noDistill.EffectiveContentHash(true)
+	assert.Equal(t, hashContent([]byte("RAW-BYTES")), h)
+	assert.Equal(t, FormRaw, form)
+
+	// The recorded ContentHash field is irrelevant to the effective hash — a
+	// forged recorded value cannot move it.
+	forged := BundleFragment{Content: "RAW-BYTES", ContentHash: "sha256:deadbeef"}
+	fh, _ := forged.EffectiveContentHash(false)
+	assert.Equal(t, hashContent([]byte("RAW-BYTES")), fh)
+}
+
+func TestBundlePrompt_EffectiveContentHash(t *testing.T) {
+	prompt := BundlePrompt{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+
+	rawHash, rawForm := prompt.EffectiveContentHash(false)
+	distHash, distForm := prompt.EffectiveContentHash(true)
+
+	assert.Equal(t, hashContent([]byte("RAW-BYTES")), rawHash)
+	assert.Equal(t, hashContent([]byte("DISTILLED-BYTES")), distHash)
+	assert.Equal(t, FormRaw, rawForm)
+	assert.Equal(t, FormDistilled, distForm)
+	assert.NotEqual(t, rawHash, distHash)
+	assert.NotEqual(t, rawForm, distForm)
+}
+
+// =============================================================================
+// BundleMCP content hash (trust rework TR0)
+// =============================================================================
+// The MCP hash binds an executable surface: Command + Args + Env + Installation.
+// Env keys are canonicalized (order-insensitive); Args order is significant;
+// Notes are excluded (human-only, never executed).
+
+func TestBundleMCP_ComputeContentHash(t *testing.T) {
+	base := BundleMCP{
+		Command:      "postgres-mcp",
+		Args:         []string{"--host", "db", "--port", "5432"},
+		Env:          map[string]string{"PGUSER": "admin", "PGPASSWORD": "secret", "PGDATABASE": "app"},
+		Installation: "npm i -g postgres-mcp",
+		Notes:        "human-only notes",
+	}
+	baseHash := base.ComputeContentHash()
+	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
+
+	// Deterministic across calls.
+	assert.Equal(t, baseHash, base.ComputeContentHash())
+
+	// Env key order does not affect the hash (json.Marshal sorts map keys).
+	envReordered := base
+	envReordered.Env = map[string]string{"PGDATABASE": "app", "PGPASSWORD": "secret", "PGUSER": "admin"}
+	assert.Equal(t, baseHash, envReordered.ComputeContentHash(), "env key order must not change the hash")
+
+	// Notes are excluded.
+	notesChanged := base
+	notesChanged.Notes = "totally different notes"
+	assert.Equal(t, baseHash, notesChanged.ComputeContentHash(), "Notes must be excluded from the hash")
+
+	// Arg order is significant.
+	argsReordered := base
+	argsReordered.Args = []string{"--port", "5432", "--host", "db"}
+	assert.NotEqual(t, baseHash, argsReordered.ComputeContentHash(), "arg order must change the hash")
+
+	// Installation is part of the hash.
+	installChanged := base
+	installChanged.Installation = "different install steps"
+	assert.NotEqual(t, baseHash, installChanged.ComputeContentHash(), "Installation must be part of the hash")
+
+	// Env value changes change the hash.
+	envValueChanged := base
+	envValueChanged.Env = map[string]string{"PGUSER": "admin", "PGPASSWORD": "changed", "PGDATABASE": "app"}
+	assert.NotEqual(t, baseHash, envValueChanged.ComputeContentHash(), "env value must be part of the hash")
+
+	// Command changes change the hash.
+	cmdChanged := base
+	cmdChanged.Command = "mysql-mcp"
+	assert.NotEqual(t, baseHash, cmdChanged.ComputeContentHash(), "Command must be part of the hash")
 }
 
 // =============================================================================

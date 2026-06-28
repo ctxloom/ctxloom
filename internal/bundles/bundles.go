@@ -6,6 +6,7 @@ package bundles
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -87,6 +88,7 @@ type BundleMCP struct {
 	Env          map[string]string `yaml:"env,omitempty"`
 	Notes        string            `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
 	Installation string            `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	ContentHash  string            `yaml:"content_hash,omitempty"` // Hash of the executable surface (Command+Args+Env+Installation)
 }
 
 // BundleFragment defines a fragment within a bundle.
@@ -115,62 +117,138 @@ type BundlePrompt struct {
 	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
 }
 
-// ComputeContentHash computes SHA256 hash of the content.
+// ContentForm identifies which materialization of an item's content was hashed
+// or served: the raw authored bytes, or the distilled rewrite. Trust grants
+// (trust rework, TR0+) bind {effective-content-hash, form} together so a grant
+// blessing the raw form can never validate a distilled exposure, and vice-versa.
+type ContentForm string
+
+const (
+	FormRaw       ContentForm = "raw"
+	FormDistilled ContentForm = "distilled"
+)
+
+// hashContent is the single sha256 helper every content-hash computation in this
+// package routes through. It returns the canonical "sha256:<hex>" digest.
+func hashContent(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// resolveEffective is the one shared compute primitive for the distillable item
+// shape. Fragments and prompts carry the same Content/Distilled/NoDistill fields,
+// so this picks the bytes to expose AND reports their form from the same
+// predicate — guaranteeing a hash taken over the result covers exactly the served
+// bytes, with no raw fallback once distilled is chosen.
+func resolveEffective(preferDistilled bool, content, distilled string, noDistill bool) (string, ContentForm) {
+	if preferDistilled && distilled != "" && !noDistill {
+		return distilled, FormDistilled
+	}
+	return content, FormRaw
+}
+
+// staleDistill is the one shared compare primitive: it reports whether a
+// distillable item's distilled form is stale relative to its raw content (the
+// re-distillation check). It compares the RECORDED hash against a freshly
+// computed one — independent of trust, which never reads the author-supplied
+// recorded field. Sharing it keeps fragments and prompts from drifting
+// (review finding ctxloom-code-09-003).
+func staleDistill(noDistill bool, distilled, recordedHash, content string) bool {
+	if noDistill {
+		return false
+	}
+	if distilled == "" {
+		return true
+	}
+	if recordedHash == "" {
+		return true
+	}
+	return recordedHash != hashContent([]byte(content))
+}
+
+// ComputeContentHash computes the SHA256 hash of the raw authored content. This
+// feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
+// trust gate uses EffectiveContentHash instead.
 func (f *BundleFragment) ComputeContentHash() string {
-	h := sha256.Sum256([]byte(f.Content))
-	return "sha256:" + hex.EncodeToString(h[:])
+	return hashContent([]byte(f.Content))
 }
 
 // NeedsDistill returns true if this fragment needs distillation.
 func (f *BundleFragment) NeedsDistill() bool {
-	if f.NoDistill {
-		return false
-	}
-	if f.Distilled == "" {
-		return true
-	}
-	if f.ContentHash == "" {
-		return true
-	}
-	return f.ContentHash != f.ComputeContentHash()
+	return staleDistill(f.NoDistill, f.Distilled, f.ContentHash, f.Content)
 }
 
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (f *BundleFragment) EffectiveContent(preferDistilled bool) string {
-	if preferDistilled && f.Distilled != "" && !f.NoDistill {
-		return f.Distilled
-	}
-	return f.Content
+	content, _ := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
+	return content
 }
 
-// ComputeContentHash computes SHA256 hash of the content.
+// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
+// returns, and reports their form. This is the hash the per-item trust gate binds
+// to (trust rework, TR0): it covers the bytes actually exposed to the agent —
+// never a raw fallback once distilled is served, and never the author-supplied
+// ContentHash field. The form is provenance so a raw-form grant cannot validate a
+// distilled exposure.
+func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
+	content, form := resolveEffective(preferDistilled, f.Content, f.Distilled, f.NoDistill)
+	return hashContent([]byte(content)), form
+}
+
+// ComputeContentHash computes the SHA256 hash of the raw authored content. This
+// feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
+// trust gate uses EffectiveContentHash instead.
 func (p *BundlePrompt) ComputeContentHash() string {
-	h := sha256.Sum256([]byte(p.Content))
-	return "sha256:" + hex.EncodeToString(h[:])
+	return hashContent([]byte(p.Content))
 }
 
 // NeedsDistill returns true if this prompt needs distillation.
 func (p *BundlePrompt) NeedsDistill() bool {
-	if p.NoDistill {
-		return false
-	}
-	if p.Distilled == "" {
-		return true
-	}
-	if p.ContentHash == "" {
-		return true
-	}
-	return p.ContentHash != p.ComputeContentHash()
+	return staleDistill(p.NoDistill, p.Distilled, p.ContentHash, p.Content)
 }
 
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
 func (p *BundlePrompt) EffectiveContent(preferDistilled bool) string {
-	if preferDistilled && p.Distilled != "" && !p.NoDistill {
-		return p.Distilled
+	content, _ := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
+	return content
+}
+
+// EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
+// returns, and reports their form. See BundleFragment.EffectiveContentHash — same
+// contract for the per-item trust gate (trust rework, TR0).
+func (p *BundlePrompt) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
+	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
+	return hashContent([]byte(content)), form
+}
+
+// ComputeContentHash hashes a canonical encoding of the MCP server's executable
+// surface — Command, Args (order significant), Env (key-sorted), and Installation.
+// Notes are excluded (human-only, never executed). encoding/json provides the
+// determinism: it sorts map keys, so reordering Env yields an identical hash while
+// reordering Args (a slice) does not. This is the hash an MCP trust grant binds to
+// (trust rework, TR0); an MCP server has no distilled form, so there is one hash.
+func (m *BundleMCP) ComputeContentHash() string {
+	canonical := struct {
+		Command      string            `json:"command"`
+		Args         []string          `json:"args"`
+		Env          map[string]string `json:"env"`
+		Installation string            `json:"installation"`
+	}{
+		Command:      m.Command,
+		Args:         m.Args,
+		Env:          m.Env,
+		Installation: m.Installation,
 	}
-	return p.Content
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		// Unreachable: the struct holds only strings/[]string/map[string]string,
+		// none of which json.Marshal can fail on. Fail closed to a stable digest
+		// rather than panic.
+		return hashContent([]byte("ctxloom:mcp-content-hash-error"))
+	}
+	return hashContent(data)
 }
 
 // HasMCP returns true if bundle includes any MCP servers.

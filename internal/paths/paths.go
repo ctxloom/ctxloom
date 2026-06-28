@@ -29,6 +29,12 @@ const (
 	// RemotesFileName is the name of the remotes file (without extension).
 	RemotesFileName = "remotes"
 
+	// TrustFileName is the name of the per-item trust store file (without
+	// extension). It is a committed/shared persistent item, sitting at the
+	// .ctxloom root next to remotes.yaml (NOT under a nested persistent/ dir,
+	// matching the rest of ctxloom's persistent items — see paths_test.go).
+	TrustFileName = "trust"
+
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -148,6 +154,12 @@ func RemotesPath(appPath string) string {
 	return filepath.Join(appPath, RemotesFileName+".yaml")
 }
 
+// TrustPath returns the path to the per-item trust store file (at appPath
+// root, next to remotes.yaml).
+func TrustPath(appPath string) string {
+	return filepath.Join(appPath, TrustFileName+".yaml")
+}
+
 // LockPath returns the path to the lock file (at appPath root).
 func LockPath(appPath string) string {
 	return filepath.Join(appPath, LockFileName+".yaml")
@@ -198,6 +210,11 @@ func DefaultAppDir() string {
 // DefaultRemotesPath returns the default remotes path relative to current directory.
 func DefaultRemotesPath() string {
 	return RemotesPath(AppDirName)
+}
+
+// DefaultTrustPath returns the default trust-store path relative to current directory.
+func DefaultTrustPath() string {
+	return TrustPath(AppDirName)
 }
 
 // DefaultLockPath returns the default lock path relative to current directory.

@@ -139,6 +139,15 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+
+	// Record the one-time per-item trust baseline (TR6) against the now-settled
+	// active set. Behavior-preserving (no enforcement yet); a failure only means
+	// more items gate once enforcement lands, so warn and continue.
+	s.baselineTrust()
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -231,6 +240,24 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 		RegenerateContext: true,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
+	}
+}
+
+// baselineTrust records the one-time TR6 trust baseline: a snapshot of every
+// currently-resolvable remote (bundle) item, minted as trusted grants so that
+// when per-item enforcement (TR5) activates on-by-default, content already
+// present at rollout stays trusted and only new/changed content gates. It runs
+// at most once (guarded by a marker in trust.yaml); a failure warns and
+// continues — a missing baseline only means more items gate later (the safe
+// direction), never a blocked startup (CLAUDE.md).
+func (s *ctxServer) baselineTrust() {
+	res, err := operations.BaselineTrust(s.cfg, operations.BaselineTrustRequest{})
+	if err != nil {
+		clidiag.Warn("ctxloom", "trust baseline failed: %v", err)
+		return
+	}
+	if res.Status == "baselined" {
+		fmt.Fprintf(os.Stderr, "ctxloom: recorded trust baseline (%d item(s) trusted, %d skipped)\n", res.Granted, res.Failed)
 	}
 }
 

@@ -2,6 +2,7 @@ package trust
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,13 @@ import (
 
 // storeVersion is the on-disk schema version of trust.yaml.
 const storeVersion = 1
+
+// baselineSchemaVersion is the version of the one-time migration baseline (trust
+// rework, TR6). A store whose recorded baseline_version is >= this has already
+// taken its snapshot, so ApplyBaseline is a no-op (the snapshot runs exactly
+// once). Bumping it would let a future, materially different snapshot algorithm
+// re-run on stores baselined by an older version.
+const baselineSchemaVersion = 1
 
 // keySep separates components in composite in-memory map keys. Repo URLs and
 // item refs never contain a null byte, so it cannot collide.
@@ -48,6 +56,11 @@ type Store struct {
 	blacklist map[string]struct{} // blKey -> {} (sticky ref-level)
 	denylist  map[string]struct{} // content hash -> {} (repo/ref-agnostic)
 	bundles   map[string]Decision // bundle name -> trusted/untrusted posture
+
+	// baselineVersion records that the one-time TR6 migration snapshot has run
+	// (0 = never). baselinedAt is the RFC3339 timestamp it ran, provenance only.
+	baselineVersion int
+	baselinedAt     string
 }
 
 // Option configures a Store.
@@ -86,11 +99,16 @@ func New(configPath string, opts ...Option) (*Store, error) {
 
 // storeFile is the on-disk YAML shape of trust.yaml.
 type storeFile struct {
-	Version   int               `yaml:"version"`
-	Grants    []grantRecord     `yaml:"grants,omitempty"`
-	Blacklist []blacklistRecord `yaml:"blacklist,omitempty"`
-	Denylist  []string          `yaml:"denylist,omitempty"`
-	Bundles   []bundleRecord    `yaml:"bundles,omitempty"`
+	Version int `yaml:"version"`
+	// BaselineVersion/BaselinedAt mark the one-time TR6 migration snapshot so it
+	// runs exactly once (see baselineSchemaVersion). Omitted until the snapshot
+	// has run.
+	BaselineVersion int               `yaml:"baseline_version,omitempty"`
+	BaselinedAt     string            `yaml:"baselined_at,omitempty"`
+	Grants          []grantRecord     `yaml:"grants,omitempty"`
+	Blacklist       []blacklistRecord `yaml:"blacklist,omitempty"`
+	Denylist        []string          `yaml:"denylist,omitempty"`
+	Bundles         []bundleRecord    `yaml:"bundles,omitempty"`
 }
 
 type grantRecord struct {
@@ -121,6 +139,8 @@ func (s *Store) load() error {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse trust store: %w", err)
 	}
+	s.baselineVersion = cfg.BaselineVersion
+	s.baselinedAt = cfg.BaselinedAt
 	for _, g := range cfg.Grants {
 		repo := CanonicalRepoURL(g.RepoURL)
 		s.grants[grantKey(repo, g.Ref, g.ContentHash)] = Grant{
@@ -169,7 +189,11 @@ func postureFromYAML(s string) Decision {
 // deterministic ordering. trust.yaml is owned entirely by this store (unlike
 // remotes.yaml, which is shared), so a full marshal is correct.
 func (s *Store) snapshot() storeFile {
-	out := storeFile{Version: storeVersion}
+	out := storeFile{
+		Version:         storeVersion,
+		BaselineVersion: s.baselineVersion,
+		BaselinedAt:     s.baselinedAt,
+	}
 	for _, g := range s.grants {
 		out.Grants = append(out.Grants, grantRecord{
 			RepoURL:     g.RepoURL,
@@ -350,4 +374,57 @@ func (s *Store) BundlePosture(bundle string) (Decision, bool) {
 	defer s.mu.RUnlock()
 	dec, ok := s.bundles[bundle]
 	return dec, ok
+}
+
+// IsBaselined reports whether the one-time TR6 migration snapshot has already
+// run for this store (so the caller can skip the expensive enumeration). A store
+// is baselined once its recorded baseline_version reaches baselineSchemaVersion.
+func (s *Store) IsBaselined() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.baselineVersion >= baselineSchemaVersion
+}
+
+// ApplyBaseline records the one-time migration snapshot (trust rework, TR6):
+// every supplied grant is added (or replaced if its exact {repo, ref, hash}
+// already exists) and the baseline marker is stamped, all in a single atomic
+// save. It is idempotent and runs exactly once: if the store is already
+// baselined it is a no-op, so a re-run never re-grants content that was swapped
+// after the first snapshot (that content stays absent and gates once enforcement
+// lands). A save failure rolls back every in-memory change — grants and marker
+// persist together or not at all, so a half-written baseline can't leave the
+// marker set with the grants missing (which would permanently skip the
+// snapshot). `at` is an RFC3339 timestamp recorded as provenance.
+func (s *Store) ApplyBaseline(grants []Grant, at string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.baselineVersion >= baselineSchemaVersion {
+		return nil // already baselined — idempotent no-op
+	}
+
+	prevGrants := maps.Clone(s.grants)
+	prevVersion := s.baselineVersion
+	prevAt := s.baselinedAt
+
+	for _, g := range grants {
+		repo := CanonicalRepoURL(g.RepoURL)
+		s.grants[grantKey(repo, g.Ref, g.ContentHash)] = Grant{
+			RepoURL:     repo,
+			Ref:         g.Ref,
+			ContentHash: g.ContentHash,
+			Form:        g.Form,
+			SHAAtGrant:  g.SHAAtGrant,
+		}
+	}
+	s.baselineVersion = baselineSchemaVersion
+	s.baselinedAt = at
+
+	if err := s.save(); err != nil {
+		s.grants = prevGrants
+		s.baselineVersion = prevVersion
+		s.baselinedAt = prevAt
+		return err
+	}
+	return nil
 }

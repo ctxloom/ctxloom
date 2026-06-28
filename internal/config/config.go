@@ -330,10 +330,12 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 	}
 	baseDir := c.AppPaths[0]
 
-	lock, err := remote.NewLockfileManager(baseDir).Load()
+	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
 	if err != nil || lock.IsEmpty() {
 		return nil
 	}
+	// Auth config and the git clone cache are inherently OS-backed (the cache
+	// shells out to git), so they intentionally do not honor c.fs.
 	auth := remote.LoadAuth(baseDir)
 	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 	factory := remote.NewCachedFetcherFactory(cache)
@@ -371,6 +373,25 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 	return loaded
 }
 
+// registryFSOptions threads the injected filesystem into a remote registry
+// constructor (matching the resolvers below). Empty for the OS default.
+func (c *Config) registryFSOptions() []remote.RegistryOption {
+	if c.fs != nil {
+		return []remote.RegistryOption{remote.WithRegistryFS(c.fs)}
+	}
+	return nil
+}
+
+// lockfileFSOptions threads the injected filesystem into a remote lockfile
+// manager so lockfile reads honor c.fs alongside the registry reads. Empty for
+// the OS default.
+func (c *Config) lockfileFSOptions() []remote.LockfileOption {
+	if c.fs != nil {
+		return []remote.LockfileOption{remote.WithLockfileFS(c.fs)}
+	}
+	return nil
+}
+
 // ProfileRemoteResolver returns a function mapping a profile's local name to the
 // short remote it was installed from, backed by the remotes registry. Nil when no
 // registry is available (the loader then reads profiles verbatim). Exposed so
@@ -379,11 +400,7 @@ func (c *Config) ProfileRemoteResolver() func(string) string {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	var ropts []remote.RegistryOption
-	if c.fs != nil {
-		ropts = append(ropts, remote.WithRegistryFS(c.fs))
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -402,11 +419,7 @@ func (c *Config) ProfileRemoteURLResolver() func(string) string {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
-	var ropts []remote.RegistryOption
-	if c.fs != nil {
-		ropts = append(ropts, remote.WithRegistryFS(c.fs))
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), ropts...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(c.AppPaths[0]), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
@@ -693,10 +706,11 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 
 // GetBundleDirs returns bundles directories (in cache/).
 func (c *Config) GetBundleDirs() []string {
+	fs := c.getFS()
 	var dirs []string
 	for _, appPath := range c.AppPaths {
 		bundleDir := paths.BundlesPath(appPath)
-		if info, err := os.Stat(bundleDir); err == nil && info.IsDir() {
+		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
 		}
 	}
@@ -713,6 +727,11 @@ func (c *Config) GetBundleDirs() []string {
 // lockfile, unregistered remote, or single bad SHA produces a stderr
 // warning and the loader returns the rest.
 func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
+	if c.fs != nil {
+		// Thread the injected filesystem so fs-installed local bundle discovery
+		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithFS(c.fs))
+	}
 	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
 	}
@@ -731,17 +750,19 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	}
 	baseDir := c.AppPaths[0]
 
-	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir))
+	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
 		return nil
 	}
-	lock, err := remote.NewLockfileManager(baseDir).Load()
+	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
 	if err != nil {
 		return nil
 	}
 	if lock.IsEmpty() {
 		return nil
 	}
+	// Auth config and the git clone cache are inherently OS-backed (the cache
+	// shells out to git), so they intentionally do not honor c.fs.
 	auth := remote.LoadAuth(baseDir)
 	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 	factory := remote.NewCachedFetcherFactory(cache)

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,9 +27,13 @@ func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
 		return "/usr/bin/" + bin, nil
 	})
 	defer restoreLook()
+	// Probes run concurrently, so guard the collection.
+	var probedMu sync.Mutex
 	var probed []string
 	restoreProbe := SetCompanionVersionOutputForTesting(func(path string) ([]byte, error) {
+		probedMu.Lock()
 		probed = append(probed, path)
+		probedMu.Unlock()
 		return []byte(`{"name":"x","version":"v1.2.3"}`), nil
 	})
 	defer restoreProbe()

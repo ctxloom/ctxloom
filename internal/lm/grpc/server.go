@@ -192,6 +192,13 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	if err != nil {
 		return err
 	}
+	// A buggy backend that returns (nil, nil) must not panic the serving
+	// goroutine (CLAUDE.md: log, don't crash). Degrade to a zero-value result
+	// so the final message still sends rather than nil-dereferencing below.
+	if result == nil {
+		clidiag.Warn("ctxloom", "backend returned a nil result with no error; defaulting to exit code 0")
+		result = &agent.ExecuteResult{}
+	}
 
 	// Send the exit code and model info as the final message
 	return stream.Send(&RunResponse{

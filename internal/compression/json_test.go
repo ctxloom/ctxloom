@@ -21,6 +21,39 @@ func TestJSONCompressor_InvalidJSONDegradesToVerbatim(t *testing.T) {
 	assert.Equal(t, 1.0, result.Ratio)
 }
 
+// TestJSONCompressor_TrailingDataDegradesToVerbatim pins that multi-value
+// (NDJSON/JSONL) and value-plus-trailing-garbage inputs degrade to verbatim
+// pass-through instead of being silently truncated to their first record.
+func TestJSONCompressor_TrailingDataDegradesToVerbatim(t *testing.T) {
+	c := NewJSONCompressor()
+	cases := map[string]string{
+		"ndjson":          "{\"a\":1}\n{\"b\":2}\n{\"c\":3}",
+		"trailing_object": `{"a":1} {"b":2}`,
+		"trailing_array":  `[1,2,3] [4,5,6]`,
+		"trailing_junk":   `{"a":1} garbage`,
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+			require.NoError(t, err)
+			assert.Equal(t, input, result.Content, "multi-value/trailing-data input must pass through verbatim, not be truncated")
+			assert.Equal(t, 1.0, result.Ratio)
+		})
+	}
+}
+
+// TestJSONCompressor_TrailingWhitespaceStillCompresses pins that a single value
+// with only trailing whitespace is NOT treated as trailing data.
+func TestJSONCompressor_TrailingWhitespaceStillCompresses(t *testing.T) {
+	c := NewJSONCompressor()
+	input := "{\"a\":1}\n\n  "
+	result, err := c.Compress(context.Background(), ContentTypeJSON, input, 0.5)
+	require.NoError(t, err)
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.Content), &parsed))
+	assert.Contains(t, parsed, "a")
+}
+
 func TestJSONCompressor_Basic(t *testing.T) {
 	c := NewJSONCompressor()
 	ctx := context.Background()
@@ -286,8 +319,8 @@ func TestJSONCompressor_BoundedMetadata(t *testing.T) {
 	assert.Contains(t, result.PreservedElements, "500 numbers")
 }
 
-// TestJSONCompressor_PreservesBigIntegers pins the UseNumber decode:
-// PreserveNumbers exists for IDs, and IDs beyond float64's 2^53 mantissa
+// TestJSONCompressor_PreservesBigIntegers pins the UseNumber decode: numbers
+// are always preserved for IDs, and IDs beyond float64's 2^53 mantissa
 // (snowflake IDs) were re-marshaled in scientific notation through the
 // float64 round-trip.
 func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {

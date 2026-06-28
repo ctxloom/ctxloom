@@ -34,9 +34,48 @@ func (c *CodeCompressor) extractPython(node *sitter.Node, source []byte, out *st
 			c.extractPythonDecorated(child, source, out, preserved)
 
 		case "expression_statement":
-			c.extractPythonModuleDocstring(child, source, out)
+			c.extractPythonExpressionStatement(child, source, out, preserved)
+
+		case "assignment", "augmented_assignment":
+			// Bare module-level assignment (tree-sitter may surface it directly
+			// rather than wrapped in an expression_statement).
+			c.extractPythonAssignment(child, source, out, preserved)
 		}
 	}
+}
+
+// extractPythonExpressionStatement preserves module-level assignments
+// (API_URL = "...", __all__ = [...], type aliases) verbatim — mirroring the
+// Go/Rust/JS extractors that keep top-level const/var — and otherwise falls
+// back to module-docstring handling. A bare side-effecting expression
+// (e.g. a top-level function call) is dropped, as before.
+func (c *CodeCompressor) extractPythonExpressionStatement(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() == "assignment" || child.Type() == "augmented_assignment" {
+			c.extractPythonAssignment(child, source, out, preserved)
+			return
+		}
+	}
+	c.extractPythonModuleDocstring(node, source, out)
+}
+
+// extractPythonAssignment emits a module-level assignment, eliding a long
+// right-hand-side value after the first '=' so the binding name (and any type
+// annotation) survives without inflating the compressed output.
+func (c *CodeCompressor) extractPythonAssignment(node *sitter.Node, source []byte, out *strings.Builder, preserved *[]string) {
+	text := c.nodeText(node, source)
+	if len(text) >= 100 {
+		if idx := strings.IndexByte(text, '='); idx > 0 {
+			text = strings.TrimRight(text[:idx], " ") + " = ..."
+		}
+	}
+	out.WriteString(text)
+	out.WriteString("\n")
+	*preserved = append(*preserved, "assignment")
 }
 
 // extractPythonDecorated emits a decorated function/class, keeping its
@@ -84,6 +123,8 @@ func (c *CodeCompressor) extractPythonFunc(node *sitter.Node, source []byte, out
 		}
 
 		switch child.Type() {
+		case "async":
+			sig.WriteString("async ")
 		case "def":
 			sig.WriteString("def ")
 		case "identifier":
@@ -172,6 +213,8 @@ func (c *CodeCompressor) extractPythonFuncSignatureOnly(node *sitter.Node, sourc
 			continue
 		}
 		switch child.Type() {
+		case "async":
+			sig.WriteString("async ")
 		case "def":
 			sig.WriteString("def ")
 		case "identifier":

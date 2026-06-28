@@ -71,6 +71,7 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its MCP servers omitted: %v", profileName, err)
 			continue
 		}
 		wire.MergeMCPConfig(mcp, &resolved.MCP)
@@ -106,6 +107,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire
 	for _, profileName := range cfg.GetDefaultProfiles() {
 		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its hooks omitted: %v", profileName, err)
 			continue
 		}
 		agent.MergeHooksConfig(hooks, &resolved.Hooks)

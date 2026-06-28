@@ -96,14 +96,21 @@ func (b *profileBuilder) addFragment(frag FragmentRef) {
 	}
 }
 
-// hookKey returns a unique key for deduplication based on command and matcher.
+// hookKey returns a unique key for deduplication. Type and Prompt are folded in
+// alongside Command and Matcher so that prompt/agent hooks (which carry an empty
+// Command) are keyed on their differing Prompt text rather than all collapsing
+// to the same "|<matcher>" key.
 func hookKey(h wire.Hook) string {
-	return h.Command + "|" + h.Matcher
+	return h.Type + "|" + h.Command + "|" + h.Prompt + "|" + h.Matcher
 }
 
-// addHook adds a hook if not already present (by command+matcher key).
-func (b *profileBuilder) addHook(hooks *[]wire.Hook, h wire.Hook) {
-	key := hookKey(h)
+// addHook adds a hook if not already present, keyed by the lifecycle event plus
+// the hook key. The event discriminator keeps the same command+matcher
+// registered on two different lifecycles (e.g. a notify hook on both
+// SessionStart and SessionEnd) from collapsing onto whichever list merges
+// first, mirroring the plugin-specific dedup path below.
+func (b *profileBuilder) addHook(event string, hooks *[]wire.Hook, h wire.Hook) {
+	key := event + "|" + hookKey(h)
 	if !b.seenHooks.Has(key) {
 		b.seenHooks.Add(key)
 		*hooks = append(*hooks, h)
@@ -116,22 +123,23 @@ func (b *profileBuilder) mergeMCP(source wire.MCPConfig) {
 	wire.MergeMCPConfig(&b.MCP, &source)
 }
 
-// mergeHookSlice merges source hooks into dest.
-func (b *profileBuilder) mergeHookSlice(source []wire.Hook, dest *[]wire.Hook) {
+// mergeHookSlice merges source hooks into dest, deduping within the given
+// lifecycle event so the same hook is not collapsed across distinct events.
+func (b *profileBuilder) mergeHookSlice(event string, source []wire.Hook, dest *[]wire.Hook) {
 	for _, h := range source {
-		b.addHook(dest, h)
+		b.addHook(event, dest, h)
 	}
 }
 
 // mergeHooks merges hooks from source into the builder.
 func (b *profileBuilder) mergeHooks(source wire.HooksConfig) {
 	// Merge unified hooks
-	b.mergeHookSlice(source.Unified.PreTool, &b.Hooks.Unified.PreTool)
-	b.mergeHookSlice(source.Unified.PostTool, &b.Hooks.Unified.PostTool)
-	b.mergeHookSlice(source.Unified.SessionStart, &b.Hooks.Unified.SessionStart)
-	b.mergeHookSlice(source.Unified.SessionEnd, &b.Hooks.Unified.SessionEnd)
-	b.mergeHookSlice(source.Unified.PreShell, &b.Hooks.Unified.PreShell)
-	b.mergeHookSlice(source.Unified.PostFileEdit, &b.Hooks.Unified.PostFileEdit)
+	b.mergeHookSlice("PreTool", source.Unified.PreTool, &b.Hooks.Unified.PreTool)
+	b.mergeHookSlice("PostTool", source.Unified.PostTool, &b.Hooks.Unified.PostTool)
+	b.mergeHookSlice("SessionStart", source.Unified.SessionStart, &b.Hooks.Unified.SessionStart)
+	b.mergeHookSlice("SessionEnd", source.Unified.SessionEnd, &b.Hooks.Unified.SessionEnd)
+	b.mergeHookSlice("PreShell", source.Unified.PreShell, &b.Hooks.Unified.PreShell)
+	b.mergeHookSlice("PostFileEdit", source.Unified.PostFileEdit, &b.Hooks.Unified.PostFileEdit)
 
 	// Merge plugin-specific hooks
 	for pluginName, backendHooks := range source.Plugins {

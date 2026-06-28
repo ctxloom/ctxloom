@@ -220,11 +220,23 @@ func (c *CodeCompressor) extractJSLexical(node *sitter.Node, source []byte, out 
 		}
 		*preserved = append(*preserved, "arrow function")
 	} else {
-		// Regular const/let - keep if short
-		if len(text) < 100 {
+		// Regular const/let. Keep short declarations verbatim; for long ones,
+		// elide the value after the first '=' so the binding (name + type
+		// annotation) still survives. Never drop the declaration entirely:
+		// extractJSExport writes "export " before delegating here, so emitting
+		// nothing would leave a dangling "export " glued onto the next
+		// declaration (content loss + corruption).
+		switch {
+		case len(text) < 100:
 			out.WriteString(text)
-			out.WriteString("\n")
-			*preserved = append(*preserved, "const/let")
+		case strings.IndexByte(text, '=') > 0:
+			idx := strings.IndexByte(text, '=')
+			out.WriteString(strings.TrimRight(text[:idx], " "))
+			out.WriteString(" = ...")
+		default:
+			out.WriteString(text)
 		}
+		out.WriteString("\n")
+		*preserved = append(*preserved, "const/let")
 	}
 }

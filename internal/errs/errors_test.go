@@ -82,6 +82,7 @@ func TestSentinelErrors_ErrorMessages(t *testing.T) {
 		{errs.ErrProfileNotFound, "profile not found"},
 		{errs.ErrRemoteNotFound, "remote not found"},
 		{errs.ErrCircularInheritance, "circular profile inheritance detected"},
+		{errs.ErrProfileDepthExceeded, "profile inheritance depth exceeds maximum"},
 		{errs.ErrInvalidReference, "invalid reference"},
 	}
 

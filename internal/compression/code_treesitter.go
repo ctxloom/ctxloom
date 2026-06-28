@@ -26,10 +26,14 @@ type CodeCompressor struct {
 	// MaxBodyLines limits function body preview lines (0 = elide entirely).
 	MaxBodyLines int
 
-	// parsers cached by language; parsersMu guards concurrent first-use
-	// population when one compressor instance is shared across goroutines.
-	parsersMu sync.Mutex
-	parsers   map[ContentType]*sitter.Parser
+	// parserPools holds a sync.Pool of reusable *sitter.Parser per language. A
+	// tree-sitter Parser wraps a stateful C object, so ParseCtx must NOT run on
+	// a parser another goroutine is also parsing with. Each Compress borrows a
+	// parser from its language pool for the duration of the parse and returns
+	// it, so a single shared CodeCompressor is safe under concurrent use while
+	// still reusing parsers. parserPoolsMu guards first-use pool population.
+	parserPoolsMu sync.Mutex
+	parserPools   map[ContentType]*sync.Pool
 }
 
 // NewCodeCompressor creates a code compressor with default settings.
@@ -37,7 +41,7 @@ func NewCodeCompressor() *CodeCompressor {
 	return &CodeCompressor{
 		PreserveComments: true,
 		MaxBodyLines:     0, // Elide bodies by default
-		parsers:          make(map[ContentType]*sitter.Parser),
+		parserPools:      make(map[ContentType]*sync.Pool),
 	}
 }
 
@@ -65,10 +69,12 @@ func (c *CodeCompressor) Compress(ctx context.Context, ct ContentType, content s
 
 	// Fault tolerance: a missing parser or a parse failure degrades to
 	// verbatim pass-through rather than failing the caller.
-	parser, err := c.getParser(ct)
+	pool, err := c.parserPool(ct)
 	if err != nil {
 		return verbatimResult(content, "ast:"+string(ct)), nil
 	}
+	parser := pool.Get().(*sitter.Parser)
+	defer pool.Put(parser)
 
 	tree, err := parser.ParseCtx(ctx, nil, []byte(content))
 	if err != nil {
@@ -143,36 +149,47 @@ func (c *CodeCompressor) detectLanguage(content string) ContentType {
 	return ContentTypeUnknown
 }
 
-func (c *CodeCompressor) getParser(ct ContentType) (*sitter.Parser, error) {
-	c.parsersMu.Lock()
-	defer c.parsersMu.Unlock()
-	if p, ok := c.parsers[ct]; ok {
-		return p, nil
+// parserPool returns the per-language pool of parsers, creating it on first
+// use. The pool's New builds a parser with the language already set, so every
+// borrowed parser is ready to parse.
+func (c *CodeCompressor) parserPool(ct ContentType) (*sync.Pool, error) {
+	lang, err := languageFor(ct)
+	if err != nil {
+		return nil, err
 	}
 
-	parser := sitter.NewParser()
-	var lang *sitter.Language
+	c.parserPoolsMu.Lock()
+	defer c.parserPoolsMu.Unlock()
+	if pool, ok := c.parserPools[ct]; ok {
+		return pool, nil
+	}
+	pool := &sync.Pool{New: func() any {
+		parser := sitter.NewParser()
+		parser.SetLanguage(lang)
+		return parser
+	}}
+	c.parserPools[ct] = pool
+	return pool, nil
+}
 
+// languageFor maps a ContentType to its tree-sitter grammar.
+func languageFor(ct ContentType) (*sitter.Language, error) {
 	switch ct {
 	case ContentTypeGo:
-		lang = golang.GetLanguage()
+		return golang.GetLanguage(), nil
 	case ContentTypePython:
-		lang = python.GetLanguage()
+		return python.GetLanguage(), nil
 	case ContentTypeJavaScript:
-		lang = javascript.GetLanguage()
+		return javascript.GetLanguage(), nil
 	case ContentTypeTypeScript:
-		lang = tsTypescript.GetLanguage()
+		return tsTypescript.GetLanguage(), nil
 	case ContentTypeRust:
-		lang = rust.GetLanguage()
+		return rust.GetLanguage(), nil
 	case ContentTypeJava:
-		lang = java.GetLanguage()
+		return java.GetLanguage(), nil
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", ct)
 	}
-
-	parser.SetLanguage(lang)
-	c.parsers[ct] = parser
-	return parser, nil
 }
 
 // extractStructure walks the AST and extracts structural elements.

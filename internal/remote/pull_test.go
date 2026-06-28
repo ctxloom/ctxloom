@@ -538,7 +538,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "v1.0.0")
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0")
 
 		require.NoError(t, err)
 
@@ -548,7 +548,8 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		entry, ok := loaded.Bundles["https://github.com/alice/ctxloom@bundles/security"]
 		assert.True(t, ok)
 		assert.Equal(t, "abc123def456", entry.SHA)
-		assert.Equal(t, "v1.0.0", entry.RequestedVersion)
+		assert.Equal(t, "^1.0", entry.RequestedVersion)
+		assert.Equal(t, "v1.0.0", entry.Version, "the resolved semver tag is recorded")
 		assert.Equal(t, "https://github.com/alice/ctxloom", entry.URL)
 	})
 
@@ -568,10 +569,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0")
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "")
 		require.NoError(t, err)
 
-		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0")
+		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "")
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -647,6 +648,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 // fails the test on error (helper for the pin-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion)
+	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "")
 	require.NoError(t, err)
 }

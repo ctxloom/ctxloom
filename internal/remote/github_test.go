@@ -145,8 +145,9 @@ func TestGitHubFetcher_FetchFile(t *testing.T) {
 		mock := newMockGitHubClient()
 		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String(encoded),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String(encoded),
 			}, nil, nil, nil
 		}
 
@@ -165,8 +166,9 @@ func TestGitHubFetcher_FetchFile(t *testing.T) {
 		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
 			capturedRef = opts.Ref
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String(encoded),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String(encoded),
 			}, nil, nil, nil
 		}
 
@@ -211,6 +213,40 @@ func TestGitHubFetcher_FetchFile(t *testing.T) {
 		_, err := fetcher.FetchFile(ctx, "owner", "repo", "file.txt", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to fetch file")
+	})
+
+	t.Run("symlink entry with nil content does not panic", func(t *testing.T) {
+		// go-github returns a non-directory RepositoryContent with Content==nil
+		// for symlink/submodule entries; FetchFile must not dereference it.
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return &github.RepositoryContent{
+				Type:   github.String("symlink"),
+				Target: github.String("../elsewhere"),
+			}, nil, nil, nil
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		result, err := fetcher.FetchFile(ctx, "owner", "repo", "link", "")
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("oversized none-encoded content surfaces an error", func(t *testing.T) {
+		// Files >1MB come back as Encoding="none" with empty Content; this must
+		// be a clear error, not silently-empty bytes.
+		mock := newMockGitHubClient()
+		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
+			return &github.RepositoryContent{
+				Type:     github.String("file"),
+				Encoding: github.String("none"),
+			}, nil, nil, nil
+		}
+
+		fetcher := NewGitHubFetcherWithClient(mock)
+		_, err := fetcher.FetchFile(ctx, "owner", "repo", "big.bin", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode file content")
 	})
 }
 
@@ -731,8 +767,9 @@ func TestGitHubFetcher_401Retry(t *testing.T) {
 			}
 			// Second call - success with fallback client
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String(encoded),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String(encoded),
 			}, nil, nil, nil
 		}
 
@@ -740,8 +777,9 @@ func TestGitHubFetcher_401Retry(t *testing.T) {
 		fallbackMock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
 			// Fallback succeeds
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String(encoded),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String(encoded),
 			}, nil, nil, nil
 		}
 
@@ -785,8 +823,9 @@ func TestGitHubFetcher_401Retry(t *testing.T) {
 			content := "public content"
 			encoded := base64.StdEncoding.EncodeToString([]byte(content))
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String(encoded),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String(encoded),
 			}, nil, nil, nil
 		}
 
@@ -878,8 +917,9 @@ func TestGitHubFetcher_InvalidFileContent(t *testing.T) {
 		mock := newMockGitHubClient()
 		mock.repos.GetContentsFunc = func(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentGetOptions) (*github.RepositoryContent, []*github.RepositoryContent, *github.Response, error) {
 			return &github.RepositoryContent{
-				Type:    github.String("file"),
-				Content: github.String("not valid base64!!!"),
+				Type:     github.String("file"),
+				Encoding: github.String("base64"),
+				Content:  github.String("not valid base64!!!"),
 			}, nil, nil, nil
 		}
 

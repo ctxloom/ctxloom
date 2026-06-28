@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -258,16 +259,41 @@ func TestBuildPublishPath(t *testing.T) {
 func TestAddPublishMetadata(t *testing.T) {
 	t.Run("adds metadata to valid YAML", func(t *testing.T) {
 		content := []byte("description: Test bundle\n")
-		result, err := addPublishMetadata(content, "/path/to/local.yaml")
+		result, err := addPublishMetadata(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, string(result), "_published")
-		assert.Contains(t, string(result), "/path/to/local.yaml")
+		assert.Contains(t, string(result), "published_at")
+	})
+
+	t.Run("does not embed the author's local path", func(t *testing.T) {
+		content := []byte("description: Test bundle\n")
+		result, err := addPublishMetadata(content)
+
+		require.NoError(t, err)
+		// The local filesystem path leaks the author's username/layout into
+		// shared content and nothing consumes it; it must not be published.
+		assert.NotContains(t, string(result), "from:")
+	})
+
+	t.Run("preserves author key order and comments", func(t *testing.T) {
+		content := []byte("# leading comment\nzebra: 1 # inline\nalpha: 2\n")
+		result, err := addPublishMetadata(content)
+
+		require.NoError(t, err)
+		out := string(result)
+		// A map round-trip would sort alpha before zebra and drop comments; the
+		// node-level edit must keep the author's order and comments intact.
+		assert.Less(t, strings.Index(out, "zebra"), strings.Index(out, "alpha"),
+			"author key order must be preserved")
+		assert.Contains(t, out, "# leading comment")
+		assert.Contains(t, out, "# inline")
+		assert.Contains(t, out, "_published")
 	})
 
 	t.Run("returns invalid YAML as-is", func(t *testing.T) {
 		content := []byte("invalid: yaml: [[")
-		result, err := addPublishMetadata(content, "/path/to/local.yaml")
+		result, err := addPublishMetadata(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, content, result)

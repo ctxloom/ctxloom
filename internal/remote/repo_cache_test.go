@@ -233,25 +233,25 @@ func TestRepoCache_repoDirForURL(t *testing.T) {
 	}
 }
 
-func TestRepoCache_authArgs(t *testing.T) {
-	t.Run("github with token injects extraheader", func(t *testing.T) {
+func TestRepoCache_authEnv(t *testing.T) {
+	t.Run("github with token injects extraheader via env, not argv", func(t *testing.T) {
 		cache := NewRepoCache("", AuthConfig{GitHub: "test-token"})
-		args := cache.authArgs("https://github.com/owner/repo", ForgeGitHub)
-		require.Len(t, args, 2)
-		assert.Equal(t, "-c", args[0])
-		assert.Contains(t, args[1], "http.https://github.com/.extraheader=AUTHORIZATION: basic ")
+		env := cache.authEnv("https://github.com/owner/repo", ForgeGitHub)
+		require.Len(t, env, 3)
+		assert.Equal(t, "GIT_CONFIG_COUNT=1", env[0])
+		assert.Equal(t, "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader", env[1])
 		want := base64.StdEncoding.EncodeToString([]byte("x-access-token:test-token"))
-		assert.Contains(t, args[1], want)
+		assert.Equal(t, "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+want, env[2])
 	})
 
 	t.Run("github without token injects nothing", func(t *testing.T) {
 		cache := NewRepoCache("", AuthConfig{})
-		assert.Nil(t, cache.authArgs("https://github.com/owner/repo", ForgeGitHub))
+		assert.Nil(t, cache.authEnv("https://github.com/owner/repo", ForgeGitHub))
 	})
 
 	t.Run("generic git uses ambient auth, no injection", func(t *testing.T) {
 		cache := NewRepoCache("", AuthConfig{GitHub: "test-token"})
-		assert.Nil(t, cache.authArgs("https://gitlab.com/owner/repo", ForgeGitGeneric))
+		assert.Nil(t, cache.authEnv("https://gitlab.com/owner/repo", ForgeGitGeneric))
 	})
 }
 

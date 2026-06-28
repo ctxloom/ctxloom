@@ -270,18 +270,31 @@ func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string,
 	case ItemTypeProfile:
 		entries = l.Profiles
 	}
-	// A "remote/path" ref matches on the path after its remote-alias prefix;
-	// the ambiguity error below guards same-path collisions across remotes.
-	_, prefixStripped, hasPrefix := strings.Cut(localName, "/")
+	// Match the exact path first (full or basename). Only when nothing matches do
+	// we reinterpret a leading segment as a remote-alias prefix ("remote/path") —
+	// otherwise a genuine nested path like "lang/go" would also collide with a
+	// sibling "go" entry and be wrongly reported as ambiguous.
 	var keys []string
 	for key := range entries {
 		ref, err := ParseReference(key)
 		if err != nil {
 			continue
 		}
-		if ref.Path == localName || path.Base(ref.Path) == localName ||
-			(hasPrefix && ref.Path == prefixStripped) {
+		if ref.Path == localName || path.Base(ref.Path) == localName {
 			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		if _, prefixStripped, hasPrefix := strings.Cut(localName, "/"); hasPrefix {
+			for key := range entries {
+				ref, err := ParseReference(key)
+				if err != nil {
+					continue
+				}
+				if ref.Path == prefixStripped {
+					keys = append(keys, key)
+				}
+			}
 		}
 	}
 	switch len(keys) {

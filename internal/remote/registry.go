@@ -350,13 +350,17 @@ func (r *Registry) Remove(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.remotes[name]; !exists {
+	removed, exists := r.remotes[name]
+	if !exists {
 		return fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
 	}
 
 	delete(r.remotes, name)
-
-	return r.save()
+	if err := r.save(); err != nil {
+		r.remotes[name] = removed // rollback, matching Add/SetForge
+		return err
+	}
+	return nil
 }
 
 // Get retrieves a remote by name.
@@ -414,10 +418,16 @@ func (r *Registry) SetDefault(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	prev := r.defaultRemote
+
 	// Allow clearing the default
 	if name == "" {
 		r.defaultRemote = ""
-		return r.save()
+		if err := r.save(); err != nil {
+			r.defaultRemote = prev // rollback, matching Add/SetForge
+			return err
+		}
+		return nil
 	}
 
 	// Verify remote exists
@@ -426,7 +436,11 @@ func (r *Registry) SetDefault(name string) error {
 	}
 
 	r.defaultRemote = name
-	return r.save()
+	if err := r.save(); err != nil {
+		r.defaultRemote = prev // rollback, matching Add/SetForge
+		return err
+	}
+	return nil
 }
 
 // Forges returns the configured forge instances merged over the built-in

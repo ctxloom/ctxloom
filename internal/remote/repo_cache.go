@@ -142,8 +142,11 @@ func (c *RepoCache) ensureCloneLocked(ctx context.Context, repoURL, repoDir stri
 // via the system git binary, so the result is fully readable by go-git.
 func (c *RepoCache) clone(ctx context.Context, repoURL, repoDir string, forgeType ForgeType) error {
 	cloneURL := normalizeCloneURL(repoURL)
-	args := append(c.authArgs(cloneURL, forgeType), "clone", cloneURL, repoDir)
-	if err := runGit(ctx, "", args...); err != nil {
+	// `--` stops git from treating a leading-dash URL as an option (argument
+	// injection); the auth header rides in the environment (authEnv), not argv,
+	// so the token is never exposed via /proc/<pid>/cmdline or `ps`.
+	if err := runGit(ctx, "", "clone", c.authEnv(cloneURL, forgeType),
+		"clone", "--", cloneURL, repoDir); err != nil {
 		return fmt.Errorf("git clone failed: %w", err)
 	}
 	return nil
@@ -151,17 +154,21 @@ func (c *RepoCache) clone(ctx context.Context, repoURL, repoDir string, forgeTyp
 
 // fetch advances all remote-tracking branches and tags to the live remote.
 func (c *RepoCache) fetch(ctx context.Context, repoDir, repoURL string, forgeType ForgeType) error {
-	args := append(c.authArgs(normalizeCloneURL(repoURL), forgeType),
+	return runGit(ctx, repoDir, "fetch", c.authEnv(normalizeCloneURL(repoURL), forgeType),
 		"fetch", "--all", "--tags", "--prune", "--force")
-	return runGit(ctx, repoDir, args...)
 }
 
-// authArgs returns leading `git -c …` arguments that inject credentials for the
-// github forge: the resolved token as an HTTP Authorization header scoped to
+// authEnv returns GIT_CONFIG_* environment entries that inject credentials for
+// the github forge: the resolved token as an HTTP Authorization header scoped to
 // the clone host. The token comes from the resolved forge's token_env (default
 // GITHUB_TOKEN); the generic git forge gets nothing — auth is fully ambient
 // (credential helper, ssh-agent, ~/.ssh/config, per-host .gitconfig).
-func (c *RepoCache) authArgs(cloneURL string, forgeType ForgeType) []string {
+//
+// The credential is delivered via the environment (GIT_CONFIG_COUNT/KEY/VALUE,
+// git >= 2.31) rather than `git -c …` on the command line so the base64 token is
+// not exposed to other local users through the world-readable process argv
+// (/proc/<pid>/cmdline, `ps auxww`); /proc/<pid>/environ is owner-readable only.
+func (c *RepoCache) authEnv(cloneURL string, forgeType ForgeType) []string {
 	if forgeType != ForgeGitHub {
 		return nil
 	}
@@ -174,8 +181,11 @@ func (c *RepoCache) authArgs(cloneURL string, forgeType ForgeType) []string {
 		return nil
 	}
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	header := fmt.Sprintf("http.https://%s/.extraheader=AUTHORIZATION: basic %s", host, basic)
-	return []string{"-c", header}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		fmt.Sprintf("GIT_CONFIG_KEY_0=http.https://%s/.extraheader", host),
+		fmt.Sprintf("GIT_CONFIG_VALUE_0=AUTHORIZATION: basic %s", basic),
+	}
 }
 
 // cloneToken resolves the github token for a clone URL: the resolved forge's
@@ -189,10 +199,18 @@ func (c *RepoCache) cloneToken(cloneURL string) string {
 
 // runGit invokes the system git binary, capturing stderr into any error and
 // respecting ctx cancellation. dir is the working directory (empty for clone).
-func runGit(ctx context.Context, dir string, args ...string) error {
+// label names the logical subcommand for error messages: args[0] is unreliable
+// because nothing here injects credentials into argv, but a future `-c …` prefix
+// would otherwise be reported as the subcommand (and could leak a token). extraEnv,
+// when non-empty, is appended to the inherited environment (see authEnv) so the
+// auth header is passed out of band.
+func runGit(ctx context.Context, dir, label string, extraEnv []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
 	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -201,12 +219,12 @@ func runGit(ctx context.Context, dir string, args ...string) error {
 			return fmt.Errorf("git binary not found on PATH (required for remote clone/fetch): %w", err)
 		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("git %s: %w", args[0], ctx.Err())
+			return fmt.Errorf("git %s: %w", label, ctx.Err())
 		}
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("git %s: %s: %w", args[0], msg, err)
+			return fmt.Errorf("git %s: %s: %w", label, msg, err)
 		}
-		return fmt.Errorf("git %s: %w", args[0], err)
+		return fmt.Errorf("git %s: %w", label, err)
 	}
 	return nil
 }

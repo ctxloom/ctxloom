@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -196,13 +195,16 @@ func (f *GitHubFetcher) FetchFile(ctx context.Context, owner, repo, path, ref st
 		return nil, fmt.Errorf("path is a directory, not a file: %s", path)
 	}
 
-	// Content is base64 encoded
-	decoded, err := base64.StdEncoding.DecodeString(*content.Content)
+	// GetContent decodes per the Encoding field and is nil-safe: Content can be
+	// nil for a symlink/submodule entry, and >1MB files come back as
+	// Encoding="none" (a clear error). A manual *content.Content base64 decode
+	// would panic on the former and silently yield empty bytes on the latter.
+	decoded, err := content.GetContent()
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode file content: %w", err)
 	}
 
-	return decoded, nil
+	return []byte(decoded), nil
 }
 
 // ListDir lists directory contents at the specified path.

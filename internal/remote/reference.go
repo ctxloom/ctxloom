@@ -364,8 +364,14 @@ func isItemTypeDir(s string) bool {
 	return s == "bundles" || s == "profiles"
 }
 
-// String returns the string representation of a reference.
+// String returns the string representation of a reference. It is nil-safe: a nil
+// receiver renders as "<nil>" rather than panicking, so callers that format a ref
+// in an error path (e.g. a FetchItem "cannot handle" guard, which is reached
+// precisely for a nil/unhandled ref) never turn that into a crash.
 func (r *Reference) String() string {
+	if r == nil {
+		return "<nil>"
+	}
 	if r.IsLocal {
 		return r.localRef()
 	}

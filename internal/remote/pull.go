@@ -200,6 +200,7 @@ type fetchedItem struct {
 	localName        string // lockfile key, "remote/path"
 	sha              string
 	requestedVersion string // user-specified version, "" if they took the default
+	resolvedVersion  string // concrete tag a semver constraint resolved to, "" otherwise
 	content          []byte
 }
 
@@ -250,7 +251,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 		return nil, err
 	}
 
-	sha, requestedVersion, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
+	sha, requestedVersion, resolvedVersion, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +266,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 		return nil, err
 	}
 
-	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, content: content}, nil
+	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, resolvedVersion: resolvedVersion, content: content}, nil
 }
 
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
@@ -315,14 +316,17 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // literal git ref (go-git even reads a leading "^" as a parent operator), so a
 // range that resolved fine through the lock/upgrade path failed plain pull.
 // requestedVersion echoes what the user asked for ("" if they took the
-// default), recorded in the lockfile for export reconstruction.
-func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion string, err error) {
+// default), recorded in the lockfile for export reconstruction. resolvedVersion
+// is the concrete tag a semver constraint matched (e.g. "v1.3.0"), empty for a
+// branch/tag/SHA/default pull; it is recorded as LockEntry.Version, matching the
+// lock/upgrade paths.
+func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion, resolvedVersion string, err error) {
 	requestedVersion = ref.EffectiveContentVersion()
 	res, err := ResolveConstraint(ctx, requestedVersion, NewFetcherRepoVersions(fetcher, owner, repo))
 	if err != nil {
-		return "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
+		return "", "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
 	}
-	return res.SHA, requestedVersion, nil
+	return res.SHA, requestedVersion, res.Version, nil
 }
 
 // securityReview enforces the pull's safety gate: blind mode implies force,
@@ -402,7 +406,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion)
+	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion)
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
@@ -515,7 +519,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // target lockfile) from a remote without TrustBundles is staged into the
 // pending lockfile instead — the security gate for non-interactive pulls.
 // Returns staged=true when that redirect happened.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion string) (staged bool, err error) {
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string) (staged bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileTargetFor(itemType)
 	writingToPending := p.bundleLockfileManager != nil && target == p.bundleLockfileManager
@@ -530,6 +534,7 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		SHA:              sha,
 		URL:              remote.URL,
 		RequestedVersion: requestedVersion,
+		Version:          resolvedVersion,
 		FetchedAt:        time.Now().UTC(),
 	}
 

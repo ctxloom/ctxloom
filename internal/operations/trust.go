@@ -44,6 +44,13 @@ type EffectiveTrustResult struct {
 	Source   trust.Source   `json:"source"`
 }
 
+// Trusted reports whether the cascade allowed exposure. It is the boolean the
+// TR3 list-JSON stamp surfaces as "trusted"; Source (as a plain string) is the
+// companion "trust_source".
+func (r EffectiveTrustResult) Trusted() bool {
+	return r.Decision == trust.Allow
+}
+
 // EffectiveTrust is the sole owner of the per-item trust cascade. It unifies
 // the per-item trust store with the inherited remote tier (remotes.yaml's
 // TrustBundles) at read time, evaluating exactly:
@@ -373,4 +380,144 @@ func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref,
 	default:
 		return "", "", fmt.Errorf("unknown item kind %q", tRef.Kind)
 	}
+}
+
+// --- TR3 list-JSON stamping ---------------------------------------------------
+
+// TrustStamper resolves effective per-item trust for a single listing, building
+// the trust store, remote registry, and bundle loader ONCE and reusing them
+// across every item it stamps. This is TR3's cost control: the cascade is
+// content-keyed, so a naive stamp would re-read trust.yaml / remotes.yaml and
+// re-materialize each item per call; the stamper reads the stores once and lets
+// the shared loader cache each bundle after its first materialization.
+//
+// It is read-only and fault-tolerant by construction: a build failure or any
+// per-item parse/resolve/hash failure never surfaces as an error — it stamps a
+// fail-closed DENY (never "trusted"), so a listing can never crash and a hash
+// failure can never produce a trusted stamp. Not safe for concurrent use.
+type TrustStamper struct {
+	cfg      *config.Config
+	loader   *bundles.Loader
+	store    *trust.Store
+	registry *remote.Registry
+	fs       afero.Fs
+
+	// denyAll short-circuits every stamp to a fail-closed DENY. Set when the
+	// trust store cannot be opened — it may hide a blacklist/denylist we must not
+	// silently skip (mirrors EffectiveTrust's corrupt-store posture).
+	denyAll bool
+}
+
+// TrustStamperOption injects a pre-built dependency, mirroring the loader/
+// registry option style. Tests drive the stamper over an in-memory
+// store/registry/loader; production builds them from cfg.
+type TrustStamperOption func(*TrustStamper)
+
+// WithStampStore injects a pre-built trust store.
+func WithStampStore(s *trust.Store) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.store = s }
+}
+
+// WithStampRegistry injects a pre-built remote registry.
+func WithStampRegistry(r *remote.Registry) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.registry = r }
+}
+
+// WithStampLoader injects a pre-built bundle loader (it must resolve the same
+// refs the listing produced).
+func WithStampLoader(l *bundles.Loader) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.loader = l }
+}
+
+// WithStampFS injects the filesystem used to build the store/registry/loader
+// when they are not supplied directly.
+func WithStampFS(fs afero.Fs) TrustStamperOption {
+	return func(ts *TrustStamper) { ts.fs = fs }
+}
+
+// NewTrustStamper builds a stamper for cfg. It never errors: if the trust store
+// cannot be opened, every subsequent stamp denies (fail closed), matching
+// EffectiveTrust. The remote registry is built once on the happy path; if it
+// cannot be built it is left nil and resolved per call (still fail-closed at the
+// remote tier, while the earlier tiers — denylist/blacklist/grant/bundle/local —
+// keep their precedence).
+func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamper {
+	ts := &TrustStamper{cfg: cfg}
+	for _, o := range opts {
+		o(ts)
+	}
+	if ts.loader == nil && cfg != nil {
+		ts.loader = bundleLoader(cfg)
+	}
+	if ts.store == nil {
+		store, err := getTrustStore(cfg, nil, ts.fs)
+		if err != nil {
+			clidiag.Warn("ctxloom", "trust store unreadable, denying all stamps: %v", err)
+			ts.denyAll = true
+		} else {
+			ts.store = store
+		}
+	}
+	if ts.registry == nil && !ts.denyAll {
+		if reg, err := effectiveTrustRegistry(cfg, EffectiveTrustRequest{FS: ts.fs}); err != nil {
+			// Leave nil: EffectiveTrust rebuilds (and fail-closes) per call without
+			// disturbing the earlier-tier precedence for items that never reach the
+			// remote tier.
+			clidiag.Warn("ctxloom", "trust: remote registry unreadable, remote-tier stamps will deny: %v", err)
+		} else {
+			ts.registry = reg
+		}
+	}
+	return ts
+}
+
+// ForRef stamps a fragment/prompt/mcp item addressed by its full list ref
+// "<source>#<kind>/<name>". It materializes the item's effective content through
+// the shared loader (cached per bundle) to compute the content hash the cascade
+// keys on, honoring ShouldUseDistilled. A parse/resolve/hash failure stamps a
+// fail-closed DENY (SourceDefault): never trusted, never an error (TR3
+// fault-tolerance + fail-closed for the trust signal).
+func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
+	if ts.denyAll {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	tRef, loadRef, _, err := parseTrustItemRef(ref)
+	if err != nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	hash, _, err := computeItemHash(ts.cfg, ts.loader, tRef, loadRef)
+	if err != nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	return ts.resolve(tRef, hash)
+}
+
+// ForLocalMCP stamps a configured (project-local) MCP server, which carries no
+// bundle ref. It hashes the server's executable surface
+// (BundleMCP.ComputeContentHash — Command+Args+Env+Installation) and resolves it
+// as a local mcp item: an executable surface the cascade never auto-trusts, so
+// it denies unless an explicit grant, the content denylist, or a bundle posture
+// decides otherwise.
+func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) EffectiveTrustResult {
+	if ts.denyAll {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	ref := trust.Ref{Kind: trust.KindMCP, Name: name, IsLocal: true}
+	return ts.resolve(ref, srv.ComputeContentHash())
+}
+
+// resolve runs the cascade with the stamper's shared store + registry so no
+// per-item file I/O happens on the happy path.
+func (ts *TrustStamper) resolve(ref trust.Ref, hash string) EffectiveTrustResult {
+	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
+		Ref:         ref,
+		ContentHash: hash,
+		Store:       ts.store,
+		Registry:    ts.registry,
+		FS:          ts.fs,
+	})
+	if err != nil || res == nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	return *res
 }

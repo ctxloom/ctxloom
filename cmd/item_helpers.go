@@ -83,6 +83,15 @@ type itemRow struct {
 	Remote      string `json:"remote"`
 	BundleLabel string `json:"bundle_label"`
 	SourceURL   string `json:"source_url,omitempty"`
+	// Trusted and TrustSource are the TR3 effective-trust stamp: whether the
+	// per-item trust cascade currently exposes this item, and which tier decided
+	// it (explicit-grant|bundle|local|remote|blacklist|denylist|default). They
+	// are populated only for --format json (see stampItemTrust); the human
+	// listing is unchanged. An item whose content cannot be resolved/hashed is
+	// stamped conservatively (trusted=false, default) rather than failing the
+	// listing — TR3 is read-only and never enforces here.
+	Trusted     bool   `json:"trusted"`
+	TrustSource string `json:"trust_source"`
 }
 
 // remoteURLMap maps each configured remote's URL to its name (best-effort: a
@@ -202,6 +211,21 @@ func printItemInfos(rows []itemRow, itemType ItemType) {
 	}
 }
 
+// stampItemTrust annotates each row with its effective trust (TR3). It builds a
+// single TrustStamper for the whole listing — trust store and remote registry
+// read once, each bundle materialized+hashed once via the shared loader cache —
+// so the content-keyed stamp does not re-fetch per item. Per-item failures are
+// swallowed by the stamper (conservative trusted=false), never crashing the
+// listing.
+func stampItemTrust(cfg *config.Config, itemType ItemType, rows []itemRow) {
+	stamper := operations.NewTrustStamper(cfg)
+	for i := range rows {
+		res := stamper.ForRef(rows[i].Ref)
+		rows[i].Trusted = res.Trusted()
+		rows[i].TrustSource = string(res.Source)
+	}
+}
+
 // listItems lists all items of the given type, optionally filtered by bundle.
 func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error {
 	cfg, err := GetConfig()
@@ -217,6 +241,11 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 	filtered := filterByBundle(rows, bundleFilter)
 	if filtered == nil {
 		filtered = []itemRow{}
+	}
+	// Stamp effective trust only for the machine (json) surface: it materializes
+	// and hashes each item, so the cheaper ref-only human listing stays unchanged.
+	if outputFormatOf(cmd) == formatJSON {
+		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {
 		if len(rows) == 0 {

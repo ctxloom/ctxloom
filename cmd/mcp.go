@@ -7,6 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -52,40 +54,106 @@ var mcpListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List configured MCP servers",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+	RunE:    runMCPList,
+}
 
-		result, err := operations.ListMCPServers(cmd.Context(), cfg, operations.ListMCPServersRequest{
-			SortBy: "name",
+// mcpListRow is the --format json shape for `ctxloom mcp list`: a configured MCP
+// server plus its TR3 effective-trust stamp. These are project/plugin-level
+// (local) servers; per the trust model a local executable is never auto-trusted,
+// so trusted is false unless an explicit grant, the content denylist, or a
+// bundle posture decides it. (Bundle-sourced MCP items — addressed
+// <bundle>#mcp/<name> — are gated at their own choke in TR5 and are not what
+// this command lists.)
+type mcpListRow struct {
+	Name        string   `json:"name"`
+	Command     string   `json:"command"`
+	Args        []string `json:"args,omitempty"`
+	Backend     string   `json:"backend"`
+	Trusted     bool     `json:"trusted"`
+	TrustSource string   `json:"trust_source"`
+}
+
+// mcpListJSON is the top-level --format json payload for `ctxloom mcp list`.
+type mcpListJSON struct {
+	Servers      []mcpListRow `json:"servers"`
+	AutoRegister bool         `json:"auto_register"`
+}
+
+func runMCPList(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	result, err := operations.ListMCPServers(cmd.Context(), cfg, operations.ListMCPServersRequest{
+		SortBy: "name",
+	})
+	if err != nil {
+		return err
+	}
+
+	rows := make([]mcpListRow, 0, len(result.Servers))
+	for _, srv := range result.Servers {
+		rows = append(rows, mcpListRow{
+			Name:    srv.Name,
+			Command: srv.Command,
+			Args:    srv.Args,
+			Backend: srv.Backend,
 		})
-		if err != nil {
-			return err
-		}
+	}
+	// Stamp effective trust only for the machine (json) surface, matching the
+	// fragment/prompt listings; the human output below is unchanged.
+	if outputFormatOf(cmd) == formatJSON {
+		stampMCPTrust(cfg, result.Servers, rows)
+	}
 
-		if result.Count == 0 {
-			fmt.Println("No MCP servers configured.")
-			fmt.Println()
-			fmt.Printf("Auto-register ctxloom MCP server: %v\n", result.AutoRegister)
-			fmt.Println("\nUse 'ctxloom manage mcp servers add <name> --command <cmd>' to add one.")
-			return nil
-		}
+	return emit(cmd, mcpListJSON{Servers: rows, AutoRegister: result.AutoRegister}, func() error {
+		return printMCPList(cmd.OutOrStdout(), result)
+	})
+}
 
-		fmt.Println("MCP Servers:")
-		for _, srv := range result.Servers {
-			fmt.Printf("  %s\n", srv.Name)
-			fmt.Printf("    Command: %s\n", srv.Command)
-			if len(srv.Args) > 0 {
-				fmt.Printf("    Args: %s\n", strings.Join(srv.Args, " "))
-			}
-			fmt.Printf("    Scope: %s\n", srv.Backend)
-		}
+// stampMCPTrust annotates each json row with its effective trust (TR3). A single
+// TrustStamper reads the trust store / remote registry once for the whole list;
+// each configured server is hashed by its executable surface
+// (BundleMCP.ComputeContentHash) and resolved as a local mcp item.
+func stampMCPTrust(cfg *config.Config, servers []operations.MCPServerEntry, rows []mcpListRow) {
+	stamper := operations.NewTrustStamper(cfg)
+	for i := range rows {
+		srv := servers[i]
+		res := stamper.ForLocalMCP(srv.Name, bundles.BundleMCP{
+			Command:      srv.Command,
+			Args:         srv.Args,
+			Env:          srv.Env,
+			Installation: srv.Installation,
+		})
+		rows[i].Trusted = res.Trusted()
+		rows[i].TrustSource = string(res.Source)
+	}
+}
 
-		fmt.Printf("\nAuto-register ctxloom MCP server: %v\n", result.AutoRegister)
+// printMCPList writes the human-readable MCP server listing, preserving the
+// pre-TR3 text output exactly (trust is shown only in --format json).
+func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
+	if result.Count == 0 {
+		fmt.Fprintln(w, "No MCP servers configured.")
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Auto-register ctxloom MCP server: %v\n", result.AutoRegister)
+		fmt.Fprintln(w, "\nUse 'ctxloom manage mcp servers add <name> --command <cmd>' to add one.")
 		return nil
-	},
+	}
+
+	fmt.Fprintln(w, "MCP Servers:")
+	for _, srv := range result.Servers {
+		fmt.Fprintf(w, "  %s\n", srv.Name)
+		fmt.Fprintf(w, "    Command: %s\n", srv.Command)
+		if len(srv.Args) > 0 {
+			fmt.Fprintf(w, "    Args: %s\n", strings.Join(srv.Args, " "))
+		}
+		fmt.Fprintf(w, "    Scope: %s\n", srv.Backend)
+	}
+
+	fmt.Fprintf(w, "\nAuto-register ctxloom MCP server: %v\n", result.AutoRegister)
+	return nil
 }
 
 var (

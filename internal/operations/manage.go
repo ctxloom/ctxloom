@@ -98,6 +98,10 @@ type HarnessStatusResult struct {
 	// root. The single source of truth for the not-a-stable-root warning, shared
 	// by `ctxloom run` and the VSCode companion's title-bar warning.
 	RootFallback bool `json:"root_fallback"`
+	// Errors records per-backend status-read failures; non-empty means the
+	// report is partial. One backend's corrupt/unreadable settings.json no
+	// longer blacks out the status of every other backend.
+	Errors []string `json:"errors,omitempty"`
 }
 
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
@@ -117,7 +121,12 @@ func HarnessStatus(_ context.Context, cfg *config.Config, req HarnessStatusReque
 	for _, name := range backends.BackendsWithSettings() {
 		status, err := backends.BackendStatus(name, workDir, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read %s status: %w", name, err)
+			// Warn-and-continue like the sibling RemoveHooks: one backend's
+			// unreadable settings.json must not abort the whole read-only status
+			// report and hide every other backend's wiring.
+			clidiag.Warn("ctxloom", "failed to read %s status: %v", name, err)
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to read %s status: %v", name, err))
+			continue
 		}
 		result.Backends = append(result.Backends, BackendWiring{
 			Backend:        name,

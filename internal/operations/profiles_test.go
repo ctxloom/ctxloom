@@ -678,13 +678,13 @@ func TestCreateProfile_SetDefault(t *testing.T) {
 		Loader:  loader,
 	})
 
-	// Even if cfg.Save() fails (no real path), the default should be set in memory
-	if err != nil {
-		assert.Contains(t, err.Error(), "failed to save default setting")
-	} else {
-		assert.Equal(t, "created", result.Status)
-	}
-	// Default should be set in memory (stored in Profiles array)
+	// The profile is written to disk before the default flag is persisted, so a
+	// failed cfg.Save() (e.g. no real config path) is downgraded to a warning
+	// rather than failing the whole creation — the reported status must match
+	// the on-disk state (the profile exists).
+	require.NoError(t, err)
+	assert.Equal(t, "created", result.Status)
+	// Default should be set in memory (stored in Profiles array) regardless.
 	assert.Contains(t, cfg.Profiles.Defaults, "default-profile")
 }
 

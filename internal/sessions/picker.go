@@ -67,7 +67,13 @@ func (p *Picker) Run() (Decision, error) {
 	p.initCheckboxes()
 
 	// Special case: empty index → fall through to NewAction immediately.
-	if len(p.visible()) == 0 {
+	// Gate on Entries, NOT visible(): when the index has entries but all of them
+	// are beyond the current horizon, visible() is empty yet we must still enter
+	// the render/handle loop so the "(N older sessions hidden; press m to
+	// reveal)" hint shows and `m` can expand the horizon — otherwise a project
+	// whose most-recent session predates the horizon could never reach its own
+	// indexed sessions. render() and the prompt tolerate zero visible rows.
+	if len(p.Entries) == 0 {
 		return Decision{Action: NewAction}, nil
 	}
 

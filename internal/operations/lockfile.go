@@ -276,7 +276,10 @@ func InstallDependencies(ctx context.Context, cfg *config.Config, req InstallDep
 	var errors []string
 
 	for _, e := range entries {
-		ref := fmt.Sprintf("%s@%s", e.Ref, shortSHA(e.Entry.SHA))
+		// Pin to the full locked SHA, not the 7-char abbreviation: the puller
+		// resolves an exact commit, and an abbreviated SHA is a weaker (and
+		// ambiguity-prone) reference than what the lockfile actually recorded.
+		ref := fmt.Sprintf("%s@%s", e.Ref, e.Entry.SHA)
 
 		opts := remote.PullOptions{
 			Force:    req.Force,

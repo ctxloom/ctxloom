@@ -96,8 +96,14 @@ func collectProfileBundleRefs(path string, content []byte, result *BundleAnalysi
 		}
 		bundleRef, _, _ := strings.Cut(bundle, "#")
 		ref, err := remote.ParseReference(bundleRef)
-		if err != nil || !ref.IsCanonical() {
+		if err != nil {
 			result.Invalid = append(result.Invalid, fmt.Sprintf("%s (in %s)", bundle, filepath.Base(path)))
+			continue
+		}
+		if !ref.IsCanonical() {
+			// Parseable but local (ctxloom:local / bare name): out of scope for
+			// remote/lockfile reconciliation, not malformed — so skip it rather
+			// than mislabeling it Invalid.
 			continue
 		}
 		// Key by the canonical ref so it matches lockfile keys.

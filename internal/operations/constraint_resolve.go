@@ -33,6 +33,7 @@ import (
 func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory remote.FetcherFactory, auth remote.AuthConfig, reResolve bool) func(*remote.Reference) (string, string, bool) {
 	type resolved struct{ sha, version string }
 	cache := map[string]resolved{}
+	failed := map[string]bool{} // negative cache: don't re-resolve (or re-warn) a known failure
 	rvByURL := map[string]remote.RepoVersions{}
 
 	repoVersions := func(url string) remote.RepoVersions {
@@ -63,6 +64,9 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		if r, ok := cache[key]; ok {
 			return r.sha, r.version, true
 		}
+		if failed[key] {
+			return "", "", false // already resolved-and-failed this flatten; skip the network + warning
+		}
 		store := func(sha, version string) (string, string, bool) {
 			cache[key] = resolved{sha, version}
 			return sha, version, true
@@ -92,6 +96,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
 			return store(e.SHA, e.Version)
 		}
+		failed[key] = true
 		clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping", identity, expr)
 		return "", "", false
 	}

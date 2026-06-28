@@ -79,6 +79,16 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 		go func(i int, profile string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			// A panic inside RunOneshot (backend client, context assembly, a
+			// plugin) would otherwise crash the whole process and every other
+			// in-flight member. Recover and record it as an error Part so one
+			// bad member degrades like a returned error — honoring the
+			// documented "never fails the call" contract (CLAUDE.md).
+			defer func() {
+				if r := recover(); r != nil {
+					parts[i] = Part{Profile: profile, Err: fmt.Sprintf("panic: %v", r)}
+				}
+			}()
 
 			res, err := RunOneshot(ctx, cfg, RunOneshotRequest{
 				Profile:   profile,

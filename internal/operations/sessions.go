@@ -1,7 +1,9 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
@@ -30,12 +32,19 @@ func isUnrecoverable(e sessions.Entry) bool {
 	if e.TranscriptPath == "" {
 		return false // pending/unbound: the session is still in progress
 	}
-	return !fileExists(e.TranscriptPath)
+	return transcriptGone(e.TranscriptPath)
 }
 
-func fileExists(path string) bool {
+// transcriptGone reports whether the transcript file is genuinely absent
+// (ENOENT). Any other os.Stat error — permission denied, a transient I/O hiccup
+// on a network mount, EINTR, a temporarily-unavailable parent dir — is treated
+// as "not gone" so a degraded environment never permanently forgets a still-
+// recoverable session (CLAUDE.md fault tolerance: tolerate transient failures,
+// never destructive action). Only true non-existence makes a bound transcript
+// unrecoverable.
+func transcriptGone(path string) bool {
 	_, err := os.Stat(path)
-	return err == nil
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // ListSessions returns every session index entry, after reconciling away any

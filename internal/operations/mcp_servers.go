@@ -364,8 +364,8 @@ func RemoveMCPServer(ctx context.Context, cfg *config.Config, req RemoveMCPServe
 // removeMCPServerEntries deletes the named server from the locations implied by
 // backend, returning the list of locations it was removed from. An empty
 // backend removes from the unified map and every plugin backend; "unified"
-// removes only from the unified map; any other value removes from the unified
-// map (always checked) and that specific backend.
+// removes only from the unified map; any other value removes only from that
+// specific backend (the unified map is checked only for "" / "unified").
 func removeMCPServerEntries(cfg *config.Config, backend, name string) []string {
 	var removedFrom []string
 	if isUnifiedBackend(backend) && removeUnifiedServer(cfg, name) {

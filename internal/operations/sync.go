@@ -576,6 +576,23 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 		missing = append(missing, collectMissingRefs(ctx, parentProfiles, remote.ItemTypeProfile, "profile", profileName, bundleReader, profileReader, seen)...)
 	}
 
+	// Config-default remote profiles are dependency roots too — mirror
+	// collectRemoteReferences (the SyncDependencies path). An init-seeded or
+	// home-inherited default may name a remote profile that no local profile
+	// references; resolveProfilesToCheck only enumerates Definitions keys and
+	// directory profiles, so such a default is never probed. Without this, the
+	// SyncOnStartup gate reports Count 0 and short-circuits to "up_to_date",
+	// leaving the remote default never auto-installed. Only probe defaults when
+	// no explicit profiles were requested, matching the collect path;
+	// collectMissingRefs already filters to remote refs and dedupes via seen.
+	if len(req.Profiles) == 0 {
+		defaults := cfg.ExplicitDefaultProfiles()
+		if len(defaults) == 0 {
+			defaults = homeDefaultProfiles()
+		}
+		missing = append(missing, collectMissingRefs(ctx, defaults, remote.ItemTypeProfile, "profile", "", bundleReader, profileReader, seen)...)
+	}
+
 	if len(missing) == 0 {
 		return &CheckMissingDependenciesResult{
 			Status:  "complete",

@@ -330,6 +330,40 @@ func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	assert.True(t, found, "should find golang-testing fragment by tag")
 }
 
+func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
+	_, loader := setupSearchTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-developer": {Description: "Go development profile", Tags: []string{"go"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"filesystem": {Command: "npx"},
+		}},
+	}
+
+	// Tags-only search (empty query): tags filter fragments only. An empty query
+	// must NOT flood the results with every prompt, profile, and mcp_server
+	// (strings.Contains(s, "") is unconditionally true) — only tag-matched
+	// fragments should come back.
+	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
+		Tags:   []string{"go"},
+		Loader: loader,
+	})
+	require.NoError(t, err)
+
+	sawFragment := false
+	for _, r := range result.Results {
+		assert.NotEqual(t, "prompt", r.Type, "tags-only search must not return prompts")
+		assert.NotEqual(t, "profile", r.Type, "tags-only search must not return profiles")
+		assert.NotEqual(t, "mcp_server", r.Type, "tags-only search must not return mcp servers")
+		if r.Type == "fragment" && r.Name == "golang-testing" {
+			sawFragment = true
+		}
+	}
+	assert.True(t, sawFragment, "tags-only search should still return the tag-matched fragment")
+}
+
 func TestSearchContent_SearchPrompts(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}

@@ -32,6 +32,16 @@ func TestIsUnrecoverable(t *testing.T) {
 		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Summary: "did things"}))
 		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: missing, Detail: []string{"open item"}}))
 	})
+
+	t.Run("non-ENOENT stat error -> recoverable (transient hiccup, don't forget it)", func(t *testing.T) {
+		// A path whose parent component is a regular file makes os.Stat fail
+		// with ENOTDIR — a non-ENOENT error standing in for any transient I/O
+		// failure (permission denied, network-mount hiccup). Only genuine
+		// absence (ENOENT) may mark a bound transcript unrecoverable, so this
+		// must stay recoverable rather than be silently forgotten.
+		notDir := filepath.Join(present, "child.jsonl")
+		assert.False(t, isUnrecoverable(sessions.Entry{TranscriptPath: notDir}))
+	})
 }
 
 func TestSelectPreviousEntry(t *testing.T) {

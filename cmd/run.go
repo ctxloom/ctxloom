@@ -499,7 +499,7 @@ Examples:
 		// if it moves and a launch one level up or down won't resume them. Warn,
 		// never block (CLAUDE.md fault tolerance).
 		if projectroot.RootFromFallback() {
-			fmt.Fprintf(os.Stderr, "ctxloom: warning: not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.\n", workDir)
+			clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", workDir)
 		}
 
 		// Dry run mode - show the assembled context and prompt, then stop
@@ -853,15 +853,29 @@ func confirmUpgrade(p *upgrade.Pending, commit func() error) {
 	}
 
 	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", p.Path, strings.Join(p.Applied, ", "))
-	fmt.Fprint(os.Stderr, "Rewrite it to the current format? [y/N] ")
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return
-	}
-	if answer := strings.ToLower(strings.TrimSpace(line)); answer == "y" || answer == "yes" {
+	if yes, err := promptYesNo("Rewrite it to the current format? [y/N] "); err == nil && yes {
 		commitUpgrade(p, commit)
 	}
+}
+
+// stdinReader is the single buffered reader over os.Stdin shared by every
+// interactive y/N prompt. A fresh bufio.Reader per prompt would silently discard
+// any bytes a previous reader buffered past its line (type-ahead / paste between
+// back-to-back confirmations), so all prompts read through this one reader.
+var stdinReader = bufio.NewReader(os.Stdin)
+
+// promptYesNo writes prompt to stderr and reads one line from the shared stdin
+// reader, reporting whether the answer was affirmative ("y"/"yes",
+// case-insensitive). The read error (e.g. EOF) is returned so each caller can
+// apply its own fallback; anything that is not an explicit yes is a no.
+func promptYesNo(prompt string) (bool, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	line, err := stdinReader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes", nil
 }
 
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
@@ -901,20 +915,12 @@ func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
 	for _, dep := range check.Missing {
 		fmt.Fprintf(os.Stderr, "  - %s (%s, from profile %q)\n", dep.Reference, dep.Type, dep.Profile)
 	}
-	fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
-
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
+	yes, err := promptYesNo("Proceed? [y/N] ")
+	if err != nil || !yes {
 		fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
 		return false
 	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	if answer == "y" || answer == "yes" {
-		return true
-	}
-	fmt.Fprintln(os.Stderr, "ctxloom: skipping sync")
-	return false
+	return true
 }
 
 func plural(n int, singular, plural string) string {

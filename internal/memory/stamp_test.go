@@ -104,6 +104,35 @@ func TestStampPlanFile_MalformedFrontmatter_NoOp(t *testing.T) {
 	}
 }
 
+func TestStampPlanFile_EmptyFrontmatter_Stamped(t *testing.T) {
+	// An empty but validly-terminated frontmatter block (`---\n---\n`) must be
+	// recognized and stamped, not misclassified as unterminated.
+	src := "---\n---\n# body\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.HasPrefix(got, "---\nsessions:\n  - swift-amber-falcon\n---\n") {
+		t.Errorf("empty frontmatter should be stamped with the harp; got:\n%s", got)
+	}
+	if !strings.Contains(got, "# body") {
+		t.Errorf("body must survive; got:\n%s", got)
+	}
+}
+
+func TestStampPlanFile_EmptyFrontmatterNoBody_Stamped(t *testing.T) {
+	src := "---\n---\n"
+	path := writePlanFile(t, "p.md", src)
+	if err := StampPlanFile(path, "swift-amber-falcon"); err != nil {
+		t.Fatalf("StampPlanFile: %v", err)
+	}
+	got := readFile(t, path)
+	if !strings.HasPrefix(got, "---\nsessions:\n  - swift-amber-falcon\n---\n") {
+		t.Errorf("empty frontmatter (no body) should be stamped; got:\n%s", got)
+	}
+}
+
 func TestStampPlanFile_EmptyHarp_Errors(t *testing.T) {
 	path := writePlanFile(t, "p.md", "body\n")
 	if err := StampPlanFile(path, ""); err == nil {

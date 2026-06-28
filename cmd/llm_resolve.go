@@ -50,12 +50,20 @@ func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.Ba
 		entry, ok := cfg.LM.Configs[label]
 		return ok && entry.EffectiveType() == backendType
 	}
+	// Short-circuit on the primary label only when it actually decodes; an
+	// undecodable primary (decodeBackendConfig warns and returns nil) must fall
+	// through to a same-type sibling that can decode rather than degrading the
+	// whole resolution to unconfigured defaults.
 	if primary := cfg.PrimaryLabel(); matchesType(primary) {
-		return decodeBackendConfig(cfg, primary)
+		if bc := decodeBackendConfig(cfg, primary); bc != nil {
+			return bc
+		}
 	}
 	for _, label := range slices.Sorted(maps.Keys(cfg.LM.Configs)) {
 		if matchesType(label) {
-			return decodeBackendConfig(cfg, label)
+			if bc := decodeBackendConfig(cfg, label); bc != nil {
+				return bc
+			}
 		}
 	}
 	return nil

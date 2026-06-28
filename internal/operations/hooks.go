@@ -58,6 +58,17 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		return nil, err
 	}
 
+	// Resolve inherited defaults up front, for BOTH the regenerate and
+	// non-regenerate paths. ApplyHooks reloads a fresh config, so a project that
+	// inherits defaults.profiles from the home config has none resolved until
+	// EnsureDefaultProfiles populates them. Two later steps consume the default
+	// profile set regardless of RegenerateContext — ResolveBundleMCPServers
+	// (below) and the per-backend AssembleManagedHooks — so without this the
+	// written settings would silently omit the MCP servers and hooks shipped by
+	// the default profile's bundles. Idempotent (resolves at most once per cfg);
+	// previously this only happened as a side effect inside regenerateContext.
+	EnsureDefaultProfiles(freshCfg)
+
 	// Honor the statusline opt-out (config: settings.statusline: false).
 	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
 

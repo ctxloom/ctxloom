@@ -80,7 +80,7 @@ func warnMissingCompanion(bin, hint string) {
 // default profiles, plus servers shipped by built-in bundles embedded in
 // the binary (resources/builtin_bundles). Mirrors ResolveBundleHooks: any
 // future built-in that ships an MCP server is picked up automatically,
-// tagged with SCM="builtin:<name>" so reconciliation can identify it.
+// tagged with SCM="bundle:builtin:<name>" so reconciliation can identify it.
 func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
@@ -142,7 +142,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 // resolveBuiltinBundleMCPServers parses every YAML under
 // resources/builtin_bundles/ (embedded at build time) and returns the
 // merged MCP-server map. Mirrors resolveBuiltinBundleHooks. Each server
-// is tagged with SCM="builtin:<name>" so apply-* reconciliation can
+// is tagged with SCM="bundle:builtin:<name>" so apply-* reconciliation can
 // identify built-in entries. Failures on individual bundles are logged
 // to stderr and skipped — built-in bundles must never block startup.
 func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
@@ -229,7 +229,7 @@ func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
 
 // resolveBuiltinBundleHooks parses every YAML under
 // resources/builtin_bundles/ (embedded at build time) and returns the
-// merged hook set. Each hook is tagged with SCM="builtin:<name>" so the
+// merged hook set. Each hook is tagged with SCM="bundle:builtin:<name>" so the
 // apply-hooks reconciliation can identify built-in entries. Failures on
 // individual bundles are logged to stderr and skipped — built-in bundles
 // must never block startup.

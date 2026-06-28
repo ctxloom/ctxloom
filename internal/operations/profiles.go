@@ -360,7 +360,12 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 	if req.Default {
 		cfg.Profiles.AddDefaultProfile(req.Name)
 		if err := cfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save default setting: %w", err)
+			// The profile is already written to disk; reporting the whole
+			// creation as failed here would contradict the on-disk state. Warn
+			// and return success for the part that took (partial success is
+			// success — CLAUDE.md fault tolerance); the user can re-run
+			// `ctxloom profile default` to set it.
+			clidiag.Warn("ctxloom", "profile %q created but setting it as default failed: %v", req.Name, err)
 		}
 	} else {
 		// Auto-promote: if there is no default profile yet, this becomes it so

@@ -108,19 +108,19 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 		return nil, err
 	}
 
-	// Clean content: strip leading header lines
-	content := prompt.Content
-	lines := strings.Split(content, "\n")
-	var cleanedLines []string
-	skipHeader := true
-	for _, line := range lines {
-		if skipHeader && strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		skipHeader = false
-		cleanedLines = append(cleanedLines, line)
+	// Clean content: drop a single leading H1 title line. Skip any leading
+	// blank lines first (so a leading newline doesn't bypass stripping), then
+	// remove exactly the first heading line — not a contiguous run of headings,
+	// which would swallow real body sub-headings.
+	lines := strings.Split(prompt.Content, "\n")
+	i := 0
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
 	}
-	content = strings.TrimSpace(strings.Join(cleanedLines, "\n"))
+	if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+		i++
+	}
+	content := strings.TrimSpace(strings.Join(lines[i:], "\n"))
 
 	return &GetPromptResult{
 		Name:    prompt.Name,

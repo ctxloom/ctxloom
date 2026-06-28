@@ -86,9 +86,20 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 		}
 		for _, s := range searchers {
-			if searchTypes.Has(s.typ) {
-				results = append(results, s.run()...)
+			if !searchTypes.Has(s.typ) {
+				continue
 			}
+			// A tags-only search (empty query) is fragment-scoped: tags filter
+			// fragments only, and the prompt/profile/mcp_server matchers gate
+			// solely on strings.Contains(name/desc/command, query), which is
+			// unconditionally true for an empty query — so they would flood the
+			// results with every item. Skip them, mirroring the empty-query
+			// guard searchRemoteEntries already uses. searchFragments handles
+			// the tag-filtered set itself.
+			if query == "" && s.typ != "fragment" {
+				continue
+			}
+			results = append(results, s.run()...)
 		}
 	}
 	if req.SearchRemote {

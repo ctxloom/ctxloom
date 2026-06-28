@@ -11,19 +11,7 @@ import (
 	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/filelock"
 	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/shared/wire"
 )
-
-// ConfigFile represents the structure for saving config.yaml
-type ConfigFile struct {
-	Version  int              `yaml:"version"`
-	LM       LMConfig         `yaml:"llm"`
-	Editor   EditorConfig     `yaml:"editor,omitempty"`
-	Settings SettingsConfig   `yaml:"config,omitempty"`
-	Sync     SyncConfig       `yaml:"sync,omitempty"`
-	Hooks    wire.HooksConfig `yaml:"hooks,omitempty"`
-	Profiles ProfilesConfig   `yaml:"profiles,omitempty"`
-}
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
 // upgraded bytes verbatim so the comments and key order preserved by the node

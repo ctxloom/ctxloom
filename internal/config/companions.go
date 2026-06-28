@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -103,16 +104,29 @@ func BuiltinCompanionBins() []string {
 // its version. Missing binaries yield Path == "" (their bundle entries are
 // skipped by the resolvers, which also emit the install hint); a present
 // binary whose probe fails carries the error. Reporting only — never fatal.
+//
+// Probes run concurrently: each is bounded by companionProbeTimeout, so a
+// sequential loop would add that bound per wedged companion to startup. Running
+// them in parallel keeps the worst-case wall-clock to ~one timeout (CLAUDE.md:
+// never block startup). Output order is preserved (sorted by bin) since each
+// goroutine writes its own slot.
 func ProbeCompanions() []CompanionStatus {
-	var out []CompanionStatus
-	for _, bin := range BuiltinCompanionBins() {
-		st := CompanionStatus{Bin: bin}
-		if path, err := lookPath(bin); err == nil {
-			st.Path = path
-			st.Version, st.Err = companionVersion(path)
-		}
-		out = append(out, st)
+	bins := BuiltinCompanionBins()
+	out := make([]CompanionStatus, len(bins))
+	var wg sync.WaitGroup
+	for i, bin := range bins {
+		wg.Add(1)
+		go func(i int, bin string) {
+			defer wg.Done()
+			st := CompanionStatus{Bin: bin}
+			if path, err := lookPath(bin); err == nil {
+				st.Path = path
+				st.Version, st.Err = companionVersion(path)
+			}
+			out[i] = st
+		}(i, bin)
 	}
+	wg.Wait()
 	return out
 }
 

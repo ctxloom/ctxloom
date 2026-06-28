@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"sort"
+
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -79,7 +81,23 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 
 	diffEntryMaps(cs, registry, remote.ItemTypeBundle, prevBundles, curr.Bundles)
 	diffEntryMaps(cs, registry, remote.ItemTypeProfile, prevProfiles, curr.Profiles)
+
+	// diffEntryMaps appends in Go map-iteration order, which is randomized;
+	// sort so the review output (and All()) is deterministic run to run.
+	sortBundleChanges(cs.Added)
+	sortBundleChanges(cs.Modified)
 	return cs
+}
+
+// sortBundleChanges orders changes by Name, then Kind, in place — giving the
+// review a stable, deterministic order independent of map iteration.
+func sortBundleChanges(changes []BundleChange) {
+	sort.SliceStable(changes, func(i, j int) bool {
+		if changes[i].Name != changes[j].Name {
+			return changes[i].Name < changes[j].Name
+		}
+		return changes[i].Kind < changes[j].Kind
+	})
 }
 
 // diffEntryMaps appends curr's added/modified entries of one item type to cs,

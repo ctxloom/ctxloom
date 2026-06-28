@@ -39,6 +39,7 @@ const mcpRecvTimeout = 15 * time.Second
 // *testing.T) so it composes with both Go tests and godog steps.
 type MCPClient struct {
 	cmd     *exec.Cmd
+	ctx     context.Context // cancelled by Close; unblocks a parked reader send
 	cancel  context.CancelFunc
 	stdin   io.WriteCloser
 	lines   chan string // server stdout, one line per receive; closed on read error
@@ -73,6 +74,7 @@ func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
 	}
 	c := &MCPClient{
 		cmd:    cmd,
+		ctx:    ctx,
 		cancel: cancel,
 		stdin:  stdin,
 		lines:  make(chan string, 64),
@@ -87,7 +89,16 @@ func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
 		for {
 			line, err := r.ReadString('\n')
 			if line != "" {
-				c.lines <- line
+				// Select on ctx.Done so a burst of unconsumed lines that fills
+				// c.lines (cap 64) can't park this goroutine forever: Close's
+				// cancel() then unblocks the send and lets it exit cleanly.
+				select {
+				case c.lines <- line:
+				case <-c.ctx.Done():
+					c.readErr = c.ctx.Err()
+					close(c.lines)
+					return
+				}
 			}
 			if err != nil {
 				c.readErr = err
@@ -216,6 +227,39 @@ func (r ToolResult) Inner() (map[string]any, error) {
 		return nil, fmt.Errorf("unwrap tool json: %w", err)
 	}
 	return inner, nil
+}
+
+// IsError reports whether the tool call failed and a short failure message.
+// Failure means EITHER a JSON-RPC envelope error OR a CallToolResult with
+// isError=true — the form the MCP SDK uses for handler errors and input
+// validation failures, which never populate the JSON-RPC envelope error. The
+// "succeeds"/"fails" assertions must consult this, not just Raw["error"].
+func (r ToolResult) IsError() (bool, string) {
+	if e := r.Raw["error"]; e != nil {
+		return true, fmt.Sprintf("%v", e)
+	}
+	result, ok := r.Raw["result"].(map[string]any)
+	if !ok {
+		return false, ""
+	}
+	if isErr, _ := result["isError"].(bool); isErr {
+		return true, toolContentText(result)
+	}
+	return false, ""
+}
+
+// toolContentText returns content[0].text from a CallToolResult, or "" if absent.
+func toolContentText(result map[string]any) string {
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		return ""
+	}
+	first, ok := content[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	text, _ := first["text"].(string)
+	return text
 }
 
 // JSON returns the raw inner-result text for substring assertions, or the raw

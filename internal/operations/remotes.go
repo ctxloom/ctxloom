@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -174,7 +173,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	valid, _ := fetcher.ValidateRepo(ctx, owner, repo)
+	valid, validErr := fetcher.ValidateRepo(ctx, owner, repo)
 
 	// Trust on add (e.g. the user's own personal repos during init): bundle
 	// changes from a trusted remote auto-apply without review. Roll the
@@ -199,7 +198,15 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 		URL:    rem.URL,
 	}
 	if !valid {
-		result.Warning = "repository does not have a ctxloom/ directory structure"
+		// A false result can mean either a genuinely-missing ctxloom/ directory
+		// (validErr nil) or that validation itself failed (network/auth). Don't
+		// report the "no directory structure" text when the real cause was an
+		// error — that would mislead the user into thinking the repo is wrong.
+		if validErr != nil {
+			result.Warning = fmt.Sprintf("could not validate repository: %v", validErr)
+		} else {
+			result.Warning = "repository does not have a ctxloom/ directory structure"
+		}
 	}
 
 	// Eagerly clone the remote into the local cache so a bad URL, missing auth,
@@ -639,7 +646,7 @@ func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, r
 			return nil, ""
 		}
 		warning := fmt.Sprintf("failed to browse %s: %v", itemType.DirName(), err)
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		clidiag.Warn("ctxloom", "%s", warning)
 		return nil, warning
 	}
 
@@ -935,7 +942,9 @@ func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
 			Tags:        r.Entry.Tags,
 			Description: r.Entry.Description,
 			Author:      r.Entry.Author,
-			PullRef:     fmt.Sprintf("%s@%ss/%s", r.RemoteURL, itemType, r.Entry.Name),
+			// Canonicalize through Reference so all sites share one format
+			// (consistent with browseEntry) rather than the ad-hoc "%ss" pluralize.
+			PullRef: (&remote.Reference{URL: r.RemoteURL, ItemType: r.ItemType, Path: r.Entry.Name}).CanonicalString(),
 		})
 	}
 	return entries

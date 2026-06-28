@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/gitutil"
 )
 
@@ -74,7 +75,7 @@ Output format (JSON to stdout):
 		inputData, err := io.ReadAll(os.Stdin)
 		if err == nil && len(inputData) > 0 {
 			if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to parse hook input: %v\n", unmarshalErr)
+				clidiag.Warn("ctxloom hook inject-context", "failed to parse hook input: %v", unmarshalErr)
 			}
 		}
 
@@ -85,7 +86,7 @@ Output format (JSON to stdout):
 		content, err := agent.ReadContextFile(workDir, hash)
 		if err != nil {
 			// Log to stderr, output empty JSON to stdout
-			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to read context file: %v\n", err)
+			clidiag.Warn("ctxloom hook inject-context", "failed to read context file: %v", err)
 			content = ""
 		}
 
@@ -129,7 +130,7 @@ Output format (JSON to stdout):
 		encoder := json.NewEncoder(os.Stdout)
 		if err := encoder.Encode(output); err != nil {
 			// If encoding fails, output empty JSON
-			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: warning: failed to encode output: %v\n", err)
+			clidiag.Warn("ctxloom hook inject-context", "failed to encode output: %v", err)
 			fmt.Println("{}")
 		}
 		return nil
@@ -208,7 +209,7 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
 				"MCP tools are only for retrieving context during the session — searching and loading " +
 				"fragments, prompts (skills), and prior session history. Task tracking is the " +
-				"separate `tasks` MCP server and `tasks` CLI._"
+				"separate `taskloom` MCP server and `taskloom` CLI._"
 			if total > 1 {
 				preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
 			}

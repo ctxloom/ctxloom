@@ -83,7 +83,6 @@ type loadSessionResult struct {
 	Reduction string `json:"reduction,omitempty"`
 	Duration  string `json:"duration,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
-	PID       int    `json:"pid,omitempty"`
 }
 
 // getSessionsDir returns the directory holding distilled session .md files.
@@ -189,7 +188,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	if in.SessionID == "" {
 		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
 	}
-	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, 0, false)
+	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, false)
 }
 
 // loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
@@ -251,7 +250,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	// hasn't moved), but when that size can't be determined recover errs toward
 	// re-distilling — a cached essence from an earlier /clear in this same session
 	// covers only an earlier slice. redistillWhenUnknown=true encodes that bias.
-	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, 0, true)
+	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, true)
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
@@ -299,7 +298,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, 0, false)
+	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, false)
 }
 
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.
@@ -317,10 +316,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 //     recover_session re-distills (the live session may have grown past the
 //     cache); load_session / get_previous_session keep the cache (a finished
 //     session rarely changes, so spending an LLM call on it isn't worth it).
-//
-// The pid argument is only set by get_previous_session so the response can carry
-// it back; for the other callers it's zero and the PID field stays omitted.
-func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, pid int, redistillWhenUnknown bool) (*mcp.CallToolResult, *loadSessionResult, error) {
+func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, redistillWhenUnknown bool) (*mcp.CallToolResult, *loadSessionResult, error) {
 	source, backendName, err := resolveSessionSource(s.cfg, backendName)
 	if err != nil {
 		return nil, nil, err
@@ -337,14 +333,12 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		return nil, &loadSessionResult{
 			Loaded:  false,
 			Message: fmt.Sprintf("Couldn't load session %s: %v", sessionID, err),
-			PID:     pid,
 		}, nil
 	}
 	if len(session.Entries) == 0 {
 		return nil, &loadSessionResult{
 			Loaded:  false,
 			Message: fmt.Sprintf("Session %s appears to be empty.", sessionID),
-			PID:     pid,
 		}, nil
 	}
 
@@ -363,7 +357,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	}
 
 	// Cached path: reuse the essence when the transcript hasn't moved past it.
-	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID, pid); cached != nil {
+	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
 		if (known && !stale) || (!known && !redistillWhenUnknown) {
 			return nil, cached, nil
@@ -374,14 +368,14 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// workDir feeds CompactionConfig for compatibility; the gRPC transcript read
 	// is self-situated and ignores it.
 	workDir, _ := os.Getwd()
-	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp, pid)
+	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	return nil, result, err
 }
 
 // loadCachedDistilledSession returns a result from an already-distilled session
 // on disk plus the transcript byte size stamped into its frontmatter (the
 // staleness fingerprint), or (nil, 0) when none is cached.
-func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) (*loadSessionResult, int64) {
+func loadCachedDistilledSession(sessionsDir, sessionID string) (*loadSessionResult, int64) {
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
 		return nil, 0
@@ -393,13 +387,12 @@ func loadCachedDistilledSession(sessionsDir, sessionID string, pid int) (*loadSe
 		WasCached: true,
 		Tokens:    distilled.TokensOut,
 		CreatedAt: distilled.DistilledAt.Format("2006-01-02 15:04:05"),
-		PID:       pid,
 	}, distilled.SourceSize
 }
 
 // distillSession compacts a session and returns the freshly-distilled result.
 // harp keys the session's plan files; pass "" to fall back to the active harp.
-func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string, pid int) (*loadSessionResult, error) {
+func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
 	fmt.Fprintf(os.Stderr, "ctxloom: distilling session %s (this may take a moment)...\n", sessionID)
 
 	if model == "" {
@@ -419,17 +412,17 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 		HarpName:  harp,
 	})
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err), PID: pid}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start distillation for session %s: %v", sessionID, err)}, nil
 	}
 
 	compactResult, err := compactor.Compact(ctx)
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distillation failed for session %s: %v", sessionID, err), PID: pid}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distillation failed for session %s: %v", sessionID, err)}, nil
 	}
 
 	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", sessionID, err), PID: pid}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", sessionID, err)}, nil
 	}
 
 	return &loadSessionResult{
@@ -441,6 +434,5 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 		TokensIn:  compactResult.TotalTokensIn,
 		TokensOut: compactResult.TotalTokensOut,
 		Reduction: reductionPct(compactResult.TotalTokensIn, compactResult.TotalTokensOut),
-		PID:       pid,
 	}, nil
 }

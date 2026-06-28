@@ -120,11 +120,13 @@ var configEditCmd = &cobra.Command{
 
 var configInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Scaffold a default config.yaml",
-	Long: `Write a default config.yaml into the project .ctxloom directory.
+	Short: "Scaffold a default config.yaml (and remotes.yaml)",
+	Long: `Write a default config.yaml AND a default remotes.yaml into the project
+.ctxloom directory.
 
-Refuses to overwrite an existing config. To scaffold a full project (remotes,
-hooks, discovery), use 'ctxloom manage init' instead.`,
+Refuses to overwrite an existing config.yaml, but the accompanying remotes.yaml
+is (re)written with defaults — back up a customized remotes.yaml first. For a
+fuller project scaffold (hooks, discovery), use 'ctxloom manage init'.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		appDir, err := resolveAppDir(false)

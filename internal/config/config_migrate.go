@@ -3,6 +3,7 @@ package config
 import (
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/upgrade"
 )
 
@@ -165,15 +166,23 @@ func migrateLLMv3(root *yaml.Node) {
 		// compaction.model folds onto the fast label's config model. The
 		// explicit compaction model is the compression model the user chose, so
 		// it wins over any model already on that label.
-		if cm := upgrade.MapValue(comp, "model"); cm != nil && cm.Kind == yaml.ScalarNode && cm.Value != "" && fastLabel != "" {
-			configs := upgrade.EnsureMap(llm, "configs")
-			entry := upgrade.EnsureMap(configs, fastLabel)
-			if upgrade.MapValue(entry, "type") == nil {
-				entry.Content = append([]*yaml.Node{
-					upgrade.ScalarNode("type"), upgrade.ScalarNode(fastLabel),
-				}, entry.Content...)
+		if cm := upgrade.MapValue(comp, "model"); cm != nil && cm.Kind == yaml.ScalarNode && cm.Value != "" {
+			if fastLabel != "" {
+				configs := upgrade.EnsureMap(llm, "configs")
+				entry := upgrade.EnsureMap(configs, fastLabel)
+				if upgrade.MapValue(entry, "type") == nil {
+					entry.Content = append([]*yaml.Node{
+						upgrade.ScalarNode("type"), upgrade.ScalarNode(fastLabel),
+					}, entry.Content...)
+				}
+				upgrade.MapSet(entry, "model", upgrade.ScalarNode(cm.Value))
+			} else {
+				// No compaction.llm and no primary label means there is no LLM
+				// label to attach the model to. Warn rather than silently drop
+				// the user's chosen compaction model (this migration is
+				// irreversible on disk).
+				clidiag.Warn("ctxloom", "config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
 			}
-			upgrade.MapSet(entry, "model", upgrade.ScalarNode(cm.Value))
 		}
 		// compaction.chunks → config.compaction_chunks
 		if ch := upgrade.MapValue(comp, "chunks"); ch != nil && ch.Kind == yaml.ScalarNode && ch.Value != "" {

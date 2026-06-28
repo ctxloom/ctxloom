@@ -245,7 +245,7 @@ func loadBundleForItem(ref string, itemType ItemType) (*bundles.Bundle, string, 
 
 	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("bundle not found: %s", bundleName)
+		return nil, "", nil, fmt.Errorf("load bundle %q: %w", bundleName, err)
 	}
 	return bundle, itemName, cfg, nil
 }
@@ -463,7 +463,7 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteOverride string, createPR 
 
 	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
-		return fmt.Errorf("bundle not found: %s", bundleName)
+		return fmt.Errorf("load bundle %q: %w", bundleName, err)
 	}
 
 	remoteName, err := operations.ResolveBundleRemote(cfg, bundle.Path, remoteOverride)

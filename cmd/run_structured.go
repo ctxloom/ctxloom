@@ -51,14 +51,43 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 		}
 	}()
 
-	// Read stdin lines → messages. Closing `in` half-closes the chat so the
-	// agent finishes; cancel ends everything on an interrupt.
-	scanErr := readMessagesLoop(stdin, in)
-	close(in)
+	// Read stdin lines → messages in its own goroutine, closing `in` to
+	// half-close the chat at EOF so the agent finishes its last turn. Reading
+	// concurrently (and making the loop ctx-aware) lets a stream that ends
+	// before stdin EOF — a backend crash or clean close — unblock us instead of
+	// hanging forever on an open stdin pipe with the stream error unread.
+	scanDone := make(chan error, 1)
+	go func() {
+		scanDone <- readMessagesLoop(ctx, stdin, in)
+		close(in)
+	}()
 
-	<-renderDone
-	if e := <-errs; e != nil && ctx.Err() == nil {
+	var (
+		scanErr         error
+		reportStreamErr bool
+	)
+	select {
+	case scanErr = <-scanDone:
+		// stdin closed first (EOF/read error): wait for the agent's last turn.
+		<-renderDone
+		reportStreamErr = ctx.Err() == nil
+	case <-renderDone:
+		// The stream ended first (clean close or backend crash). Don't wait on
+		// stdin — a blocking read on an open pipe can't be interrupted — so
+		// cancel (which also unblocks any pending message send) and move on. A
+		// genuine stream end here (we hadn't already cancelled) should surface.
+		reportStreamErr = ctx.Err() == nil
+		cancel()
+	}
+
+	// errs carries the stream's terminal error (buffered, then closed). Report a
+	// real stream failure, but stay quiet when we (render error) or an interrupt
+	// cancelled — there the error is just the teardown we asked for.
+	if e := <-errs; e != nil && reportStreamErr {
 		clidiag.Warn("ctxloom", "chat stream ended: %v", e)
+		if scanErr == nil {
+			scanErr = e
+		}
 	}
 	return scanErr
 }
@@ -231,14 +260,20 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 }
 
 // readMessagesLoop reads in line by line and sends each decoded line as a chat
-// message (one line = one message). Returns at EOF/read error. Escapes within a
+// message (one line = one message). Returns at EOF/read error, or when ctx is
+// cancelled while a send is pending — without the ctx guard a send would block
+// forever once a dead/cancelled chat stream stops draining out. Escapes within a
 // line are decoded (see decodeMessageLine) so a single typed line can carry
 // newlines, tabs, and quotes.
-func readMessagesLoop(in io.Reader, out chan<- string) error {
+func readMessagesLoop(ctx context.Context, in io.Reader, out chan<- string) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		out <- decodeMessageLine(scanner.Text())
+		select {
+		case out <- decodeMessageLine(scanner.Text()):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return scanner.Err()
 }

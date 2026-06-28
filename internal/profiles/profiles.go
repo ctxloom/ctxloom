@@ -537,14 +537,14 @@ func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*Resolved
 func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, depth int) (*ResolvedProfile, error) {
 	// Check depth limit (consistent with config.ResolveProfile)
 	if depth > maxProfileDepth {
-		return nil, fmt.Errorf("profile inheritance depth exceeds maximum (%d): possible misconfiguration", maxProfileDepth)
+		return nil, fmt.Errorf("%w (%d): possible misconfiguration", errs.ErrProfileDepthExceeded, maxProfileDepth)
 	}
 
 	if visited == nil {
 		visited = make(map[string]bool)
 	}
 	if visited[name] {
-		return nil, fmt.Errorf("circular profile reference: %s", name)
+		return nil, fmt.Errorf("%w: %s", errs.ErrCircularInheritance, name)
 	}
 	visited[name] = true
 
@@ -581,13 +581,24 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		parentVisited := cloneVisited(visited)
 		parentResolved, err := l.resolveProfileRecursive(parentName, parentVisited, depth+1)
 		if err != nil {
-			if errors.Is(err, errs.ErrProfileNotFound) {
+			switch {
+			case errors.Is(err, errs.ErrCircularInheritance), errors.Is(err, errs.ErrProfileDepthExceeded):
+				// Structural misconfiguration stays fatal: continuing would mask
+				// a real cycle or risk runaway recursion.
+				return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
+			case errors.Is(err, errs.ErrProfileNotFound):
 				clidiag.Warn("ctxloom",
 					"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
 					name, parent)
-				continue
+			default:
+				// Corrupt parent (invalid YAML, IO/permission error): warn and
+				// skip this branch rather than aborting the whole resolution, so
+				// the user still reaches their LLM (CLAUDE.md fault tolerance).
+				clidiag.Warn("ctxloom",
+					"profile %q: parent %s failed to load (%v); skipping",
+					name, parent, err)
 			}
-			return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
+			continue
 		}
 		resolved.Merge(parentResolved)
 	}

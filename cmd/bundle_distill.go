@@ -264,9 +264,7 @@ var compressionRouter = compression.NewRouter()
 // distillWithModel sends content through compression and returns distilled content and model ID.
 // It first tries AST-based compression for code and JSON structure compression for JSON content.
 // For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
-func distillWithModel(llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	ctx := context.Background()
-
+func distillWithModel(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	// Detect content type and try AST/JSON compression first
 	contentType := compression.DetectContentType(name, content)
 
@@ -281,7 +279,7 @@ func distillWithModel(llmName, llmLabel, model string, env map[string]string, na
 	}
 
 	// For text content or when AST compression isn't effective, use LLM
-	return distillWithLLM(llmName, llmLabel, model, env, name, content, distillPrompt, siblingCtx)
+	return distillWithLLM(ctx, llmName, llmLabel, model, env, name, content, distillPrompt, siblingCtx)
 }
 
 // isStructuredContent returns true for content types that can be compressed structurally.
@@ -331,7 +329,7 @@ func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string
 }
 
 // distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
 
 	// Create plugin client. The label rides along so serve configures the exact
@@ -361,7 +359,7 @@ func distillWithLLM(llmName, llmLabel, model string, env map[string]string, name
 
 	// Execute and capture model info
 	var stdout, stderr bytes.Buffer
-	result, err := client.RunWithModelInfo(context.Background(), req, nil, &stdout, &stderr, nil)
+	result, err := client.RunWithModelInfo(ctx, req, nil, &stdout, &stderr, nil)
 	if err != nil {
 		return "", "", err
 	}

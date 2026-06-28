@@ -459,6 +459,30 @@ bundles:
 	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
 }
 
+// TestLoader_ResolveProfile_CorruptParent verifies that a parent which fails to
+// parse (invalid YAML) is treated like a missing parent: warn-and-continue, the
+// rest of the profile still resolves. Per CLAUDE.md fault tolerance, a corrupt
+// file must not block the user from reaching their LLM.
+func TestLoader_ResolveProfile_CorruptParent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Invalid YAML (unterminated flow sequence) for the parent.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "broken.yaml"), []byte("parents: [oops\n  bad: : :\n"), 0644))
+	child := `parents:
+  - broken
+bundles:
+  - own-bundle
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+
+	require.NoError(t, err, "a corrupt parent must degrade to warn-and-continue, not abort")
+	require.NotNil(t, resolved)
+	assert.Equal(t, []string{"own-bundle"}, resolved.Bundles)
+}
+
 // TestLoader_ResolveProfile_DiamondInheritance verifies diamond inheritance works correctly.
 //
 // Diamond inheritance occurs when:

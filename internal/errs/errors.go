@@ -39,6 +39,11 @@ var (
 	// ErrCircularInheritance indicates a cycle in profile inheritance.
 	ErrCircularInheritance = errors.New("circular profile inheritance detected")
 
+	// ErrProfileDepthExceeded indicates profile inheritance nested past the
+	// maximum allowed depth — a structural misconfiguration kept fatal (unlike a
+	// merely missing/corrupt parent) so it is not masked by warn-and-continue.
+	ErrProfileDepthExceeded = errors.New("profile inheritance depth exceeds maximum")
+
 	// ErrInvalidReference indicates a malformed bundle/profile reference.
 	ErrInvalidReference = errors.New("invalid reference")
 )

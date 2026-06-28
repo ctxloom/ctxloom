@@ -102,12 +102,14 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", []updateInfo{u})
 	// Reload after the apply so cleanup prunes from the freshly-pulled lockfile
 	// rather than reverting it (see updateAll).
+	reloadOK := true
 	if reloaded, rerr := lockManager.Load(); rerr == nil {
 		lockfile = reloaded
 	} else {
 		clidiag.Warn("ctxloom", "reload lockfile after apply: %v", rerr)
+		reloadOK = false
 	}
-	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager)
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removed, lockfile, lockManager, reloadOK)
 	if failed > 0 {
 		return fmt.Errorf("update failed for %s", refStr)
 	}
@@ -223,8 +225,8 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 	// Refresh every unique remote once (one git fetch per repo, not 2×N API
 	// calls), then resolve the latest SHA for each entry.
-	refreshRemoteRepos(cmd.Context(), cfg, registry, lockfile)
-	profileUpdates, bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, registry, auth, lockfile)
+	refreshRemoteRepos(cmd.Context(), cfg, lockfile)
+	profileUpdates, bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, auth, lockfile)
 
 	if skippedEmpty > 0 {
 		fmt.Printf("Skipped %d entries with empty SHA (run 'ctxloom remote pull' to clean up)\n\n", skippedEmpty)
@@ -253,14 +255,17 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).
 	// Reload before cleanup so the wholesale lockfile rewrite in RemoveLocalItems
 	// prunes removed entries from the FRESH lockfile — passing the stale pre-pull
-	// snapshot would silently revert every update just applied.
+	// snapshot would silently revert every update just applied. On reload failure
+	// reloadOK gates off the destructive cleanup entirely.
+	reloadOK := true
 	if reloaded, rerr := lockManager.Load(); rerr == nil {
 		lockfile = reloaded
 	} else {
 		clidiag.Warn("ctxloom", "reload lockfile after apply: %v", rerr)
+		reloadOK = false
 	}
 
-	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager)
+	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager, reloadOK)
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
 
@@ -297,7 +302,7 @@ type pullRunner interface {
 // refreshRemoteRepos fetches each unique remote git repo once so subsequent ref
 // resolution reads from a fresh clone. Best-effort: every failure is warned to
 // stderr and skipped — a stale repo just risks missing an update, never a crash.
-func refreshRemoteRepos(ctx context.Context, cfg *config.Config, registry *remote.Registry, lockfile *remote.Lockfile) {
+func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remote.Lockfile) {
 	cache := operations.NewRepoCache(cfg)
 	fetched := map[string]struct{}{}
 	for _, e := range lockfile.AllEntries() {
@@ -326,9 +331,9 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, registry *remot
 // detectUpdates resolves the latest SHA for every lockfile entry and buckets the
 // changed ones into profile vs bundle updates. Entries with an empty SHA are
 // counted in skipped and not checked; per-entry resolution failures are skipped
-// (the refresh pass already surfaced fetch errors). "remote not found" is
-// reported because it signals a misconfigured registry, not a transient error.
-func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockfile *remote.Lockfile) (profileUpdates, bundleUpdates []updateInfo, skipped int) {
+// (the refresh pass already surfaced fetch errors). The only per-entry message
+// printed here is for a reference that carries no repository URL.
+func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (profileUpdates, bundleUpdates []updateInfo, skipped int) {
 	cachedFactory := operations.NewCachedFetcherFactory(cfg)
 	fetcherByURL := map[string]remote.Fetcher{}
 	fetcherFor := func(url string) (remote.Fetcher, error) {
@@ -466,7 +471,12 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 // Without --cleanup it just prints a hint. Removal failures are warned, never
 // fatal. fs/appDir are seam'd so the cleanup branch is testable against a
 // MemMapFs (production passes afero.NewOsFs() and ".ctxloom").
-func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed []updateInfo, lockfile *remote.Lockfile, lockManager *remote.LockfileManager) {
+//
+// cleanupAllowed must be false when the post-apply lockfile reload failed: the
+// in-memory lockfile is then a stale pre-pull snapshot, and RemoveLocalItems'
+// wholesale Save would overwrite the freshly-pulled on-disk SHAs — reverting
+// every update just applied. In that case the destructive cleanup is skipped.
+func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed []updateInfo, lockfile *remote.Lockfile, lockManager *remote.LockfileManager, cleanupAllowed bool) {
 	if len(removed) == 0 {
 		return
 	}
@@ -478,6 +488,14 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 
 	if !updateCleanup {
 		fmt.Fprintln(out, "\nUse --cleanup to remove these local files automatically.")
+		return
+	}
+
+	if !cleanupAllowed {
+		// Reload failed: saving the stale lockfile would revert the SHAs just
+		// written to disk. Skip cleanup and let the user reconcile first.
+		fmt.Fprintln(out, "\nSkipping --cleanup: the lockfile could not be reloaded after applying updates.")
+		fmt.Fprintln(out, "Run 'ctxloom remote pull' to refresh the lockfile, then re-run with --cleanup.")
 		return
 	}
 

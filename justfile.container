@@ -122,9 +122,31 @@ release: build-all compress-all
 
 # ===== Testing =====
 
-# Run tests
+# Run tests. Coverage is filtered through .coverignore so the number CI uploads
+# to Codecov excludes generated files (protobuf, gRPC) — matching the host
+# justfile `test` recipe instead of reporting a raw, generated-file-diluted figure.
 test:
-    go test -race -coverprofile=coverage.out ./...
+    #!/usr/bin/env bash
+    set -e
+    go test -race -coverprofile=coverage.raw.out ./...
+    just -f justfile.container _filter_coverage coverage.raw.out coverage.out
+    rm -f coverage.raw.out
+
+# Filter coverage output using patterns from .coverignore (mirrors the host
+# justfile so local and CI coverage are computed identically).
+# Usage: _filter_coverage <input> <output>
+_filter_coverage INPUT OUTPUT:
+    #!/usr/bin/env bash
+    set -e
+    if [ -f .coverignore ]; then
+        # Build grep pattern from .coverignore (skip comments and empty lines)
+        patterns=$(grep -v '^#' .coverignore | grep -v '^$' | paste -sd '|' -)
+        if [ -n "$patterns" ]; then
+            grep -Ev "$patterns" "{{INPUT}}" > "{{OUTPUT}}" || cp "{{INPUT}}" "{{OUTPUT}}"
+            exit 0
+        fi
+    fi
+    cp "{{INPUT}}" "{{OUTPUT}}"
 
 # Run tests with the treesitter (CGO) build tag — exercises the code compressor
 test-treesitter:

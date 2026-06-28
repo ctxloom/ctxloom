@@ -9,8 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/shared/textutil"
 )
 
 var bundleListCmd = &cobra.Command{
@@ -147,7 +147,12 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	return renderBundleShow(cmd.OutOrStdout(), bundle)
+	// Route through emit() so `bundle show --format json` yields the structured
+	// bundle, matching `bundle list` and the rest of the CLI; text stays the
+	// human view.
+	return emit(cmd, bundle, func() error {
+		return renderBundleShow(cmd.OutOrStdout(), bundle)
+	})
 }
 
 // renderBundleShow writes the detailed bundle view to out. Sections

@@ -5,11 +5,33 @@ package compression
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestCodeCompressor_ConcurrentCompress exercises a single shared compressor
+// from many goroutines parsing the same language concurrently. With the old
+// single cached parser this raced (TSParser is stateful C); the per-language
+// sync.Pool makes it safe. Run under -race to catch a regression.
+func TestCodeCompressor_ConcurrentCompress(t *testing.T) {
+	c := NewCodeCompressor()
+	input := "package main\n\nfunc Foo(a int) int {\n\treturn a + 1\n}\n"
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := c.Compress(context.Background(), ContentTypeGo, input, 0.5)
+			assert.NoError(t, err)
+			assert.Contains(t, result.Content, "func Foo")
+		}()
+	}
+	wg.Wait()
+}
 
 func TestCodeCompressor_Go(t *testing.T) {
 	c := NewCodeCompressor()
@@ -241,6 +263,72 @@ export function createApp() {
 	assert.Contains(t, result.Content, "function createApp")
 
 	t.Logf("Compression ratio: %.2f%%", result.Ratio*100)
+	t.Logf("\n--- Compressed output ---\n%s", result.Content)
+}
+
+// TestCodeCompressor_JavaScriptExportedLongConst pins that an exported long
+// non-arrow const declaration neither leaves a dangling "export " glued onto
+// the following declaration nor silently drops the binding. (regression for the
+// extractJSLexical >100-char drop)
+func TestCodeCompressor_JavaScriptExportedLongConst(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := `export const config = { host: 'localhost', port: 3000, timeout: 30000, retries: 5, verbose: true, logLevel: 'info' };
+
+export function createApp() {
+  return {};
+}
+`
+
+	result, err := c.Compress(ctx, ContentTypeJavaScript, input, 0.5)
+	require.NoError(t, err)
+
+	// The binding name must survive in some form.
+	assert.Contains(t, result.Content, "config")
+	// The exported function after the long const must still be recognizable.
+	assert.Contains(t, result.Content, "function createApp")
+	// The buggy output dropped the const body and glued the next export onto the
+	// dangling "export " prefix, producing "export export function ...".
+	assert.NotContains(t, result.Content, "export export")
+	// No line should be a bare dangling "export".
+	for _, line := range strings.Split(result.Content, "\n") {
+		assert.NotEqual(t, "export", strings.TrimSpace(line), "dangling export line in: %q", result.Content)
+	}
+
+	t.Logf("\n--- Compressed output ---\n%s", result.Content)
+}
+
+// TestCodeCompressor_PythonModuleAssignmentsAndAsync pins that module-level
+// assignments are preserved (like Go/Rust/JS top-level const/var) and that the
+// async keyword survives in compressed signatures. (regression for code_python)
+func TestCodeCompressor_PythonModuleAssignmentsAndAsync(t *testing.T) {
+	c := NewCodeCompressor()
+	ctx := context.Background()
+
+	input := `import os
+
+API_URL = "https://example.com"
+__all__ = ["fetch"]
+
+async def fetch(url):
+    return await do(url)
+
+def sync_only():
+    return 1
+`
+
+	result, err := c.Compress(ctx, ContentTypePython, input, 0.5)
+	require.NoError(t, err)
+
+	// Module-level assignments preserved.
+	assert.Contains(t, result.Content, "API_URL")
+	assert.Contains(t, result.Content, "__all__")
+	// async keyword preserved in the signature.
+	assert.Contains(t, result.Content, "async def fetch")
+	// Plain def still works.
+	assert.Contains(t, result.Content, "def sync_only")
+
 	t.Logf("\n--- Compressed output ---\n%s", result.Content)
 }
 

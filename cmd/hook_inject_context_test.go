@@ -247,3 +247,20 @@ func TestResolveInjectContextWorkDir(t *testing.T) {
 		assert.Equal(t, "/p", got)
 	})
 }
+
+// TestClearRecoveryMessage covers the user-facing /recover nudge gate: it fires
+// only on a /clear, only on the first chunk, and only when a prior session is
+// recoverable.
+func TestClearRecoveryMessage(t *testing.T) {
+	msg := clearRecoveryMessage("clear", 1, true)
+	assert.Contains(t, msg, "/recover", "the nudge must name the /recover command")
+
+	assert.Empty(t, clearRecoveryMessage("clear", 1, false),
+		"no nudge when there's nothing to recover")
+	assert.Empty(t, clearRecoveryMessage("clear", 2, true),
+		"chunked injection shows the nudge once, on the first chunk")
+	for _, src := range []string{"startup", "resume", "compact", ""} {
+		assert.Empty(t, clearRecoveryMessage(src, 1, true),
+			"source %q retains or re-injects context — nothing to recover", src)
+	}
+}

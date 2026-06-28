@@ -306,6 +306,8 @@ github.com/ctxloom/claude v0.0.0-20260626051225-ff9f625014f3 h1:OgsduobPYUWpQH8S
 github.com/ctxloom/claude v0.0.0-20260626051225-ff9f625014f3/go.mod h1:artvN+8zUra7zNtR8+owjXXhPckcrXBlwxx9PMBCoR8=
 github.com/ctxloom/claude v0.0.0-20260627223900-04a64a470bec h1:+N8WsWcoaMLa7SQTYz0bbFBkeVc6gC3DE3oCS4aMqQo=
 github.com/ctxloom/claude v0.0.0-20260627223900-04a64a470bec/go.mod h1:NvRtxds01szeLtwiDlOabhq8x/QlvpDu/EaaiIANdIQ=
+github.com/ctxloom/claude v0.0.0-20260628151405-f6ba25749828 h1:HYtIZNUtfqHU6fLONZrA8qOel+UUWbaufqHJ6tXLdV8=
+github.com/ctxloom/claude v0.0.0-20260628151405-f6ba25749828/go.mod h1:NvRtxds01szeLtwiDlOabhq8x/QlvpDu/EaaiIANdIQ=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867 h1:MHZxU02DhyRI+HGYzvsWkAG2hfRCEvLeSaLN8DDf6h8=
 github.com/ctxloom/codex v0.0.0-20260611004132-5628ee68f867/go.mod h1:V9CR/8WmzH0tWn1P+BeQtVhX8tOnU5LlBP9aXnvEBm4=
 github.com/ctxloom/codex v0.0.0-20260627223924-60ec85c9e419 h1:caXtKniN68N5msyXFZML3/UVRJOig09RR/rHlIrHEvI=

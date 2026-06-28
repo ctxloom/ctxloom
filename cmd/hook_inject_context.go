@@ -11,9 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/claude"
-	"github.com/ctxloom/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/gitutil"
 )
 
 // HookInput is the JSON input from AI tool SessionStart hooks. The wire shape
@@ -111,6 +112,19 @@ Output format (JSON to stdout):
 		// name) is unit-testable without the surrounding hook plumbing.
 		output := buildInjectContextOutput(content, resumedEssence, part, total)
 
+		// After a /clear with a recoverable prior session, nudge the USER (not
+		// the model) toward /recover via the systemMessage channel, independent
+		// of the injected context. Only the first chunk checks (the message also
+		// guards part>1); ResolvePreviousSession is local file I/O, and on any
+		// error we stay silent rather than promise a recovery we can't confirm.
+		clearRecoverable := false
+		if hookInput.Source == "clear" && part <= 1 {
+			if ref, err := operations.ResolvePreviousSession(workDir, os.Getenv("CTXLOOM_SESSION_HARP")); err == nil && ref != nil {
+				clearRecoverable = true
+			}
+		}
+		output.SystemMessage = clearRecoveryMessage(hookInput.Source, part, clearRecoverable)
+
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
 		if err := encoder.Encode(output); err != nil {
@@ -120,6 +134,17 @@ Output format (JSON to stdout):
 		}
 		return nil
 	},
+}
+
+// clearRecoveryMessage returns the user-facing nudge shown after a /clear when a
+// prior session is recoverable, or "" otherwise. It rides SessionStartOutput's
+// systemMessage channel (surfaced to the user, not the model), and fires once
+// per clear: only on the first chunk (part<=1) and only for source=="clear".
+func clearRecoveryMessage(source string, part int, recoverable bool) string {
+	if part > 1 || source != "clear" || !recoverable {
+		return ""
+	}
+	return "ctxloom: context cleared. Run /recover to bring your previous session's context back."
 }
 
 // selectChunk resolves which slice of the assembled context this hook

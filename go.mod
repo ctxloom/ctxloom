@@ -32,6 +32,7 @@ require (
 
 require (
 	github.com/aymanbagabas/go-pty v0.2.3 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 )
@@ -84,11 +85,6 @@ require (
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
-	// genproto (monolith) pinned past the googleapis/rpc split: the go.work
-	// graph pulls the pre-split 2022 monolith via ltk's lint tooling, which
-	// makes grpc's googleapis/rpc/status import ambiguous without this pin.
-	// go mod tidy (module-scoped) wants to drop it — keep it.
-	google.golang.org/genproto v0.0.0-20260610202329-623566214e0c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

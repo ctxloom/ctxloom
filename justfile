@@ -13,6 +13,12 @@ version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-
 show-version:
     @versionator output version
 
+# Set the release version (the supported way to bump for a release). Releases
+# are merge-triggered: bump here, commit VERSION, merge — CI tags it immutably
+# (v-prefixed). Example: just set-version 0.7.0
+set-version version:
+    versionator set {{version}}
+
 # Bump patch version (0.0.X)
 bump-patch:
     versionator bump patch inc

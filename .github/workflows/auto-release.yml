@@ -48,10 +48,11 @@ jobs:
           if [ -z "$V" ]; then
             echo "::error::VERSION file is empty"; exit 1
           fi
-          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
-            echo "::error::Tag $V already exists. VERSION must be bumped per release; refusing to re-tag."
+          TAG="v${V#v}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists. VERSION must be bumped per release; refusing to re-point an immutable tag."
             exit 1
           fi
-          git tag "$V"
-          git push origin "$V"
-          echo "Tagged and pushed $V — release-completer will build and publish the release."
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Tagged and pushed $TAG — release-completer will build and publish the release."

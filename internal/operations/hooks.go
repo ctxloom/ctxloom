@@ -228,8 +228,11 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 
 // regenerateContext loads fragments from default profiles and writes the context file.
 func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...agent.ContextFileOption) (string, error) {
-	// Load fragments from default profiles using bundles
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), bundleOpts...)
+	// Load fragments from default profiles using bundles. This is an exposure
+	// surface (the SessionStart-injected context file), so it gates content the
+	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
+	// withhold anything the cascade denies.
+	loader := exposureLoader(cfg, bundleOpts...)
 
 	// Resolve defaults the way AssembleContext does (resolveContextProfileNames):
 	// ApplyHooks reloads a fresh config, so without EnsureDefaultProfiles a
@@ -264,6 +267,10 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 			Installation: content.Installation,
 		})
 	}
+
+	// Surface (content-free) any items the trust gate withheld while regenerating
+	// the SessionStart context, mirroring AssembleContext.
+	warnWithheld(loader)
 
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file

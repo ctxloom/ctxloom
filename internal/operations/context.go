@@ -61,7 +61,10 @@ type AssembleContextResult struct {
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
 	loader := req.Loader
 	if loader == nil {
-		loader = bundleLoader(cfg)
+		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
+		// gate runs the baseline first (idempotent) so existing content stays
+		// exposed, then withholds anything the cascade denies.
+		loader = exposureLoader(cfg)
 	}
 
 	profileNames := resolveContextProfileNames(cfg, req)
@@ -103,6 +106,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// — independent of profile selection, and skipped when their companion
 	// binary is absent. Appended after profile/request content.
 	contextContent, loadedNames = appendBuiltinFragments(cfg, contextContent, loadedNames)
+
+	// Surface (content-free) any items the trust gate withheld during this
+	// assembly so the user knows content was hidden and how to review it.
+	warnWithheld(loader)
 
 	return &AssembleContextResult{
 		Profiles:        profileNames,

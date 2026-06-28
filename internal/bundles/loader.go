@@ -17,6 +17,18 @@ import (
 	"github.com/ctxloom/shared/collections"
 )
 
+// ContentGate is the per-item trust gate (trust rework, TR5) for resolved
+// fragment/prompt content. It receives an item's full ref
+// ("<bundle>#<kind>/<name>"), the effective-content hash of the EXACT bytes
+// about to be exposed (pre-mustache), and the form ("raw"|"distilled"), and
+// reports whether the item may be exposed (true) or must be withheld (false).
+//
+// A nil gate means no enforcement — management/listing loaders resolve content
+// without gating so they can still see untrusted items (to baseline, grant, or
+// stamp them). Fail-closed semantics are the gate's own responsibility: a
+// resolve/hash/store error must return false (withhold), never default-allow.
+type ContentGate func(ref, contentHash, form string) bool
+
 // Loader loads bundles from disk (and an optional in-memory seed), caching
 // parsed results for the lifetime of the loader.
 type Loader struct {
@@ -26,6 +38,10 @@ type Loader struct {
 	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
 	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+
+	gate       ContentGate         // nil = no enforcement; set on exposure loaders only
+	withheldMu sync.Mutex          // Protects withheld
+	withheld   map[string]struct{} // refs the gate withheld this loader's lifetime
 }
 
 // seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
@@ -65,6 +81,16 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 	}
 }
 
+// WithTrustGate attaches the per-item trust gate (trust rework, TR5) so this
+// loader withholds fragment/prompt content the trust cascade denies. Only
+// exposure loaders (assembly, ctxloom:// resources, fragment-reading hooks,
+// SessionStart regen) set it; management/listing loaders leave it nil.
+func WithTrustGate(gate ContentGate) LoaderOption {
+	return func(l *Loader) {
+		l.gate = gate
+	}
+}
+
 // NewLoader creates a bundle loader.
 // The loader caches loaded bundles in memory to avoid redundant disk reads.
 func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
@@ -78,6 +104,47 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 		opt(l)
 	}
 	return l
+}
+
+// gateContent runs the trust gate (if any) for a resolved fragment/prompt.
+// Returns true to expose. A nil gate (management/listing loaders) always
+// exposes. A withheld item is recorded — deduplicated by ref — so an assembly
+// caller can surface the count ("N withheld") via Withheld without leaking
+// content. The hash MUST be the effective-content hash of the exact bytes about
+// to be exposed (pre-mustache), so the gate keys on what the agent would see.
+func (l *Loader) gateContent(bundleName, kindDir, itemName, contentHash string, form ContentForm) bool {
+	if l.gate == nil {
+		return true
+	}
+	ref := bundleName + "#" + kindDir + "/" + itemName
+	if l.gate(ref, contentHash, string(form)) {
+		return true
+	}
+	l.withheldMu.Lock()
+	if l.withheld == nil {
+		l.withheld = make(map[string]struct{})
+	}
+	l.withheld[ref] = struct{}{}
+	l.withheldMu.Unlock()
+	return false
+}
+
+// Withheld returns the item refs the trust gate withheld over this loader's
+// lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
+// withheld. Callers surface the count so the user knows content was hidden;
+// returning the refs (not their content) keeps the disclosure content-free.
+func (l *Loader) Withheld() []string {
+	l.withheldMu.Lock()
+	defer l.withheldMu.Unlock()
+	if len(l.withheld) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(l.withheld))
+	for ref := range l.withheld {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // seededPath builds the synthetic path used in BundleInfo for seeded bundles.

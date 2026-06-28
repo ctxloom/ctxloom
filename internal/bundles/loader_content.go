@@ -214,15 +214,23 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 	return bundleName, parts[1], true, nil
 }
 
-// fragmentContent builds a LoadedContent for a fragment.
+// fragmentContent builds a LoadedContent for a fragment, or returns nil when the
+// trust gate withholds it (trust rework, TR5). The gate hashes the EXACT
+// effective-content bytes this returns (pre-mustache), so the decision keys on
+// what the agent would actually see.
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
+	content := frag.EffectiveContent(l.preferDistilled)
+	hash, form := frag.EffectiveContentHash(l.preferDistilled)
+	if !l.gateContent(bundle.Name, "fragments", fragName, hash, form) {
+		return nil
+	}
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
 		Item:         fragName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, frag.Tags),
-		Content:      frag.EffectiveContent(l.preferDistilled),
+		Content:      content,
 		Installation: frag.Installation,
 		IsDistilled:  l.preferDistilled && frag.Distilled != "",
 		DistilledBy:  frag.DistilledBy,
@@ -239,7 +247,11 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent
 	if !ok {
 		return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
 	}
-	return l.fragmentContent(bundle, fragName, frag), nil
+	lc := l.fragmentContent(bundle, fragName, frag)
+	if lc == nil {
+		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
+	}
+	return lc, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -277,20 +289,30 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 	return matches[0] + remote.FragmentSelector + name
 }
 
-// searchFragment scans every bundle for a fragment with the given name.
+// searchFragment scans every bundle for a fragment with the given name. A match
+// the trust gate withholds (trust rework, TR5) does not end the scan — a trusted
+// copy in another bundle still wins; only when every match is withheld does it
+// report ErrFragmentWithheld (distinct from not-found).
 func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
+	withheld := false
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if frag, ok := bundle.Fragments[name]; ok {
-			return l.fragmentContent(bundle, name, frag), nil
+			if lc := l.fragmentContent(bundle, name, frag); lc != nil {
+				return lc, nil
+			}
+			withheld = true
 		}
+	}
+	if withheld {
+		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 }
@@ -308,15 +330,22 @@ func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
 	return l.searchPrompt(name)
 }
 
-// promptContent builds a LoadedContent for a prompt (prompts also carry Plugins).
+// promptContent builds a LoadedContent for a prompt (prompts also carry Plugins),
+// or returns nil when the trust gate withholds it (trust rework, TR5). See
+// fragmentContent — the gate hashes the exact effective-content bytes returned.
 func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundlePrompt) *LoadedContent {
+	content := prompt.EffectiveContent(l.preferDistilled)
+	hash, form := prompt.EffectiveContentHash(l.preferDistilled)
+	if !l.gateContent(bundle.Name, "prompts", promptName, hash, form) {
+		return nil
+	}
 	return &LoadedContent{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
 		Item:         promptName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
-		Content:      prompt.EffectiveContent(l.preferDistilled),
+		Content:      content,
 		Installation: prompt.Installation,
 		IsDistilled:  l.preferDistilled && prompt.Distilled != "",
 		DistilledBy:  prompt.DistilledBy,
@@ -334,23 +363,36 @@ func (l *Loader) promptFromBundle(bundleName, promptName string) (*LoadedContent
 	if !ok {
 		return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
 	}
-	return l.promptContent(bundle, promptName, prompt), nil
+	lc := l.promptContent(bundle, promptName, prompt)
+	if lc == nil {
+		return nil, fmt.Errorf("%w: %s", errs.ErrPromptWithheld, promptName)
+	}
+	return lc, nil
 }
 
-// searchPrompt scans every bundle for a prompt with the given name.
+// searchPrompt scans every bundle for a prompt with the given name. A gate-
+// withheld match (trust rework, TR5) does not end the scan; only when every
+// match is withheld does it report ErrPromptWithheld (distinct from not-found).
 func (l *Loader) searchPrompt(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
+	withheld := false
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if prompt, ok := bundle.Prompts[name]; ok {
-			return l.promptContent(bundle, name, prompt), nil
+			if lc := l.promptContent(bundle, name, prompt); lc != nil {
+				return lc, nil
+			}
+			withheld = true
 		}
+	}
+	if withheld {
+		return nil, fmt.Errorf("%w: %s", errs.ErrPromptWithheld, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
 }

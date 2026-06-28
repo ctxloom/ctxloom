@@ -373,6 +373,14 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 	return loaded
 }
 
+// FS returns the injected filesystem, or nil for the OS default. It lets callers
+// outside this package (e.g. operations' trust store + gate) thread the same
+// filesystem the config's own loaders use, so a virtualized fs in tests — and
+// the OS fs in production — stay consistent across every store read/write.
+func (c *Config) FS() afero.Fs {
+	return c.fs
+}
+
 // registryFSOptions threads the injected filesystem into a remote registry
 // constructor (matching the resolvers below). Empty for the OS default.
 func (c *Config) registryFSOptions() []remote.RegistryOption {

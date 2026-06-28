@@ -18,6 +18,17 @@ var (
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")
 
+	// ErrFragmentWithheld indicates a fragment resolved but the per-item trust
+	// gate (trust rework, TR5) withheld it: it exists but is not exposed because
+	// the effective-content trust cascade denied it (untrusted, blacklisted, or
+	// fail-closed on an evaluation error). Distinct from ErrFragmentNotFound so a
+	// caller can tell "missing" from "exists-but-withheld" via errors.Is.
+	ErrFragmentWithheld = errors.New("fragment withheld by trust gate")
+
+	// ErrPromptWithheld indicates a prompt resolved but the per-item trust gate
+	// (trust rework, TR5) withheld it. See ErrFragmentWithheld.
+	ErrPromptWithheld = errors.New("prompt withheld by trust gate")
+
 	// ErrRemoteNotFound indicates a remote could not be located.
 	ErrRemoteNotFound = errors.New("remote not found")
 

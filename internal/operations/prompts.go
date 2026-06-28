@@ -100,7 +100,10 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 
 	loader := req.Loader
 	if loader == nil {
-		loader = bundleLoader(cfg)
+		// Exposure surface (ctxloom://prompts/{name}): gate the resolved content
+		// (trust rework, TR5). A withheld prompt surfaces as errs.ErrPromptWithheld
+		// so the resource omits it.
+		loader = exposureLoader(cfg)
 	}
 
 	prompt, err := loader.GetPrompt(req.Name)

@@ -14,8 +14,8 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/textutil"
 	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/shared/textutil"
 )
 
 var memoryCmd = &cobra.Command{
@@ -269,14 +269,10 @@ func runMemoryCompact(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Printf("Session: %s\n", result.SessionID)
 	fmt.Printf("Chunks: %d\n", result.ChunksCreated)
-	reduction := 0.0
-	if result.TotalTokensIn > 0 {
-		reduction = 100 * (1 - float64(result.TotalTokensOut)/float64(result.TotalTokensIn))
-	}
-	fmt.Printf("Tokens: %d -> %d (%.0f%% reduction)\n",
+	fmt.Printf("Tokens: %d -> %d (%s reduction)\n",
 		result.TotalTokensIn,
 		result.TotalTokensOut,
-		reduction)
+		reductionPct(result.TotalTokensIn, result.TotalTokensOut))
 	fmt.Printf("Duration: %s\n", result.Duration.Round(time.Millisecond))
 	fmt.Printf("Output: %s\n", result.DistilledPath)
 

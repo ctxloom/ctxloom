@@ -277,6 +277,13 @@ func (p *initPrompts) readEngineChoice(primary, secondary []string, maxOption in
 		}
 
 		if input == "" {
+			// Enter selects the recommended (first primary). With zero primary
+			// engines (only secondaries registered) there is nothing to
+			// recommend, so fall through to the full list instead of indexing
+			// primary[0] — a latent index-out-of-range panic in init.
+			if len(primary) == 0 {
+				return p.promptAllEngines(primary, secondary)
+			}
 			return primary[0], nil
 		}
 

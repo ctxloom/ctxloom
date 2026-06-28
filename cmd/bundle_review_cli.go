@@ -40,12 +40,13 @@ Respond with:
 		if err != nil {
 			return err
 		}
+		out := cmd.OutOrStdout()
 		cs := operations.PendingBundleChanges(cfg)
 		if cs.IsEmpty() {
-			fmt.Println("No bundle changes pending review.")
+			fmt.Fprintln(out, "No bundle changes pending review.")
 			return nil
 		}
-		fmt.Print(renderReviewCLI(cs))
+		fmt.Fprint(out, renderReviewCLI(cs))
 		return nil
 	},
 }
@@ -67,11 +68,11 @@ the reviewed hashes, rebuild the active lockfile from the updated closure
 			return err
 		}
 		if applied == 0 {
-			fmt.Println("No bundle changes pending review.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No bundle changes pending review.")
 			return nil
 		}
 		applyHooksAfterReview(cmd.Context(), cfg)
-		fmt.Printf("Approved %d dependency change(s).\n", applied)
+		fmt.Fprintf(cmd.OutOrStdout(), "Approved %d dependency change(s).\n", applied)
 		return nil
 	},
 }
@@ -88,12 +89,13 @@ installed). With a name, declines only that one.`,
 		if err != nil {
 			return err
 		}
+		out := cmd.OutOrStdout()
 		if len(args) == 0 {
 			if err := operations.ClearPendingLockfile(cfg); err != nil {
 				return err
 			}
 			applyHooksAfterReview(cmd.Context(), cfg)
-			fmt.Println("Declined all pending bundle changes; active lockfile unchanged.")
+			fmt.Fprintln(out, "Declined all pending bundle changes; active lockfile unchanged.")
 			return nil
 		}
 		found, err := operations.DropPendingBundle(cfg, args[0])
@@ -101,11 +103,11 @@ installed). With a name, declines only that one.`,
 			return err
 		}
 		if !found {
-			fmt.Printf("%q is not in the pending lockfile.\n", args[0])
+			fmt.Fprintf(out, "%q is not in the pending lockfile.\n", args[0])
 			return nil
 		}
 		applyHooksAfterReview(cmd.Context(), cfg)
-		fmt.Printf("Declined %q.\n", args[0])
+		fmt.Fprintf(out, "Declined %q.\n", args[0])
 		return nil
 	},
 }
@@ -190,11 +192,12 @@ var bundleUnholdCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		out := cmd.OutOrStdout()
 		if !found {
-			fmt.Printf("%q is not in the active lockfile; nothing to unhold.\n", args[0])
+			fmt.Fprintf(out, "%q is not in the active lockfile; nothing to unhold.\n", args[0])
 			return nil
 		}
-		fmt.Printf("Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
+		fmt.Fprintf(out, "Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
 		return nil
 	},
 }
@@ -208,11 +211,11 @@ var bundleShowPendingCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out, err := renderPendingBundle(cmd.Context(), cfg, args[0])
+		rendered, err := renderPendingBundle(cmd.Context(), cfg, args[0])
 		if err != nil {
 			return err
 		}
-		fmt.Print(out)
+		fmt.Fprint(cmd.OutOrStdout(), rendered)
 		return nil
 	},
 }

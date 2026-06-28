@@ -274,20 +274,6 @@ test-acceptance-live-container: container-build-acceptance
 test-pkg PKG *ARGS:
     go test -race {{ARGS}} {{PKG}}
 
-# Run all tests in container (matches CI environment)
-test-container:
-    #!/usr/bin/env bash
-    # See _run for why --user is skipped under rootless docker.
-    user_flag=(--user "$(id -u):$(id -g)")
-    if docker info 2>/dev/null | grep -q "rootless"; then
-        user_flag=()
-    fi
-    docker run --rm "${user_flag[@]}" -v "$(pwd):/app" -w /app golang:1.26 sh -c '\
-        go mod download && \
-        go test -race ./... && \
-        CGO_ENABLED=0 go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom . && \
-        go test -v -tags integration ./tests/integration/...'
-
 # ===== Mutation testing =====
 
 # Run mutation tests with gremlins (requires gremlins installed)

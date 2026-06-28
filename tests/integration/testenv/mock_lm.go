@@ -10,9 +10,6 @@ import (
 // MockLM provides a fake language model for testing.
 // Uses the built-in mock plugin for gRPC-based plugin system.
 type MockLM struct {
-	// BinaryPath is kept for compatibility but unused with gRPC plugins
-	BinaryPath string
-
 	// Response is what the mock LM will output
 	Response string
 
@@ -30,7 +27,6 @@ type MockLM struct {
 // The dir parameter is the root temp directory; projectDir will be set by SetupMockLM.
 func NewMockLM(dir string) (*MockLM, error) {
 	m := &MockLM{
-		BinaryPath:        filepath.Join(dir, "mock-lm"), // Kept for compatibility
 		Response:          "Mock LM response",
 		ExitCode:          0,
 		RecordedInputPath: filepath.Join(dir, "mock-lm-input.txt"),
@@ -39,40 +35,6 @@ func NewMockLM(dir string) (*MockLM, error) {
 
 	// No longer need to write a shell script; using built-in mock plugin
 	return m, nil
-}
-
-// Write creates/updates the mock LM script with current settings.
-func (m *MockLM) Write() error {
-	// Create a shell script that:
-	// 1. Records all input to a file
-	// 2. Outputs the configured response
-	// 3. Exits with the configured code
-	script := fmt.Sprintf(`#!/bin/sh
-# Mock LM for testing
-
-# Record all arguments and stdin
-{
-    echo "=== Arguments ==="
-    for arg in "$@"; do
-        echo "$arg"
-    done
-    echo "=== Stdin ==="
-    cat
-} > "%s"
-
-# Output response
-cat << 'MOCK_RESPONSE_EOF'
-%s
-MOCK_RESPONSE_EOF
-
-exit %d
-`, m.RecordedInputPath, m.Response, m.ExitCode)
-
-	if err := os.WriteFile(m.BinaryPath, []byte(script), 0755); err != nil {
-		return fmt.Errorf("failed to write mock LM script: %w", err)
-	}
-
-	return nil
 }
 
 // SetResponse sets the response. Config will be updated on next SetupMockLM call.
@@ -134,26 +96,27 @@ func (m *MockLM) WriteConfig() error {
 }
 
 // extractYAMLSection extracts a top-level YAML section from config content.
-// Returns empty string if section not found.
+// Returns empty string if section not found. The key is matched only at column 0
+// (a true top-level key), so an indented/nested 'profiles:' sub-key or one inside
+// a quoted value or comment is not mistaken for the section.
 func extractYAMLSection(config, sectionKey string) string {
-	idx := strings.Index(config, sectionKey)
-	if idx < 0 {
+	lines := strings.Split(config, "\n")
+	start := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, sectionKey) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
 		return ""
 	}
 
-	// Find where this section ends (next top-level key or end of file)
-	section := config[idx:]
-	lines := strings.Split(section, "\n")
-
 	var result strings.Builder
-	for i, line := range lines {
-		if i == 0 {
-			result.WriteString(line)
-			result.WriteString("\n")
-			continue
-		}
-		// Stop at next top-level key (line starting with non-space, non-empty)
-		if len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
+	for i := start; i < len(lines); i++ {
+		line := lines[i]
+		// Stop at the next top-level key (non-space, non-empty, non-comment).
+		if i > start && len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
 			break
 		}
 		result.WriteString(line)

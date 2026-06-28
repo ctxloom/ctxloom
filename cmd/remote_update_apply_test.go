@@ -188,16 +188,59 @@ func TestReportRemovedFromRemote_HintsWhenNoCleanup(t *testing.T) {
 	// updateCleanup defaults to false, so this exercises the no-cleanup branch
 	// (which touches no filesystem).
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", []updateInfo{bundleUpd("acme/gone")}, nil, nil)
+	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", []updateInfo{bundleUpd("acme/gone")}, nil, nil, true)
 	got := out.String()
 	if !strings.Contains(got, "acme/gone") || !strings.Contains(got, "--cleanup") {
 		t.Errorf("expected removed listing + cleanup hint:\n%s", got)
 	}
 }
 
+func TestReportRemovedFromRemote_SkipsCleanupWhenReloadFailed(t *testing.T) {
+	// --cleanup is set, but the post-apply lockfile reload failed
+	// (cleanupAllowed=false), so the destructive RemoveLocalItems/Save is
+	// skipped: the seeded file survives and the lockfile entry is NOT pruned,
+	// preventing a stale snapshot from reverting the just-applied SHAs.
+	prev := updateCleanup
+	updateCleanup = true
+	t.Cleanup(func() { updateCleanup = prev })
+
+	fs := afero.NewMemMapFs()
+	appDir := ".ctxloom"
+	const goneRef = "https://github.com/acme/repo@bundles/gone"
+	goneParsed, perr := remote.ParseReference(goneRef)
+	if perr != nil {
+		t.Fatalf("parse ref: %v", perr)
+	}
+	bundlePath := goneParsed.LocalPath(appDir, remote.ItemTypeBundle)
+	if err := afero.WriteFile(fs, bundlePath, []byte("name: gone\n"), 0o644); err != nil {
+		t.Fatalf("seed bundle file: %v", err)
+	}
+
+	lockManager := remote.NewLockfileManager(appDir, remote.WithLockfileFS(fs))
+	lockfile := &remote.Lockfile{
+		Bundles:  map[string]remote.LockEntry{},
+		Profiles: map[string]remote.LockEntry{},
+	}
+	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
+
+	var out bytes.Buffer
+	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, false)
+
+	if exists, _ := afero.Exists(fs, bundlePath); !exists {
+		t.Errorf("expected %s to survive when cleanup is gated off", bundlePath)
+	}
+	if _, ok := lockfile.GetEntry(remote.ItemTypeBundle, goneRef); !ok {
+		t.Error("expected lockfile entry to be retained when cleanup is gated off")
+	}
+	got := out.String()
+	if !strings.Contains(got, "Skipping --cleanup") {
+		t.Errorf("expected a skip notice:\n%s", got)
+	}
+}
+
 func TestReportRemovedFromRemote_EmptyIsSilent(t *testing.T) {
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", nil, nil, nil)
+	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", nil, nil, nil, true)
 	if out.Len() != 0 {
 		t.Errorf("expected no output, got %q", out.String())
 	}
@@ -230,7 +273,7 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager)
+	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true)
 
 	if exists, _ := afero.Exists(fs, bundlePath); exists {
 		t.Errorf("expected %s to be deleted", bundlePath)
@@ -275,7 +318,7 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager)
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true)
 
 	got := out.String()
 	if strings.Contains(got, "Warning: failed to remove") {

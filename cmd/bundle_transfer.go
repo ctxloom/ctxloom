@@ -74,7 +74,7 @@ func runBundlePush(cmd *cobra.Command, args []string) error {
 func loadBundleForPush(cfg *config.Config, bundleName string) (*bundles.Bundle, error) {
 	bundle, err := operations.GetBundle(cfg, bundleName)
 	if err != nil {
-		return nil, fmt.Errorf("bundle not found: %s", bundleName)
+		return nil, fmt.Errorf("load bundle %q: %w", bundleName, err)
 	}
 	return bundle, nil
 }

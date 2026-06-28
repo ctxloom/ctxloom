@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/shared/agent"
 	"github.com/stretchr/testify/assert"
@@ -52,7 +55,7 @@ func TestReadMessagesLoop(t *testing.T) {
 	in := strings.NewReader("hello\nwo\\trld\n")
 	out := make(chan string, 8)
 
-	require.NoError(t, readMessagesLoop(in, out))
+	require.NoError(t, readMessagesLoop(context.Background(), in, out))
 	close(out)
 
 	var got []string
@@ -68,7 +71,7 @@ func TestReadMessagesLoop(t *testing.T) {
 // still delivered.
 func TestReadMessagesLoop_NoTrailingNewline(t *testing.T) {
 	out := make(chan string, 2)
-	require.NoError(t, readMessagesLoop(strings.NewReader("only line"), out))
+	require.NoError(t, readMessagesLoop(context.Background(), strings.NewReader("only line"), out))
 	close(out)
 
 	var got []string
@@ -136,25 +139,28 @@ func TestRenderChatEvents_UnknownFormat(t *testing.T) {
 }
 
 // TestRunStructuredREPL_DrivesChatRPC: stdin lines reach the Chat RPC as
-// messages, and the RPC's events render to stdout.
+// messages, and the RPC's events render to stdout. The mock models the real
+// contract — the stream stays open until input half-closes, then emits the turn
+// and ends — so stdin reading and rendering race the way they do in production.
 func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	var captured []string
 	captureDone := make(chan struct{})
 	mock := &pb.MockClient{
 		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
 			in := make(chan string)
+			events := make(chan agent.ChatEvent)
+			errs := make(chan error)
 			go func() {
 				for m := range in {
 					captured = append(captured, m)
 				}
 				close(captureDone)
+				// Input half-closed: emit the turn, then end the stream cleanly.
+				events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hi back"}}
+				events <- agent.ChatEvent{Complete: &agent.TurnMeta{ContextWindow: 1000}}
+				close(events)
+				close(errs)
 			}()
-			events := chatEvents(
-				agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hi back"}},
-				agent.ChatEvent{Complete: &agent.TurnMeta{ContextWindow: 1000}},
-			)
-			errs := make(chan error)
-			close(errs)
 			return in, events, errs, nil
 		},
 	}
@@ -166,4 +172,41 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	<-captureDone // the message reached the RPC's input channel
 	assert.Equal(t, []string{"hello"}, captured)
 	assert.Contains(t, out.String(), `"content":"hi back"`)
+}
+
+// TestRunStructuredREPL_StreamEndsBeforeStdinEOF: a backend that crashes/ends
+// (events closed early with an error parked on errs) while stdin is still open
+// must NOT hang waiting for stdin EOF — it returns with the stream error rather
+// than blocking forever on the open pipe.
+func TestRunStructuredREPL_StreamEndsBeforeStdinEOF(t *testing.T) {
+	streamErr := errors.New("backend died")
+	mock := &pb.MockClient{
+		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
+			in := make(chan string, 8) // buffered so a pending send never blocks the test
+			events := make(chan agent.ChatEvent)
+			errs := make(chan error, 1)
+			// Backend dies immediately: park the error, then close the stream.
+			errs <- streamErr
+			close(events)
+			close(errs)
+			return in, events, errs, nil
+		},
+	}
+
+	// stdin is a pipe that never reaches EOF, so the old code would block forever.
+	pr, pw := io.Pipe()
+	defer pw.Close()
+
+	done := make(chan error, 1)
+	var out bytes.Buffer
+	go func() {
+		done <- runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, formatJSON, pr, &out)
+	}()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, streamErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("runStructuredREPL hung when the stream ended before stdin EOF")
+	}
 }

@@ -5,7 +5,10 @@ project_name: ctxloom
 
 before:
   hooks:
-    - go mod tidy
+    # `go mod download` (not `go mod tidy`): tidy is module-scoped and would drop
+    # the deliberately-retained pre-split genproto monolith pin (see go.mod),
+    # rewriting go.mod/go.sum mid-release. download only hydrates the cache.
+    - go mod download
     - go run ./scripts/genman
 
 builds:

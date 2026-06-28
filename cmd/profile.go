@@ -181,6 +181,12 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 func profileCreateDirs(cfg *config.Config) []string {
 	dirs := profiles.GetProfileDirs(cfg.AppPaths)
 	if len(dirs) == 0 {
+		// Mirror the len(AppPaths)==0 guard the rest of internal/config uses
+		// before indexing AppPaths[0]; a directly-constructed Config can carry
+		// an empty slice, which would otherwise panic here.
+		if len(cfg.AppPaths) == 0 {
+			return nil
+		}
 		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return dirs

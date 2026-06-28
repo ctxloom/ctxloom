@@ -55,7 +55,7 @@ type mcpLLMDistillerSDK struct {
 	prompt   string
 }
 
-func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
+func (d *mcpLLMDistillerSDK) Distill(ctx context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
 	var excludeName string
 	switch req.Kind {
 	case operations.DistillKindFragment:
@@ -67,7 +67,7 @@ func (d *mcpLLMDistillerSDK) Distill(_ context.Context, req operations.DistillRe
 	if req.Bundle != nil {
 		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
 	}
-	distilled, modelID, err := distillWithModel(d.llmName, d.llmLabel, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	distilled, modelID, err := distillWithModel(ctx, d.llmName, d.llmLabel, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
 	if err != nil {
 		return operations.DistillResult{}, err
 	}

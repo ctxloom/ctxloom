@@ -95,7 +95,7 @@ Examples:
 		fmt.Println()
 
 		// Interactive add
-		if err := interactiveAdd(cmd, result.Repositories); err != nil {
+		if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
 			return err
 		}
 
@@ -103,13 +103,10 @@ Examples:
 	},
 }
 
-// interactiveAdd prompts the user to add a discovered repo as a remote.
-func interactiveAdd(cmd *cobra.Command, repos []operations.RepoEntry) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return err
-	}
-
+// interactiveAdd prompts the user to add a discovered repo as a remote. It
+// reuses the cfg already loaded by the caller — a second GetConfig() here would
+// re-run config.Load and re-print any config warnings to the user.
+func interactiveAdd(cmd *cobra.Command, cfg *config.Config, repos []operations.RepoEntry) error {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		num, quit := readRepoChoice(reader, len(repos))

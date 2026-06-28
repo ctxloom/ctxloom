@@ -18,8 +18,11 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     container:
-      # goreleaser-cross includes cross-compilation toolchains for CGO
-      image: ghcr.io/goreleaser/goreleaser-cross:v1.24
+      # goreleaser-cross includes cross-compilation toolchains for CGO.
+      # Pinned to v1.25 to match go.mod's `go 1.25.0` (and the devcontainer's
+      # 1.25.x) so the release builds on the same major.minor as CI without an
+      # implicit GOTOOLCHAIN download at release time.
+      image: ghcr.io/goreleaser/goreleaser-cross:v1.25
 
     steps:
       - name: Checkout code

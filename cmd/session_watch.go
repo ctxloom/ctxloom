@@ -22,6 +22,8 @@ const watchBoundaryRule = "─────────────────�
 var sessionWatchCmd = &cobra.Command{
 	Use:   "watch <harp-name>",
 	Short: "Stream a session's transcript as structured turns (messages, not raw bytes)",
+	// GUI-facing structured stream (the chat frontend renders it); hidden from help.
+	Hidden: true,
 	Long: `Tail a harp's bound backend session as a structured turn stream: each new
 transcript entry arrives as it appears, with a boundary marking where a
 response completes. This is the read side of the structured chat interface a

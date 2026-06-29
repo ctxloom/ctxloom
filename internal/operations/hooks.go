@@ -269,12 +269,13 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	// Dedupe and sort using bookend strategy
 	uniqueFragments := dedupeFragmentRefs(allFragments)
-	allFragmentNames := sortFragmentsByPriority(uniqueFragments)
+	orderedRefs := sortFragmentsByPriority(uniqueFragments)
 
 	var backendFrags []*agent.Fragment
-	for _, name := range allFragmentNames {
-		content, err := loader.GetFragment(name)
+	for _, ref := range orderedRefs {
+		content, err := loadFragmentRef(loader, ref)
 		if err != nil {
+			warnVersionFetchFailure(ref, err)
 			continue
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{

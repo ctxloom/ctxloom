@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/shared/clidiag"
@@ -94,9 +96,9 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 
 	// Deduplicate (highest priority wins), then bookend-sort for the
 	// "lost in the middle" optimization.
-	orderedNames := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
+	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loadedNames, err := loadAssembledContext(loader, orderedNames, profileVars)
+	contextContent, loadedNames, err := loadAssembledContext(loader, orderedRefs, profileVars)
 	if err != nil {
 		return nil, err
 	}
@@ -227,39 +229,105 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			}
 			allFragments = append(allFragments, ref)
 		}
-		allFragments = append(allFragments, profile.Fragments...)
+		// Profile fragment refs may pin a content version ("@<commit>"); split it
+		// into FragmentRef.Version (canonicalizing the version-agnostic Name) so
+		// dedup/ordering stay version-agnostic while the load step honors the pin.
+		// Bundle-expanded refs (resolveProfile) already carry Version and a
+		// canonical Name, so normalization is a no-op for them.
+		for _, ref := range profile.Fragments {
+			allFragments = append(allFragments, normalizeFragmentRef(ref))
+		}
 	}
 
 	return allFragments, profileVars, effectiveLLM, nil
 }
 
-// loadAssembledContext loads the ordered fragments and applies variable
-// substitution. Returns empty content when there are no fragments.
-func loadAssembledContext(loader *bundles.Loader, orderedNames []string, profileVars map[string]string) (string, []string, error) {
-	if len(orderedNames) == 0 {
+// normalizeFragmentRef splits a "@<commit>" content version off a profile
+// fragment ref into FragmentRef.Version and canonicalizes the version-agnostic
+// Name. A ref that already carries a Version (e.g. emitted by ExpandBundleRefs
+// with a version-agnostic Name) is returned untouched so re-normalization never
+// clobbers it.
+func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
+	if ref.Version != "" {
+		return ref
+	}
+	ref.Name, ref.Version = remote.SplitFragmentVersion(ref.Name)
+	return ref
+}
+
+// loadAssembledContext loads the ordered fragments (honoring per-ref content
+// versions) and applies variable substitution. Returns empty content when there
+// are no fragments. A fragment that fails to load — not found, gate-withheld, or
+// a pinned version that fails to fetch — is skipped so the rest still assemble
+// (fault tolerance), matching the tolerant LoadMultiple/GetFragment behavior.
+func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
+	if len(ordered) == 0 {
 		return "", nil, nil
 	}
-	content, loadedNames, err := loader.LoadMultiple(orderedNames)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to load fragments: %w", err)
+	var parts, loadedNames []string
+	for _, ref := range ordered {
+		lc, err := loadFragmentRef(loader, ref)
+		if err != nil {
+			warnVersionFetchFailure(ref, err)
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(lc.Content))
+		loadedNames = append(loadedNames, ref.Name)
 	}
+	// Joined with the same separator LoadMultiple uses so the output is
+	// indistinguishable regardless of which load path produced each fragment.
+	content := strings.Join(parts, "\n\n---\n\n")
 	// Suppress substitution warnings in the operations context.
 	content = substituteVariables(content, profileVars, func(string) {})
 	return content, loadedNames, nil
 }
 
-// dedupeFragmentRefs removes duplicates, keeping the highest priority for each fragment.
+// loadFragmentRef resolves one fragment ref, honoring a pinned content version.
+// An unversioned ref takes the lockfile-pinned default path (GetFragment,
+// untouched); a "@<commit>"-pinned ref resolves that exact historical version
+// (GetFragmentAtVersion), gated by ITS OWN effective-content hash. A version
+// fetch/resolve failure fails closed (withholds the item) via the returned
+// error.
+func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef) (*bundles.LoadedContent, error) {
+	if ref.Version == "" {
+		return loader.GetFragment(ref.Name)
+	}
+	return loader.GetFragmentAtVersion(ref.Name, ref.Version)
+}
+
+// warnVersionFetchFailure surfaces a single warning when a version-pinned ref
+// fails to fetch/resolve (the safe withhold direction, but new info worth
+// diagnosing). A gate withhold is already surfaced content-free by warnWithheld,
+// and an unversioned not-found stays silent (existing tolerant behavior).
+func warnVersionFetchFailure(ref config.FragmentRef, err error) {
+	if ref.Version == "" || errors.Is(err, errs.ErrFragmentWithheld) {
+		return
+	}
+	clidiag.Warn("ctxloom", "withholding %s@%s: %v", ref.Name, ref.Version, err)
+}
+
+// dedupeFragmentRefs removes duplicates, keeping the highest priority for each
+// fragment. Dedup identity is the version-agnostic Name (so a versioned and an
+// unversioned spelling of one item collapse); among the collapsed entries an
+// explicit "@<commit>" version wins over the default (one version per item).
 func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 	priorities := make(map[string]int)
+	versions := make(map[string]string)
 	order := make(map[string]int) // Track first occurrence order
 
 	for i, f := range fragments {
-		if existing, ok := priorities[f.Name]; ok {
-			if f.Priority > existing {
+		if _, ok := priorities[f.Name]; ok {
+			if f.Priority > priorities[f.Name] {
 				priorities[f.Name] = f.Priority
+			}
+			// Explicit @commit wins over a default-version entry; never carry
+			// two versions of one item into the assembly.
+			if versions[f.Name] == "" && f.Version != "" {
+				versions[f.Name] = f.Version
 			}
 		} else {
 			priorities[f.Name] = f.Priority
+			versions[f.Name] = f.Version
 			order[f.Name] = i
 		}
 	}
@@ -267,7 +335,7 @@ func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 	// Build result maintaining original order for same priority
 	result := make([]config.FragmentRef, 0, len(priorities))
 	for name, priority := range priorities {
-		result = append(result, config.FragmentRef{Name: name, Priority: priority})
+		result = append(result, config.FragmentRef{Name: name, Priority: priority, Version: versions[name]})
 	}
 
 	// Sort by original order (for stable output when priorities are equal)
@@ -280,8 +348,10 @@ func dedupeFragmentRefs(fragments []config.FragmentRef) []config.FragmentRef {
 
 // sortFragmentsByPriority arranges fragments using bookend strategy:
 // Highest priority at start, second-highest at end, rest fill middle (descending).
-// This addresses the "lost in the middle" problem where Configs poorly attend to middle content.
-func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
+// This addresses the "lost in the middle" problem where Configs poorly attend to
+// middle content. The returned refs preserve each FragmentRef.Version so the
+// load step can honor a pinned content version.
+func sortFragmentsByPriority(fragments []config.FragmentRef) []config.FragmentRef {
 	if len(fragments) == 0 {
 		return nil
 	}
@@ -294,21 +364,17 @@ func sortFragmentsByPriority(fragments []config.FragmentRef) []string {
 
 	// For 1-2 fragments, just return in priority order
 	if len(sorted) <= 2 {
-		names := make([]string, len(sorted))
-		for i, f := range sorted {
-			names[i] = f.Name
-		}
-		return names
+		return sorted
 	}
 
 	// Bookend placement: [highest, middle..., second-highest]
-	result := make([]string, len(sorted))
-	result[0] = sorted[0].Name             // Highest priority at start
-	result[len(result)-1] = sorted[1].Name // Second-highest at end
+	result := make([]config.FragmentRef, len(sorted))
+	result[0] = sorted[0]             // Highest priority at start
+	result[len(result)-1] = sorted[1] // Second-highest at end
 
 	// Fill middle with remaining (already sorted descending)
 	for i := 2; i < len(sorted); i++ {
-		result[i-1] = sorted[i].Name
+		result[i-1] = sorted[i]
 	}
 
 	return result
@@ -369,11 +435,11 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 		refs := make([]string, 0, len(profile.Bundles)+len(profile.BundleItems))
 		refs = append(refs, profile.Bundles...)
 		refs = append(refs, profile.BundleItems...)
-		for _, expandedName := range loader.ExpandBundleRefs(refs) {
-			if config.IsExcludedFragment(expandedName, excluded) {
+		for _, er := range loader.ExpandBundleRefs(refs) {
+			if config.IsExcludedFragment(er.Name, excluded) {
 				continue
 			}
-			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: expandedName, Priority: 0})
+			profile.Fragments = append(profile.Fragments, config.FragmentRef{Name: er.Name, Priority: 0, Version: er.Version})
 		}
 	}
 

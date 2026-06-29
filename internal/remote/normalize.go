@@ -63,13 +63,31 @@ func CanonicalBundleRef(name string) string {
 
 // CanonicalFragmentRef canonicalizes the bundle part of a qualified fragment
 // ref ("X#fragments/n" → "<CanonicalBundleRef(X)>#fragments/n"). Refs without
-// a fragment selector (bare names) are returned unchanged.
+// a fragment selector (bare names) are returned unchanged. Any "@<commit>"
+// content version is dropped — the canonical fragment identity is
+// version-agnostic (see SplitFragmentVersion to keep the version).
 func CanonicalFragmentRef(ref string) string {
+	canonical, _ := SplitFragmentVersion(ref)
+	return canonical
+}
+
+// SplitFragmentVersion canonicalizes the bundle part of a qualified fragment
+// ref and splits off any "@<commit>" content version it carries:
+// "X@<commit>#fragments/n" → ("<CanonicalBundleRef(X)>#fragments/n", "<commit>").
+// An unversioned qualified ref yields an empty version; a ref without a fragment
+// selector (a bare name) is returned unchanged with no version. The returned
+// Name is the version-AGNOSTIC canonical identity (so dedup/exclusion/ordering
+// stay version-agnostic); the version is meant to be honored only at the
+// read/resolution path.
+func SplitFragmentVersion(ref string) (canonical, version string) {
 	base, sel := splitItemPath(ref)
 	if !strings.HasPrefix(sel, FragmentSelector) {
-		return ref
+		return ref, ""
 	}
-	return CanonicalBundleRef(base) + sel
+	if parsed, err := ParseReference(base); err == nil {
+		version = parsed.ContentVersion
+	}
+	return CanonicalBundleRef(base) + sel, version
 }
 
 // IsCanonicalRef checks if a reference is in canonical URL format.

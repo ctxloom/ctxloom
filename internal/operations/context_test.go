@@ -812,8 +812,11 @@ func TestSortFragmentsByPriority_BookendStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sortFragmentsByPriority(tt.input)
-			assert.Equal(t, tt.expected, result)
+			var got []string
+			for _, r := range sortFragmentsByPriority(tt.input) {
+				got = append(got, r.Name)
+			}
+			assert.Equal(t, tt.expected, got)
 		})
 	}
 }

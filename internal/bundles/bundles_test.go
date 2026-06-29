@@ -1381,9 +1381,9 @@ func TestLoader_ExpandBundleRefs_WholeBundleExpandsAllFragmentsSorted(t *testing
 	// Whole-bundle ref returns every fragment, alphabetically sorted to keep
 	// downstream context hashes stable across map-iteration randomness. Local
 	// bundle names canonicalize to their ctxloom:local identity.
-	assert.Equal(t, []string{
-		"ctxloom:local@bundles/test/alpha#fragments/a1",
-		"ctxloom:local@bundles/test/alpha#fragments/a2",
+	assert.Equal(t, []ExpandedRef{
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a1"},
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a2"},
 	}, got)
 }
 
@@ -1392,7 +1392,7 @@ func TestLoader_ExpandBundleRefs_CanonicalHashSyntaxPassesThrough(t *testing.T) 
 
 	got := loader.ExpandBundleRefs([]string{"test/alpha#fragments/a2"})
 
-	assert.Equal(t, []string{"ctxloom:local@bundles/test/alpha#fragments/a2"}, got)
+	assert.Equal(t, []ExpandedRef{{Name: "ctxloom:local@bundles/test/alpha#fragments/a2"}}, got)
 }
 
 func TestLoader_ExpandBundleRefs_ColonSyntaxRewrittenToHash(t *testing.T) {
@@ -1400,7 +1400,7 @@ func TestLoader_ExpandBundleRefs_ColonSyntaxRewrittenToHash(t *testing.T) {
 
 	got := loader.ExpandBundleRefs([]string{"test/beta:fragments/two"})
 
-	assert.Equal(t, []string{"ctxloom:local@bundles/test/beta#fragments/two"}, got)
+	assert.Equal(t, []ExpandedRef{{Name: "ctxloom:local@bundles/test/beta#fragments/two"}}, got)
 }
 
 func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
@@ -1427,8 +1427,8 @@ func TestLoader_ExpandBundleRefs_CanonicalURLCherryPickPassesThrough(t *testing.
 		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#fragments/security",
 	})
 
-	assert.Equal(t, []string{
-		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#fragments/security",
+	assert.Equal(t, []ExpandedRef{
+		{Name: "https://github.com/ctxloom/ctxloom-default@bundles/aspects#fragments/security"},
 	}, got)
 }
 
@@ -1451,9 +1451,9 @@ func TestLoader_ExpandBundleRefs_MissingBundleSkippedSilently(t *testing.T) {
 
 	// The missing bundle is dropped without an error so the rest of the
 	// profile still resolves — same tolerance LoadMultiple uses.
-	assert.Equal(t, []string{
-		"ctxloom:local@bundles/test/alpha#fragments/a1",
-		"ctxloom:local@bundles/test/alpha#fragments/a2",
+	assert.Equal(t, []ExpandedRef{
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a1"},
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a2"},
 	}, got)
 }
 
@@ -1468,9 +1468,9 @@ func TestLoader_ExpandBundleRefs_DeduplicatesAcrossRefs(t *testing.T) {
 
 	// Every spelling canonicalizes to the same identity, so the duplicates
 	// collapse — the dedup guarantee canonicalization exists to provide.
-	assert.Equal(t, []string{
-		"ctxloom:local@bundles/test/alpha#fragments/a1",
-		"ctxloom:local@bundles/test/alpha#fragments/a2",
+	assert.Equal(t, []ExpandedRef{
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a1"},
+		{Name: "ctxloom:local@bundles/test/alpha#fragments/a2"},
 	}, got)
 }
 
@@ -1480,6 +1480,61 @@ func TestLoader_ExpandBundleRefs_EmptyInputs(t *testing.T) {
 	assert.Nil(t, loader.ExpandBundleRefs(nil))
 	assert.Nil(t, loader.ExpandBundleRefs([]string{}))
 	assert.Nil(t, loader.ExpandBundleRefs([]string{""}))
+}
+
+// A cherry-pick that pins a content version keeps the "@<commit>" on
+// ExpandedRef.Version while the Name stays the version-agnostic canonical
+// identity (so dedup/ordering remain version-agnostic). The cherry-pick path
+// does not load the bundle, so this asserts the parse independent of resolution.
+func TestLoader_ExpandBundleRefs_CherryPickVersionPreserved(t *testing.T) {
+	loader := expandRefsFixture(t)
+
+	got := loader.ExpandBundleRefs([]string{cqRef + "@deadbeef:fragments/solid"})
+
+	assert.Equal(t, []ExpandedRef{
+		{Name: cqRef + "#fragments/solid", Version: "deadbeef"},
+	}, got)
+}
+
+// A whole-bundle "@<commit>" enumerates the PINNED version's fragment set (which
+// may differ from the lockfile default) and stamps every item with the commit.
+func TestLoader_ExpandBundleRefs_WholeBundleVersionEnumeratesPinned(t *testing.T) {
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	versions := map[string]*Bundle{
+		"c1": {Fragments: map[string]BundleFragment{"alpha": {Content: "a"}, "beta": {Content: "b"}}},
+	}
+	l := versionedLoader(t, cqRef, def, versions, nil)
+
+	got := l.ExpandBundleRefs([]string{cqRef + "@c1"})
+
+	assert.Equal(t, []ExpandedRef{
+		{Name: cqRef + "#fragments/alpha", Version: "c1"},
+		{Name: cqRef + "#fragments/beta", Version: "c1"},
+	}, got)
+}
+
+// Dedup is version-agnostic: a whole-bundle default and a cherry-pick of the
+// same item at an explicit commit collapse to ONE ref, and the explicit
+// "@<commit>" wins over the default version.
+func TestLoader_ExpandBundleRefs_ExplicitVersionWinsOverDefault(t *testing.T) {
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	versions := map[string]*Bundle{
+		"c1": {Fragments: map[string]BundleFragment{"solid": {Content: "v1 body"}}},
+	}
+	l := versionedLoader(t, cqRef, def, versions, nil)
+
+	got := l.ExpandBundleRefs([]string{cqRef, cqRef + "@c1:fragments/solid"})
+
+	assert.Equal(t, []ExpandedRef{{Name: cqRef + "#fragments/solid", Version: "c1"}}, got)
+}
+
+// A whole-bundle "@<commit>" whose version fails to fetch is dropped (fault
+// tolerance) rather than aborting the expansion — the safe withhold direction.
+func TestLoader_ExpandBundleRefs_WholeBundleVersionFetchFailureSkipped(t *testing.T) {
+	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
+	l := versionedLoader(t, cqRef, def, map[string]*Bundle{}, nil) // resolver errors on every commit
+
+	assert.Empty(t, l.ExpandBundleRefs([]string{cqRef + "@missing"}))
 }
 
 // The names ExpandBundleRefs emits must load: the ctxloom:local canonical

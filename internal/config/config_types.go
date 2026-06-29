@@ -63,6 +63,13 @@ func (c LMConfig) hasAny() bool {
 type FragmentRef struct {
 	Name     string `yaml:"name"`
 	Priority int    `yaml:"priority,omitempty"` // Higher = more important (default: 0)
+	// Version is the optional pinned content version ("@<commit>") this ref
+	// resolves to. It is populated transiently during assembly resolution (from
+	// a ref's "@<commit>" suffix or from bundle expansion), never serialized:
+	// Name stays the version-agnostic canonical identity so dedup/exclusion/
+	// ordering and the lockfile remain version-agnostic, and only the read path
+	// honors Version. The authored "@<commit>" lives in the stored ref string.
+	Version string `yaml:"-"`
 }
 
 // UnmarshalYAML supports both string and struct formats for backward compatibility.

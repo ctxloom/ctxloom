@@ -435,46 +435,68 @@ func (l *Loader) LoadMultiple(names []string) (string, []string, error) {
 	return strings.Join(parts, "\n\n---\n\n"), loaded, nil
 }
 
+// ExpandedRef is one fragment produced by expanding a profile bundle reference.
+// Name is the version-AGNOSTIC canonical fragment identity
+// ("<canonical-bundle>#fragments/<name>") used for dedup/exclusion/ordering;
+// Version is the optional "@<commit>" content version the originating ref pinned
+// (empty = the lockfile-pinned default). The version is honored only at the
+// read/resolution path (GetFragmentAtVersion), so the identity stays
+// version-agnostic — two spellings of the same item dedup regardless of version.
+type ExpandedRef struct {
+	Name    string
+	Version string
+}
+
 // ExpandBundleRefs expands profile bundle references into canonical fragment
-// names usable with GetFragment. See the Profile.Bundles documentation in
-// internal/profiles for the supported reference syntax.
+// refs usable with GetFragment / GetFragmentAtVersion. See the Profile.Bundles
+// documentation in internal/profiles for the supported reference syntax.
 //
-// Supported reference forms:
+// Supported reference forms (each may carry a trailing "@<commit>" on the
+// bundle part to pin that item to a historical version):
 //
 //	"bundle"                        // every fragment in the bundle
 //	"bundle#fragments/name"         // a single fragment (canonical syntax)
 //	"bundle:fragments/name"         // a single fragment (profile syntax alias)
+//	"bundle@<commit>"               // every fragment at that commit
+//	"bundle@<commit>:fragments/name"// a single fragment at that commit
 //
 // Refs that target prompts or MCP servers (e.g. "bundle:prompts/x",
 // "bundle:mcp") are skipped, because they do not resolve to fragments.
-// Bundles that cannot be loaded are also skipped, mirroring the tolerant
-// behavior of LoadMultiple/GetFragment so a missing bundle does not abort
-// the whole assembly.
+// Bundles that cannot be loaded — including a pinned version that fails to
+// fetch — are skipped, mirroring the tolerant behavior of LoadMultiple/
+// GetFragment so a missing bundle does not abort the whole assembly.
 //
-// The returned names are deduplicated and stable: whole-bundle expansions
-// are sorted alphabetically by fragment name so the resulting context hash
-// is reproducible. Bundle identities are canonicalized
-// (remote.CanonicalBundleRef) — remote refs to their version-less canonical
-// URL, plain local names to ctxloom:local form — so names from different
-// reference spellings of the same bundle compare and dedupe exactly.
-func (l *Loader) ExpandBundleRefs(refs []string) []string {
-	seen := collections.NewSet[string]()
-	var out []string
+// The returned refs are deduplicated and stable: whole-bundle expansions are
+// sorted alphabetically by fragment name so the resulting context hash is
+// reproducible. Bundle identities are canonicalized (remote.CanonicalBundleRef)
+// — remote refs to their version-less canonical URL, plain local names to
+// ctxloom:local form — so names from different reference spellings of the same
+// bundle compare and dedupe exactly. Dedup is version-agnostic: when the same
+// item is produced more than once an explicit "@<commit>" wins over a
+// default-version entry (one version per item).
+func (l *Loader) ExpandBundleRefs(refs []string) []ExpandedRef {
+	index := make(map[string]int)
+	var out []ExpandedRef
 	for _, ref := range refs {
-		for _, name := range l.expandBundleRef(ref) {
-			if seen.Has(name) {
+		for _, er := range l.expandBundleRef(ref) {
+			if i, ok := index[er.Name]; ok {
+				// Same item already present: an explicit @commit upgrades a
+				// default-version entry; never carry two versions of one item.
+				if out[i].Version == "" && er.Version != "" {
+					out[i].Version = er.Version
+				}
 				continue
 			}
-			seen.Add(name)
-			out = append(out, name)
+			index[er.Name] = len(out)
+			out = append(out, er)
 		}
 	}
 	return out
 }
 
-// expandBundleRef returns the canonical fragment names for a single ref.
+// expandBundleRef returns the canonical fragment refs for a single ref.
 // See ExpandBundleRefs for the supported syntax.
-func (l *Loader) expandBundleRef(ref string) []string {
+func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	if ref == "" {
 		return nil
 	}
@@ -503,24 +525,43 @@ func (l *Loader) expandBundleRef(ref string) []string {
 			// Targeted at prompts, mcp, or unknown — not a fragment ref.
 			return nil
 		}
-		return []string{remote.CanonicalBundleRef(bundleName) + "#" + rest}
+		// The bundle part may pin a content version ("bundle@<commit>"); keep it
+		// (the read path resolves the cherry-pick at that commit) while the
+		// emitted Name stays the version-agnostic canonical identity.
+		canonical, version := splitBundleVersion(bundleName)
+		return []ExpandedRef{{Name: canonical + "#" + rest, Version: version}}
 	}
 
-	// Whole-bundle ref: enumerate every fragment in the bundle.
-	b, err := l.Load(ref)
+	// Whole-bundle ref: enumerate every fragment in the bundle. A pinned
+	// "@<commit>" enumerates that historical version (its fragment set may
+	// differ from the default) and stamps every item with the commit so each
+	// resolves at that version.
+	canonical, version := splitBundleVersion(ref)
+	b, err := l.wholeBundleForExpansion(ref, version)
 	if err != nil {
-		// A profile referenced this bundle but it didn't resolve. Warn so the
-		// gap is diagnosable — silently dropping it produces context that is
-		// missing content with no error (fault-tolerance: log, don't crash).
-		// Deduped process-wide: startup assembles context more than once.
+		// A profile referenced this bundle but it didn't resolve (missing, or a
+		// pinned version that failed to fetch). Warn so the gap is diagnosable —
+		// silently dropping it produces context that is missing content with no
+		// error (fault-tolerance: log, don't crash). Deduped process-wide:
+		// startup assembles context more than once.
 		unresolvedBundleWarner.unresolved(ref, err)
 		return nil
 	}
-	names := make([]string, 0, len(b.Fragments))
-	canonical := remote.CanonicalBundleRef(ref)
+	out := make([]ExpandedRef, 0, len(b.Fragments))
 	for fragName := range b.Fragments {
-		names = append(names, canonical+remote.FragmentSelector+fragName)
+		out = append(out, ExpandedRef{Name: canonical + remote.FragmentSelector + fragName, Version: version})
 	}
-	sort.Strings(names)
-	return names
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// wholeBundleForExpansion materializes a whole-bundle ref for fragment
+// enumeration: the lockfile-pinned default when no version is pinned (the
+// unchanged path), or the exact historical version via the wired version
+// resolver when a "@<commit>" is present.
+func (l *Loader) wholeBundleForExpansion(ref, version string) (*Bundle, error) {
+	if version == "" {
+		return l.Load(ref)
+	}
+	return l.bundleAtVersion(ref, "")
 }

@@ -237,6 +237,40 @@ func TestExecGate_FailClosed(t *testing.T) {
 	nilGate.WarnWithheld()
 }
 
+// TestExecGate_CLIHookTrustThenBlacklist ties the interactive/CLI hook-trust
+// mutations to the TR5 exec choke: a hook the user trusts via SetItemTrust (the
+// `ctxloom trust <bundle>#hooks/<id>` / `bundle show -i` [t] path) then passes
+// the executable gate, and a hook the user blacklists via SetBlacklist (the [b]
+// path) is withheld by that same gate — the sticky ref block beats the grant.
+// The gate is rebuilt after each mutation so it reads the freshly-persisted store.
+func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookb.yaml"),
+		[]byte("name: hookb\nversion: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
+
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	ref := "hookb#hooks/pre_tool/0"
+	hookHash := hookHashOf(bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"})
+
+	// Untrusted local executable hook → withheld by the gate (never auto-trusted).
+	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
+		"an ungranted local bundle hook must be withheld by the exec gate")
+
+	// CLI trust → the exec gate now applies it.
+	_, err := SetItemTrust(cfg, SetItemTrustRequest{Ref: ref})
+	require.NoError(t, err)
+	assert.True(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
+		"a CLI-granted bundle hook must pass the exec gate")
+
+	// CLI blacklist → the exec gate withholds it again (sticky block beats grant).
+	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
+	require.NoError(t, err)
+	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
+		"a CLI-blacklisted bundle hook must be withheld by the exec gate")
+}
+
 // Ensure trust.KindHook participates in the dir/selector grammar end to end.
 func TestKindHook_Dir(t *testing.T) {
 	assert.Equal(t, "hooks", trust.KindHook.Dir())

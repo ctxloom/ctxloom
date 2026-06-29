@@ -94,11 +94,13 @@ func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 }
 
 // offerBundleTrust is the TTY-gated interactive trust review for `bundle show
-// <name> -i`. It prints every item's effective trust + source — resolved through
-// one shared TR3 TrustStamper (store + registry read once, each bundle
-// materialized once) — to stderr, then offers to mark the whole bundle trusted
-// (a SHA-agnostic posture via SetBundleTrust). The bundle body is already on
-// stdout; only an explicit "yes" writes.
+// <name> -i`. It prints every item's effective trust + source — fragments,
+// prompts, MCP servers, AND bundle hooks — resolved through one shared TR3
+// TrustStamper (store + registry read once, each bundle materialized once) to
+// stderr. It then offers an explicit per-hook [t]rust/[b]lacklist action (hooks
+// are executables the SHA-agnostic posture cannot content-pin) and finally offers
+// to mark the whole bundle trusted (a SHA-agnostic posture via SetBundleTrust).
+// The bundle body is already on stdout; only an explicit action writes.
 func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundle *bundles.Bundle) error {
 	stamper := operations.NewTrustStamper(cfg)
 	fmt.Fprintf(os.Stderr, "\nPer-item effective trust for bundle %q:\n", name)
@@ -111,12 +113,50 @@ func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundl
 	for _, n := range bundle.MCPNames() {
 		printBundleItemTrust(os.Stderr, stamper, name, trust.KindMCP, n)
 	}
+	for _, e := range bundle.Hooks.Entries() {
+		printBundleHookTrust(os.Stderr, stamper, name, e)
+	}
+
+	// Bundle hooks are arbitrary-command executables the cascade never
+	// auto-trusts, and the SHA-agnostic whole-bundle posture below cannot pin a
+	// hook's executable surface — so offer an explicit per-hook [t]rust/[b]lacklist
+	// (a content-pinned grant / sticky block) before the bundle-grain prompt,
+	// routed through the same TR2 path as `ctxloom trust|blacklist
+	// <bundle>#hooks/<event>/<index>`. Viewing never trusts.
+	if err := offerBundleHookTrust(cmd, cfg, name, bundle); err != nil {
+		return err
+	}
 
 	yes, err := promptYesNo("\nMark bundle trusted? [y/N] ")
 	if err != nil || !yes {
 		return nil // viewing never trusts
 	}
 	return runBundleTrust(cmd, cfg, name, true)
+}
+
+// offerBundleHookTrust walks the bundle's hooks in canonical identity order and
+// offers an explicit [t]rust/[b]lacklist/skip action per hook, applying the
+// choice through the shared applyItemTrustChoice path so the on-disk result is
+// identical to `ctxloom trust|blacklist <bundle>#hooks/<event>/<index>`. A read
+// error (EOF) stops the walk and skips the rest — viewing never trusts. A
+// hookless bundle is a no-op (no prompt emitted).
+func offerBundleHookTrust(cmd *cobra.Command, cfg *config.Config, name string, bundle *bundles.Bundle) error {
+	entries := bundle.Hooks.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, "\nBundle hooks are executable surfaces — trust or blacklist each:")
+	for _, e := range entries {
+		ref := name + "#hooks/" + e.ID()
+		answer, err := promptLine(fmt.Sprintf("  hooks/%s — [t]rust / [b]lacklist / skip? ", e.ID()))
+		if err != nil {
+			return nil // EOF/read error → skip the remaining hooks; viewing never trusts
+		}
+		if err := applyItemTrustChoice(cmd, cfg, ref, parseItemTrustChoice(answer)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // printBundleItemTrust stamps one bundle item by its ref and writes its trust
@@ -126,6 +166,16 @@ func printBundleItemTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 	ref := bundle + "#" + kind.Dir() + "/" + name
 	res := stamper.ForRef(ref)
 	fmt.Fprintf(w, "  %s/%s: %s\n", kind.Dir(), name, stampedTrust(res))
+}
+
+// printBundleHookTrust stamps one bundle hook by its (bundle, entry) identity and
+// writes its trust line to w, mirroring printBundleItemTrust. Bundle hooks have
+// no author-given name, so the line is keyed by the hook's "<event>/<index>" id —
+// the same identity the exec choke and `ctxloom trust <bundle>#hooks/<id>`
+// address — and the posture comes from the hook-aware TrustStamper.ForHook.
+func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle string, entry bundles.HookEntry) {
+	res := stamper.ForHook(bundle, entry)
+	fmt.Fprintf(w, "  hooks/%s: %s\n", entry.ID(), stampedTrust(res))
 }
 
 // reviewLocalMCPTrust is the TTY-gated trust review for `manage mcp servers show

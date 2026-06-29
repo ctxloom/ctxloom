@@ -516,6 +516,24 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 	return ts.resolve(ref, srv.ComputeContentHash())
 }
 
+// ForHook stamps a bundle hook addressed by its (bundle, HookEntry) identity,
+// mirroring ForLocalMCP. It hashes the hook's executable surface
+// (BundleHook.ComputeContentHash) and resolves it as a hook item — an executable
+// surface the cascade never auto-trusts (KindHook.IsContent()==false) — so it
+// denies unless an explicit grant, the content denylist, or a bundle posture
+// decides otherwise. The hook is addressed by the bundle's local name and its
+// "<event>/<index>" id (HookEntry.ID), the SAME ref the exec choke
+// (config.extractHooksFromBundle) and `ctxloom trust <bundle>#hooks/<id>` use, so
+// the stamped posture is exactly what the gate enforces. It takes the in-hand
+// entry rather than re-loading the bundle, matching ForLocalMCP's in-hand surface.
+func (ts *TrustStamper) ForHook(bundle string, entry bundles.HookEntry) EffectiveTrustResult {
+	if ts.denyAll {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	ref := trust.Ref{Bundle: bundle, Kind: trust.KindHook, Name: entry.ID(), IsLocal: true}
+	return ts.resolve(ref, entry.Hook.ComputeContentHash())
+}
+
 // resolve runs the cascade with the stamper's shared store + registry so no
 // per-item file I/O happens on the happy path.
 func (ts *TrustStamper) resolve(ref trust.Ref, hash string) EffectiveTrustResult {

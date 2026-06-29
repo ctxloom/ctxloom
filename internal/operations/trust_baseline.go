@@ -62,8 +62,8 @@ var hashBaselineItem = computeItemHash
 // startup caller turns into a warn-and-continue.
 //
 // Local content (fragments/prompts) is auto-allowed by the cascade and local
-// executables (mcp) are never auto-trusted, so neither is recorded here — only
-// remote bundle content needs a grant to survive the gate.
+// executables (mcp / hooks) are never auto-trusted, so neither is recorded here
+// — only remote bundle content needs a grant to survive the gate.
 func BaselineTrust(cfg *config.Config, req BaselineTrustRequest) (*BaselineTrustResult, error) {
 	store, err := getTrustStore(cfg, req.Store, req.FS)
 	if err != nil {
@@ -88,9 +88,9 @@ func BaselineTrust(cfg *config.Config, req BaselineTrustRequest) (*BaselineTrust
 	return res, nil
 }
 
-// collectBaselineGrants enumerates every fragment, prompt, and MCP server across
-// all resolvable bundles and returns the trust grants for the present remote
-// items, plus a tally. Builtin bundles are deliberately excluded: they are
+// collectBaselineGrants enumerates every fragment, prompt, MCP server, and hook
+// across all resolvable bundles and returns the trust grants for the present
+// remote items, plus a tally. Builtin bundles are deliberately excluded: they are
 // in-binary and never pass the resolver, so they are not part of the gate.
 // Enumeration is fully fault-tolerant — a bundle that fails to load is warned
 // and skipped, and a single item that fails to resolve/hash is warned and
@@ -120,6 +120,13 @@ func collectBaselineGrants(cfg *config.Config, loader *bundles.Loader) ([]trust.
 		}
 		for _, name := range bundle.MCPNames() {
 			grants = appendBaselineGrant(grants, res, cfg, loader, info.Name, trust.KindMCP, name)
+		}
+		// Bundle hooks are an executable surface gated at their own choke (TR5);
+		// baseline pre-existing remote ones so the rollout doesn't gate hooks that
+		// already fire (TR6 follow-up #1). Identity = "<event>/<index>" (Entries()),
+		// the same scheme config.extractHooksFromBundle gates on.
+		for _, e := range bundle.Hooks.Entries() {
+			grants = appendBaselineGrant(grants, res, cfg, loader, info.Name, trust.KindHook, e.ID())
 		}
 	}
 	return grants, res

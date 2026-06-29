@@ -651,6 +651,13 @@ Examples:
 			seedTaskIntoSession(workDir, activeHarp, runSeedTask, runSeedStatus)
 		}
 
+		// Gate the executable surfaces (bundle MCP servers + bundle hooks + prompt
+		// command-file exports) the host ships in ManagedConfig (trust rework, TR5):
+		// these bypass the content loader, so each is gated at its own choke via
+		// this injected gate. Built once (runs the migration baseline + opens the
+		// trust store); fail-closed (a DENY omits the executable). Surfaced below.
+		execGate := operations.NewExecutableTrustGate(cfg)
+
 		// Build request. The host now assembles the config/bundle setup payload
 		// (slash commands, hooks, MCP, statusline) and ships it in ManagedConfig
 		// so the backend plugin never self-loads ctxloom config/bundles. The
@@ -666,8 +673,10 @@ Examples:
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},
-			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir)),
+			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir, execGate.Gate())),
 		}
+		// Advisory: tell the user if a bundle executable was withheld (content-free).
+		execGate.WarnWithheld()
 
 		// Create plugin client
 		var client *pb.LLMRunner

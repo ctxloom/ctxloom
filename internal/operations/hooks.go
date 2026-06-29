@@ -73,6 +73,18 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
 
 	workDir := resolveHookWorkDir(req)
+
+	// Gate the executable surfaces about to be written to backend settings —
+	// bundle MCP servers, bundle hooks, and prompt command-file exports (trust
+	// rework, TR5). These bypass the content loader, so each is gated at its own
+	// choke via this injected gate; a DENY omits the executable. Built once (runs
+	// the migration baseline + opens the trust store, idempotent with the regen
+	// content gate). Fault tolerant: the gate never errors (fail-closed) and
+	// attaching it never blocks the write. Set before any resolve below so
+	// ResolveBundleMCPServers / AssembleManagedHooks / LoadPromptExports all gate.
+	execGate := NewExecutableTrustGate(freshCfg)
+	freshCfg.SetExecutableTrustGate(execGate.Gate())
+
 	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
 	// MCP servers from profile bundles + prompts for command files, shared
@@ -93,6 +105,10 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	if err != nil {
 		return nil, err
 	}
+
+	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
+	// export) was withheld by the trust gate (content-free).
+	execGate.WarnWithheld()
 
 	// Self-heal the transient-artifact ignores (settings backups, generated
 	// .agents/) so they stay covered after any hook apply, not just at init.

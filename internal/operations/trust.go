@@ -336,8 +336,11 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 		return trust.KindPrompt, name, nil
 	case "mcp":
 		return trust.KindMCP, name, nil
+	case "hooks":
+		// name is the hook's "<event>/<index>" identity (carries an inner slash).
+		return trust.KindHook, name, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|prompts|mcp)", kindDir)
+		return "", "", fmt.Errorf("unknown item kind %q (want fragments|prompts|mcp|hooks)", kindDir)
 	}
 }
 
@@ -377,6 +380,13 @@ func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref,
 			return "", "", fmt.Errorf("mcp server %q not found in bundle %q", tRef.Name, loadRef)
 		}
 		return mcp.ComputeContentHash(), bundles.FormRaw, nil
+	case trust.KindHook:
+		// tRef.Name is the hook's "<event>/<index>" identity (see Entries()).
+		entry, ok := bundle.Hooks.EntryByID(tRef.Name)
+		if !ok {
+			return "", "", fmt.Errorf("hook %q not found in bundle %q", tRef.Name, loadRef)
+		}
+		return entry.Hook.ComputeContentHash(), bundles.FormRaw, nil
 	default:
 		return "", "", fmt.Errorf("unknown item kind %q", tRef.Kind)
 	}

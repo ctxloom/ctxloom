@@ -1,6 +1,9 @@
 package operations
 
 import (
+	"sort"
+	"sync"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -32,11 +35,22 @@ type contentGate struct {
 	// it may hold a blacklist/denylist we must not silently skip (mirrors
 	// EffectiveTrust's and TrustStamper's corrupt-store posture).
 	denyAll bool
+
+	// withheld records every ref this gate denied, deduplicated. The content
+	// loader surfaces its own withheld set (loader.Withheld()), but the executable
+	// surfaces (MCP servers, bundle hooks, prompt exports) call the gate directly
+	// with no loader to tally them, so the gate keeps its own record and the
+	// caller surfaces a content-free "N withheld" advisory (ExecutableTrustGate).
+	withheldMu sync.Mutex
+	withheld   map[string]struct{}
 }
 
-// allow is the bundles.ContentGate the loader calls per resolved item.
+// allow is the bundles.ContentGate the loader (and the executable resolvers)
+// call per resolved item. It is fail-closed: any path that cannot positively
+// justify exposure records the ref and withholds (returns false).
 func (g *contentGate) allow(ref, contentHash, _ string) bool {
 	if g.denyAll {
+		g.record(ref)
 		return false
 	}
 	tRef, _, _, err := parseTrustItemRef(ref)
@@ -44,6 +58,7 @@ func (g *contentGate) allow(ref, contentHash, _ string) bool {
 		// A ref we cannot address cannot be trusted — withhold rather than expose
 		// content the cascade never evaluated.
 		clidiag.Warn("ctxloom", "trust gate: withholding %q (unparseable ref): %v", ref, err)
+		g.record(ref)
 		return false
 	}
 	res, err := EffectiveTrust(g.cfg, EffectiveTrustRequest{
@@ -55,9 +70,39 @@ func (g *contentGate) allow(ref, contentHash, _ string) bool {
 	})
 	if err != nil || res == nil {
 		clidiag.Warn("ctxloom", "trust gate: withholding %q (evaluation error): %v", ref, err)
+		g.record(ref)
 		return false
 	}
-	return res.Trusted()
+	if res.Trusted() {
+		return true
+	}
+	g.record(ref)
+	return false
+}
+
+// record marks ref as withheld (deduplicated, lazily allocated).
+func (g *contentGate) record(ref string) {
+	g.withheldMu.Lock()
+	if g.withheld == nil {
+		g.withheld = make(map[string]struct{})
+	}
+	g.withheld[ref] = struct{}{}
+	g.withheldMu.Unlock()
+}
+
+// withheldRefs returns the refs this gate withheld, deduplicated and sorted.
+func (g *contentGate) withheldRefs() []string {
+	g.withheldMu.Lock()
+	defer g.withheldMu.Unlock()
+	if len(g.withheld) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(g.withheld))
+	for ref := range g.withheld {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // newContentGate builds the TR5 fragment/prompt content gate for cfg. It runs the
@@ -68,6 +113,15 @@ func (g *contentGate) allow(ref, contentHash, _ string) bool {
 // injection points for testing; production passes nil and they are built from
 // cfg (OS fs unless cfg carries an injected one).
 func newContentGate(cfg *config.Config, store *trust.Store, registry *remote.Registry, fs afero.Fs) bundles.ContentGate {
+	return buildContentGate(cfg, store, registry, fs).allow
+}
+
+// buildContentGate constructs the *contentGate behind newContentGate (and the
+// executable gate). It is the shared builder: it opens the trust store (failing
+// closed to denyAll when unreadable), runs the one-time migration baseline, and
+// builds the remote registry once. Returning the struct (not just g.allow) lets
+// the executable gate read the withheld tally afterward.
+func buildContentGate(cfg *config.Config, store *trust.Store, registry *remote.Registry, fs afero.Fs) *contentGate {
 	g := &contentGate{cfg: cfg, registry: registry, fs: fs}
 
 	if store == nil {
@@ -77,7 +131,7 @@ func newContentGate(cfg *config.Config, store *trust.Store, registry *remote.Reg
 			// every gated item rather than degrade to allow-by-default.
 			clidiag.Warn("ctxloom", "trust store unreadable; withholding all gated content: %v", err)
 			g.denyAll = true
-			return g.allow
+			return g
 		}
 		store = s
 	}
@@ -98,7 +152,56 @@ func newContentGate(cfg *config.Config, store *trust.Store, registry *remote.Reg
 		// else leave nil: EffectiveTrust rebuilds + fail-closes per call at the
 		// remote tier without disturbing the earlier-tier precedence.
 	}
-	return g.allow
+	return g
+}
+
+// ExecutableTrustGate gates the bundle EXECUTABLE surfaces — MCP servers and
+// bundle hooks written to backend settings, plus prompt command-file exports —
+// through the same per-item trust cascade as content (trust rework, TR5). These
+// surfaces bypass the content loader (they resolve via config.ResolveBundle* →
+// WriteSettings, and backends.LoadPromptExports), so a blacklist at the loader
+// would be a no-op; each is gated at its OWN choke. The gate is injected into
+// config.SetExecutableTrustGate (consulted by ResolveBundleMCPServers /
+// ResolveBundleHooks / LoadPromptExports); a DENY omits the executable from
+// settings (fail-closed). It tallies withheld refs so the caller can surface a
+// content-free "N withheld" advisory.
+//
+// Construct ONCE per apply/run (it runs the migration baseline and builds the
+// trust store + registry up front). A nil *ExecutableTrustGate is a no-op
+// (Gate() returns nil = no gating), matching the nil bundles.ContentGate
+// convention.
+type ExecutableTrustGate struct {
+	gate *contentGate
+}
+
+// NewExecutableTrustGate builds the executable gate for cfg (production passes
+// the OS fs via cfg). Baseline-before-enforce runs during construction.
+func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate {
+	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, nil, cfgFS(cfg))}
+}
+
+// Gate returns the bundles.ContentGate the resolvers/loaders consult, or nil
+// (no gating) for a nil receiver/gate.
+func (e *ExecutableTrustGate) Gate() bundles.ContentGate {
+	if e == nil || e.gate == nil {
+		return nil
+	}
+	return e.gate.allow
+}
+
+// WarnWithheld surfaces one content-free advisory naming how many bundle
+// executables this gate withheld (MCP servers, hooks, prompt exports), pointing
+// at the review/trust commands. Purely advisory (fault tolerance); a no-op when
+// nothing was withheld.
+func (e *ExecutableTrustGate) WarnWithheld() {
+	if e == nil || e.gate == nil {
+		return
+	}
+	if w := e.gate.withheldRefs(); len(w) > 0 {
+		clidiag.Warn("ctxloom",
+			"%d bundle executable(s) withheld by the trust gate — review with `ctxloom bundle show`, then trust with `ctxloom trust <ref>`",
+			len(w))
+	}
 }
 
 // exposureLoader returns the read-path bundle loader with the TR5 content trust

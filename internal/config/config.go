@@ -66,6 +66,15 @@ type Config struct {
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
 
+	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
+	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
+	// command-file exports via LoadPromptExports) when set. nil = no enforcement,
+	// matching the gate-free management/listing paths. The operations/run
+	// consumers inject it before writing backend settings (trust rework, TR5);
+	// operations can't be imported here, so the gate is a plain bundles.ContentGate
+	// func. Never persisted.
+	execGate bundles.ContentGate
+
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
 	// still match it: the overlay is a runtime fallback, and persisting it

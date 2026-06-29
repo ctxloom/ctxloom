@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -79,6 +80,94 @@ type BundleHooks struct {
 // skip the merge cost for hookless bundles.
 func (h BundleHooks) HasAny() bool {
 	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
+}
+
+// Hook event names. They double as the stable event component of a bundle
+// hook's trust identity ("<bundle>#hooks/<event>/<index>") and as the canonical
+// iteration order below, and match the BundleHooks YAML field tags.
+const (
+	HookEventPreTool      = "pre_tool"
+	HookEventPostTool     = "post_tool"
+	HookEventSessionStart = "session_start"
+	HookEventSessionEnd   = "session_end"
+	HookEventPreShell     = "pre_shell"
+	HookEventPostFileEdit = "post_file_edit"
+)
+
+// hookEventOrder is the canonical event order for hook identity + enumeration.
+// Entries() and the trust gate both walk it so a baselined hook's ref matches
+// the one the gate evaluates.
+var hookEventOrder = []string{
+	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
+	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
+}
+
+// eventHooks returns the hook slice for an event (nil for an unknown event).
+func (h BundleHooks) eventHooks(event string) []BundleHook {
+	switch event {
+	case HookEventPreTool:
+		return h.PreTool
+	case HookEventPostTool:
+		return h.PostTool
+	case HookEventSessionStart:
+		return h.SessionStart
+	case HookEventSessionEnd:
+		return h.SessionEnd
+	case HookEventPreShell:
+		return h.PreShell
+	case HookEventPostFileEdit:
+		return h.PostFileEdit
+	}
+	return nil
+}
+
+// HookEntry is one bundle hook paired with its stable trust identity: the event
+// it fires on and its index within that event's list. Bundle hooks are an
+// ordered list with no author-given name, so (event, index) is the addressable
+// identity the per-item trust gate keys on (trust rework, TR5).
+type HookEntry struct {
+	Event string
+	Index int
+	Hook  BundleHook
+}
+
+// ID returns the stable per-hook identity "<event>/<index>", the <id> in the
+// trust ref "<bundle>#hooks/<id>". The index is the hook's authored position in
+// its event list.
+func (e HookEntry) ID() string {
+	return e.Event + "/" + strconv.Itoa(e.Index)
+}
+
+// Entries returns every bundle hook with its identity, in canonical event order
+// then authored index. The trust gate (config.extractHooksFromBundle) and the
+// migration baseline both enumerate hooks through this scheme so the refs agree.
+func (h BundleHooks) Entries() []HookEntry {
+	var out []HookEntry
+	for _, event := range hookEventOrder {
+		for i, hook := range h.eventHooks(event) {
+			out = append(out, HookEntry{Event: event, Index: i, Hook: hook})
+		}
+	}
+	return out
+}
+
+// EntryByID resolves a hook identity ("<event>/<index>") back to its entry. It
+// reports ok=false for a malformed id or an out-of-range index — fail-closed: an
+// unresolvable hook hashes to nothing and gates.
+func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
+	event, idxStr, found := strings.Cut(id, "/")
+	if !found {
+		return HookEntry{}, false
+	}
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 0 {
+		return HookEntry{}, false
+	}
+	hooks := h.eventHooks(event)
+	if idx >= len(hooks) {
+		return HookEntry{}, false
+	}
+	return HookEntry{Event: event, Index: idx, Hook: hooks[idx]}, true
 }
 
 // BundleMCP defines an MCP server within a bundle.
@@ -247,6 +336,37 @@ func (m *BundleMCP) ComputeContentHash() string {
 		// none of which json.Marshal can fail on. Fail closed to a stable digest
 		// rather than panic.
 		return hashContent([]byte("ctxloom:mcp-content-hash-error"))
+	}
+	return hashContent(data)
+}
+
+// ComputeContentHash hashes a canonical encoding of the hook's executable
+// surface — Matcher, Type, Command, Prompt, and the PreToolFallback flag: the
+// fields that determine what runs and how it fires. Timeout/Async (operational
+// knobs) and the firing event are excluded — the event is carried by the hook's
+// id, and excluding it keeps the content-hash denylist event-agnostic so the
+// same malicious command is blocked wherever it is wired. encoding/json provides
+// the determinism (stable field order). This is the hash a bundle-hook trust
+// grant binds to (trust rework, TR5); a hook has no distilled form, so there is
+// one hash. Mirrors BundleMCP.ComputeContentHash.
+func (h *BundleHook) ComputeContentHash() string {
+	canonical := struct {
+		Matcher         string `json:"matcher"`
+		Type            string `json:"type"`
+		Command         string `json:"command"`
+		Prompt          string `json:"prompt"`
+		PreToolFallback bool   `json:"pre_tool_fallback"`
+	}{
+		Matcher:         h.Matcher,
+		Type:            h.Type,
+		Command:         h.Command,
+		Prompt:          h.Prompt,
+		PreToolFallback: h.PreToolFallback,
+	}
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		// Unreachable (only strings + a bool); fail closed to a stable digest.
+		return hashContent([]byte("ctxloom:hook-content-hash-error"))
 	}
 	return hashContent(data)
 }

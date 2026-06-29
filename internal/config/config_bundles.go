@@ -18,6 +18,23 @@ import (
 // lookPath is the PATH-resolution seam for tests.
 var lookPath = exec.LookPath
 
+// SetExecutableTrustGate injects the trust gate consulted when resolving the
+// bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
+// bundle hooks (ResolveBundleHooks), and prompt command-file exports
+// (backends.LoadPromptExports). The operations/run consumers set it before
+// writing backend settings (trust rework, TR5) so an untrusted bundle's
+// executables are omitted; management/listing paths leave it nil (no gating).
+// Builtin bundles are always exempt regardless of the gate.
+func (c *Config) SetExecutableTrustGate(gate bundles.ContentGate) {
+	c.execGate = gate
+}
+
+// ExecutableTrustGate returns the injected executable trust gate (nil when none
+// was set — no gating).
+func (c *Config) ExecutableTrustGate() bundles.ContentGate {
+	return c.execGate
+}
+
 // SetLookPathForTesting overrides the companion-binary PATH-resolution seam and
 // returns a restore function. Tests in other packages use it to make companion
 // detection (built-in bundle hooks/MCP/fragments) deterministic regardless of
@@ -126,7 +143,7 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 			excluded[name] = true
 		}
 		for _, bundleRef := range resolved.Bundles {
-			servers := loadMCPFromBundleRef(bundleRef, bundleLoader)
+			servers := loadMCPFromBundleRef(bundleRef, bundleLoader, c.execGate)
 			for name, server := range servers {
 				if excluded[name] {
 					continue
@@ -163,7 +180,10 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name) {
+		// Builtin bundles are in-binary and never pass the trust resolver — gate
+		// nil (they ship with ctxloom; trusting the binary trusts them). This
+		// mirrors the baseline, which also excludes builtins.
+		for serverName, server := range extractMCPFromBundle(&b, "builtin:"+name, nil) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
@@ -182,12 +202,12 @@ func resolveBuiltinBundleMCPServers() map[string]wire.MCPServer {
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader) map[string]wire.MCPServer {
+func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.ContentGate) map[string]wire.MCPServer {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
 		return nil
 	}
-	return extractMCPFromBundle(bundle, bundleRef)
+	return extractMCPFromBundle(bundle, bundleRef, gate)
 }
 
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
@@ -220,7 +240,7 @@ func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
 			continue
 		}
 		for _, bundleRef := range resolved.Bundles {
-			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader)
+			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader, c.execGate)
 			result.Append(hooks)
 		}
 	}
@@ -251,7 +271,9 @@ func resolveBuiltinBundleHooks() wire.UnifiedHooks {
 			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
 			continue
 		}
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name)))
+		// Builtin bundles are in-binary and exempt from the trust gate (nil) —
+		// they ship with ctxloom and the baseline excludes them.
+		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(&b, "builtin:"+name, nil)))
 	}
 	return out
 }
@@ -368,26 +390,41 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader) wire.UnifiedHooks {
+func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.ContentGate) wire.UnifiedHooks {
 	bundle, err := loader.Load(bundleRef)
 	if err != nil {
 		return wire.UnifiedHooks{}
 	}
-	return extractHooksFromBundle(bundle, bundleRef)
+	return extractHooksFromBundle(bundle, bundleRef, gate)
 }
 
-func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedHooks {
+// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate is
+// non-nil (the executable trust gate, TR5), each hook's executable surface is
+// hashed (BundleHook.ComputeContentHash) and run through the cascade keyed
+// "<bundle>#hooks/<event>/<index>"; a DENY omits the hook — a bundle hook is an
+// arbitrary-command executable that must never be applied unevaluated
+// (fail-closed). Builtin callers pass nil (in-binary, exempt). The identity
+// scheme is bundles.HookEntry, shared with the migration baseline so a baselined
+// hook's ref matches.
+func extractHooksFromBundle(bundle *bundles.Bundle, source string, gate bundles.ContentGate) wire.UnifiedHooks {
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
 	}
 	marker := "bundle:" + source
-	convert := func(in []bundles.BundleHook) []wire.Hook {
+	convert := func(event string, in []bundles.BundleHook) []wire.Hook {
 		if len(in) == 0 {
 			return nil
 		}
-		out := make([]wire.Hook, len(in))
-		for i, h := range in {
-			out[i] = wire.Hook{
+		out := make([]wire.Hook, 0, len(in))
+		for i := range in {
+			h := in[i]
+			if gate != nil {
+				ref := bundle.Name + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
+				if !gate(ref, h.ComputeContentHash(), string(bundles.FormRaw)) {
+					continue // withheld by the trust gate
+				}
+			}
+			out = append(out, wire.Hook{
 				Matcher:         h.Matcher,
 				Command:         h.Command,
 				Type:            h.Type,
@@ -396,25 +433,36 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string) wire.UnifiedH
 				Async:           h.Async,
 				SCM:             marker,
 				PreToolFallback: h.PreToolFallback,
-			}
+			})
 		}
 		return out
 	}
 	return wire.UnifiedHooks{
-		PreTool:      convert(bundle.Hooks.PreTool),
-		PostTool:     convert(bundle.Hooks.PostTool),
-		SessionStart: convert(bundle.Hooks.SessionStart),
-		SessionEnd:   convert(bundle.Hooks.SessionEnd),
-		PreShell:     convert(bundle.Hooks.PreShell),
-		PostFileEdit: convert(bundle.Hooks.PostFileEdit),
+		PreTool:      convert(bundles.HookEventPreTool, bundle.Hooks.PreTool),
+		PostTool:     convert(bundles.HookEventPostTool, bundle.Hooks.PostTool),
+		SessionStart: convert(bundles.HookEventSessionStart, bundle.Hooks.SessionStart),
+		SessionEnd:   convert(bundles.HookEventSessionEnd, bundle.Hooks.SessionEnd),
+		PreShell:     convert(bundles.HookEventPreShell, bundle.Hooks.PreShell),
+		PostFileEdit: convert(bundles.HookEventPostFileEdit, bundle.Hooks.PostFileEdit),
 	}
 }
 
-// extractMCPFromBundle extracts MCP servers from a loaded bundle.
-func extractMCPFromBundle(bundle *bundles.Bundle, source string) map[string]wire.MCPServer {
+// extractMCPFromBundle extracts MCP servers from a loaded bundle. When gate is
+// non-nil (the executable trust gate, TR5), each server's executable surface
+// (Command+Args+Env+Installation) is hashed and run through the cascade keyed
+// "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
+// executable must never reach settings unevaluated (fail-closed). Builtin
+// callers pass nil (in-binary, exempt).
+func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.ContentGate) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
+		if gate != nil {
+			ref := bundle.Name + "#mcp/" + name
+			if !gate(ref, mcp.ComputeContentHash(), string(bundles.FormRaw)) {
+				continue // withheld by the trust gate
+			}
+		}
 		result[name] = wire.MCPServer{
 			Command:      mcp.Command,
 			Args:         mcp.Args,

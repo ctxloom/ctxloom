@@ -23,7 +23,12 @@ import (
 //
 // Fault tolerant per CLAUDE.md: a config load failure yields a nil payload — the
 // agent's Setup then writes an empty managed set rather than blocking launch.
-func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
+// The gate gates the executable surfaces (bundle MCP servers + hooks + prompt
+// exports) for the `ctxloom run` setup payload (trust rework, TR5). It is built
+// by the run command (which can reach operations.EffectiveTrust); attaching it
+// to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
+// / LoadPromptExports. nil = no gating.
+func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
 		// The agent's Setup writes an EMPTY managed set from a nil payload —
@@ -33,6 +38,7 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
 		return nil
 	}
+	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
 		Prompts:          commandExportsFor(backendName, LoadPromptExports(cfg)),
 		Hooks:            AssembleManagedHooks(cfg, workDir, ""),

@@ -1504,3 +1504,68 @@ func TestLoader_ResolveFragmentAsk(t *testing.T) {
 	// Unknown names pass through unchanged for the load step to report.
 	assert.Equal(t, "nope", loader.ResolveFragmentAsk("nope"))
 }
+
+func TestBundleHook_ComputeContentHash(t *testing.T) {
+	base := BundleHook{
+		Matcher:         "Bash",
+		Command:         "echo hi",
+		Type:            "command",
+		Prompt:          "do the thing",
+		Timeout:         30,
+		Async:           true,
+		PreToolFallback: true,
+	}
+	baseHash := base.ComputeContentHash()
+	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, baseHash)
+	assert.Equal(t, baseHash, base.ComputeContentHash(), "deterministic across calls")
+
+	// Operational knobs (Timeout/Async) are excluded from the executable hash.
+	knobs := base
+	knobs.Timeout = 99
+	knobs.Async = false
+	assert.Equal(t, baseHash, knobs.ComputeContentHash(), "Timeout/Async must not change the hash")
+
+	// Each executable-surface field is part of the hash.
+	for name, mut := range map[string]func(*BundleHook){
+		"Matcher":         func(h *BundleHook) { h.Matcher = "Write" },
+		"Command":         func(h *BundleHook) { h.Command = "rm -rf /" },
+		"Type":            func(h *BundleHook) { h.Type = "prompt" },
+		"Prompt":          func(h *BundleHook) { h.Prompt = "something else" },
+		"PreToolFallback": func(h *BundleHook) { h.PreToolFallback = false },
+	} {
+		changed := base
+		mut(&changed)
+		assert.NotEqualf(t, baseHash, changed.ComputeContentHash(), "%s must be part of the hash", name)
+	}
+}
+
+func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
+	hooks := BundleHooks{
+		PreTool: []BundleHook{
+			{Command: "echo a", Type: "command"},
+			{Command: "echo b", Type: "command"},
+		},
+		PostFileEdit: []BundleHook{
+			{Command: "echo c", Type: "command"},
+		},
+	}
+	entries := hooks.Entries()
+	require.Len(t, entries, 3)
+	// Canonical order: pre_tool before post_file_edit; index per event.
+	assert.Equal(t, "pre_tool/0", entries[0].ID())
+	assert.Equal(t, "pre_tool/1", entries[1].ID())
+	assert.Equal(t, "post_file_edit/0", entries[2].ID())
+
+	// Round-trip: every id resolves back to the same hook.
+	for _, e := range entries {
+		got, ok := hooks.EntryByID(e.ID())
+		require.Truef(t, ok, "EntryByID(%q) must resolve", e.ID())
+		assert.Equal(t, e.Hook.Command, got.Hook.Command)
+	}
+
+	// Fail-closed on malformed / out-of-range ids.
+	for _, bad := range []string{"pre_tool", "pre_tool/9", "pre_tool/-1", "unknown/0", "pre_tool/x"} {
+		_, ok := hooks.EntryByID(bad)
+		assert.Falsef(t, ok, "EntryByID(%q) must report not-found", bad)
+	}
+}

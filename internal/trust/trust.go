@@ -52,20 +52,22 @@ const (
 )
 
 // ItemKind distinguishes the trust-addressable item kinds. Only fragment and
-// prompt are project-authored *content* that the local tier auto-allows; mcp is
-// an executable surface that is never auto-trusted (bundle hooks are gated at
-// their own choke in TR5 and follow the same executable treatment).
+// prompt are project-authored *content* that the local tier auto-allows; mcp and
+// hook are executable surfaces that are never auto-trusted — they are gated at
+// their own chokes in TR5 (MCP-server resolver, bundle-hook resolver) and follow
+// the same executable treatment.
 type ItemKind string
 
 const (
 	KindFragment ItemKind = "fragment"
 	KindPrompt   ItemKind = "prompt"
 	KindMCP      ItemKind = "mcp"
+	KindHook     ItemKind = "hook"
 )
 
 // Dir returns the selector directory segment for the kind, matching the ref
 // grammar: "<bundle>#fragments/<name>", "<bundle>#prompts/<name>",
-// "<bundle>#mcp/<name>".
+// "<bundle>#mcp/<name>", "<bundle>#hooks/<event>/<index>".
 func (k ItemKind) Dir() string {
 	switch k {
 	case KindFragment:
@@ -74,14 +76,16 @@ func (k ItemKind) Dir() string {
 		return "prompts"
 	case KindMCP:
 		return "mcp"
+	case KindHook:
+		return "hooks"
 	default:
 		return string(k)
 	}
 }
 
 // IsContent reports whether the kind is project-authorable *content* (fragment
-// or prompt) as opposed to an executable surface (mcp). Only content kinds get
-// the local-tier auto-allow.
+// or prompt) as opposed to an executable surface (mcp / hook). Only content
+// kinds get the local-tier auto-allow.
 func (k ItemKind) IsContent() bool {
 	return k == KindFragment || k == KindPrompt
 }

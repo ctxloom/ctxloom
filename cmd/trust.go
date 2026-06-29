@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -54,6 +55,9 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	if err != nil {
 		return err
 	}
+	// Reflect the new grant on disk: a previously-withheld item is (re)written into
+	// the managed artifacts now, not at the next apply.
+	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Trusted %s\n", res.Ref)
@@ -103,6 +107,9 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 			"could not resolve %q to hash its content; the sticky ref blacklist applies, "+
 				"but no content-denylist entry was recorded", ref)
 	}
+	// Scrub the now-withheld item from the managed artifacts immediately so an
+	// already-written bundle MCP server / hook stops being exposed.
+	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Blacklisted %s\n", res.Ref)
@@ -159,10 +166,59 @@ func runBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, trust b
 	if err != nil {
 		return err
 	}
+	// A posture flip cascades to the bundle's grant-less items, so refresh the
+	// managed artifacts to expose or withhold them per the new posture.
+	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Bundle '%s' is now %s.\n", res.Bundle, res.Status)
 		return nil
 	})
+}
+
+// refreshManagedArtifacts re-applies the managed harness after a trust mutation so
+// the gate's new decision is reflected on disk immediately: a now-withheld bundle
+// MCP server / hook is scrubbed from backend settings (and the regenerated
+// context), and a newly-trusted one is (re)written, without waiting for the next
+// `manage hooks install` / `ctxloom run`. The re-apply routes through
+// operations.ApplyHooks, which gates every executable surface (bundle MCP servers,
+// bundle hooks, prompt exports) through NewExecutableTrustGate and the regenerated
+// context through exposureLoader — the same chokes context assembly uses — so the
+// on-disk artifacts stay consistent with what assembly would expose. Gating logic
+// is not duplicated here; this only triggers the existing apply path.
+//
+// Fault tolerant (CLAUDE.md): the trust change has already persisted, so a refresh
+// failure only warns — it never fails the mutation, never blocks. It refreshes
+// only a project whose harness is already applied (some backend has managed
+// artifacts wired); re-applying into a project that never installed the harness
+// would create artifacts where none exist, so that case is skipped.
+func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
+	if !harnessApplied(ctx, cfg) {
+		return
+	}
+	if _, err := operations.ApplyHooks(ctx, cfg, operations.ApplyHooksRequest{
+		Backend:           "all",
+		RegenerateContext: true,
+	}); err != nil {
+		clidiag.Warn("ctxloom", "failed to refresh managed artifacts after trust change: %v", err)
+	}
+}
+
+// harnessApplied reports whether ctxloom has managed artifacts wired into any
+// settings-supporting backend. It guards refreshManagedArtifacts so only a project
+// with an applied harness is refreshed. A status-read failure is treated as
+// "not applied" — fail safe toward never creating artifacts on an unreadable
+// project (the trust change persisted regardless).
+func harnessApplied(ctx context.Context, cfg *config.Config) bool {
+	status, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
+	if err != nil {
+		return false
+	}
+	for _, b := range status.Backends {
+		if b.HooksPresent || b.StatusLine || b.MCPPresent {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

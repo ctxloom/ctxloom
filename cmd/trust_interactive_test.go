@@ -39,6 +39,7 @@ func TestParseItemTrustChoice(t *testing.T) {
 // identical to `ctxloom trust <ref>`.
 func TestApplyItemTrustChoice_Grant(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "x", "trust-me body")
 
@@ -57,6 +58,7 @@ func TestApplyItemTrustChoice_Grant(t *testing.T) {
 // `ctxloom blacklist <ref>`.
 func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
@@ -76,6 +78,7 @@ func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 // viewing never trusts, so the store file is never even created.
 func TestApplyItemTrustChoice_Skip(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "x", "look-but-do-not-touch")
 

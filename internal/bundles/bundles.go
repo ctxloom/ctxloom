@@ -437,19 +437,6 @@ func (b *Bundle) AllTags() []string {
 	return tags
 }
 
-// AssembledContent combines all fragment content with separators.
-func (b *Bundle) AssembledContent(preferDistilled bool) string {
-	var parts []string
-
-	for _, name := range b.FragmentNames() {
-		frag := b.Fragments[name]
-		content := frag.EffectiveContent(preferDistilled)
-		parts = append(parts, strings.TrimSpace(content))
-	}
-
-	return strings.Join(parts, "\n\n---\n\n")
-}
-
 // ParseBundle parses raw YAML into a Bundle.
 func ParseBundle(data []byte) (*Bundle, error) {
 	var bundle Bundle

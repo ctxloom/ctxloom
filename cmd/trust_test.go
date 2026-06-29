@@ -13,14 +13,26 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
+// neutralizeRefresh points the project root at an empty dir with no applied
+// harness, so the post-mutation refreshManagedArtifacts is a no-op. These store-
+// focused cases assert the trust store, not the on-disk managed artifacts.
+func neutralizeRefresh(t *testing.T) {
+	t.Helper()
+	t.Setenv(projectroot.EnvVar, t.TempDir())
+}
+
 // testCmd returns a bare cobra command whose stdout is captured. With no
-// --format flag registered, emit() takes the text branch (see format.go).
+// --format flag registered, emit() takes the text branch (see format.go). A
+// Background context is set so cmd.Context() is non-nil, matching what cobra's
+// Execute installs in production (a bare command's Context() is otherwise nil).
 func testCmd() (*cobra.Command, *bytes.Buffer) {
 	c := &cobra.Command{}
+	c.SetContext(context.Background())
 	var buf bytes.Buffer
 	c.SetOut(&buf)
 	return c, &buf
@@ -65,6 +77,7 @@ func effectiveFragmentHash(t *testing.T, appDir, bundle, name string) string {
 // re-readable, and the human output names the new posture.
 func TestRunBundleTrust_RoundTrip(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	c, out := testCmd()
@@ -89,6 +102,7 @@ func TestRunBundleTrust_RoundTrip(t *testing.T) {
 // recomputed effective-content hash — never an author-supplied value.
 func TestRunItemTrust_GrantsLocalFragment(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "x", "always-trusted body")
 
@@ -113,6 +127,7 @@ func TestRunItemTrust_GrantsLocalFragment(t *testing.T) {
 // content is blocked both by ref and (if renamed/moved) by hash.
 func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
@@ -138,6 +153,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 // ref block is written; that is exactly the path that must canonicalize.
 func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	appDir := t.TempDir()
+	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	c, _ := testCmd()

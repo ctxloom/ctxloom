@@ -501,19 +501,6 @@ func TestFSStore_Save_NoPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "no path set")
 }
 
-func TestBundle_AssembledContent(t *testing.T) {
-	bundle := Bundle{
-		Fragments: map[string]BundleFragment{
-			"alpha": {Content: "content A"},
-			"beta":  {Content: "content B"},
-		},
-	}
-	content := bundle.AssembledContent(false)
-	assert.Contains(t, content, "content A")
-	assert.Contains(t, content, "content B")
-	assert.Contains(t, content, "---")
-}
-
 // =============================================================================
 // ParseBundle Tests
 // =============================================================================

@@ -79,29 +79,45 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 
 // resolveProfilePromptRefs returns the union of prompt refs curated by the
 // resolved active (default) profiles, in declaration order. It mirrors how
-// assembleManagedMCP / AssembleManagedHooks fold default-profile config: each
-// default profile is resolved with inheritance (config.ResolveProfile over the
-// inline definitions, the same parents-merge the Fragments path uses) and their
-// prompts: lists union. A nil/empty result means no profile curates prompts, so
-// the caller keeps the global flag-based auto-export (opt-in: no silent change).
+// operations.resolveProfile resolves a default profile: inline definitions
+// (config.ResolveProfile over the config.yaml profiles: map) win, and a name
+// that isn't an inline profile falls back to a directory profile
+// (.ctxloom/profiles/<name>.yaml via the profile loader) — so a directory
+// profile's prompts: curation reaches the same curation point as an inline
+// one. Each resolution carries parent inheritance (the same parents-merge the
+// Fragments path uses) and the prompts: lists union across all default
+// profiles. A nil/empty result means no profile curates prompts, so the caller
+// keeps the global flag-based auto-export (opt-in: no silent change).
 func resolveProfilePromptRefs(cfg *config.Config) []string {
 	if cfg == nil {
 		return nil
 	}
 	seen := collections.NewSet[string]()
 	var refs []string
-	for _, profileName := range cfg.GetDefaultProfiles() {
-		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
-		if err != nil {
-			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated prompts omitted: %v", profileName, err)
-			continue
-		}
-		for _, ref := range resolved.Prompts {
+	add := func(prompts []string) {
+		for _, ref := range prompts {
 			if !seen.Has(ref) {
 				seen.Add(ref)
 				refs = append(refs, ref)
 			}
 		}
+	}
+	for _, profileName := range cfg.GetDefaultProfiles() {
+		// Inline profile (config.yaml profiles: map) wins, matching
+		// operations.resolveProfile's inline-first ordering.
+		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
+			add(resolved.Prompts)
+			continue
+		}
+		// Directory profile fallback (.ctxloom/profiles/<name>.yaml): its
+		// prompts: curation lives in profiles.ResolvedProfile, the directory-side
+		// mirror of config.Profile.Prompts.
+		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
+		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated prompts omitted: %v", profileName, err)
+			continue
+		}
+		add(resolved.Prompts)
 	}
 	return refs
 }

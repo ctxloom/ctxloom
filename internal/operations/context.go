@@ -415,6 +415,7 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 		profile = &config.Profile{
 			Tags:             resolved.Tags,
 			Bundles:          resolved.Bundles,
+			Prompts:          resolved.Prompts,
 			Variables:        resolved.Variables,
 			LLM:              resolved.LLM,
 			ExcludeFragments: resolved.ExcludeFragments,

@@ -376,6 +376,36 @@ variables:
 	assert.Equal(t, "child-only", resolved.Variables["new_var"])
 }
 
+// TestLoader_ResolveProfile_Prompts verifies a directory profile's curated
+// prompts: list round-trips through resolution and unions with a parent's, the
+// directory-side mirror of config.Profile.Prompts (b626431) that feeds
+// backends.LoadPromptExports' opt-in prompt curation.
+func TestLoader_ResolveProfile_Prompts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `description: Parent profile
+prompts:
+  - "tools#prompts/review"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `description: Child profile
+parents:
+  - parent
+prompts:
+  - "tools#prompts/explain"
+  - "tools#prompts/review"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	// Parent prompt first (depth-first), then the child's, deduped by stored ref.
+	assert.Equal(t, []string{"tools#prompts/review", "tools#prompts/explain"}, resolved.Prompts)
+}
+
 // TestLoader_ResolveProfile_LLM verifies the preferred-LLM field round-trips
 // through save/load and inheritance: a child's llm overrides its parent's, and
 // a child without one inherits the parent's.
@@ -625,12 +655,14 @@ func TestResolvedProfile_Merge(t *testing.T) {
 	r1 := &ResolvedProfile{
 		Bundles:   []string{"b1"},
 		Tags:      []string{"t1"},
+		Prompts:   []string{"p1"},
 		Variables: map[string]string{"v1": "value1", "shared": "r1"},
 	}
 
 	r2 := &ResolvedProfile{
 		Bundles:   []string{"b2", "b1"}, // b1 is duplicate
 		Tags:      []string{"t2"},
+		Prompts:   []string{"p2", "p1"}, // p1 is duplicate
 		Variables: map[string]string{"v2": "value2", "shared": "r2"},
 	}
 
@@ -640,6 +672,8 @@ func TestResolvedProfile_Merge(t *testing.T) {
 	assert.Equal(t, []string{"b1", "b2"}, r1.Bundles)
 	// Tags combined
 	assert.Equal(t, []string{"t1", "t2"}, r1.Tags)
+	// Curated prompts combined + deduped (union across active profiles).
+	assert.Equal(t, []string{"p1", "p2"}, r1.Prompts)
 	// Variables: r1 keeps its value for "shared" (first wins for variables during merge)
 	assert.Equal(t, "r1", r1.Variables["shared"])
 	assert.Equal(t, "value1", r1.Variables["v1"])

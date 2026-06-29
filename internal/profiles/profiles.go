@@ -56,6 +56,13 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	for i, par := range p.Parents {
 		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeProfile)
 	}
+	// Curated prompt refs ("<bundle>#prompts/<name>") carry a bundle reference,
+	// so a remote profile's short prompt refs canonicalize against its source
+	// repo exactly like Bundles (the "#prompts/<name>" selector and any trailing
+	// "@<commit>" pin ride through ResolveRefString's item passthrough).
+	for i, pr := range p.Prompts {
+		p.Prompts[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
 }
 
 // Profile represents a named collection of fragments, bundles, and configuration.
@@ -90,6 +97,17 @@ type Profile struct {
 	// Examples: "go-development", "go-development#fragments/testing", "github/security#mcp"
 	// Full URLs: "https://github.com/user/repo@bundles/name"
 	Bundles []string `yaml:"bundles,omitempty"`
+
+	// Prompts curates the slash-command prompt exports for this directory
+	// profile, the mirror of config.Profile.Prompts for inline profiles
+	// (b626431). When a resolved active profile declares a NON-EMPTY list, ONLY
+	// these prompts are exported (each optionally version-pinned with a trailing
+	// "@<commit>"), suppressing the global flag-based auto-export for that
+	// profile; an empty list keeps today's global auto-export (opt-in). Each
+	// entry is a prompt ref ("<bundle>#prompts/<name>") whose version-agnostic
+	// identity is the stored string — like bundles, any "@<commit>" is parsed
+	// transiently at assembly and the lockfile stays untouched.
+	Prompts []string `yaml:"prompts,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`
 
@@ -606,6 +624,10 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Then apply this profile's settings (overrides parents)
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
+	// Curated prompts union with parents in declaration order, deduped by their
+	// version-agnostic stored ref — the directory-profile mirror of how inline
+	// profiles fold Prompts in config_resolve.mergeProfileValues.
+	resolved.Prompts = appendUnique(resolved.Prompts, profile.Prompts...)
 	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
@@ -631,6 +653,7 @@ func cloneVisited(visited map[string]bool) map[string]bool {
 type ResolvedProfile struct {
 	Bundles   []string // All bundle references
 	Tags      []string
+	Prompts   []string // Curated slash-command prompt refs (opt-in; empty = global auto-export)
 	Variables map[string]string
 	LLM       string // Preferred config label/backend (empty = inherit primary)
 
@@ -645,6 +668,7 @@ type ResolvedProfile struct {
 func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
+	r.Prompts = appendUnique(r.Prompts, other.Prompts...)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v

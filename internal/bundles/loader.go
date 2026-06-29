@@ -42,7 +42,25 @@ type Loader struct {
 	gate       ContentGate         // nil = no enforcement; set on exposure loaders only
 	withheldMu sync.Mutex          // Protects withheld
 	withheld   map[string]struct{} // refs the gate withheld this loader's lifetime
+
+	// versionResolver materializes a specific historical commit-version of a
+	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
+	// capability; only the version-aware methods (GetFragmentAtVersion /
+	// ResolveFragmentVersions) consult it — Load and the default path never do, so
+	// the lockfile-pinned default is unchanged.
+	versionResolver BundleVersionResolver
+	versionMu       sync.Mutex         // Protects versionCache
+	versionCache    map[string]*Bundle // canonical-ref+"@"+commit → parsed historical bundle
 }
+
+// BundleVersionResolver materializes a specific historical commit-version of a
+// bundle, identified by its version-less CANONICAL ref ("<url>@bundles/<path>")
+// and an opaque commit revision, returning the parsed bundle as it existed at
+// that commit. It backs the loader's per-version resolution: production wires it
+// to the remote FetchItem primitive (remote.FetchRefBytes over the local clone
+// cache); tests inject a fake. A non-nil error withholds that version
+// (fail-closed) — the loader never falls back to a different version on failure.
+type BundleVersionResolver func(canonicalRef, commit string) (*Bundle, error)
 
 // seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
 // content lives only in Loader.seeded. LoadFile uses the prefix to short-
@@ -88,6 +106,17 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 func WithTrustGate(gate ContentGate) LoaderOption {
 	return func(l *Loader) {
 		l.gate = gate
+	}
+}
+
+// WithVersionResolver attaches the per-commit-version resolver (multi-version
+// coexistence, trust rework, TR5) so the loader can materialize a specific
+// historical version of a bundle via the version-aware methods. A nil resolver
+// (the default) leaves the loader version-unaware: the lockfile-pinned default
+// is the only version, and a pinned-version request fails closed.
+func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
+	return func(l *Loader) {
+		l.versionResolver = resolver
 	}
 }
 

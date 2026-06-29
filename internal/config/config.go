@@ -752,7 +752,58 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 	if seed := c.loadRemoteBundleSeed(); len(seed) > 0 {
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(seed))
 	}
+	// Multi-version coexistence (trust rework, TR5): give every read-path loader
+	// the capability to materialize a specific historical commit-version of a
+	// remote bundle via FetchItem. This is opt-in at the loader's version-aware
+	// methods only — the default (lockfile-pinned) path is unaffected — so wiring
+	// it everywhere is free until a caller asks for an "@<commit>" version.
+	if resolver := c.bundleVersionResolver(); resolver != nil {
+		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithVersionResolver(resolver))
+	}
 	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
+}
+
+// bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
+// a remote bundle at a specific commit via the FetchItem primitive
+// (remote.FetchRefBytes over the local git clone cache), parsing the bytes into a
+// Bundle. It is the production backing for the loader's multi-version
+// coexistence: given a version-less canonical ref and an opaque commit, it reads
+// exactly that historical version. Returns nil when there is no app dir to anchor
+// the clone cache. The fetch is lazy — nothing happens until a version-aware
+// loader method actually requests a pinned commit.
+//
+// Auth and the git clone cache are inherently OS-backed (the cache shells out to
+// git), so they do not honor c.fs — matching loadRemoteBundleSeed.
+func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	baseDir := c.AppPaths[0]
+	// Defer the auth read + clone-cache construction to the FIRST actual version
+	// fetch: the default (lockfile) path never invokes the resolver, so a loader
+	// that is only ever used for ordinary resolution pays nothing for the
+	// capability being wired in.
+	var (
+		once    sync.Once
+		factory remote.FetcherFactory
+		auth    remote.AuthConfig
+	)
+	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
+		once.Do(func() {
+			auth = remote.LoadAuth(baseDir)
+			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
+			factory = remote.NewCachedFetcherFactory(cache)
+		})
+		ref, err := remote.ParseReference(canonicalRef)
+		if err != nil {
+			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
+		}
+		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit)
+		if err != nil {
+			return nil, err
+		}
+		return bundles.ParseBundle(data)
+	}
 }
 
 // loadRemoteBundleSeed materializes every lockfile-listed bundle from the local

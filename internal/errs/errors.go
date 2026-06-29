@@ -29,6 +29,12 @@ var (
 	// (trust rework, TR5) withheld it. See ErrFragmentWithheld.
 	ErrPromptWithheld = errors.New("prompt withheld by trust gate")
 
+	// ErrNoVersionResolver indicates a per-commit-version resolution was
+	// requested (multi-version coexistence, trust rework, TR5) but the loader
+	// has no version resolver wired. A pinned historical version cannot be
+	// materialized without one, so the version is withheld (fail-closed).
+	ErrNoVersionResolver = errors.New("no bundle version resolver configured")
+
 	// ErrRemoteNotFound indicates a remote could not be located.
 	ErrRemoteNotFound = errors.New("remote not found")
 

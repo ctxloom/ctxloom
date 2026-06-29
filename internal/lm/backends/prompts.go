@@ -5,17 +5,32 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/resources"
 	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/shared/collections"
 )
 
 // LoadPromptExports loads every prompt that exports as a slash command:
-// ctxloom's embedded builtin commands plus every bundle prompt. This is the
+// ctxloom's embedded builtin commands plus the bundle prompts. This is the
 // SINGLE prompt-export assembly — both the `ctxloom run` setup payload
 // (AssembleManagedConfig) and operations.ApplyHooks route through it. The
 // settings/command writers reconcile by removing all ctxloom-managed files and
 // re-adding the assembled set, so two diverging assemblies would silently
 // delete whatever one produced and the other didn't.
+//
+// Bundle prompts come from one of two sources, chosen by the resolved active
+// (default) profiles (profile prompt curation, opt-in):
+//   - When the profiles declare a NON-EMPTY prompts: list, ONLY those are
+//     exported (each at its pinned version), force-enabled so a curated prompt
+//     surfaces even if its bundle didn't flag it as a slash command — the
+//     profile explicitly curates the set, suppressing the global auto-export.
+//   - Otherwise (the common case) every bundle prompt is loaded and the
+//     downstream per-backend mapper applies each prompt's own enabled flag —
+//     today's global, profile-agnostic behavior, unchanged.
+//
+// Builtins are always present in both modes (ctxloom's core commands aren't
+// part of the curatable bundle-prompt set).
 //
 // The SeededBundleLoader is the only loader that also surfaces remote bundles
 // from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
@@ -36,6 +51,13 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 	}
 
 	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
+
+	// Profile prompt curation (opt-in): a non-empty curated set replaces the
+	// global flag-based auto-export for this profile.
+	if curated := resolveProfilePromptRefs(cfg); len(curated) > 0 {
+		return append(prompts, loadCuratedPrompts(loader, curated)...)
+	}
+
 	infos, err := loader.ListAllPrompts()
 	if err != nil {
 		// The reconciling writers remove-all-then-re-add, so a transient load
@@ -53,6 +75,75 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 		prompts = append(prompts, content)
 	}
 	return prompts
+}
+
+// resolveProfilePromptRefs returns the union of prompt refs curated by the
+// resolved active (default) profiles, in declaration order. It mirrors how
+// assembleManagedMCP / AssembleManagedHooks fold default-profile config: each
+// default profile is resolved with inheritance (config.ResolveProfile over the
+// inline definitions, the same parents-merge the Fragments path uses) and their
+// prompts: lists union. A nil/empty result means no profile curates prompts, so
+// the caller keeps the global flag-based auto-export (opt-in: no silent change).
+func resolveProfilePromptRefs(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	seen := collections.NewSet[string]()
+	var refs []string
+	for _, profileName := range cfg.GetDefaultProfiles() {
+		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
+		if err != nil {
+			clidiag.Warn("ctxloom", "default profile %q unresolved; its curated prompts omitted: %v", profileName, err)
+			continue
+		}
+		for _, ref := range resolved.Prompts {
+			if !seen.Has(ref) {
+				seen.Add(ref)
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs
+}
+
+// loadCuratedPrompts resolves each profile-curated prompt ref (honoring an
+// "@<commit>" version pin and the trust gate) and force-enables its
+// slash-command export so a curated prompt is exported even when its bundle
+// didn't flag it — the profile explicitly curates it. A ref that doesn't
+// resolve (not found, gate-withheld, or a pinned version that fails to fetch) is
+// warned and skipped (fault tolerance), never aborting the rest.
+func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.LoadedContent {
+	var out []*bundles.LoadedContent
+	for _, ref := range refs {
+		name, version := remote.SplitPromptVersion(ref)
+		var (
+			content *bundles.LoadedContent
+			err     error
+		)
+		if version == "" {
+			content, err = loader.GetPrompt(ref)
+		} else {
+			content, err = loader.GetPromptAtVersion(name, version)
+		}
+		if err != nil {
+			clidiag.Warn("ctxloom", "skipping curated prompt %q: %v", ref, err)
+			continue
+		}
+		out = append(out, forceExport(content))
+	}
+	return out
+}
+
+// forceExport marks a loaded prompt enabled for every backend's slash-command
+// export. A profile that curates a prompt is an explicit request to export it,
+// so the per-prompt opt-out flag is overridden; all other export metadata
+// (description, hints, model, …) is reused as-is.
+func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
+	on := true
+	c.LLM.ClaudeCode.Enabled = &on
+	c.LLM.Antigravity.Enabled = &on
+	c.LLM.Codex.Enabled = &on
+	return c
 }
 
 // builtinPrompts returns ctxloom's built-in slash command prompts. These are

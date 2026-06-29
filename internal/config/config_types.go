@@ -103,16 +103,25 @@ func (f FragmentRef) MarshalYAML() (any, error) {
 // Fragments can be specified directly by path, or dynamically via tags.
 // Profiles can inherit from parent profiles using the Parents field.
 type Profile struct {
-	Description string            `mapstructure:"description" yaml:"description,omitempty"`
-	LLM         string            `mapstructure:"llm" yaml:"llm,omitempty"`                   // Preferred config label/backend (overridable by -l)
-	Parents     []string          `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
-	Tags        []string          `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
-	Bundles     []string          `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
-	BundleItems []string          `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
-	Fragments   []FragmentRef     `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
-	Variables   map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
-	Hooks       wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
-	MCP         wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
+	Description string        `mapstructure:"description" yaml:"description,omitempty"`
+	LLM         string        `mapstructure:"llm" yaml:"llm,omitempty"`                   // Preferred config label/backend (overridable by -l)
+	Parents     []string      `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
+	Tags        []string      `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
+	Bundles     []string      `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
+	BundleItems []string      `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
+	Fragments   []FragmentRef `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority
+	// Prompts curates the slash-command prompt exports for this profile. When a
+	// resolved active profile declares a NON-EMPTY list, ONLY these prompts are
+	// exported (each optionally version-pinned with a trailing "@<commit>"),
+	// suppressing the global flag-based auto-export for that profile; an empty
+	// list keeps today's global auto-export (opt-in). Each entry is a prompt ref
+	// ("<bundle>#prompts/<name>") whose version-agnostic identity is the stored
+	// string — like bundle_items, any "@<commit>" is parsed transiently at
+	// assembly and the lockfile stays untouched.
+	Prompts   []string          `mapstructure:"prompts" yaml:"prompts,omitempty"`
+	Variables map[string]string `mapstructure:"variables" yaml:"variables,omitempty"`
+	Hooks     wire.HooksConfig  `mapstructure:"hooks" yaml:"hooks,omitempty"` // Hooks for this profile (inherited)
+	MCP       wire.MCPConfig    `mapstructure:"mcp" yaml:"mcp,omitempty"`     // MCP servers for this profile (inherited)
 
 	// Exclusions - items to filter out after inheritance resolution
 	ExcludeFragments []string `mapstructure:"exclude_fragments" yaml:"exclude_fragments,omitempty"`

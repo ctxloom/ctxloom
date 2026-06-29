@@ -90,6 +90,38 @@ func SplitFragmentVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
+// PromptSelector is the selector prefix addressing a prompt within a bundle
+// ("<bundle>#prompts/<name>"). The prompt counterpart to FragmentSelector;
+// producers and consumers share it so the grammar lives in one place.
+const PromptSelector = "#prompts/"
+
+// SplitPromptVersion is the prompt counterpart to SplitFragmentVersion: it
+// canonicalizes the bundle part of a qualified prompt ref and splits off any
+// "@<commit>" content version it carries, whether the version sits on the
+// bundle part ("X@<commit>#prompts/n") or trails the prompt name
+// ("X#prompts/n@<commit>", the name-addressed CLI/resource form). The returned
+// canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#prompts/n"),
+// so the trust gate and dedup stay version-agnostic; the version is meant to be
+// honored only at the read/resolution path (GetPromptAtVersion). A ref without a
+// prompt selector (a bare name) is returned unchanged with no version — a bare
+// name has no bundle to pin a historical version against.
+func SplitPromptVersion(ref string) (canonical, version string) {
+	base, sel := splitItemPath(ref)
+	if !strings.HasPrefix(sel, PromptSelector) {
+		return ref, ""
+	}
+	// Version on the bundle part: "X@<commit>#prompts/n".
+	if parsed, err := ParseReference(base); err == nil {
+		version = parsed.ContentVersion
+	}
+	// Version trailing the prompt name: "X#prompts/n@<commit>" (wins if present).
+	if atIdx := strings.LastIndex(sel, "@"); atIdx != -1 {
+		version = sel[atIdx+1:]
+		sel = sel[:atIdx]
+	}
+	return CanonicalBundleRef(base) + sel, version
+}
+
 // IsCanonicalRef checks if a reference is in canonical URL format.
 func IsCanonicalRef(ref string) bool {
 	return strings.HasPrefix(ref, "https://") ||

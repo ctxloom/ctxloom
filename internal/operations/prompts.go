@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // PromptEntry represents a prompt in operation results. Tags carry the
@@ -82,6 +83,14 @@ func ListPrompts(ctx context.Context, cfg *config.Config, req ListPromptsRequest
 type GetPromptRequest struct {
 	Name string `json:"name"`
 
+	// Version optionally pins the prompt to a historical content version
+	// ("@<commit>"). When empty, GetPrompt parses any "@<commit>" trailing Name
+	// itself (the name-addressed form `<bundle>#prompts/<name>@<commit>`); a set
+	// Version wins (mirroring how FragmentRef.Version threads a pin). The pinned
+	// version resolves via the loader's GetPromptAtVersion, gated by ITS OWN
+	// content hash; an unversioned ref takes today's GetPrompt path unchanged.
+	Version string `json:"version,omitempty"`
+
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
 }
@@ -106,7 +115,17 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 		loader = exposureLoader(cfg)
 	}
 
-	prompt, err := loader.GetPrompt(req.Name)
+	// A name-addressed ref may pin a content version ("@<commit>"): split it to
+	// the canonical version-less ref + parsed version. An explicit req.Version
+	// wins over the parsed one (mirrors FragmentRef.Version threading). With no
+	// version the unchanged GetPrompt path resolves the lockfile-pinned default;
+	// a pinned ref resolves that exact historical version via GetPromptAtVersion,
+	// gated by ITS OWN content hash (fail-closed on fetch/resolve error).
+	ref, version := remote.SplitPromptVersion(req.Name)
+	if req.Version != "" {
+		version = req.Version
+	}
+	prompt, err := getPromptVersioned(loader, req.Name, ref, version)
 	if err != nil {
 		return nil, err
 	}
@@ -129,4 +148,18 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 		Name:    prompt.Name,
 		Content: content,
 	}, nil
+}
+
+// getPromptVersioned resolves a prompt honoring a pinned content version. An
+// unversioned request takes the lockfile-pinned default path (loader.GetPrompt
+// on the ORIGINAL name, so today's behavior is unchanged); a "@<commit>"-pinned
+// request resolves that exact historical version (loader.GetPromptAtVersion on
+// the canonical version-less ref), gated by ITS OWN effective-content hash. A
+// version fetch/resolve failure fails closed (returns the error so the surface
+// withholds), mirroring loadFragmentRef.
+func getPromptVersioned(loader *bundles.Loader, name, ref, version string) (*bundles.LoadedContent, error) {
+	if version == "" {
+		return loader.GetPrompt(name)
+	}
+	return loader.GetPromptAtVersion(ref, version)
 }

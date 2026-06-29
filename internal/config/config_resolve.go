@@ -19,6 +19,7 @@ type profileBuilder struct {
 	Bundles     collections.Set[string]
 	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
+	Prompts     collections.Set[string]
 	Variables   map[string]string
 	Hooks       wire.HooksConfig
 	MCP         wire.MCPConfig
@@ -26,6 +27,7 @@ type profileBuilder struct {
 	tagsOrder        []string
 	bundlesOrder     []string
 	bundleItemsOrder []string
+	promptsOrder     []string
 	fragmentsOrder   []FragmentRef
 	// Track fragment priorities (keep highest when same fragment referenced multiple times)
 	fragmentPriorities map[string]int
@@ -42,6 +44,7 @@ func newProfileBuilder() *profileBuilder {
 		Bundles:            collections.NewSet[string](),
 		BundleItems:        collections.NewSet[string](),
 		Fragments:          collections.NewSet[string](),
+		Prompts:            collections.NewSet[string](),
 		Variables:          make(map[string]string),
 		fragmentPriorities: make(map[string]int),
 		Hooks: wire.HooksConfig{
@@ -75,6 +78,17 @@ func (b *profileBuilder) addBundleItem(item string) {
 	if !b.BundleItems.Has(item) {
 		b.BundleItems.Add(item)
 		b.bundleItemsOrder = append(b.bundleItemsOrder, item)
+	}
+}
+
+// addPrompt accumulates a curated prompt ref, deduping by its authored string
+// (the version-agnostic identity is the stored ref) so a profile and its
+// parents union without repeating an entry. Insertion order is preserved for a
+// stable export set.
+func (b *profileBuilder) addPrompt(prompt string) {
+	if !b.Prompts.Has(prompt) {
+		b.Prompts.Add(prompt)
+		b.promptsOrder = append(b.promptsOrder, prompt)
 	}
 }
 
@@ -220,6 +234,7 @@ func (b *profileBuilder) toProfile() *Profile {
 		Bundles:          b.bundlesOrder,
 		BundleItems:      b.bundleItemsOrder,
 		Fragments:        filteredFragments,
+		Prompts:          b.promptsOrder,
 		Variables:        b.Variables,
 		Hooks:            b.Hooks,
 		MCP:              filteredMCP,
@@ -316,6 +331,9 @@ func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	}
 	for _, frag := range profile.Fragments {
 		builder.addFragment(frag)
+	}
+	for _, prompt := range profile.Prompts {
+		builder.addPrompt(prompt)
 	}
 	for k, v := range profile.Variables {
 		builder.Variables[k] = v

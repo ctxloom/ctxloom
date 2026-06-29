@@ -764,40 +764,66 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 }
 
 // bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
-// a remote bundle at a specific commit via the FetchItem primitive
-// (remote.FetchRefBytes over the local git clone cache), parsing the bytes into a
-// Bundle. It is the production backing for the loader's multi-version
-// coexistence: given a version-less canonical ref and an opaque commit, it reads
-// exactly that historical version. Returns nil when there is no app dir to anchor
-// the clone cache. The fetch is lazy — nothing happens until a version-aware
-// loader method actually requests a pinned commit.
+// a bundle at a specific commit and parses the bytes into a Bundle. It dispatches
+// by the ref's SOURCE — the loader's multi-version coexistence backed end to end:
 //
-// Auth and the git clone cache are inherently OS-backed (the cache shells out to
-// git), so they do not honor c.fs — matching loadRemoteBundleSeed.
+//   - remote/canonical ref → the FetchItem primitive over the local git clone
+//     cache (remote.FetchRefBytes), exactly as before;
+//   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
+//     git history (the committed .ctxloom/local/ tree), via the local working-copy
+//     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
+//     untouched: the loader only invokes the resolver for an explicit "@<commit>".
+//
+// Given a version-less canonical ref and an opaque commit, it reads exactly that
+// historical version. Returns nil when there is no app dir to anchor either
+// source. The fetch is lazy — nothing happens until a version-aware loader method
+// actually requests a pinned commit — and any failure (unknown rev, non-git
+// project, path-absent-at-rev) fails closed: the caller withholds just that item.
+//
+// Auth and both git backends are inherently OS-backed (the remote cache shells
+// out to git; the local backend opens the on-disk project .git), so they do not
+// honor c.fs — matching loadRemoteBundleSeed.
 func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 	if len(c.AppPaths) == 0 {
 		return nil
 	}
 	baseDir := c.AppPaths[0]
-	// Defer the auth read + clone-cache construction to the FIRST actual version
-	// fetch: the default (lockfile) path never invokes the resolver, so a loader
-	// that is only ever used for ordinary resolution pays nothing for the
-	// capability being wired in.
+	// Defer the auth read + clone-cache construction to the FIRST actual remote
+	// version fetch: the default (lockfile) path never invokes the resolver, and a
+	// local-only pin never touches the remote cache, so neither pays for it.
 	var (
 		once    sync.Once
 		factory remote.FetcherFactory
 		auth    remote.AuthConfig
 	)
 	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
+		ref, err := remote.ParseReference(canonicalRef)
+		if err != nil {
+			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
+		}
+
+		// Local (project-authored) refs version against the PROJECT'S own git
+		// history, not the remote clone cache. The committed .ctxloom/local/ tree
+		// is read at <commit> through the working-copy VCS; a non-git project,
+		// unknown rev, or path-absent-at-rev errors here and the caller withholds.
+		if ref.IsLocal {
+			data, err := remote.NewLocalRefFetcher(
+				remote.LocalGitVCSFactory(afero.NewOsFs()),
+				paths.LocalPath(baseDir),
+			).FetchItem(context.Background(), ref, commit)
+			if err != nil {
+				return nil, err
+			}
+			return bundles.ParseBundle(data)
+		}
+
+		// Remote/canonical refs: FetchItem over the local clone cache (auth +
+		// cache built once, lazily, on the first remote pin).
 		once.Do(func() {
 			auth = remote.LoadAuth(baseDir)
 			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 			factory = remote.NewCachedFetcherFactory(cache)
 		})
-		ref, err := remote.ParseReference(canonicalRef)
-		if err != nil {
-			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
-		}
 		data, err := remote.FetchRefBytes(context.Background(), factory, auth, ref, commit)
 		if err != nil {
 			return nil, err

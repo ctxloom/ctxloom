@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // reductionPct formats the in→out token reduction as a percentage, guarding

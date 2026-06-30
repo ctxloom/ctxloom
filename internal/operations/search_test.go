@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // =============================================================================

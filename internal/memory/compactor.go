@@ -16,12 +16,12 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
+	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/shared/textutil"
-	"github.com/ctxloom/shared/tokens"
 )
 
 const (

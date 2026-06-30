@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // This file carries the WatchSession transport: a structured, turn-based view of

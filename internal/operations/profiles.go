@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml

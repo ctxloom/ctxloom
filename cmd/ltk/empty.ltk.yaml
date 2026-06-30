@@ -1,0 +1,9 @@
+# llm-tool-killer rules — add your own.
+# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md
+version: 1
+
+defaults:
+  on_parse_error: allow      # command unparseable → allow (fail-open)
+  repeat_window_seconds: 30  # window for `mode: confirm` rules
+
+rules: []

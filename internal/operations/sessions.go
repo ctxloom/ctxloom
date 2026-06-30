@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Session operations wrap the harp-keyed session index so frontends never touch

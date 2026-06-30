@@ -6,9 +6,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/collections"
 )
 
 // LoadSkillExports loads every prompt that exports as a slash command:

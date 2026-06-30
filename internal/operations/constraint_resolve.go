@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // newConstraintResolver builds the dependency walker's hash resolver: it turns a

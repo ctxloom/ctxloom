@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // StampPlanFile ensures the file's YAML frontmatter contains `sessions:`

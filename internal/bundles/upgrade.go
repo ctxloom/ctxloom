@@ -3,7 +3,7 @@ package bundles
 import (
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // bundleUpgrades is the canonical, ordered bundle schema upgrade pipeline,

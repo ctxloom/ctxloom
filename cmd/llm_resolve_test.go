@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/claude"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

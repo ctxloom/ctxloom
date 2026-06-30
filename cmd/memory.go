@@ -14,8 +14,8 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/textutil"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 var memoryCmd = &cobra.Command{

@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".

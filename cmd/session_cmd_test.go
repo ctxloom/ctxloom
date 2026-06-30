@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/shared/harpmarker"
 )
 
 // TestEmitHarpMarker covers the SessionStart producer side: the bind hook emits

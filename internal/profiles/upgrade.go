@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // profileUpgrades is the canonical, ordered profile schema upgrade pipeline,

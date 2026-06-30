@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
-	"github.com/ctxloom/shared/clidiag"
 )
 
 // getTrustStore returns the per-item trust store for cfg, or the injected store

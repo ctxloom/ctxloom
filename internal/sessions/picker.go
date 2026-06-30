@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Decision is what the picker returns: either resume an existing session,

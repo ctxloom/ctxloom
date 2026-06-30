@@ -1,8 +1,8 @@
 package grpc
 
 import (
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file holds the Go<->proto converters for the host-assembled

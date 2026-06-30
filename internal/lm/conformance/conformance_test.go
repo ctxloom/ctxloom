@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
-	"github.com/ctxloom/codex"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // settingsWriter is the suite's view of an agent writer: the shared

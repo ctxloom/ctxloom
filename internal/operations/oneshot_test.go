@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // stubClient is a minimal pb.Client for testing RunOneshot without a real

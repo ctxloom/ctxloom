@@ -39,7 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // TestMCPServerEntry_Fields verifies the MCPServerEntry struct stores all

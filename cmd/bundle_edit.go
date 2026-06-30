@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 var bundleCreateDesc string

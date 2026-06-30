@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/shared/plans"
-	"github.com/ctxloom/shared/watch"
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/internal/shared/watch"
 )
 
 // planWatchDebounce coalesces the burst of filesystem events a single plan

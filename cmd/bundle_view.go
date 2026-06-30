@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 var bundleViewCmd = &cobra.Command{

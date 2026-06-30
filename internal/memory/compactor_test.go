@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/shared/agent"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 		// 9-byte repeating unit (3+4+2 bytes) so the 100-byte target boundary
 		// (25 tokens * 4 chars) always lands mid-rune.
 		text := strings.Repeat("界😀é", 120) // 1080 bytes
-		chunks := c.chunkText(text, 25)     // 100-byte chunks; overlap (2000) > chunk → no overlap
+		chunks := c.chunkText(text, 25)    // 100-byte chunks; overlap (2000) > chunk → no overlap
 		require.Greater(t, len(chunks), 1)
 		for i, chunk := range chunks {
 			assert.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8: %q", i, chunk)

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Plan retrieval: the agent server is co-located with the session files and

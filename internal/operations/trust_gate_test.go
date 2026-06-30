@@ -15,8 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/trust"
-	"github.com/ctxloom/shared/agent"
 )
 
 // acmeToolingSeed seeds one REMOTE bundle (acme tooling) with fragments and

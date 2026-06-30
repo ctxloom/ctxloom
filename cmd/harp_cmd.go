@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/shared/harp"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
 var (

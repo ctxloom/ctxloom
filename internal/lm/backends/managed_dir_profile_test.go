@@ -18,7 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // dirProfileCfg writes directory profiles (name → YAML body) under a fresh

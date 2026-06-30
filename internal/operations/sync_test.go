@@ -46,7 +46,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.

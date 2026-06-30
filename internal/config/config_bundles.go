@@ -10,9 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/wire"
 )
 
 // lookPath is the PATH-resolution seam for tests.

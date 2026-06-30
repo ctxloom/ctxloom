@@ -9,9 +9,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 )
 

@@ -1,0 +1,72 @@
+# llm-tool-killer default rules — edit freely and commit alongside your project.
+# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md
+version: 1
+
+defaults:
+  on_parse_error: allow
+  repeat_window_seconds: 30
+  repeat_delay_seconds: 10
+
+rules:
+  - id: tests-via-task-runner
+    match: { command: [go, test] }
+    mode: confirm
+    message: "Run tests through your project's task runner, not the compiler directly, so the suite matches CI."
+  - id: no-reset-hard
+    match: { command: [git, reset, --hard] }
+    message: "`git reset --hard` discards uncommitted work irreversibly. Stash or commit first."
+    suggest: "git stash --include-untracked"
+  - id: no-git-clean
+    match:
+      command: [git, clean]
+      unless: ["-n", "--dry-run"]
+    message: "`git clean` deletes untracked files for good. Preview with `-n`, or stash."
+    suggest: "git stash --include-untracked"
+  - id: no-skip-commit-hooks
+    match: { command: [git, commit, --no-verify] }
+    message: "Don't bypass commit hooks with --no-verify — fix what the hook flags, then commit."
+  - id: no-skip-push-hooks
+    match: { command: [git, push, --no-verify] }
+    message: "Don't bypass push hooks with --no-verify — fix the failure, then push."
+  - id: no-force-push
+    match: { command: [git, push, --force] }
+    message: "A plain force-push can overwrite a teammate's commits."
+    suggest: "git push --force-with-lease"
+  - id: stage-explicitly
+    match: { command: [git, add], args_any: ["-A", "--all", "."] }
+    mode: confirm
+    message: "Prefer staging the paths this change actually touches. If the change really does span many files, run the same command again to stage them all."
+    suggest: "git add <path> [<path> …]"
+  - id: no-rewrite-git-identity
+    match: { command: [git, config], args_any: ["user.email", "user.name"] }
+    message: "Don't change the git identity from inside the agent; set it once in your own global config."
+  - id: rm-rf-careful
+    match: { command: rm, args_all: ["-r", "-f"] }
+    message: "Double-check the path before a recursive force-delete; delete specific paths, not trees, when you can."
+  - id: no-sudo
+    match: { command: sudo }
+    message: "Don't escalate privileges from inside the agent — ask a human to run anything that needs sudo."
+  - id: no-pkill
+    match: { command: pkill }
+    message: "Avoid pkill by name (wrong-PID risk) — find the specific PID and `kill` it."
+  - id: no-killall
+    match: { command: killall }
+    message: "Avoid killall by name (wrong-PID risk) — find the specific PID and `kill` it."
+  - id: no-encoded-command-pwsh
+    match:
+      command: [pwsh]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "pwsh -Command '<the same script, unencoded>'"
+  - id: no-encoded-command-powershell
+    match:
+      command: [powershell]
+      args_any: ["-EncodedCommand", "-encodedcommand", "-e", "-ec", "-enc"]
+    message: "Encoded commands can't be inspected. Pass the script in plain text instead."
+    suggest: "powershell -Command '<the same script, unencoded>'"
+  - id: no-edit-submodules
+    match: { path: ["@submodules"] }
+    message: "This file is inside a git submodule (a pinned, separate repo). Edit it in that submodule's own repo and commit there — never from the superproject. This is firm; there is no override."
+  - id: no-edit-gitmodules
+    match: { path: [.gitmodules] }
+    message: "Don't hand-edit .gitmodules — use `git submodule add`/`deinit` so the config and the recorded gitlink stay in sync."

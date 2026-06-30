@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 )

@@ -23,12 +23,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/tasks"
-	taskops "github.com/ctxloom/shared/tasks/operations"
-	"github.com/ctxloom/shared/tokens"
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks"
+	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/tokens"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 var (

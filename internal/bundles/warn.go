@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // bundleWarner emits the "unresolved bundle" warning at most once per distinct

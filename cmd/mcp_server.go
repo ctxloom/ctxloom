@@ -15,9 +15,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler.

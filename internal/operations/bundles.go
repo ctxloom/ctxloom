@@ -19,9 +19,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/collections"
-	"github.com/ctxloom/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // DistillKind tags whether a Distill call is for a fragment or a prompt.

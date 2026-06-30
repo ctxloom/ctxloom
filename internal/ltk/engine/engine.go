@@ -1,0 +1,148 @@
+// Package engine adapts the various LLM hook protocols (Claude Code,
+// Antigravity, ...) to a single internal Request/Response shape. The core
+// never speaks a specific engine's wire format; an Adapter does the
+// translation at the edge.
+package engine
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+)
+
+// Request is the engine-neutral view of a tool invocation to be checked. It is
+// either a command invocation (Command set, from Bash/PowerShell) or a file edit
+// (FilePath set, from Edit/Write/…), never both.
+type Request struct {
+	ToolName string
+	Command  string
+	// Shell is the dialect to parse with. Empty means the engine did not say;
+	// the caller fills in a default.
+	Shell ir.Shell
+	// FilePath is the target of a file-editing tool (Edit/Write/MultiEdit/…),
+	// empty for command invocations. When set, the request is evaluated against
+	// path rules instead of command rules.
+	FilePath string
+}
+
+// Response is the engine-neutral decision.
+type Response struct {
+	Allow   bool
+	Reason  string
+	Suggest string
+	// Confirmable reports whether a denial may be lifted by repeating the exact
+	// command within ConfirmWindowSeconds (the "confirm by repeating" override).
+	// ConfirmDelaySeconds is a minimum wait before the repeat counts (0 = none).
+	// An inviolate rule yields Confirmable=false, so repeating never helps.
+	Confirmable          bool
+	ConfirmWindowSeconds int
+	ConfirmDelaySeconds  int
+}
+
+// Message renders the reason and suggestion into a single human-facing string.
+func (r Response) Message() string {
+	switch {
+	case r.Suggest == "":
+		return r.Reason
+	case r.Reason == "":
+		return "Use instead: " + r.Suggest
+	default:
+		return r.Reason + "\n\nUse instead: " + r.Suggest
+	}
+}
+
+// Output is the full result an adapter produces for one decision: what to write
+// to each stream and the process exit code. This covers every engine's protocol
+// without changing the interface:
+//
+//   - Claude Code / Antigravity / Codex: deny → JSON on Stdout, ExitCode 0;
+//     allow → empty.
+//
+// A zero Output (no bytes, exit 0) means "write nothing" — pass-through.
+type Output struct {
+	Stdout   []byte
+	Stderr   []byte
+	ExitCode int
+}
+
+// Adapter translates one hook engine's stdin/stdout protocol. It is what the
+// `evaluate` (runtime) path needs.
+type Adapter interface {
+	// Name is the engine identifier (e.g. "claude-code").
+	Name() string
+	// Decode parses the engine's hook payload from stdin bytes.
+	Decode(input []byte) (Request, error)
+	// Encode renders the decision into the engine's wire output (streams + exit
+	// code).
+	Encode(resp Response) (Output, error)
+}
+
+// Engine is everything specific to one hook host: the runtime Adapter plus the
+// management surface (where its hook config lives and how to add/remove the
+// hook). Engine-specific details — settings paths, the on-disk hook format —
+// live entirely in the engine's own module, so adding an engine never touches
+// the `manage` command.
+type Engine interface {
+	Adapter
+	// Detect scores how relevant this engine is to the project rooted at dir
+	// (e.g. presence of .claude/). 0 means "not present here". The manage
+	// command installs into the highest-scoring engine.
+	Detect(dir string) int
+	// SettingsPath returns the engine's hook-config file for the given scope.
+	SettingsPath(dir string, global bool) (string, error)
+	// HookCommand builds the command line the hook should run.
+	HookCommand(bin, configPath string) string
+	// Install merges a hook running command into the engine's settings bytes
+	// (empty in → fresh config). Idempotent; returns the new settings bytes and
+	// a human-facing note when the merge repaired an existing install (e.g.
+	// upgraded a stale matcher), empty otherwise.
+	Install(settings []byte, command string) (data []byte, note string, err error)
+	// Uninstall removes any hook running command from the settings bytes. removed
+	// reports whether a matching hook was actually found and dropped, so callers
+	// can skip a no-op rewrite and avoid claiming a removal that did not happen.
+	Uninstall(settings []byte, command string) (data []byte, removed bool, err error)
+}
+
+// engines is the registry of known engines. Order matters for Detect ties:
+// earlier wins, so Claude Code outranks Antigravity when both score equally.
+func engines() []Engine {
+	return []Engine{ClaudeCode{}, Antigravity{}}
+}
+
+// engineAliases maps accepted alternate spellings to canonical engine names.
+var engineAliases = map[string]string{
+	"claudecode":      "claude-code",
+	"claude":          "claude-code",
+	"agy":             "antigravity",
+	"antigravity-cli": "antigravity",
+}
+
+// Get returns the engine for a name: the canonical name or a declared alias,
+// case-insensitively. There is no prefix matching — a typo must error rather
+// than silently pick an engine.
+func Get(name string) (Engine, error) {
+	want := strings.ToLower(name)
+	if canonical, ok := engineAliases[want]; ok {
+		want = canonical
+	}
+	for _, e := range engines() {
+		if e.Name() == want {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown engine %q", name)
+}
+
+// Detect returns the most relevant engine for the project at dir, or ok=false
+// if none is detected there.
+func Detect(dir string) (Engine, bool) {
+	var best Engine
+	bestScore := 0
+	for _, e := range engines() {
+		if s := e.Detect(dir); s > bestScore {
+			best, bestScore = e, s
+		}
+	}
+	return best, best != nil
+}

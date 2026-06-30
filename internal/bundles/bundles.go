@@ -15,7 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Bundle represents a versioned collection of related content.

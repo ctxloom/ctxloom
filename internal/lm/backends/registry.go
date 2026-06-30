@@ -3,11 +3,11 @@ package backends
 import (
 	"os/exec"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
-	"github.com/ctxloom/codex"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Configurable is implemented by backends that accept their own typed config.

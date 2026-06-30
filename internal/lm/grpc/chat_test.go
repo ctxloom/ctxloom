@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"

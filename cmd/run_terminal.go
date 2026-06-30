@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"golang.org/x/term"
 )
 

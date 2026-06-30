@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ctxloom/shared/textutil"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 // JSONCompressor compresses JSON while preserving structure (keys, types).

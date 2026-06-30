@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // searchProfiles matches profiles by name, then description, then tag (in that

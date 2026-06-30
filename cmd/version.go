@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 )
 
 var versionCmd = &cobra.Command{

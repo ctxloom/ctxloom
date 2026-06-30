@@ -5,9 +5,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file is the HOST side of the setup seam: ctxloom owns config and bundles

@@ -3,7 +3,7 @@ package backends
 import (
 	"fmt"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // NilSessionHistory is a no-op SessionHistory for backends that don't support

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

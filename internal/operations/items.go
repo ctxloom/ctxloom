@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Bundle items (fragments and prompts) are managed through this frontend-

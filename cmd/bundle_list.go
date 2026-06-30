@@ -9,8 +9,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/shared/iox"
-	"github.com/ctxloom/shared/textutil"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 var bundleListCmd = &cobra.Command{

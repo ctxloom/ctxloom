@@ -11,16 +11,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/harpmarker"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/harpmarker"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 var sessionCmd = &cobra.Command{

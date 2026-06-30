@@ -1,0 +1,216 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/taskloom/engine"
+)
+
+// manage registers the `taskloom mcp` server with agent backends directly —
+// taskloom's standalone path, no ctxloom required. ctxloom users get the same
+// registration from the embedded taskloom bundle instead; the two never fight
+// because both write the same entry under the same key.
+
+var (
+	manageEngine    string
+	manageDir       string
+	manageProject   bool
+	managePrintOnly bool
+)
+
+var manageCmd = &cobra.Command{
+	Use:   "manage",
+	Short: "Register the taskloom MCP server with agent backends",
+}
+
+var manageInstallCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Add the taskloom MCP server to backend configs",
+	Long: `Register ` + "`taskloom mcp`" + ` as an MCP server. By default every backend
+present at the chosen scope is updated (user-level: Claude Code and Codex
+configs under your home directory; Antigravity is project-scope only). Name
+one with --engine to register just that backend — creating its config if
+needed. --project writes the project-scoped config under --dir instead of
+the user-level one.`,
+	Args: cobra.NoArgs,
+	RunE: func(*cobra.Command, []string) error {
+		return manageInstall(manageEngine, manageDir, !manageProject, managePrintOnly, os.Stderr)
+	},
+}
+
+var manageUninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "Remove the taskloom MCP server from backend configs",
+	Args:  cobra.NoArgs,
+	RunE: func(*cobra.Command, []string) error {
+		return manageUninstall(manageEngine, manageDir, !manageProject, os.Stderr)
+	},
+}
+
+var manageStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Report where the taskloom MCP server is registered",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return manageStatus(manageDir, cmd.OutOrStdout())
+	},
+}
+
+// resolveEngines picks the engines to operate on: the one explicitly named
+// (config created if needed), or every backend present at the scope.
+func resolveEngines(name, dir string, global bool) ([]engine.Engine, error) {
+	if name != "" {
+		e, err := engine.Get(name)
+		if err != nil {
+			return nil, err
+		}
+		return []engine.Engine{e}, nil
+	}
+	var engines []engine.Engine
+	for _, e := range engine.All() {
+		if e.Present(dir, global) {
+			engines = append(engines, e)
+		}
+	}
+	return engines, nil
+}
+
+func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) error {
+	engines, err := resolveEngines(name, dir, global)
+	if err != nil {
+		return err
+	}
+	if len(engines) == 0 {
+		return errors.New("no agent backends detected; name one with --engine (claude-code, antigravity, codex)")
+	}
+	server := engine.TaskloomServer()
+	for _, e := range engines {
+		path, err := e.ConfigPath(dir, global)
+		if err != nil {
+			return err
+		}
+		existing, err := readIfExists(path)
+		if err != nil {
+			return err
+		}
+		merged, err := e.Install(existing, engine.TaskloomName, server)
+		if err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		if printOnly {
+			fmt.Fprintf(errOut, "# %s → %s\n%s", e.Name(), path, merged)
+			continue
+		}
+		if err := writeConfig(path, merged); err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		fmt.Fprintf(errOut, "taskloom: registered MCP server for %s\n  config: %s\n", e.Name(), path)
+	}
+	return nil
+}
+
+func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
+	engines, err := resolveEngines(name, dir, global)
+	if err != nil {
+		return err
+	}
+	for _, e := range engines {
+		path, err := e.ConfigPath(dir, global)
+		if err != nil {
+			return err
+		}
+		existing, err := readIfExists(path)
+		if err != nil {
+			return err
+		}
+		if existing == nil {
+			continue
+		}
+		cleaned, err := e.Uninstall(existing, engine.TaskloomName)
+		if err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		if err := writeConfig(path, cleaned); err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		fmt.Fprintf(errOut, "taskloom: removed MCP server from %s\n  config: %s\n", e.Name(), path)
+	}
+	return nil
+}
+
+func manageStatus(dir string, out io.Writer) error {
+	if _, err := exec.LookPath("taskloom"); err != nil {
+		fmt.Fprintln(out, "binary: taskloom NOT on PATH")
+	} else {
+		fmt.Fprintln(out, "binary: taskloom on PATH")
+	}
+	for _, e := range engine.All() {
+		for _, scope := range []struct {
+			label  string
+			global bool
+		}{{"user", true}, {"project", false}} {
+			path, err := e.ConfigPath(dir, scope.global)
+			if err != nil {
+				continue
+			}
+			raw, err := readIfExists(path)
+			if err != nil || raw == nil {
+				continue
+			}
+			ok, err := e.Installed(raw, engine.TaskloomName)
+			if err != nil {
+				fmt.Fprintf(out, "%-12s %-8s unreadable: %v (%s)\n", e.Name(), scope.label, err, path)
+				continue
+			}
+			state := "not registered"
+			if ok {
+				state = "registered"
+			}
+			fmt.Fprintf(out, "%-12s %-8s %s (%s)\n", e.Name(), scope.label, state, path)
+		}
+	}
+	return nil
+}
+
+// readIfExists returns the file's bytes, or nil (no error) when it is absent.
+func readIfExists(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return raw, err
+}
+
+func writeConfig(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// Atomic temp-then-rename (shared family convention): manage rewrites the
+	// user's real backend config files, so a crash/power loss mid-write must not
+	// leave a truncated config. MkdirAll above satisfies the parent-exists
+	// precondition of iox.WriteFileAtomic.
+	return iox.WriteFileAtomic(path, data, 0o644)
+}
+
+func init() {
+	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd} {
+		c.Flags().StringVar(&manageEngine, "engine", "", "Backend to target: claude-code, antigravity, or codex (default: all present)")
+		c.Flags().BoolVar(&manageProject, "project", false, "Write the project-scoped config under --dir instead of the user-level one")
+	}
+	manageInstallCmd.Flags().BoolVar(&managePrintOnly, "print-only", false, "Print the merged configs to stderr instead of writing them")
+	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd, manageStatusCmd} {
+		c.Flags().StringVar(&manageDir, "dir", ".", "Project directory for project-scoped configs")
+	}
+	manageCmd.AddCommand(manageInstallCmd)
+	manageCmd.AddCommand(manageUninstallCmd)
+	manageCmd.AddCommand(manageStatusCmd)
+	rootCmd.AddCommand(manageCmd)
+}

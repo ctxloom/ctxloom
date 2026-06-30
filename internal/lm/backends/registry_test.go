@@ -7,8 +7,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

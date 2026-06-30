@@ -13,8 +13,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/shared/agent"
 )
 
 // regenTestApp creates a project layout (appDir with a bundles dir) and a

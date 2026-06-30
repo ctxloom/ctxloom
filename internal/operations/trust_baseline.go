@@ -7,8 +7,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/trust"
-	"github.com/ctxloom/shared/clidiag"
 )
 
 // BaselineTrustRequest drives the one-time TR6 migration snapshot. Store/Loader/

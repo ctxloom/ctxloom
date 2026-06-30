@@ -10,12 +10,12 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/claude"
+	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // HookInput is the JSON input from AI tool SessionStart hooks. The wire shape

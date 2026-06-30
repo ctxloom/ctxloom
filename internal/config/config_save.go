@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/filelock"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the

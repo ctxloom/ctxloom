@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // TestPromptSelectorUpgrade_MigratesSelectors pins the prompt→skill selector

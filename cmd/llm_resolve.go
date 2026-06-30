@@ -6,13 +6,13 @@ import (
 	"os"
 	"slices"
 
-	"github.com/ctxloom/antigravity"
-	"github.com/ctxloom/claude"
-	"github.com/ctxloom/codex"
+	"github.com/ctxloom/ctxloom/internal/antigravity"
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // decodeBackendConfig decodes the labeled LLM entry into its backend's typed

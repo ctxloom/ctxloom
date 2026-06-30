@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )

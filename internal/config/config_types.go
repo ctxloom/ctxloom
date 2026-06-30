@@ -3,7 +3,7 @@ package config
 import (
 	"slices"
 
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"gopkg.in/yaml.v3"
 )
 

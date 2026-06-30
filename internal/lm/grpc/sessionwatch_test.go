@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	googlegrpc "google.golang.org/grpc"
@@ -73,9 +73,9 @@ func TestSessionWatcher_BoundaryFiresWhenGrowthStalls(t *testing.T) {
 func TestSessionWatcher_BoundaryPerResponse(t *testing.T) {
 	w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
 
-	w.step(sessionWith("a"))          // stream entry 0
-	w.step(sessionWith("a"))          // boundary [0,1)
-	w.step(sessionWith("a", "b"))     // stream entry 1
+	w.step(sessionWith("a"))               // stream entry 0
+	w.step(sessionWith("a"))               // boundary [0,1)
+	w.step(sessionWith("a", "b"))          // stream entry 1
 	stall := w.step(sessionWith("a", "b")) // boundary [1,2)
 
 	require.Len(t, stall, 1)

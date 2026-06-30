@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/ptyrunner"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 )
 
 // nonInteractiveWaitDelay bounds how long a non-interactive run waits for its

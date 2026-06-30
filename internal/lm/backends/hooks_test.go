@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/claude"
-	"github.com/ctxloom/shared/agent"
-	"github.com/ctxloom/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

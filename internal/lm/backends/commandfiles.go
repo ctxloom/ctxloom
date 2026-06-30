@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // WriteCommandFilesFor writes slash-command files for the named backend,

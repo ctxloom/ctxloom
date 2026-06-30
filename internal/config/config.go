@@ -18,11 +18,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
-	"github.com/ctxloom/shared/clidiag"
-	"github.com/ctxloom/shared/collections"
-	"github.com/ctxloom/shared/upgrade"
-	"github.com/ctxloom/shared/wire"
 )
 
 // Re-export path constants for backwards compatibility

@@ -1,0 +1,17 @@
+# ltk — the lint-the-context companion (pure-Go, no CGO), built to bin/ltk.
+#
+# ltk ships from the unified ctxloom release; main.Version is stamped to match
+# `ltk version`. Shared build/version/compress logic comes from
+# build/common.justfile (just `import`); this module supplies only what differs.
+# Recipes run inside the devcontainer via the root `_run`, with the working
+# directory set to this dir (cmd/ltk/), so paths are {{TOP}}-relative.
+import "../../build/common.justfile"
+
+# Build ltk (no CGO) to {{TOP}}/bin/ltk.
+build: (_go-build (TOP / "cmd/ltk") (TOP / "bin/ltk") "main.Version" "" "0")
+
+# Compress the built ltk binary with UPX.
+compress: (_compress (TOP / "bin/ltk"))
+
+# Build then compress.
+build-compressed: build compress

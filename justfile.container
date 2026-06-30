@@ -10,6 +10,14 @@
 # checkouts. Push sibling changes and bump the pin to pick them up here.
 export GOWORK := "off"
 
+# Per-binary build justfiles, composed here via `mod`. Each lives next to its
+# code, owns that binary's build/compress, and shares the common build logic via
+# `import "build/common.justfile"`. Their recipes are reachable as
+# ctxloom::build, ltk::build, taskloom::build, etc.
+mod ctxloom "cmd/ctxloom/justfile"
+mod ltk "cmd/ltk/justfile"
+mod taskloom "cmd/taskloom/justfile"
+
 # Get version from versionator (with fallback). Standardized stamp:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
 # versionator emits the compact datetime (no separator); sed inserts the 'T'.
@@ -29,11 +37,11 @@ default: build
 
 # ===== Build targets =====
 
-# Build with all features (treesitter)
+# Build ctxloom with all features (treesitter). Codegen prerequisites run here
+# (the ctxloom module can't depend on these container-level recipes), then the
+# actual go build is delegated to the ctxloom module (cmd/ctxloom/justfile).
 build: validate proto gen-schemas
-    CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
-        -o ctxloom ./cmd/ctxloom
+    just ctxloom::build
 
 # Build without CGO - static
 build-static:
@@ -53,19 +61,23 @@ build-full: validate proto
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
-# Build the ltk companion (pure-Go, no CGO) into bin/ltk. ltk ships from the
-# unified ctxloom release; main.Version is stamped to match `ltk version`.
+# Build the ltk companion into bin/ltk — delegated to the ltk module
+# (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-ltk:
-    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X main.Version={{version}}" \
-        -o bin/ltk ./cmd/ltk
+    just ltk::build
 
-# Build the taskloom companion (pure-Go, no CGO) into bin/taskloom. Note
-# taskloom stamps the lowercase main.version (matching `taskloom version`).
+# Build the taskloom companion into bin/taskloom — delegated to the taskloom
+# module (cmd/taskloom/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-taskloom:
-    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X main.version={{version}}" \
-        -o bin/taskloom ./cmd/taskloom
+    just taskloom::build
+
+# Build + compress all three binaries (UPX). Codegen prerequisites run here for
+# ctxloom, then each module's build-compressed builds and UPX-compresses its
+# binary. Used by the host `install`/`build-compressed`.
+build-compressed: validate proto gen-schemas
+    just ctxloom::build-compressed
+    just ltk::build-compressed
+    just taskloom::build-compressed
 
 # ===== Cross-compilation targets =====
 
@@ -127,9 +139,10 @@ compress-windows-amd64:
 # Compress all compressible binaries
 compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 
-# Compress the main ctxloom binary (for local dev)
+# Compress the main ctxloom binary (for local dev) — delegated to the ctxloom
+# module. For all three binaries use `build-compressed`.
 compress:
-    upx --best --lzma ctxloom
+    just ctxloom::compress
 
 # Build and compress all platforms
 release: build-all compress-all

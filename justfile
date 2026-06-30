@@ -47,18 +47,22 @@ build: dev-image
 compress: dev-image
     just _run compress
 
-# Build and compress (delegates to devcontainer)
-build-compressed: build compress
+# Build + compress all three binaries in the devcontainer (ctxloom + ltk +
+# taskloom, each UPX-compressed). Delegates to the container `build-compressed`.
+build-compressed: dev-image
+    just _run build-compressed
 
-# Build the ltk companion binary (pure-Go, no CGO) into bin/ltk. ltk ships from
-# the unified ctxloom release; main.Version is stamped to match `ltk version`.
-build-ltk:
-    CGO_ENABLED=0 go build -ldflags "-X main.Version={{version}}" -o bin/ltk ./cmd/ltk
+# Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
+# module. ltk ships from the unified ctxloom release; main.Version matches
+# `ltk version`.
+build-ltk: dev-image
+    just _run ltk::build
 
-# Build the taskloom companion binary (pure-Go, no CGO) into bin/taskloom.
-# Note taskloom stamps the lowercase main.version (matching `taskloom version`).
-build-taskloom:
-    CGO_ENABLED=0 go build -ldflags "-X main.version={{version}}" -o bin/taskloom ./cmd/taskloom
+# Build the taskloom companion binary in the devcontainer into bin/taskloom, via
+# the taskloom module. taskloom stamps the lowercase main.version
+# (`taskloom version`).
+build-taskloom: dev-image
+    just _run taskloom::build
 
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
@@ -366,7 +370,7 @@ run *ARGS:
 # this same repo. Atomic rename instead of pkill+cp: replacing the directory
 # entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
 # never dumps a live ctxloom-managed session); new launches pick up the new one.
-install: build-compressed build-ltk build-taskloom
+install: build-compressed
     mkdir -p ~/go/bin
     cp ctxloom ~/go/bin/ctxloom.new
     mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom

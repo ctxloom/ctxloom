@@ -32,26 +32,40 @@ default: build
 # Build with all features (treesitter)
 build: validate proto gen-schemas
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom ./cmd/ctxloom
 
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom ./cmd/ctxloom
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}} {{static_ldflags}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}} {{static_ldflags}}" \
+        -o ctxloom ./cmd/ctxloom
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom ./cmd/ctxloom
+
+# Build the ltk companion (pure-Go, no CGO) into bin/ltk. ltk ships from the
+# unified ctxloom release; main.Version is stamped to match `ltk version`.
+build-ltk:
+    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
+        -ldflags "-s -w -X main.Version={{version}}" \
+        -o bin/ltk ./cmd/ltk
+
+# Build the taskloom companion (pure-Go, no CGO) into bin/taskloom. Note
+# taskloom stamps the lowercase main.version (matching `taskloom version`).
+build-taskloom:
+    CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
+        -ldflags "-s -w -X main.version={{version}}" \
+        -o bin/taskloom ./cmd/taskloom
 
 # ===== Cross-compilation targets =====
 
@@ -59,36 +73,36 @@ build-full: validate proto
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-linux-amd64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-linux-amd64 ./cmd/ctxloom
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-linux-arm64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-linux-arm64 ./cmd/ctxloom
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-windows-amd64.exe .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-windows-amd64.exe ./cmd/ctxloom
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-darwin-amd64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-darwin-amd64 ./cmd/ctxloom
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/cmd.Version={{version}}" \
-        -o ctxloom-darwin-arm64 .
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Build all platforms
 build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64

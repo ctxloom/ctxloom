@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/cmd"
+	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -66,7 +66,7 @@ func TestCompleteness(t *testing.T) {
 	corpus := loadCorpus(t)
 
 	t.Run("cli leaves", func(t *testing.T) {
-		for _, path := range leafCommands(cmd.GetRootCmd()) {
+		for _, path := range leafCommands(cli.GetRootCmd()) {
 			if reason, ok := excludedLeaves[path]; ok {
 				t.Logf("excluded: %s — %s", path, reason)
 				continue

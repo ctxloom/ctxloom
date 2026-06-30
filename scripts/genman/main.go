@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra/doc"
 
-	"github.com/ctxloom/ctxloom/cmd"
+	"github.com/ctxloom/ctxloom/internal/cli"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 		Manual:  "User Commands",
 	}
 
-	rootCmd := cmd.GetRootCmd()
+	rootCmd := cli.GetRootCmd()
 	if err := doc.GenManTree(rootCmd, header, outDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating man pages: %v\n", err)
 		os.Exit(1)

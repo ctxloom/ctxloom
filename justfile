@@ -50,6 +50,16 @@ compress: dev-image
 # Build and compress (delegates to devcontainer)
 build-compressed: build compress
 
+# Build the ltk companion binary (pure-Go, no CGO) into bin/ltk. ltk ships from
+# the unified ctxloom release; main.Version is stamped to match `ltk version`.
+build-ltk:
+    CGO_ENABLED=0 go build -ldflags "-X main.Version={{version}}" -o bin/ltk ./cmd/ltk
+
+# Build the taskloom companion binary (pure-Go, no CGO) into bin/taskloom.
+# Note taskloom stamps the lowercase main.version (matching `taskloom version`).
+build-taskloom:
+    CGO_ENABLED=0 go build -ldflags "-X main.version={{version}}" -o bin/taskloom ./cmd/taskloom
+
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
     just _run validate
@@ -64,7 +74,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -348,21 +358,26 @@ complexity-check *ARGS: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/cmd.Version={{version}}" -o ctxloom .
+    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
-# Build, compress, and install to ~/go/bin (standard Go location)
-# Atomic rename instead of pkill+cp: replacing the directory entry leaves the
-# busy inode mapped for any running ctxloom (avoids ETXTBSY and never dumps a
-# live ctxloom-managed session); new launches pick up the new binary.
-install: build-compressed
+# Build, compress, and install all three binaries to ~/go/bin (standard Go
+# location): ctxloom plus its companions ltk and taskloom, which now ship from
+# this same repo. Atomic rename instead of pkill+cp: replacing the directory
+# entry leaves the busy inode mapped for any running binary (avoids ETXTBSY and
+# never dumps a live ctxloom-managed session); new launches pick up the new one.
+install: build-compressed build-ltk build-taskloom
     mkdir -p ~/go/bin
     cp ctxloom ~/go/bin/ctxloom.new
     mv -f ~/go/bin/ctxloom.new ~/go/bin/ctxloom
+    cp bin/ltk ~/go/bin/ltk.new
+    mv -f ~/go/bin/ltk.new ~/go/bin/ltk
+    cp bin/taskloom ~/go/bin/taskloom.new
+    mv -f ~/go/bin/taskloom.new ~/go/bin/taskloom
 
-# Uninstall from ~/go/bin
+# Uninstall all three binaries from ~/go/bin
 uninstall:
-    rm -f ~/go/bin/ctxloom
+    rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
 # Generate man pages
 man:

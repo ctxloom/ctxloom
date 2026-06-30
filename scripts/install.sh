@@ -57,20 +57,13 @@ readonly DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="ctxloom"
 
-# Companion tools - standalone binaries ctxloom's built-in bundles wire in
-# when present on PATH (taskloom: task tracking MCP server; ltk: command
-# guardrail pre-tool hook). Installed by default; each is opt-out via flag
-# (--no-taskloom, --no-ltk, --no-companions) or env (CTXLOOM_NO_TASKLOOM=1,
-# CTXLOOM_NO_LTK=1, CTXLOOM_NO_COMPANIONS=1). A companion that fails to
-# download is a warning, never a failed ctxloom install.
-INSTALL_TASKLOOM="${CTXLOOM_NO_TASKLOOM:+no}"
-INSTALL_LTK="${CTXLOOM_NO_LTK:+no}"
-if [[ -n "${CTXLOOM_NO_COMPANIONS:-}" ]]; then
-    INSTALL_TASKLOOM="no"
-    INSTALL_LTK="no"
-fi
-readonly TASKLOOM_REPO="ctxloom/taskloom"
-readonly LTK_REPO="ctxloom/llm-tool-killer"
+# Companion tools - taskloom (task tracking MCP server) and ltk (command
+# guardrail pre-tool hook), which ctxloom's built-in bundles wire in when
+# present on PATH. Both are now folded into the ctxloom repo and ship from THIS
+# same release/tag, so they install alongside ctxloom from the very same archive
+# set — no separate repos, no opt-out flags. A companion that fails to download
+# is a warning, never a failed ctxloom install.
+readonly COMPANIONS=(taskloom ltk)
 
 # --brew: delegate everything to Homebrew instead of fetching archives.
 # Brew-installed binaries skip the unsigned-binary trust dance entirely
@@ -172,19 +165,6 @@ get_latest_version() {
         exit 1
     fi
 
-    echo "${version}"
-}
-
-# Like get_latest_version, but for any repo and non-fatal: prints nothing on
-# failure so companion installs can degrade to a warning.
-get_latest_version_for() {
-    local repo="$1" version=""
-    local url="https://api.github.com/repos/${repo}/releases/latest"
-    if command_exists curl; then
-        version=$(curl -sL "${url}" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/' | head -1)
-    elif command_exists wget; then
-        version=$(wget -qO- "${url}" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/' | head -1)
-    fi
     echo "${version}"
 }
 
@@ -316,26 +296,20 @@ clear_macos_quarantine() {
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║ Companion tools - taskloom and ltk ride along (unless told not to)        ║
+# ║ Companion tools - taskloom and ltk ride along (same unified release)      ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
-# install_companion <repo> <binary> <os> <arch>
+# install_companion <binary> <version> <os> <arch>
 # Best-effort: any failure logs a warning and returns 0 so the ctxloom install
-# never fails over a companion. Same flow as ctxloom itself: latest release →
-# archive → checksum → extract → install → de-quarantine.
+# never fails over a companion. Pulls from THIS release (same version tag and
+# checksums.txt as ctxloom): archive → checksum → extract → install →
+# de-quarantine.
 install_companion() {
-    local repo="$1" binary="$2" os="$3" arch="$4"
-    local version archive_name download_url temp_dir use_sudo=""
-
-    version=$(get_latest_version_for "${repo}")
-    if [[ -z "${version}" ]]; then
-        log_warn "${binary}: no release found for ${repo}; skipping"
-        log_warn "  install later: go install github.com/${repo}/cmd/${binary}@latest"
-        return 0
-    fi
+    local binary="$1" version="$2" os="$3" arch="$4"
+    local archive_name download_url temp_dir use_sudo=""
 
     archive_name="${binary}_${version}_${os}_${arch}.tar.gz"
-    download_url="https://github.com/${repo}/releases/download/v${version}/${archive_name}"
+    download_url="${DOWNLOAD_BASE}/v${version}/${archive_name}"
     temp_dir=$(mktemp -d)
     # Subshell-safe cleanup: no trap stacking with the main installer's
     rm_temp() { rm -rf "${temp_dir}"; }
@@ -343,11 +317,12 @@ install_companion() {
     log_info "Installing companion ${binary} v${version}..."
 
     if ! fetch_file "${download_url}" "${temp_dir}/${archive_name}"; then
-        log_warn "${binary}: download failed; skipping (https://github.com/${repo}/releases)"
+        log_warn "${binary}: download failed; skipping (https://github.com/${REPO}/releases)"
+        log_warn "  install later: go install github.com/${REPO}/cmd/${binary}@latest"
         rm_temp; return 0
     fi
 
-    if fetch_file "https://github.com/${repo}/releases/download/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
         if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
             log_warn "${binary}: checksum mismatch; NOT installing"
             rm_temp; return 0
@@ -376,18 +351,13 @@ install_companion() {
     return 0
 }
 
+# install_companions <version> <os> <arch>: install every companion from the
+# same ctxloom release. Best-effort per companion — never fails the install.
 install_companions() {
-    local os="$1" arch="$2"
-    if [[ "${INSTALL_TASKLOOM}" != "no" ]]; then
-        install_companion "${TASKLOOM_REPO}" "taskloom" "${os}" "${arch}"
-    else
-        log_info "Skipping taskloom (opted out)"
-    fi
-    if [[ "${INSTALL_LTK}" != "no" ]]; then
-        install_companion "${LTK_REPO}" "ltk" "${os}" "${arch}"
-    else
-        log_info "Skipping ltk (opted out)"
-    fi
+    local version="$1" os="$2" arch="$3" companion
+    for companion in "${COMPANIONS[@]}"; do
+        install_companion "${companion}" "${version}" "${os}" "${arch}"
+    done
 }
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -533,25 +503,18 @@ setup_fish_completion() {
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --no-companions)
-                INSTALL_TASKLOOM="no"
-                INSTALL_LTK="no"
-                ;;
-            --no-taskloom) INSTALL_TASKLOOM="no" ;;
-            --no-ltk) INSTALL_LTK="no" ;;
             --brew) USE_BREW="yes" ;;
             -h|--help)
-                echo "Usage: install.sh [--brew] [--no-companions] [--no-taskloom] [--no-ltk]"
+                echo "Usage: install.sh [--brew]"
                 echo ""
-                echo "Installs ctxloom plus its companion tools (taskloom: task tracking;"
-                echo "ltk: command guardrails). Piped form takes the same flags:"
-                echo "  curl -fsSL .../install.sh | bash -s -- --no-ltk"
+                echo "Installs ctxloom plus its bundled companion tools (taskloom: task"
+                echo "tracking; ltk: command guardrails). All three ship from the one"
+                echo "ctxloom release. Piped form takes the same flags:"
+                echo "  curl -fsSL .../install.sh | bash -s -- --brew"
                 echo ""
                 echo "  --brew   Delegate to Homebrew (brew install ctxloom/tap/...) instead"
                 echo "           of fetching release archives. Requires brew on PATH. Avoids"
                 echo "           the unsigned-binary trust steps: ${TRUST_DOC_URL}"
-                echo ""
-                echo "Env equivalents: CTXLOOM_NO_COMPANIONS, CTXLOOM_NO_TASKLOOM, CTXLOOM_NO_LTK"
                 exit 0
                 ;;
             *)
@@ -587,11 +550,7 @@ install_via_brew() {
     log_success "Installed ctxloom via brew"
 
     local companion
-    for companion in taskloom ltk; do
-        case "${companion}" in
-            taskloom) [[ "${INSTALL_TASKLOOM}" == "no" ]] && { log_info "Skipping taskloom (opted out)"; continue; } ;;
-            ltk)      [[ "${INSTALL_LTK}" == "no" ]] && { log_info "Skipping ltk (opted out)"; continue; } ;;
-        esac
+    for companion in "${COMPANIONS[@]}"; do
         if brew install "ctxloom/tap/${companion}"; then
             log_success "Installed companion ${companion} via brew"
         else
@@ -645,9 +604,9 @@ main() {
         # Verify (because trust issues are valid)
         verify_installation
 
-        # Companions ride along (taskloom + ltk; opt out with --no-* flags).
+        # Companions ride along (taskloom + ltk) from this same release.
         # Failures here warn and continue — ctxloom is already installed.
-        install_companions "${os}" "${arch}"
+        install_companions "${version}" "${os}" "${arch}"
 
         # Set up shell completion (the cherry on top)
         setup_completion

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctxloom/ctxloom/cmd"
+	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/schemagen"
 )
@@ -25,7 +25,7 @@ const schemaDir = "resources/schema/gen"
 func main() {
 	var targets []schemagen.Target
 	targets = append(targets, operations.SchemaTargets()...)
-	targets = append(targets, cmd.SchemaTargets()...)
+	targets = append(targets, cli.SchemaTargets()...)
 
 	if err := schemagen.Generate(schemaDir, targets); err != nil {
 		fmt.Fprintf(os.Stderr, "gen-schemas: %v\n", err)

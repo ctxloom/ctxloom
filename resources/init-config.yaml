@@ -9,12 +9,15 @@ version: 4
 config:
   use_distilled: true
 
-# Default profiles loaded for context assembly. The seeded `default` profile
-# pairs the baseline conduct/practice bundle with the sequential-thinking MCP
-# server; replace or extend it with a language/stack profile via discovery.
+# Default profiles loaded for context assembly. init scaffolds a LOCAL profile
+# named `default` (.ctxloom/profiles/default.yaml) that inherits ctxloom-default's
+# baseline conduct/practice + developer profiles — so the seeded default is a
+# real, editable local coding profile, not a bare remote reference. Edit it,
+# add language/stack profiles via discovery, or split it into tighter per-role
+# profiles bound to engines with `ctxloom subagent setup`.
 profiles:
   defaults:
-    - https://github.com/ctxloom/ctxloom-default@profiles/default
+    - default
 
 # MCP server configuration.
 mcp:

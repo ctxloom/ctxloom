@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -124,7 +126,15 @@ Output format (JSON to stdout):
 				clearRecoverable = true
 			}
 		}
-		output.SystemMessage = clearRecoveryMessage(hookInput.Source, part, clearRecoverable)
+		// Compose the user-facing SessionStart nudges: the clear-recovery hint
+		// (when a /clear left a recoverable prior session) and the subagent-setup
+		// nudge (when this project has profiles but no subagents). Both ride the
+		// systemMessage channel and can co-occur, so they are joined rather than
+		// one clobbering the other.
+		output.SystemMessage = composeSystemMessage(
+			clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
+			subagentSetupNudge(workDir, part),
+		)
 
 		// Output JSON to stdout
 		encoder := json.NewEncoder(os.Stdout)
@@ -146,6 +156,39 @@ func clearRecoveryMessage(source string, part int, recoverable bool) string {
 		return ""
 	}
 	return "ctxloom: context cleared. Run /recover to bring your previous session's context back."
+}
+
+// subagentSetupNudge returns the Phase F "profiles but no subagents" nudge for
+// the project rooted at workDir, or "" when it should not fire. It loads the
+// project config (rooted at workDir/.ctxloom) and delegates the trigger decision
+// to operations.SubagentSetupNudge (profiles present AND no subagents). It fires
+// once per SessionStart (part<=1, so a multi-chunk inject doesn't repeat it) and
+// is fully fault-tolerant: a config-load failure yields "" and never blocks
+// startup (CLAUDE.md). The condition self-resolves the moment any subagent is
+// configured.
+func subagentSetupNudge(workDir string, part int) string {
+	if part > 1 {
+		return ""
+	}
+	cfg, err := config.Load(config.WithAppDir(filepath.Join(workDir, config.AppDirName)))
+	if err != nil {
+		return ""
+	}
+	return operations.SubagentSetupNudge(cfg)
+}
+
+// composeSystemMessage joins the non-empty SessionStart system messages with a
+// blank line. Empty inputs drop out, so passing only empties yields "" (no
+// systemMessage emitted), and any combination of the clear-recovery and
+// subagent-setup nudges renders cleanly.
+func composeSystemMessage(msgs ...string) string {
+	parts := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		if m != "" {
+			parts = append(parts, m)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // selectChunk resolves which slice of the assembled context this hook

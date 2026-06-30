@@ -62,3 +62,21 @@ func TestRenderSubagentShow_ResolutionFailureStillPrintsDefinition(t *testing.T)
 	assert.Contains(t, out, "Engine (declared): (project default)")
 	assert.Contains(t, out, "Resolved engine: unavailable (profile missing not found)")
 }
+
+// TestSubagentSetupCmd_EmitsPrompt proves `subagent setup` writes the
+// agent-assisted setup prompt — the SCAN → DISCUSS → SET instructions the LLM
+// follows — to stdout. The prompt is a markdown resource, so the assertions pin
+// only the load-bearing, name-agnostic mechanics (not any role/lens names).
+func TestSubagentSetupCmd_EmitsPrompt(t *testing.T) {
+	var buf bytes.Buffer
+	subagentSetupCmd.SetOut(&buf)
+	t.Cleanup(func() { subagentSetupCmd.SetOut(nil) })
+
+	assert.NoError(t, subagentSetupCmd.RunE(subagentSetupCmd, nil))
+	out := buf.String()
+
+	assert.Contains(t, out, "ctxloom llm list", "prompt scans engines at runtime")
+	assert.Contains(t, out, "ctxloom profile list", "prompt scans profiles at runtime")
+	assert.Contains(t, out, "ctxloom subagent set", "prompt writes bindings via subagent set")
+	assert.Contains(t, out, "search_library", "prompt discovers the cr-* lenses from the library")
+}

@@ -10,7 +10,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/resources"
 )
+
+// subagentSetupPrompt is the agent-assisted setup prompt `subagent setup` emits
+// for the LLM to follow: SCAN available engines/profiles → DISCUSS roles with the
+// user → SET the chosen engine↔profile bindings. It is deliberately a markdown
+// RESOURCE, not Go: the role palette, steering, and example names are data the
+// taxonomy can evolve without a code change (see resources/prompts/subagent-setup.md).
+var subagentSetupPrompt = resources.MustGetPromptText("subagent-setup")
 
 var subagentCmd = &cobra.Command{
 	Use:   "subagent",
@@ -131,12 +139,127 @@ func renderSubagentShow(out io.Writer, def *operations.SubagentEntry, resolved *
 	return w.Err()
 }
 
+// subagentSetupCmd surfaces the agent-assisted setup prompt for the LLM to run.
+// It writes the prompt to stdout; the agent (which has shell access) runs
+// `ctxloom subagent setup`, reads the emitted instructions, and follows them
+// (scan engines/profiles → discuss roles with the user → `subagent set`). This is
+// the same surface the SessionStart nudge points the user at.
+var subagentSetupCmd = &cobra.Command{
+	Use:   "setup",
+	Short: "Print the agent-assisted subagent-setup prompt for the LLM to follow",
+	Long: `Emit the subagent-setup prompt: instructions for the LLM to interview you and
+configure subagents (engine↔profile bindings) collaboratively.
+
+Subagents are a general orchestration primitive — cheap finders, code-review
+lenses, escalating developers, and more — that map/weave fan across. The prompt
+has the agent SCAN what's available (engines via 'ctxloom llm list', profiles via
+'ctxloom profile list' + search_library), DISCUSS which roles you want, then write
+them with 'ctxloom subagent set'. Engine choice stays yours.
+
+Run this (or ask your agent to) when you have profiles but no subagents yet.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Println(subagentSetupPrompt)
+		return w.Err()
+	},
+}
+
+var (
+	subagentSetEngine   string
+	subagentSetProfiles []string
+)
+
+// subagentSetCmd is the write half: add or update a LOCAL subagent under the
+// `subagents:` config key. This is what the setup flow calls to persist the
+// binding the user chose. Generic by design — it stores whatever name/engine/
+// profiles are passed; no role/lens names are baked in.
+var subagentSetCmd = &cobra.Command{
+	Use:   "set <name>",
+	Short: "Add or update a local subagent (engine↔profile binding)",
+	Long: `Bind an LLM engine to one or more profiles under a name, written to the
+'subagents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
+
+The engine (optional) overrides the profiles' own llm; omit it to use the project
+default. Profiles compose into one assembled context.
+
+Examples:
+  ctxloom subagent set finder --engine claude-fast --profiles finder
+  ctxloom subagent set dev --engine claude-code --profiles default,go-developer
+  ctxloom subagent set reviewer --profiles cr-correctness-golang   # default engine`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		entry, err := operations.SetSubagent(cfg, operations.SetSubagentRequest{
+			Name:     name,
+			Engine:   subagentSetEngine,
+			Profiles: subagentSetProfiles,
+		})
+		if err != nil {
+			return err
+		}
+		return emit(cmd, entry, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			engine := entry.Engine
+			if engine == "" {
+				engine = "project default"
+			}
+			w.Printf("Set subagent %q (engine: %s", entry.Name, engine)
+			if len(entry.Profiles) > 0 {
+				w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
+			}
+			w.Println(")")
+			return w.Err()
+		})
+	},
+}
+
+// subagentRemoveCmd deletes a config-key subagent and persists the removal.
+var subagentRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "delete"},
+	Short:   "Remove a local subagent from config.yaml",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		if err := operations.RemoveSubagent(cfg, name); err != nil {
+			return err
+		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Removed subagent %q\n", name)
+		return w.Err()
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(subagentCmd)
 	subagentCmd.AddCommand(subagentListCmd)
 	subagentCmd.AddCommand(subagentShowCmd)
+	subagentCmd.AddCommand(subagentSetupCmd)
+	subagentCmd.AddCommand(subagentSetCmd)
+	subagentCmd.AddCommand(subagentRemoveCmd)
+
+	subagentSetCmd.Flags().StringVar(&subagentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
+	subagentSetCmd.Flags().StringSliceVar(&subagentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 
 	subagentShowCmd.ValidArgsFunction = completeSubagentNames
+	subagentRemoveCmd.ValidArgsFunction = completeSubagentNames
+	_ = subagentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
+	_ = subagentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 }
 
 // completeSubagentNames completes positional subagent-name args.

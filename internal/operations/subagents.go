@@ -62,6 +62,123 @@ func GetSubagent(cfg *config.Config, name string) (*SubagentEntry, error) {
 	}, nil
 }
 
+// SetSubagentRequest is the input for SetSubagent: the binding to add or update
+// under the local `subagents:` config key. Engine is optional (empty = project
+// default / the composed profiles' llm); Profiles compose into one context.
+type SetSubagentRequest struct {
+	Name     string   `json:"name"`
+	Engine   string   `json:"engine,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+}
+
+// SetSubagent adds or updates a LOCAL subagent under the `subagents:` config key
+// and persists it through config.Save's round-trip (config_save folds c.Subagents
+// back into config.yaml). It is the write half the agent-assisted setup calls to
+// record the engine↔profile binding the user chose.
+//
+// Name-agnostic by construction: it stores whatever name/engine/profiles the
+// caller passes — the role taxonomy (developer/finder/code-review, per-language ×
+// lens) is the user's choice from the live scan, never enumerated here. Engine
+// is accepted as-is (the user's call); resolution/backend mapping happens later
+// in ResolveSubagent. The full binding REPLACES any existing one of the same
+// name (an update is a whole-binding rewrite, not a merge).
+func SetSubagent(cfg *config.Config, req SetSubagentRequest) (*SubagentEntry, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	name := req.Name
+	if name == "" {
+		return nil, fmt.Errorf("subagent name is required")
+	}
+
+	// A directory-sourced subagent of the same name would be shadowed by this
+	// config-key entry (config wins, see config.LoadSubagents). Surface it so the
+	// user knows the file is now inert rather than silently double-defining.
+	if existing, ok := cfg.Subagent(name); ok && existing.Source != subagents.SourceConfig {
+		clidiag.Warn("ctxloom",
+			"subagent %q is also defined in %s; the config.yaml entry written now takes precedence",
+			name, existing.Source)
+	}
+
+	if cfg.Subagents == nil {
+		cfg.Subagents = make(map[string]subagents.Subagent)
+	}
+	cfg.Subagents[name] = subagents.Subagent{Engine: req.Engine, Profiles: req.Profiles}
+
+	if err := cfg.Save(); err != nil {
+		return nil, fmt.Errorf("save subagent %q: %w", name, err)
+	}
+	return &SubagentEntry{
+		Name:     name,
+		Engine:   req.Engine,
+		Profiles: req.Profiles,
+		Source:   subagents.SourceConfig,
+	}, nil
+}
+
+// RemoveSubagent deletes a LOCAL subagent from the `subagents:` config key and
+// persists the removal. Only config-key subagents are removable here: a
+// directory-sourced subagent (.ctxloom/subagents/<name>.yaml) is its own file and
+// is reported as such rather than silently left in place (the caller deletes the
+// file). An unknown name errors.
+func RemoveSubagent(cfg *config.Config, name string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
+	}
+	if name == "" {
+		return fmt.Errorf("subagent name is required")
+	}
+	if _, ok := cfg.Subagents[name]; !ok {
+		// Distinguish "defined as a file" from "not defined at all" for a clear
+		// message — the config-key write path cannot delete a file.
+		if existing, found := cfg.Subagent(name); found && existing.Source != subagents.SourceConfig {
+			return fmt.Errorf("subagent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
+		}
+		return fmt.Errorf("subagent %q not found in config.yaml", name)
+	}
+	delete(cfg.Subagents, name)
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("save after removing subagent %q: %w", name, err)
+	}
+	return nil
+}
+
+// SubagentSetupNudge returns a one-line, user-facing nudge toward
+// `ctxloom subagent setup` when the project HAS profiles but NO subagents
+// configured, or "" otherwise. It is the detection signal Phase F wires into the
+// SessionStart message path: once the user has profiles worth orchestrating but
+// hasn't bound any engine↔profile subagents, ctxloom prompts them to set them up
+// WITH the agent. The moment any subagent exists, the nudge goes silent.
+//
+// Fault-tolerant and name-agnostic: it inspects only counts (profiles present?
+// subagents present?), never any role/lens/engine names, and never blocks.
+func SubagentSetupNudge(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if len(cfg.LoadSubagents()) > 0 {
+		return "" // already orchestrating — nothing to nudge
+	}
+	if !hasAnyProfiles(cfg) {
+		return "" // nothing to bind engines to yet
+	}
+	return "ctxloom: this project has profiles but no subagents configured. " +
+		"Run `ctxloom subagent setup` (or ask your agent to) to orchestrate roles — " +
+		"binding engines to profiles for cheap finders, code-review lenses, and escalating developers."
+}
+
+// hasAnyProfiles reports whether the project has any profile to bind a subagent
+// to: a configured default, an inline definition, or a directory profile. Used
+// only to gate the setup nudge, so a directory-scan failure degrades to "none"
+// (the nudge simply stays quiet) rather than erroring.
+func hasAnyProfiles(cfg *config.Config) bool {
+	if len(cfg.ExplicitDefaultProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
+		return true
+	}
+	list, _ := cfg.GetProfileLoader().List()
+	return len(list) > 0
+}
+
 // ResolvedSubagent is a subagent resolved into something run / map / weave can
 // consume: its profiles composed into ONE assembled context, plus the engine
 // applied as the backend (overriding the composed profiles' llm). Phase C wires

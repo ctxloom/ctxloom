@@ -61,9 +61,51 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 
+	res, err := runResolvedAgent(ctx, resolvedRunRequest{
+		Context:   ctxResult.Context,
+		Task:      req.Task,
+		WorkDir:   req.WorkDir,
+		Verbosity: req.Verbosity,
+		Label:     label,
+		Backend:   backendName,
+		Model:     model,
+		Factory:   req.Factory,
+	})
+	if err != nil {
+		return nil, err
+	}
+	res.Profile = req.Profile
+	return res, nil
+}
+
+// resolvedRunRequest is an already-resolved agent run: a composed context and the
+// transport it resolved to. It is the seam shared by RunOneshot (which resolves a
+// single profile) and the map/weave fan (which resolves a subagent or a
+// bare-profile member), so the backend-launch tail is written once.
+type resolvedRunRequest struct {
+	Context   string // assembled context injected as the agent's lead fragment
+	Task      string // the prompt/task sent to the agent
+	WorkDir   string
+	Verbosity int
+
+	// Label/Backend/Model are the already-resolved transport (the label drives
+	// the plugin, the model rides in RunOptions).
+	Label   string
+	Backend string
+	Model   string
+
+	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
+}
+
+// runResolvedAgent launches the resolved backend once in ONESHOT mode with the
+// composed context as the lead fragment and stdout captured. It carries no
+// context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
+// for a single profile, ResolveSubagent for a subagent/bare-profile member) — so
+// the two paths share one backend-launch tail and can never drift.
+func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error) {
 	var fragments []*pb.Fragment
-	if ctxResult.Context != "" {
-		fragments = append(fragments, &pb.Fragment{Content: ctxResult.Context})
+	if req.Context != "" {
+		fragments = append(fragments, &pb.Fragment{Content: req.Context})
 	}
 	runReq := &pb.RunStart{
 		Fragments: fragments,
@@ -72,7 +114,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 			WorkDir:     req.WorkDir,
 			AutoApprove: true,
 			Mode:        pb.ExecutionMode_ONESHOT,
-			Model:       model,
+			Model:       req.Model,
 			Verbosity:   uint32(req.Verbosity * 16),
 			SkipSetup:   true,
 		},
@@ -82,7 +124,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	if factory == nil {
 		factory = pb.DefaultClientFactory()
 	}
-	client, err := factory(backendName, label, req.Verbosity)
+	client, err := factory(req.Backend, req.Label, req.Verbosity)
 	if err != nil {
 		return nil, fmt.Errorf("start plugin: %w", err)
 	}
@@ -98,11 +140,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	}
 
 	return &RunOneshotResult{
-		Profile:  req.Profile,
 		Output:   strings.TrimSpace(stdout.String()),
-		Label:    label,
-		Backend:  backendName,
-		Model:    model,
+		Label:    req.Label,
+		Backend:  req.Backend,
+		Model:    req.Model,
 		ExitCode: exitCode,
 	}, nil
 }

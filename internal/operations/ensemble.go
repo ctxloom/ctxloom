@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
@@ -18,7 +17,8 @@ const DefaultMapConcurrency = 4
 
 // Part is one member agent's labeled output within a map/weave run. A failed
 // member carries its error in Err (and empty Output) rather than aborting the
-// set — fan-out is fault-tolerant (CLAUDE.md).
+// set — fan-out is fault-tolerant (CLAUDE.md). Profile holds the member
+// identifier — a subagent name or a bare profile name (sugar) — as written.
 type Part struct {
 	Profile string `json:"profile"`
 	Label   string `json:"label,omitempty"`
@@ -30,11 +30,14 @@ type Part struct {
 // Failed reports whether this part is an error placeholder.
 func (p Part) Failed() bool { return p.Err != "" }
 
-// MapProfilesRequest fans one shared task across several profiles.
+// MapProfilesRequest fans one shared task across several members. Each member is
+// a subagent-or-profile identifier (see resolveMember): a configured subagent
+// runs with its own engine + composed profiles; a bare profile name is sugar for
+// a default-engine subagent.
 type MapProfilesRequest struct {
-	Profiles    []string // member profiles to run in parallel
+	Members     []string // members (subagent or bare-profile names) to run in parallel
 	Task        string   // shared task/prompt broadcast to every member
-	LLM         string   // optional override applied to all members (wins over each profile's llm)
+	LLM         string   // optional override applied to all members (wins over each member's engine)
 	WorkDir     string
 	Verbosity   int
 	Concurrency int // <=0 uses DefaultMapConcurrency
@@ -43,13 +46,16 @@ type MapProfilesRequest struct {
 	Factory pb.ClientFactory // optional client factory (test seam)
 }
 
-// MapProfiles runs each profile as a parallel oneshot agent over the shared
-// task, returning one Part per profile in input order. Concurrency is bounded;
-// a member failure becomes an error Part and never fails the call. This is the
-// "map" half of the weave primitive.
+// MapProfiles runs each member as a parallel oneshot agent over the shared task,
+// returning one Part per member in input order. Each member resolves to its own
+// engine + composed context (a configured subagent, or a bare profile as
+// default-engine sugar) and runs on THAT transport — the fan is no longer single
+// engine. Concurrency is bounded; a member failure (resolution or run) becomes an
+// error Part and never fails the call. This is the "map" half of the weave
+// primitive.
 func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest) []Part {
-	parts := make([]Part, len(req.Profiles))
-	if len(req.Profiles) == 0 {
+	parts := make([]Part, len(req.Members))
+	if len(req.Members) == 0 {
 		return parts
 	}
 
@@ -57,59 +63,70 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 	if conc <= 0 {
 		conc = DefaultMapConcurrency
 	}
-	if conc > len(req.Profiles) {
-		conc = len(req.Profiles)
+	if conc > len(req.Members) {
+		conc = len(req.Members)
 	}
 
-	// Resolve inherited defaults ONCE on this goroutine before fanning out: a
-	// member with an empty profile makes AssembleContext call
-	// EnsureDefaultProfiles, which writes cfg's run-only default state — done
-	// concurrently from member goroutines that's a data race on the shared
-	// cfg. After this call, the goroutines' EnsureDefaultProfiles calls are
-	// read-only fast paths.
-	if slices.Contains(req.Profiles, "") {
-		EnsureDefaultProfiles(cfg)
+	// Resolve every member SEQUENTIALLY on this goroutine first, before the
+	// parallel run fan. Resolution assembles context and — for a default-profile
+	// member — calls EnsureDefaultProfiles, which writes cfg's run-only default
+	// state; doing it here keeps that mutation off the worker goroutines (no data
+	// race on the shared cfg) and turns a member's resolution failure into a
+	// fault-tolerant error Part instead of a hard abort.
+	resolved := make([]*ResolvedSubagent, len(req.Members))
+	for i, member := range req.Members {
+		rs, err := resolveMember(ctx, cfg, member, req.LLM, req.Loader)
+		if err != nil {
+			parts[i] = Part{Profile: member, Err: err.Error()}
+			continue
+		}
+		resolved[i] = rs
 	}
 
 	sem := make(chan struct{}, conc)
 	var wg sync.WaitGroup
-	for i, profile := range req.Profiles {
+	for i := range req.Members {
+		if resolved[i] == nil {
+			continue // resolution failed; the error Part is already recorded
+		}
 		wg.Add(1)
 		sem <- struct{}{} // acquire (bounds concurrency)
-		go func(i int, profile string) {
+		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			// A panic inside RunOneshot (backend client, context assembly, a
-			// plugin) would otherwise crash the whole process and every other
-			// in-flight member. Recover and record it as an error Part so one
-			// bad member degrades like a returned error — honoring the
-			// documented "never fails the call" contract (CLAUDE.md).
+			// A panic inside the backend client or plugin would otherwise crash
+			// the whole process and every other in-flight member. Recover and
+			// record it as an error Part so one bad member degrades like a
+			// returned error — honoring the documented "never fails the call"
+			// contract (CLAUDE.md).
 			defer func() {
 				if r := recover(); r != nil {
-					parts[i] = Part{Profile: profile, Err: fmt.Sprintf("panic: %v", r)}
+					parts[i] = Part{Profile: req.Members[i], Err: fmt.Sprintf("panic: %v", r)}
 				}
 			}()
 
-			res, err := RunOneshot(ctx, cfg, RunOneshotRequest{
-				Profile:   profile,
+			rs := resolved[i]
+			res, err := runResolvedAgent(ctx, resolvedRunRequest{
+				Context:   rs.Context,
 				Task:      req.Task,
-				LLM:       req.LLM,
 				WorkDir:   req.WorkDir,
 				Verbosity: req.Verbosity,
-				Loader:    req.Loader,
+				Label:     rs.Label,
+				Backend:   rs.Backend,
+				Model:     rs.Model,
 				Factory:   req.Factory,
 			})
 			if err != nil {
-				parts[i] = Part{Profile: profile, Err: err.Error()}
+				parts[i] = Part{Profile: req.Members[i], Err: err.Error()}
 				return
 			}
 			parts[i] = Part{
-				Profile: profile,
+				Profile: req.Members[i],
 				Label:   res.Label,
 				Backend: res.Backend,
 				Output:  res.Output,
 			}
-		}(i, profile)
+		}(i)
 	}
 	wg.Wait()
 	return parts
@@ -134,7 +151,7 @@ type WeaveResult struct {
 // WeaveRequest fans members over a shared task, then synthesizes their outputs
 // (plus any injected parts) with a high-power synthesis profile.
 type WeaveRequest struct {
-	Members       []string // member profiles run in parallel (may be empty if only injecting)
+	Members       []string // members (subagent or bare-profile names) run in parallel (may be empty if only injecting)
 	Synthesize    string   // synthesis profile; empty or NoSynthesize skips the reduce
 	Task          string   // shared task broadcast to members and shown to the synthesizer
 	LLM           string   // optional override for MEMBERS only (synth keeps its own llm)
@@ -158,7 +175,7 @@ func Weave(ctx context.Context, cfg *config.Config, req WeaveRequest) (*WeaveRes
 	var parts []Part
 	if len(req.Members) > 0 {
 		parts = MapProfiles(ctx, cfg, MapProfilesRequest{
-			Profiles:    req.Members,
+			Members:     req.Members,
 			Task:        req.Task,
 			LLM:         req.LLM,
 			WorkDir:     req.WorkDir,

@@ -42,10 +42,10 @@ func TestMapProfiles_OrderLabelingAndFaultTolerance(t *testing.T) {
 	}
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
-		Profiles: []string{"a", "nonexistent", "b"},
-		Task:     "review",
-		Loader:   loader,
-		Factory:  factory,
+		Members: []string{"a", "nonexistent", "b"},
+		Task:    "review",
+		Loader:  loader,
+		Factory: factory,
 	})
 
 	if assert.Len(t, parts, 3) {

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,16 +17,27 @@ import (
 // stubClient is a minimal pb.Client for testing RunOneshot without a real
 // backend: Run records the request and emits canned stdout.
 type stubClient struct {
-	out    string
-	echo   bool // when true, write the request prompt back as output
-	gotReq *pb.RunStart
+	out  string
+	echo bool // when true, write the request prompt back as output
+	// emitFragments writes the run's assembled context (its lead fragments) back
+	// as output, so a fan member's composed profile-context is observable in its
+	// Part.Output. Wins over echo/out.
+	emitFragments bool
+	gotReq        *pb.RunStart
 }
 
 func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
 	s.gotReq = req
-	if s.echo && req.Prompt != nil {
+	switch {
+	case s.emitFragments:
+		var parts []string
+		for _, f := range req.Fragments {
+			parts = append(parts, f.Content)
+		}
+		_, _ = io.WriteString(stdout, strings.Join(parts, "\n"))
+	case s.echo && req.Prompt != nil:
 		_, _ = io.WriteString(stdout, req.Prompt.Content)
-	} else {
+	default:
 		_, _ = io.WriteString(stdout, s.out)
 	}
 	return 0, nil

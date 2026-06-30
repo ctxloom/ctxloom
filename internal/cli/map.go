@@ -16,6 +16,7 @@ import (
 
 var (
 	mapProfiles    []string
+	mapSubagents   []string
 	mapLLM         string
 	mapConcurrency int
 	mapSaveParts   string
@@ -24,14 +25,19 @@ var (
 
 var mapCmd = &cobra.Command{
 	Use:   "map [flags] [task...]",
-	Short: "Run multiple profiles in parallel over one task (fan-out)",
-	Long: `Fan one shared task out to several profiles in parallel, emitting each
+	Short: "Run multiple subagents/profiles in parallel over one task (fan-out)",
+	Long: `Fan one shared task out to several members in parallel, emitting each
 agent's output as a labeled block.
 
-Each -p profile is run as its own oneshot agent carrying its own context and
-LLM (its profile's llm:, unless --llm overrides all). Runs are bounded by
---concurrency and fault-tolerant: a failed member is reported inline and never
-aborts the others.
+A member is either a local subagent (--subagents) or a bare profile (-p):
+  --subagents a,b   named subagents, each run on ITS OWN engine + composed
+                    profile-context (the engine binding is yours, set locally)
+  -p prof1,prof2    bare profiles — sugar for a default-engine subagent: each
+                    runs with its profile's own llm: (unless --llm overrides all)
+Members from both flags run together; -p needs no hand-written subagent, so
+fanning a set of review profiles works with zero local setup. Runs are bounded
+by --concurrency and fault-tolerant: a failed member is reported inline and
+never aborts the others.
 
 This is the "map" half of the weave primitive. The labeled output is meant to
 be read by a human, saved, or piped into a synthesizer:
@@ -44,14 +50,16 @@ The task is taken from the arguments, or from stdin when no arguments are given
 
 Examples:
   ctxloom map -p reviewer/a -p reviewer/b "review this change"
+  ctxloom map --subagents go-cr-security,go-cr-correctness "review this change"
   git diff | ctxloom map -p code-review/security -p code-review/perf
   ctxloom map -p a -p b -p c --concurrency 3 --save-parts ./parts "task"`,
 	RunE: runMap,
 }
 
 func runMap(cmd *cobra.Command, args []string) error {
-	if len(mapProfiles) == 0 {
-		return fmt.Errorf("at least one profile is required (-p/--profile)")
+	members := mapMembers()
+	if len(members) == 0 {
+		return fmt.Errorf("at least one member is required (--subagents and/or -p/--profile)")
 	}
 
 	cfg, err := GetConfig()
@@ -67,7 +75,7 @@ func runMap(cmd *cobra.Command, args []string) error {
 	}
 
 	parts := operations.MapProfiles(cmd.Context(), cfg, operations.MapProfilesRequest{
-		Profiles:    mapProfiles,
+		Members:     members,
 		Task:        task,
 		LLM:         mapLLM,
 		WorkDir:     projectroot.WorkDir(),
@@ -112,15 +120,34 @@ func saveParts(dir string, parts []operations.Part) error {
 	return nil
 }
 
+// mapMembers is the ordered member list for `map`: named subagents first, then
+// bare profiles. cobra can't recover the interleaving of two separate flags, so
+// the order is deterministic (subagents then profiles); a member resolves the
+// same regardless of position.
+func mapMembers() []string { return mergeMembers(mapSubagents, mapProfiles) }
+
+// mergeMembers concatenates the named-subagent and bare-profile member lists into
+// the single ordered member slice the operations layer fans across. Both kinds
+// resolve through the same subagent-or-bare-profile path; this only fixes their
+// order (subagents first).
+func mergeMembers(subs, profiles []string) []string {
+	members := make([]string, 0, len(subs)+len(profiles))
+	members = append(members, subs...)
+	members = append(members, profiles...)
+	return members
+}
+
 func init() {
 	rootCmd.AddCommand(mapCmd)
 
-	mapCmd.Flags().StringSliceVarP(&mapProfiles, "profile", "p", nil, "Profile to run as a parallel member (repeatable)")
-	mapCmd.Flags().StringVarP(&mapLLM, "llm", "l", "", "Override the LLM for every member (else each profile's own llm:)")
+	mapCmd.Flags().StringSliceVarP(&mapProfiles, "profile", "p", nil, "Bare profile to run as a parallel member, default-engine sugar (repeatable)")
+	mapCmd.Flags().StringSliceVar(&mapSubagents, "subagents", nil, "Named local subagent(s) to run as members, each on its own engine (comma-separated/repeatable)")
+	mapCmd.Flags().StringVarP(&mapLLM, "llm", "l", "", "Override the LLM for every member (else each member's own engine/llm:)")
 	mapCmd.Flags().IntVar(&mapConcurrency, "concurrency", 0, "Max members to run at once (default 4)")
 	mapCmd.Flags().CountVarP(&mapVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 	mapCmd.Flags().StringVar(&mapSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 
 	_ = mapCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
+	_ = mapCmd.RegisterFlagCompletionFunc("subagents", completeSubagentNames)
 	_ = mapCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 }

@@ -34,7 +34,7 @@ func TestMapProfiles_EmptyMemberProfilesResolveDefaultsRaceFree(t *testing.T) {
 	}
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
-		Profiles:    []string{"", "", "", ""},
+		Members:     []string{"", "", "", ""},
 		Task:        "review",
 		Concurrency: 4,
 		Factory:     factory,

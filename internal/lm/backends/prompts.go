@@ -11,23 +11,28 @@ import (
 	"github.com/ctxloom/shared/collections"
 )
 
-// LoadPromptExports loads every prompt that exports as a slash command:
+// LoadSkillExports loads every prompt that exports as a slash command:
 // ctxloom's embedded builtin commands plus the bundle prompts. This is the
 // SINGLE prompt-export assembly — both the `ctxloom run` setup payload
-// (AssembleManagedConfig) and operations.ApplyHooks route through it. The
-// settings/command writers reconcile by removing all ctxloom-managed files and
-// re-adding the assembled set, so two diverging assemblies would silently
-// delete whatever one produced and the other didn't.
+// (AssembleManagedConfig, which passes the run's resolved profile set) and
+// operations.ApplyHooks (which passes nil → the configured defaults) route
+// through it. The settings/command writers reconcile by removing all
+// ctxloom-managed files and re-adding the assembled set, so two diverging
+// assemblies would silently delete whatever one produced and the other didn't.
 //
-// Bundle prompts come from one of two sources, chosen by the resolved active
-// (default) profiles (profile prompt curation, opt-in):
+// Bundle prompts come from one of two sources, chosen by the SELECTED (or
+// default) profiles (profile prompt curation, opt-in):
 //   - When the profiles declare a NON-EMPTY prompts: list, ONLY those are
 //     exported (each at its pinned version), force-enabled so a curated prompt
 //     surfaces even if its bundle didn't flag it as a slash command — the
 //     profile explicitly curates the set, suppressing the global auto-export.
+//     The curated set is scoped to the SELECTED profiles (profileNames), so a
+//     `run -p X` curates from X rather than the configured defaults.
 //   - Otherwise (the common case) every bundle prompt is loaded and the
 //     downstream per-backend mapper applies each prompt's own enabled flag —
-//     today's global, profile-agnostic behavior, unchanged.
+//     the global, profile-agnostic fallback, unchanged. (The profile-scoped
+//     surface for skills is config.ResolveBundleSkills; the opt-in curation
+//     above is how a profile narrows the exported skill set.)
 //
 // Builtins are always present in both modes (ctxloom's core commands aren't
 // part of the curatable bundle-prompt set).
@@ -35,8 +40,8 @@ import (
 // The SeededBundleLoader is the only loader that also surfaces remote bundles
 // from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
 // setups still produce commands.
-func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	prompts := builtinPrompts()
+func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+	prompts := builtinSkills()
 
 	// Gate prompt command-file exports through the same per-item trust cascade as
 	// content (trust rework, TR5 follow-up #2): a prompt whose effective content
@@ -53,12 +58,12 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 
 	// Profile prompt curation (opt-in): a non-empty curated set replaces the
-	// global flag-based auto-export for this profile.
-	if curated := resolveProfilePromptRefs(cfg); len(curated) > 0 {
+	// global flag-based auto-export, scoped to the SELECTED profiles.
+	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
 		return append(prompts, loadCuratedPrompts(loader, curated)...)
 	}
 
-	infos, err := loader.ListAllPrompts()
+	infos, err := loader.ListAllSkills()
 	if err != nil {
 		// The reconciling writers remove-all-then-re-add, so a transient load
 		// failure silently deletes the user's installed slash commands for
@@ -67,7 +72,7 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 		return prompts
 	}
 	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
+		content, err := loader.GetSkill(info.Name)
 		if err != nil {
 			clidiag.Warn("ctxloom", "skipping prompt %q: %v", info.Name, err)
 			continue
@@ -88,7 +93,7 @@ func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bund
 // Fragments path uses) and the prompts: lists union across all default
 // profiles. A nil/empty result means no profile curates prompts, so the caller
 // keeps the global flag-based auto-export (opt-in: no silent change).
-func resolveProfilePromptRefs(cfg *config.Config) []string {
+func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []string {
 	if cfg == nil {
 		return nil
 	}
@@ -102,7 +107,7 @@ func resolveProfilePromptRefs(cfg *config.Config) []string {
 			}
 		}
 	}
-	for _, profileName := range cfg.GetDefaultProfiles() {
+	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml profiles: map) wins, matching
 		// operations.resolveProfile's inline-first ordering.
 		if resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName); err == nil {
@@ -137,7 +142,7 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.Loaded
 			err     error
 		)
 		if version == "" {
-			content, err = loader.GetPrompt(ref)
+			content, err = loader.GetSkill(ref)
 		} else {
 			content, err = loader.GetPromptAtVersion(name, version)
 		}
@@ -162,9 +167,9 @@ func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	return c
 }
 
-// builtinPrompts returns ctxloom's built-in slash command prompts. These are
+// builtinSkills returns ctxloom's built-in slash command prompts. These are
 // embedded in the ctxloom binary and always available.
-func builtinPrompts() []*bundles.LoadedContent {
+func builtinSkills() []*bundles.LoadedContent {
 	names, err := resources.ListBuiltinCommands()
 	if err != nil {
 		clidiag.Warn("ctxloom", "builtin commands unavailable: %v", err)

@@ -380,7 +380,7 @@ variables:
 // TestLoader_ResolveProfile_Prompts verifies a directory profile's curated
 // prompts: list round-trips through resolution and unions with a parent's, the
 // directory-side mirror of config.Profile.Prompts (b626431) that feeds
-// backends.LoadPromptExports' opt-in prompt curation.
+// backends.LoadSkillExports' opt-in prompt curation.
 func TestLoader_ResolveProfile_Prompts(t *testing.T) {
 	tmpDir := t.TempDir()
 

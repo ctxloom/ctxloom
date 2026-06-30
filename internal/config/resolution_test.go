@@ -110,7 +110,7 @@ func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 // bare config with no profiles surfaces the built-in bundle hooks (session-bind
 // + plan stamping) shipped embedded in the binary.
 func TestResolveBundleHooks_BuiltinsUnconditional(t *testing.T) {
-	hooks := (&Config{}).ResolveBundleHooks()
+	hooks := (&Config{}).ResolveBundleHooks(nil)
 
 	assert.NotEmpty(t, hooks.SessionStart, "built-in bundles ship a session_start hook")
 	assert.NotEmpty(t, hooks.PostFileEdit, "built-in bundles ship a post_file_edit hook")

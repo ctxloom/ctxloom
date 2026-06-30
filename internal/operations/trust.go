@@ -368,7 +368,7 @@ func computeItemHash(cfg *config.Config, loader *bundles.Loader, tRef trust.Ref,
 		hash, form := frag.EffectiveContentHash(preferDistilled)
 		return hash, form, nil
 	case trust.KindPrompt:
-		prompt, ok := bundle.Prompts[tRef.Name]
+		prompt, ok := bundle.Skills[tRef.Name]
 		if !ok {
 			return "", "", fmt.Errorf("prompt %q not found in bundle %q", tRef.Name, loadRef)
 		}

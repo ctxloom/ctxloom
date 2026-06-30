@@ -21,7 +21,7 @@ var lookPath = exec.LookPath
 // SetExecutableTrustGate injects the trust gate consulted when resolving the
 // bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
 // bundle hooks (ResolveBundleHooks), and prompt command-file exports
-// (backends.LoadPromptExports). The operations/run consumers set it before
+// (backends.LoadSkillExports). The operations/run consumers set it before
 // writing backend settings (trust rework, TR5) so an untrusted bundle's
 // executables are omitted; management/listing paths leave it nil (no gating).
 // Builtin bundles are always exempt regardless of the gate.
@@ -94,11 +94,12 @@ func warnMissingCompanion(bin, hint string) {
 }
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
-// default profiles, plus servers shipped by built-in bundles embedded in
-// the binary (resources/builtin_bundles). Mirrors ResolveBundleHooks: any
-// future built-in that ships an MCP server is picked up automatically,
-// tagged with SCM="bundle:builtin:<name>" so reconciliation can identify it.
-func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
+// caller's selected profiles (or the configured defaults when none are passed),
+// plus servers shipped by built-in bundles embedded in the binary
+// (resources/builtin_bundles). Mirrors ResolveBundleHooks: any future built-in
+// that ships an MCP server is picked up automatically, tagged with
+// SCM="bundle:builtin:<name>" so reconciliation can identify it.
+func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
 	// Built-in bundles are unconditional — they ship core ctxloom
@@ -106,8 +107,11 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 	// first so profile-sourced servers can intentionally override.
 	maps.Copy(result, resolveBuiltinBundleMCPServers())
 
-	defaultProfiles := c.GetDefaultProfiles()
-	if len(defaultProfiles) == 0 {
+	// Scope to the caller's selected profiles (e.g. `run -p`); when none are
+	// passed, fall back to the configured defaults so the `manage`/apply-hooks
+	// path keeps its project-default behavior.
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 {
 		return result
 	}
 
@@ -116,21 +120,21 @@ func (c *Config) ResolveBundleMCPServers() map[string]wire.MCPServer {
 		return result
 	}
 
-	// Load each default profile and collect MCP servers.
+	// Load each profile and collect MCP servers.
 	// SeededBundleLoader includes remote bundles from the active lockfile;
 	// without it, MCP servers shipped in remote bundles silently disappear
 	// after extraction is removed (see docs/bundle-review-plan.md Phase 1.2).
 	profileLoader := c.GetProfileLoader()
 	bundleLoader := c.SeededBundleLoader(false)
 
-	for _, defaultProfile := range defaultProfiles {
+	for _, profileName := range profiles {
 		// Resolve through the recursive resolver so bundles inherited from
 		// parent profiles are included — a flat Load would only see this
 		// profile's direct Bundles, silently dropping MCP servers shipped by
 		// an inherited bundle (while the fragment path, which resolves
 		// recursively, still picks them up). See ResolveBundleHooks for the
 		// matching pattern.
-		resolved, err := profileLoader.ResolveProfile(defaultProfile, nil)
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
 		if err != nil {
 			continue
 		}
@@ -211,12 +215,12 @@ func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles
 }
 
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
-// in the active default profiles, plus the always-on hooks shipped by
-// built-in bundles embedded in the binary (resources/builtin_bundles).
-// Mirrors ResolveBundleMCPServers. Each emitted hook carries SCM source
-// info so apply-hooks can identify ctxloom-managed entries when
-// reconciling the backend's settings.json.
-func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
+// in the caller's selected profiles (or the configured defaults when none
+// are passed), plus the always-on hooks shipped by built-in bundles embedded
+// in the binary (resources/builtin_bundles). Mirrors ResolveBundleMCPServers.
+// Each emitted hook carries SCM source info so apply-hooks can identify
+// ctxloom-managed entries when reconciling the backend's settings.json.
+func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	var result wire.UnifiedHooks
 
 	// Built-in bundles are unconditional — they ship core ctxloom
@@ -224,18 +228,18 @@ func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
 	// gating, no remote pull.
 	result.Append(resolveBuiltinBundleHooks())
 
-	defaultProfiles := c.GetDefaultProfiles()
-	if len(defaultProfiles) == 0 || len(c.AppPaths) == 0 {
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 || len(c.AppPaths) == 0 {
 		return result
 	}
 	profileLoader := c.GetProfileLoader()
 	bundleLoader := c.SeededBundleLoader(false)
 
-	for _, defaultProfile := range defaultProfiles {
+	for _, profileName := range profiles {
 		// Resolve recursively so hooks shipped by bundles inherited from
 		// parent profiles are included (matches ResolveBundleMCPServers and
 		// the fragment resolution path); a flat Load would drop them.
-		resolved, err := profileLoader.ResolveProfile(defaultProfile, nil)
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
 		if err != nil {
 			continue
 		}
@@ -245,6 +249,56 @@ func (c *Config) ResolveBundleHooks() wire.UnifiedHooks {
 		}
 	}
 	return result
+}
+
+// resolveProfileScope returns the profile set a bundle-resolution call should
+// use: the caller's explicit selection (e.g. `run -p`) when non-empty, else the
+// configured defaults. This is the seam that makes mcp/skills/hooks follow the
+// SELECTED profile (the same set AssembleContext scopes context to) instead of
+// always the defaults, while preserving the default-scoped behavior for the
+// `manage`/apply-hooks path that passes nothing.
+func (c *Config) resolveProfileScope(profileNames []string) []string {
+	if len(profileNames) > 0 {
+		return profileNames
+	}
+	return c.GetDefaultProfiles()
+}
+
+// ResolveBundleSkills aggregates the prompts (slash-command/skill exports)
+// shipped by every bundle referenced in the caller's selected profiles (or the
+// configured defaults when none are passed), in deterministic order, deduped by
+// prompt name (first profile/bundle wins). Mirrors ResolveBundleMCPServers /
+// ResolveBundleHooks — the profile-scoped replacement for the global
+// ListAllSkills sweep, so a session only carries the skills its profile pulls
+// in. Built-in embedded commands are added by the caller (LoadSkillExports),
+// not here, since they are not bundle-shipped. The opts thread the executable
+// trust gate (WithTrustGate) so a withheld skill is not exported.
+func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+	profiles := c.resolveProfileScope(profileNames)
+	if len(profiles) == 0 || len(c.AppPaths) == 0 {
+		return nil
+	}
+	profileLoader := c.GetProfileLoader()
+	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
+
+	seen := make(map[string]bool)
+	var out []*bundles.LoadedContent
+	for _, profileName := range profiles {
+		resolved, err := profileLoader.ResolveProfile(profileName, nil)
+		if err != nil {
+			continue
+		}
+		for _, bundleRef := range resolved.Bundles {
+			for _, prompt := range bundleLoader.SkillsFromBundleRef(bundleRef) {
+				if seen[prompt.Item] {
+					continue
+				}
+				seen[prompt.Item] = true
+				out = append(out, prompt)
+			}
+		}
+	}
+	return out
 }
 
 // resolveBuiltinBundleHooks parses every YAML under

@@ -161,13 +161,13 @@ func completePromptNames(cmd *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	res, err := operations.ListPrompts(cmd.Context(), cfg, operations.ListPromptsRequest{})
+	res, err := operations.ListSkills(cmd.Context(), cfg, operations.ListSkillsRequest{})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	var names []string
-	for _, p := range res.Prompts {
+	for _, p := range res.Skills {
 		names = append(names, p.Name)
 	}
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp

@@ -90,20 +90,21 @@ func SplitFragmentVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
-// PromptSelector is the selector prefix addressing a prompt within a bundle
-// ("<bundle>#prompts/<name>"). The prompt counterpart to FragmentSelector;
-// producers and consumers share it so the grammar lives in one place.
-const PromptSelector = "#prompts/"
+// PromptSelector is the selector prefix addressing a skill within a bundle
+// ("<bundle>#skills/<name>"). The skill counterpart to FragmentSelector;
+// producers and consumers share it so the grammar lives in one place. (The
+// bundle item-kind "prompt" was renamed to "skill"; the selector is "#skills/".)
+const PromptSelector = "#skills/"
 
-// SplitPromptVersion is the prompt counterpart to SplitFragmentVersion: it
-// canonicalizes the bundle part of a qualified prompt ref and splits off any
+// SplitPromptVersion is the skill counterpart to SplitFragmentVersion: it
+// canonicalizes the bundle part of a qualified skill ref and splits off any
 // "@<commit>" content version it carries, whether the version sits on the
-// bundle part ("X@<commit>#prompts/n") or trails the prompt name
-// ("X#prompts/n@<commit>", the name-addressed CLI/resource form). The returned
-// canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#prompts/n"),
+// bundle part ("X@<commit>#skills/n") or trails the skill name
+// ("X#skills/n@<commit>", the name-addressed CLI/resource form). The returned
+// canonical is the version-AGNOSTIC identity ("<CanonicalBundleRef(X)>#skills/n"),
 // so the trust gate and dedup stay version-agnostic; the version is meant to be
 // honored only at the read/resolution path (GetPromptAtVersion). A ref without a
-// prompt selector (a bare name) is returned unchanged with no version — a bare
+// skill selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.
 func SplitPromptVersion(ref string) (canonical, version string) {
 	base, sel := splitItemPath(ref)

@@ -1,5 +1,5 @@
 // Profile prompt-curation tests verify the opt-in exposure semantics of
-// LoadPromptExports: a profile with a non-empty prompts: list exports EXACTLY
+// LoadSkillExports: a profile with a non-empty prompts: list exports EXACTLY
 // those (force-enabled, version-pinned, gated), suppressing the global
 // flag-based auto-export; an empty list keeps today's global behavior; the
 // curated set unions across parents + multiple default profiles.
@@ -17,7 +17,7 @@ import (
 
 // curationProfiles builds a config whose default profiles are the given inline
 // definitions, with HOME isolated. AppPaths is left empty so the only bundle
-// source is the seed/resolver passed to LoadPromptExports (no production version
+// source is the seed/resolver passed to LoadSkillExports (no production version
 // resolver is wired, so a test resolver survives).
 func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile) *config.Config {
 	t.Helper()
@@ -53,7 +53,7 @@ func bundlePromptItems(prompts []*bundles.LoadedContent) []string {
 
 func devToolsSeed() map[string]*bundles.Bundle {
 	return map[string]*bundles.Bundle{
-		"dev-tools": {Prompts: map[string]bundles.BundlePrompt{
+		"dev-tools": {Skills: map[string]bundles.BundleSkill{
 			"review":  {Content: "REVIEW"},
 			"explain": {Content: "EXPLAIN"},
 			"commit":  {Content: "COMMIT"},
@@ -62,64 +62,64 @@ func devToolsSeed() map[string]*bundles.Bundle {
 	}
 }
 
-// TestLoadPromptExports_CuratedSetExportsExactlyThose proves a non-empty
+// TestLoadSkillExports_CuratedSetExportsExactlyThose proves a non-empty
 // prompts: list exports ONLY the listed prompts; a globally-flagged prompt NOT
 // in the list is suppressed for that profile.
-func TestLoadPromptExports_CuratedSetExportsExactlyThose(t *testing.T) {
+func TestLoadSkillExports_CuratedSetExportsExactlyThose(t *testing.T) {
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
-		"p": {Prompts: []string{"dev-tools#prompts/review"}},
+		"p": {Prompts: []string{"dev-tools#skills/review"}},
 	})
 
-	prompts := LoadPromptExports(cfg, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the profile-listed prompt is exported; the globally-flagged 'hidden' is suppressed")
 }
 
-// TestLoadPromptExports_EmptyListKeepsGlobalExport proves a profile with NO
+// TestLoadSkillExports_EmptyListKeepsGlobalExport proves a profile with NO
 // prompts: list keeps today's global flag-based auto-export (opt-in: no silent
 // change).
-func TestLoadPromptExports_EmptyListKeepsGlobalExport(t *testing.T) {
+func TestLoadSkillExports_EmptyListKeepsGlobalExport(t *testing.T) {
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
 		"p": {}, // no prompts: list
 	})
 
-	prompts := LoadPromptExports(cfg, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "explain", "commit", "hidden"}, bundlePromptItems(prompts),
 		"with no curation, every bundle prompt is auto-exported (global behavior)")
 }
 
-// TestLoadPromptExports_CurationUnionsParentsAndDefaults proves the curated set
+// TestLoadSkillExports_CurationUnionsParentsAndDefaults proves the curated set
 // is the union across parent inheritance and multiple default profiles, matching
 // the Fragments merge rules.
-func TestLoadPromptExports_CurationUnionsParentsAndDefaults(t *testing.T) {
+func TestLoadSkillExports_CurationUnionsParentsAndDefaults(t *testing.T) {
 	cfg := curationCfg(t, []string{"child", "other"}, map[string]config.Profile{
-		"base":  {Prompts: []string{"dev-tools#prompts/review"}},
-		"child": {Parents: []string{"base"}, Prompts: []string{"dev-tools#prompts/explain"}},
-		"other": {Prompts: []string{"dev-tools#prompts/commit"}},
+		"base":  {Prompts: []string{"dev-tools#skills/review"}},
+		"child": {Parents: []string{"base"}, Prompts: []string{"dev-tools#skills/explain"}},
+		"other": {Prompts: []string{"dev-tools#skills/commit"}},
 	})
 
-	prompts := LoadPromptExports(cfg, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "explain", "commit"}, bundlePromptItems(prompts),
 		"curated set unions parent (review) + child (explain) + the other default (commit); 'hidden' stays suppressed")
 }
 
-// TestLoadPromptExports_CuratedForceEnablesOptOut proves a profile-listed prompt
+// TestLoadSkillExports_CuratedForceEnablesOptOut proves a profile-listed prompt
 // is exported even when its bundle opted it out of the global slash-command
 // export — the profile explicitly curates it.
-func TestLoadPromptExports_CuratedForceEnablesOptOut(t *testing.T) {
+func TestLoadSkillExports_CuratedForceEnablesOptOut(t *testing.T) {
 	seed := map[string]*bundles.Bundle{
-		"dev-tools": {Prompts: map[string]bundles.BundlePrompt{
+		"dev-tools": {Skills: map[string]bundles.BundleSkill{
 			"optout": {Content: "OPTOUT", LLM: optOut()},
 		}},
 	}
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
-		"p": {Prompts: []string{"dev-tools#prompts/optout"}},
+		"p": {Prompts: []string{"dev-tools#skills/optout"}},
 	})
 
-	prompts := LoadPromptExports(cfg, bundles.WithSeededBundles(seed))
+	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(seed))
 	require.Equal(t, []string{"optout"}, bundlePromptItems(prompts))
 
 	// The downstream backend mapper must see it ENABLED despite the bundle's
@@ -138,29 +138,29 @@ func TestLoadPromptExports_CuratedForceEnablesOptOut(t *testing.T) {
 // promptRawHash is the effective-content hash of a no-distill prompt body
 // (preferDistilled true ⇒ raw bytes), the value the gate keys on.
 func promptRawHash(body string) string {
-	p := bundles.BundlePrompt{Content: body}
+	p := bundles.BundleSkill{Content: body}
 	h, _ := p.EffectiveContentHash(true)
 	return h
 }
 
-// TestLoadPromptExports_CuratedVersionPinnedAndGated proves a curated prompt
+// TestLoadSkillExports_CuratedVersionPinnedAndGated proves a curated prompt
 // pinned to "@<commit>" exports that historical version, and that the export is
 // gated by the pinned version's own content hash (a deny withholds it).
-func TestLoadPromptExports_CuratedVersionPinnedAndGated(t *testing.T) {
+func TestLoadSkillExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		if commit != "c1" {
 			t.Fatalf("unexpected commit %q", commit)
 		}
-		return &bundles.Bundle{Prompts: map[string]bundles.BundlePrompt{"review": {Content: "V1-PINNED"}}}, nil
+		return &bundles.Bundle{Skills: map[string]bundles.BundleSkill{"review": {Content: "V1-PINNED"}}}, nil
 	}
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
-		"p": {Prompts: []string{"dev-tools#prompts/review@c1"}},
+		"p": {Prompts: []string{"dev-tools#skills/review@c1"}},
 	})
 
 	// Gate granting exactly the pinned version's hash → exported as that version.
 	want := promptRawHash("V1-PINNED")
 	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == want })
-	prompts := LoadPromptExports(cfg, bundles.WithVersionResolver(resolver))
+	prompts := LoadSkillExports(cfg, nil, bundles.WithVersionResolver(resolver))
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
 		if p.Item == "review" {
@@ -171,6 +171,6 @@ func TestLoadPromptExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
 	cfg.SetExecutableTrustGate(func(_ref, _hash, _form string) bool { return false })
-	denied := LoadPromptExports(cfg, bundles.WithVersionResolver(resolver))
+	denied := LoadSkillExports(cfg, nil, bundles.WithVersionResolver(resolver))
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

@@ -99,10 +99,10 @@ func searchScopes(localOnly, remoteOnly bool) (local, remote bool) {
 // search. An empty filter searches every type; profile lives in both scopes.
 func resolveSearchTypes(itemType string) (localTypes, remoteTypes []string, err error) {
 	if itemType == "" {
-		return []string{"fragment", "prompt", "profile", "mcp_server"}, []string{"bundle", "profile"}, nil
+		return []string{"fragment", "skill", "profile", "mcp_server"}, []string{"bundle", "profile"}, nil
 	}
 	switch itemType {
-	case "fragment", "prompt", "mcp_server":
+	case "fragment", "skill", "mcp_server":
 		return []string{itemType}, nil, nil
 	case "profile":
 		return []string{itemType}, []string{itemType}, nil
@@ -211,10 +211,10 @@ func printLocalResults(results []operations.SearchResult) {
 		byType[r.Type] = append(byType[r.Type], r)
 	}
 
-	typeOrder := []string{"fragment", "prompt", "profile", "mcp_server"}
+	typeOrder := []string{"fragment", "skill", "profile", "mcp_server"}
 	typeNames := map[string]string{
 		"fragment":   "Fragments",
-		"prompt":     "Prompts",
+		"skill":      "Skills",
 		"profile":    "Profiles",
 		"mcp_server": "MCP Servers",
 	}

@@ -122,7 +122,7 @@ type RemoteBundle struct {
 	InstallationField string                      `yaml:"installation,omitempty"` // Setup/installation instructions
 	MCP               *RemoteMCPServer            `yaml:"mcp,omitempty"`
 	Fragments         map[string]RemoteBundleItem `yaml:"fragments,omitempty"`
-	Prompts           map[string]RemoteBundleItem `yaml:"prompts,omitempty"`
+	Skills            map[string]RemoteBundleItem `yaml:"skills,omitempty"`
 }
 
 // RemoteBundleItem represents a fragment or prompt within a bundle.

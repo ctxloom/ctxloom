@@ -149,7 +149,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
 	cfg.SetExecutableTrustGate(recordingGate(nil, "#mcp/noisy-server"))
 
-	result := cfg.ResolveBundleMCPServers()
+	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "quiet-server", "trusted profile-bundle MCP server must be written")
 	assert.NotContains(t, result, "noisy-server", "denied profile-bundle MCP server must NOT be written")
 
@@ -180,7 +180,7 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 	// Deny only the session_start hook (index 0 of that event).
 	cfg.SetExecutableTrustGate(recordingGate(nil, "#hooks/session_start/0"))
 
-	result := cfg.ResolveBundleHooks()
+	result := cfg.ResolveBundleHooks(nil)
 	assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", "bundle:hook-bundle"),
 		"a trusted profile-bundle hook must survive")
 	assert.False(t, hasHookCommand(result.SessionStart, "echo session-start", "bundle:hook-bundle"),

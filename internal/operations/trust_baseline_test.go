@@ -20,7 +20,7 @@ const acmeBundle = "https://github.com/acme/repo@bundles/"
 // (preferDistilled true ⇒ raw bytes when there is no distilled form), the value
 // the baseline records for that prompt.
 func promptHash(body string) string {
-	p := bundles.BundlePrompt{Content: body}
+	p := bundles.BundleSkill{Content: body}
 	h, _ := p.EffectiveContentHash(true)
 	return h
 }
@@ -37,7 +37,7 @@ func baselineSeed() *bundles.Loader {
 	seed := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "solid body"}},
-			Prompts:   map[string]bundles.BundlePrompt{"review": {Content: "review body"}},
+			Skills:    map[string]bundles.BundleSkill{"review": {Content: "review body"}},
 			MCP:       map[string]bundles.BundleMCP{"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}}},
 		},
 		"demo": {

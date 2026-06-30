@@ -161,7 +161,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	require.NoError(t, store.AddGrant(remote.LocalSource, "mcp-bundle#mcp/quiet-server", quietHash, "raw", ""))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
-	result := cfg.ResolveBundleMCPServers()
+	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.Contains(t, result, "quiet-server", "granted local MCP server must be written to settings")
 	assert.NotContains(t, result, "noisy-server", "ungranted local MCP executable must be withheld")
@@ -197,7 +197,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	require.NoError(t, store.AddGrant(remote.LocalSource, "hook-bundle#hooks/pre_tool/0", keepHash, "raw", ""))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
-	result := cfg.ResolveBundleHooks()
+	result := cfg.ResolveBundleHooks(nil)
 
 	keepApplied, denyApplied := false, false
 	for _, h := range result.PreTool {

@@ -173,7 +173,7 @@ func loadDistillPrompt() (string, error) {
 	}
 
 	// Try to load "distill" prompt from bundles
-	prompt, err := operations.GetPrompt(context.Background(), cfg, operations.GetPromptRequest{Name: "distill"})
+	prompt, err := operations.GetSkill(context.Background(), cfg, operations.GetSkillRequest{Name: "distill"})
 	if err == nil && prompt.Content != "" {
 		return strings.TrimSpace(prompt.Content), nil
 	}
@@ -242,12 +242,12 @@ func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, exclud
 // appendSiblingPrompts lists the bundle's prompts (excluding excludeName),
 // preferring each prompt's Description over a content preview.
 func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
-	if !hasSiblingsOfType(len(bundle.Prompts), excludeName, "prompts/") {
+	if !hasSiblingsOfType(len(bundle.Skills), excludeName, "skills/") {
 		return
 	}
-	ctx.WriteString("Sibling prompts:\n")
-	for name, prompt := range bundle.Prompts {
-		if "prompts/"+name == excludeName {
+	ctx.WriteString("Sibling skills:\n")
+	for name, prompt := range bundle.Skills {
+		if "skills/"+name == excludeName {
 			continue
 		}
 		desc := prompt.Description

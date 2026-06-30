@@ -44,7 +44,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 		},
 	}
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "")
+	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 
 	assert.Contains(t, sessionStartCommands(assembled.Unified), "profile-session-start",
 		"profile-shipped SessionStart hook must be in the assembled set")
@@ -81,13 +81,13 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 
 	// Setup payload path: host assembles WITHOUT context-injection, the agent
 	// appends it from the plugin-side hash (exactly what MergeManaged does).
-	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "").Unified)
+	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "", nil).Unified)
 	for _, h := range agent.NewContextInjectionHooks(hash, wd) {
 		setupCmds = append(setupCmds, h.Command)
 	}
 
 	// apply-hooks path: AssembleManagedHooks resolves the hash inline.
-	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash).Unified)
+	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash, nil).Unified)
 
 	assert.Equal(t, applyCmds, setupCmds,
 		"agent (host hooks + appended injection) and apply-hooks must produce an identical SessionStart set")
@@ -105,8 +105,8 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		},
 	}
 
-	first := AssembleManagedHooks(cfg, "/tmp", "hash123")
-	second := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
+	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 
 	assert.Equal(t, len(first.Unified.SessionStart), len(second.Unified.SessionStart),
 		"repeated calls must not accumulate hooks via shared config state")
@@ -125,7 +125,7 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 		},
 	}
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123")
+	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
 	assert.NotEmpty(t, assembled.Unified.SessionStart, "context-injection hook should still be assembled")
 }
 
@@ -148,7 +148,7 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 		},
 	}
 
-	mcp := assembleManagedMCP(cfg)
+	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "config-mcp")
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }

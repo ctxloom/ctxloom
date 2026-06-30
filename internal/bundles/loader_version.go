@@ -132,24 +132,24 @@ func (l *Loader) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error
 // resolves a prompt from a specific commit-version of its bundle, gated by that
 // version's own effective-content hash under the version-less ref.
 func (l *Loader) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) {
-	bundleRef, promptName, isRef, err := splitItemRef(ref, "prompts")
+	bundleRef, promptName, isRef, err := splitItemRef(ref, "skills")
 	if err != nil {
 		return nil, err
 	}
 	if !isRef {
-		return l.searchPrompt(ref)
+		return l.searchSkill(ref)
 	}
 	bundle, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
 		return nil, err
 	}
-	prompt, ok := bundle.Prompts[promptName]
+	prompt, ok := bundle.Skills[promptName]
 	if !ok {
-		return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundle.Name)
+		return nil, fmt.Errorf("skill %q not found in bundle %q", promptName, bundle.Name)
 	}
-	lc := l.promptContent(bundle, promptName, prompt)
+	lc := l.skillContent(bundle, promptName, prompt)
 	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrPromptWithheld, promptName)
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, promptName)
 	}
 	return lc, nil
 }

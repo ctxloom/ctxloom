@@ -73,7 +73,7 @@ KEY CONCEPTS
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle
-  bundle#prompts/name             Specific prompt from bundle
+  bundle#skills/name             Specific prompt from bundle
   remote/bundle                   Bundle from a remote repository
 
 Run 'ctxloom <command> --help' for details on any command.`,

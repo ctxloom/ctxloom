@@ -108,7 +108,7 @@ type ContentInfo struct {
 	Source   string // "bundle:name" or legacy path
 	Tags     []string
 	Bundle   string // Bundle name this came from
-	ItemType string // "fragment" or "prompt"
+	ItemType string // "fragment" or "skill"
 }
 
 // ListAllFragments returns info about all fragments across all bundles.
@@ -149,8 +149,8 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 	return infos, nil
 }
 
-// ListAllPrompts returns info about all prompts across all bundles.
-func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
+// ListAllSkills returns info about all prompts across all bundles.
+func (l *Loader) ListAllSkills() ([]ContentInfo, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 			continue
 		}
 
-		for name, prompt := range bundle.Prompts {
+		for name, prompt := range bundle.Skills {
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
 			key := bundleInfo.Name + "/" + name
 			if seen.Has(key) {
@@ -178,7 +178,7 @@ func (l *Loader) ListAllPrompts() ([]ContentInfo, error) {
 				Source:   bundleInfo.Name,
 				Tags:     slices.Concat(bundle.Tags, prompt.Tags),
 				Bundle:   bundleInfo.Name,
-				ItemType: "prompt",
+				ItemType: "skill",
 			})
 		}
 	}
@@ -317,23 +317,25 @@ func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 }
 
-// GetPrompt finds and loads a prompt by name.
-// Name can be "prompt-name" (searches all bundles) or "bundle#prompts/name".
-func (l *Loader) GetPrompt(name string) (*LoadedContent, error) {
-	bundleName, promptName, isRef, err := splitItemRef(name, "prompts")
+// GetSkill finds and loads a prompt by name.
+// Name can be "prompt-name" (searches all bundles) or "bundle#skills/name".
+func (l *Loader) GetSkill(name string) (*LoadedContent, error) {
+	bundleName, promptName, isRef, err := splitItemRef(name, "skills")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.promptFromBundle(bundleName, promptName)
+		return l.skillFromBundle(bundleName, promptName)
 	}
-	return l.searchPrompt(name)
+	return l.searchSkill(name)
 }
 
-// promptContent builds a LoadedContent for a prompt (prompts also carry Plugins),
+// skillContent builds a LoadedContent for a prompt (prompts also carry Plugins),
 // or returns nil when the trust gate withholds it (trust rework, TR5). See
 // fragmentContent — the gate hashes the exact effective-content bytes returned.
-func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundlePrompt) *LoadedContent {
+// The gate ref keeps the "prompts" kind segment (trust.KindPrompt.Dir()), so the
+// item-kind rename does not invalidate existing trust grants.
+func (l *Loader) skillContent(bundle *Bundle, promptName string, prompt BundleSkill) *LoadedContent {
 	content := prompt.EffectiveContent(l.preferDistilled)
 	hash, form := prompt.EffectiveContentHash(l.preferDistilled)
 	if !l.gateContent(bundle.Name, "prompts", promptName, hash, form) {
@@ -353,27 +355,54 @@ func (l *Loader) promptContent(bundle *Bundle, promptName string, prompt BundleP
 	}
 }
 
-// promptFromBundle loads a specific bundle and returns the named prompt.
-func (l *Loader) promptFromBundle(bundleName, promptName string) (*LoadedContent, error) {
+// SkillsFromBundleRef returns every prompt shipped by the bundle at bundleRef
+// as fully-resolved LoadedContent, in deterministic (name-sorted) order, or nil
+// if the bundle can't be loaded. This is the prompt analog of the per-bundle
+// MCP/hook resolution (loadMCPFromBundleRef): it lets prompt/skill exports be
+// scoped to a specific profile's bundles instead of the global ListAllSkills
+// sweep. Deterministic order matters so downstream command-file writes are
+// reproducible. A skill the trust gate withholds (skillContent returns nil) is
+// skipped, so a withheld skill is never exported as a slash command.
+func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedContent {
+	bundle, err := l.Load(bundleRef)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(bundle.Skills))
+	for name := range bundle.Skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*LoadedContent, 0, len(names))
+	for _, name := range names {
+		if lc := l.skillContent(bundle, name, bundle.Skills[name]); lc != nil {
+			out = append(out, lc)
+		}
+	}
+	return out
+}
+
+// skillFromBundle loads a specific bundle and returns the named prompt.
+func (l *Loader) skillFromBundle(bundleName, promptName string) (*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
 	}
-	prompt, ok := bundle.Prompts[promptName]
+	prompt, ok := bundle.Skills[promptName]
 	if !ok {
-		return nil, fmt.Errorf("prompt %q not found in bundle %q", promptName, bundleName)
+		return nil, fmt.Errorf("skill %q not found in bundle %q", promptName, bundleName)
 	}
-	lc := l.promptContent(bundle, promptName, prompt)
+	lc := l.skillContent(bundle, promptName, prompt)
 	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrPromptWithheld, promptName)
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, promptName)
 	}
 	return lc, nil
 }
 
-// searchPrompt scans every bundle for a prompt with the given name. A gate-
+// searchSkill scans every bundle for a prompt with the given name. A gate-
 // withheld match (trust rework, TR5) does not end the scan; only when every
-// match is withheld does it report ErrPromptWithheld (distinct from not-found).
-func (l *Loader) searchPrompt(name string) (*LoadedContent, error) {
+// match is withheld does it report ErrSkillWithheld (distinct from not-found).
+func (l *Loader) searchSkill(name string) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
@@ -384,17 +413,17 @@ func (l *Loader) searchPrompt(name string) (*LoadedContent, error) {
 		if err != nil {
 			continue
 		}
-		if prompt, ok := bundle.Prompts[name]; ok {
-			if lc := l.promptContent(bundle, name, prompt); lc != nil {
+		if prompt, ok := bundle.Skills[name]; ok {
+			if lc := l.skillContent(bundle, name, prompt); lc != nil {
 				return lc, nil
 			}
 			withheld = true
 		}
 	}
 	if withheld {
-		return nil, fmt.Errorf("%w: %s", errs.ErrPromptWithheld, name)
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, name)
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrPromptNotFound, name)
+	return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
 }
 
 // ListByTags returns fragments matching any of the given tags.
@@ -460,7 +489,7 @@ type ExpandedRef struct {
 //	"bundle@<commit>"               // every fragment at that commit
 //	"bundle@<commit>:fragments/name"// a single fragment at that commit
 //
-// Refs that target prompts or MCP servers (e.g. "bundle:prompts/x",
+// Refs that target prompts or MCP servers (e.g. "bundle:skills/x",
 // "bundle:mcp") are skipped, because they do not resolve to fragments.
 // Bundles that cannot be loaded — including a pinned version that fails to
 // fetch — are skipped, mirroring the tolerant behavior of LoadMultiple/
@@ -511,7 +540,7 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	// dropping every URL-form cherry-pick.)
 	sep := strings.Index(ref, "#")
 	if sep == -1 {
-		for _, marker := range []string{":fragments/", ":prompts/", ":mcp"} {
+		for _, marker := range []string{":fragments/", ":skills/", ":mcp"} {
 			if i := strings.Index(ref, marker); i != -1 {
 				sep = i
 				break

@@ -25,7 +25,7 @@ const (
 	resourceSessionsRecentURI = "ctxloom://sessions/recent"
 	resourceFragmentsURI      = "ctxloom://fragments"
 	resourceProfilesURI       = "ctxloom://profiles"
-	resourcePromptsURI        = "ctxloom://prompts"
+	resourcePromptsURI        = "ctxloom://skills"
 	resourceRemotesURI        = "ctxloom://remotes"
 	resourceMCPServersURI     = "ctxloom://mcp-servers"
 	resourceSessionsURI       = "ctxloom://sessions"
@@ -65,10 +65,10 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourcePromptsURI,
-		Name:        "prompts",
-		Description: "All available prompts with descriptions. Replaces the list_prompts tool.",
+		Name:        "skills",
+		Description: "All available skills with descriptions. Replaces the list_skills tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourcePrompts)
+	}, s.handleResourceSkills)
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceRemotesURI,
@@ -108,11 +108,11 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 	}, s.handleResourceProfile)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "ctxloom://prompts/{name}",
-		Name:        "prompt",
-		Description: "A single prompt's content by name. Replaces the get_prompt tool.",
+		URITemplate: "ctxloom://skills/{name}",
+		Name:        "skill",
+		Description: "A single skill's content by name. Replaces the get_skill tool.",
 		MIMEType:    "text/markdown",
-	}, s.handleResourcePrompt)
+	}, s.handleResourceSkill)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		URITemplate: "ctxloom://remotes/{name}/contents",
@@ -135,7 +135,7 @@ separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + 
 ## Available URIs
 
 - ` + "`ctxloom://help`" + ` — this file.
-- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://prompts`" + `, ` + "`ctxloom://profiles`" + ` — listings;
+- ` + "`ctxloom://fragments`" + `, ` + "`ctxloom://skills`" + `, ` + "`ctxloom://profiles`" + ` — listings;
   append ` + "`/{name}`" + ` for a single item's content.
 - ` + "`ctxloom://remotes`" + ` — configured remotes; ` + "`ctxloom://remotes/{name}/contents`" + `
   lists a remote's bundles and profiles.
@@ -199,8 +199,8 @@ func (s *ctxServer) handleResourceProfiles(ctx context.Context, req *mcp.ReadRes
 	return marshalResourceYAML(req.Params.URI, result)
 }
 
-func (s *ctxServer) handleResourcePrompts(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListPrompts(ctx, s.cfg, operations.ListPromptsRequest{})
+func (s *ctxServer) handleResourceSkills(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	result, err := operations.ListSkills(ctx, s.cfg, operations.ListSkillsRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -270,12 +270,12 @@ func (s *ctxServer) handleResourceProfile(ctx context.Context, req *mcp.ReadReso
 	return marshalResourceYAML(req.Params.URI, result)
 }
 
-func (s *ctxServer) handleResourcePrompt(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	name := extractURIName(req.Params.URI, "ctxloom://prompts/")
+func (s *ctxServer) handleResourceSkill(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	name := extractURIName(req.Params.URI, "ctxloom://skills/")
 	if name == "" {
 		return nil, mcp.ResourceNotFoundError(req.Params.URI)
 	}
-	result, err := operations.GetPrompt(ctx, s.cfg, operations.GetPromptRequest{Name: name})
+	result, err := operations.GetSkill(ctx, s.cfg, operations.GetSkillRequest{Name: name})
 	if err != nil {
 		return nil, err
 	}

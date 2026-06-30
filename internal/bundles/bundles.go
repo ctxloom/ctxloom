@@ -32,7 +32,7 @@ type Bundle struct {
 
 	// Content maps (keyed by name)
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`
-	Prompts   map[string]BundlePrompt   `yaml:"prompts,omitempty"`
+	Skills    map[string]BundleSkill    `yaml:"skills,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
@@ -192,8 +192,8 @@ type BundleFragment struct {
 	NoDistill    bool     `yaml:"no_distill,omitempty"`
 }
 
-// BundlePrompt defines a prompt within a bundle.
-type BundlePrompt struct {
+// BundleSkill defines a prompt within a bundle.
+type BundleSkill struct {
 	Description  string     `yaml:"description,omitempty"`
 	Tags         []string   `yaml:"tags,omitempty"`
 	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
@@ -288,18 +288,18 @@ func (f *BundleFragment) EffectiveContentHash(preferDistilled bool) (string, Con
 // ComputeContentHash computes the SHA256 hash of the raw authored content. This
 // feeds the recorded content_hash that drives re-distillation (NeedsDistill); the
 // trust gate uses EffectiveContentHash instead.
-func (p *BundlePrompt) ComputeContentHash() string {
+func (p *BundleSkill) ComputeContentHash() string {
 	return hashContent([]byte(p.Content))
 }
 
 // NeedsDistill returns true if this prompt needs distillation.
-func (p *BundlePrompt) NeedsDistill() bool {
+func (p *BundleSkill) NeedsDistill() bool {
 	return staleDistill(p.NoDistill, p.Distilled, p.ContentHash, p.Content)
 }
 
 // EffectiveContent returns distilled content if available and preferred.
 // Falls back to original content if distilled is empty or NoDistill is true.
-func (p *BundlePrompt) EffectiveContent(preferDistilled bool) string {
+func (p *BundleSkill) EffectiveContent(preferDistilled bool) string {
 	content, _ := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
 	return content
 }
@@ -307,7 +307,7 @@ func (p *BundlePrompt) EffectiveContent(preferDistilled bool) string {
 // EffectiveContentHash hashes EXACTLY the bytes EffectiveContent(preferDistilled)
 // returns, and reports their form. See BundleFragment.EffectiveContentHash — same
 // contract for the per-item trust gate (trust rework, TR0).
-func (p *BundlePrompt) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
+func (p *BundleSkill) EffectiveContentHash(preferDistilled bool) (string, ContentForm) {
 	content, form := resolveEffective(preferDistilled, p.Content, p.Distilled, p.NoDistill)
 	return hashContent([]byte(content)), form
 }
@@ -396,9 +396,9 @@ func (b *Bundle) FragmentCount() int {
 	return len(b.Fragments)
 }
 
-// PromptCount returns the number of prompts in the bundle.
-func (b *Bundle) PromptCount() int {
-	return len(b.Prompts)
+// SkillCount returns the number of prompts in the bundle.
+func (b *Bundle) SkillCount() int {
+	return len(b.Skills)
 }
 
 // FragmentNames returns sorted fragment names.
@@ -413,8 +413,8 @@ func (b *Bundle) FragmentNames() []string {
 
 // PromptNames returns sorted prompt names.
 func (b *Bundle) PromptNames() []string {
-	names := make([]string, 0, len(b.Prompts))
-	for name := range b.Prompts {
+	names := make([]string, 0, len(b.Skills))
+	for name := range b.Skills {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -428,7 +428,7 @@ func (b *Bundle) AllTags() []string {
 	for _, f := range b.Fragments {
 		tagSet.AddAll(f.Tags...)
 	}
-	for _, p := range b.Prompts {
+	for _, p := range b.Skills {
 		tagSet.AddAll(p.Tags...)
 	}
 
@@ -439,6 +439,13 @@ func (b *Bundle) AllTags() []string {
 
 // ParseBundle parses raw YAML into a Bundle.
 func ParseBundle(data []byte) (*Bundle, error) {
+	// Migrate older on-disk/remote bundle schemas (e.g. the legacy `prompts:`
+	// key → `skills:`) in memory before unmarshal, so old bundles load instead
+	// of silently dropping renamed keys. No-op for already-current bundles.
+	if upgraded, applied := bundleUpgrades.Run(data); len(applied) > 0 {
+		data = upgraded
+	}
+
 	var bundle Bundle
 	if err := yaml.Unmarshal(data, &bundle); err != nil {
 		return nil, fmt.Errorf("invalid bundle YAML: %w", err)
@@ -448,8 +455,8 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	if bundle.Fragments == nil {
 		bundle.Fragments = make(map[string]BundleFragment)
 	}
-	if bundle.Prompts == nil {
-		bundle.Prompts = make(map[string]BundlePrompt)
+	if bundle.Skills == nil {
+		bundle.Skills = make(map[string]BundleSkill)
 	}
 	if bundle.MCP == nil {
 		bundle.MCP = make(map[string]BundleMCP)

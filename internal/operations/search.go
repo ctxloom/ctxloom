@@ -57,7 +57,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 	}
 
 	// Determine which types to search
-	searchTypes := collections.NewSetFrom("fragment", "prompt", "profile", "mcp_server")
+	searchTypes := collections.NewSetFrom("fragment", "skill", "profile", "mcp_server")
 	if len(req.Types) > 0 {
 		searchTypes = collections.NewSetFrom(req.Types...)
 	}
@@ -81,7 +81,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 			run func() []SearchResult
 		}{
 			{"fragment", func() []SearchResult { return searchFragments(loader, query, req.Tags) }},
-			{"prompt", func() []SearchResult { return searchPrompts(loader, query) }},
+			{"skill", func() []SearchResult { return searchSkills(loader, query) }},
 			{"profile", func() []SearchResult { return searchProfiles(cfg, query) }},
 			{"mcp_server", func() []SearchResult { return searchMCPServers(cfg, query) }},
 		}
@@ -161,10 +161,10 @@ func searchFragments(loader *bundles.Loader, query string, tags []string) []Sear
 	return results
 }
 
-// searchPrompts returns prompts whose name matches query. Loader errors yield no
+// searchSkills returns prompts whose name matches query. Loader errors yield no
 // results.
-func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
-	prompts, err := loader.ListAllPrompts()
+func searchSkills(loader *bundles.Loader, query string) []SearchResult {
+	prompts, err := loader.ListAllSkills()
 	if err != nil {
 		return nil
 	}
@@ -172,7 +172,7 @@ func searchPrompts(loader *bundles.Loader, query string) []SearchResult {
 	for _, p := range prompts {
 		if strings.Contains(strings.ToLower(p.Name), query) {
 			results = append(results, SearchResult{
-				Type:   "prompt",
+				Type:   "skill",
 				Name:   p.Name,
 				Source: p.Source,
 				Match:  "name",

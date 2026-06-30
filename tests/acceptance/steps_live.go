@@ -255,7 +255,7 @@ func liveBundleYAML(fragment string) string {
 	for _, f := range facts {
 		fmt.Fprintf(&b, "      %s\n", f)
 	}
-	b.WriteString("prompts:\n")
+	b.WriteString("skills:\n")
 	b.WriteString("  guidance:\n")
 	b.WriteString("    description: live distillation prompt fixture\n")
 	b.WriteString("    content: |\n")

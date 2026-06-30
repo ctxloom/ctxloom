@@ -14,7 +14,7 @@ import (
 )
 
 // contentGate is the per-item trust gate (trust rework, TR5) bound into a
-// bundle loader's content choke (bundles.fragmentContent/promptContent). It owns
+// bundle loader's content choke (bundles.fragmentContent/skillContent). It owns
 // a trust store + remote registry built ONCE so the cascade resolves without
 // per-item file I/O, and resolves each item fail-closed: any parse/evaluation
 // error withholds (returns false), matching the security mandate that "couldn't
@@ -159,10 +159,10 @@ func buildContentGate(cfg *config.Config, store *trust.Store, registry *remote.R
 // bundle hooks written to backend settings, plus prompt command-file exports —
 // through the same per-item trust cascade as content (trust rework, TR5). These
 // surfaces bypass the content loader (they resolve via config.ResolveBundle* →
-// WriteSettings, and backends.LoadPromptExports), so a blacklist at the loader
+// WriteSettings, and backends.LoadSkillExports), so a blacklist at the loader
 // would be a no-op; each is gated at its OWN choke. The gate is injected into
 // config.SetExecutableTrustGate (consulted by ResolveBundleMCPServers /
-// ResolveBundleHooks / LoadPromptExports); a DENY omits the executable from
+// ResolveBundleHooks / LoadSkillExports); a DENY omits the executable from
 // settings (fail-closed). It tallies withheld refs so the caller can surface a
 // content-free "N withheld" advisory.
 //

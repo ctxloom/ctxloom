@@ -60,8 +60,8 @@ func (d *mcpLLMDistillerSDK) Distill(ctx context.Context, req operations.Distill
 	switch req.Kind {
 	case operations.DistillKindFragment:
 		excludeName = "fragments/" + req.Name
-	case operations.DistillKindPrompt:
-		excludeName = "prompts/" + req.Name
+	case operations.DistillKindSkill:
+		excludeName = "skills/" + req.Name
 	}
 	var siblingCtx string
 	if req.Bundle != nil {

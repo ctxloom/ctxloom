@@ -18,10 +18,10 @@ import (
 // promptVersions builds a def bundle (lockfile default) and a per-commit version
 // map carrying prompts, for reuse across the pinning cases.
 func promptVersions(defBody string, commitBodies map[string]string) (*bundles.Bundle, map[string]*bundles.Bundle) {
-	def := &bundles.Bundle{Prompts: map[string]bundles.BundlePrompt{"review": {Content: defBody}}}
+	def := &bundles.Bundle{Skills: map[string]bundles.BundleSkill{"review": {Content: defBody}}}
 	versions := make(map[string]*bundles.Bundle, len(commitBodies))
 	for commit, body := range commitBodies {
-		versions[commit] = &bundles.Bundle{Prompts: map[string]bundles.BundlePrompt{"review": {Content: body}}}
+		versions[commit] = &bundles.Bundle{Skills: map[string]bundles.BundleSkill{"review": {Content: body}}}
 	}
 	return def, versions
 }
@@ -36,8 +36,8 @@ func TestGetPrompt_Pinned_ResolvesHistoricalVersion(t *testing.T) {
 	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
-	res, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:   cqVersionRef + "#prompts/review@c1",
+	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:   cqVersionRef + "#skills/review@c1",
 		Loader: loader,
 	})
 	require.NoError(t, err)
@@ -54,8 +54,8 @@ func TestGetPrompt_Unversioned_Unchanged(t *testing.T) {
 	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("DEFAULT-REVIEW"), "raw", ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
-	res, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:   cqVersionRef + "#prompts/review",
+	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:   cqVersionRef + "#skills/review",
 		Loader: loader,
 	})
 	require.NoError(t, err)
@@ -73,9 +73,9 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
 	// Un-granted pinned version → withheld (GetPrompt surfaces the loader's
-	// ErrPromptWithheld).
-	_, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:   cqVersionRef + "#prompts/review@c2",
+	// ErrSkillWithheld).
+	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:   cqVersionRef + "#skills/review@c2",
 		Loader: loader,
 	})
 	require.Error(t, err, "an un-granted pinned version must be withheld")
@@ -84,8 +84,8 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	// the version cache + withheld set don't carry the prior decision).
 	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V2-REVIEW"), "raw", ""))
 	loader2, _ := versionPinnedLoader(t, store, def, versions)
-	res, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:   cqVersionRef + "#prompts/review@c2",
+	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:   cqVersionRef + "#skills/review@c2",
 		Loader: loader2,
 	})
 	require.NoError(t, err)
@@ -102,8 +102,8 @@ func TestGetPrompt_Pinned_FetchFailureFailsClosed(t *testing.T) {
 	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
-	_, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:   cqVersionRef + "#prompts/review@broken",
+	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:   cqVersionRef + "#skills/review@broken",
 		Loader: loader,
 	})
 	require.Error(t, err, "a fetch failure must fail closed (withhold), never silently default")
@@ -118,8 +118,8 @@ func TestGetPrompt_ExplicitVersionField(t *testing.T) {
 	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
-	res, err := GetPrompt(context.Background(), nil, GetPromptRequest{
-		Name:    cqVersionRef + "#prompts/review",
+	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
+		Name:    cqVersionRef + "#skills/review",
 		Version: "c1",
 		Loader:  loader,
 	})

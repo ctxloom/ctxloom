@@ -61,7 +61,7 @@ const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-ho
 func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 	// No gate (management path): both directory-declared servers flow.
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
-	mcp := assembleManagedMCP(cfg)
+	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "keep-srv", "directory profile inline MCP servers reach the managed set")
 	assert.Contains(t, mcp.Servers, "drop-srv")
 
@@ -69,7 +69,7 @@ func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
 	keepHash := mcpExecHash(wire.MCPServer{Command: "keep-cmd"})
 	cfg2.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == keepHash })
-	gated := assembleManagedMCP(cfg2)
+	gated := assembleManagedMCP(cfg2, nil)
 	assert.Contains(t, gated.Servers, "keep-srv", "a granted directory-profile MCP server is applied")
 	assert.NotContains(t, gated.Servers, "drop-srv", "an un-granted directory-profile MCP server is withheld by the exec gate")
 }
@@ -79,7 +79,7 @@ func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 // withholds an un-granted one.
 func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
-	assembled := AssembleManagedHooks(cfg, "/tmp", "")
+	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	cmds := preToolCommandSet(assembled.Unified)
 	assert.Contains(t, cmds, "keep-hook", "directory profile inline hooks reach the managed set")
 	assert.Contains(t, cmds, "drop-hook")
@@ -87,7 +87,7 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
 	keepHash := hookExecHash(wire.Hook{Command: "keep-hook", Type: "command"})
 	cfg2.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == keepHash })
-	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "").Unified)
+	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
 }
@@ -106,7 +106,7 @@ func TestAssembleManagedMCP_DirProfileMergesWithInlineDefault(t *testing.T) {
 	dirHash := mcpExecHash(wire.MCPServer{Command: "dir-cmd"})
 	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == dirHash })
 
-	mcp := assembleManagedMCP(cfg)
+	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "inline-srv", "inline default profile's MCP server (trusted-local) is applied")
 	assert.Contains(t, mcp.Servers, "dir-srv", "directory default profile's granted MCP server is applied")
 }
@@ -125,7 +125,7 @@ func TestAssembleManagedHooks_DirProfileMergesWithInlineDefault(t *testing.T) {
 	dirHash := hookExecHash(wire.Hook{Command: "dir-hook", Type: "command"})
 	cfg.SetExecutableTrustGate(func(_ref, hash, _form string) bool { return hash == dirHash })
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "").Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
 	assert.Contains(t, cmds, "inline-hook", "inline default profile's hook (trusted-local) is applied")
 	assert.Contains(t, cmds, "dir-hook", "directory default profile's granted hook is applied")
 }
@@ -140,7 +140,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 		"child": "parents:\n  - base\nhooks:\n  unified:\n    pre_tool:\n      - command: child-hook\n        type: command\n",
 	}, nil)
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "").Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
 	assert.Contains(t, cmds, "base-hook", "a directory profile inherits its parent's inline hooks")
 	assert.Contains(t, cmds, "child-hook")
 }
@@ -153,7 +153,7 @@ func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
 		"dir": "mcp:\n  servers:\n    keep-srv:\n      command: keep-cmd\n    drop-srv:\n      command: drop-cmd\nexclude_mcp:\n  - drop-srv\n",
 	}, nil)
 
-	mcp := assembleManagedMCP(cfg)
+	mcp := assembleManagedMCP(cfg, nil)
 	assert.Contains(t, mcp.Servers, "keep-srv")
 	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
 }

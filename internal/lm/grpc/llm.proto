@@ -251,14 +251,14 @@ message RunStart {
 // config+profile+bundle set WITHOUT context-injection — the agent appends its
 // own context-injection hook from its plugin-side context hash.
 message ManagedConfig {
-  repeated CommandExport prompts = 1;   // per-target-agent slash-command exports
+  repeated CommandExport skills = 1;    // per-target-agent skill (slash-command) exports
   HooksConfig hooks = 2;                // config + default-profile + bundle hooks (no context-injection)
   MCPConfig mcp = 3;                    // merged config + default-profile MCP servers
   bool manage_statusline = 4;           // whether ctxloom manages the backend statusline
   map<string, MCPServer> bundle_mcp = 5; // MCP servers shipped by profile + builtin bundles (parallel to the bundle hooks)
 }
 
-// CommandExport mirrors agent.CommandExport: one prompt's agent-agnostic
+// CommandExport mirrors agent.CommandExport: one skill's agent-agnostic
 // slash-command export spec, with the target agent's enablement+metadata already
 // resolved host-side.
 message CommandExport {

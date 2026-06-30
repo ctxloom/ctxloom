@@ -1083,7 +1083,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(committed), "llm_plugin")
 	assert.NotContains(t, string(committed), "plugins:")
-	assert.Contains(t, string(committed), "version: 4", "upgrade stamps the current schema version")
+	assert.Contains(t, string(committed), "version: 5", "upgrade stamps the current schema version")
 	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
 }
 
@@ -1092,14 +1092,14 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 4\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "version: 5\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Nil(t, cfg.PendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, 4, cfg.Version)
+	assert.Equal(t, CurrentConfigVersion, cfg.Version)
 }
 
 func TestLoad_NoConfigFile(t *testing.T) {
@@ -1474,7 +1474,7 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 		AppPaths: []string{"/project/.ctxloom"},
 	}
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
@@ -1484,7 +1484,7 @@ func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 		AppPaths: []string{},
 	}
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
@@ -1499,7 +1499,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 		fs:       fs,
 	}
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers())
+	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
 // Companion gating: a builtin bundle's MCP server whose binary is absent from
@@ -1613,7 +1613,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		AppPaths: []string{appDir},
 	}
 
-	result := cfg.ResolveBundleMCPServers()
+	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "sequential-thinking",
 		"MCP server from a parent-inherited bundle should resolve")
 }
@@ -1638,11 +1638,57 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 		AppPaths: []string{appDir},
 	}
 
-	result := cfg.ResolveBundleMCPServers()
+	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "quiet-server",
 		"non-excluded MCP server should resolve")
 	assert.NotContains(t, result, "noisy-server",
 		"exclude_mcp server should be filtered out")
+}
+
+// TestConfig_ResolveBundle_ScopesToSelectedProfile pins the per-agent config
+// retarget: passing an explicit profile set scopes bundle MCP AND prompts/skills
+// to THAT profile's bundles, distinct from the configured defaults. This is the
+// fix for `run -p X` leaking the default profile's MCP and every pulled bundle's
+// skills into X's session.
+func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	profilesDir := filepath.Join(appDir, "profiles")
+	bundlesDir := filepath.Join(appDir, "cache", "bundles") // paths.BundlesPath layout
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "developer.yaml"),
+		[]byte("name: developer\nbundles:\n  - dev-bundle\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
+		[]byte("name: finder\nbundles:\n  - finder-bundle\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev-bundle.yaml"),
+		[]byte("name: dev-bundle\nversion: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\nskills:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "finder-bundle.yaml"),
+		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\nskills:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
+
+	cfg := &Config{
+		Profiles: ProfilesConfig{Defaults: []string{"developer"}},
+		AppPaths: []string{appDir},
+	}
+
+	// Selecting finder scopes MCP to finder's bundle only — NOT the default
+	// (developer) profile's.
+	selMCP := cfg.ResolveBundleMCPServers([]string{"finder"})
+	assert.Contains(t, selMCP, "finder-mcp")
+	assert.NotContains(t, selMCP, "dev-mcp", "selecting finder must not pull the default profile's MCP")
+
+	// nil falls back to the configured default (developer) — the manage/apply path.
+	defMCP := cfg.ResolveBundleMCPServers(nil)
+	assert.Contains(t, defMCP, "dev-mcp")
+	assert.NotContains(t, defMCP, "finder-mcp")
+
+	// Same scoping for prompts/skills — the formerly-global surface.
+	var selSkills []string
+	for _, lc := range cfg.ResolveBundleSkills([]string{"finder"}) {
+		selSkills = append(selSkills, lc.Item)
+	}
+	assert.Contains(t, selSkills, "finder-skill")
+	assert.NotContains(t, selSkills, "dev-skill", "selecting finder must not pull every bundle's skills")
 }
 
 // hookBundleYAML is a bundle that ships one hook per several event types, used
@@ -1698,7 +1744,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
 
 		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
-		result := cfg.ResolveBundleHooks()
+		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"profile bundle's pre_tool hook must resolve with its SCM marker")
@@ -1718,7 +1764,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("name: child\nparents:\n  - parent\n"), 0644))
 
 		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"child"}}, AppPaths: []string{appDir}}
-		result := cfg.ResolveBundleHooks()
+		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"a hook from a parent-inherited bundle must resolve (recursive ResolveProfile)")
@@ -1732,7 +1778,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
 
 		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"missing", "real"}}, AppPaths: []string{appDir}}
-		result := cfg.ResolveBundleHooks()
+		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"a ghost bundle ref contributes no hooks")

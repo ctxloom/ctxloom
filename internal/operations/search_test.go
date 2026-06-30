@@ -53,7 +53,7 @@ func TestSearchContentRequest_Defaults(t *testing.T) {
 func TestSearchContentRequest_AllTypes(t *testing.T) {
 	req := SearchContentRequest{
 		Query: "test",
-		Types: []string{"fragment", "prompt", "profile", "mcp_server"},
+		Types: []string{"fragment", "skill", "profile", "mcp_server"},
 		Limit: 100,
 	}
 
@@ -66,7 +66,7 @@ func TestSearchContentResult_Fields(t *testing.T) {
 	result := SearchContentResult{
 		Results: []SearchResult{
 			{Type: "fragment", Name: "frag1", Match: "name"},
-			{Type: "prompt", Name: "prompt1", Match: "name"},
+			{Type: "skill", Name: "prompt1", Match: "name"},
 		},
 		Count: 2,
 		Query: "test",
@@ -132,7 +132,7 @@ func TestSearchContentRequest_TypeFiltering(t *testing.T) {
 		},
 		{
 			name:     "all types",
-			types:    []string{"fragment", "prompt", "profile", "mcp_server"},
+			types:    []string{"fragment", "skill", "profile", "mcp_server"},
 			expected: 4,
 		},
 		{
@@ -208,7 +208,7 @@ fragments:
     tags: ["react", "frontend", "javascript"]
     content: |
       React component patterns
-prompts:
+skills:
   code-review:
     description: Review code for issues
     content: |
@@ -370,7 +370,7 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "review",
-		Types:  []string{"prompt"},
+		Types:  []string{"skill"},
 		Loader: loader,
 	})
 
@@ -379,7 +379,7 @@ func TestSearchContent_SearchPrompts(t *testing.T) {
 
 	found := false
 	for _, r := range result.Results {
-		if r.Type == "prompt" && r.Match == "name" {
+		if r.Type == "skill" && r.Match == "name" {
 			found = true
 			break
 		}
@@ -530,7 +530,7 @@ func TestSearchContent_WithLimit(t *testing.T) {
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a", // Should match many items
-		Types:  []string{"fragment", "prompt"},
+		Types:  []string{"fragment", "skill"},
 		Limit:  2,
 		Loader: loader,
 	})

@@ -96,7 +96,7 @@ type ImportBundleResult struct {
 	Dest      string `json:"dest"`
 	Version   string `json:"version"`
 	Fragments int    `json:"fragments"`
-	Prompts   int    `json:"prompts"`
+	Skills    int    `json:"skills"`
 	MCP       int    `json:"mcp"`
 }
 
@@ -138,7 +138,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		Dest:      destPath,
 		Version:   bundle.Version,
 		Fragments: len(bundle.Fragments),
-		Prompts:   len(bundle.Prompts),
+		Skills:    len(bundle.Skills),
 		MCP:       len(bundle.MCP),
 	}, nil
 }

@@ -31,7 +31,7 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 				"evil":    {Content: "evil body"},
 				"swapped": {Content: "swapped body"},
 			},
-			Prompts: map[string]bundles.BundlePrompt{
+			Skills: map[string]bundles.BundleSkill{
 				"review":     {Content: "review body"},
 				"evilprompt": {Content: "evil prompt body"},
 			},
@@ -108,9 +108,9 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 	assert.Equal(t, "solid body", okFrag.Content)
 
 	// Prompt resource.
-	_, err = GetPrompt(context.Background(), cfg, GetPromptRequest{Name: acmeBundle + "tooling#prompts/evilprompt", Loader: loader})
-	assert.True(t, errors.Is(err, errs.ErrPromptWithheld), "denied prompt resource err = %v", err)
-	okPrompt, err := GetPrompt(context.Background(), cfg, GetPromptRequest{Name: acmeBundle + "tooling#prompts/review", Loader: loader})
+	_, err = GetSkill(context.Background(), cfg, GetSkillRequest{Name: acmeBundle + "tooling#skills/evilprompt", Loader: loader})
+	assert.True(t, errors.Is(err, errs.ErrSkillWithheld), "denied prompt resource err = %v", err)
+	okPrompt, err := GetSkill(context.Background(), cfg, GetSkillRequest{Name: acmeBundle + "tooling#skills/review", Loader: loader})
 	require.NoError(t, err)
 	assert.Contains(t, okPrompt.Content, "review body")
 }

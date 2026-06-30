@@ -11,7 +11,7 @@ import (
 )
 
 // TestExtractURIName covers the helper that powers every templated
-// resource handler (fragments/{name}, profiles/{name}, prompts/{name},
+// resource handler (fragments/{name}, profiles/{name}, skills/{name},
 // remotes/{name}/contents). The prefix-strip approach has subtle edge
 // cases: empty input, missing prefix, exact prefix match (no name),
 // and nested path segments after the variable.

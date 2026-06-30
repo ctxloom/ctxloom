@@ -161,39 +161,39 @@ func TestBundleFragment_EffectiveContent(t *testing.T) {
 }
 
 // =============================================================================
-// BundlePrompt Tests
+// BundleSkill Tests
 // =============================================================================
 
-func TestBundlePrompt_ComputeContentHash(t *testing.T) {
-	p := &BundlePrompt{Content: "test prompt"}
+func TestBundleSkill_ComputeContentHash(t *testing.T) {
+	p := &BundleSkill{Content: "test prompt"}
 	got := p.ComputeContentHash()
 	assert.Regexp(t, `^sha256:[a-f0-9]{64}$`, got)
 }
 
-func TestBundlePrompt_NeedsDistill(t *testing.T) {
+func TestBundleSkill_NeedsDistill(t *testing.T) {
 	tests := []struct {
 		name   string
-		prompt BundlePrompt
+		prompt BundleSkill
 		want   bool
 	}{
 		{
 			name:   "no_distill set",
-			prompt: BundlePrompt{NoDistill: true, Content: "test"},
+			prompt: BundleSkill{NoDistill: true, Content: "test"},
 			want:   false,
 		},
 		{
 			name:   "no distilled content",
-			prompt: BundlePrompt{Content: "test"},
+			prompt: BundleSkill{Content: "test"},
 			want:   true,
 		},
 		{
 			name:   "distilled but no hash",
-			prompt: BundlePrompt{Content: "test", Distilled: "distilled"},
+			prompt: BundleSkill{Content: "test", Distilled: "distilled"},
 			want:   true,
 		},
 		{
 			name: "hash mismatch",
-			prompt: BundlePrompt{
+			prompt: BundleSkill{
 				Content:     "new content",
 				Distilled:   "distilled",
 				ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -202,7 +202,7 @@ func TestBundlePrompt_NeedsDistill(t *testing.T) {
 		},
 		{
 			name: "hash matches",
-			prompt: BundlePrompt{
+			prompt: BundleSkill{
 				Content:     "test",
 				Distilled:   "distilled",
 				ContentHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -219,34 +219,34 @@ func TestBundlePrompt_NeedsDistill(t *testing.T) {
 	}
 }
 
-func TestBundlePrompt_EffectiveContent(t *testing.T) {
+func TestBundleSkill_EffectiveContent(t *testing.T) {
 	tests := []struct {
 		name            string
-		prompt          BundlePrompt
+		prompt          BundleSkill
 		preferDistilled bool
 		want            string
 	}{
 		{
 			name:            "prefer distilled but none available",
-			prompt:          BundlePrompt{Content: "original"},
+			prompt:          BundleSkill{Content: "original"},
 			preferDistilled: true,
 			want:            "original",
 		},
 		{
 			name:            "prefer distilled and available",
-			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
+			prompt:          BundleSkill{Content: "original", Distilled: "distilled"},
 			preferDistilled: true,
 			want:            "distilled",
 		},
 		{
 			name:            "prefer original",
-			prompt:          BundlePrompt{Content: "original", Distilled: "distilled"},
+			prompt:          BundleSkill{Content: "original", Distilled: "distilled"},
 			preferDistilled: false,
 			want:            "original",
 		},
 		{
 			name:            "no_distill true falls back to content",
-			prompt:          BundlePrompt{Content: "original", Distilled: "distilled", NoDistill: true},
+			prompt:          BundleSkill{Content: "original", Distilled: "distilled", NoDistill: true},
 			preferDistilled: true,
 			want:            "original",
 		},
@@ -299,8 +299,8 @@ func TestBundleFragment_EffectiveContentHash(t *testing.T) {
 	assert.Equal(t, hashContent([]byte("RAW-BYTES")), fh)
 }
 
-func TestBundlePrompt_EffectiveContentHash(t *testing.T) {
-	prompt := BundlePrompt{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
+func TestBundleSkill_EffectiveContentHash(t *testing.T) {
+	prompt := BundleSkill{Content: "RAW-BYTES", Distilled: "DISTILLED-BYTES"}
 
 	rawHash, rawForm := prompt.EffectiveContentHash(false)
 	distHash, distForm := prompt.EffectiveContentHash(true)
@@ -425,13 +425,13 @@ func TestBundle_FragmentCount(t *testing.T) {
 	assert.Equal(t, 2, bundle.FragmentCount())
 }
 
-func TestBundle_PromptCount(t *testing.T) {
+func TestBundle_SkillCount(t *testing.T) {
 	bundle := Bundle{
-		Prompts: map[string]BundlePrompt{
+		Skills: map[string]BundleSkill{
 			"prompt1": {Content: "c1"},
 		},
 	}
-	assert.Equal(t, 1, bundle.PromptCount())
+	assert.Equal(t, 1, bundle.SkillCount())
 }
 
 func TestBundle_FragmentNames(t *testing.T) {
@@ -447,7 +447,7 @@ func TestBundle_FragmentNames(t *testing.T) {
 
 func TestBundle_PromptNames(t *testing.T) {
 	bundle := Bundle{
-		Prompts: map[string]BundlePrompt{
+		Skills: map[string]BundleSkill{
 			"zebra": {Content: "c1"},
 			"alpha": {Content: "c2"},
 		},
@@ -462,7 +462,7 @@ func TestBundle_AllTags(t *testing.T) {
 		Fragments: map[string]BundleFragment{
 			"frag1": {Tags: []string{"frag-tag", "shared"}},
 		},
-		Prompts: map[string]BundlePrompt{
+		Skills: map[string]BundleSkill{
 			"prompt1": {Tags: []string{"prompt-tag", "shared"}},
 		},
 	}
@@ -522,7 +522,7 @@ fragments:
   test-frag:
     content: |
       test content
-prompts:
+skills:
   test-prompt:
     content: prompt content
 `,
@@ -531,7 +531,7 @@ prompts:
 				assert.Equal(t, "1.0", b.Version)
 				assert.Contains(t, b.Tags, "golang")
 				assert.Len(t, b.Fragments, 1)
-				assert.Len(t, b.Prompts, 1)
+				assert.Len(t, b.Skills, 1)
 			},
 		},
 		{
@@ -542,7 +542,7 @@ version: "1.0"
 			wantErr: false,
 			check: func(t *testing.T, b *Bundle) {
 				assert.NotNil(t, b.Fragments)
-				assert.NotNil(t, b.Prompts)
+				assert.NotNil(t, b.Skills)
 				assert.NotNil(t, b.MCP)
 			},
 		},
@@ -837,12 +837,12 @@ fragments:
 	assert.Equal(t, "fragment", frag1.ItemType)
 }
 
-func TestLoader_ListAllPrompts(t *testing.T) {
+func TestLoader_ListAllSkills(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `
 version: "1.0"
-prompts:
+skills:
   prompt1:
     content: prompt content
 `
@@ -850,12 +850,12 @@ prompts:
 	require.NoError(t, err)
 
 	loader := NewLoader([]string{tmpDir}, false)
-	infos, err := loader.ListAllPrompts()
+	infos, err := loader.ListAllSkills()
 	require.NoError(t, err)
 
 	assert.Len(t, infos, 1)
 	assert.Equal(t, "prompt1", infos[0].Name)
-	assert.Equal(t, "prompt", infos[0].ItemType)
+	assert.Equal(t, "skill", infos[0].ItemType)
 }
 
 // =============================================================================
@@ -983,19 +983,19 @@ fragments:
 }
 
 // =============================================================================
-// GetPrompt Tests
+// GetSkill Tests
 // =============================================================================
-// GetPrompt retrieves prompts by name with distillation preference.
+// GetSkill retrieves prompts by name with distillation preference.
 // The IsDistilled flag in the result indicates whether distilled content was
 // actually used - this requires BOTH preferDistilled=true AND distilled content
 // to exist. This is critical for UI/logging to accurately report content source.
 
-func TestLoader_GetPrompt(t *testing.T) {
+func TestLoader_GetSkill(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `
 version: "1.0"
-prompts:
+skills:
   my-prompt:
     content: Prompt content
     distilled: Distilled prompt
@@ -1007,45 +1007,45 @@ prompts:
 
 	t.Run("simple name lookup", func(t *testing.T) {
 		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetPrompt("my-prompt")
+		content, err := loader.GetSkill("my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("qualified name lookup", func(t *testing.T) {
 		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetPrompt("test-bundle#prompts/my-prompt")
+		content, err := loader.GetSkill("test-bundle#skills/my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("prefer distilled", func(t *testing.T) {
 		loader := NewLoader([]string{tmpDir}, true)
-		content, err := loader.GetPrompt("my-prompt")
+		content, err := loader.GetSkill("my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Distilled prompt", content.Content)
 	})
 
 	t.Run("not found", func(t *testing.T) {
 		loader := NewLoader([]string{tmpDir}, false)
-		_, err := loader.GetPrompt("nonexistent")
+		_, err := loader.GetSkill("nonexistent")
 		assert.Error(t, err)
 	})
 }
 
-// TestLoader_GetPrompt_IsDistilledFlag verifies the IsDistilled flag is set
+// TestLoader_GetSkill_IsDistilledFlag verifies the IsDistilled flag is set
 // correctly based on the combination of preferDistilled setting AND actual
 // distilled content availability.
 //
 // EDGE CASE: IsDistilled requires BOTH conditions to be true. If either
 // preferDistilled is false OR distilled content is empty, IsDistilled must
 // be false. This prevents false reporting of distilled usage.
-func TestLoader_GetPrompt_IsDistilledFlag(t *testing.T) {
+func TestLoader_GetSkill_IsDistilledFlag(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `
 version: "1.0"
-prompts:
+skills:
   has-distilled:
     content: Original
     distilled: Distilled
@@ -1100,7 +1100,7 @@ prompts:
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			loader := NewLoader([]string{tmpDir}, tt.preferDistilled)
-			content, err := loader.GetPrompt(tt.promptName)
+			content, err := loader.GetSkill(tt.promptName)
 			require.NoError(t, err, "prompt should be found")
 			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled,
 				"IsDistilled mismatch: %s", tt.reason)
@@ -1343,7 +1343,7 @@ fragments:
     content: "ALPHA-ONE"
   a2:
     content: "ALPHA-TWO"
-prompts:
+skills:
   p1:
     content: "ALPHA-PROMPT"
 `)
@@ -1394,9 +1394,9 @@ func TestLoader_ExpandBundleRefs_PromptsAndMCPRefsAreSkipped(t *testing.T) {
 	loader := expandRefsFixture(t)
 
 	got := loader.ExpandBundleRefs([]string{
-		"test/alpha:prompts/p1", // prompt — not a fragment
-		"test/alpha:mcp",        // mcp section — not a fragment
-		"test/alpha#prompts/p1", // prompt via canonical syntax — also skipped
+		"test/alpha:skills/p1", // prompt — not a fragment
+		"test/alpha:mcp",       // mcp section — not a fragment
+		"test/alpha#skills/p1", // prompt via canonical syntax — also skipped
 	})
 
 	assert.Empty(t, got, "non-fragment refs must not become fragment names")
@@ -1425,7 +1425,7 @@ func TestLoader_ExpandBundleRefs_CanonicalURLNonFragmentSkipped(t *testing.T) {
 	loader := expandRefsFixture(t)
 
 	got := loader.ExpandBundleRefs([]string{
-		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#prompts/p1",
+		"https://github.com/ctxloom/ctxloom-default@bundles/aspects#skills/p1",
 	})
 
 	assert.Empty(t, got)

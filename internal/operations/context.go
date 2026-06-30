@@ -413,9 +413,23 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			return nil, fmt.Errorf("profile %s: %w", name, rerr)
 		}
 		profile = &config.Profile{
-			Tags:             resolved.Tags,
-			Bundles:          resolved.Bundles,
-			Prompts:          resolved.Prompts,
+			Tags:    resolved.Tags,
+			Bundles: resolved.Bundles,
+			// BundleItems are expanded via ExpandBundleRefs below (honoring any
+			// "@<commit>" pin), exactly like Bundles — the directory-profile mirror
+			// of the inline cherry-pick path.
+			BundleItems: resolved.BundleItems,
+			Prompts:     resolved.Prompts,
+			// Direct fragments carry into the same Fragments pipeline inline
+			// profiles use (collectProfileFragments → normalizeFragmentRef honors
+			// "@<commit>"); filtered by exclude_fragments here, parity with the
+			// inline toProfile filter.
+			Fragments: convertProfileFragments(resolved.Fragments, resolved.ExcludeFragments),
+			// Directly-declared hooks/mcp are executable surfaces; they reach the
+			// SAME managed-hooks/MCP resolution + executable trust gate as inline
+			// profiles via backends.AssembleManagedHooks / assembleManagedMCP.
+			Hooks:            resolved.Hooks,
+			MCP:              resolved.MCP,
 			Variables:        resolved.Variables,
 			LLM:              resolved.LLM,
 			ExcludeFragments: resolved.ExcludeFragments,
@@ -445,6 +459,26 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 	}
 
 	return profile, nil
+}
+
+// convertProfileFragments maps directory-profile fragment refs to
+// config.FragmentRef for the shared assembly pipeline, preserving Name (any
+// "@<commit>" pin rides along to be split transiently by normalizeFragmentRef)
+// and Priority, and dropping any the profile's exclude_fragments removes — the
+// directory-profile mirror of the inline toProfile exclusion filter.
+func convertProfileFragments(frags []profiles.FragmentRef, exclude []string) []config.FragmentRef {
+	if len(frags) == 0 {
+		return nil
+	}
+	excluded := config.NewExclusionSet(exclude)
+	out := make([]config.FragmentRef, 0, len(frags))
+	for _, f := range frags {
+		if config.IsExcludedFragment(f.Name, excluded) {
+			continue
+		}
+		out = append(out, config.FragmentRef{Name: f.Name, Priority: f.Priority})
+	}
+	return out
 }
 
 // substituteVariables applies mustache variable substitution to content.

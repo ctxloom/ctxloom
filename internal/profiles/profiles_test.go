@@ -27,6 +27,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1037,4 +1038,142 @@ exclude_fragments:
 	assert.ElementsMatch(t, []string{"verbose-logging", "deprecated-style"}, resolved.ExcludeFragments,
 		"exclusions accumulate from parent and child")
 	assert.Equal(t, []string{"slow-server"}, resolved.ExcludeMCP)
+}
+
+// fragNames extracts the ordered fragment-ref names from a ResolvedProfile.
+func fragNames(frags []FragmentRef) []string {
+	out := make([]string, 0, len(frags))
+	for _, f := range frags {
+		out = append(out, f.Name)
+	}
+	return out
+}
+
+// preToolCommands extracts the ordered pre_tool hook commands.
+func preToolCommands(h wire.HooksConfig) []string {
+	out := make([]string, 0, len(h.Unified.PreTool))
+	for _, hook := range h.Unified.PreTool {
+		out = append(out, hook.Command)
+	}
+	return out
+}
+
+// TestLoader_ResolveProfile_InlineFields verifies a directory profile's inline
+// fragments:/bundle_items:/hooks:/mcp: round-trip through resolution and union
+// with a parent's — the directory-side mirror of config.Profile's fields that
+// brings directory profiles to parity with inline profiles. Parent items come
+// first (depth-first), then the child's; a "@<commit>" pin stays in the stored
+// fragment Name (version-agnostic identity; split transiently downstream).
+func TestLoader_ResolveProfile_InlineFields(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	parent := `description: Parent
+fragments:
+  - base-frag
+bundle_items:
+  - remote/b:fragments/x
+hooks:
+  unified:
+    pre_tool:
+      - command: parent-hook
+        type: command
+mcp:
+  servers:
+    parent-srv:
+      command: parent-cmd
+    shared-srv:
+      command: parent-shared
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "parent.yaml"), []byte(parent), 0644))
+
+	child := `description: Child
+parents:
+  - parent
+fragments:
+  - "remote/b@c1#fragments/pinned"
+  - name: pri-frag
+    priority: 7
+bundle_items:
+  - remote/b:fragments/y
+hooks:
+  unified:
+    pre_tool:
+      - command: child-hook
+        type: command
+mcp:
+  servers:
+    child-srv:
+      command: child-cmd
+    shared-srv:
+      command: child-shared
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "child.yaml"), []byte(child), 0644))
+
+	loader := NewLoader([]string{tmpDir})
+	resolved, err := loader.ResolveProfile("child", nil)
+	require.NoError(t, err)
+
+	// Fragments union: parent first (depth-first), then child; the "@<commit>"
+	// pin stays in the stored Name.
+	assert.Equal(t, []string{"base-frag", "remote/b@c1#fragments/pinned", "pri-frag"},
+		fragNames(resolved.Fragments))
+	for _, f := range resolved.Fragments {
+		if f.Name == "pri-frag" {
+			assert.Equal(t, 7, f.Priority, "child fragment priority is preserved")
+		}
+	}
+
+	// bundle_items union, parent then child.
+	assert.Equal(t, []string{"remote/b:fragments/x", "remote/b:fragments/y"}, resolved.BundleItems)
+
+	// Hooks union (parent then child).
+	assert.Equal(t, []string{"parent-hook", "child-hook"}, preToolCommands(resolved.Hooks))
+
+	// MCP: both distinct servers present; for a name in both, the child (applied
+	// after parents) wins — "later wins per server name", matching the inline
+	// mergeMCP semantics.
+	assert.Contains(t, resolved.MCP.Servers, "parent-srv")
+	assert.Contains(t, resolved.MCP.Servers, "child-srv")
+	assert.Equal(t, "child-shared", resolved.MCP.Servers["shared-srv"].Command,
+		"a server declared by both parent and child resolves to the child's")
+}
+
+// TestResolvedProfile_Merge_InlineFields verifies Merge unions the new
+// directly-declared fields across resolved profiles (the cross-default-profile
+// fold), deduping fragments by Name, unioning bundle_items, appending hooks, and
+// letting a later MCP server name win — parity with how Bundles/Tags/Prompts merge.
+func TestResolvedProfile_Merge_InlineFields(t *testing.T) {
+	r1 := &ResolvedProfile{
+		Fragments:   []FragmentRef{{Name: "f1"}},
+		BundleItems: []string{"bi1"},
+		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "h1", Type: "command"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"s1":     {Command: "s1-cmd"},
+			"shared": {Command: "from-r1"},
+		}},
+		Variables: map[string]string{},
+	}
+	r2 := &ResolvedProfile{
+		Fragments:   []FragmentRef{{Name: "f2"}, {Name: "f1"}}, // f1 duplicate
+		BundleItems: []string{"bi2", "bi1"},                    // bi1 duplicate
+		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
+			PreTool: []wire.Hook{{Command: "h2", Type: "command"}},
+		}},
+		MCP: wire.MCPConfig{Servers: map[string]wire.MCPServer{
+			"s2":     {Command: "s2-cmd"},
+			"shared": {Command: "from-r2"},
+		}},
+		Variables: map[string]string{},
+	}
+
+	r1.Merge(r2)
+
+	assert.Equal(t, []string{"f1", "f2"}, fragNames(r1.Fragments), "fragments union, deduped by Name")
+	assert.Equal(t, []string{"bi1", "bi2"}, r1.BundleItems, "bundle_items union, deduped")
+	assert.Equal(t, []string{"h1", "h2"}, preToolCommands(r1.Hooks), "hooks accumulate across profiles")
+	assert.Contains(t, r1.MCP.Servers, "s1")
+	assert.Contains(t, r1.MCP.Servers, "s2")
+	assert.Equal(t, "from-r2", r1.MCP.Servers["shared"].Command, "later (merged-in) server name wins")
 }

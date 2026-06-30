@@ -15,9 +15,46 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/shared/agent"
 	"github.com/ctxloom/shared/clidiag"
 	"github.com/ctxloom/shared/upgrade"
+	"github.com/ctxloom/shared/wire"
 )
+
+// FragmentRef is a directory-profile fragment reference with optional priority —
+// the profiles-package mirror of config.FragmentRef (the profiles package cannot
+// import config, which imports profiles). It accepts the same YAML as the inline
+// form: a bare string ("go-style") or a {name, priority} mapping.
+// operations.resolveProfile converts it to config.FragmentRef for the shared
+// assembly pipeline, where any "@<commit>" pin carried in Name is split
+// transiently (normalizeFragmentRef) — so identity/lockfile stay version-agnostic,
+// consistent with the inline path.
+type FragmentRef struct {
+	Name     string `yaml:"name"`
+	Priority int    `yaml:"priority,omitempty"`
+}
+
+// UnmarshalYAML supports both the bare-string and {name, priority} forms,
+// matching config.FragmentRef.
+func (f *FragmentRef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		f.Name = node.Value
+		f.Priority = 0
+		return nil
+	}
+	type plain FragmentRef
+	return node.Decode((*plain)(f))
+}
+
+// MarshalYAML emits a bare string when priority is 0 (the common case), else the
+// {name, priority} mapping — so a round-tripped profile stays compact.
+func (f FragmentRef) MarshalYAML() (any, error) {
+	if f.Priority == 0 {
+		return f.Name, nil
+	}
+	type plain FragmentRef
+	return plain(f), nil
+}
 
 // SeededProfilePathPrefix is the sentinel prefix carried in Profile.Path by
 // seeded remote profiles (config.loadRemoteProfileSeed builds
@@ -62,6 +99,16 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	// "@<commit>" pin ride through ResolveRefString's item passthrough).
 	for i, pr := range p.Prompts {
 		p.Prompts[i] = remote.ResolveRefString(pr, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	// Fragment refs and bundle_items cherry-picks both name bundle content, so a
+	// remote profile's short forms canonicalize against its source repo exactly
+	// like Bundles. Inline hooks:/mcp: are directly-declared executables with no
+	// bundle reference to rewrite — they pass through unchanged.
+	for i, fr := range p.Fragments {
+		p.Fragments[i].Name = remote.ResolveRefString(fr.Name, sourceURL, sourceHash, remote.ItemTypeBundle)
+	}
+	for i, bi := range p.BundleItems {
+		p.BundleItems[i] = remote.ResolveRefString(bi, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
 }
 
@@ -108,6 +155,31 @@ type Profile struct {
 	// identity is the stored string — like bundles, any "@<commit>" is parsed
 	// transiently at assembly and the lockfile stays untouched.
 	Prompts []string `yaml:"prompts,omitempty"`
+
+	// Fragments are direct fragment references with optional priority — the
+	// mirror of config.Profile.Fragments for inline profiles. Each entry may
+	// carry a trailing "@<commit>" pin (split transiently at assembly), so the
+	// stored ref stays the version-agnostic identity and the lockfile is
+	// untouched, exactly like the inline path.
+	Fragments []FragmentRef `yaml:"fragments,omitempty"`
+
+	// BundleItems cherry-pick individual bundle items (e.g.
+	// "remote/bundle:fragments/name", optionally "@<commit>"-pinned) — the mirror
+	// of config.Profile.BundleItems. They are expanded via the same
+	// ExpandBundleRefs path as Bundles in operations.resolveProfile.
+	BundleItems []string `yaml:"bundle_items,omitempty"`
+
+	// Hooks are lifecycle hooks declared by this directory profile, the mirror of
+	// config.Profile.Hooks. Unlike a trusted-local config.yaml inline profile, a
+	// directory profile may be remote-sourced (a seeded remote profile), so its
+	// directly-declared executable hooks pass the per-item executable trust gate
+	// (the SAME gate bundle hooks pass) before reaching backend settings.
+	Hooks wire.HooksConfig `yaml:"hooks,omitempty"`
+
+	// MCP are MCP servers declared by this directory profile, the mirror of
+	// config.Profile.MCP. Like Hooks, these directly-declared executables pass the
+	// executable trust gate before reaching backend settings.
+	MCP wire.MCPConfig `yaml:"mcp,omitempty"`
 
 	Variables map[string]string `yaml:"variables,omitempty"`
 
@@ -628,6 +700,17 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// version-agnostic stored ref — the directory-profile mirror of how inline
 	// profiles fold Prompts in config_resolve.mergeProfileValues.
 	resolved.Prompts = appendUnique(resolved.Prompts, profile.Prompts...)
+	// Direct fragments union (dedup by version-agnostic Name, child raises
+	// priority) and cherry-picked bundle_items union — the directory mirror of
+	// profileBuilder.addFragment / addBundleItem. Applied after parents so a
+	// child overrides, consistent with the inline fold.
+	resolved.Fragments = appendUniqueFragments(resolved.Fragments, profile.Fragments...)
+	resolved.BundleItems = appendUnique(resolved.BundleItems, profile.BundleItems...)
+	// Inline hooks/mcp fold like the inline profileBuilder: hooks accumulate
+	// (event-keyed union) and a server name later in the chain wins. Self is
+	// applied after parents, so a child's hooks/mcp override the parents'.
+	agent.MergeHooksConfig(&resolved.Hooks, &profile.Hooks)
+	wire.MergeMCPConfig(&resolved.MCP, &profile.MCP)
 	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
@@ -651,11 +734,15 @@ func cloneVisited(visited map[string]bool) map[string]bool {
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.
 type ResolvedProfile struct {
-	Bundles   []string // All bundle references
-	Tags      []string
-	Prompts   []string // Curated slash-command prompt refs (opt-in; empty = global auto-export)
-	Variables map[string]string
-	LLM       string // Preferred config label/backend (empty = inherit primary)
+	Bundles     []string // All bundle references
+	Tags        []string
+	Prompts     []string         // Curated slash-command prompt refs (opt-in; empty = global auto-export)
+	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
+	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
+	Hooks       wire.HooksConfig // Directly-declared lifecycle hooks (executable; gated downstream)
+	MCP         wire.MCPConfig   // Directly-declared MCP servers (executable; gated downstream)
+	Variables   map[string]string
+	LLM         string // Preferred config label/backend (empty = inherit primary)
 
 	// Exclusions accumulated through the parent chain (a child cannot
 	// un-exclude what a parent excluded), matching the inline config-map
@@ -669,6 +756,10 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
 	r.Prompts = appendUnique(r.Prompts, other.Prompts...)
+	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
+	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
+	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)
+	wire.MergeMCPConfig(&r.MCP, &other.MCP)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v
@@ -693,6 +784,29 @@ func appendUnique(slice []string, items ...string) []string {
 			slice = append(slice, item)
 			seen[item] = true
 		}
+	}
+	return slice
+}
+
+// appendUniqueFragments unions fragment refs, deduped by their version-agnostic
+// Name; a later occurrence only raises priority (a child profile can override a
+// parent's priority but never lowers it). This mirrors profileBuilder.addFragment
+// for inline profiles so the two resolution paths fold direct fragments
+// identically.
+func appendUniqueFragments(slice []FragmentRef, items ...FragmentRef) []FragmentRef {
+	idx := make(map[string]int, len(slice))
+	for i, f := range slice {
+		idx[f.Name] = i
+	}
+	for _, item := range items {
+		if i, ok := idx[item.Name]; ok {
+			if item.Priority > slice[i].Priority {
+				slice[i].Priority = item.Priority
+			}
+			continue
+		}
+		idx[item.Name] = len(slice)
+		slice = append(slice, item)
 	}
 	return slice
 }

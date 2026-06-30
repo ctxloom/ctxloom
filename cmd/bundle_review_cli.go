@@ -338,7 +338,7 @@ func diffBundleYAMLs(oldData, newData []byte) string {
 	}
 	var sb strings.Builder
 	writeSection(&sb, "Fragments", oldB.Fragments, newB.Fragments)
-	writeSection(&sb, "Prompts", oldB.Prompts, newB.Prompts)
+	writeSection(&sb, "Skills", oldB.Skills, newB.Skills)
 	writeSection(&sb, "MCP servers", oldB.MCP, newB.MCP)
 	writeHookCounts(&sb, oldB.Hooks, newB.Hooks)
 	if sb.Len() == 0 {
@@ -352,7 +352,7 @@ func diffBundleYAMLs(oldData, newData []byte) string {
 // fields of internal/bundles.Bundle.
 type bundlesYAML struct {
 	Fragments map[string]yamlBlob   `yaml:"fragments"`
-	Prompts   map[string]yamlBlob   `yaml:"prompts"`
+	Skills    map[string]yamlBlob   `yaml:"skills"`
 	MCP       map[string]yamlBlob   `yaml:"mcp"`
 	Hooks     map[string][]yamlBlob `yaml:"hooks"`
 }

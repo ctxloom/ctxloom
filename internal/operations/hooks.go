@@ -65,9 +65,11 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 	contextHash := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
 	// MCP servers from profile bundles + prompts for command files, shared
-	// across backends.
-	bundleMCP := freshCfg.ResolveBundleMCPServers()
-	prompts := backends.LoadPromptExports(freshCfg, bundleLoaderOpts(req)...)
+	// across backends. ApplyHooks writes the project's STATIC managed config
+	// (the `manage hooks install` path) for the configured DEFAULT profiles —
+	// there is no per-run `-p` selection here — so nil scopes to the defaults.
+	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
+	prompts := backends.LoadSkillExports(freshCfg, nil, bundleLoaderOpts(req)...)
 
 	applied, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
 		backendNames: hookBackendNames(backend),
@@ -201,7 +203,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
 // freshCfg.Hooks across the loop.
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
-	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash)
+	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
 	if err := backends.WriteSettings(backendName, hooksCfg, &p.freshCfg.MCP, p.bundleMCP, p.workDir, p.settingsOpts...); err != nil {
 		return fmt.Errorf("failed to apply %s settings: %w", backendName, err)
 	}

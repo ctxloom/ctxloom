@@ -9,17 +9,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// PromptEntry represents a prompt in operation results. Tags carry the
+// SkillEntry represents a prompt in operation results. Tags carry the
 // bundle's tags merged with the prompt's own; Source is the bundle name,
 // which also serves as the grouping key for the CLI's grouped listing.
-type PromptEntry struct {
+type SkillEntry struct {
 	Name   string   `json:"name"`
 	Tags   []string `json:"tags,omitempty"`
 	Source string   `json:"source"`
 }
 
-// ListPromptsRequest contains parameters for listing prompts.
-type ListPromptsRequest struct {
+// ListSkillsRequest contains parameters for listing prompts.
+type ListSkillsRequest struct {
 	Query     string `json:"query"`
 	SortBy    string `json:"sort_by"`    // "name" or "source"
 	SortOrder string `json:"sort_order"` // "asc" or "desc"
@@ -28,23 +28,23 @@ type ListPromptsRequest struct {
 	Loader *bundles.Loader `json:"-"`
 }
 
-// ListPromptsResult contains the list of prompts.
-type ListPromptsResult struct {
-	Prompts []PromptEntry `json:"prompts"`
-	Count   int           `json:"count"`
+// ListSkillsResult contains the list of skills.
+type ListSkillsResult struct {
+	Skills []SkillEntry `json:"skills"`
+	Count  int          `json:"count"`
 }
 
-// ListPrompts returns all prompts matching the criteria. Mirrors
+// ListSkills returns all prompts matching the criteria. Mirrors
 // ListFragments: it filters and sorts the raw ContentInfo (so SortBy:"source"
 // groups by bundle) before projecting, keeping one read path for both the MCP
 // resource surface and the grouped CLI listing.
-func ListPrompts(ctx context.Context, cfg *config.Config, req ListPromptsRequest) (*ListPromptsResult, error) {
+func ListSkills(ctx context.Context, cfg *config.Config, req ListSkillsRequest) (*ListSkillsResult, error) {
 	loader := req.Loader
 	if loader == nil {
 		loader = bundleLoader(cfg)
 	}
 
-	infos, err := loader.ListAllPrompts()
+	infos, err := loader.ListAllSkills()
 	if err != nil {
 		return nil, err
 	}
@@ -63,12 +63,12 @@ func ListPrompts(ctx context.Context, cfg *config.Config, req ListPromptsRequest
 
 	sortContentInfos(infos, req.SortBy, req.SortOrder)
 
-	result := &ListPromptsResult{
-		Prompts: make([]PromptEntry, 0, len(infos)),
+	result := &ListSkillsResult{
+		Skills: make([]SkillEntry, 0, len(infos)),
 		Count:   len(infos),
 	}
 	for _, info := range infos {
-		result.Prompts = append(result.Prompts, PromptEntry{
+		result.Skills = append(result.Skills, SkillEntry{
 			Name:   info.Name,
 			Tags:   info.Tags,
 			Source: info.Source,
@@ -78,22 +78,22 @@ func ListPrompts(ctx context.Context, cfg *config.Config, req ListPromptsRequest
 	return result, nil
 }
 
-// GetPromptRequest contains parameters for getting a prompt.
-type GetPromptRequest struct {
+// GetSkillRequest contains parameters for getting a prompt.
+type GetSkillRequest struct {
 	Name string `json:"name"`
 
 	// Loader is an optional pre-configured loader (for testing).
 	Loader *bundles.Loader `json:"-"`
 }
 
-// GetPromptResult contains the prompt content.
-type GetPromptResult struct {
+// GetSkillResult contains the prompt content.
+type GetSkillResult struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 }
 
-// GetPrompt returns a specific prompt by name.
-func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*GetPromptResult, error) {
+// GetSkill returns a specific prompt by name.
+func GetSkill(ctx context.Context, cfg *config.Config, req GetSkillRequest) (*GetSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -103,7 +103,7 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 		loader = bundleLoader(cfg)
 	}
 
-	prompt, err := loader.GetPrompt(req.Name)
+	prompt, err := loader.GetSkill(req.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func GetPrompt(ctx context.Context, cfg *config.Config, req GetPromptRequest) (*
 	}
 	content = strings.TrimSpace(strings.Join(cleanedLines, "\n"))
 
-	return &GetPromptResult{
+	return &GetSkillResult{
 		Name:    prompt.Name,
 		Content: content,
 	}, nil

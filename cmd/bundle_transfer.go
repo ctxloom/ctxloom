@@ -161,7 +161,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 	w := iox.NewErrWriter(cmd.OutOrStdout())
 	w.Printf("Imported: %s -> %s\n", res.Source, res.Dest)
 	w.Printf("  Version: %s\n", res.Version)
-	w.Printf("  Fragments: %d, Prompts: %d, MCP: %d\n", res.Fragments, res.Prompts, res.MCP)
+	w.Printf("  Fragments: %d, Skills: %d, MCP: %d\n", res.Fragments, res.Skills, res.MCP)
 
 	return w.Err()
 }

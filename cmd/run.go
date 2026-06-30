@@ -329,7 +329,7 @@ Examples:
 		// Empty prompt is allowed (starts interactive mode)
 		prompt := runPrompt
 		if prompt == "" && runSavedPrompt != "" {
-			promptRes, err := operations.GetPrompt(cmd.Context(), cfg, operations.GetPromptRequest{Name: runSavedPrompt})
+			promptRes, err := operations.GetSkill(cmd.Context(), cfg, operations.GetSkillRequest{Name: runSavedPrompt})
 			if err != nil {
 				return fmt.Errorf("failed to load prompt: %w", err)
 			}
@@ -609,6 +609,12 @@ Examples:
 		// (slash commands, hooks, MCP, statusline) and ships it in ManagedConfig
 		// so the backend plugin never self-loads ctxloom config/bundles. The
 		// exports are resolved for this backend's enablement + metadata.
+		//
+		// ctxResult.Profiles is the SELECTED profile set (from -p, or the
+		// resolved defaults) that AssembleContext scoped context to; passing it
+		// here scopes the managed mcp/skills/hooks to the SAME profiles, so
+		// `run -p X` no longer leaks the default profile's MCP or every pulled
+		// bundle's skills into X's session.
 		req := &pb.RunStart{
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
@@ -620,7 +626,7 @@ Examples:
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
 				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
 			},
-			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir)),
+			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir, ctxResult.Profiles)),
 		}
 
 		// Create plugin client

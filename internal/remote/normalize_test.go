@@ -90,7 +90,7 @@ func TestCanonicalFragmentRef(t *testing.T) {
 		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo#fragments/x"},
 		// No fragment selector → unchanged (bare names, prompt selectors).
 		{"x", "x"},
-		{"dev#prompts/x", "dev#prompts/x"},
+		{"dev#skills/x", "dev#skills/x"},
 	}
 
 	for _, tt := range tests {

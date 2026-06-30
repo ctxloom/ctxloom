@@ -23,10 +23,10 @@ type ItemKind string
 
 const (
 	ItemKindFragment ItemKind = "fragment"
-	ItemKindPrompt   ItemKind = "prompt"
+	ItemKindSkill   ItemKind = "skill"
 )
 
-func (k ItemKind) valid() bool { return k == ItemKindFragment || k == ItemKindPrompt }
+func (k ItemKind) valid() bool { return k == ItemKindFragment || k == ItemKindSkill }
 
 // ErrItemExists and ErrItemNotFound are sentinels so any frontend can map them
 // to its own UX (a CLI message, an MCP error code) via errors.Is rather than
@@ -117,9 +117,9 @@ func AddItem(ctx context.Context, cfg *config.Config, req AddItemRequest) (*AddI
 		_, distillTargets = applyFragmentEdits(bundle,
 			map[string]BundleFragmentInput{req.Name: {Content: req.Content}}, nil, nil)
 		distillFragments(ctx, bundle, distillTargets, req.Distiller)
-	case ItemKindPrompt:
+	case ItemKindSkill:
 		_, distillTargets = applyPromptEdits(bundle,
-			map[string]BundlePromptInput{req.Name: {Content: req.Content}}, nil, nil)
+			map[string]BundleSkillInput{req.Name: {Content: req.Content}}, nil, nil)
 		distillPrompts(ctx, bundle, distillTargets, req.Distiller)
 	}
 
@@ -165,8 +165,8 @@ func DeleteItem(_ context.Context, cfg *config.Config, req DeleteItemRequest) (*
 	switch req.Kind {
 	case ItemKindFragment:
 		delete(bundle.Fragments, req.Name)
-	case ItemKindPrompt:
-		delete(bundle.Prompts, req.Name)
+	case ItemKindSkill:
+		delete(bundle.Skills, req.Name)
 	}
 	if err := store.Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
@@ -230,12 +230,12 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 			NoDistill:    existing.NoDistill,
 		}}, nil, nil)
 		distillFragments(ctx, bundle, distillTargets, req.Distiller)
-	case ItemKindPrompt:
-		existing, ok := bundle.Prompts[req.Name]
+	case ItemKindSkill:
+		existing, ok := bundle.Skills[req.Name]
 		if !ok {
 			return nil, fmt.Errorf("%s %q: %w", req.Kind, req.Name, ErrItemNotFound)
 		}
-		_, distillTargets = applyPromptEdits(bundle, map[string]BundlePromptInput{req.Name: {
+		_, distillTargets = applyPromptEdits(bundle, map[string]BundleSkillInput{req.Name: {
 			Content:      req.Content,
 			Description:  existing.Description,
 			Tags:         existing.Tags,
@@ -319,7 +319,7 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	switch req.Kind {
 	case ItemKindFragment:
 		distillFragments(ctx, bundle, []string{req.Name}, req.Distiller)
-	case ItemKindPrompt:
+	case ItemKindSkill:
 		distillPrompts(ctx, bundle, []string{req.Name}, req.Distiller)
 	}
 	if err := store.Save(bundle); err != nil {
@@ -407,8 +407,8 @@ func itemContent(b *bundles.Bundle, kind ItemKind, name string) (content, distil
 		if f, exists := b.Fragments[name]; exists {
 			return f.Content, f.Distilled, true
 		}
-	case ItemKindPrompt:
-		if p, exists := b.Prompts[name]; exists {
+	case ItemKindSkill:
+		if p, exists := b.Skills[name]; exists {
 			return p.Content, p.Distilled, true
 		}
 	}
@@ -423,8 +423,8 @@ func itemDistillState(b *bundles.Bundle, kind ItemKind, name string) (noDistill,
 		if f, exists := b.Fragments[name]; exists {
 			return f.NoDistill, f.NeedsDistill(), true
 		}
-	case ItemKindPrompt:
-		if p, exists := b.Prompts[name]; exists {
+	case ItemKindSkill:
+		if p, exists := b.Skills[name]; exists {
 			return p.NoDistill, p.NeedsDistill(), true
 		}
 	}
@@ -438,8 +438,8 @@ func itemDistilled(b *bundles.Bundle, kind ItemKind, name string) (distilled, mo
 	case ItemKindFragment:
 		f := b.Fragments[name]
 		return f.Distilled, f.DistilledBy
-	case ItemKindPrompt:
-		p := b.Prompts[name]
+	case ItemKindSkill:
+		p := b.Skills[name]
 		return p.Distilled, p.DistilledBy
 	}
 	return "", ""

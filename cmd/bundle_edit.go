@@ -45,7 +45,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		Fragments: map[string]operations.BundleFragmentInput{
 			"example": {Tags: []string{"example"}, Content: "# Example Fragment\n\nAdd your content here.", NoDistill: true},
 		},
-		Prompts: map[string]operations.BundlePromptInput{
+		Skills: map[string]operations.BundleSkillInput{
 			"example": {Description: "Example prompt", Tags: []string{"example"}, Content: "Example prompt content. Describe what this prompt does.", NoDistill: true},
 		},
 	})
@@ -156,13 +156,13 @@ func placeholderFragments(names []string) map[string]operations.BundleFragmentIn
 	return m
 }
 
-func placeholderPrompts(names []string) map[string]operations.BundlePromptInput {
+func placeholderPrompts(names []string) map[string]operations.BundleSkillInput {
 	if len(names) == 0 {
 		return nil
 	}
-	m := make(map[string]operations.BundlePromptInput, len(names))
+	m := make(map[string]operations.BundleSkillInput, len(names))
 	for _, n := range names {
-		m[n] = operations.BundlePromptInput{Description: n, Content: "Add prompt content here."}
+		m[n] = operations.BundleSkillInput{Description: n, Content: "Add prompt content here."}
 	}
 	return m
 }

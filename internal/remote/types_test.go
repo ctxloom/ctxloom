@@ -153,7 +153,7 @@ fragments:
   test-frag:
     content: Fragment content
     tags: [test]
-prompts:
+skills:
   test-prompt:
     content: Prompt content
 `
@@ -168,7 +168,7 @@ prompts:
 	assert.True(t, bundle.HasMCP())
 	assert.Equal(t, "test-cmd", bundle.MCP.Command)
 	assert.Len(t, bundle.Fragments, 1)
-	assert.Len(t, bundle.Prompts, 1)
+	assert.Len(t, bundle.Skills, 1)
 }
 
 func TestParseSecureContent_Profile(t *testing.T) {

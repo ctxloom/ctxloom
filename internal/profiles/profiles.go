@@ -67,7 +67,7 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 //
 //	bundle-name                      # Entire bundle (all fragments, prompts, MCP)
 //	bundle-name:fragments/name       # Specific fragment from bundle
-//	bundle-name:prompts/name         # Specific prompt from bundle
+//	bundle-name:skills/name         # Specific prompt from bundle
 //	bundle-name:mcp                  # MCP server from bundle
 //	remote/bundle-name:fragments/x   # Fragment from remote bundle
 //

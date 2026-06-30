@@ -9,43 +9,28 @@ import (
 	"github.com/ctxloom/shared/clidiag"
 )
 
-// LoadPromptExports loads every prompt that exports as a slash command:
-// ctxloom's embedded builtin commands plus every bundle prompt. This is the
-// SINGLE prompt-export assembly — both the `ctxloom run` setup payload
-// (AssembleManagedConfig) and operations.ApplyHooks route through it. The
-// settings/command writers reconcile by removing all ctxloom-managed files and
-// re-adding the assembled set, so two diverging assemblies would silently
-// delete whatever one produced and the other didn't.
+// LoadSkillExports loads every prompt that exports as a slash command for the
+// SELECTED profiles: ctxloom's embedded builtin commands (always-on substrate)
+// plus the prompts shipped by the selected profiles' bundles. This is the SINGLE
+// prompt-export assembly — both the `ctxloom run` setup payload
+// (AssembleManagedConfig, which passes the run's resolved profile set) and
+// operations.ApplyHooks (which passes nil → the configured defaults) route
+// through it. The settings/command writers reconcile by removing all
+// ctxloom-managed files and re-adding the assembled set, so two diverging
+// assemblies would silently delete whatever one produced and the other didn't.
 //
-// The SeededBundleLoader is the only loader that also surfaces remote bundles
-// from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
-// setups still produce commands.
-func LoadPromptExports(cfg *config.Config, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	prompts := builtinPrompts()
-
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
-	infos, err := loader.ListAllPrompts()
-	if err != nil {
-		// The reconciling writers remove-all-then-re-add, so a transient load
-		// failure silently deletes the user's installed slash commands for
-		// this run unless it is at least surfaced.
-		clidiag.Warn("ctxloom", "bundle prompts unavailable; slash commands limited to builtins: %v", err)
-		return prompts
-	}
-	for _, info := range infos {
-		content, err := loader.GetPrompt(info.Name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "skipping prompt %q: %v", info.Name, err)
-			continue
-		}
-		prompts = append(prompts, content)
-	}
+// Bundle prompts are profile-scoped (config.ResolveBundleSkills) rather than a
+// global ListAllSkills sweep, so a session only carries the skills its
+// profile pulls in — not every prompt in every pulled bundle.
+func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+	prompts := builtinSkills()
+	prompts = append(prompts, cfg.ResolveBundleSkills(profileNames, opts...)...)
 	return prompts
 }
 
-// builtinPrompts returns ctxloom's built-in slash command prompts. These are
+// builtinSkills returns ctxloom's built-in slash command prompts. These are
 // embedded in the ctxloom binary and always available.
-func builtinPrompts() []*bundles.LoadedContent {
+func builtinSkills() []*bundles.LoadedContent {
 	names, err := resources.ListBuiltinCommands()
 	if err != nil {
 		clidiag.Warn("ctxloom", "builtin commands unavailable: %v", err)

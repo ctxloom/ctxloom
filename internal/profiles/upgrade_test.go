@@ -6,7 +6,31 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/shared/upgrade"
 )
+
+// TestPromptSelectorUpgrade_MigratesSelectors pins the prompt→skill selector
+// migration: legacy "#prompts/" and ":prompts/" item selectors in a profile's
+// bundles/bundle_items are rewritten to the skills section on load.
+func TestPromptSelectorUpgrade_MigratesSelectors(t *testing.T) {
+	in := []byte("name: p\nbundles:\n  - core#prompts/review\n  - alias/other:prompts/lint\nbundle_items:\n  - b#prompts/x\n")
+	out, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	require.NotEmpty(t, applied, "migration should fire on legacy prompt selectors")
+	s := string(out)
+	assert.Contains(t, s, "core#skills/review")
+	assert.Contains(t, s, "other:skills/lint")
+	assert.Contains(t, s, "b#skills/x")
+	assert.NotContains(t, s, "prompts/", "no prompt selector should remain")
+}
+
+// TestPromptSelectorUpgrade_Idempotent confirms a profile already on the skills
+// vocabulary is left untouched.
+func TestPromptSelectorUpgrade_Idempotent(t *testing.T) {
+	in := []byte("name: p\nbundles:\n  - core#skills/review\n")
+	_, applied := upgrade.Pipeline{promptSelectorUpgrade{}}.Run(in)
+	assert.Empty(t, applied, "skills-vocabulary profile must not change")
+}
 
 // personalURL and defaultURL are the canonical repo URLs the test alias resolver
 // maps the two stock remotes to.

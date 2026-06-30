@@ -24,13 +24,13 @@ With a path after #, displays just that item's content.
 Path formats:
   bundle-name                     Full bundle YAML
   bundle-name#fragments/name      Fragment content
-  bundle-name#prompts/name        Prompt content
+  bundle-name#skills/name        Prompt content
   bundle-name#mcp/name            MCP server config
 
 Examples:
   ctxloom bundle view core-practices
   ctxloom bundle view core-practices#fragments/tdd
-  ctxloom bundle view mcp-tasks#prompts/setup-tasks
+  ctxloom bundle view mcp-tasks#skills/setup-tasks
   ctxloom bundle view sequential-thinking#mcp/default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleView,
@@ -98,10 +98,10 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		writeViewContent(w, frag.Content, frag.Distilled, useDistilled)
 		return w.Err()
 
-	case "prompts":
-		prompt, ok := bundle.Prompts[itemName]
+	case "skills":
+		prompt, ok := bundle.Skills[itemName]
 		if !ok {
-			return fmt.Errorf("prompt not found: %s", itemName)
+			return fmt.Errorf("skill not found: %s", itemName)
 		}
 		writeViewContent(w, prompt.Content, prompt.Distilled, useDistilled)
 		return w.Err()
@@ -120,7 +120,7 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		return w.Err()
 
 	default:
-		return fmt.Errorf("unknown item type: %s (expected fragments, prompts, or mcp)", itemType)
+		return fmt.Errorf("unknown item type: %s (expected fragments, skills, or mcp)", itemType)
 	}
 }
 

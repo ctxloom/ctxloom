@@ -184,7 +184,7 @@ func TestBuildSiblingContext_TruncatesLongFirstLine(t *testing.T) {
 func TestBuildSiblingContext_PromptsPreferDescriptionOverFirstLine(t *testing.T) {
 	b := &bundles.Bundle{
 		Description: "X",
-		Prompts: map[string]bundles.BundlePrompt{
+		Skills: map[string]bundles.BundleSkill{
 			"with-desc": {
 				Description: "Short curated description",
 				Content:     "Verbose body text the user shouldn't see in the sibling list.",
@@ -193,7 +193,7 @@ func TestBuildSiblingContext_PromptsPreferDescriptionOverFirstLine(t *testing.T)
 			"target":  {Content: "ignored"},
 		},
 	}
-	got := buildSiblingContext(b, "prompts/target")
+	got := buildSiblingContext(b, "skills/target")
 
 	assert.Contains(t, got, "- with-desc: Short curated description")
 	assert.NotContains(t, got, "Verbose body text", "description must win over content first-line")

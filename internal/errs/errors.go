@@ -12,8 +12,8 @@ var (
 	// ErrFragmentNotFound indicates a fragment could not be located.
 	ErrFragmentNotFound = errors.New("fragment not found")
 
-	// ErrPromptNotFound indicates a prompt could not be located.
-	ErrPromptNotFound = errors.New("prompt not found")
+	// ErrSkillNotFound indicates a skill could not be located.
+	ErrSkillNotFound = errors.New("skill not found")
 
 	// ErrProfileNotFound indicates a profile could not be located.
 	ErrProfileNotFound = errors.New("profile not found")

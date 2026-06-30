@@ -87,7 +87,7 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
 
-	assert.Equal(t, 4, root["version"], "full pipeline lands on the current version")
+	assert.Equal(t, 5, root["version"], "full pipeline lands on the current version")
 
 	llm := llmMap(t, root)
 	// default → defaults.primary
@@ -141,7 +141,7 @@ func TestConfigUpgrades_V2toV3_PreservesComments(t *testing.T) {
 	require.NotEmpty(t, applied)
 	assert.Contains(t, string(out), "# header", "top-level comment survives")
 	assert.Contains(t, string(out), "# keep me", "relocated use_distilled keeps its comment")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 5")
 }
 
 func TestConfigUpgrades_V2toV3_Idempotent(t *testing.T) {
@@ -184,7 +184,7 @@ func TestConfigUpgrades_V3toV4_GeminiToAntigravity(t *testing.T) {
 
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
-	assert.Equal(t, 4, root["version"])
+	assert.Equal(t, 5, root["version"])
 
 	llm := llmMap(t, root)
 	configs := llm["configs"].(map[string]any)
@@ -221,7 +221,7 @@ func TestConfigUpgrades_V3toV4_ChainsFromV2BackendKey(t *testing.T) {
 	in := "version: 2\nllm:\n  default: gemini\n  configs:\n    gemini:\n      model: gemini-2.5-flash\n      approval_mode: auto\n"
 	root, applied := runConfigUpgrades(in)
 	require.NotEmpty(t, applied)
-	assert.Equal(t, 4, root["version"])
+	assert.Equal(t, 5, root["version"])
 
 	llm := llmMap(t, root)
 	// The label stays "gemini" — it is just a label; only the type changes.
@@ -253,7 +253,7 @@ func TestConfigUpgrades_V3toV4_PreservesComments(t *testing.T) {
 	assert.Contains(t, string(out), "# my gemini entry", "comment on the retyped entry survives")
 	assert.Contains(t, string(out), "type: antigravity")
 	assert.NotContains(t, string(out), "trust_workspace")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 5")
 }
 
 func TestConfigUpgrades_V3toV4_Idempotent(t *testing.T) {
@@ -273,8 +273,20 @@ func TestConfigUpgrades_V3toV4_CleanConfigOnlyGainsVersionStamp(t *testing.T) {
 	in := "version: 3\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n  defaults:\n    primary: claude-code\nhooks:\n  plugins:\n    claude-code:\n      PreToolUse: []\n"
 	out, applied := configUpgrades.Run([]byte(in))
 	require.NotEmpty(t, applied, "stamping the version is itself a valid upgrade")
-	assert.Equal(t, strings.Replace(in, "version: 3", "version: 4", 1), string(out),
+	assert.Equal(t, strings.Replace(in, "version: 3", "version: 5", 1), string(out),
 		"a gemini-free config changes only its version stamp")
+}
+
+// TestConfigUpgrades_V4toV5_ProfilePromptSelectors pins the inline-profile prompt
+// selector migration: an inline profile cherry-picking a bundle prompt via the
+// legacy "#prompts/" selector is migrated to the skills section and stamped v5.
+func TestConfigUpgrades_V4toV5_ProfilePromptSelectors(t *testing.T) {
+	in := "version: 4\nprofiles:\n  definitions:\n    dev:\n      bundle_items:\n        - core#prompts/review\n"
+	out, applied := configUpgrades.Run([]byte(in))
+	assert.Contains(t, applied, "rename profile prompt selectors to skills (v4→v5)")
+	assert.Contains(t, string(out), "core#skills/review")
+	assert.NotContains(t, string(out), "prompts/")
+	assert.Contains(t, string(out), "version: 5")
 }
 
 func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
@@ -282,7 +294,7 @@ func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 	// current schema version stamp.
 	out, applied := configUpgrades.Run([]byte("llm:\n  configs:\n    claude-code: { type: claude-code }\n"))
 	require.NotEmpty(t, applied, "unversioned config must upgrade (stamp version)")
-	assert.Contains(t, string(out), "version: 4")
+	assert.Contains(t, string(out), "version: 5")
 
 	var root map[string]any
 	require.NoError(t, yaml.Unmarshal(out, &root))
@@ -291,7 +303,7 @@ func TestConfigUpgrades_StampsCurrentVersion(t *testing.T) {
 
 func TestConfigUpgrades_NoOpWhenCurrent(t *testing.T) {
 	// A config already at the current version is returned verbatim (no rewrite).
-	in := []byte("version: 4\nllm:\n  defaults:\n    primary: claude-code\n")
+	in := []byte("version: 5\nllm:\n  defaults:\n    primary: claude-code\n")
 	out, applied := configUpgrades.Run(in)
 	assert.Empty(t, applied)
 	assert.Equal(t, string(in), string(out), "current config must not be reserialized")

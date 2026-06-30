@@ -23,7 +23,7 @@ import (
 //
 // Fault tolerant per CLAUDE.md: a config load failure yields a nil payload — the
 // agent's Setup then writes an empty managed set rather than blocking launch.
-func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
+func AssembleManagedConfig(backendName, workDir string, profileNames []string) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
 		// The agent's Setup writes an EMPTY managed set from a nil payload —
@@ -33,11 +33,15 @@ func AssembleManagedConfig(backendName, workDir string) *agent.ManagedConfig {
 		clidiag.Warn("ctxloom", "config load failed; launching without managed hooks/commands: %v", err)
 		return nil
 	}
+	// profileNames is the run's SELECTED profile set (the same set
+	// AssembleContext scoped context to), so the managed mcp/skills/hooks track
+	// the chosen profile rather than always the configured defaults. An empty
+	// set falls back to the defaults inside each resolver.
 	return &agent.ManagedConfig{
-		Prompts:          commandExportsFor(backendName, LoadPromptExports(cfg)),
-		Hooks:            AssembleManagedHooks(cfg, workDir, ""),
-		MCP:              assembleManagedMCP(cfg),
-		BundleMCP:        cfg.ResolveBundleMCPServers(),
+		Skills:           commandExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
+		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
+		MCP:              assembleManagedMCP(cfg, profileNames),
+		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: cfg.Settings.ShouldManageStatusline(),
 	}
 }
@@ -59,7 +63,7 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 // each default profile's servers (later wins). This is the MCP half of the old
 // BaseLifecycle.MergeConfigHooks, lifted host-side now that ctxloom owns config
 // resolution.
-func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
+func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
 	mcp := &wire.MCPConfig{
 		Servers: make(map[string]wire.MCPServer),
 		Plugins: make(map[string]map[string]wire.MCPServer),
@@ -67,8 +71,11 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 	if cfg == nil {
 		return mcp
 	}
+	// Config-level MCP is the project-wide baseline (always merged). The
+	// per-profile inline MCP is scoped to the SELECTED profiles, falling back
+	// to the configured defaults when none are passed.
 	wire.MergeMCPConfig(mcp, &cfg.MCP)
-	for _, profileName := range cfg.GetDefaultProfiles() {
+	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
 			continue
@@ -76,6 +83,17 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 		wire.MergeMCPConfig(mcp, &resolved.MCP)
 	}
 	return mcp
+}
+
+// scopedProfiles returns the caller's selected profiles, or the configured
+// defaults when none are passed — the host-side mirror of
+// config.resolveProfileScope, so the managed-config assembly scopes to the
+// SAME set the bundle resolvers do.
+func scopedProfiles(cfg *config.Config, profileNames []string) []string {
+	if len(profileNames) > 0 {
+		return profileNames
+	}
+	return cfg.GetDefaultProfiles()
 }
 
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
@@ -95,15 +113,16 @@ func assembleManagedMCP(cfg *config.Config) *wire.MCPConfig {
 // Returns a fresh HooksConfig each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
-func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire.HooksConfig {
+func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *wire.HooksConfig {
 	hooks := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
 	if cfg == nil {
 		return hooks
 	}
 	// Config-level hooks.
 	agent.MergeHooksConfig(hooks, &cfg.Hooks)
-	// Default-profile-shipped hooks.
-	for _, profileName := range cfg.GetDefaultProfiles() {
+	// Selected-profile-shipped hooks (defaults when none are passed).
+	profiles := scopedProfiles(cfg, profileNames)
+	for _, profileName := range profiles {
 		resolved, err := config.ResolveProfile(cfg.Profiles.Definitions, profileName)
 		if err != nil {
 			continue
@@ -111,7 +130,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire
 		agent.MergeHooksConfig(hooks, &resolved.Hooks)
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash)
+	appendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash, profiles)
 	return hooks
 }
 
@@ -121,11 +140,11 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string) *wire
 // when contextHash is non-empty, the SessionStart context-injection hook. The
 // `ctxloom run` path passes contextHash "" here and lets the agent append its
 // own injection hook from the plugin-side hash; apply-hooks passes the hash.
-func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string) {
+func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
 	if unified == nil || cfg == nil {
 		return
 	}
-	unified.Append(cfg.ResolveBundleHooks())
+	unified.Append(cfg.ResolveBundleHooks(profileNames))
 	if contextHash != "" {
 		unified.SessionStart = append(unified.SessionStart, agent.NewContextInjectionHooks(contextHash, workDir)...)
 	}

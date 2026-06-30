@@ -36,6 +36,8 @@ github.com/ctxloom/shared v0.0.0-20260627144918-06ebaf57e747 h1:HsY/MsG0SL8gxPHi
 github.com/ctxloom/shared v0.0.0-20260627144918-06ebaf57e747/go.mod h1:LXRhyE7BvBkSlJeVhjVEZ0ChKU9JP2RlEazuhWpBxlc=
 github.com/ctxloom/shared v0.0.0-20260627155846-975983a54091 h1:uBMlzZJHjs1eH+vcCW9KVMoXli013H3v4qglmu3xEy4=
 github.com/ctxloom/shared v0.0.0-20260627155846-975983a54091/go.mod h1:LXRhyE7BvBkSlJeVhjVEZ0ChKU9JP2RlEazuhWpBxlc=
+github.com/ctxloom/shared v0.0.0-20260630132116-d657d9f5ba1a h1:J3ZZ6uR9wL7xnjFJgpzdmlvhd7nmgPcxpmqYwcZiguU=
+github.com/ctxloom/shared v0.0.0-20260630132116-d657d9f5ba1a/go.mod h1:LXRhyE7BvBkSlJeVhjVEZ0ChKU9JP2RlEazuhWpBxlc=
 github.com/cucumber/gherkin/go/v26 v26.2.0 h1:EgIjePLWiPeslwIWmNQ3XHcypPsWAHoMCz/YEBKP4GI=
 github.com/cucumber/gherkin/go/v26 v26.2.0/go.mod h1:t2GAPnB8maCT4lkHL99BDCVNzCh1d7dBhCLt150Nr/0=
 github.com/cucumber/godog v0.14.1 h1:HGZhcOyyfaKclHjJ+r/q93iaTJZLKYW6Tv3HkmUE6+M=

@@ -30,15 +30,15 @@ type ItemType string
 
 const (
 	ItemTypeFragment ItemType = "fragment"
-	ItemTypePrompt   ItemType = "prompt"
+	ItemTypeSkill   ItemType = "skill"
 )
 
-// itemPrefix returns the prefix used in references (e.g., "fragments/" or "prompts/").
+// itemPrefix returns the prefix used in references (e.g., "fragments/" or "skills/").
 func (t ItemType) prefix() string {
 	return string(t) + "s/"
 }
 
-// parseItemRef parses a reference like "bundle#fragments/name" or "bundle#prompts/name".
+// parseItemRef parses a reference like "bundle#fragments/name" or "bundle#skills/name".
 func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, err error) {
 	hashIdx := strings.Index(ref, "#")
 	if hashIdx == -1 {
@@ -63,7 +63,7 @@ func parseItemRef(ref string, itemType ItemType) (bundleName, itemName string, e
 
 // itemRow is the normalized listing shape shared by the fragment and prompt
 // listings: a name, its merged tags, and the bundle it came from (the grouping
-// key). It flattens the operations FragmentEntry / PromptEntry projections so
+// key). It flattens the operations FragmentEntry / SkillEntry projections so
 // the grouping/printing logic is type-agnostic.
 type itemRow struct {
 	Name   string
@@ -87,13 +87,13 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 			rows = append(rows, itemRow{Name: f.Name, Tags: f.Tags, Bundle: f.Source})
 		}
 		return rows, nil
-	case ItemTypePrompt:
-		res, err := operations.ListPrompts(ctx, cfg, operations.ListPromptsRequest{SortBy: "source"})
+	case ItemTypeSkill:
+		res, err := operations.ListSkills(ctx, cfg, operations.ListSkillsRequest{SortBy: "source"})
 		if err != nil {
 			return nil, err
 		}
-		rows := make([]itemRow, 0, len(res.Prompts))
-		for _, p := range res.Prompts {
+		rows := make([]itemRow, 0, len(res.Skills))
+		for _, p := range res.Skills {
 			rows = append(rows, itemRow{Name: p.Name, Tags: p.Tags, Bundle: p.Source})
 		}
 		return rows, nil
@@ -195,10 +195,10 @@ func itemDisplayContent(bundle *bundles.Bundle, itemName string, itemType ItemTy
 				itemName, strings.Join(bundle.FragmentNames(), ", "))
 		}
 		return frag.Content, frag.Distilled, nil
-	case ItemTypePrompt:
-		prompt, exists := bundle.Prompts[itemName]
+	case ItemTypeSkill:
+		prompt, exists := bundle.Skills[itemName]
 		if !exists {
-			return "", "", fmt.Errorf("prompt not found: %s\n\nAvailable prompts: %s",
+			return "", "", fmt.Errorf("skill not found: %s\n\nAvailable skills: %s",
 				itemName, strings.Join(bundle.PromptNames(), ", "))
 		}
 		return prompt.Content, prompt.Distilled, nil

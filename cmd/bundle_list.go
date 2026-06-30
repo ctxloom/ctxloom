@@ -78,8 +78,8 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 	if info.FragmentCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d fragments", info.FragmentCount))
 	}
-	if info.PromptCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d prompts", info.PromptCount))
+	if info.SkillCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d prompts", info.SkillCount))
 	}
 	if info.MCPCount == 1 {
 		parts = append(parts, "1 MCP server")
@@ -195,10 +195,10 @@ func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 		w.Println()
 	}
 
-	if len(bundle.Prompts) > 0 {
-		w.Printf("Prompts (%d):\n", len(bundle.Prompts))
+	if len(bundle.Skills) > 0 {
+		w.Printf("Skills (%d):\n", len(bundle.Skills))
 		for _, name := range bundle.PromptNames() {
-			renderBundlePromptEntry(w, name, bundle.Prompts[name])
+			renderBundleSkillEntry(w, name, bundle.Skills[name])
 		}
 		w.Println()
 	}
@@ -250,7 +250,7 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	w.Printf("      %s\n", firstLine)
 }
 
-func renderBundlePromptEntry(w *iox.ErrWriter, name string, prompt bundles.BundlePrompt) {
+func renderBundleSkillEntry(w *iox.ErrWriter, name string, prompt bundles.BundleSkill) {
 	w.Printf("  - %s", name)
 	if len(prompt.Tags) > 0 {
 		w.Printf(" [%s]", strings.Join(prompt.Tags, ", "))

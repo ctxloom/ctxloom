@@ -1,4 +1,4 @@
-Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and prompts for your development workflow.
+Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and skills for your development workflow.
 
 **First, scan the current directory** for project indicators like:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
@@ -22,7 +22,7 @@ Welcome to ctxloom! I'll help you discover and set up context profiles, fragment
 1. What project type/stack you detected
 2. Matching content (grouped by remote):
    - **Profiles**: Development workflow configurations
-   - **Bundles**: Collections of fragments (context) and prompts (reusable commands)
+   - **Bundles**: Collections of fragments (context) and skills (reusable commands)
 3. Ask the user which items to reference
 
 **Example workflow:**

@@ -32,7 +32,7 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a new .ctxloom directory in the current working directory.
 
 This creates a marker directory that ctxloom uses to identify a project root.
-All ctxloom data (profiles, bundles, fragments, prompts) will be stored here.
+All ctxloom data (profiles, bundles, fragments, skills) will be stored here.
 
 If no .ctxloom directory exists when running ctxloom commands, the user home ~/.ctxloom
 is used as a fallback.

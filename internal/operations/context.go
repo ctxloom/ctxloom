@@ -33,7 +33,14 @@ type ProfileLoader interface {
 
 // AssembleContextRequest contains parameters for assembling context.
 type AssembleContextRequest struct {
-	Profile   string   `json:"profile"`
+	Profile string `json:"profile"`
+	// Profiles composes SEVERAL named profiles into one assembled context (union
+	// of fragments, later-wins variables, first-non-empty llm) — the same merge
+	// the configured-defaults path already runs, surfaced as an explicit ask so a
+	// subagent can bind multiple profiles. When non-empty it takes precedence over
+	// Profile; an explicit set's resolution failures are hard errors (not the
+	// fault-tolerant skip the defaults path uses).
+	Profiles  []string `json:"profiles"`
 	Fragments []string `json:"fragments"`
 	Tags      []string `json:"tags"`
 
@@ -72,9 +79,11 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	profileNames := resolveContextProfileNames(cfg, req)
 
 	// Profiles picked up from configured defaults (rather than an explicit
-	// --profile ask) degrade per fault-tolerance: a default that fails to
-	// resolve is warned about and skipped, never blocking startup.
-	fromDefaults := req.Profile == ""
+	// --profile / Profiles ask) degrade per fault-tolerance: a default that fails
+	// to resolve is warned about and skipped, never blocking startup. An explicit
+	// single Profile or a multi-profile Profiles set is the user's ask, so its
+	// failures stay hard errors.
+	fromDefaults := req.Profile == "" && len(req.Profiles) == 0
 
 	allFragments, profileVars, profileLLM, err := collectProfileFragments(cfg, loader, profileNames, req.ProfileLoaderFunc, fromDefaults)
 	if err != nil {
@@ -147,6 +156,13 @@ func appendBuiltinFragments(cfg *config.Config, content string, loaded []string)
 // config's defaults.profiles; if neither defines any, assembly degrades to
 // empty context. No synthetic profile is ever created.
 func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) []string {
+	// A multi-profile compose ask wins over the single-profile field: collected
+	// in order and merged downstream by collectProfileFragments (the same loop
+	// the configured-defaults path uses), so the constituent profiles of a
+	// subagent fold into one context.
+	if len(req.Profiles) > 0 {
+		return req.Profiles
+	}
 	if req.Profile != "" {
 		return []string{req.Profile}
 	}

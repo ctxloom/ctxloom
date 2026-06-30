@@ -240,6 +240,25 @@
         }
       },
       "additionalProperties": false
+    },
+    "subagents": {
+      "type": "object",
+      "description": "Local-only engine↔profile bindings. A subagent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/subagents/<name>.yaml files.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "description": "LLM config label/backend hoisted to this subagent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend)"
+          },
+          "profiles": {
+            "type": "array",
+            "description": "Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>).",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "$defs": {

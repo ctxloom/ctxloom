@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/subagents"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -53,11 +54,17 @@ type Config struct {
 	Hooks    wire.HooksConfig `mapstructure:"hooks" yaml:"hooks,omitempty"`
 	MCP      wire.MCPConfig   `mapstructure:"mcp" yaml:"mcp,omitempty"`
 	Profiles ProfilesConfig   `mapstructure:"profiles" yaml:"profiles,omitempty"`
-	AppPaths []string         // Resolved .ctxloom directory (at most one)
-	AppRoot  string           // Project root (parent of .ctxloom directory)
-	AppDir   string           // Full path to the .ctxloom directory
-	Source   ConfigSource     // Where the configuration was loaded from
-	Warnings []string         // Non-fatal warnings collected during load
+	// Subagents is the LOCAL-ONLY engine↔profile binding map, the in-config half
+	// of the subagent entity (the other half is .ctxloom/subagents/*.yaml). Keyed
+	// by subagent name. It is NEVER a bundle item kind and NEVER remote — there is
+	// no Bundle.Subagents and no remote path. Read the merged set via
+	// LoadSubagents / Subagent, which folds in the directory source too.
+	Subagents map[string]subagents.Subagent `mapstructure:"subagents" yaml:"subagents,omitempty"`
+	AppPaths  []string                      // Resolved .ctxloom directory (at most one)
+	AppRoot   string                        // Project root (parent of .ctxloom directory)
+	AppDir    string                        // Full path to the .ctxloom directory
+	Source    ConfigSource                  // Where the configuration was loaded from
+	Warnings  []string                      // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;

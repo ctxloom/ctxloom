@@ -24,7 +24,9 @@ go.work.sum
 *.pb.go
 
 # Local config
-.ctxloom/
+.ctxloom/*
+# ...but keep the consolidation/design plans under version control
+!.ctxloom/plans/
 .mcp.json
 .tasks/
 

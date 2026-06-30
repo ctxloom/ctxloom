@@ -143,21 +143,43 @@ type ProfileEntry struct {
 	Bundles     []string `json:"bundles,omitempty"`
 	Default     bool     `json:"default,omitempty"`
 	Path        string   `json:"path,omitempty"`
-	// IsRemote reports whether this profile is a seeded remote reference (its
-	// Path carries the "<remote>:" sentinel) versus a local file.
+	// IsRemote reports whether this profile is a seeded reference (its Path
+	// carries the "<remote>:" sentinel) rather than a directly-editable local
+	// file. Both top-level remote profiles and bundle-shipped profiles are
+	// seeded, so both set this; Bundle disambiguates a bundle profile.
 	IsRemote bool `json:"is_remote"`
+	// Bundle is the canonical bundle ref a bundle-shipped profile came from
+	// ("<bundle>" of a "<bundle>#profiles/<name>" identity), empty for top-level
+	// or local profiles. It attributes the profile to its owning bundle, the way
+	// fragment/skill listings carry their source bundle.
+	Bundle string `json:"bundle,omitempty"`
 }
 
 // profileDisplayName returns a short, human label for a profile reference: the
-// segment after "@profiles/" for a remote ref (e.g. "default"), else the name
-// unchanged. Centralizing this in the backend keeps frontends from re-deriving
-// display names by parsing remote refs.
+// bare profile name for a bundle-shipped profile ("<bundle>#profiles/<name>" →
+// "<name>"), the segment after "@profiles/" for a top-level remote ref (e.g.
+// "default"), else the name unchanged. Centralizing this in the backend keeps
+// frontends from re-deriving display names by parsing refs.
 func profileDisplayName(name string) string {
+	if _, prof, ok := remote.SplitBundleProfileRef(name); ok {
+		return prof
+	}
 	const marker = "@profiles/"
 	if i := strings.LastIndex(name, marker); i >= 0 {
 		return name[i+len(marker):]
 	}
 	return name
+}
+
+// profileBundleSource returns the canonical bundle ref a bundle-shipped profile
+// came from ("<bundle>" of a "<bundle>#profiles/<name>" identity), or "" for a
+// top-level or local profile.
+func profileBundleSource(name string) string {
+	bundle, _, ok := remote.SplitBundleProfileRef(name)
+	if !ok {
+		return ""
+	}
+	return bundle
 }
 
 // ListProfilesRequest contains parameters for listing profiles.
@@ -209,6 +231,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			Default:     cfg.Profiles.IsDefaultProfile(p.Name),
 			Path:        p.Path,
 			IsRemote:    strings.HasPrefix(p.Path, profiles.SeededProfilePathPrefix),
+			Bundle:      profileBundleSource(p.Name),
 		})
 	}
 
@@ -264,6 +287,9 @@ type GetProfileResult struct {
 	ExcludeFragments []string          `json:"exclude_fragments,omitempty"`
 	ExcludeMCP       []string          `json:"exclude_mcp,omitempty"`
 	Path             string            `json:"path,omitempty"`
+	// Bundle is the canonical bundle ref a bundle-shipped profile came from,
+	// empty for top-level or local profiles (see ProfileEntry.Bundle).
+	Bundle string `json:"bundle,omitempty"`
 }
 
 // GetProfile returns a specific profile by name.
@@ -292,6 +318,7 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 		ExcludeFragments: profile.ExcludeFragments,
 		ExcludeMCP:       profile.ExcludeMCP,
 		Path:             profile.Path,
+		Bundle:           profileBundleSource(profile.Name),
 	}, nil
 }
 

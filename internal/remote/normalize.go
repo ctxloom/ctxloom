@@ -123,6 +123,40 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 	return CanonicalBundleRef(base) + sel, version
 }
 
+// ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
+// bundle ("<bundle>#profiles/<name>"). Profiles are an ungated, COMPOUND bundle
+// item kind — a profile composes leaves (fragments/skills/mcp/hooks/llm/parents/
+// variables) — so the selector is the profile counterpart to FragmentSelector /
+// PromptSelector, keeping the bundle-item grammar in one place. Unlike those,
+// there is no trust kind for profiles: a profile definition is orchestration/
+// config, never baselined and never gated. Its constituent leaves still gate at
+// their own chokes (fragments/skills at content assembly, mcp/hooks at the exec
+// choke) — only the profile definition itself is ungated.
+const ProfileSelector = "#profiles/"
+
+// BundleProfileRef builds the canonical reference to a profile shipped in a
+// bundle: "<CanonicalBundleRef(bundle)>#profiles/<name>". This is the identity
+// the profile loader resolves a bundle-sourced profile by (see the config
+// bundle-profile seed), mirroring the "<bundle>#fragments/<name>" fragment
+// identity so a bundle profile and a top-level/local profile resolve through the
+// same loader.
+func BundleProfileRef(bundle, name string) string {
+	return CanonicalBundleRef(bundle) + ProfileSelector + name
+}
+
+// SplitBundleProfileRef splits a "<bundle>#profiles/<name>" reference into its
+// bundle part and the bare profile name. ok is false when ref carries no
+// "#profiles/" selector — e.g. a plain local profile name or a top-level
+// "@profiles/" remote profile ref — so callers can tell a bundle-sourced profile
+// apart from the other two and attribute it back to its bundle.
+func SplitBundleProfileRef(ref string) (bundle, name string, ok bool) {
+	i := strings.Index(ref, ProfileSelector)
+	if i == -1 {
+		return "", "", false
+	}
+	return ref[:i], ref[i+len(ProfileSelector):], true
+}
+
 // IsCanonicalRef checks if a reference is in canonical URL format.
 func IsCanonicalRef(ref string) bool {
 	return strings.HasPrefix(ref, "https://") ||

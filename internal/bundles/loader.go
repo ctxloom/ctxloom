@@ -328,6 +328,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			FragmentCount: b.FragmentCount(),
 			SkillCount:    b.SkillCount(),
 			MCPCount:      b.MCPCount(),
+			ProfileCount:  b.ProfileCount(),
 		})
 		seen.Add(name)
 	}
@@ -403,6 +404,7 @@ type BundleInfo struct {
 	FragmentCount int
 	SkillCount    int
 	MCPCount      int
+	ProfileCount  int
 	// Deleted marks a bundle that existed in an installed remote's history but
 	// is gone from that repo at the current revision — removed upstream. Such an
 	// entry carries only Name (the canonical ref); metadata is unavailable since
@@ -425,5 +427,6 @@ func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
 		FragmentCount: bundle.FragmentCount(),
 		SkillCount:    bundle.SkillCount(),
 		MCPCount:      bundle.MCPCount(),
+		ProfileCount:  bundle.ProfileCount(),
 	}, nil
 }

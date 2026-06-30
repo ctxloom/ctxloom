@@ -1,6 +1,6 @@
 // Package bundles provides types and utilities for ctxloom bundles.
 // Bundles are the primary content unit that group related fragments,
-// prompts, and MCP server configurations with a single version.
+// prompts, MCP server configurations, and profiles with a single version.
 package bundles
 
 import (
@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -34,6 +35,18 @@ type Bundle struct {
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`
 	Skills    map[string]BundleSkill    `yaml:"skills,omitempty"`
 	MCP       map[string]BundleMCP      `yaml:"mcp,omitempty"` // MCP servers
+
+	// Profiles shipped with this bundle, keyed by name. A profile is an
+	// ungated, COMPOUND item — it composes leaves (fragments/skills/mcp/hooks/
+	// llm/parents/variables) into a runnable context unit — so a bundle that
+	// ships fragments can also ship the profiles that compose them, as one unit.
+	// Addressed by "<bundle>#profiles/<name>" (remote.ProfileSelector) and seeded
+	// into the shared profile loader so a bundle profile resolves/runs exactly
+	// like a top-level or local profile (config bundle-profile seed). The profile
+	// DEFINITION is never trust-gated (no trust.ItemKind for profiles, never
+	// baselined); its constituent fragments/skills still gate at content
+	// assembly and any mcp/hooks it pulls in still gate at the exec choke.
+	Profiles map[string]BundleProfile `yaml:"profiles,omitempty"`
 
 	// Hooks shipped with this bundle (e.g. PostFileEdit plan-stamping).
 	// Hooks land in backend settings via ApplyHooks → ResolveBundleHooks.
@@ -205,6 +218,16 @@ type BundleSkill struct {
 	NoDistill    bool       `yaml:"no_distill,omitempty"`
 	LLM          LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
 }
+
+// BundleProfile is the shape of a profile shipped inside a bundle. It is the
+// SAME type as a directory/top-level profile (profiles.Profile), so a bundle
+// profile and an inline/config or remote profile resolve through one code path:
+// the bundle-profile seed parses these straight into the shared profile loader.
+// Reusing the type (rather than mirroring its fields) keeps the two from
+// drifting and means a profile composes the same leaves wherever it is authored.
+// The bundle YAML map key supplies the profile's Name (the struct's Name/Path
+// are yaml:"-"); the seed sets Name to the "<bundle>#profiles/<name>" identity.
+type BundleProfile = profiles.Profile
 
 // ContentForm identifies which materialization of an item's content was hashed
 // or served: the raw authored bytes, or the distilled rewrite. Trust grants
@@ -421,6 +444,26 @@ func (b *Bundle) PromptNames() []string {
 	return names
 }
 
+// HasProfiles reports whether the bundle ships any profiles.
+func (b *Bundle) HasProfiles() bool {
+	return len(b.Profiles) > 0
+}
+
+// ProfileCount returns the number of profiles in the bundle.
+func (b *Bundle) ProfileCount() int {
+	return len(b.Profiles)
+}
+
+// ProfileNames returns sorted profile names.
+func (b *Bundle) ProfileNames() []string {
+	names := make([]string, 0, len(b.Profiles))
+	for name := range b.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // AllTags returns all unique tags from bundle and its contents.
 func (b *Bundle) AllTags() []string {
 	tagSet := collections.NewSet[string]()
@@ -460,6 +503,9 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	}
 	if bundle.MCP == nil {
 		bundle.MCP = make(map[string]BundleMCP)
+	}
+	if bundle.Profiles == nil {
+		bundle.Profiles = make(map[string]BundleProfile)
 	}
 
 	return &bundle, nil

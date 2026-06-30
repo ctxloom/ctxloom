@@ -26,12 +26,14 @@ Path formats:
   bundle-name#fragments/name      Fragment content
   bundle-name#skills/name        Prompt content
   bundle-name#mcp/name            MCP server config
+  bundle-name#profiles/name       Profile definition
 
 Examples:
   ctxloom bundle view core-practices
   ctxloom bundle view core-practices#fragments/tdd
   ctxloom bundle view mcp-tasks#skills/setup-tasks
-  ctxloom bundle view sequential-thinking#mcp/default`,
+  ctxloom bundle view sequential-thinking#mcp/default
+  ctxloom bundle view code-review#profiles/cr-security-golang`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleView,
 }
@@ -119,8 +121,21 @@ func renderBundleViewItem(out io.Writer, bundle *bundles.Bundle, itemPath string
 		w.WriteRaw(data)
 		return w.Err()
 
+	case "profiles":
+		profile, ok := bundle.Profiles[itemName]
+		if !ok {
+			return fmt.Errorf("profile not found: %s", itemName)
+		}
+		data, err := yaml.Marshal(profile)
+		if err != nil {
+			return fmt.Errorf("failed to marshal profile: %w", err)
+		}
+		w.Printf("# Profile: %s\n", itemName)
+		w.WriteRaw(data)
+		return w.Err()
+
 	default:
-		return fmt.Errorf("unknown item type: %s (expected fragments, skills, or mcp)", itemType)
+		return fmt.Errorf("unknown item type: %s (expected fragments, skills, mcp, or profiles)", itemType)
 	}
 }
 

@@ -90,6 +90,9 @@ func renderProfileList(out io.Writer, list []operations.ProfileEntry) error {
 		}
 
 		var parts []string
+		if p.Bundle != "" {
+			parts = append(parts, fmt.Sprintf("from bundle: %s", p.Bundle))
+		}
 		if len(p.Parents) > 0 {
 			parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(p.Parents, ", ")))
 		}
@@ -394,6 +397,9 @@ func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault 
 	w := iox.NewErrWriter(out)
 	w.Printf("Profile: %s\n", p.Name)
 	w.Printf("Path: %s\n", p.Path)
+	if p.Bundle != "" {
+		w.Printf("Bundle: %s\n", p.Bundle)
+	}
 	if isDefault {
 		w.Println("Default: yes")
 	}

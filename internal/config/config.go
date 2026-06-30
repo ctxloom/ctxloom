@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -314,17 +315,24 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	return profiles.NewLoader(profileDirs, opts...)
 }
 
-// ProfileSeedOptions returns the loader option that seeds lockfile-listed
-// remote profiles from the git clone cache, or nil when there are none.
-// Exposed (like ProfileRemoteResolver/ProfileRemoteURLResolver) so other
-// profile-loader factories — e.g. operations.profileLoader — wire the exact
-// same seed as GetProfileLoader and the two never disagree about which remote
-// profiles exist.
+// ProfileSeedOptions returns the loader option that seeds (a) lockfile-listed
+// top-level remote profiles read from the git clone cache and (b) profiles
+// shipped INSIDE bundles (the ungated, compound bundle item kind), or nil when
+// there are none. Exposed (like ProfileRemoteResolver/ProfileRemoteURLResolver)
+// so other profile-loader factories — e.g. operations.profileLoader — wire the
+// exact same seed as GetProfileLoader and the two never disagree about which
+// profiles exist. The two seed sources never collide: top-level remote profiles
+// key on "<url>@profiles/<name>", bundle profiles on "<bundle>#profiles/<name>".
 func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
-	if seed := c.loadRemoteProfileSeed(); len(seed) > 0 {
-		return []profiles.LoaderOption{profiles.WithSeededProfiles(seed)}
+	remoteSeed := c.loadRemoteProfileSeed()
+	bundleSeed := c.loadBundleProfileSeed()
+	if len(remoteSeed) == 0 && len(bundleSeed) == 0 {
+		return nil
 	}
-	return nil
+	merged := make(map[string]*profiles.Profile, len(remoteSeed)+len(bundleSeed))
+	maps.Copy(merged, remoteSeed)
+	maps.Copy(merged, bundleSeed)
+	return []profiles.LoaderOption{profiles.WithSeededProfiles(merged)}
 }
 
 // loadRemoteProfileSeed reads every lockfile-listed profile from the local git
@@ -380,6 +388,91 @@ func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
 		return nil
 	}
 	return loaded
+}
+
+// loadBundleProfileSeed walks every bundle visible to this config — fs-installed
+// local bundles plus lockfile-listed remote bundles read from the git clone
+// cache — and returns the profiles they ship, parsed and keyed by their
+// canonical "<bundle>#profiles/<name>" ref, ready to seed a profiles.Loader.
+//
+// Profiles are an ungated, COMPOUND bundle item kind: they travel inside the
+// bundle YAML, so a pulled bundle's profiles are already on disk / in cache —
+// this is the step that surfaces them to the SHARED profile loader, so a bundle
+// profile resolves, lists, and runs exactly like a top-level or local profile.
+// The profile DEFINITION is never trust-gated here (there is no trust.ItemKind
+// for profiles, and nothing is baselined); its constituent fragments/skills
+// still gate at content assembly and any mcp/hooks it pulls in still gate at the
+// exec choke. Returns nil when no visible bundle ships a profile.
+func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
+	if len(c.AppPaths) == 0 {
+		return nil
+	}
+	loader := c.SeededBundleLoader(false)
+	infos, err := loader.List()
+	if err != nil {
+		return nil
+	}
+	loaded := make(map[string]*profiles.Profile)
+	for _, info := range infos {
+		if info.Deleted || info.ProfileCount == 0 {
+			continue
+		}
+		bundle, lerr := loader.LoadFile(info.Path)
+		if lerr != nil {
+			warnOncePerRun(clidiag.Line("ctxloom", "failed to load bundle %q for its profiles: %v", info.Name, lerr))
+			continue
+		}
+		// info.Name is the bundle's full resolution identity (the canonical ref for
+		// a seeded remote bundle, the relative path for a local one); bundle.Name
+		// from LoadFile is only the file's base, so canonicalize from info.Name.
+		bundleRef := remote.CanonicalBundleRef(info.Name)
+		sourceURL := bundleProfileSourceURL(bundleRef)
+		for _, profName := range bundle.ProfileNames() {
+			p := cloneBundleProfile(bundle.Profiles[profName])
+			key := bundleRef + remote.ProfileSelector + profName
+			// Resolve the profile's short same-repo leaf refs (bundles/fragments/
+			// prompts/bundle_items) against the bundle's own source, exactly as a
+			// seeded top-level remote profile does; a canonical "<bundle>#profiles/
+			// <name>" parent ref passes through unchanged. No version is pinned here:
+			// the lockfile already pins the bundle, and the version-agnostic leaf
+			// identities let the read path honor that pin.
+			p.ResolveShortRefs(sourceURL, "")
+			p.Name = key
+			// Sentinel path marks the profile read-only (Save/Delete refuse): like a
+			// remote profile, a bundle profile is edited at its source, not locally.
+			p.Path = profiles.SeededProfilePathPrefix + key
+			loaded[key] = &p
+		}
+	}
+	if len(loaded) == 0 {
+		return nil
+	}
+	return loaded
+}
+
+// cloneBundleProfile returns a copy of a bundle profile safe to mutate
+// (ResolveShortRefs rewrites refs in place). The bundle loader caches parsed
+// bundles, so the profile's slices are shared with that cache and concurrent
+// profile-loader builds — clone exactly the slices ResolveShortRefs touches so
+// canonicalization never corrupts the cached bundle or races another reader.
+func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
+	p := bp
+	p.Bundles = append([]string(nil), bp.Bundles...)
+	p.Parents = append([]string(nil), bp.Parents...)
+	p.Prompts = append([]string(nil), bp.Prompts...)
+	p.BundleItems = append([]string(nil), bp.BundleItems...)
+	p.Fragments = append([]profiles.FragmentRef(nil), bp.Fragments...)
+	return p
+}
+
+// bundleProfileSourceURL returns the source a bundle profile's short same-repo
+// refs resolve against: the bundle's repo URL for a remote bundle, or the
+// ctxloom:local token for a project-local bundle.
+func bundleProfileSourceURL(bundleRef string) string {
+	if ref, err := remote.ParseReference(bundleRef); err == nil && ref.URL != "" {
+		return ref.URL
+	}
+	return remote.LocalSource
 }
 
 // FS returns the injected filesystem, or nil for the OS default. It lets callers

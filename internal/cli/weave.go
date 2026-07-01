@@ -120,22 +120,24 @@ func runWeave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Synthesis failure: warn and fall back to the labeled parts so the work
-	// isn't lost.
+	// Synthesis failure: warn but still surface the parts (partial success is
+	// success — CLAUDE.md). --format json emits the full WeaveResult; text falls
+	// back to the labeled parts when there's no report.
 	if weaveErr != nil {
 		clidiag.Warn("ctxloom", "%v; emitting parts instead", weaveErr)
-		if result != nil {
-			fmt.Fprint(cmd.OutOrStdout(), operations.FormatParts(result.Parts))
+	}
+	if result == nil {
+		return nil
+	}
+	return emit(cmd, result, func() error {
+		w := cmd.OutOrStdout()
+		if weaveErr != nil || weaveNoSynth {
+			fmt.Fprint(w, operations.FormatParts(result.Parts))
+			return nil
 		}
+		fmt.Fprintln(w, result.Report)
 		return nil
-	}
-
-	if weaveNoSynth {
-		fmt.Fprint(cmd.OutOrStdout(), operations.FormatParts(result.Parts))
-		return nil
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), result.Report)
-	return nil
+	})
 }
 
 // collectInjectedParts reads --parts-from <dir> (each file → a part named by its

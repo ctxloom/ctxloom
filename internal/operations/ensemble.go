@@ -179,6 +179,13 @@ type WeaveResult struct {
 	Synthesizer *Synthesizer `json:"synthesizer,omitempty"`
 }
 
+// MapProfilesResult is the CLI-facing envelope for a `map` run's member parts —
+// MapProfiles itself returns the bare []Part; this wraps them for structured
+// (--format json) output and JSON-schema generation.
+type MapProfilesResult struct {
+	Parts []Part `json:"parts"`
+}
+
 // WeaveRequest fans members over a shared task, then synthesizes their outputs
 // (plus any injected parts) with a high-power synthesis profile.
 type WeaveRequest struct {

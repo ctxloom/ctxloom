@@ -89,8 +89,6 @@ func runMap(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), operations.FormatParts(parts))
-
 	// Surface failed members on stderr without failing the whole run — partial
 	// success is success (CLAUDE.md).
 	for _, p := range parts {
@@ -98,7 +96,11 @@ func runMap(cmd *cobra.Command, args []string) error {
 			clidiag.Warn("ctxloom", "member %q failed: %s", p.Profile, p.Err)
 		}
 	}
-	return nil
+
+	return emit(cmd, operations.MapProfilesResult{Parts: parts}, func() error {
+		fmt.Fprint(cmd.OutOrStdout(), operations.FormatParts(parts))
+		return nil
+	})
 }
 
 // saveParts writes each member's output to <dir>/<sanitized-profile>.txt for

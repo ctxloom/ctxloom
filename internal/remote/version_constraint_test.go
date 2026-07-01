@@ -6,40 +6,62 @@ import (
 	"testing"
 )
 
-func TestClassifyConstraint(t *testing.T) {
+func TestInferSelectorKind(t *testing.T) {
 	cases := []struct {
 		expr string
-		want ConstraintKind
+		want SelectorKind
 	}{
-		// Empty → track default branch.
-		{"", ConstraintDefault},
+		// Empty → track the default branch.
+		{"", SelectorBranch},
 
 		// Semver versions and ranges → matched against tags.
-		{"1.2.3", ConstraintSemver},
-		{"v1.2.3", ConstraintSemver},
-		{"^1.2", ConstraintSemver},
-		{"~1.2.0", ConstraintSemver},
-		{">=1.2.0, <2.0.0", ConstraintSemver},
-		{"1.2.x", ConstraintSemver},
-		{"v1", ConstraintSemver},
-		{"v1.2", ConstraintSemver},
+		{"1.2.3", SelectorVersion},
+		{"v1.2.3", SelectorVersion},
+		{"^1.2", SelectorVersion},
+		{"~1.2.0", SelectorVersion},
+		{">=1.2.0, <2.0.0", SelectorVersion},
+		{"1.2.x", SelectorVersion},
+		{"v1", SelectorVersion},
+		{"v1.2", SelectorVersion},
 
-		// Branches and non-semver tags → resolved verbatim.
-		{"main", ConstraintDirect},
-		{"release-1.x", ConstraintDirect},
-		{"feature/foo", ConstraintDirect},
-		{"nightly", ConstraintDirect},
+		// Bare object names (SHAs) → sha, even when all-digit. This is the guard:
+		// a 7+ hex string must NOT be read as a semver version.
+		{"1234567", SelectorSHA},
+		{"abc1234", SelectorSHA},
+		{"deadbeef", SelectorSHA},
+		{"0123456789abcdef0123456789abcdef01234567", SelectorSHA},
 
-		// Bare object names (SHAs) → direct, even when all-digit. This is the
-		// guard: a 7+ hex string must NOT be read as a semver version.
-		{"1234567", ConstraintDirect},
-		{"abc1234", ConstraintDirect},
-		{"deadbeef", ConstraintDirect},
-		{"0123456789abcdef0123456789abcdef01234567", ConstraintDirect},
+		// Bare names of no inferable shape → ambiguous ("") — tag vs branch is
+		// decided against the repo at resolve time (tag wins).
+		{"main", ""},
+		{"release-1.x", ""},
+		{"feature/foo", ""},
+		{"nightly", ""},
 	}
 	for _, c := range cases {
-		if got := ClassifyConstraint(c.expr); got != c.want {
-			t.Errorf("ClassifyConstraint(%q) = %v, want %v", c.expr, got, c.want)
+		if got := inferSelectorKind(c.expr); got != c.want {
+			t.Errorf("inferSelectorKind(%q) = %q, want %q", c.expr, got, c.want)
+		}
+	}
+}
+
+func TestParseSelector(t *testing.T) {
+	cases := []struct {
+		expr      string
+		wantKind  SelectorKind
+		wantBare  string
+	}{
+		{"sha:abc1234", SelectorSHA, "abc1234"},
+		{"tag:main", SelectorTag, "main"},
+		{"version:^1", SelectorVersion, "^1"},
+		{"branch:1.0", SelectorBranch, "1.0"}, // forces branch over the version shape
+		{"^1.2", "", "^1.2"},                  // no prefix → inference
+		{"main", "", "main"},
+	}
+	for _, c := range cases {
+		k, b := parseSelector(c.expr)
+		if k != c.wantKind || b != c.wantBare {
+			t.Errorf("parseSelector(%q) = (%q, %q), want (%q, %q)", c.expr, k, b, c.wantKind, c.wantBare)
 		}
 	}
 }
@@ -97,6 +119,9 @@ func TestResolveConstraint_DefaultBranch(t *testing.T) {
 	}
 	if got.Version != "" {
 		t.Errorf("Version = %q, want empty for default-branch resolution", got.Version)
+	}
+	if got.Kind != SelectorBranch {
+		t.Errorf("Kind = %q, want %q (empty ⇒ default branch)", got.Kind, SelectorBranch)
 	}
 	if want := []string{"trunk"}; len(rv.resolvedRefs) != 1 || rv.resolvedRefs[0] != want[0] {
 		t.Errorf("resolved refs = %v, want %v", rv.resolvedRefs, want)
@@ -163,28 +188,63 @@ func TestResolveConstraint_SemverNoMatch(t *testing.T) {
 	}
 }
 
-func TestResolveConstraint_DirectBranch(t *testing.T) {
+func TestResolveConstraint_BareNameBranch(t *testing.T) {
+	// A bare name that is NOT one of the repo's tags is tracked as a branch.
 	rv := &fakeRepoVersions{tags: []string{"v1.0.0"}}
 	got, err := ResolveConstraint(context.Background(), "release-1.x", rv)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.SHA != "sha-release-1.x" || got.Version != "" {
-		t.Errorf("got {SHA:%q Version:%q}, want verbatim ref resolution", got.SHA, got.Version)
+	if got.SHA != "sha-release-1.x" || got.Version != "" || got.Kind != SelectorBranch {
+		t.Errorf("got {SHA:%q Version:%q Kind:%q}, want a branch resolution", got.SHA, got.Version, got.Kind)
 	}
 	if len(rv.resolvedRefs) != 1 || rv.resolvedRefs[0] != "release-1.x" {
 		t.Errorf("resolved refs = %v, want [release-1.x]", rv.resolvedRefs)
 	}
 }
 
-func TestResolveConstraint_DirectSHA(t *testing.T) {
+func TestResolveConstraint_BareNameTagWins(t *testing.T) {
+	// A bare name that IS one of the repo's tags is pinned as a tag (tag wins).
+	rv := &fakeRepoVersions{tags: []string{"stable", "v1.0.0"}}
+	got, err := ResolveConstraint(context.Background(), "stable", rv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Kind != SelectorTag || got.Version != "stable" || got.SHA != "sha-stable" {
+		t.Errorf("got {SHA:%q Version:%q Kind:%q}, want a tag pin of stable", got.SHA, got.Version, got.Kind)
+	}
+}
+
+func TestResolveConstraint_ExplicitPrefixesOverrideInference(t *testing.T) {
+	// tag:main pins the tag even though a same-named branch exists; branch:1.0
+	// tracks a branch named "1.0" that would otherwise infer as a version.
+	rv := &fakeRepoVersions{tags: []string{"main"}}
+	got, err := ResolveConstraint(context.Background(), "tag:main", rv)
+	if err != nil {
+		t.Fatalf("tag:main: %v", err)
+	}
+	if got.Kind != SelectorTag || got.Version != "main" {
+		t.Errorf("tag:main → {Version:%q Kind:%q}, want a tag pin", got.Version, got.Kind)
+	}
+
+	rv2 := &fakeRepoVersions{tags: []string{"v1.0.0"}}
+	got2, err := ResolveConstraint(context.Background(), "branch:1.0", rv2)
+	if err != nil {
+		t.Fatalf("branch:1.0: %v", err)
+	}
+	if got2.Kind != SelectorBranch || got2.SHA != "sha-1.0" {
+		t.Errorf("branch:1.0 → {SHA:%q Kind:%q}, want a branch track of 1.0", got2.SHA, got2.Kind)
+	}
+}
+
+func TestResolveConstraint_SHA(t *testing.T) {
 	rv := &fakeRepoVersions{resolve: map[string]string{"abc1234": "abc1234full"}}
 	got, err := ResolveConstraint(context.Background(), "abc1234", rv)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.SHA != "abc1234full" {
-		t.Errorf("SHA = %q, want abc1234full", got.SHA)
+	if got.SHA != "abc1234full" || got.Kind != SelectorSHA {
+		t.Errorf("got {SHA:%q Kind:%q}, want abc1234full/sha", got.SHA, got.Kind)
 	}
 }
 

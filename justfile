@@ -1,6 +1,13 @@
 # Default recipe
 default: build
 
+# pre1 is a single consolidated module: always run go in module mode so the
+# host go.work (which still points at the pre-consolidation `main` worktree and
+# the now-absorbed sibling modules) can't shadow this tree. Mirrors
+# justfile.container; the per-recipe GOWORK=off below become redundant but stay
+# explicit for the docker `-e` passthroughs.
+export GOWORK := "off"
+
 # Get version from versionator (with fallback for CI without versionator).
 # Standardized stamp format across the ctxloom family:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>

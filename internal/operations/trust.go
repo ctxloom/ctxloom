@@ -96,9 +96,14 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if dec, ok := store.BundlePosture(req.Ref.Bundle); ok {
 		return decide(dec, trust.SourceBundle), nil
 	}
-	// 5. Project-authored local CONTENT (fragment/prompt) is auto-allowed. Local
-	//    executables (mcp / hooks) are deliberately NOT — they fall through.
-	if req.Ref.IsLocal && req.Ref.Kind.IsContent() {
+	// 5. Project-authored local content is auto-allowed: fragments/prompts always,
+	//    and a config-level executable (an MCP server with no bundle — declared in
+	//    the project's own config, never a clone). A bundle-sourced executable is
+	//    NOT widened here: the gate keys bundle items by short name, so a cloned
+	//    bundle's ref is spuriously IsLocal — honest local-vs-clone provenance for
+	//    bundle executables/hooks is a follow-up (see d4b plan). Until then they
+	//    fall through to the remote/bundle-posture tiers.
+	if req.Ref.IsLocal && (req.Ref.Kind.IsContent() || req.Ref.Bundle == "") {
 		return decide(trust.Allow, trust.SourceLocal), nil
 	}
 	// 6. Inherited remote.TrustBundles posture (SHA-agnostic).

@@ -115,9 +115,11 @@ func TestStampItemTrust_BlacklistedSkillJSON(t *testing.T) {
 	assert.Equal(t, "blacklist", row.TrustSource)
 }
 
-// TestStampMCPTrust_ConfiguredServerJSON proves the mcp-list json row carries
-// the stamp and that a configured (local) MCP server is denied by default — a
-// local executable is never auto-trusted.
+// TestStampMCPTrust_ConfiguredServerJSON proves the mcp-list json row carries the
+// stamp and that a configured (project-local) MCP server is auto-trusted: it is
+// declared in the project's own config, has no bundle, and can never be a clone,
+// so the local tier allows it (source "local"). This is the D4b fix — a server
+// the user configured must not render a dead "untrusted" shield.
 func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 	appDir := t.TempDir()
 	cfg := &config.Config{AppPaths: []string{appDir}}
@@ -126,13 +128,13 @@ func TestStampMCPTrust_ConfiguredServerJSON(t *testing.T) {
 	rows := []mcpListRow{{Name: "local-srv", Command: "node", Backend: "unified"}}
 	stampMCPTrust(cfg, servers, rows)
 
-	assert.False(t, rows[0].Trusted, "local executables are not auto-trusted")
-	assert.Equal(t, "default", rows[0].TrustSource)
+	assert.True(t, rows[0].Trusted, "project-configured local MCP is auto-trusted")
+	assert.Equal(t, "local", rows[0].TrustSource)
 
 	b, err := json.Marshal(rows[0])
 	require.NoError(t, err)
-	assert.Contains(t, string(b), `"trusted":false`)
-	assert.Contains(t, string(b), `"trust_source":"default"`)
+	assert.Contains(t, string(b), `"trusted":true`)
+	assert.Contains(t, string(b), `"trust_source":"local"`)
 }
 
 // TestStampMCPTrust_GrantedServerJSON proves the configured-server stamp flows

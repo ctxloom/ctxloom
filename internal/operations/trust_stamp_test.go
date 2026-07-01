@@ -109,8 +109,9 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 }
 
 // TestTrustStamper_ForLocalMCP covers the configured (project-local) MCP server
-// surface: never auto-trusted by default, but trustable via an explicit grant
-// bound to its executable-surface hash, and deniable via the content denylist.
+// surface: auto-trusted by the local tier (declared in the project's own config,
+// no bundle, never a clone), still overridable — an explicit grant reports its
+// own source, and the content denylist denies regardless.
 func TestTrustStamper_ForLocalMCP(t *testing.T) {
 	store := newTrustStore(t)
 	reg := newRegistry(t)
@@ -133,7 +134,7 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 		wantTrusted bool
 		wantSource  trust.Source
 	}{
-		{"default deny (local executable)", "plain", bundles.BundleMCP{Command: "node"}, false, trust.SourceDefault},
+		{"local config MCP auto-trusted", "plain", bundles.BundleMCP{Command: "node"}, true, trust.SourceLocal},
 		{"explicit grant allows exact surface", "granted", granted, true, trust.SourceExplicitGrant},
 		{"denylisted content denied anywhere", "renamed", denied, false, trust.SourceDenylist},
 	}

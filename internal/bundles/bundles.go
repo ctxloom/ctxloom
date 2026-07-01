@@ -58,6 +58,22 @@ type Bundle struct {
 	// Internal fields (not serialized)
 	Name string `yaml:"-"` // Bundle name (from path)
 	Path string `yaml:"-"` // File path for saving
+	// sourceRef is the bundle's canonical ref when it was seeded from a remote
+	// (cloned) source — the lockfile key shape, e.g. "https://…@bundles/x". It is
+	// empty for a project (fs) bundle. Set at seed time (WithSeededBundles).
+	sourceRef string `yaml:"-"`
+}
+
+// contentSourceRef returns the bundle's honest source ref for content trust
+// gating: the canonical ref of a seeded (cloned) bundle, or the local bundle.Name
+// for a project (fs) bundle. Locality flows from this into the trust cascade, so
+// a clone's TEXT gates like its executables while a project bundle's text
+// auto-trusts. "Text to an LLM is executable."
+func (b *Bundle) contentSourceRef() string {
+	if b.sourceRef != "" {
+		return b.sourceRef
+	}
+	return b.Name
 }
 
 // BundleHook is the bundle-authoring shape of a hook: the wire.Hook fields a

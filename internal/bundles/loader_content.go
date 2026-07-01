@@ -234,7 +234,7 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
 	content := frag.EffectiveContent(l.preferDistilled)
 	hash, form := frag.EffectiveContentHash(l.preferDistilled)
-	if !l.gateContent(bundle.Name, "fragments", fragName, hash, form) {
+	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, hash, form) {
 		return nil
 	}
 	return &LoadedContent{
@@ -351,7 +351,7 @@ func (l *Loader) GetSkill(name string) (*LoadedContent, error) {
 func (l *Loader) skillContent(bundle *Bundle, promptName string, prompt BundleSkill) *LoadedContent {
 	content := prompt.EffectiveContent(l.preferDistilled)
 	hash, form := prompt.EffectiveContentHash(l.preferDistilled)
-	if !l.gateContent(bundle.Name, "prompts", promptName, hash, form) {
+	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, hash, form) {
 		return nil
 	}
 	return &LoadedContent{

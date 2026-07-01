@@ -140,6 +140,29 @@ func TestLoaderGate_PassesEffectiveHash(t *testing.T) {
 	}
 }
 
+// TestLoaderGate_SeededBundleGatesByCanonicalRef proves a cloned (seeded) bundle's
+// content is gated by its CANONICAL source ref — the seed key — not the short
+// bundle.Name. So the trust cascade reads a clone's TEXT as IsLocal=false and it
+// follows the remote's trust, exactly like the clone's executables ("text to an
+// LLM is executable"). A project (fs) bundle keeps keying by its local name (the
+// other gate tests, whose seed keys equal the short name, cover that path).
+func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
+	const canonical = "https://github.com/acme/repo@bundles/tooling"
+	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {Content: "body"}}}}
+	seen := map[string][2]string{}
+	l := NewLoader(nil, true, WithSeededBundles(seed), WithTrustGate(blockingGate(seen)))
+
+	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
+		t.Fatalf("GetFragment: %v", err)
+	}
+	if _, ok := seen[canonical+"#fragments/f"]; !ok {
+		t.Errorf("gate not fed the canonical source ref; saw %v", seen)
+	}
+	if _, ok := seen["tooling#fragments/f"]; ok {
+		t.Error("cloned content gated by short bundle.Name — would read as local (a trust hole)")
+	}
+}
+
 // TestLoaderGate_Search_PrefersTrustedSibling proves a bare-name search skips a
 // withheld match and returns a trusted copy from another bundle; only when every
 // match is withheld does it report ErrFragmentWithheld (not not-found).

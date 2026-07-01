@@ -89,11 +89,17 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 		}
 		// The seed key is the bundle's resolution identity; a bundle that
 		// doesn't carry its own name would compose broken item names
-		// ("/<item>"), so backfill from the key.
+		// ("/<item>"), so backfill from the key. The key is also the bundle's
+		// canonical (cloned) source ref, recorded so the content gate keys by it
+		// (honest local-vs-clone locality) instead of the short bundle.Name.
 		for name, b := range seeded {
-			if b != nil && b.Name == "" {
+			if b == nil {
+				continue
+			}
+			if b.Name == "" {
 				b.Name = name
 			}
+			b.sourceRef = name
 		}
 		maps.Copy(l.seeded, seeded)
 	}
@@ -141,11 +147,14 @@ func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) 
 // caller can surface the count ("N withheld") via Withheld without leaking
 // content. The hash MUST be the effective-content hash of the exact bytes about
 // to be exposed (pre-mustache), so the gate keys on what the agent would see.
-func (l *Loader) gateContent(bundleName, kindDir, itemName, contentHash string, form ContentForm) bool {
+// source is the bundle's honest source ref (Bundle.contentSourceRef): canonical
+// for a cloned bundle so its text gates like an executable, the local name for a
+// project bundle so its text auto-trusts — the SAME keying the exec gate uses.
+func (l *Loader) gateContent(source, kindDir, itemName, contentHash string, form ContentForm) bool {
 	if l.gate == nil {
 		return true
 	}
-	ref := bundleName + "#" + kindDir + "/" + itemName
+	ref := source + "#" + kindDir + "/" + itemName
 	if l.gate(ref, contentHash, string(form)) {
 		return true
 	}

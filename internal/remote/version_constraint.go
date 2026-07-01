@@ -62,6 +62,25 @@ func parseSelector(expr string) (forced SelectorKind, bare string) {
 // semver check.
 var shaLike = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
+// SelectorKind returns the entry's recorded selector kind, deriving it from
+// RequestedVersion (shape only) for entries written before the Kind field
+// existed. A recorded Version means a version selector; otherwise sha/empty
+// classify exactly and a bare tag/branch name (unclassifiable without a repo)
+// derives to SelectorBranch — the safe re-resolving default, since re-resolving
+// an immutable tag by name yields the same SHA (never spuriously outdated).
+func (e LockEntry) SelectorKind() SelectorKind {
+	if e.Kind != "" {
+		return e.Kind
+	}
+	if e.Version != "" {
+		return SelectorVersion
+	}
+	if k := inferSelectorKind(e.RequestedVersion); k != "" {
+		return k
+	}
+	return SelectorBranch
+}
+
 // LooksLikeCommit reports whether s is a bare git object name (7–40 hex digits).
 // Such an expression is already a concrete commit, so a caller can record it
 // verbatim without contacting the repository — the resolution it would produce

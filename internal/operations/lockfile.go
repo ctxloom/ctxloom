@@ -124,7 +124,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		// RequestedVersion records the manifest constraint so a later relock can
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
-		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version}
+		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 		if prevPinned[string(p.Type)+"\x00"+p.Identity] {
 			entry.Pinned = true
 		}
@@ -183,7 +183,7 @@ func stageNewForReview(baseDir string, fs afero.Fs, staged []PinnedRef) {
 		return
 	}
 	for _, p := range staged {
-		pending.AddEntry(p.Type, p.Identity, remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version})
+		pending.AddEntry(p.Type, p.Identity, remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind})
 	}
 	if err := pendingMgr.Save(pending); err != nil {
 		clidiag.Warn("ctxloom", "failed to stage new bundles for review: %v", err)

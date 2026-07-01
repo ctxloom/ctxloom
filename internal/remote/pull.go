@@ -199,8 +199,9 @@ type fetchedItem struct {
 	rem              *Remote
 	localName        string // lockfile key, "remote/path"
 	sha              string
-	requestedVersion string // user-specified version, "" if they took the default
-	resolvedVersion  string // concrete tag a semver constraint resolved to, "" otherwise
+	requestedVersion string       // user-specified version, "" if they took the default
+	resolvedVersion  string       // concrete tag a semver constraint resolved to, "" otherwise
+	kind             SelectorKind // classified selector kind (sha/tag/version/branch)
 	content          []byte
 }
 
@@ -251,7 +252,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 		return nil, err
 	}
 
-	sha, requestedVersion, resolvedVersion, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
+	sha, requestedVersion, resolvedVersion, kind, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +267,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 		return nil, err
 	}
 
-	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, resolvedVersion: resolvedVersion, content: content}, nil
+	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, resolvedVersion: resolvedVersion, kind: kind, content: content}, nil
 }
 
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
@@ -320,13 +321,13 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // is the concrete tag a semver constraint matched (e.g. "v1.3.0"), empty for a
 // branch/tag/SHA/default pull; it is recorded as LockEntry.Version, matching the
 // lock/upgrade paths.
-func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion, resolvedVersion string, err error) {
+func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference) (sha, requestedVersion, resolvedVersion string, kind SelectorKind, err error) {
 	requestedVersion = ref.EffectiveContentVersion()
 	res, err := ResolveConstraint(ctx, requestedVersion, NewFetcherRepoVersions(fetcher, owner, repo))
 	if err != nil {
-		return "", "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
+		return "", "", "", "", fmt.Errorf("failed to resolve version %q: %w", requestedVersion, err)
 	}
-	return res.SHA, requestedVersion, res.Version, nil
+	return res.SHA, requestedVersion, res.Version, res.Kind, nil
 }
 
 // securityReview enforces the pull's safety gate: blind mode implies force,
@@ -406,7 +407,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion)
+	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind)
 	if err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
@@ -519,7 +520,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // target lockfile) from a remote without TrustBundles is staged into the
 // pending lockfile instead — the security gate for non-interactive pulls.
 // Returns staged=true when that redirect happened.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string) (staged bool, err error) {
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind) (staged bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileTargetFor(itemType)
 	writingToPending := p.bundleLockfileManager != nil && target == p.bundleLockfileManager
@@ -535,6 +536,7 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		URL:              remote.URL,
 		RequestedVersion: requestedVersion,
 		Version:          resolvedVersion,
+		Kind:             kind,
 		FetchedAt:        time.Now().UTC(),
 	}
 
@@ -569,6 +571,7 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 			entry.SHA = existing.SHA
 			entry.Version = existing.Version
 			entry.RequestedVersion = existing.RequestedVersion
+			entry.Kind = existing.Kind
 		}
 	}
 

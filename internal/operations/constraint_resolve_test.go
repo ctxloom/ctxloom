@@ -47,7 +47,7 @@ func TestConstraintResolver_BareCommitIsVerbatimNoClone(t *testing.T) {
 	factory, calls := countingFactory(remote.NewMockFetcher())
 	resolve := newConstraintResolver(context.Background(), nil, factory, remote.AuthConfig{}, false)
 
-	sha, version, ok := resolve(mustRef(t, "abc123def456"))
+	sha, version, _, ok := resolve(mustRef(t, "abc123def456"))
 	require.True(t, ok)
 	assert.Equal(t, "abc123def456", sha)
 	assert.Empty(t, version)
@@ -59,7 +59,7 @@ func TestConstraintResolver_CarryForwardUnchangedConstraint(t *testing.T) {
 	active := activeLock(remote.LockEntry{SHA: "lockedsha", RequestedVersion: "^1.2", Version: "v1.2.5"})
 	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
 
-	sha, version, ok := resolve(mustRef(t, "^1.2"))
+	sha, version, _, ok := resolve(mustRef(t, "^1.2"))
 	require.True(t, ok)
 	assert.Equal(t, "lockedsha", sha, "unchanged constraint keeps the locked SHA")
 	assert.Equal(t, "v1.2.5", version)
@@ -72,7 +72,7 @@ func TestConstraintResolver_HoldWinsOverChangedConstraint(t *testing.T) {
 	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
 
 	// Constraint changed (^2.0), but the entry is held → stays frozen.
-	sha, _, ok := resolve(mustRef(t, "^2.0"))
+	sha, _, _, ok := resolve(mustRef(t, "^2.0"))
 	require.True(t, ok)
 	assert.Equal(t, "heldsha", sha)
 	assert.Zero(t, *calls, "a held entry is never re-resolved")
@@ -84,7 +84,7 @@ func TestConstraintResolver_FreshBranchResolution(t *testing.T) {
 	factory, calls := countingFactory(mock)
 	resolve := newConstraintResolver(context.Background(), nil, factory, remote.AuthConfig{}, false)
 
-	sha, _, ok := resolve(mustRef(t, "main"))
+	sha, _, _, ok := resolve(mustRef(t, "main"))
 	require.True(t, ok)
 	assert.Equal(t, "mainsha", sha)
 	assert.Equal(t, 1, *calls, "a branch constraint with no lock resolves against the repo")
@@ -98,7 +98,7 @@ func TestConstraintResolver_FallsBackToLockOnFailure(t *testing.T) {
 	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
 
 	// Changed constraint forces a fresh resolve, which fails → fall back to lock.
-	sha, _, ok := resolve(mustRef(t, "feature-x"))
+	sha, _, _, ok := resolve(mustRef(t, "feature-x"))
 	require.True(t, ok)
 	assert.Equal(t, "oldsha", sha, "a resolution failure keeps the last known SHA, never empty")
 }
@@ -109,7 +109,7 @@ func TestConstraintResolver_SkipsWhenUnresolvableAndUnlocked(t *testing.T) {
 	factory, _ := countingFactory(mock)
 	resolve := newConstraintResolver(context.Background(), nil, factory, remote.AuthConfig{}, false)
 
-	_, _, ok := resolve(mustRef(t, "feature-x"))
+	_, _, _, ok := resolve(mustRef(t, "feature-x"))
 	assert.False(t, ok, "no resolution and no prior lock → skip, not an empty pin")
 }
 
@@ -123,7 +123,7 @@ func TestConstraintResolver_UpgradeReResolvesButHoldStays(t *testing.T) {
 	t.Run("unheld re-resolves past the locked SHA", func(t *testing.T) {
 		active := activeLock(remote.LockEntry{SHA: "oldmainsha", RequestedVersion: "main"})
 		resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, true)
-		sha, _, ok := resolve(mustRef(t, "main"))
+		sha, _, _, ok := resolve(mustRef(t, "main"))
 		require.True(t, ok)
 		assert.Equal(t, "newmainsha", sha, "upgrade advances an unheld branch past its locked SHA")
 		assert.Equal(t, 1, *calls)
@@ -133,7 +133,7 @@ func TestConstraintResolver_UpgradeReResolvesButHoldStays(t *testing.T) {
 		factory2, calls2 := countingFactory(mock)
 		active := activeLock(remote.LockEntry{SHA: "frozensha", RequestedVersion: "main", Pinned: true})
 		resolve := newConstraintResolver(context.Background(), active, factory2, remote.AuthConfig{}, true)
-		sha, _, ok := resolve(mustRef(t, "main"))
+		sha, _, _, ok := resolve(mustRef(t, "main"))
 		require.True(t, ok)
 		assert.Equal(t, "frozensha", sha, "a held entry never moves, even in upgrade mode")
 		assert.Zero(t, *calls2)

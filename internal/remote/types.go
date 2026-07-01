@@ -283,11 +283,18 @@ type LockEntry struct {
 	// stability); `upgrade` re-resolves it.
 	RequestedVersion string `yaml:"requested_version,omitempty" json:"requested_version,omitempty"`
 
-	// Version is the concrete tag a semver constraint resolved to (e.g.
+	// Version is the concrete tag a version/tag selector resolved to (e.g.
 	// "v1.3.0"), recorded for display and to test whether a carried-forward SHA
-	// still satisfies a changed constraint. Empty for default-branch, direct
-	// branch, and bare-SHA resolutions, which have no single tag label.
+	// still satisfies a changed constraint. Empty for branch and bare-SHA
+	// resolutions, which have no single tag label.
 	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+
+	// Kind is the classified selector kind (sha/tag/version/branch) of
+	// RequestedVersion, recorded so update/upgrade semantics are declarative: a
+	// sha/tag is a pin (never outdated), a version re-resolves within its range, a
+	// branch re-resolves to its tip. Empty on entries written before this field
+	// existed — SelectorKind() derives it from RequestedVersion in that case.
+	Kind SelectorKind `yaml:"kind,omitempty" json:"kind,omitempty"`
 
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`

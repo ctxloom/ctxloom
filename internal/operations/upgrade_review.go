@@ -75,7 +75,7 @@ func StageUpgrade(ctx context.Context, cfg *config.Config) (UpgradeResult, error
 	pending := emptyLockfile()
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
-		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version}
+		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 		if has && cur.Pinned {
 			entry.Pinned = true // hold survives a relock
 		}

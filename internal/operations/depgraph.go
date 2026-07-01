@@ -16,12 +16,13 @@ import (
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
 // reference whose version constraint has been resolved to a concrete commit.
 type PinnedRef struct {
-	Identity   string          // canonical ref without version: "<url>@<kind>/<path>"
-	Hash       string          // the commit the constraint resolved to
-	URL        string          // repo URL
-	Type       remote.ItemType // bundle or profile
-	Constraint string          // the manifest's version expression (range/branch/tag/sha/empty)
-	Version    string          // the concrete tag a semver constraint chose, else empty
+	Identity   string              // canonical ref without version: "<url>@<kind>/<path>"
+	Hash       string              // the commit the constraint resolved to
+	URL        string              // repo URL
+	Type       remote.ItemType     // bundle or profile
+	Constraint string              // the manifest's version expression (range/branch/tag/sha/empty)
+	Version    string              // the concrete tag a semver constraint chose, else empty
+	Kind       remote.SelectorKind // classified selector kind (sha/tag/version/branch)
 }
 
 // DependencyConflict reports a single item referenced at two or more differing
@@ -147,7 +148,7 @@ func FlattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 // resolver, so the lock path (carry-forward) and the upgrade path (re-resolve)
 // share one traversal and differ only in how each ref's constraint resolves.
 // The third return is the unexpanded-parent set (see FlattenDependencies).
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, bool)) ([]PinnedRef, []DependencyConflict, []string) {
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool)) ([]PinnedRef, []DependencyConflict, []string) {
 	w := &depWalker{
 		ctx:         ctx,
 		loader:      loader,
@@ -176,7 +177,7 @@ type depWalker struct {
 	// ref is skipped, never pinned at an empty hash. Nil means "treat the ref's
 	// version expression as already concrete" (the pre-resolution passthrough used
 	// by closure/conflict unit tests that inject pre-pinned hashes directly).
-	resolveHash func(ref *remote.Reference) (hash, version string, ok bool)
+	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
 	pins    map[string]PinnedRef           // identity -> first-seen pin
 	hashes  map[string]map[string]struct{} // identity -> set of hashes (for conflict detection)
@@ -202,11 +203,11 @@ func (w *depWalker) markUnexpanded(identity string, cause error) {
 // resolvedHash resolves ref via the injected resolver, or — when none is set —
 // passes the ref's version expression through as the hash (the pre-resolution
 // contract the depgraph unit tests rely on).
-func (w *depWalker) resolvedHash(ref *remote.Reference) (hash, version string, ok bool) {
+func (w *depWalker) resolvedHash(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool) {
 	if w.resolveHash != nil {
 		return w.resolveHash(ref)
 	}
-	return ref.ContentVersion, "", true
+	return ref.ContentVersion, "", "", true
 }
 
 // walkProfile resolves a profile's short refs against (sourceURL, sourceHash),
@@ -238,7 +239,7 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 	if !ref.IsCanonical() {
 		return nil
 	}
-	hash, version, ok := w.resolvedHash(ref)
+	hash, version, selKind, ok := w.resolvedHash(ref)
 	if !ok {
 		return nil // unresolvable — skip rather than pin an empty hash
 	}
@@ -255,6 +256,7 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 			Type:       kind,
 			Constraint: ref.ContentVersion,
 			Version:    version,
+			Kind:       selKind,
 		}
 	}
 	return ref
@@ -292,7 +294,7 @@ func (w *depWalker) recurseParent(parentRef string) {
 	}
 	// Recurse at the RESOLVED commit, not the (possibly symbolic) constraint —
 	// the bundle's content and its profile's transitive refs are read at it.
-	hash, _, hok := w.resolvedHash(rec)
+	hash, _, _, hok := w.resolvedHash(rec)
 	if !hok {
 		return
 	}

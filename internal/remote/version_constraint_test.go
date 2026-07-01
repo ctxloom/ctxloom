@@ -45,6 +45,40 @@ func TestInferSelectorKind(t *testing.T) {
 	}
 }
 
+func TestSelectorKind_IsPin(t *testing.T) {
+	pins := []SelectorKind{SelectorSHA, SelectorTag}
+	moving := []SelectorKind{SelectorVersion, SelectorBranch, ""}
+	for _, k := range pins {
+		if !k.IsPin() {
+			t.Errorf("%q.IsPin() = false, want true (a pin never goes outdated)", k)
+		}
+	}
+	for _, k := range moving {
+		if k.IsPin() {
+			t.Errorf("%q.IsPin() = true, want false (re-resolves)", k)
+		}
+	}
+}
+
+func TestLockEntry_SelectorKind_DerivesForLegacyEntries(t *testing.T) {
+	cases := []struct {
+		e    LockEntry
+		want SelectorKind
+	}{
+		{LockEntry{Kind: SelectorTag}, SelectorTag},                       // explicit wins
+		{LockEntry{Version: "v1.2.0"}, SelectorVersion},                   // a recorded tag ⇒ version
+		{LockEntry{RequestedVersion: "^1.2"}, SelectorVersion},            // semver shape
+		{LockEntry{RequestedVersion: "abc1234"}, SelectorSHA},             // hex shape
+		{LockEntry{RequestedVersion: ""}, SelectorBranch},                 // empty ⇒ default branch
+		{LockEntry{RequestedVersion: "main"}, SelectorBranch},             // bare name derives to branch
+	}
+	for _, c := range cases {
+		if got := c.e.SelectorKind(); got != c.want {
+			t.Errorf("SelectorKind(%+v) = %q, want %q", c.e, got, c.want)
+		}
+	}
+}
+
 func TestParseSelector(t *testing.T) {
 	cases := []struct {
 		expr      string

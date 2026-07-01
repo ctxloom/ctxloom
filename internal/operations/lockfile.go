@@ -439,6 +439,10 @@ func findOutdatedEntries(ctx context.Context, entries []struct {
 	var outdated []OutdatedItem
 	fetcherByURL := map[string]remote.Fetcher{}
 	for _, e := range entries {
+		// A sha/tag pin never goes outdated; skip the re-resolve entirely.
+		if e.Entry.SelectorKind().IsPin() {
+			continue
+		}
 		repoURL := repoURLForEntry(e.Ref, e.Entry, registry)
 		if repoURL == "" {
 			continue

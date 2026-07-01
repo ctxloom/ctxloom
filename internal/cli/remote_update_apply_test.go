@@ -119,6 +119,23 @@ func TestApplyUpdates_EmptyIsNoop(t *testing.T) {
 	}
 }
 
+func TestUpdateInfo_SelectorLabel(t *testing.T) {
+	cases := []struct {
+		u    updateInfo
+		want string
+	}{
+		{updateInfo{Kind: remote.SelectorBranch, RequestedVersion: "main"}, "tracking branch main"},
+		{updateInfo{Kind: remote.SelectorBranch, RequestedVersion: ""}, "tracking branch default branch"},
+		{updateInfo{Kind: remote.SelectorVersion, RequestedVersion: "^1.2", Version: "v1.3.0"}, "range ^1.2 → v1.3.0"},
+		{updateInfo{Kind: remote.SelectorVersion, RequestedVersion: "^1.2"}, "range ^1.2"},
+	}
+	for _, c := range cases {
+		if got := c.u.selectorLabel(); got != c.want {
+			t.Errorf("selectorLabel(%+v) = %q, want %q", c.u, got, c.want)
+		}
+	}
+}
+
 func TestPrintAvailableUpdates(t *testing.T) {
 	var out bytes.Buffer
 	printAvailableUpdates(&out, []updateInfo{bundleUpd("bob/tools")})

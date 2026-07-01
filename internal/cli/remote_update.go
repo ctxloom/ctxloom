@@ -275,6 +275,30 @@ type updateInfo struct {
 	// RequestedVersion is the entry's original manifest constraint, carried so
 	// apply can pin the content to LatestSHA without overwriting the constraint.
 	RequestedVersion string
+	// Kind and Version describe the selector for display ("tracking branch main",
+	// "range ^1.2 → v1.3.0"). Version is the concrete tag currently locked, if any.
+	Kind    remote.SelectorKind
+	Version string
+}
+
+// selectorLabel renders a human description of an entry's selector for the update
+// listing: what it tracks and, for a version range, the concrete tag it sits on.
+func (u updateInfo) selectorLabel() string {
+	switch u.Kind {
+	case remote.SelectorBranch:
+		name := u.RequestedVersion
+		if name == "" {
+			name = "default branch"
+		}
+		return "tracking branch " + name
+	case remote.SelectorVersion:
+		if u.Version != "" {
+			return fmt.Sprintf("range %s → %s", u.RequestedVersion, u.Version)
+		}
+		return "range " + u.RequestedVersion
+	default:
+		return string(u.Kind)
+	}
 }
 
 // pullRunner is the slice of *remote.Puller that the apply phase needs, declared
@@ -337,6 +361,11 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 			skipped++
 			continue
 		}
+		// A sha/tag pin never goes outdated — re-resolving yields the same commit,
+		// so skip the network round-trip entirely (declarative from the kind).
+		if e.Entry.SelectorKind().IsPin() {
+			continue
+		}
 		ref, err := remote.ParseReference(e.Ref)
 		if err != nil {
 			continue
@@ -353,7 +382,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
-		bundleUpdates = append(bundleUpdates, updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion})
+		bundleUpdates = append(bundleUpdates, updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
 	}
 	return bundleUpdates, skipped
 }
@@ -382,7 +411,7 @@ func printAvailableUpdates(out io.Writer, bundleUpdates []updateInfo) {
 	if len(bundleUpdates) > 0 {
 		fmt.Fprintln(out, "Bundles:")
 		for _, u := range bundleUpdates {
-			fmt.Fprintf(out, "  %s\n", u.Ref)
+			fmt.Fprintf(out, "  %s  (%s)\n", u.Ref, u.selectorLabel())
 			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
 		}
 	}

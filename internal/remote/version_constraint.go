@@ -32,6 +32,14 @@ const (
 	SelectorBranch SelectorKind = "branch"
 )
 
+// IsPin reports whether the kind is a fixed pin — a commit or an exact tag —
+// that never goes outdated (re-resolving it yields the same commit). A version
+// range re-resolves to the highest satisfying tag and a branch to its tip, so
+// those are NOT pins.
+func (k SelectorKind) IsPin() bool {
+	return k == SelectorSHA || k == SelectorTag
+}
+
 // selectorPrefixes maps an explicit "kind:" disambiguator to its kind. An
 // explicit prefix overrides shape inference (e.g. "branch:1.0" forces a branch
 // named "1.0" that would otherwise infer as a version; "tag:main" pins a tag

@@ -18,13 +18,13 @@ import (
 
 var trustCmd = &cobra.Command{
 	Use:   "trust <ref>",
-	Short: "Trust an item's current version (fragment, prompt, or MCP server)",
+	Short: "Trust an item's current version (fragment, skill, or MCP server)",
 	Long: `Bless the currently-resolved version of an item so it is exposed to the agent.
 
 The grant is bound to the item's effective-content hash (distilled or raw, per
 config): a later content change drops the grant and forces re-review.
 
-Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#prompts/<name>, or
+Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#skills/<name>, or
 <bundle-ref>#mcp/<name>. The bundle ref may be a canonical URL ref, a
 ctxloom:local ref, or a plain local bundle name.
 
@@ -34,7 +34,7 @@ Address a specific historical version by appending @<commit> to the bundle ref
 
 Examples:
   ctxloom trust core#fragments/tdd
-  ctxloom trust ctxloom:local@bundles/dev#prompts/review
+  ctxloom trust ctxloom:local@bundles/dev#skills/review
   ctxloom trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
 Revoke exposure with 'ctxloom blacklist <ref>'.`,

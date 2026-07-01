@@ -153,8 +153,8 @@ func remoteTrusted(reg *remote.Registry, canonicalURL string) (trusted bool, fou
 type SetItemTrustRequest struct {
 	// Ref is the item reference, "<bundle-ref>#<kind>/<name>" where bundle-ref
 	// is a canonical URL ref, a ctxloom:local ref, or a plain local bundle name,
-	// kind is fragments|prompts|mcp. A trailing "@<commit>" on the bundle ref is
-	// recorded as provenance.
+	// kind is fragments|skills|mcp (legacy "prompts" still accepted). A trailing
+	// "@<commit>" on the bundle ref is recorded as provenance.
 	Ref string
 
 	Store  *trust.Store    `json:"-"`
@@ -332,7 +332,12 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 	switch kindDir {
 	case "fragments":
 		return trust.KindFragment, name, nil
-	case "prompts":
+	case "skills", "prompts":
+		// "skills" is the current spelling (the CLI list emits #skills/<name>);
+		// "prompts" is the legacy alias. Both map to trust.KindPrompt so the
+		// stored key (KindPrompt.Dir() == "prompts"), the assembly-time content
+		// gate, and existing grants stay valid — the content lives in
+		// bundle.Skills, which computeItemHash reads under KindPrompt.
 		return trust.KindPrompt, name, nil
 	case "mcp":
 		return trust.KindMCP, name, nil
@@ -340,7 +345,7 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 		// name is the hook's "<event>/<index>" identity (carries an inner slash).
 		return trust.KindHook, name, nil
 	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|prompts|mcp|hooks)", kindDir)
+		return "", "", fmt.Errorf("unknown item kind %q (want fragments|skills|mcp|hooks)", kindDir)
 	}
 }
 

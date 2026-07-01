@@ -59,6 +59,20 @@ func seedLocalFragment(t *testing.T, cfg *config.Config, bundle, name, body stri
 	require.NoError(t, err)
 }
 
+// seedLocalSkill writes a local bundle with one skill to the temp project so the
+// read-path loader can resolve and hash it. The CLI list emits #skills/<name>
+// refs (item-kind renamed prompt->skill), which resolve to trust.KindPrompt.
+func seedLocalSkill(t *testing.T, cfg *config.Config, bundle, name, body string) {
+	t.Helper()
+	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
+		Name: bundle,
+		Skills: map[string]operations.BundleSkillInput{
+			name: {Content: body, NoDistill: true},
+		},
+	})
+	require.NoError(t, err)
+}
+
 // effectiveFragmentHash recomputes the bytes-exact effective-content hash the
 // grant must bind to, independently of the command path.
 func effectiveFragmentHash(t *testing.T, appDir, bundle, name string) string {
@@ -69,6 +83,19 @@ func effectiveFragmentHash(t *testing.T, appDir, bundle, name string) string {
 	frag, ok := b.Fragments[name]
 	require.True(t, ok, "seeded fragment %q missing", name)
 	hash, _ := frag.EffectiveContentHash(true)
+	return hash
+}
+
+// effectiveSkillHash recomputes the bytes-exact effective-content hash a skill
+// grant must bind to, independently of the command path.
+func effectiveSkillHash(t *testing.T, appDir, bundle, name string) string {
+	t.Helper()
+	loader := bundles.NewLoader([]string{paths.BundlesPath(appDir)}, true)
+	b, err := loader.Load(bundle)
+	require.NoError(t, err)
+	skill, ok := b.Skills[name]
+	require.True(t, ok, "seeded skill %q missing", name)
+	hash, _ := skill.EffectiveContentHash(true)
 	return hash
 }
 
@@ -120,6 +147,33 @@ func TestRunItemTrust_GrantsLocalFragment(t *testing.T) {
 	// A different hash must NOT match — the grant is content-pinned.
 	_, ok = store.GrantMatch(remote.LocalSource, "demo#fragments/x", "sha256:other")
 	assert.False(t, ok)
+}
+
+// TestRunItemTrust_GrantsLocalSkill drives `ctxloom trust <bundle>#skills/<name>`:
+// the exact ref the list emits after the prompt->skill rename. It must no longer
+// error "unknown item kind" and must write a grant keyed by the canonical
+// (#prompts/) key bound to the skill's recomputed effective-content hash.
+func TestRunItemTrust_GrantsLocalSkill(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	seedLocalSkill(t, cfg, "demo", "review", "always-trusted skill body")
+
+	c, out := testCmd()
+	// Accepting #skills/ is the fix; the echo reports the canonical #prompts/ key
+	// (res.Ref == tRef.Key(), Kind.Dir()=="prompts") — the store address, not the
+	// input spelling.
+	require.NoError(t, runItemTrust(c, cfg, "demo#skills/review"))
+	assert.Contains(t, out.String(), "Trusted demo#prompts/review")
+
+	wantHash := effectiveSkillHash(t, appDir, "demo", "review")
+
+	// Stored under the canonical #prompts/ key (trust.KindPrompt.Dir()), so the
+	// assembly gate and existing grants resolve identically regardless of spelling.
+	store := loadTrustStore(t, appDir)
+	g, ok := store.GrantMatch(remote.LocalSource, "demo#prompts/review", wantHash)
+	require.True(t, ok, "grant must be keyed by canonical repo + effective hash")
+	assert.Equal(t, wantHash, g.ContentHash)
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it

@@ -68,6 +68,53 @@ func TestStampItemTrust_BlacklistedFragmentJSON(t *testing.T) {
 	assert.Equal(t, "blacklist", row.TrustSource)
 }
 
+// TestStampItemTrust_LocalSkillJSON is the regression guard for the prompt->skill
+// rename: the CLI list emits #skills/<name> refs, and a project-authored local
+// skill must resolve trusted via the local tier — not fail-closed to
+// trusted:false/default because the trust selector didn't know the "skills" kind.
+func TestStampItemTrust_LocalSkillJSON(t *testing.T) {
+	appDir := t.TempDir()
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	seedLocalSkill(t, cfg, "demo", "review", "always-local skill body")
+
+	rows, err := listItemRows(cfg, ItemTypeSkill)
+	require.NoError(t, err)
+	stampItemTrust(cfg, ItemTypeSkill, rows)
+
+	row, ok := findRow(rows, "demo#skills/review")
+	require.True(t, ok, "seeded local skill must be listed")
+	assert.True(t, row.Trusted, "local content is auto-allowed")
+	assert.Equal(t, "local", row.TrustSource)
+
+	b, err := json.Marshal(row)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"trusted":true`)
+	assert.Contains(t, string(b), `"trust_source":"local"`)
+}
+
+// TestStampItemTrust_BlacklistedSkillJSON proves the #skills/ row reflects a
+// blacklisted local skill as withheld. The stamp queries the store by the
+// canonical key (Kind.Dir()=="prompts" for a skill), so the block is stored
+// under #prompts/ — exactly what operations.SetBlacklist canonicalizes a
+// user's `blacklist demo#skills/review` to.
+func TestStampItemTrust_BlacklistedSkillJSON(t *testing.T) {
+	appDir := t.TempDir()
+	cfg := &config.Config{AppPaths: []string{appDir}}
+	seedLocalSkill(t, cfg, "demo", "review", "rm -rf danger")
+
+	store := loadTrustStore(t, appDir)
+	require.NoError(t, store.Blacklist(remote.LocalSource, "demo#prompts/review", ""))
+
+	rows, err := listItemRows(cfg, ItemTypeSkill)
+	require.NoError(t, err)
+	stampItemTrust(cfg, ItemTypeSkill, rows)
+
+	row, ok := findRow(rows, "demo#skills/review")
+	require.True(t, ok)
+	assert.False(t, row.Trusted)
+	assert.Equal(t, "blacklist", row.TrustSource)
+}
+
 // TestStampMCPTrust_ConfiguredServerJSON proves the mcp-list json row carries
 // the stamp and that a configured (local) MCP server is denied by default — a
 // local executable is never auto-trusted.

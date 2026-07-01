@@ -619,15 +619,10 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 }
 
 // browseTypeList maps the request item_type filter to the item types to browse.
+// Only bundles are distributed at the top level now (top-level profile
+// distribution was retired; profiles ship inside bundles).
 func browseTypeList(itemType string) []remote.ItemType {
-	switch itemType {
-	case "bundle":
-		return []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		return []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
+	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
@@ -862,16 +857,11 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 }
 
 // searchTypeList maps the request item_type filter to the item types to search.
-// "fragment" searches bundles (fragments live inside bundles).
+// Only bundles are distributed at the top level now (top-level profile
+// distribution was retired); "fragment" also searches bundles (fragments live
+// inside bundles).
 func searchTypeList(itemType string) []remote.ItemType {
-	switch itemType {
-	case "bundle", "fragment":
-		return []remote.ItemType{remote.ItemTypeBundle}
-	case "profile":
-		return []remote.ItemType{remote.ItemTypeProfile}
-	default:
-		return []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile}
-	}
+	return []remote.ItemType{remote.ItemTypeBundle}
 }
 
 // prewarmRemoteClones ensures each remote's clone exists BEFORE the parallel
@@ -930,15 +920,10 @@ func fanOutRemoteSearch(ctx context.Context, cfg *config.Config, remotes []*remo
 func toSearchEntries(results []remote.SearchResult) []SearchRemoteEntry {
 	entries := make([]SearchRemoteEntry, 0, len(results))
 	for _, r := range results {
-		itemType := "bundle"
-		if r.ItemType == remote.ItemTypeProfile {
-			itemType = "profile"
-		}
-
 		entries = append(entries, SearchRemoteEntry{
 			Remote:      r.Remote,
 			Name:        r.Entry.Name,
-			Type:        itemType,
+			Type:        "bundle",
 			Tags:        r.Entry.Tags,
 			Description: r.Entry.Description,
 			Author:      r.Entry.Author,
@@ -990,8 +975,6 @@ func searchManifestContent(rem *remote.Remote, content []byte, itemType remote.I
 	switch itemType {
 	case remote.ItemTypeBundle:
 		entries = manifest.Bundles
-	case remote.ItemTypeProfile:
-		entries = manifest.Profiles
 	}
 
 	var results []remote.SearchResult

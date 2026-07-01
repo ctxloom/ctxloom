@@ -47,7 +47,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{baseDir}}
 	ctx := context.Background()
 
-	t.Run("tag query matches via file metadata", func(t *testing.T) {
+	t.Run("tag query matches the bundle via file metadata", func(t *testing.T) {
 		res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: "tag:golang"})
 		require.NoError(t, err)
 		require.NotNil(t, res)
@@ -56,24 +56,15 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 		for _, e := range res.Results {
 			byName[e.Name] = e
 		}
-		// Both the bundle and the profile carry tag:golang.
+		// The tagged bundle matches; its tags and install pull_ref are exposed.
 		require.Contains(t, byName, "go-development", "tagged bundle should match (warnings=%v)", res.Warnings)
-		require.Contains(t, byName, "go-developer", "tagged profile should match")
-
-		// The matched entries expose their tags (not name-only stubs) and a
-		// pull_ref the caller can install.
 		assert.Contains(t, byName["go-development"].Tags, "golang")
 		assert.Equal(t, url+"@bundles/go-development", byName["go-development"].PullRef)
 		assert.Equal(t, "bundle", byName["go-development"].Type)
-		assert.Equal(t, "profile", byName["go-developer"].Type)
-	})
 
-	t.Run("item_type narrows to profiles", func(t *testing.T) {
-		res, err := SearchRemotes(ctx, cfg, SearchRemotesRequest{Query: "tag:golang", ItemType: "profile"})
-		require.NoError(t, err)
-		for _, e := range res.Results {
-			assert.Equal(t, "profile", e.Type, "item_type=profile must exclude bundles")
-		}
+		// The top-level profile is NOT surfaced — top-level profile distribution
+		// was retired; profiles ship inside bundles.
+		assert.NotContains(t, byName, "go-developer", "top-level profiles are no longer discoverable")
 	})
 
 	t.Run("non-matching tag yields nothing", func(t *testing.T) {

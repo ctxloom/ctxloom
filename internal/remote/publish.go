@@ -181,12 +181,6 @@ func (pm *PublishManager) loadPublishContent(localPath string, opts PublishOptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
-	if opts.ItemType == ItemTypeProfile {
-		content, err = transformProfileForExport(content, pm.lockfileManager)
-		if err != nil {
-			return nil, fmt.Errorf("failed to transform profile for export: %w", err)
-		}
-	}
 	return content, nil
 }
 
@@ -392,8 +386,6 @@ func buildPublishPath(itemType ItemType, name string) string {
 	switch itemType {
 	case ItemTypeBundle:
 		dir = "bundles"
-	case ItemTypeProfile:
-		dir = "profiles"
 	default:
 		dir = "bundles"
 	}
@@ -448,88 +440,6 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	}
 }
 
-// profileHasLocalBundleRefs reports whether any bundle entry is a local name
-// (i.e. needs canonicalization before export).
-func profileHasLocalBundleRefs(bundles []interface{}) bool {
-	for _, b := range bundles {
-		if s, ok := b.(string); ok && !IsCanonicalRef(s) {
-			return true
-		}
-	}
-	return false
-}
-
-// canonicalizeBundleRef resolves a single local bundle name to its canonical
-// URL via the lockfile, preserving any #item-path suffix. Canonical refs are
-// returned unchanged by the caller, so this is only invoked for local names.
-func canonicalizeBundleRef(ref string, lockfile *Lockfile) (string, error) {
-	localName, itemPath := splitItemPath(ref)
-
-	canonicalURL, found, err := lockfile.GetCanonicalURL(ItemTypeBundle, localName)
-	if err != nil {
-		return "", err
-	}
-	if !found {
-		return "", fmt.Errorf("bundle %q not found in lockfile; pull it first before publishing", localName)
-	}
-	return canonicalURL + itemPath, nil
-}
-
-// transformProfileForExport rewrites local bundle references in a profile to
-// their canonical URLs for sharing. It edits the YAML node tree in place so the
-// author's key order, comments, and untouched fields are preserved (a map
-// round-trip via yaml.v3 would re-sort keys and strip comments).
-func transformProfileForExport(content []byte, lm *LockfileManager) ([]byte, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return content, nil // Not valid YAML, return as-is
-	}
-	root := documentMapping(&doc)
-	if root == nil {
-		return content, nil
-	}
-
-	bundlesNode := mappingValue(root, "bundles")
-	if bundlesNode == nil || bundlesNode.Kind != yaml.SequenceNode {
-		return content, nil // No bundles list, return as-is
-	}
-
-	// Snapshot the scalar entries to decide whether any local ref needs resolving.
-	refs := make([]interface{}, 0, len(bundlesNode.Content))
-	for _, item := range bundlesNode.Content {
-		if item.Kind == yaml.ScalarNode {
-			refs = append(refs, item.Value)
-		} else {
-			refs = append(refs, nil) // non-scalar entry, left untouched
-		}
-	}
-	if !profileHasLocalBundleRefs(refs) {
-		return content, nil // All already canonical
-	}
-
-	lockfile, err := lm.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load lockfile: %w", err)
-	}
-
-	// Resolve each local scalar ref in place, leaving canonical refs and any
-	// non-scalar entries as the author wrote them.
-	for _, item := range bundlesNode.Content {
-		if item.Kind != yaml.ScalarNode || IsCanonicalRef(item.Value) {
-			continue
-		}
-		canonical, err := canonicalizeBundleRef(item.Value, lockfile)
-		if err != nil {
-			return nil, err
-		}
-		item.Value = canonical
-		item.Tag = "!!str"
-		item.Style = 0
-	}
-
-	return yaml.Marshal(&doc)
-}
-
 // documentMapping returns the top-level mapping node of a parsed YAML document,
 // or nil when the document is empty or its root is not a mapping.
 func documentMapping(doc *yaml.Node) *yaml.Node {
@@ -541,15 +451,4 @@ func documentMapping(doc *yaml.Node) *yaml.Node {
 		return nil
 	}
 	return root
-}
-
-// mappingValue returns the value node for key in a YAML mapping node, or nil when
-// the key is absent. mapping.Content is a flat [key, value, key, value, …] list.
-func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1]
-		}
-	}
-	return nil
 }

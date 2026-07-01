@@ -99,13 +99,16 @@ func searchScopes(localOnly, remoteOnly bool) (local, remote bool) {
 // search. An empty filter searches every type; profile lives in both scopes.
 func resolveSearchTypes(itemType string) (localTypes, remoteTypes []string, err error) {
 	if itemType == "" {
-		return []string{"fragment", "skill", "profile", "mcp_server"}, []string{"bundle", "profile"}, nil
+		// Profiles are searched locally only; top-level profile distribution was
+		// retired, so remote search covers bundles (and the fragments/skills/mcp
+		// they ship).
+		return []string{"fragment", "skill", "profile", "mcp_server"}, []string{"bundle"}, nil
 	}
 	switch itemType {
 	case "fragment", "skill", "mcp_server":
 		return []string{itemType}, nil, nil
 	case "profile":
-		return []string{itemType}, []string{itemType}, nil
+		return []string{itemType}, nil, nil
 	case "bundle":
 		return nil, []string{itemType}, nil
 	default:

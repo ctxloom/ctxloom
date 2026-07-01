@@ -11,22 +11,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-var (
-	browseRecursive bool
-	browseType      string
-)
+var browseRecursive bool
 
 var remoteBrowseCmd = &cobra.Command{
 	Use:   "browse <remote>",
-	Short: "Browse bundles and profiles in a remote",
-	Long: `List bundles and profiles available in a remote repository.
-
-By default shows both bundles and profiles. Use --type to filter.
+	Short: "Browse bundles in a remote",
+	Long: `List bundles available in a remote repository.
 
 Examples:
-  ctxloom remote browse ctxloom-default
-  ctxloom remote browse ctxloom-default --type bundle
-  ctxloom remote browse ctxloom-default --type profile`,
+  ctxloom remote browse ctxloom-default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteBrowse,
 }
@@ -39,11 +32,9 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 
 	remoteName := args[0]
 
-	// Determine which types to browse
-	types := []string{"bundle", "profile"}
-	if browseType != "" {
-		types = []string{browseType}
-	}
+	// Only bundles are distributed at the top level (top-level profile
+	// distribution was retired; profiles ship inside bundles).
+	types := []string{"bundle"}
 
 	totalCount := 0
 
@@ -84,7 +75,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	if totalCount == 0 {
-		fmt.Printf("No bundles or profiles found in %s\n", remoteName)
+		fmt.Printf("No bundles found in %s\n", remoteName)
 		return nil
 	}
 
@@ -99,6 +90,4 @@ func init() {
 
 	remoteBrowseCmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
 		"List items in subdirectories")
-	remoteBrowseCmd.Flags().StringVarP(&browseType, "type", "t", "",
-		"Filter by type: bundle or profile")
 }

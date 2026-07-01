@@ -119,12 +119,7 @@ func TestBrowseRemoteRequest_Validation(t *testing.T) {
 			shouldError: false,
 		},
 		{
-			name:        "valid profile request",
-			req:         BrowseRemoteRequest{Remote: "test", ItemType: "profile"},
-			shouldError: false,
-		},
-		{
-			name:        "empty item type lists both",
+			name:        "empty item type lists bundles",
 			req:         BrowseRemoteRequest{Remote: "test", ItemType: ""},
 			shouldError: false,
 		},
@@ -745,44 +740,26 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 	assert.Contains(t, names, "testing")
 }
 
-func TestBrowseRemote_Profiles(t *testing.T) {
+func TestBrowseRemote_EmptyTypeListsBundlesOnly(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	fetcher := remote.NewMockFetcher().WithDir("ctxloom/profiles", []remote.DirEntry{
-		{Name: "dev.yaml", IsDir: false},
-	})
-
-	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
-		Remote:   "alice",
-		ItemType: "profile",
-		Registry: registry,
-		Fetcher:  fetcher,
-	})
-
-	require.NoError(t, err)
-	assert.Len(t, result.Items, 1)
-	assert.Equal(t, "dev", result.Items[0].Name)
-	assert.Equal(t, "profile", result.Items[0].Type)
-}
-
-func TestBrowseRemote_Both(t *testing.T) {
-	registry, _ := setupTestRegistry(t)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
+	// A profiles dir is present but ignored — top-level profile distribution was
+	// retired, so only bundles are browsable.
 	fetcher := remote.NewMockFetcher().
 		WithDir("ctxloom/bundles", []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
 		WithDir("ctxloom/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:   "alice",
-		ItemType: "", // Both
+		ItemType: "",
 		Registry: registry,
 		Fetcher:  fetcher,
 	})
 
 	require.NoError(t, err)
-	assert.Len(t, result.Items, 2)
+	assert.Len(t, result.Items, 1)
+	assert.Equal(t, "bundle1", result.Items[0].Name)
 }
 
 func TestBrowseRemote_NotFoundRemote(t *testing.T) {
@@ -1025,28 +1002,6 @@ bundles:
 	assert.Len(t, results, 0)
 }
 
-func TestSearchManifestContent_ProfileItems(t *testing.T) {
-	manifestYAML := `
-bundles: []
-profiles:
-  - name: testing-profile
-    description: Testing framework setup
-  - name: code-review-profile
-    description: Code review tools
-`
-
-	rem := &remote.Remote{
-		Name: "test-remote",
-		URL:  "https://github.com/test/repo",
-	}
-
-	results, err := searchManifestContent(rem, []byte(manifestYAML), remote.ItemTypeProfile, remote.SearchQuery{Text: "code"})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	assert.Equal(t, "code-review-profile", results[0].Entry.Name)
-	assert.Equal(t, remote.ItemTypeProfile, results[0].ItemType)
-}
-
 func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
 		WithDir("ctxloom/bundles", []remote.DirEntry{
@@ -1081,25 +1036,6 @@ func TestSearchDirectoryContent_NoMatches(t *testing.T) {
 	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeBundle, remote.SearchQuery{Text: "python"})
 	require.NoError(t, err)
 	assert.Len(t, results, 0)
-}
-
-func TestSearchDirectoryContent_ProfileType(t *testing.T) {
-	fetcher := remote.NewMockFetcher().
-		WithDir("ctxloom/profiles", []remote.DirEntry{
-			{Name: "dev-profile.yaml", IsDir: false},
-			{Name: "test-profile.yaml", IsDir: false},
-		})
-
-	rem := &remote.Remote{
-		Name: "test-remote",
-		URL:  "https://github.com/test/repo",
-	}
-
-	results, err := searchDirectoryContent(context.Background(), fetcher, rem, "owner", "repo", "main", remote.ItemTypeProfile, remote.SearchQuery{Text: "dev"})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	assert.Equal(t, "dev-profile", results[0].Entry.Name)
-	assert.Equal(t, remote.ItemTypeProfile, results[0].ItemType)
 }
 
 func TestSearchSingleRemote_NewFetcherError(t *testing.T) {

@@ -244,7 +244,6 @@ func TestBuildPublishPath(t *testing.T) {
 	}{
 		{ItemTypeBundle, "security", "ctxloom/bundles/security.yaml"},
 		{ItemTypeBundle, "testing", "ctxloom/bundles/testing.yaml"},
-		{ItemTypeProfile, "development", "ctxloom/profiles/development.yaml"},
 		{ItemType(""), "unknown", "ctxloom/bundles/unknown.yaml"}, // defaults to bundles
 	}
 
@@ -297,85 +296,6 @@ func TestAddPublishMetadata(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, content, result)
-	})
-}
-
-func TestTransformProfileForExport(t *testing.T) {
-	t.Run("returns unchanged for canonical URLs", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("bundles:\n  - https://github.com/owner/repo@bundles/name\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("returns unchanged for profiles without bundles", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("name: test-profile\ndescription: A profile\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("returns invalid YAML as-is", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		content := []byte("invalid: yaml: [[")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Equal(t, content, result)
-	})
-
-	t.Run("transforms local refs to canonical URLs", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		// Create lockfile with canonical-keyed entry; the profile references it
-		// by the remote-prefixed short form.
-		lockfile := &Lockfile{
-			Version: 1,
-			Bundles: map[string]LockEntry{
-				"https://github.com/alice/ctxloom@bundles/security": {
-					SHA: "abc123",
-					URL: "https://github.com/alice/ctxloom",
-				},
-			},
-			Profiles: make(map[string]LockEntry),
-		}
-		require.NoError(t, lm.Save(lockfile))
-
-		content := []byte("bundles:\n  - alice/security\n")
-		result, err := transformProfileForExport(content, lm)
-
-		require.NoError(t, err)
-		assert.Contains(t, string(result), "https://github.com/alice/ctxloom@bundles/security")
-	})
-
-	t.Run("returns error for unknown local ref", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-		// Create empty lockfile
-		lockfile := &Lockfile{
-			Version:  1,
-			Bundles:  make(map[string]LockEntry),
-			Profiles: make(map[string]LockEntry),
-		}
-		require.NoError(t, lm.Save(lockfile))
-
-		content := []byte("bundles:\n  - unknown/bundle\n")
-		_, err := transformProfileForExport(content, lm)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not found in lockfile")
 	})
 }
 

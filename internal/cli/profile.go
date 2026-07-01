@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -519,116 +518,6 @@ var (
 	profileUpdateRemoveExcludeMCP       []string
 )
 
-var (
-	profilePushPR      bool
-	profilePushBranch  string
-	profilePushMessage string
-)
-
-var profilePushCmd = &cobra.Command{
-	Use:   "push <name> [remote]",
-	Short: "Publish a profile to a remote repository",
-	Long: `Publish a local profile to a remote repository.
-
-By default, publishes directly to the default branch. Use --pr to create
-a pull request instead.
-
-If no remote is specified, uses the default remote.
-
-Examples:
-  ctxloom profile push my-profile
-  ctxloom profile push my-profile ctxloom-default
-  ctxloom profile push my-profile --pr
-  ctxloom profile push my-profile ctxloom-default --message "Add my profile"`,
-	Args: cobra.RangeArgs(1, 2),
-	RunE: runProfilePush,
-}
-
-func runProfilePush(cmd *cobra.Command, args []string) error {
-	profileName := args[0]
-	remoteName := ""
-	if len(args) > 1 {
-		remoteName = args[1]
-	}
-
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	profilePath, err := resolveProfilePathForPush(cmd.Context(), cfg, profileName)
-	if err != nil {
-		return err
-	}
-
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return fmt.Errorf("failed to initialize registry: %w", err)
-	}
-
-	remoteName, err = resolveDefaultRemote(registry, remoteName, "ctxloom profile push <name> <remote>")
-	if err != nil {
-		return err
-	}
-
-	opts := remote.PublishOptions{
-		CreatePR: profilePushPR,
-		Branch:   profilePushBranch,
-		Message:  profilePushMessage,
-		ItemType: remote.ItemTypeProfile,
-	}
-	fmt.Printf("Publishing profile %q to %s...\n", profileName, remoteName)
-
-	pm := remote.NewPublishManager(registry, remote.LoadAuth(""))
-	result, err := pm.Publish(cmd.Context(), profilePath, remoteName, opts)
-	if err != nil {
-		return err
-	}
-
-	printPublishResult(result)
-	return nil
-}
-
-// resolveProfilePathForPush returns the on-disk path of the named profile,
-// which the publish manager needs as its source. Routed through the operations
-// read-path so the CLI no longer constructs a loader inline.
-func resolveProfilePathForPush(ctx context.Context, cfg *config.Config, profileName string) (string, error) {
-	res, err := operations.GetProfile(ctx, cfg, operations.GetProfileRequest{Name: profileName})
-	if err != nil {
-		return "", fmt.Errorf("profile not found: %s", profileName)
-	}
-	return res.Path, nil
-}
-
-// resolveDefaultRemote returns remoteName when set, else the registry default,
-// erroring (with the given usage hint) when neither is available. Shared by the
-// profile and bundle push commands.
-func resolveDefaultRemote(registry *remote.Registry, remoteName, usage string) (string, error) {
-	if remoteName != "" {
-		return remoteName, nil
-	}
-	def := registry.GetDefault()
-	if def == "" {
-		return "", fmt.Errorf("no remote specified and no default set. Use: %s", usage)
-	}
-	return def, nil
-}
-
-// printPublishResult reports a publish outcome: the PR URL, or the created/
-// updated path and commit. Shared by the profile and bundle push commands.
-func printPublishResult(result *remote.PublishResult) {
-	if result.PRURL != "" {
-		fmt.Printf("Created pull request: %s\n", result.PRURL)
-		return
-	}
-	action := "Created"
-	if !result.Created {
-		action = "Updated"
-	}
-	fmt.Printf("%s %s\n", action, result.Path)
-	fmt.Printf("Commit: %s\n", shortSHA(result.SHA))
-}
-
 var profileEditCmd = &cobra.Command{
 	Use:   "edit <name>",
 	Short: "Edit a profile",
@@ -720,7 +609,6 @@ func init() {
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
-	profileCmd.AddCommand(profilePushCmd)
 	profileCmd.AddCommand(profileExportCmd)
 	profileCmd.AddCommand(profileImportCmd)
 
@@ -728,10 +616,6 @@ func init() {
 	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
 	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
 	profileCreateCmd.Flags().StringVar(&profileCreateLLM, "llm", "", "Preferred LLM config label/backend to launch (overridable by run -l)")
-
-	profilePushCmd.Flags().BoolVar(&profilePushPR, "pr", false, "Create a pull request instead of pushing directly")
-	profilePushCmd.Flags().StringVar(&profilePushBranch, "branch", "", "Target branch (default: repository default)")
-	profilePushCmd.Flags().StringVarP(&profilePushMessage, "message", "m", "", "Commit message")
 
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile URL(s) to remove")
@@ -756,7 +640,6 @@ func init() {
 	profileDefaultCmd.ValidArgsFunction = completeProfileNames
 	profileEditCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
-	profilePushCmd.ValidArgsFunction = completeProfileNames
 	profileExportCmd.ValidArgsFunction = completeProfileNames
 
 	// Register flag completions

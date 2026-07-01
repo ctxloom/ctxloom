@@ -90,8 +90,13 @@ func (p *Profile) ResolveShortRefs(sourceURL, sourceHash string) {
 	for i, b := range p.Bundles {
 		p.Bundles[i] = remote.ResolveRefString(b, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
+	// A parent is either a bare local-profile name (passes through) or a
+	// <bundle>#profiles/<name> bundle-shipped ref that canonicalizes against the
+	// source repo exactly like Bundles/Prompts (the "#profiles/<name>" selector
+	// rides through ItemTypeBundle's item passthrough). Top-level @profiles/
+	// parent distribution was retired, so ItemTypeProfile is no longer used here.
 	for i, par := range p.Parents {
-		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeProfile)
+		p.Parents[i] = remote.ResolveRefString(par, sourceURL, sourceHash, remote.ItemTypeBundle)
 	}
 	// Curated prompt refs ("<bundle>#prompts/<name>") carry a bundle reference,
 	// so a remote profile's short prompt refs canonicalize against its source

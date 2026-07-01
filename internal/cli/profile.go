@@ -154,7 +154,9 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 	// against the configured default remote so the profile stores canonical
 	// URLs. Scheme-qualified refs pass through untouched.
 	registry := defaultRemoteRegistry()
-	profileCreateParents = expandRefsAgainstDefaultRemote(profileCreateParents, remote.ItemTypeProfile, registry)
+	// Parents are NOT expanded against a remote: a bare name is a local profile,
+	// a <bundle>#profiles/<name> ref is a bundle-shipped profile — both resolve as
+	// typed (top-level @profiles/ distribution was retired).
 	profileCreateBundles = expandRefsAgainstDefaultRemote(profileCreateBundles, remote.ItemTypeBundle, registry)
 
 	// Route through the operations core so the CLI shares the MCP path's
@@ -453,14 +455,15 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Expand bare convenience refs against the default remote so additions
-		// are stored canonical; removals are expanded too so they match the
-		// canonical form already on disk.
+		// Expand bare convenience BUNDLE refs against the default remote so
+		// additions are stored canonical; removals are expanded too so they match
+		// the canonical form on disk. Parents are left as typed — a bare name is a
+		// local profile, a <bundle>#profiles/<name> ref a bundle-shipped one.
 		registry := defaultRemoteRegistry()
 		req := operations.UpdateProfileRequest{
 			Name:                   name,
-			AddParents:             expandRefsAgainstDefaultRemote(profileUpdateAddParents, remote.ItemTypeProfile, registry),
-			RemoveParents:          expandRefsAgainstDefaultRemote(profileUpdateRemoveParents, remote.ItemTypeProfile, registry),
+			AddParents:             profileUpdateAddParents,
+			RemoveParents:          profileUpdateRemoveParents,
 			AddBundles:             expandRefsAgainstDefaultRemote(profileUpdateAddBundles, remote.ItemTypeBundle, registry),
 			RemoveBundles:          expandRefsAgainstDefaultRemote(profileUpdateRemoveBundles, remote.ItemTypeBundle, registry),
 			AddExcludeFragments:    profileUpdateAddExcludeFragments,
@@ -612,13 +615,13 @@ func init() {
 	profileCmd.AddCommand(profileExportCmd)
 	profileCmd.AddCommand(profileImportCmd)
 
-	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile URL(s) to inherit from")
+	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name>")
 	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
 	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
 	profileCreateCmd.Flags().StringVar(&profileCreateLLM, "llm", "", "Preferred LLM config label/backend to launch (overridable by run -l)")
 
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile URL(s) to add")
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile URL(s) to remove")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile(s) to add: a local name or <bundle>#profiles/<name>")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile(s) to remove")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")
 	profileUpdateCmd.Flags().StringVarP(&profileUpdateDescription, "description", "d", "", "New description for the profile")

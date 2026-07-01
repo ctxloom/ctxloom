@@ -23,10 +23,9 @@ Deferred (ADR revive triggers): the movement layer — `ctxloom project repoint`
 
 Phases 0–3 are implemented and green (`just test-verbose`). The core store is live: identity resolution at startup, the append-only log backend behind the existing `*Store` surface, project-id keying with origin-session provenance, and one-time migration of legacy markdown. The `tasks run` picker and `--seed-task` now read/write the project log; the legacy `OpenSession`/`MoveTask`/`CollectForSessions`/`moveStore` machinery is retired.
 
-Carried forward, not yet done:
-- **`internal/operations/tasks.go` (ADR 0019)** — the MCP/CLI handlers still call `internal/tasks` directly through `openSessionTaskStore`; the operations-layer extraction is deferred (optional cleanup, not a blocker).
-- **Migration leaves legacy markdown on disk** — import is non-destructive; the old `tasks.md` files are orphaned but not deleted. A later sweep can remove them once the log is trusted.
-- **Phase 4 movement layer** — deferred per the ADR (see revive triggers).
+Status of the remaining threads:
+- **Operations layer (ADR 0019)** — done. The task handlers route through `internal/shared/tasks/operations`, not the store directly.
+- **Phase 4 movement layer** — deferred per the ADR (see revive triggers). The automatic resolve-time repoint/adopt already exists; only the manual surface (`ctxloom project repoint`, `ctxloom tasks dump/load`, copy-fork log seeding) is unbuilt.
 
 ## Current seams (verified)
 

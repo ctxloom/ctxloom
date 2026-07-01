@@ -186,17 +186,17 @@ ctxloom profile create developer -b ctxloom-default/core#fragments/tdd
 ctxloom remote pull
 ```
 
-#### `ctxloom prompt`
+#### `ctxloom skill`
 
-Manage prompts. Same subcommands as `fragment`.
+Manage skills. Same subcommands as `fragment`.
 
-**Reference format:** `bundle#prompts/name`
+**Reference format:** `bundle#skills/name`
 
 **Examples:**
 ```bash
-ctxloom prompt list
-ctxloom prompt show my-bundle#prompts/code-review
-ctxloom prompt create my-bundle review-pr
+ctxloom skill list
+ctxloom skill show my-bundle#skills/code-review
+ctxloom skill create my-bundle review-pr
 ```
 
 #### `ctxloom profile`
@@ -264,7 +264,7 @@ ctxloom remote pull                     # fetch referenced bundles/profiles
 
 #### `ctxloom search`
 
-Search fragments and prompts.
+Search fragments and skills.
 
 ```bash
 ctxloom search [query] [flags]
@@ -274,7 +274,7 @@ ctxloom search [query] [flags]
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--tag` | `-t` | Filter by tags (comma-separated, repeatable) |
-| `--type` | | Filter by type: `fragment` or `prompt` |
+| `--type` | | Filter by type: `fragment` or `skill` |
 
 **Examples:**
 ```bash
@@ -350,7 +350,7 @@ profile.
 
 #### `ctxloom bundle` (Advanced)
 
-Manage bundles directly. Most users should use `fragment` and `prompt` commands instead.
+Manage bundles directly. Most users should use `fragment` and `skill` commands instead.
 
 | Subcommand | Description |
 |------------|-------------|
@@ -488,7 +488,7 @@ ctxloom completion powershell
 ### Bundle References
 ```
 bundle#fragments/name     # Fragment in bundle
-bundle#prompts/name       # Prompt in bundle
+bundle#skills/name        # Skill in bundle
 bundle#mcp/name           # MCP config in bundle
 ```
 

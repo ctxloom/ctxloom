@@ -1,6 +1,6 @@
 # MCP Go SDK Migration — Living Plan
 
-> **Status:** core migration complete on `feat/bundle-mcp-tools`. All 37 tools running through the official SDK, `just test` green. Open items below.
+> **Status:** core migration complete. pre1 ships 7 ctxloom MCP tools (context + memory) plus MCP resources through the official SDK; bundle/profile/fragment/etc. management moved to the CLI per ADR-0024. (The Phase 2 table below records the original 37-tool migration, before that demotion.)
 > **Living document** — update with decisions, scope changes, and progress as work continues.
 
 ## Why
@@ -86,9 +86,9 @@ The bigger structural issue: ~2400 lines maintaining envelope types, dispatch ta
 
 ## Open items
 
-- [ ] Decide whether the parent-PID death poll needs to come back. (Not blocking; defer until observed.)
-- [ ] Audit remaining `map[string]any` sites elsewhere in the codebase for ones that could become typed structs. (Lower priority — most are in JSON-RPC test envelopes where raw maps are correct.)
-- [ ] Consider whether `bundleDistiller` should move out of `cmd/` into `internal/operations/` so it's reusable from the CLI bundle subcommand too. (Refactor, not migration-blocking.)
+- [x] Parent-PID death poll — not needed (superseded). The SDK stdio transport returns on stdin EOF when the parent dies; `signal.NotifyContext` in `mcp_server.go` handles shutdown, so the legacy poll has no role.
+- [x] `map[string]any` audit — done. MCP tool args are typed Input structs (one per tool); the remaining raw maps are JSON-RPC test envelopes where maps are correct.
+- [x] `bundleDistiller` moved into `internal/operations` — `operations.DistillBundleFile` + an injected `Distiller` interface, reusable from the CLI bundle subcommand.
 - [ ] Update `docs/bundle-review-plan.md` Phase 1.3 cross-reference if any bundle-extraction work shifts because of this migration. (Tracking note: the SDK migration doesn't touch the BundleReader design but the bundle handlers' file layout changed.)
 
 ## Out of scope (won't do as part of this migration)

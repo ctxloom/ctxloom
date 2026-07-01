@@ -138,7 +138,7 @@ type RemoveLocalItemsRequest struct {
 	AppDir      string
 	Items       []RemovedItem
 	Lockfile    *remote.Lockfile
-	LockManager *remote.LockfileManager
+	LockManager remote.LockfileStore
 
 	// FS is an optional filesystem (defaults to the OS filesystem).
 	FS afero.Fs

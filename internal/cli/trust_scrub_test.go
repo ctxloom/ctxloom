@@ -71,28 +71,26 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 	cfg, err := config.Load()
 	require.NoError(t, err)
 
-	// Apply the harness once. Both local MCP servers are withheld (local
-	// executables are deny-by-default, never baselined), so neither is written
-	// yet — but the project now has an applied harness to refresh.
+	// Apply the harness once. Both local MCP servers are project-authored, so they
+	// auto-trust and are written into settings immediately — no manual trust step.
 	_, err = operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: true,
 	})
 	require.NoError(t, err)
 	initial := readMCPConfig(t, root)
-	require.NotContains(t, initial, "alpha-cmd", "a local MCP server is withheld until trusted")
-	require.NotContains(t, initial, "beta-cmd", "a local MCP server is withheld until trusted")
+	require.Contains(t, initial, "alpha-cmd", "an auto-trusted local MCP server is written")
+	require.Contains(t, initial, "beta-cmd", "an auto-trusted local MCP server is written")
 
-	// Trusting each withheld server re-writes it into settings on the mutation,
-	// with no manual re-apply.
+	// An explicit trust on an already-auto-trusted server is a harmless no-op that
+	// still refreshes the managed artifacts; both stay written.
 	c, _ := testCmd()
 	require.NoError(t, runItemTrust(c, cfg, "tools#mcp/alpha"))
-	assert.Contains(t, readMCPConfig(t, root), "alpha-cmd",
-		"trusting a previously-withheld MCP server must (re)write it into settings")
+	assert.Contains(t, readMCPConfig(t, root), "alpha-cmd", "the server stays written after an explicit trust")
 
 	c, _ = testCmd()
 	require.NoError(t, runItemTrust(c, cfg, "tools#mcp/beta"))
-	assert.Contains(t, readMCPConfig(t, root), "beta-cmd", "the second trusted server is written too")
+	assert.Contains(t, readMCPConfig(t, root), "beta-cmd", "the sibling stays written too")
 
 	// Blacklisting "alpha" scrubs it from settings on the mutation; the still-
 	// trusted sibling "beta" is untouched.

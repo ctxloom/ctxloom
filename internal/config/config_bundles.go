@@ -473,7 +473,13 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string, gate bundles.
 		for i := range in {
 			h := in[i]
 			if gate != nil {
-				ref := bundle.Name + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
+				// Key by the bundle's source ref (canonical for a remote/cloned
+				// bundle, the local name for a project bundle) — NOT bundle.Name,
+				// whose short form is ambiguous across local and cloned bundles.
+				// This makes the cascade's IsLocal/RepoURL honest (local hooks
+				// auto-trust; cloned ones follow their remote's TrustBundles) and
+				// aligns the gate key with the baseline/grant key (both source).
+				ref := source + "#hooks/" + bundles.HookEntry{Event: event, Index: i}.ID()
 				if !gate(ref, h.ComputeContentHash(), string(bundles.FormRaw)) {
 					continue // withheld by the trust gate
 				}
@@ -512,7 +518,10 @@ func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.Co
 
 	for name, mcp := range bundle.MCP {
 		if gate != nil {
-			ref := bundle.Name + "#mcp/" + name
+			// Key by the source ref (canonical for a cloned bundle, local name for
+			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
+			// gate key matches the baseline/grant key. See extractHooksFromBundle.
+			ref := source + "#mcp/" + name
 			if !gate(ref, mcp.ComputeContentHash(), string(bundles.FormRaw)) {
 				continue // withheld by the trust gate
 			}

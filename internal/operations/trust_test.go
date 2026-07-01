@@ -166,11 +166,11 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source: trust.SourceLocal,
 		},
 		{
-			name:   "local mcp NOT auto-allowed (executable → default deny)",
+			name:   "local mcp auto-allowed (project-authored executable)",
 			ref:    trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindMCP, Name: "z"},
 			hash:   "sha256:local",
-			want:   trust.Deny,
-			source: trust.SourceDefault,
+			want:   trust.Allow,
+			source: trust.SourceLocal,
 		},
 
 		// --- renamed/moved identical content stays denied via denylist ---
@@ -218,6 +218,33 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		{
 			name:   "unknown remote falls to default deny",
 			ref:    trust.Ref{RepoURL: "https://github.com/nobody/unknown", Bundle: "b", Kind: trust.KindFragment, Name: "f"},
+			hash:   "sha256:x",
+			want:   trust.Deny,
+			source: trust.SourceDefault,
+		},
+
+		// --- D4b safety boundary: a CLONED executable (RepoURL set, IsLocal false)
+		//     follows its remote's trust, NEVER the local auto-allow tier. This is
+		//     what keeps `local content is trusted` from leaking to clones. ---
+		{
+			name:    "trusted remote allows a cloned executable (mcp) — e.g. ctxloom-default",
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "pg"},
+			hash:    "sha256:x",
+			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
+			want:    trust.Allow,
+			source:  trust.SourceRemote,
+		},
+		{
+			name:    "untrusted remote denies a cloned executable (mcp) — no local leak",
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "pg"},
+			hash:    "sha256:x",
+			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: false}},
+			want:    trust.Deny,
+			source:  trust.SourceRemote,
+		},
+		{
+			name:   "cloned executable from an unknown remote fails closed (default deny)",
+			ref:    trust.Ref{RepoURL: "https://github.com/nobody/unknown", Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"},
 			hash:   "sha256:x",
 			want:   trust.Deny,
 			source: trust.SourceDefault,

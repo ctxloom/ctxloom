@@ -49,12 +49,13 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	require.NotContains(t, got, "beta", "denied MCP server must be omitted from settings")
 	assert.Equal(t, "bundle:remote/tools", got["alpha"].SCM, "SCM marker still set on the kept server")
 
-	// The gate is keyed on the bundle.Name (matching the content choke + baseline),
-	// fed the executable-surface hash of the exact server.
+	// The gate is keyed on the bundle's SOURCE ref (matching the baseline + grant
+	// key, and making the cascade's IsLocal/RepoURL honest), fed the
+	// executable-surface hash of the exact server.
 	alpha := b.MCP["alpha"]
 	beta := b.MCP["beta"]
-	assert.Equal(t, alpha.ComputeContentHash(), seen["tools#mcp/alpha"])
-	assert.Equal(t, beta.ComputeContentHash(), seen["tools#mcp/beta"])
+	assert.Equal(t, alpha.ComputeContentHash(), seen["remote/tools#mcp/alpha"])
+	assert.Equal(t, beta.ComputeContentHash(), seen["remote/tools#mcp/beta"])
 }
 
 // TestExtractMCPFromBundle_FailClosed proves a gate that denies everything
@@ -104,14 +105,14 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	require.Len(t, got.PostFileEdit, 1, "an unrelated event's hook is unaffected")
 	assert.Equal(t, "echo c", got.PostFileEdit[0].Command)
 
-	// Identity scheme + hash: each hook is fed "<bundle>#hooks/<event>/<index>"
-	// with its executable-surface hash.
+	// Identity scheme + hash: each hook is fed "<source>#hooks/<event>/<index>"
+	// (source ref, not bundle.Name) with its executable-surface hash.
 	h0 := b.Hooks.PreTool[0]
 	h1 := b.Hooks.PreTool[1]
 	hc := b.Hooks.PostFileEdit[0]
-	assert.Equal(t, h0.ComputeContentHash(), seen["tools#hooks/pre_tool/0"])
-	assert.Equal(t, h1.ComputeContentHash(), seen["tools#hooks/pre_tool/1"])
-	assert.Equal(t, hc.ComputeContentHash(), seen["tools#hooks/post_file_edit/0"])
+	assert.Equal(t, h0.ComputeContentHash(), seen["remote/tools#hooks/pre_tool/0"])
+	assert.Equal(t, h1.ComputeContentHash(), seen["remote/tools#hooks/pre_tool/1"])
+	assert.Equal(t, hc.ComputeContentHash(), seen["remote/tools#hooks/post_file_edit/0"])
 }
 
 // TestExtractHooksFromBundle_FailClosed proves a deny-all gate withholds every

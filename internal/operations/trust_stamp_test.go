@@ -93,7 +93,7 @@ func TestTrustStamper_ForRef_Cascade(t *testing.T) {
 		{"denylist (renamed identical content)", "https://github.com/acme/repo@bundles/plain#fragments/clone", false, trust.SourceDenylist},
 		{"untrusted remote", "https://github.com/evil/repo@bundles/bad2#fragments/ef", false, trust.SourceRemote},
 		{"local fragment auto-allowed", "demo#fragments/localfrag", true, trust.SourceLocal},
-		{"local-bundle mcp not auto-allowed", "demo#mcp/localmcp", false, trust.SourceDefault},
+		{"local-bundle mcp auto-allowed", "demo#mcp/localmcp", true, trust.SourceLocal},
 		{"unresolvable item fails closed", "https://github.com/acme/repo@bundles/missing#fragments/none", false, trust.SourceDefault},
 		{"malformed ref fails closed", "not-a-ref", false, trust.SourceDefault},
 	}
@@ -150,10 +150,11 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 }
 
 // TestTrustStamper_ForHook covers the bundle-hook surface the interactive
-// `bundle show` renders: an executable never auto-trusted by default, trustable
-// via an explicit grant bound to its executable-surface hash, and deniable via
-// the content denylist regardless of which hook ref carries the hash. The hook is
-// addressed by (bundle, HookEntry.ID) exactly as the exec choke addresses it.
+// `bundle show` renders: a project-authored (local) hook is auto-trusted by the
+// local tier, overridable by an explicit grant bound to its executable-surface
+// hash, and deniable via the content denylist regardless of which hook ref
+// carries the hash. The hook is addressed by (source, HookEntry.ID) exactly as
+// the exec choke addresses it; the local name "hookb" resolves IsLocal.
 func TestTrustStamper_ForHook(t *testing.T) {
 	store := newTrustStore(t)
 	reg := newRegistry(t)
@@ -176,9 +177,9 @@ func TestTrustStamper_ForHook(t *testing.T) {
 		wantTrusted bool
 		wantSource  trust.Source
 	}{
-		{"default deny (local executable hook)", "hookb",
+		{"local hook auto-allowed", "hookb",
 			bundles.HookEntry{Event: bundles.HookEventPreTool, Index: 1, Hook: bundles.BundleHook{Command: "node x", Type: "command"}},
-			false, trust.SourceDefault},
+			true, trust.SourceLocal},
 		{"explicit grant allows exact surface", "hookb",
 			bundles.HookEntry{Event: bundles.HookEventPreTool, Index: 0, Hook: granted},
 			true, trust.SourceExplicitGrant},

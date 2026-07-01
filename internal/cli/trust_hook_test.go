@@ -127,13 +127,13 @@ func TestPrintBundleHookTrust_ReflectsTrust(t *testing.T) {
 
 	var before bytes.Buffer
 	printBundleHookTrust(&before, stamper, "hookb", entry)
-	assert.Contains(t, before.String(), "hooks/pre_tool/0: withheld (source: default)",
-		"an ungranted local bundle hook must list as withheld")
+	assert.Contains(t, before.String(), "hooks/pre_tool/0: trusted (source: local)",
+		"a project-authored local bundle hook auto-trusts via the local tier")
 
 	require.NoError(t, store.AddGrant(remote.LocalSource, "hookb#hooks/pre_tool/0", hook.ComputeContentHash(), "raw", ""))
 
 	var after bytes.Buffer
 	printBundleHookTrust(&after, stamper, "hookb", entry)
 	assert.Contains(t, after.String(), "hooks/pre_tool/0: trusted (source: explicit-grant)",
-		"a granted hook must list as trusted via the explicit-grant tier")
+		"an explicit grant is reported by its own tier, ahead of the local tier")
 }

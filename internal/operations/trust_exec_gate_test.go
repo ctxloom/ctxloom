@@ -154,17 +154,19 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
 
-	// Grant ONLY the quiet local MCP server (local executables aren't auto-trusted).
+	// Local bundle MCP servers are project-authored, so they auto-trust. A
+	// blacklist still withholds one — the denylist/blacklist tiers precede the
+	// local tier.
 	store, err := getTrustStore(cfg, nil, nil)
 	require.NoError(t, err)
-	quietHash := mcpHashOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "quiet"}})
-	require.NoError(t, store.AddGrant(remote.LocalSource, "mcp-bundle#mcp/quiet-server", quietHash, "raw", ""))
+	noisyHash := mcpHashOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}})
+	require.NoError(t, store.Blacklist(remote.LocalSource, "mcp-bundle#mcp/noisy-server", noisyHash))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleMCPServers(nil)
 
-	assert.Contains(t, result, "quiet-server", "granted local MCP server must be written to settings")
-	assert.NotContains(t, result, "noisy-server", "ungranted local MCP executable must be withheld")
+	assert.Contains(t, result, "quiet-server", "auto-trusted local MCP server must be written to settings")
+	assert.NotContains(t, result, "noisy-server", "blacklisted local MCP executable must be withheld")
 	builtin := false
 	for _, s := range result {
 		if s.SCM == "bundle:builtin:taskloom" {
@@ -174,8 +176,8 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	assert.True(t, builtin, "in-binary builtin MCP servers are exempt from the gate")
 }
 
-// TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: a granted local
-// bundle hook is applied while an ungranted sibling is withheld.
+// TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: an auto-trusted
+// local bundle hook is applied while a blacklisted sibling is withheld.
 func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
@@ -191,10 +193,12 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
 
+	// Local bundle hooks auto-trust (project-authored); a blacklist still withholds
+	// one — blacklist precedes the local tier.
 	store, err := getTrustStore(cfg, nil, nil)
 	require.NoError(t, err)
-	keepHash := hookHashOf(bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"})
-	require.NoError(t, store.AddGrant(remote.LocalSource, "hook-bundle#hooks/pre_tool/0", keepHash, "raw", ""))
+	denyHash := hookHashOf(bundles.BundleHook{Command: "echo deny", Type: "command"})
+	require.NoError(t, store.Blacklist(remote.LocalSource, "hook-bundle#hooks/session_start/0", denyHash))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleHooks(nil)
@@ -210,8 +214,8 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 			denyApplied = true
 		}
 	}
-	assert.True(t, keepApplied, "granted local bundle hook must be applied")
-	assert.False(t, denyApplied, "ungranted local bundle hook must NOT be applied")
+	assert.True(t, keepApplied, "auto-trusted local bundle hook must be applied")
+	assert.False(t, denyApplied, "blacklisted local bundle hook must NOT be applied")
 }
 
 // TestExecGate_FailClosed proves the executable gate withholds on any failure to
@@ -254,18 +258,12 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	ref := "hookb#hooks/pre_tool/0"
 	hookHash := hookHashOf(bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"})
 
-	// Untrusted local executable hook → withheld by the gate (never auto-trusted).
-	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
-		"an ungranted local bundle hook must be withheld by the exec gate")
-
-	// CLI trust → the exec gate now applies it.
-	_, err := SetItemTrust(cfg, SetItemTrustRequest{Ref: ref})
-	require.NoError(t, err)
+	// A project-local bundle hook auto-trusts (no grant needed) → passes the gate.
 	assert.True(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
-		"a CLI-granted bundle hook must pass the exec gate")
+		"an auto-trusted local bundle hook must pass the exec gate")
 
-	// CLI blacklist → the exec gate withholds it again (sticky block beats grant).
-	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
+	// CLI blacklist → the exec gate withholds it (sticky block beats local auto-trust).
+	_, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
 	require.NoError(t, err)
 	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
 		"a CLI-blacklisted bundle hook must be withheld by the exec gate")

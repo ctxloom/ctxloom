@@ -96,14 +96,13 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if dec, ok := store.BundlePosture(req.Ref.Bundle); ok {
 		return decide(dec, trust.SourceBundle), nil
 	}
-	// 5. Project-authored local content is auto-allowed: fragments/prompts always,
-	//    and a config-level executable (an MCP server with no bundle — declared in
-	//    the project's own config, never a clone). A bundle-sourced executable is
-	//    NOT widened here: the gate keys bundle items by short name, so a cloned
-	//    bundle's ref is spuriously IsLocal — honest local-vs-clone provenance for
-	//    bundle executables/hooks is a follow-up (see d4b plan). Until then they
-	//    fall through to the remote/bundle-posture tiers.
-	if req.Ref.IsLocal && (req.Ref.Kind.IsContent() || req.Ref.Bundle == "") {
+	// 5. Project-authored LOCAL content is auto-allowed — every kind, including
+	//    executables (config-level MCP, ctxloom:local, and project-bundle
+	//    hooks/MCP). Locality is honest here: the gate and stamps key bundle items
+	//    by their source ref (canonical for a cloned bundle → IsLocal false, so a
+	//    clone falls through to the remote/bundle tiers). "You authored it in this
+	//    project, so it is trusted; a clone is not."
+	if req.Ref.IsLocal {
 		return decide(trust.Allow, trust.SourceLocal), nil
 	}
 	// 6. Inherited remote.TrustBundles posture (SHA-agnostic).
@@ -526,22 +525,24 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 	return ts.resolve(ref, srv.ComputeContentHash())
 }
 
-// ForHook stamps a bundle hook addressed by its (bundle, HookEntry) identity,
-// mirroring ForLocalMCP. It hashes the hook's executable surface
-// (BundleHook.ComputeContentHash) and resolves it as a hook item — an executable
-// surface the cascade never auto-trusts (KindHook.IsContent()==false) — so it
-// denies unless an explicit grant, the content denylist, or a bundle posture
-// decides otherwise. The hook is addressed by the bundle's local name and its
-// "<event>/<index>" id (HookEntry.ID), the SAME ref the exec choke
-// (config.extractHooksFromBundle) and `ctxloom trust <bundle>#hooks/<id>` use, so
-// the stamped posture is exactly what the gate enforces. It takes the in-hand
-// entry rather than re-loading the bundle, matching ForLocalMCP's in-hand surface.
-func (ts *TrustStamper) ForHook(bundle string, entry bundles.HookEntry) EffectiveTrustResult {
+// ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
+// mirroring the exec choke. It hashes the hook's executable surface
+// (BundleHook.ComputeContentHash) and resolves it through the cascade. The source
+// ref (canonical for a cloned bundle, the local name for a project bundle) is
+// parsed so IsLocal/RepoURL are honest — a project-authored hook auto-trusts
+// (local tier), a cloned one follows its remote's TrustBundles — the SAME ref
+// config.extractHooksFromBundle gates on and `ctxloom trust <src>#hooks/<id>`
+// addresses, so the stamped posture is exactly what the gate enforces. It takes
+// the in-hand entry rather than re-loading the bundle.
+func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) EffectiveTrustResult {
 	if ts.denyAll {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
 	}
-	ref := trust.Ref{Bundle: bundle, Kind: trust.KindHook, Name: entry.ID(), IsLocal: true}
-	return ts.resolve(ref, entry.Hook.ComputeContentHash())
+	tRef, _, _, err := parseTrustItemRef(source + "#hooks/" + entry.ID())
+	if err != nil {
+		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceDefault}
+	}
+	return ts.resolve(tRef, entry.Hook.ComputeContentHash())
 }
 
 // resolve runs the cascade with the stamper's shared store + registry so no

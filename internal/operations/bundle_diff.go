@@ -73,14 +73,11 @@ func DiffLockfiles(prev, curr *remote.Lockfile, registry *remote.Registry) *Bund
 	}
 
 	prevBundles := map[string]remote.LockEntry{}
-	prevProfiles := map[string]remote.LockEntry{}
 	if prev != nil {
 		prevBundles = prev.Bundles
-		prevProfiles = prev.Profiles
 	}
 
 	diffEntryMaps(cs, registry, remote.ItemTypeBundle, prevBundles, curr.Bundles)
-	diffEntryMaps(cs, registry, remote.ItemTypeProfile, prevProfiles, curr.Profiles)
 
 	// diffEntryMaps appends in Go map-iteration order, which is randomized;
 	// sort so the review output (and All()) is deterministic run to run.

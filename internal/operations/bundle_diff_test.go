@@ -12,7 +12,7 @@ import (
 
 func TestDiffLockfiles(t *testing.T) {
 	mkLock := func(bundles map[string]string) *remote.Lockfile {
-		l := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		l := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 		for name, sha := range bundles {
 			l.Bundles[name] = remote.LockEntry{SHA: sha}
 		}
@@ -120,47 +120,6 @@ func TestDiffLockfiles(t *testing.T) {
 		cs := DiffLockfiles(prev, curr, nil)
 		require.Len(t, cs.Modified, 1)
 		assert.Equal(t, "bob/other", cs.Modified[0].Name, "only the un-pinned bundle surfaces")
-	})
-
-	// Profile lockfile entries are merged into active by ApproveUpgrade exactly
-	// like bundles, so the review diff must surface them — a staged remote
-	// profile change the review never showed would be applied sight-unseen.
-	t.Run("new profile entry → Added with profile kind", func(t *testing.T) {
-		prev := mkLock(map[string]string{"a/x": "111"})
-		curr := mkLock(map[string]string{"a/x": "111"})
-		curr.Profiles["https://github.com/o/r@profiles/dev"] = remote.LockEntry{SHA: "p11"}
-		cs := DiffLockfiles(prev, curr, nil)
-		assert.Empty(t, cs.Modified)
-		require.Len(t, cs.Added, 1)
-		assert.Equal(t, "https://github.com/o/r@profiles/dev", cs.Added[0].Name)
-		assert.Equal(t, remote.ItemTypeProfile, cs.Added[0].Kind)
-		assert.Equal(t, "p11", cs.Added[0].NewSHA)
-	})
-
-	t.Run("changed profile entry → Modified with profile kind", func(t *testing.T) {
-		prev := mkLock(nil)
-		prev.Profiles["https://github.com/o/r@profiles/dev"] = remote.LockEntry{SHA: "p11"}
-		curr := mkLock(nil)
-		curr.Profiles["https://github.com/o/r@profiles/dev"] = remote.LockEntry{SHA: "p22"}
-		cs := DiffLockfiles(prev, curr, nil)
-		assert.Empty(t, cs.Added)
-		require.Len(t, cs.Modified, 1)
-		assert.Equal(t, remote.ItemTypeProfile, cs.Modified[0].Kind)
-		assert.Equal(t, "p11", cs.Modified[0].OldSHA)
-		assert.Equal(t, "p22", cs.Modified[0].NewSHA)
-	})
-
-	t.Run("profile entries respect the trust filter", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, err := remote.NewRegistry("", remote.WithRegistryFS(fs))
-		require.NoError(t, err)
-		require.NoError(t, registry.Add("trusted", "https://github.com/trusted/repo"))
-		require.NoError(t, registry.SetTrustBundles("trusted", true))
-
-		curr := mkLock(nil)
-		curr.Profiles["https://github.com/trusted/repo@profiles/dev"] = remote.LockEntry{SHA: "p11"}
-		cs := DiffLockfiles(mkLock(nil), curr, registry)
-		assert.True(t, cs.IsEmpty(), "trusted remotes auto-apply without review for profiles too")
 	})
 
 	t.Run("bundle entries report bundle kind", func(t *testing.T) {

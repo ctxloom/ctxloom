@@ -81,21 +81,19 @@ func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("load active lockfile: %w", err)
 	}
-	for _, kind := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
-		canonical := CanonicalizeRemoteRef(cfg, ref, kind)
-		entry, ok := active.GetEntry(kind, canonical)
-		if !ok {
-			continue
-		}
-		if entry.Pinned == pinned {
-			return true, nil // idempotent
-		}
-		entry.Pinned = pinned
-		active.AddEntry(kind, canonical, entry)
-		if err := activeMgr.Save(active); err != nil {
-			return true, fmt.Errorf("save active lockfile: %w", err)
-		}
-		return true, nil
+	// Only bundles are locked now (top-level profile distribution was retired).
+	canonical := CanonicalizeRemoteRef(cfg, ref, remote.ItemTypeBundle)
+	entry, ok := active.GetEntry(remote.ItemTypeBundle, canonical)
+	if !ok {
+		return false, nil
 	}
-	return false, nil
+	if entry.Pinned == pinned {
+		return true, nil // idempotent
+	}
+	entry.Pinned = pinned
+	active.AddEntry(remote.ItemTypeBundle, canonical, entry)
+	if err := activeMgr.Save(active); err != nil {
+		return true, fmt.Errorf("save active lockfile: %w", err)
+	}
+	return true, nil
 }

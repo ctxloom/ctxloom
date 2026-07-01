@@ -130,15 +130,9 @@ func detectSingleUpdate(ctx context.Context, out io.Writer, fetcher remote.Fetch
 	canonical := ref.CanonicalString()
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
 	if itemType == "" {
-		// Unlocked ref: trust the ref's own type segment (@profiles/ vs
-		// @bundles/) rather than assuming bundle — pulling a profile as a
-		// bundle would install it under the wrong type. Canonical refs always
-		// carry a type; the bundle fallback is defensive only.
-		itemType = ref.ItemType
-		if itemType == "" {
-			clidiag.Warn("ctxloom", "%s does not carry an item type; assuming bundle", refStr)
-			itemType = remote.ItemTypeBundle
-		}
+		// An unlocked ref is a bundle — top-level profile distribution was retired,
+		// so bundles are the only distributed item type.
+		itemType = remote.ItemTypeBundle
 	}
 
 	latestSHA, ok := latestWithinConstraint(ctx, fetcher, ref.URL, entry.RequestedVersion)
@@ -178,13 +172,11 @@ func refreshRemoteClone(ctx context.Context, cfg *config.Config, repoURL string)
 	}
 }
 
-// lookupLockedEntry finds refStr's lock entry and item type, trying bundles
-// then profiles. Returns a zero entry and empty type when not present.
+// lookupLockedEntry finds refStr's bundle lock entry and item type. Returns a
+// zero entry and empty type when not present.
 func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEntry, remote.ItemType) {
-	for _, it := range []remote.ItemType{remote.ItemTypeBundle, remote.ItemTypeProfile} {
-		if entry, ok := lockfile.GetEntry(it, refStr); ok {
-			return entry, it
-		}
+	if entry, ok := lockfile.GetEntry(remote.ItemTypeBundle, refStr); ok {
+		return entry, remote.ItemTypeBundle
 	}
 	return remote.LockEntry{}, ""
 }
@@ -226,31 +218,29 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	// Refresh every unique remote once (one git fetch per repo, not 2×N API
 	// calls), then resolve the latest SHA for each entry.
 	refreshRemoteRepos(cmd.Context(), cfg, lockfile)
-	profileUpdates, bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, auth, lockfile)
+	bundleUpdates, skippedEmpty := detectUpdates(cmd.Context(), os.Stdout, cfg, auth, lockfile)
 
 	if skippedEmpty > 0 {
 		fmt.Printf("Skipped %d entries with empty SHA (run 'ctxloom remote pull' to clean up)\n\n", skippedEmpty)
 	}
 
-	totalUpdates := len(profileUpdates) + len(bundleUpdates)
-	if totalUpdates == 0 {
+	if len(bundleUpdates) == 0 {
 		fmt.Println("All items are up to date!")
 		return nil
 	}
 
-	fmt.Printf("Found %d items with updates available:\n\n", totalUpdates)
+	fmt.Printf("Found %d items with updates available:\n\n", len(bundleUpdates))
 
-	printAvailableUpdates(os.Stdout, profileUpdates, bundleUpdates)
+	printAvailableUpdates(os.Stdout, bundleUpdates)
 
 	if !updateApply {
 		fmt.Println("\nRun with --apply to update all items.")
 		return nil
 	}
 
-	// Apply updates — profiles first (they may change bundle references), then bundles.
 	fmt.Println("\nApplying updates...")
 	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
-	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, profileUpdates, bundleUpdates)
+	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, bundleUpdates)
 
 	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).
 	// Reload before cleanup so the wholesale lockfile rewrite in RemoveLocalItems
@@ -268,12 +258,6 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	reportRemovedFromRemote(os.Stdout, afero.NewOsFs(), projectAppDir(cfg), removedFromRemote, lockfile, lockManager, reloadOK)
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
-
-	// Bundle-reference issues (orphans/missing/invalid) only matter when a
-	// profile changed and may have altered its bundle list.
-	if len(profileUpdates) > 0 {
-		reportBundleIssues(os.Stdout, analyzeBundleReferences(lockfile, projectAppDir(cfg)))
-	}
 
 	reportMissingDefaults(os.Stdout, checkDefaultProfiles())
 
@@ -328,12 +312,12 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 	}
 }
 
-// detectUpdates resolves the latest SHA for every lockfile entry and buckets the
-// changed ones into profile vs bundle updates. Entries with an empty SHA are
-// counted in skipped and not checked; per-entry resolution failures are skipped
-// (the refresh pass already surfaced fetch errors). The only per-entry message
-// printed here is for a reference that carries no repository URL.
-func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (profileUpdates, bundleUpdates []updateInfo, skipped int) {
+// detectUpdates resolves the latest SHA for every lockfile entry and returns the
+// changed ones. Entries with an empty SHA are counted in skipped and not checked;
+// per-entry resolution failures are skipped (the refresh pass already surfaced
+// fetch errors). The only per-entry message printed here is for a reference that
+// carries no repository URL.
+func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth remote.AuthConfig, lockfile *remote.Lockfile) (bundleUpdates []updateInfo, skipped int) {
 	cachedFactory := operations.NewCachedFetcherFactory(cfg)
 	fetcherByURL := map[string]remote.Fetcher{}
 	fetcherFor := func(url string) (remote.Fetcher, error) {
@@ -369,14 +353,9 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
-		info := updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion}
-		if e.Type == remote.ItemTypeProfile {
-			profileUpdates = append(profileUpdates, info)
-		} else {
-			bundleUpdates = append(bundleUpdates, info)
-		}
+		bundleUpdates = append(bundleUpdates, updateInfo{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion})
 	}
-	return profileUpdates, bundleUpdates, skipped
+	return bundleUpdates, skipped
 }
 
 // latestWithinConstraint returns the newest commit the entry's version
@@ -397,16 +376,9 @@ func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, co
 	return res.SHA, true
 }
 
-// printAvailableUpdates lists pending profile and bundle updates; empty sections
-// are omitted.
-func printAvailableUpdates(out io.Writer, profileUpdates, bundleUpdates []updateInfo) {
-	if len(profileUpdates) > 0 {
-		fmt.Fprintln(out, "Profiles:")
-		for _, u := range profileUpdates {
-			fmt.Fprintf(out, "  %s\n", u.Ref)
-			fmt.Fprintf(out, "    Current: %s → Latest: %s\n", shortSHA(u.CurrentSHA), shortSHA(u.LatestSHA))
-		}
-	}
+// printAvailableUpdates lists pending bundle updates; the section is omitted when
+// empty.
+func printAvailableUpdates(out io.Writer, bundleUpdates []updateInfo) {
 	if len(bundleUpdates) > 0 {
 		fmt.Fprintln(out, "Bundles:")
 		for _, u := range bundleUpdates {
@@ -416,15 +388,11 @@ func printAvailableUpdates(out io.Writer, profileUpdates, bundleUpdates []update
 	}
 }
 
-// applyUpdates pulls profile updates first (a profile may newly reference
-// bundles, surfaced by the next lock) then bundle updates, returning counts plus
-// the items the remote no longer has (for cleanup). Per-item errors are
-// classified and reported, never fatal.
-func applyUpdates(ctx context.Context, out io.Writer, p pullRunner, profileUpdates, bundleUpdates []updateInfo) (updated, failed int, removed []updateInfo) {
-	pu, pf, pr := applyUpdateBatch(ctx, out, p, "\n--- Updating profiles first ---", profileUpdates)
-	bu, bf, br := applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", bundleUpdates)
-	removed = append(pr, br...)
-	return pu + bu, pf + bf, removed
+// applyUpdates pulls the bundle updates, returning counts plus the items the
+// remote no longer has (for cleanup). Per-item errors are classified and
+// reported, never fatal.
+func applyUpdates(ctx context.Context, out io.Writer, p pullRunner, bundleUpdates []updateInfo) (updated, failed int, removed []updateInfo) {
+	return applyUpdateBatch(ctx, out, p, "\n--- Updating bundles ---", bundleUpdates)
 }
 
 // applyUpdateBatch pulls one batch under a header.

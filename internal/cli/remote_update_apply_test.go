@@ -31,10 +31,6 @@ func (r *recordingPuller) Pull(_ context.Context, refStr string, opts remote.Pul
 	return &remote.PullResult{SHA: "0000000updated"}, nil
 }
 
-func profileUpd(ref string) updateInfo {
-	return updateInfo{Type: remote.ItemTypeProfile, Ref: ref, CurrentSHA: "aaaaaaa", LatestSHA: "bbbbbbb"}
-}
-
 func bundleUpd(ref string) updateInfo {
 	return updateInfo{Type: remote.ItemTypeBundle, Ref: ref, CurrentSHA: "ccccccc", LatestSHA: "ddddddd"}
 }
@@ -43,11 +39,10 @@ func TestApplyUpdates_AllSucceed(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
 	updated, failed, removed := applyUpdates(context.Background(), &out, p,
-		[]updateInfo{profileUpd("alice/sec")},
 		[]updateInfo{bundleUpd("bob/tools")})
 
-	if updated != 2 || failed != 0 {
-		t.Fatalf("updated=%d failed=%d, want 2/0", updated, failed)
+	if updated != 1 || failed != 0 {
+		t.Fatalf("updated=%d failed=%d, want 1/0", updated, failed)
 	}
 	if len(removed) != 0 {
 		t.Fatalf("removed=%v, want none", removed)
@@ -57,17 +52,14 @@ func TestApplyUpdates_AllSucceed(t *testing.T) {
 	}
 }
 
-func TestApplyUpdates_PullsProfilesBeforeBundles(t *testing.T) {
+func TestApplyUpdates_PullsAtPinnedSHA(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
-	applyUpdates(context.Background(), &out, p,
-		[]updateInfo{profileUpd("alice/sec")},
-		[]updateInfo{bundleUpd("bob/tools")})
+	applyUpdates(context.Background(), &out, p, []updateInfo{bundleUpd("bob/tools")})
 
-	// Profiles update before bundles so a re-pinned profile's new bundle refs
-	// are present when the bundles are processed. Each is pulled at its exact
-	// constraint-bounded LatestSHA (a "<ref>@<sha>" pin), not the bare ref.
-	if want := []string{"alice/sec@bbbbbbb", "bob/tools@ddddddd"}; !equalStrings(p.calls, want) {
+	// Each bundle is pulled at its exact constraint-bounded LatestSHA (a
+	// "<ref>@<sha>" pin), not the bare ref.
+	if want := []string{"bob/tools@ddddddd"}; !equalStrings(p.calls, want) {
 		t.Fatalf("call order = %v, want %v", p.calls, want)
 	}
 }
@@ -81,7 +73,7 @@ func TestApplyUpdates_PinsSHAButPreservesConstraint(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
 	u := updateInfo{Type: remote.ItemTypeBundle, Ref: "bob/tools", LatestSHA: "bbbbbbb", RequestedVersion: "^1.2"}
-	applyUpdates(context.Background(), &out, p, nil, []updateInfo{u})
+	applyUpdates(context.Background(), &out, p, []updateInfo{u})
 
 	if len(p.calls) != 1 || p.calls[0] != "bob/tools@bbbbbbb" {
 		t.Fatalf("expected a single pinned pull bob/tools@bbbbbbb, got %v", p.calls)
@@ -101,7 +93,7 @@ func TestApplyUpdates_ClassifiesErrors(t *testing.T) {
 		"x/gone@ddddddd":   fmt.Errorf("wrap: %w", errs.ErrRemoteContentNotFound),
 		"x/broken@ddddddd": fmt.Errorf("boom"),
 	}}
-	updated, failed, removed := applyUpdates(context.Background(), &out, p, nil,
+	updated, failed, removed := applyUpdates(context.Background(), &out, p,
 		[]updateInfo{bundleUpd("x/skip"), bundleUpd("x/gone"), bundleUpd("x/broken"), bundleUpd("x/ok")})
 
 	if updated != 1 {
@@ -118,7 +110,7 @@ func TestApplyUpdates_ClassifiesErrors(t *testing.T) {
 func TestApplyUpdates_EmptyIsNoop(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
-	updated, failed, removed := applyUpdates(context.Background(), &out, p, nil, nil)
+	updated, failed, removed := applyUpdates(context.Background(), &out, p, nil)
 	if updated != 0 || failed != 0 || removed != nil {
 		t.Fatalf("got %d/%d/%v, want 0/0/nil", updated, failed, removed)
 	}
@@ -129,18 +121,18 @@ func TestApplyUpdates_EmptyIsNoop(t *testing.T) {
 
 func TestPrintAvailableUpdates(t *testing.T) {
 	var out bytes.Buffer
-	printAvailableUpdates(&out, []updateInfo{profileUpd("alice/sec")}, []updateInfo{bundleUpd("bob/tools")})
+	printAvailableUpdates(&out, []updateInfo{bundleUpd("bob/tools")})
 	got := out.String()
-	for _, want := range []string{"Profiles:", "alice/sec", "Bundles:", "bob/tools", "Current:", "Latest:"} {
+	for _, want := range []string{"Bundles:", "bob/tools", "Current:", "Latest:"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q:\n%s", want, got)
 		}
 	}
 }
 
-func TestPrintAvailableUpdates_OmitsEmptySections(t *testing.T) {
+func TestPrintAvailableUpdates_OmitsEmptySection(t *testing.T) {
 	var out bytes.Buffer
-	printAvailableUpdates(&out, []updateInfo{profileUpd("alice/sec")}, nil)
+	printAvailableUpdates(&out, nil)
 	if got := out.String(); strings.Contains(got, "Bundles:") {
 		t.Errorf("should not print Bundles header when empty:\n%s", got)
 	}

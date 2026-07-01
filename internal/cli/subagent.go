@@ -159,8 +159,15 @@ them with 'ctxloom subagent set'. Engine choice stays yours.
 Run this (or ask your agent to) when you have profiles but no subagents yet.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// A bundle can ship its own `subagent-setup` skill to override the built-in
+		// onboarding/composition guidance (data, not baked into the binary); fall
+		// back to the built-in when none is installed or config can't load.
+		prompt := subagentSetupPrompt
+		if cfg, err := GetConfig(); err == nil {
+			prompt = operations.ResolveSetupPrompt(cfg, subagentSetupPrompt)
+		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Println(subagentSetupPrompt)
+		w.Println(prompt)
 		return w.Err()
 	},
 }

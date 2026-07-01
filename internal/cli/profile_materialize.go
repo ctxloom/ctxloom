@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+)
+
+var (
+	materializeTarget  string
+	materializeBackend string
+)
+
+// profileMaterializeCmd writes a profile's ASSEMBLED, ready-to-run agent surface
+// into a target dir (CLAUDE.md + .mcp.json + settings hooks + skills), so an
+// externally-launched agent inherits it with ctxloom out of the loop. Distinct
+// from `profile export`, which publishes the profile's YAML definition.
+var profileMaterializeCmd = &cobra.Command{
+	Use:   "materialize <profile>...",
+	Short: "Write a profile's assembled context to a dir as a launchable agent surface",
+	Long: `Materialize one or more profiles into --target as a backend's NATIVE on-disk
+agent surface — CLAUDE.md (context) + .mcp.json (MCP) + .claude/settings.json
+(hooks) + .claude/commands (skills) — so an externally-launched agent inherits
+the profile with ctxloom out of the loop.
+
+Each run OVERWRITES the target's ctxloom-managed surfaces (they are the source
+of truth) while preserving foreign entries. Unlike 'ctxloom profile export'
+(which publishes the profile YAML), this writes the assembled, ready-to-run
+config a plain 'claude' / CI / human launch reads by default.
+
+Examples:
+  ctxloom profile materialize default --target ./out
+  ctxloom profile materialize go-dev cr-correctness-go --target ../worktree`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
+			Profiles: args,
+			Target:   materializeTarget,
+			Backend:  materializeBackend,
+		})
+		if err != nil {
+			return err
+		}
+		return emit(cmd, res, func() error {
+			w := iox.NewErrWriter(cmd.OutOrStdout())
+			w.Printf("Materialized %s → %s (%s)\n", strings.Join(res.Profiles, ", "), res.Target, res.Backend)
+			for _, s := range res.Wrote {
+				w.Printf("  wrote %s\n", s)
+			}
+			for _, warn := range res.Warnings {
+				w.Printf("  warning: %s\n", warn)
+			}
+			return w.Err()
+		})
+	},
+}
+
+func init() {
+	profileCmd.AddCommand(profileMaterializeCmd)
+	profileMaterializeCmd.Flags().StringVar(&materializeTarget, "target", "", "Target directory to write the agent surface into (required)")
+	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", operations.DefaultMaterializeBackend, "Backend surface to write (claude-code)")
+	_ = profileMaterializeCmd.MarkFlagRequired("target")
+	profileMaterializeCmd.ValidArgsFunction = completeProfileNames
+}

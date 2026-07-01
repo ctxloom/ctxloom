@@ -92,7 +92,8 @@ func TestCollectRemoteReferences(t *testing.T) {
 					"https://gitlab.com/test/sec@bundles/security", // Remote
 				},
 				Parents: []string{
-					"https://github.com/test/ctxloom@profiles/parent", // Remote
+					// Bundle-profile parent: its underlying bundle is collected.
+					"https://github.com/test/ctxloom@bundles/kit#profiles/parent",
 				},
 			},
 			"local-only": {
@@ -107,19 +108,14 @@ func TestCollectRemoteReferences(t *testing.T) {
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, profiles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil, fs)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}
 
-	// Should find remote bundles
-	if len(bundles) != 2 {
-		t.Errorf("expected 2 remote bundles, got %d: %v", len(bundles), bundles)
-	}
-
-	// Should find remote profiles
-	if len(profiles) != 1 {
-		t.Errorf("expected 1 remote profile, got %d: %v", len(profiles), profiles)
+	// Two remote bundle refs plus the bundle behind the bundle-profile parent.
+	if len(bundles) != 3 {
+		t.Errorf("expected 3 remote bundles, got %d: %v", len(bundles), bundles)
 	}
 }
 
@@ -131,11 +127,11 @@ func TestCollectRemoteReferences(t *testing.T) {
 func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	seededDefault := "https://github.com/ctxloom/ctxloom-default@profiles/default"
+	seededDefaultBundle := "https://github.com/ctxloom/ctxloom-default@bundles/default"
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{
 			Defaults: []string{
-				seededDefault,
+				seededDefaultBundle + "#profiles/default", // bundle-profile default
 				"go-dev", // local name — not a remote ref, stays out of the pull set
 			},
 			Definitions: map[string]config.Profile{},
@@ -144,22 +140,22 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	}
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	_, profiles, err := collectRemoteReferences(cfg, nil, fs)
+	bundles, err := collectRemoteReferences(cfg, nil, fs)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences failed: %v", err)
 	}
-	if len(profiles) != 1 || profiles[0] != seededDefault {
-		t.Errorf("expected default profile %q as the sole profile root, got %v", seededDefault, profiles)
+	if len(bundles) != 1 || bundles[0] != seededDefaultBundle {
+		t.Errorf("expected default bundle %q as the sole root, got %v", seededDefaultBundle, bundles)
 	}
 
 	// An explicit profile filter scopes the sync to those profiles only —
 	// config defaults must not leak into a targeted sync.
-	_, profiles, err = collectRemoteReferences(cfg, []string{"go-dev"}, fs)
+	bundles, err = collectRemoteReferences(cfg, []string{"go-dev"}, fs)
 	if err != nil {
 		t.Fatalf("collectRemoteReferences (filtered) failed: %v", err)
 	}
-	if len(profiles) != 0 {
-		t.Errorf("expected no profile roots for a targeted sync, got %v", profiles)
+	if len(bundles) != 0 {
+		t.Errorf("expected no roots for a targeted sync, got %v", bundles)
 	}
 }
 
@@ -682,27 +678,15 @@ func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	}
 }
 
-// fakeProfileSource is the profile-side mirror of fakeBundleSource: a remote
-// profile is installed only when its content reads back from the clone cache
-// at the locked address.
-type fakeProfileSource struct {
-	readable map[string]bool
-}
-
-func (f fakeProfileSource) ReadProfileBytes(_ context.Context, name string) ([]byte, error) {
-	if f.readable[name] {
-		return []byte("description: test"), nil
-	}
-	return nil, fmt.Errorf("%w: %s", remote.ErrProfileNotInLockfile, name)
-}
-
-// TestCheckMissingDependencies_RemoteProfileProbedViaLockfile pins the
-// reference-only rule for profiles: remote profiles are never materialized to
-// disk, so installed-ness must be probed through the lockfile-backed profile
-// reader — a disk check would report every remote profile missing forever and
-// force a re-sync on every startup.
-func TestCheckMissingDependencies_RemoteProfileProbedViaLockfile(t *testing.T) {
-	cfgFor := func(parent string) *config.Config {
+// TestCheckMissingDependencies_BundleProfileParentProbedAsBundle pins the
+// post-retirement rule: a bundle-profile parent (<url>@bundles/x#profiles/y) is
+// installed exactly when its underlying bundle is retrievable from the clone
+// cache. Top-level @profiles/ distribution is gone; parents resolve through the
+// bundle they ship in.
+func TestCheckMissingDependencies_BundleProfileParentProbedAsBundle(t *testing.T) {
+	parent := "https://github.com/test/forge@bundles/kit#profiles/dev"
+	bundleKey := "https://github.com/test/forge@bundles/kit"
+	cfgFor := func() *config.Config {
 		return &config.Config{
 			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 				"test": {Parents: []string{parent}},
@@ -711,29 +695,21 @@ func TestCheckMissingDependencies_RemoteProfileProbedViaLockfile(t *testing.T) {
 		}
 	}
 
-	t.Run("retrievable remote profile is installed", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-
-		result, err := CheckMissingDependencies(context.Background(), cfgFor("https://github.com/test/forge@profiles/dev"), CheckMissingDependenciesRequest{
-			BundleReader:  fakeBundleSource{},
-			ProfileReader: fakeProfileSource{readable: map[string]bool{"https://github.com/test/forge@profiles/dev": true}},
+	t.Run("retrievable parent bundle is installed", func(t *testing.T) {
+		result, err := CheckMissingDependencies(context.Background(), cfgFor(), CheckMissingDependenciesRequest{
+			BundleReader: fakeBundleSource{readable: map[string]bool{bundleKey: true}},
 		})
 		if err != nil {
 			t.Fatalf("CheckMissingDependencies failed: %v", err)
 		}
 		if result.Count != 0 {
-			t.Errorf("expected 0 missing, got %d: %v", result.Count, result.Missing)
+			t.Errorf("expected 0 missing (parent bundle retrievable), got %d: %v", result.Count, result.Missing)
 		}
 	})
 
-	t.Run("unretrievable remote profile is missing", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
-
-		result, err := CheckMissingDependencies(context.Background(), cfgFor("https://github.com/test/forge@profiles/dev"), CheckMissingDependenciesRequest{
-			BundleReader:  fakeBundleSource{},
-			ProfileReader: fakeProfileSource{},
+	t.Run("unretrievable parent bundle is missing", func(t *testing.T) {
+		result, err := CheckMissingDependencies(context.Background(), cfgFor(), CheckMissingDependenciesRequest{
+			BundleReader: fakeBundleSource{},
 		})
 		if err != nil {
 			t.Fatalf("CheckMissingDependencies failed: %v", err)
@@ -1029,24 +1005,24 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 			// Local parent profile with remote parent
 			"personal/typescript-dev": {
 				Bundles: []string{"https://github.com/owner/repo@v1/bundles/core"},
-				Parents: []string{"https://github.com/owner/repo@v1/profiles/base"},
+				Parents: []string{"https://github.com/owner/repo@v1/bundles/base-kit#profiles/base"},
 			},
 		}},
 	}
 
 	bundleSet := collections.NewSet[string]()
-	profileSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
 
-	collectProfileReferencesRecursive(cfg, "driftway", bundleSet, profileSet, visited)
+	collectProfileReferencesRecursive(cfg, "driftway", bundleSet, visited)
 
 	// Should find the remote bundle from the nested local parent
 	assert.True(t, bundleSet.Has("https://github.com/owner/repo@v1/bundles/core"),
 		"should find remote bundle in nested local parent")
 
-	// Should find the remote profile from the nested local parent
-	assert.True(t, profileSet.Has("https://github.com/owner/repo@v1/profiles/base"),
-		"should find remote profile in nested local parent")
+	// A bundle-profile parent contributes its underlying bundle (the #profiles/
+	// selector is stripped), so the whole nested remote closure is bundles now.
+	assert.True(t, bundleSet.Has("https://github.com/owner/repo@v1/bundles/base-kit"),
+		"should find the bundle behind a nested bundle-profile parent")
 
 	// Should NOT include local-bundle (it's not a remote reference)
 	assert.False(t, bundleSet.Has("local-bundle"),
@@ -1067,10 +1043,9 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 	}
 
 	bundleSet := collections.NewSet[string]()
-	profileSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
 
-	collectProfileReferencesRecursive(cfg, "top", bundleSet, profileSet, visited)
+	collectProfileReferencesRecursive(cfg, "top", bundleSet, visited)
 
 	// Should find the remote bundle from nested/profile
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/remote-bundle"),
@@ -1092,11 +1067,10 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 	}
 
 	bundleSet := collections.NewSet[string]()
-	profileSet := collections.NewSet[string]()
 	visited := collections.NewSet[string]()
 
 	// Should not panic or infinite loop
-	collectProfileReferencesRecursive(cfg, "profile-a", bundleSet, profileSet, visited)
+	collectProfileReferencesRecursive(cfg, "profile-a", bundleSet, visited)
 
 	// Should still find the bundle
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/bundle"))

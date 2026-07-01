@@ -171,24 +171,27 @@ func TestLockDependencies_DefaultLockAppliesFirstInstalls(t *testing.T) {
 	assert.Equal(t, c1, e.SHA)
 }
 
-// setupRemoteParent builds a file:// repo carrying a parent profile that
-// references a bundle in the same repo, plus a local profile whose parent is
-// that remote profile. Returns the base dir, the source repo dir, and the
-// canonical identities of the remote profile and bundle.
-func setupRemoteParent(t *testing.T) (baseDir, src, profileID, bundleID string) {
+// setupRemoteParent builds a file:// repo carrying a bundle that SHIPS a bundle
+// profile `parent` (composing a second bundle in the same repo), plus a local
+// profile whose parent is that bundle profile. Returns the base dir, the source
+// repo dir, and the canonical identities of the parent BUNDLE and the composed
+// bundle. (Top-level @profiles/ distribution was retired — a remote parent is a
+// bundle profile now, so its closure is discovered through the parent bundle.)
+func setupRemoteParent(t *testing.T) (baseDir, src, parentBundleID, bundleID string) {
 	t.Helper()
 	tmp := t.TempDir()
 	baseDir = filepath.Join(tmp, ".ctxloom")
 	src = filepath.Join(tmp, "src")
 
 	bundleID = "file://" + src + "@bundles/demo"
-	profileID = "file://" + src + "@profiles/parent"
+	parentBundleID = "file://" + src + "@bundles/kit"
 
 	initLocalRepoWithFile(t, src, "ctxloom/bundles/demo.yaml", "name: demo\n")
-	addFileToLocalRepo(t, src, "ctxloom/profiles/parent.yaml", "bundles:\n  - "+bundleID+"\n")
+	// The parent bundle ships a bundle profile `parent` that composes demo.
+	addFileToLocalRepo(t, src, "ctxloom/bundles/kit.yaml", "version: 1.0.0\nprofiles:\n  parent:\n    bundles:\n      - "+bundleID+"\n")
 
-	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+profileID+"\n")
-	return baseDir, src, profileID, bundleID
+	writeLocalProfile(t, baseDir, "default", "parents:\n  - "+parentBundleID+"#profiles/parent\n")
+	return baseDir, src, parentBundleID, bundleID
 }
 
 // TestLockDependencies_UnreachableParentPreservesEntries pins the data-loss
@@ -197,18 +200,19 @@ func setupRemoteParent(t *testing.T) (baseDir, src, profileID, bundleID string) 
 // cannot expand its subtree. The lockfile rebuild must then PRESERVE the
 // existing entries under that subtree instead of erasing them, and warn.
 func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
-	baseDir, src, profileID, bundleID := setupRemoteParent(t)
+	baseDir, src, parentBundleID, bundleID := setupRemoteParent(t)
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	// Healthy first lock: both the remote parent profile and its bundle pin.
+	// Healthy first lock: both the parent bundle and the bundle its profile
+	// composes pin.
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 	active0 := mustLoadActive(t, baseDir)
-	pe0, okP := active0.GetEntry(remote.ItemTypeProfile, profileID)
+	pe0, okP := active0.GetEntry(remote.ItemTypeBundle, parentBundleID)
 	be0, okB := active0.GetEntry(remote.ItemTypeBundle, bundleID)
-	require.True(t, okP, "remote parent profile locked")
-	require.True(t, okB, "bundle discovered through the remote parent locked")
+	require.True(t, okP, "remote parent bundle locked")
+	require.True(t, okB, "bundle discovered through the bundle-profile parent locked")
 
 	// Simulate the transient failure: the clone cache is gone AND the upstream
 	// repo is unreachable, so the parent's content cannot be read anywhere.
@@ -226,9 +230,9 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	assert.Contains(t, stderr, "preserving")
 
 	active1 := mustLoadActive(t, baseDir)
-	pe1, okP := active1.GetEntry(remote.ItemTypeProfile, profileID)
+	pe1, okP := active1.GetEntry(remote.ItemTypeBundle, parentBundleID)
 	require.True(t, okP)
-	assert.Equal(t, pe0.SHA, pe1.SHA, "the parent itself carries forward from the lock")
+	assert.Equal(t, pe0.SHA, pe1.SHA, "the parent bundle itself carries forward from the lock")
 	be1, okB := active1.GetEntry(remote.ItemTypeBundle, bundleID)
 	require.True(t, okB, "a transient fetch failure must never erase the subtree's lock entries")
 	assert.Equal(t, be0.SHA, be1.SHA)

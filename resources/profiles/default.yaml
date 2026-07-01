@@ -3,10 +3,10 @@ description: "Local default coding profile scaffolded by `ctxloom init`: your pr
 tags:
   - default
 # A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
-# remote reference. It composes ctxloom-default's baseline conduct/practice
-# profile with the developer (coding) profile, so the seeded default is a real
-# coding profile you can extend, set as the orchestrating/developer member, or
-# split into tighter per-role profiles.
+# remote reference. It composes ctxloom-default's `default` and `developer`
+# bundle profiles (baseline conduct/practice + developer coding practices), so
+# the seeded default is a real coding profile you can extend, set as the
+# orchestrating/developer member, or split into tighter per-role profiles.
 parents:
-  - https://github.com/ctxloom/ctxloom-default@profiles/default
-  - https://github.com/ctxloom/ctxloom-default@profiles/developer
+  - https://github.com/ctxloom/ctxloom-default@bundles/default#profiles/default
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer

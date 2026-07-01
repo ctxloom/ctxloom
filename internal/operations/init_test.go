@@ -61,7 +61,8 @@ func TestInitializeProject_ScaffoldsSeedProfileNotSubagents(t *testing.T) {
 	data, err := afero.ReadFile(fs, profilePath)
 	require.NoError(t, err, "seed profile should be scaffolded locally")
 	body := string(data)
-	assert.Contains(t, body, "ctxloom/ctxloom-default@profiles/", "seed profile wires ctxloom-default content")
+	assert.Contains(t, body, "ctxloom/ctxloom-default@bundles/", "seed profile wires ctxloom-default bundle content")
+	assert.Contains(t, body, "#profiles/", "seed profile inherits ctxloom-default bundle profiles")
 	assert.Contains(t, body, "parents:", "seed profile inherits remote baseline content")
 
 	// The config wires the LOCAL profile name as the default (not a bare remote ref),

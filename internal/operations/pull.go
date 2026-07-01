@@ -48,16 +48,14 @@ func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemT
 	return canonicalizeUserRef(ref, itemType, registry)
 }
 
-// parseRemoteItemType maps the request item_type string to a remote.ItemType,
-// accepting only "bundle" and "profile".
+// parseRemoteItemType maps the request item_type string to a remote.ItemType.
+// Only bundles are directly pullable; profiles now travel inside bundles.
 func parseRemoteItemType(s string) (remote.ItemType, error) {
 	switch s {
 	case "bundle":
 		return remote.ItemTypeBundle, nil
-	case "profile":
-		return remote.ItemTypeProfile, nil
 	}
-	return "", fmt.Errorf("invalid item_type: %s (only bundle and profile supported)", s)
+	return "", fmt.Errorf("invalid item_type: %s (only bundle supported)", s)
 }
 
 // PullItemRequest contains parameters for a direct pull operation.

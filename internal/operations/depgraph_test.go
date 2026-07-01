@@ -53,33 +53,36 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 }
 
 func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
-	// Local profile P pins bundle X@h1 directly AND a remote parent A@hA; A's
-	// content pins the SAME bundle X at a DIFFERENT hash h2 — a diamond conflict
-	// that must surface through the parent walk.
+	// Local profile P pins bundle X@h1 directly AND has a remote parent that is a
+	// bundle profile A#profiles/a; the bundle A ships profile `a`, which composes
+	// the SAME bundle X at a DIFFERENT hash h2 — a diamond conflict that must
+	// surface through the bundle-profile-parent walk (the parent bundle is
+	// fetched, its named profile extracted, and its closure walked).
 	const (
 		urlX = "https://github.com/x/repo"
 		urlA = "https://github.com/a/repo"
 	)
+	bundleA := "version: \"1.0.0\"\nprofiles:\n  a:\n    bundles:\n      - " + urlX + "@bundles/x@h2222222\n"
 	fetcher := remote.NewMockFetcher().
-		WithFile("ctxloom/profiles/a.yaml", []byte("bundles:\n  - "+urlX+"@bundles/x@h2222222\n"))
+		WithFile("ctxloom/bundles/akit.yaml", []byte(bundleA))
 
 	w := newTestWalker(fetcher)
 	root := &profiles.Profile{
 		Name:    "local",
 		Bundles: []string{urlX + "@bundles/x@h1111111"},
-		Parents: []string{urlA + "@profiles/a@hAAAAAAA"},
+		Parents: []string{urlA + "@bundles/akit@hAAAAAAA#profiles/a"},
 	}
 	w.walkProfile(root, remote.LocalSource, "")
 
 	pins, conflicts, _ := w.result()
 
-	// X (from both P and A) and A itself are pinned.
+	// X (from both P and the bundle profile) and the parent bundle akit are pinned.
 	identities := map[string]string{}
 	for _, p := range pins {
 		identities[p.Identity] = p.Hash
 	}
 	assert.Contains(t, identities, urlX+"@bundles/x")
-	assert.Contains(t, identities, urlA+"@profiles/a")
+	assert.Contains(t, identities, urlA+"@bundles/akit")
 
 	require.Len(t, conflicts, 1)
 	assert.Equal(t, urlX+"@bundles/x", conflicts[0].Item)

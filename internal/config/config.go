@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -348,79 +347,21 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 	return profiles.NewLoader(profileDirs, opts...)
 }
 
-// ProfileSeedOptions returns the loader option that seeds (a) lockfile-listed
-// top-level remote profiles read from the git clone cache and (b) profiles
-// shipped INSIDE bundles (the ungated, compound bundle item kind), or nil when
-// there are none. Exposed (like ProfileRemoteResolver/ProfileRemoteURLResolver)
-// so other profile-loader factories — e.g. operations.profileLoader — wire the
-// exact same seed as GetProfileLoader and the two never disagree about which
-// profiles exist. The two seed sources never collide: top-level remote profiles
-// key on "<url>@profiles/<name>", bundle profiles on "<bundle>#profiles/<name>".
+// ProfileSeedOptions returns the loader option that seeds the profiles shipped
+// INSIDE bundles (the ungated, compound bundle item kind), keyed by their
+// "<bundle>#profiles/<name>" ref, or nil when there are none. Exposed (like
+// ProfileRemoteResolver/ProfileRemoteURLResolver) so other profile-loader
+// factories — e.g. operations.profileLoader — wire the exact same seed as
+// GetProfileLoader and the two never disagree about which profiles exist.
+//
+// Top-level remote "<url>@profiles/<name>" distribution was retired: profiles
+// now arrive ONLY inside bundles, so this is the sole profile seed source.
 func (c *Config) ProfileSeedOptions() []profiles.LoaderOption {
-	remoteSeed := c.loadRemoteProfileSeed()
 	bundleSeed := c.loadBundleProfileSeed()
-	if len(remoteSeed) == 0 && len(bundleSeed) == 0 {
+	if len(bundleSeed) == 0 {
 		return nil
 	}
-	merged := make(map[string]*profiles.Profile, len(remoteSeed)+len(bundleSeed))
-	maps.Copy(merged, remoteSeed)
-	maps.Copy(merged, bundleSeed)
-	return []profiles.LoaderOption{profiles.WithSeededProfiles(merged)}
-}
-
-// loadRemoteProfileSeed reads every lockfile-listed profile from the local git
-// clone cache at its locked SHA, parses it, resolves its short same-repo bundle
-// and parent refs against its repo URL, and returns them keyed by canonical ref
-// ready to seed a profiles.Loader. Remote profiles are pure references — never
-// materialized to disk — so this is how they enter the loader. Returns nil when
-// there is no lockfile (caller treats nil as "no remote profiles").
-func (c *Config) loadRemoteProfileSeed() map[string]*profiles.Profile {
-	if len(c.AppPaths) == 0 {
-		return nil
-	}
-	baseDir := c.AppPaths[0]
-
-	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
-	if err != nil || lock.IsEmpty() {
-		return nil
-	}
-	// Auth config and the git clone cache are inherently OS-backed (the cache
-	// shells out to git), so they intentionally do not honor c.fs.
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-	factory := remote.NewCachedFetcherFactory(cache)
-	reader := remote.NewProfileReader(factory, auth, lock)
-
-	loaded := make(map[string]*profiles.Profile)
-	for _, canonical := range reader.ListProfileNames() {
-		data, rerr := reader.ReadProfileBytes(context.Background(), canonical)
-		if rerr != nil {
-			warnOncePerRun(clidiag.Line("ctxloom", "failed to load remote profile %q from cache: %v", canonical, rerr))
-			continue
-		}
-		p, perr := profiles.ParseProfile(data)
-		if perr != nil {
-			warnOncePerRun(clidiag.Line("ctxloom", "failed to parse remote profile %q: %v", canonical, perr))
-			continue
-		}
-		entry := lock.Profiles[canonical]
-		// The profile's own repo URL is the source its short sibling refs resolve
-		// against — it's intrinsic to the canonical lockfile key.
-		repoURL := entry.URL
-		if ref, e := remote.ParseReference(canonical); e == nil && ref.URL != "" {
-			repoURL = ref.URL
-		}
-		p.ResolveShortRefs(repoURL, entry.SHA)
-		p.Name = canonical
-		// The sentinel path marks the profile read-only for write paths
-		// (profiles.Loader.Save/Delete check IsSeededPath).
-		p.Path = fmt.Sprintf("%s%s@%s", profiles.SeededProfilePathPrefix, canonical, entry.SHA)
-		loaded[canonical] = p
-	}
-	if len(loaded) == 0 {
-		return nil
-	}
-	return loaded
+	return []profiles.LoaderOption{profiles.WithSeededProfiles(bundleSeed)}
 }
 
 // loadBundleProfileSeed walks every bundle visible to this config — fs-installed

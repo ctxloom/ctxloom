@@ -2,9 +2,11 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -273,17 +275,28 @@ func (w *depWalker) recurseParent(parentRef string) {
 		return
 	}
 
-	rec := w.record(parentRef, remote.ItemTypeProfile)
+	// The only remote profile parents are bundle profiles
+	// (<url>@bundles/x#profiles/y) — top-level @profiles/ distribution was
+	// retired. Pin the underlying bundle, then read the named profile OUT of the
+	// bundle and walk ITS closure (its composed bundles + parents).
+	bundleRef, profName, ok := remote.SplitBundleProfileRef(parentRef)
+	if !ok {
+		// Not a bundle-profile ref — a retired top-level @profiles/ parent (or a
+		// malformed ref). No longer distributable; its subtree is gone.
+		return
+	}
+
+	rec := w.record(bundleRef, remote.ItemTypeBundle)
 	if rec == nil {
 		return
 	}
 	// Recurse at the RESOLVED commit, not the (possibly symbolic) constraint —
-	// the parent's content and its own transitive refs are read from that commit.
-	hash, _, ok := w.resolvedHash(rec)
-	if !ok {
+	// the bundle's content and its profile's transitive refs are read at it.
+	hash, _, hok := w.resolvedHash(rec)
+	if !hok {
 		return
 	}
-	guard := rec.CanonicalString() + "@" + hash
+	guard := rec.CanonicalString() + remote.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}
@@ -298,12 +311,17 @@ func (w *depWalker) recurseParent(parentRef string) {
 		w.markUnexpanded(rec.CanonicalString(), ferr)
 		return
 	}
-	child, perr := profiles.ParseProfile(data)
-	if perr != nil {
-		w.markUnexpanded(rec.CanonicalString(), perr)
+	b, berr := bundles.ParseBundle(data)
+	if berr != nil {
+		w.markUnexpanded(rec.CanonicalString(), berr)
 		return
 	}
-	w.walkProfile(child, rec.URL, hash)
+	child, found := b.Profiles[profName]
+	if !found {
+		w.markUnexpanded(rec.CanonicalString(), fmt.Errorf("bundle has no profile %q", profName))
+		return
+	}
+	w.walkProfile(&child, rec.URL, hash)
 }
 
 func (w *depWalker) result() ([]PinnedRef, []DependencyConflict, []string) {

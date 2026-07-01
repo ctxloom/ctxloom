@@ -36,9 +36,9 @@ func TestPullItemRequest_Validation(t *testing.T) {
 			shouldError: false,
 		},
 		{
-			name:        "valid profile request with options",
+			name:        "profile item type is no longer pullable",
 			req:         PullItemRequest{Reference: "test/my-profile", ItemType: "profile", Force: true},
-			shouldError: false,
+			shouldError: true,
 		},
 		{
 			name:        "invalid item type",
@@ -49,8 +49,8 @@ func TestPullItemRequest_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Validate item type
-			validTypes := map[string]bool{"bundle": true, "profile": true}
+			// Validate item type (profiles are no longer directly pullable)
+			validTypes := map[string]bool{"bundle": true}
 			if tt.shouldError {
 				assert.False(t, validTypes[tt.req.ItemType])
 			} else {
@@ -173,32 +173,6 @@ func TestPullItem_BundleSuccess(t *testing.T) {
 	assert.Equal(t, paths.BundlesPath(testBaseDir)+"/test/my-bundle.yaml", result.LocalPath)
 	assert.Equal(t, "abc123d", result.SHA)
 	assert.False(t, result.Overwritten)
-}
-
-func TestPullItem_ProfileSuccess(t *testing.T) {
-	cfg := &config.Config{AppPaths: []string{testBaseDir}}
-
-	puller := &mockPuller{
-		pullFunc: func(ctx context.Context, refStr string, opts remote.PullOptions) (*remote.PullResult, error) {
-			assert.Equal(t, "test/my-profile", refStr)
-			assert.Equal(t, remote.ItemTypeProfile, opts.ItemType)
-			return &remote.PullResult{
-				LocalPath:   paths.ProfilesPath(testBaseDir) + "/test/my-profile.yaml",
-				SHA:         "def456a",
-				Overwritten: false,
-			}, nil
-		},
-	}
-
-	result, err := PullItem(context.Background(), cfg, PullItemRequest{
-		Reference: "test/my-profile",
-		ItemType:  "profile",
-		Puller:    puller,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, paths.ProfilesPath(testBaseDir)+"/test/my-profile.yaml", result.LocalPath)
-	assert.Equal(t, "def456a", result.SHA)
 }
 
 func TestPullItem_WithForce(t *testing.T) {

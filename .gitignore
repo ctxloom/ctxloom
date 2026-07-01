@@ -27,6 +27,10 @@ go.work.sum
 .ctxloom/*
 # ...but keep the consolidation/design plans under version control
 !.ctxloom/plans/
+# Defense-in-depth: a NESTED .ctxloom under a package dir is test/tool pollution
+# (the root `.ctxloom/*` above is anchored by its slash, so nested dirs slip
+# through). The operations TestMain also prevents + guards this at its source.
+internal/**/.ctxloom/
 .mcp.json
 .tasks/
 

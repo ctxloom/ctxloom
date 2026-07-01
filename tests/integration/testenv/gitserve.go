@@ -113,9 +113,9 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// CtxloomV1Layout returns a minimal ctxloom repo layout (a bundle plus
-// direct + inheriting profiles) suitable for seeding a GitRepo. The bundle
-// ships an mcp server and a hook so resolution/apply can be asserted.
+// CtxloomV1Layout returns a minimal ctxloom repo layout (a single bundle)
+// suitable for seeding a GitRepo. The bundle ships an mcp server and a hook so
+// resolution/apply can be asserted. (Top-level profile distribution was retired.)
 func CtxloomV1Layout() map[string]string {
 	return map[string]string{
 		"ctxloom/bundles/demo.yaml": strings.TrimSpace(`
@@ -135,16 +135,6 @@ hooks:
   session_start:
     - command: echo demo-hook
       type: command
-`) + "\n",
-		"ctxloom/profiles/base.yaml": strings.TrimSpace(`
-description: Base profile referencing the demo bundle directly
-bundles:
-  - demo
-`) + "\n",
-		"ctxloom/profiles/child.yaml": strings.TrimSpace(`
-description: Child profile that only inherits demo via its parent
-parents:
-  - base
 `) + "\n",
 	}
 }

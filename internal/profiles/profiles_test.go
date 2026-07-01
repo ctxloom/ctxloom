@@ -20,7 +20,6 @@
 package profiles
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -732,153 +731,12 @@ func TestNewLoader_WithFS(t *testing.T) {
 	assert.Equal(t, fs, loader.fs)
 }
 
-// =============================================================================
-// toLocalProfileName Tests
-// =============================================================================
-
-func TestToLocalProfileName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple name unchanged",
-			input:    "my-profile",
-			expected: "my-profile",
-		},
-		{
-			name:     "remote/name unchanged",
-			input:    "github/go-developer",
-			expected: "github/go-developer",
-		},
-		{
-			name:     "https URL converted to local path",
-			input:    "https://github.com/owner/repo@profiles/go-developer",
-			expected: "github.com/owner/repo/go-developer",
-		},
-		{
-			name:     "git@ SSH URL converted to local path",
-			input:    "git@github.com:owner/repo@profiles/go-developer",
-			expected: "github.com/owner/repo/go-developer",
-		},
-		{
-			name:     "file:// URL converted to local path",
-			input:    "file:///home/user/ctxloom-content@profiles/test",
-			expected: "user/ctxloom-content/test",
-		},
-		{
-			name:     "nested path in URL",
-			input:    "https://github.com/org/subgroup/repo@profiles/base",
-			expected: "github.com/org/subgroup/repo/base",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := toLocalProfileName(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// =============================================================================
-// URL Parent Resolution Tests
-// =============================================================================
-
-// TestLoader_ResolveProfile_URLParent verifies that URL parent references are
-// resolved to their local storage paths.
-//
-// When a profile has a parent like:
-//   - https://github.com/owner/repo@profiles/base
-//
-// The resolver should look for the profile at:
-//   - .ctxloom/persistent/profiles/github.com/owner/repo/base.yaml
-func TestLoader_ResolveProfile_URLParent(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create directories
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/owner/repo", 0755))
-
-	// Create the "remote" parent profile (as if synced from URL)
-	baseProfile := `description: Base Go profile
-bundles:
-  - go-tools
-tags:
-  - golang
-variables:
-  go_version: "1.21"
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/github.com/owner/repo/go-base.yaml",
-		[]byte(baseProfile), 0644))
-
-	// Create child profile that references the parent via URL
-	childProfile := `description: Project profile
-parents:
-  - https://github.com/owner/repo@profiles/go-base
-bundles:
-  - project-tools
-variables:
-  project_name: my-project
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/project-dev.yaml",
-		[]byte(childProfile), 0644))
-
-	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
-
-	// Resolve the child profile
-	resolved, err := loader.ResolveProfile("project-dev", nil)
-	require.NoError(t, err)
-
-	// Should have bundles from both profiles
-	assert.Contains(t, resolved.Bundles, "go-tools")
-	assert.Contains(t, resolved.Bundles, "project-tools")
-
-	// Should have tags from parent
-	assert.Contains(t, resolved.Tags, "golang")
-
-	// Should have variables from both (child overrides parent)
-	assert.Equal(t, "1.21", resolved.Variables["go_version"])
-	assert.Equal(t, "my-project", resolved.Variables["project_name"])
-}
-
-// TestLoader_ResolveProfile_URLParentNotSynced verifies that an unsynced URL
-// parent is skipped with a warning rather than aborting resolution. The child's
-// own settings still apply so the user can reach their LLM even when remote
-// dependencies haven't been pulled yet.
-func TestLoader_ResolveProfile_URLParentNotSynced(t *testing.T) {
+// TestLoader_ResolveProfile_LocalParents verifies resolution with local parent
+// references (bundle-shipped and top-level URL parents are covered elsewhere).
+func TestLoader_ResolveProfile_LocalParents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-
-	// Create child profile that references an unsynced parent
-	childProfile := `parents:
-  - https://github.com/nonexistent/repo@profiles/missing
-tags:
-  - own-tag
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/child.yaml",
-		[]byte(childProfile), 0644))
-
-	loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"}, WithFS(fs))
-
-	resolved, err := loader.ResolveProfile("child", nil)
-	require.NoError(t, err)
-	require.NotNil(t, resolved)
-	assert.Equal(t, []string{"own-tag"}, resolved.Tags)
-}
-
-// TestLoader_ResolveProfile_MixedParents verifies resolution with both local
-// and URL parent references.
-func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-	require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles/github.com/ctxloom/ctxloom-default", 0755))
 
 	// Local parent
 	localParent := `bundles:
@@ -888,18 +746,9 @@ func TestLoader_ResolveProfile_MixedParents(t *testing.T) {
 		"/project/.ctxloom/persistent/profiles/local-base.yaml",
 		[]byte(localParent), 0644))
 
-	// Remote parent (synced)
-	remoteParent := `bundles:
-  - remote-tools
-`
-	require.NoError(t, afero.WriteFile(fs,
-		"/project/.ctxloom/persistent/profiles/github.com/ctxloom/ctxloom-default/go-base.yaml",
-		[]byte(remoteParent), 0644))
-
-	// Child with both parents
+	// Child with a local parent
 	childProfile := `parents:
   - local-base
-  - https://github.com/ctxloom/ctxloom-default@profiles/go-base
 bundles:
   - child-tools
 `
@@ -913,95 +762,7 @@ bundles:
 	require.NoError(t, err)
 
 	assert.Contains(t, resolved.Bundles, "local-tools")
-	assert.Contains(t, resolved.Bundles, "remote-tools")
 	assert.Contains(t, resolved.Bundles, "child-tools")
-}
-
-// =============================================================================
-// Seeded Remote Profile Tests
-// =============================================================================
-
-// seededGoBase is a remote profile as the config seed builds it: keyed and
-// named by its version-less canonical ref, never materialized to disk.
-func seededGoBase(canonical string) map[string]*Profile {
-	return map[string]*Profile{
-		canonical: {
-			Name:      canonical,
-			Path:      "<remote>:" + canonical + "@abc1234",
-			Bundles:   []string{"go-tools"},
-			Tags:      []string{"golang"},
-			Variables: map[string]string{"go_version": "1.21"},
-		},
-	}
-}
-
-// TestLoader_Load_SeededCanonicalRef verifies that Load finds a seeded remote
-// profile under its version-less canonical key, including when the requested
-// ref carries a content version ("...@<sha>"). Remote profiles are never
-// written to disk, so this seed lookup is the only way they resolve.
-func TestLoader_Load_SeededCanonicalRef(t *testing.T) {
-	const canonical = "https://github.com/owner/repo@profiles/go-base"
-	loader := NewLoader([]string{t.TempDir()}, WithSeededProfiles(seededGoBase(canonical)))
-
-	exact, err := loader.Load(canonical)
-	require.NoError(t, err)
-	assert.Equal(t, canonical, exact.Name)
-
-	versioned, err := loader.Load(canonical + "@abc1234")
-	require.NoError(t, err)
-	assert.Equal(t, canonical, versioned.Name, "versioned ref should normalize to the seed key")
-}
-
-// TestLoader_ResolveProfile_SeededCanonicalParent is the regression test for
-// remote parent profiles never resolving: the seed map keys by version-less
-// canonical ref, but parent resolution used to convert the ref to its local
-// materialized name ("github.com/owner/repo/go-base") — which matched neither
-// the seed nor any file on disk, so the parent's content silently vanished
-// behind a "not installed" warning.
-func TestLoader_ResolveProfile_SeededCanonicalParent(t *testing.T) {
-	const canonical = "https://github.com/owner/repo@profiles/go-base"
-
-	for _, tc := range []struct {
-		name      string
-		parentRef string
-	}{
-		{"version-less canonical ref", canonical},
-		{"version-suffixed ref", canonical + "@abc1234"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
-			require.NoError(t, fs.MkdirAll("/project/.ctxloom/persistent/profiles", 0755))
-			child := "parents:\n  - " + tc.parentRef + "\nbundles:\n  - project-tools\n"
-			require.NoError(t, afero.WriteFile(fs,
-				"/project/.ctxloom/persistent/profiles/project-dev.yaml",
-				[]byte(child), 0644))
-
-			loader := NewLoader([]string{"/project/.ctxloom/persistent/profiles"},
-				WithFS(fs), WithSeededProfiles(seededGoBase(canonical)))
-
-			// Capture stderr: a regression re-introduces the
-			// "parent ... not installed; skipping" warning.
-			oldStderr := os.Stderr
-			r, w, err := os.Pipe()
-			require.NoError(t, err)
-			os.Stderr = w
-			resolved, resolveErr := loader.ResolveProfile("project-dev", nil)
-			require.NoError(t, w.Close())
-			os.Stderr = oldStderr
-			captured, err := io.ReadAll(r)
-			require.NoError(t, err)
-
-			require.NoError(t, resolveErr)
-			assert.NotContains(t, string(captured), "not installed",
-				"seeded parent must resolve without a skip warning")
-
-			// Parent content merged with the child's own.
-			assert.Contains(t, resolved.Bundles, "go-tools")
-			assert.Contains(t, resolved.Bundles, "project-tools")
-			assert.Contains(t, resolved.Tags, "golang")
-			assert.Equal(t, "1.21", resolved.Variables["go_version"])
-		})
-	}
 }
 
 // =============================================================================

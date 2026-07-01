@@ -53,17 +53,12 @@ func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, root+"/bundles/foo.yaml", []byte("x"), 0o644))
 	require.NoError(t, afero.WriteFile(fs, root+"/bundles/team/standards.yaml", []byte("x"), 0o644))
 	require.NoError(t, afero.WriteFile(fs, root+"/bundles/notes.txt", []byte("x"), 0o644))
-	require.NoError(t, afero.WriteFile(fs, root+"/profiles/dev.yaml", []byte("x"), 0o644))
 
 	vcs := &fsVCS{fs: fs, root: root}
 
 	bundles, err := vcs.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"foo", "team/standards"}, bundles)
-
-	profiles, err := vcs.ListItems(context.Background(), ItemTypeProfile)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"dev"}, profiles)
 }
 
 func TestFSVCS_ListItems_MissingDirIsEmpty(t *testing.T) {

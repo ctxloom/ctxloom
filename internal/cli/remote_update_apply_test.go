@@ -210,8 +210,7 @@ func TestReportRemovedFromRemote_SkipsCleanupWhenReloadFailed(t *testing.T) {
 
 	lockManager := remote.NewLockfileManager(appDir, remote.WithLockfileFS(fs))
 	lockfile := &remote.Lockfile{
-		Bundles:  map[string]remote.LockEntry{},
-		Profiles: map[string]remote.LockEntry{},
+		Bundles: map[string]remote.LockEntry{},
 	}
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
@@ -259,8 +258,7 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 
 	lockManager := remote.NewLockfileManager(appDir, remote.WithLockfileFS(fs))
 	lockfile := &remote.Lockfile{
-		Bundles:  map[string]remote.LockEntry{},
-		Profiles: map[string]remote.LockEntry{},
+		Bundles: map[string]remote.LockEntry{},
 	}
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
@@ -304,8 +302,7 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	const goneRef = "https://github.com/acme/repo@bundles/gone"
 	lockManager := remote.NewLockfileManager(".ctxloom", remote.WithLockfileFS(fs))
 	lockfile := &remote.Lockfile{
-		Bundles:  map[string]remote.LockEntry{},
-		Profiles: map[string]remote.LockEntry{},
+		Bundles: map[string]remote.LockEntry{},
 	}
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 

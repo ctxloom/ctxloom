@@ -3,8 +3,10 @@ Feature: Remote content
   Fetching content from a remote over the real clone path, exercised hermetically
   against a seeded file:// repository. (Enabled by the NormalizeURL fix that
   preserves non-HTTP schemes.) Remote items are pure references: a local profile
-  names them (bare refs expand against the default remote), and `remote pull`
-  fetches and locks the dependency closure.
+  names a remote bundle (a bare ref expands against the default remote), and
+  `remote pull` fetches and locks the dependency closure. Top-level profile
+  distribution was retired — profiles ship inside bundles — so only bundles are
+  browsed, referenced, and locked at the top level.
 
   Scenario: Browse a remote's contents
     Given an initialized ctxloom project
@@ -12,21 +14,6 @@ Feature: Remote content
     When I run "ctxloom remote browse origin"
     Then the command succeeds
     And the output contains "@bundles/demo"
-    And the output contains "@profiles/base"
-
-  Scenario: Reference a remote profile and pull it
-    # Remote profiles are pure references — not materialized to disk. A local
-    # profile names the remote profile as a parent (the bare ref expands against
-    # the default remote); pull locks the canonical ref. Locking walks the refs,
-    # so the bundle the remote profile names is locked too.
-    Given an initialized ctxloom project
-    And a git remote "origin" serving a ctxloom bundle
-    And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
-    When I run "ctxloom remote pull"
-    Then the command succeeds
-    And the file ".ctxloom/lock.yaml" contains "@profiles/base"
-    And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
 
   Scenario: Reference a remote bundle and pull it
     Given an initialized ctxloom project
@@ -43,7 +30,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
     When I run "ctxloom remote pull"
     Then the command succeeds
@@ -61,7 +48,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
@@ -80,7 +67,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
     And the remote "origin" advances its bundle
     And I run "ctxloom remote upgrade"
@@ -93,9 +80,9 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
-    And I run "ctxloom bundle pin origin/base"
+    And I run "ctxloom bundle pin origin/demo"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
     Then the command succeeds
@@ -109,7 +96,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
-    And I run "ctxloom profile create dev --parent base"
+    And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
     And I run "ctxloom remote trust origin"
     And the remote "origin" advances its bundle

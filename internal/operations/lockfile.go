@@ -90,7 +90,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// previous lockfile degrades to an empty one.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
-		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 	}
 	prevPinned := map[string]bool{}
 	for _, e := range prev.AllEntries() {
@@ -107,9 +107,8 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}
 
 	lockfile := &remote.Lockfile{
-		Version:  1,
-		Bundles:  make(map[string]remote.LockEntry),
-		Profiles: make(map[string]remote.LockEntry),
+		Version: 1,
+		Bundles: make(map[string]remote.LockEntry),
 	}
 	var staged []PinnedRef
 	for _, p := range pins {

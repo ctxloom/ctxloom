@@ -99,19 +99,18 @@ func TestDelete_RejectsTraversalNames(t *testing.T) {
 	assert.True(t, exists, "the outside file must survive a traversal delete attempt")
 }
 
-// TestLoad_RemoteRefsStillPassValidation pins that canonical remote refs —
-// which carry "://" and "@" — are not caught by the traversal guard: they
-// normalize to their local materialized form before validation.
+// TestLoad_RemoteRefsStillPassValidation pins that a canonical remote ref —
+// which carries "://" and "@" — is not caught by the traversal guard: it is a
+// valid remote address, so an unseeded lookup surfaces a clean not-found (run a
+// pull), never an "invalid profile name" rejection.
 func TestLoad_RemoteRefsStillPassValidation(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs,
-		"/profiles/github.com/alice/ctxloom/dev.yaml",
-		[]byte("description: materialized remote\n"), 0o644))
+	require.NoError(t, fs.MkdirAll("/profiles", 0o755))
 	loader := NewLoader([]string{"/profiles"}, WithFS(fs))
 
-	p, err := loader.Load("https://github.com/alice/ctxloom@profiles/dev")
-	require.NoError(t, err)
-	assert.Equal(t, "materialized remote", p.Description)
+	_, err := loader.Load("https://github.com/alice/ctxloom@bundles/dev")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "invalid profile name")
 }
 
 // TestLoadFile_DedupesPendingUpgradesByPath verifies a legacy file loaded

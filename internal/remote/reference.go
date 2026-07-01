@@ -39,7 +39,7 @@ const LocalSource = "ctxloom:local"
 //
 // Local source (project-authored, committed .ctxloom/local/):
 //   - "ctxloom:local@bundles/name"
-//   - "ctxloom:local@profiles/dev@<rev>" (pinned to a project revision)
+//   - "ctxloom:local@bundles/name@<rev>" (pinned to a project revision)
 func ParseReference(ref string) (*Reference, error) {
 	if ref == "" {
 		return nil, fmt.Errorf("empty reference")
@@ -135,7 +135,7 @@ func ResolveRefString(ref, sourceURL, sourceHash string, kind ItemType) string {
 
 // parseLocalReference parses ctxloom:local references like:
 //   - ctxloom:local@bundles/name (current working copy)
-//   - ctxloom:local@profiles/dev@<rev> (pinned to a project revision)
+//   - ctxloom:local@bundles/name@<rev> (pinned to a project revision)
 //
 // Format: ctxloom:local@<type>/<path>[@version]. The tail after the source
 // token is parsed identically to a canonical URL's (parseTypePathVersion), so
@@ -314,14 +314,13 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 		return "", "", "", err
 	}
 
-	// Parse item type (only bundles and profiles supported)
+	// Parse item type (only bundles are distributed at the top level; top-level
+	// @profiles/ distribution was retired — profiles ship inside bundles).
 	switch typeStr {
 	case "bundles":
 		itemType = ItemTypeBundle
-	case "profiles":
-		itemType = ItemTypeProfile
 	default:
-		return "", "", "", fmt.Errorf("unknown item type: %s (only bundles and profiles supported)", typeStr)
+		return "", "", "", fmt.Errorf("unknown item type: %s (only bundles supported)", typeStr)
 	}
 
 	return itemType, itemPath, contentVersion, nil
@@ -345,8 +344,8 @@ func validateItemPath(p string) error {
 }
 
 // stripLegacySchemaSegment removes a leading schema-version segment from a
-// pre-removal "schemaVersion/type/path" remainder (e.g. "v1/profiles/x" →
-// "profiles/x"). It only strips when the first segment is not itself a type but
+// pre-removal "schemaVersion/type/path" remainder (e.g. "v1/bundles/x" →
+// "bundles/x"). It only strips when the first segment is not itself a type but
 // the next one is, so a genuine "type/path" passes through untouched.
 func stripLegacySchemaSegment(s string) string {
 	first, rest, ok := strings.Cut(s, "/")
@@ -361,7 +360,7 @@ func stripLegacySchemaSegment(s string) string {
 
 // isItemTypeDir reports whether s names a supported item-type directory.
 func isItemTypeDir(s string) bool {
-	return s == "bundles" || s == "profiles"
+	return s == "bundles"
 }
 
 // String returns the string representation of a reference. It is nil-safe: a nil
@@ -432,12 +431,9 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 }
 
 // LocalPath returns the local path where the item would be installed.
-// baseDir is the .ctxloom directory path.
-// Bundles go in cache/bundles/, profiles go in profiles/ (at root).
+// baseDir is the .ctxloom directory path. Only bundles are installed at the top
+// level (top-level profile distribution was retired): .ctxloom/cache/bundles/.
 func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
-	if r.IsCanonical() {
-		itemType = r.ItemType
-	}
 	// remoteName ("github.com/owner/repo") and r.Path ("lang/go/testing") are
 	// logical, forward-slash segments. baseDir is an on-disk OS path, so build
 	// with filepath.Join — it cleans the embedded forward slashes to the OS
@@ -445,15 +441,7 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	// which left forward slashes on Windows).
 	remoteName := r.LocalRemoteName()
 	file := r.Path + ".yaml"
-
-	switch itemType {
-	case ItemTypeProfile:
-		// Profiles: .ctxloom/profiles/<remote>/<path>.yaml (root level, no cache layer)
-		return filepath.Join(baseDir, paths.ProfilesDir, remoteName, file)
-	default:
-		// Bundles (and any other type): .ctxloom/cache/bundles/<remote>/<path>.yaml
-		return filepath.Join(baseDir, paths.CacheDir, paths.BundlesDir, remoteName, file)
-	}
+	return filepath.Join(baseDir, paths.CacheDir, paths.BundlesDir, remoteName, file)
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.

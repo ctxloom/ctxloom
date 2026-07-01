@@ -50,13 +50,6 @@ func TestParseReference_HTTPS(t *testing.T) {
 			wantPath: "golang/testing",
 		},
 		{
-			name:     "profile type",
-			input:    "https://github.com/owner/repo@profiles/go-developer",
-			wantURL:  "https://github.com/owner/repo",
-			wantType: ItemTypeProfile,
-			wantPath: "go-developer",
-		},
-		{
 			name:    "fragments no longer supported",
 			input:   "https://gitlab.com/group/project@fragments/security",
 			wantErr: true,
@@ -92,13 +85,6 @@ func TestParseReference_HTTPS(t *testing.T) {
 			wantURL:  "https://github.com/owner/repo",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
-		},
-		{
-			name:     "legacy v1 schema segment stripped (profile)",
-			input:    "https://github.com/ctxloom/ctxloom-default@v1/profiles/rust-developer",
-			wantURL:  "https://github.com/ctxloom/ctxloom-default",
-			wantType: ItemTypeProfile,
-			wantPath: "rust-developer",
 		},
 		{
 			// A bundle ref carrying a fragment selector identifies the bundle,
@@ -154,11 +140,9 @@ func TestStripLegacySchemaSegment(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"v1 before profiles", "v1/profiles/rust-developer", "profiles/rust-developer"},
 		{"v1 before bundles", "v1/bundles/core", "bundles/core"},
 		{"v1 keeps content version", "v1/bundles/core@v1.2.3", "bundles/core@v1.2.3"},
 		{"already clean type/path untouched", "bundles/core", "bundles/core"},
-		{"profiles untouched", "profiles/go-developer", "profiles/go-developer"},
 		{"unknown leading without type follows is untouched", "invalid/core", "invalid/core"},
 		{"single segment untouched", "core", "core"},
 	}
@@ -186,13 +170,6 @@ func TestParseReference_SSH(t *testing.T) {
 			wantURL:  "git@github.com:owner/repo",
 			wantType: ItemTypeBundle,
 			wantPath: "core-practices",
-		},
-		{
-			name:     "gitlab ssh profile",
-			input:    "git@gitlab.com:group/subgroup/repo@profiles/security",
-			wantURL:  "git@gitlab.com:group/subgroup/repo",
-			wantType: ItemTypeProfile,
-			wantPath: "security",
 		},
 		{
 			name:    "fragments no longer supported",
@@ -257,13 +234,6 @@ func TestParseReference_File(t *testing.T) {
 			wantPath: "core-practices",
 		},
 		{
-			name:     "deep path profile",
-			input:    "file:///var/lib/ctxloom/repos/main@profiles/security-aws",
-			wantURL:  "file:///var/lib/ctxloom/repos/main",
-			wantType: ItemTypeProfile,
-			wantPath: "security-aws",
-		},
-		{
 			name:    "fragments no longer supported",
 			input:   "file:///var/lib/ctxloom/repos/main@fragments/security/aws",
 			wantErr: true,
@@ -319,15 +289,6 @@ func TestReference_String(t *testing.T) {
 			},
 			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
-		{
-			name: "canonical SSH profile",
-			ref: Reference{
-				URL:      "git@github.com:owner/repo",
-				ItemType: ItemTypeProfile,
-				Path:     "security",
-			},
-			want: "git@github.com:owner/repo@profiles/security",
-		},
 	}
 
 	for _, tt := range tests {
@@ -353,12 +314,6 @@ func TestReference_BuildFilePath(t *testing.T) {
 			want:     "ctxloom/bundles/go-tools.yaml",
 		},
 		{
-			name:     "non-canonical profile",
-			ref:      Reference{Path: "security-focused"},
-			itemType: ItemTypeProfile,
-			want:     "ctxloom/profiles/security-focused.yaml",
-		},
-		{
 			name:     "nested path",
 			ref:      Reference{Path: "golang/best-practices"},
 			itemType: ItemTypeBundle,
@@ -371,7 +326,7 @@ func TestReference_BuildFilePath(t *testing.T) {
 				ItemType: ItemTypeBundle,
 				Path:     "core-practices",
 			},
-			itemType: ItemTypeProfile, // Should be ignored for canonical
+			itemType: ItemTypeBundle, // Passed item type is ignored for canonical
 			want:     "ctxloom/bundles/core-practices.yaml",
 		},
 	}
@@ -401,19 +356,8 @@ func TestReference_LocalPath(t *testing.T) {
 				Path:     "core-practices",
 			},
 			baseDir:  ".ctxloom",
-			itemType: ItemTypeProfile, // Should be ignored for canonical
+			itemType: ItemTypeBundle, // Passed item type is ignored for canonical
 			want:     ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
-		},
-		{
-			name: "canonical SSH profile",
-			ref: Reference{
-				URL:      "git@github.com:owner/repo",
-				ItemType: ItemTypeProfile,
-				Path:     "security",
-			},
-			baseDir:  ".ctxloom",
-			itemType: ItemTypeBundle, // Should be ignored for canonical
-			want:     ".ctxloom/profiles/github.com/owner/repo/security.yaml",
 		},
 	}
 
@@ -602,16 +546,6 @@ func TestReference_ToCanonicalWithVersion(t *testing.T) {
 			want: "https://github.com/owner/repo@bundles/core-practices@v1.2.3",
 		},
 		{
-			name: "canonical profile with SHA content version",
-			ref: Reference{
-				URL:            "git@github.com:owner/repo",
-				ItemType:       ItemTypeProfile,
-				Path:           "security",
-				ContentVersion: "abc1234",
-			},
-			want: "git@github.com:owner/repo@profiles/security@abc1234",
-		},
-		{
 			name: "canonical with empty item type",
 			ref: Reference{
 				URL:      "https://github.com/owner/repo",
@@ -678,15 +612,6 @@ func TestReference_CanonicalString(t *testing.T) {
 			want: "https://github.com/owner/repo@bundles/core-practices",
 		},
 		{
-			name: "canonical profile",
-			ref: Reference{
-				URL:      "git@github.com:owner/repo",
-				ItemType: ItemTypeProfile,
-				Path:     "security",
-			},
-			want: "git@github.com:owner/repo@profiles/security",
-		},
-		{
 			name: "empty item type",
 			ref: Reference{
 				URL:      "https://github.com/owner/repo",
@@ -727,7 +652,7 @@ func TestParseReference_ContentVersion(t *testing.T) {
 		},
 		{
 			name:               "SSH with content version",
-			input:              "git@github.com:owner/repo@profiles/dev@v2.0.0",
+			input:              "git@github.com:owner/repo@bundles/dev@v2.0.0",
 			wantContentVersion: "v2.0.0",
 			wantPath:           "dev",
 		},
@@ -836,7 +761,7 @@ func TestParseReference_RejectsTraversal(t *testing.T) {
 		},
 		{
 			name:    "trailing dotdot segment",
-			input:   "https://github.com/o/r@profiles/..",
+			input:   "https://github.com/o/r@bundles/..",
 			wantErr: "not allowed",
 		},
 		{

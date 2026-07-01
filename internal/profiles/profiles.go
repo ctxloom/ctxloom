@@ -592,32 +592,13 @@ func GetProfileDirs(scmPaths []string) []string {
 // This matches the limit used in config.ResolveProfile for consistency.
 const maxProfileDepth = 64
 
-// toLocalProfileName converts a profile reference to its local name.
-// For URL references (https://, git@, file://), it parses the reference
-// and returns the local path format (e.g., "github.com/owner/repo/name").
-// For simple references, it returns the name unchanged.
+// toLocalProfileName returns the local lookup name for a profile reference. A
+// bare name (the only live form) is used as-is; a bundle-shipped (seeded) profile
+// is resolved by lookupSeeded before this is reached. Top-level "<url>@profiles/"
+// distribution was retired, so URL profile references are no longer converted to
+// a persistent-storage path.
 func toLocalProfileName(name string) string {
-	// Check if this is a URL reference
-	if !strings.HasPrefix(name, "https://") &&
-		!strings.HasPrefix(name, "http://") &&
-		!strings.HasPrefix(name, "git@") &&
-		!strings.HasPrefix(name, "file://") {
-		// Not a URL, return as-is
-		return name
-	}
-
-	// Parse the URL reference
-	ref, err := remote.ParseReference(name)
-	if err != nil {
-		// If parsing fails, return the original name
-		// (the Load call will fail with a descriptive error)
-		return name
-	}
-
-	// Convert to local profile name: {remoteName}/{path}
-	// LocalRemoteName() returns something like "github.com/owner/repo"
-	// Path is the profile name like "go-developer"
-	return ref.LocalRemoteName() + "/" + ref.Path
+	return name
 }
 
 // ResolveProfile resolves a profile including its parents, returning all referenced items.
@@ -662,11 +643,11 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// references and depth-limit overruns remain fatal because continuing
 	// would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
-		// Load normalizes the ref (seeded remote profiles are keyed by their
+		// Load normalizes the ref (seeded remote bundles are keyed by their
 		// version-less canonical ref; unseeded URL refs fall back to the local
 		// materialized name), so the parent ref recurses as-is. Canonicalize
-		// the recursion name so the visited map treats "...@profiles/p" and
-		// "...@profiles/p@<sha>" as the same profile.
+		// the recursion name so the visited map treats a bundle-shipped parent
+		// "<bundle>#profiles/p" and its "@<sha>"-pinned form as the same profile.
 		parentName := parent
 		if key, ok := remote.CanonicalKey(parent); ok {
 			parentName = key

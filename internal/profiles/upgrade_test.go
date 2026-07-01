@@ -217,9 +217,7 @@ func TestCommitUpgrade_WritesCanonicalFileAndClearsPending(t *testing.T) {
 // collapsed to the new layout in BOTH `bundles:` and `parents:`, so the stored
 // ref equals its CanonicalString. A version pin survives the rewrite.
 func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
-	in := []byte("parents:\n" +
-		"  - " + defaultURL + "@v1/profiles/rust-developer\n" +
-		"bundles:\n" +
+	in := []byte("bundles:\n" +
 		"  - " + defaultURL + "@v1/bundles/git\n" +
 		"  - " + personalURL + "@v1/bundles/just@v1.2.3\n")
 
@@ -227,11 +225,10 @@ func TestCanonicalize_StripsLegacyV1FromBundlesAndParents(t *testing.T) {
 
 	require.NotEmpty(t, applied, "legacy v1 refs should be normalized")
 	got := string(out)
-	assert.Contains(t, got, "- "+defaultURL+"@profiles/rust-developer")
 	assert.Contains(t, got, "- "+defaultURL+"@bundles/git")
 	// The content-version pin is preserved across the layout normalization.
 	assert.Contains(t, got, "- "+personalURL+"@bundles/just@v1.2.3")
-	// No "v1/" schema segment may survive, in either section.
+	// No "v1/" schema segment may survive.
 	assert.NotContains(t, got, "@v1/")
 }
 

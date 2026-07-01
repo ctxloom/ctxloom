@@ -319,7 +319,7 @@ func TestSetDefaultProfile(t *testing.T) {
 	t.Run("accepts a remote ref without loader validation", func(t *testing.T) {
 		fs, loader := setupProfileTestFS(t)
 		cfg := newCfg(fs)
-		ref := "https://github.com/user/ctxloom@profiles/dev"
+		ref := "https://github.com/user/ctxloom@bundles/dev"
 		res, err := SetDefaultProfile(context.Background(), cfg, SetDefaultProfileRequest{Name: ref, Loader: loader})
 		require.NoError(t, err)
 		assert.Equal(t, "added", res.Status)
@@ -402,9 +402,7 @@ func TestListProfiles_DisplayNameAndIsRemote(t *testing.T) {
 }
 
 func TestProfileDisplayName(t *testing.T) {
-	assert.Equal(t, "default",
-		profileDisplayName("https://github.com/ctxloom/ctxloom-default@profiles/default"))
-	assert.Equal(t, "reviewer", profileDisplayName("some-bundle@profiles/reviewer"))
+	assert.Equal(t, "reviewer", profileDisplayName("some-bundle#profiles/reviewer"))
 	assert.Equal(t, "ts-dev", profileDisplayName("ts-dev"))
 }
 

@@ -28,8 +28,9 @@ type Remote struct {
 type ItemType string
 
 const (
-	ItemTypeBundle  ItemType = "bundle"  // Primary content unit (contains fragments, prompts, mcp)
-	ItemTypeProfile ItemType = "profile" // References bundles and their contents
+	// ItemTypeBundle is the only distributed item type. Top-level profile
+	// distribution was retired; profiles ship inside bundles (<bundle>#profiles/).
+	ItemTypeBundle ItemType = "bundle" // Primary content unit (fragments, skills, mcp, hooks, profiles)
 )
 
 // DirName returns the directory name for this item type in the repo structure.
@@ -37,8 +38,6 @@ func (t ItemType) DirName() string {
 	switch t {
 	case ItemTypeBundle:
 		return "bundles"
-	case ItemTypeProfile:
-		return "profiles"
 	default:
 		return string(t) + "s"
 	}
@@ -179,13 +178,6 @@ func ParseSecureContent(itemType ItemType, data []byte) (SecureContent, error) {
 			return nil, err
 		}
 		return b, nil
-	case ItemTypeProfile:
-		// Profiles use RemoteContext for security warnings
-		var c RemoteContext
-		if err := yaml.Unmarshal(data, &c); err != nil {
-			return nil, err
-		}
-		return c, nil
 	default:
 		var c RemoteContext
 		if err := yaml.Unmarshal(data, &c); err != nil {
@@ -310,11 +302,11 @@ type LockEntry struct {
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
+// Only bundles are locked (top-level profile distribution was retired).
 type Lockfile struct {
 	Version  int                  `yaml:"version" json:"version"`
 	LockedAt time.Time            `yaml:"locked_at" json:"locked_at"`
 	Bundles  map[string]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
-	Profiles map[string]LockEntry `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 }
 
 // ManifestEntry represents an item in the optional manifest.yaml index.

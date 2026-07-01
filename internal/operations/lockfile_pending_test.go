@@ -22,7 +22,7 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 	writePending := func(t *testing.T, cfg *config.Config, entries map[string]string) {
 		t.Helper()
 		mgr := remote.NewLockfileManager(cfg.AppPaths[0], remote.WithPendingLockfile())
-		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 		for name, sha := range entries {
 			lock.Bundles[name] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}
 		}
@@ -111,7 +111,7 @@ func TestPendingLockfileLifecycle(t *testing.T) {
 	writeActive := func(t *testing.T, cfg *config.Config, entries map[string]string) {
 		t.Helper()
 		mgr := remote.NewLockfileManager(cfg.AppPaths[0])
-		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 		for name, sha := range entries {
 			lock.Bundles[name] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}
 		}

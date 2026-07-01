@@ -26,7 +26,7 @@ func TestHoldItem(t *testing.T) {
 			opts = append(opts, remote.WithPendingLockfile())
 		}
 		mgr := remote.NewLockfileManager(cfg.AppPaths[0], opts...)
-		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}, Profiles: map[string]remote.LockEntry{}}
+		lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 		for name, sha := range entries {
 			lock.Bundles[name] = remote.LockEntry{SHA: sha, URL: "https://example.com/r"}
 		}

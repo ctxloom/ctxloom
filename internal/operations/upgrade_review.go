@@ -231,8 +231,7 @@ func splitHashItem(ref string) (base, item string) {
 
 func emptyLockfile() *remote.Lockfile {
 	return &remote.Lockfile{
-		Version:  1,
-		Bundles:  map[string]remote.LockEntry{},
-		Profiles: map[string]remote.LockEntry{},
+		Version: 1,
+		Bundles: map[string]remote.LockEntry{},
 	}
 }

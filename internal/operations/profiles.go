@@ -157,16 +157,12 @@ type ProfileEntry struct {
 
 // profileDisplayName returns a short, human label for a profile reference: the
 // bare profile name for a bundle-shipped profile ("<bundle>#profiles/<name>" →
-// "<name>"), the segment after "@profiles/" for a top-level remote ref (e.g.
-// "default"), else the name unchanged. Centralizing this in the backend keeps
-// frontends from re-deriving display names by parsing refs.
+// "<name>"), else the name unchanged. Centralizing this in the backend keeps
+// frontends from re-deriving display names by parsing refs. (Top-level
+// "@profiles/" distribution was retired.)
 func profileDisplayName(name string) string {
 	if _, prof, ok := remote.SplitBundleProfileRef(name); ok {
 		return prof
-	}
-	const marker = "@profiles/"
-	if i := strings.LastIndex(name, marker); i >= 0 {
-		return name[i+len(marker):]
 	}
 	return name
 }

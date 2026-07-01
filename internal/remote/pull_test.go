@@ -84,45 +84,6 @@ func TestDisplaySecurityWarning(t *testing.T) {
 	}
 }
 
-func TestDisplaySecurityWarningProfile(t *testing.T) {
-	var buf bytes.Buffer
-
-	ref := &Reference{
-		URL:            "https://github.com/alice/ctxloom",
-		ItemType:       ItemTypeProfile,
-		Path:           "secure",
-		ContentVersion: "v1.0.0",
-	}
-	rem := &Remote{
-		Name: "alice",
-		URL:  "https://github.com/alice/ctxloom",
-	}
-	sha := "abc1234"
-	filePath := "ctxloom/profiles/secure.yaml"
-	content := []byte("name: secure\nbundles:\n  - https://github.com/alice/ctxloom@bundles/security\n")
-
-	secure, _ := ParseSecureContent(ItemTypeProfile, content)
-	tc := &mockTerminalChecker{isWriter: false}
-	displaySecurityWarning(&buf, ref, rem, sha, filePath, content, secure, tc)
-
-	output := buf.String()
-
-	// Check warning banner is present
-	if !strings.Contains(output, "WARNING: PROMPT INJECTION RISK") {
-		t.Error("Missing warning banner")
-	}
-
-	// Check source info
-	if !strings.Contains(output, "https://github.com/alice/ctxloom") {
-		t.Error("Missing source URL")
-	}
-
-	// Check content markers
-	if !strings.Contains(output, "CONTENT START") {
-		t.Error("Missing content start marker")
-	}
-}
-
 func TestPromptConfirmation(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -529,7 +490,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -560,7 +521,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{},
 			WithPullerFS(fs),
@@ -593,7 +554,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}
+		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
 			Version: "v1.0.0", RequestedVersion: "v1.0.0", Pinned: true,
@@ -624,7 +585,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry), Profiles: make(map[string]LockEntry)}
+		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Pinned: true,
 		})

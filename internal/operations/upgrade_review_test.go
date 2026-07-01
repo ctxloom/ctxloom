@@ -178,18 +178,16 @@ func srcDirOf(ref string) string {
 	return s
 }
 
-// unionLockedRepoURLs must cover repos reached only through transitive parent
-// profiles (recorded in the active lock) so refreshRepoCaches advances every
-// clone the closure walk will read — not just the roots' direct repos.
+// unionLockedRepoURLs must cover every repo recorded in the active lock so
+// refreshRepoCaches advances every clone the closure walk will read — not just
+// the roots' direct repos.
 func TestUnionLockedRepoURLs(t *testing.T) {
 	lock := &remote.Lockfile{
 		Bundles: map[string]remote.LockEntry{
 			"https://github.com/a/r@bundles/x":  {URL: "https://github.com/a/r"},
 			"https://github.com/b/r@bundles/y":  {URL: "https://github.com/b/r"},
 			"https://github.com/b/r@bundles/y2": {URL: "https://github.com/b/r"}, // same repo, dedup'd
-		},
-		Profiles: map[string]remote.LockEntry{
-			"https://github.com/c/r@profiles/p": {URL: "https://github.com/c/r"},
+			"https://github.com/c/r@bundles/p":  {URL: "https://github.com/c/r"},
 			"local/no-url":                      {}, // URL-less entries are skipped
 		},
 	}

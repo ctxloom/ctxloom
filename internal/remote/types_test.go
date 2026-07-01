@@ -171,21 +171,6 @@ skills:
 	assert.Len(t, bundle.Skills, 1)
 }
 
-func TestParseSecureContent_Profile(t *testing.T) {
-	// Profiles are parsed as context with potential prompt injection risk
-	yaml := `
-notes: Profile note
-installation: Run setup first
-`
-	content, err := ParseSecureContent(ItemTypeProfile, []byte(yaml))
-	require.NoError(t, err)
-
-	ctx, ok := content.(RemoteContext)
-	require.True(t, ok)
-	assert.Equal(t, "Profile note", ctx.Note())
-	assert.Equal(t, "Run setup first", ctx.Installation())
-}
-
 func TestParseSecureContent_DefaultType(t *testing.T) {
 	// Unknown types default to context - safe fallback with prompt injection warning
 	yaml := `notes: Context note`

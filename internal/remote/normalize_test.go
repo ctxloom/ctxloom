@@ -37,7 +37,6 @@ func TestCanonicalKey(t *testing.T) {
 	}{
 		{"https://github.com/o/r@bundles/demo@abc123", "https://github.com/o/r@bundles/demo", true},
 		{"https://github.com/o/r@bundles/demo@abc123#fragments/x", "https://github.com/o/r@bundles/demo", true},
-		{"https://github.com/o/r@profiles/dev@v1.2.0", "https://github.com/o/r@profiles/dev", true},
 		{"https://github.com/o/r@bundles/demo", "https://github.com/o/r@bundles/demo", true},
 		{"ctxloom:local@bundles/demo@rev1", "ctxloom:local@bundles/demo", true},
 		{"plain-local-name", "", false},

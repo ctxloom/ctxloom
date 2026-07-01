@@ -26,8 +26,7 @@ func countingFactory(mock remote.Fetcher) (remote.FetcherFactory, *int) {
 
 func activeLock(entry remote.LockEntry) *remote.Lockfile {
 	lf := &remote.Lockfile{
-		Bundles:  map[string]remote.LockEntry{},
-		Profiles: map[string]remote.LockEntry{},
+		Bundles: map[string]remote.LockEntry{},
 	}
 	lf.AddEntry(remote.ItemTypeBundle, crIdentity, entry)
 	return lf

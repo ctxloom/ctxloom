@@ -43,12 +43,6 @@ func TestExpandRefsAgainstDefaultRemote(t *testing.T) {
 		assert.Equal(t, []string{"https://github.com/owner/repo@bundles/code-review-base#fragments/conduct"}, out)
 	})
 
-	t.Run("expands a bare parent ref under the profiles segment", func(t *testing.T) {
-		registry := newRegistryWithDefault(t, "origin", "https://github.com/owner/repo")
-		out := expandRefsAgainstDefaultRemote([]string{"developer"}, remote.ItemTypeProfile, registry)
-		assert.Equal(t, []string{"https://github.com/owner/repo@profiles/developer"}, out)
-	})
-
 	t.Run("leaves scheme-qualified and local refs untouched", func(t *testing.T) {
 		registry := newRegistryWithDefault(t, "origin", "https://github.com/owner/repo")
 		in := []string{

@@ -126,7 +126,6 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 				"description: Demo bundle\n" +
 				"fragments:\n  demo-frag:\n    tags: [demo]\n    content: |\n      Demo fragment content.\n" +
 				"skills:\n  demo-skill:\n    description: demo prompt\n    content: |\n      Demo prompt content.\n",
-			"ctxloom/profiles/base.yaml": "description: Base profile\nbundles:\n  - demo\n",
 		})
 		if err != nil {
 			return fmt.Errorf("seed remote: %w", err)

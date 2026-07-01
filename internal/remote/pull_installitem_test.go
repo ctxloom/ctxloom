@@ -3,7 +3,6 @@ package remote
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -38,37 +37,6 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 }
 
 func TestInstallPulledItem(t *testing.T) {
-	t.Run("profile is locked as a reference, not materialized, without cascade", func(t *testing.T) {
-		fs, registry := installItemEnv(t)
-		lm := NewLockfileManager("/test", WithLockfileFS(fs))
-		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(lm))
-
-		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "myprofile"}
-		item := &fetchedItem{
-			rem:       installItemRemote,
-			localName: "alice/myprofile",
-			sha:       "sha-prof",
-			content:   []byte("bundles:\n  - https://github.com/alice/ctxloom@bundles/security\n"),
-		}
-		var out bytes.Buffer
-		opts := PullOptions{ItemType: ItemTypeProfile, LocalDir: "/test", Stdout: &out, Stdin: strings.NewReader("")}
-
-		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
-		require.NoError(t, err)
-		assert.Equal(t, "<remote>:alice/myprofile@sha-prof", res.LocalPath,
-			"profiles get a synthetic path, not a disk write")
-
-		// A remote profile is a pure reference — nothing is materialized to disk.
-		_, statErr := fs.Stat(ref.LocalPath("/test", ItemTypeProfile))
-		assert.True(t, os.IsNotExist(statErr), "the profile must NOT be written to disk")
-
-		lock, lerr := lm.Load()
-		require.NoError(t, lerr)
-		entry, ok := lock.GetEntry(ItemTypeProfile, "alice/myprofile")
-		require.True(t, ok, "profile provenance is recorded in the lockfile")
-		assert.Equal(t, "sha-prof", entry.SHA)
-	})
-
 	t.Run("bundle lockfile entry routes to the pending target when set", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		mainLock := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -190,7 +158,7 @@ func TestInstallPulledItem_StageUntrustedNew(t *testing.T) {
 	t.Run("already-locked item updates active even when untrusted", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
 		active := NewLockfileManager("/test", WithLockfileFS(fs))
-		seeded := &Lockfile{Version: 1, Bundles: map[string]LockEntry{}, Profiles: map[string]LockEntry{}}
+		seeded := &Lockfile{Version: 1, Bundles: map[string]LockEntry{}}
 		seeded.AddEntry(ItemTypeBundle, bundleKey, LockEntry{SHA: "sha-old", URL: "https://github.com/alice/ctxloom"})
 		require.NoError(t, active.Save(seeded))
 		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
@@ -204,27 +172,5 @@ func TestInstallPulledItem_StageUntrustedNew(t *testing.T) {
 		activeLock, _ := active.Load()
 		entry, _ := activeLock.GetEntry(ItemTypeBundle, bundleKey)
 		assert.Equal(t, "sha-new", entry.SHA, "sync still installs the pinned set for known items")
-	})
-
-	t.Run("untrusted first-install profile is staged too", func(t *testing.T) {
-		fs, registry := installItemEnv(t)
-		active := NewLockfileManager("/test", WithLockfileFS(fs))
-		pending := NewLockfileManager("/test", WithLockfileFS(fs), WithPendingLockfile())
-		puller := newInstallPuller(registry, fs, newMockFetcher(), WithLockfileManager(active))
-
-		const profileKey = "https://github.com/alice/ctxloom@profiles/dev"
-		ref := &Reference{URL: "https://github.com/alice/ctxloom", ItemType: ItemTypeProfile, Path: "dev"}
-		item := &fetchedItem{rem: installItemRemote, localName: profileKey, sha: "sha-prof", content: []byte("bundles: []\n")}
-		var out bytes.Buffer
-		res, err := puller.installPulledItem(context.Background(), ref, stagedOpts(ItemTypeProfile, &out), item)
-		require.NoError(t, err)
-		assert.True(t, res.Staged)
-
-		activeLock, _ := active.Load()
-		_, inActive := activeLock.GetEntry(ItemTypeProfile, profileKey)
-		assert.False(t, inActive)
-		pendingLock, _ := pending.Load()
-		_, inPending := pendingLock.GetEntry(ItemTypeProfile, profileKey)
-		assert.True(t, inPending)
 	})
 }

@@ -104,9 +104,8 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	data, err := afero.ReadFile(m.fs, path)
 	if os.IsNotExist(err) {
 		return &Lockfile{
-			Version:  1,
-			Bundles:  make(map[string]LockEntry),
-			Profiles: make(map[string]LockEntry),
+			Version: 1,
+			Bundles: make(map[string]LockEntry),
 		}, nil
 	}
 	if err != nil {
@@ -121,9 +120,6 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	// Initialize maps if nil
 	if lockfile.Bundles == nil {
 		lockfile.Bundles = make(map[string]LockEntry)
-	}
-	if lockfile.Profiles == nil {
-		lockfile.Profiles = make(map[string]LockEntry)
 	}
 
 	// Self-heal legacy schema-version residue (ctxloom_version: v1). The field no
@@ -167,37 +163,27 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 	return nil
 }
 
-// AddEntry adds or updates an entry in the lockfile.
+// AddEntry adds or updates an entry in the lockfile. Only bundles are locked now
+// (top-level profile distribution was retired); a non-bundle itemType is a no-op.
 func (l *Lockfile) AddEntry(itemType ItemType, ref string, entry LockEntry) {
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		l.Bundles[ref] = entry
-	case ItemTypeProfile:
-		l.Profiles[ref] = entry
 	}
 }
 
 // GetEntry retrieves an entry from the lockfile.
 func (l *Lockfile) GetEntry(itemType ItemType, ref string) (LockEntry, bool) {
-	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
-		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
+	if itemType != ItemTypeBundle {
+		return LockEntry{}, false
 	}
-
-	entry, ok := entries[ref]
+	entry, ok := l.Bundles[ref]
 	return entry, ok
 }
 
 // RemoveEntry removes an entry from the lockfile.
 func (l *Lockfile) RemoveEntry(itemType ItemType, ref string) {
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		delete(l.Bundles, ref)
-	case ItemTypeProfile:
-		delete(l.Profiles, ref)
 	}
 }
 
@@ -220,25 +206,18 @@ func (l *Lockfile) AllEntries() []struct {
 			Entry LockEntry
 		}{ItemTypeBundle, ref, entry})
 	}
-	for ref, entry := range l.Profiles {
-		results = append(results, struct {
-			Type  ItemType
-			Ref   string
-			Entry LockEntry
-		}{ItemTypeProfile, ref, entry})
-	}
 
 	return results
 }
 
 // IsEmpty returns true if the lockfile has no entries.
 func (l *Lockfile) IsEmpty() bool {
-	return len(l.Bundles) == 0 && len(l.Profiles) == 0
+	return len(l.Bundles) == 0
 }
 
 // Count returns the total number of entries.
 func (l *Lockfile) Count() int {
-	return len(l.Bundles) + len(l.Profiles)
+	return len(l.Bundles)
 }
 
 // GetCanonicalURL builds a canonical URL from a lockfile entry.
@@ -262,13 +241,10 @@ func (l *Lockfile) GetCanonicalURL(itemType ItemType, localName string) (string,
 		return canonicalURLFor(itemType, ref.Path, entry), true, nil
 	}
 
-	// Short name: resolve against the canonical keys of this item type.
+	// Short name: resolve against the canonical bundle keys.
 	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
+	if itemType == ItemTypeBundle {
 		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
 	}
 	// Match the exact path first (full or basename). Only when nothing matches do
 	// we reinterpret a leading segment as a remote-alias prefix ("remote/path") —
@@ -319,21 +295,13 @@ func canonicalURLFor(itemType ItemType, itemPath string, entry LockEntry) string
 	return fmt.Sprintf("%s@%s/%s@%s", entry.URL, itemType.DirName(), itemPath, contentVersion)
 }
 
-// FindByURL searches for a lockfile entry by repository URL.
+// FindByURL searches for a bundle lockfile entry by repository URL.
 // Returns the local name (key), entry, and whether it was found.
-// Searches both bundles and profiles.
 func (l *Lockfile) FindByURL(repoURL string, itemType ItemType) (localName string, entry LockEntry, found bool) {
-	var entries map[string]LockEntry
-	switch itemType {
-	case ItemTypeBundle:
-		entries = l.Bundles
-	case ItemTypeProfile:
-		entries = l.Profiles
-	default:
+	if itemType != ItemTypeBundle {
 		return "", LockEntry{}, false
 	}
-
-	for name, e := range entries {
+	for name, e := range l.Bundles {
 		if e.URL == repoURL {
 			return name, e, true
 		}
@@ -361,15 +329,6 @@ func (l *Lockfile) FindAllByURL(repoURL string) []struct {
 				LocalName string
 				Entry     LockEntry
 			}{ItemTypeBundle, name, entry})
-		}
-	}
-	for name, entry := range l.Profiles {
-		if entry.URL == repoURL {
-			results = append(results, struct {
-				Type      ItemType
-				LocalName string
-				Entry     LockEntry
-			}{ItemTypeProfile, name, entry})
 		}
 	}
 

@@ -26,9 +26,8 @@ func TestLockfileManager_PendingLockfile(t *testing.T) {
 	assert.Equal(t, filepath.Join(baseDir, "lock.yaml"), active.Path())
 
 	lf := &Lockfile{
-		Version:  1,
-		Bundles:  map[string]LockEntry{"github/b": {SHA: "deadbeef"}},
-		Profiles: map[string]LockEntry{},
+		Version: 1,
+		Bundles: map[string]LockEntry{"github/b": {SHA: "deadbeef"}},
 	}
 	require.NoError(t, pending.Save(lf))
 

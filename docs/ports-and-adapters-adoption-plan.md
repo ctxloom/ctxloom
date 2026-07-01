@@ -4,12 +4,12 @@ Living plan for [ADR 0026](adr/0026-ports-and-adapters.md) (the architecture) an
 
 ## Status (execution)
 
-Phases A–D executed; full offline suite green (`just test-verbose`, 0 failures).
+Phases A–E executed; full offline suite green (`just test-verbose`, 0 failures). Phase E covers profiles, sessions, and the lockfile; the tasks `Store` port is intentionally omitted (the append-only JSONL log is the only backend by design).
 
 - **A — tasks → operations: done.** `internal/operations/tasks.go` (`TaskContext`, `ListTasks`/`AddTask`/`SetTaskStatus`, `ResolveProjectIdentity`, resolution + migration). MCP handlers, CLI commands, the `tasks run` picker, `run.go` `--seed-task`, and the task-summary resource all route through it; `cmd` no longer touches the task store.
 - **B — bundle storage port: done.** `bundles.Source`/`Store` ports + `fsStore` (which also fixes the latent os-vs-afero write split) + `MemStore`. `Bundle.Save` removed; all 8 write ops inject `req.Store` (default filesystem). `ListBundles`/`GetBundle` added.
 - **C — sessions → operations: done for the standalone surface.** `internal/operations/sessions.go` (List/Get/ListForProject/Rename/Forget/Bind). `session_cmd.go`, `mcp_resources.go`, `mcp_tools_memory.go` rerouted. **Deferred:** `run.go`'s session orchestration (the held `Manager` feeding the resume picker + the interactive schema-upgrade confirm + `AssignHarp`/`MarkEnded`/adopt) — a focused launch-path pass, kept out to avoid risking the fault-tolerant hot path.
-- **D — read-path → operations: bundle core done.** `bundle list`/`bundle show` route through `operations.ListBundles`/`GetBundle` (the latter on the Phase B port). **Long tail (read-path plumbing, deferred):** `profile list/show/default` (custom rendering over `ListProfiles`/`GetProfile`'s result shape), `completion.go`, `item_helpers.go`, `bundle_distill.go`'s distill-prompt loader, `bundle_transfer.go`, and `run.go:350`'s context-assembly loader.
+- **D — read-path → operations: done.** `bundle list`/`bundle show` route through `operations.ListBundles`/`GetBundle` (the latter on the Phase B port). The long tail is closed too: `profile list/show/default`, `completion.go`, `item_helpers.go`, `bundle_distill.go`, `bundle_transfer.go`, and `run.go`'s context-assembly all route through `internal/operations`.
 
 ## Two intertwined threads
 
@@ -84,9 +84,9 @@ Largest 0019 gap after tasks; sessions are mutated in the hot `run` path and the
 
 - [ ] `operations.ListBundles`/`GetBundle`/`GetBundlePrompt`, `operations.ListProfiles`/`GetProfile`. Reroute `bundle_list.go`, `bundle_distill.go`, `profile.go`, `completion.go`, `item_helpers.go`. (Phase B's `Source` port is the natural read dependency for the bundle half.)
 
-### Phase E — storage ports for remaining domains (deferred, incremental)
+### Phase E — storage ports for remaining domains
 
-Only as touched or as a second backend appears: profiles `Store`, sessions/projectid `Manager` ports, lockfile port, tasks `Store` interface. Each follows Phase B's pattern. No big-bang.
+Implemented for profiles, sessions, and the lockfile, each following Phase B's pattern: `profiles.Source`/`Store` (+ `profiles.MemStore`), `sessions.Store` (+ `sessions.MemStore`), and `remote.LockfileStore`; operations depend on the interfaces. The tasks `Store` port is deliberately not added — the append-only JSONL log is the only backend by design.
 
 ## Sequencing, risk, test strategy
 

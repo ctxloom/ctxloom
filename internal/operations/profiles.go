@@ -189,7 +189,7 @@ type ListProfilesRequest struct {
 	SortOrder string `json:"sort_order"` // "asc" or "desc"
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // ListProfilesResult contains the list of profiles.
@@ -272,7 +272,7 @@ type GetProfileRequest struct {
 	Name string `json:"name"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // GetProfileResult contains the profile details.
@@ -337,7 +337,7 @@ type CreateProfileRequest struct {
 	ExcludeMCP       []string `json:"exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // CreateProfileResult contains the result of creating a profile.
@@ -427,7 +427,7 @@ type UpdateProfileRequest struct {
 	RemoveExcludeMCP       []string `json:"remove_exclude_mcp"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // UpdateProfileResult contains the result of updating a profile.
@@ -572,7 +572,7 @@ func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
 // model a remote parent only exists locally after `remote pull`, and pull only
 // fetches what a profile references — validating remote refs here would
 // deadlock the bootstrap order. They are validated at pull/lock time.
-func requireProfilesExist(loader *profiles.Loader, names []string) error {
+func requireProfilesExist(loader profiles.Source, names []string) error {
 	for _, name := range names {
 		if isRemoteReference(name) {
 			continue
@@ -589,7 +589,7 @@ type DeleteProfileRequest struct {
 	Name string `json:"name"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // DeleteProfileResult contains the result of deleting a profile.
@@ -638,7 +638,7 @@ type SetDefaultProfileRequest struct {
 	Exclusive bool `json:"exclusive"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *profiles.Loader `json:"-"`
+	Loader profiles.Store `json:"-"`
 }
 
 // SetDefaultProfileResult reports the outcome of a default-profile change and

@@ -214,10 +214,10 @@ type InstallDependenciesRequest struct {
 	Force bool `json:"force"`
 
 	// Testing injection points
-	FS          afero.Fs                `json:"-"` // Optional filesystem for testing
-	LockManager *remote.LockfileManager `json:"-"` // Optional lock manager for testing
-	Registry    *remote.Registry        `json:"-"` // Optional registry for testing
-	Puller      Puller                  `json:"-"` // Optional puller for testing
+	FS          afero.Fs             `json:"-"` // Optional filesystem for testing
+	LockManager remote.LockfileStore `json:"-"` // Optional lock manager for testing
+	Registry    *remote.Registry     `json:"-"` // Optional registry for testing
+	Puller      Puller               `json:"-"` // Optional puller for testing
 }
 
 // InstallDependenciesResult contains the result of installing from lockfile.
@@ -320,11 +320,11 @@ type RepoUpdater interface {
 // CheckOutdatedRequest contains parameters for checking outdated items.
 type CheckOutdatedRequest struct {
 	// Testing injection points
-	FS             afero.Fs                `json:"-"` // Optional filesystem for testing
-	LockManager    *remote.LockfileManager `json:"-"` // Optional lock manager for testing
-	Registry       *remote.Registry        `json:"-"` // Optional registry for testing
-	FetcherFactory FetcherFactory          `json:"-"` // Optional fetcher factory for testing
-	RepoCache      RepoUpdater             `json:"-"` // Optional repo updater for testing the per-URL refresh dedup
+	FS             afero.Fs             `json:"-"` // Optional filesystem for testing
+	LockManager    remote.LockfileStore `json:"-"` // Optional lock manager for testing
+	Registry       *remote.Registry     `json:"-"` // Optional registry for testing
+	FetcherFactory FetcherFactory       `json:"-"` // Optional fetcher factory for testing
+	RepoCache      RepoUpdater          `json:"-"` // Optional repo updater for testing the per-URL refresh dedup
 }
 
 // OutdatedItem represents an item with a newer version available.

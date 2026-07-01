@@ -16,7 +16,7 @@ import (
 // open it per call. Entries are returned as-is — a domain type a frontend may
 // render, which 0019 permits; only the IO and decisions live here.
 
-func openSessions() (*sessions.Manager, error) {
+func openSessions() (sessions.Store, error) {
 	return sessions.Open("")
 }
 

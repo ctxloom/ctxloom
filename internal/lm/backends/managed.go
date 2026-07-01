@@ -68,6 +68,14 @@ func commandExportsFor(backendName string, prompts []*bundles.LoadedContent) []a
 	return d.exports(prompts)
 }
 
+// AssembleManagedMCP is the exported seam over assembleManagedMCP for callers
+// that already hold a resolved *config.Config with its executable trust gate set
+// (e.g. operations.MaterializeProfile). Unlike AssembleManagedConfig it does not
+// config.Load() from disk, so the caller's in-memory cfg and gate are honored.
+func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConfig {
+	return assembleManagedMCP(cfg, profileNames)
+}
+
 // assembleManagedMCP builds the merged MCP server set: config-level servers then
 // each default profile's servers (later wins). This is the MCP half of the old
 // BaseLifecycle.MergeConfigHooks, lifted host-side now that ctxloom owns config

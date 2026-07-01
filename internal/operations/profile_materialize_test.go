@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -83,6 +84,31 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, string(first), string(second), "re-materialize is a clean overwrite")
+}
+
+// TestMaterializeProfile_FoldsProfileInlineMCP proves a profile's OWN inline mcp:
+// block reaches the exported .mcp.json. The pre-fix path passed only &cfg.MCP
+// (config-level) + bundle MCP to WriteSettings, silently dropping the profile's
+// inline servers; AssembleManagedMCP folds them in.
+func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
+	cfg, target := materializeFixture(t, "X")
+	// Give the inline reviewer profile its own MCP server (trusted-local, ungated).
+	p := cfg.Profiles.Definitions["reviewer"]
+	p.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{
+		"prof-srv": {Command: "prof-cmd"},
+	}}
+	cfg.Profiles.Definitions["reviewer"] = p
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"reviewer"}, Target: target,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Wrote, "mcp")
+
+	data, err := os.ReadFile(filepath.Join(target, ".mcp.json"))
+	require.NoError(t, err, "the backend MCP config must be written")
+	assert.Contains(t, string(data), "prof-srv",
+		"the profile's inline mcp: server must be folded into the exported .mcp.json")
 }
 
 // TestMaterializeProfile_Validation covers the guard rails.

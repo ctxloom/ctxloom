@@ -89,9 +89,15 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// SessionStart context-injection hook — the context is STATIC in CLAUDE.md, so
 	// re-injecting it at launch would double it. WriteSettings reconciles (removes
 	// prior ctxloom-managed entries, preserves foreign ones) → overwrite semantics.
+	//
+	// AssembleManagedMCP (not &cfg.MCP) so a profile's OWN inline mcp: block reaches
+	// the exported .mcp.json — it merges config-level MCP then the selected
+	// profiles' inline/directory servers (directory ones pass the exec gate set
+	// above), mirroring what a live `run` assembles. bundleMCP is passed separately.
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles)
+	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
-	if err := backends.WriteSettings(backend, hooks, &cfg.MCP, bundleMCP, req.Target, backends.WithSettingsFS(fs)); err != nil {
+	if err := backends.WriteSettings(backend, hooks, mcp, bundleMCP, req.Target, backends.WithSettingsFS(fs)); err != nil {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("settings/mcp: %v", err))
 	} else {
 		res.Wrote = append(res.Wrote, "settings", "mcp")

@@ -20,6 +20,7 @@ package isolation
 
 import (
 	"context"
+	"strings"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -129,19 +130,88 @@ func Isolated(p Policy) bool {
 	return p.Name() != None{}.Name()
 }
 
-// IsNone reports whether the named isolation policy resolves to the host (none)
-// policy — an empty name or "none". The fan-out uses it to skip building the
-// shared executable trust gate for an all-none run (the default), keeping that
-// path byte-identical to the pre-P3 behaviour.
-func IsNone(name string) bool {
-	return name == "" || name == None{}.Name()
+// The isolation request is two INDEPENDENT enum axes, never bound together:
+// WHERE the agent's files live (workspace) and WHERE its engine process runs
+// (runtime). The four combinations map onto the four policies, and
+// degradation respects the axes: a runtime-axis failure (no container
+// runtime, image unbuildable) drops ONLY the runtime dimension — the
+// workspace dimension is preserved, never silently added or removed.
+
+// WorkspaceAxis says where the agent's working directory lives.
+type WorkspaceAxis string
+
+const (
+	// WorkspaceShared is the shared live project directory (the default;
+	// also the meaning of an empty value after defaulting).
+	WorkspaceShared WorkspaceAxis = "none"
+	// WorkspaceWorktree gives the agent its own git worktree.
+	WorkspaceWorktree WorkspaceAxis = "worktree"
+)
+
+// RuntimeAxis says where the agent's engine process executes.
+type RuntimeAxis string
+
+const (
+	// RuntimeHost runs the engine directly on the host (the default; also
+	// the meaning of an empty value after defaulting).
+	RuntimeHost RuntimeAxis = "host"
+	// RuntimeContainer runs the engine inside a container.
+	RuntimeContainer RuntimeAxis = "container"
+)
+
+// Axes is a fully-defaulted isolation request. The two axes are declared at
+// DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
+// (`runtime:` on the binding — a cost/environment call, like engine), while
+// the workspace axis is an ORCHESTRATION trait (the invocation decides —
+// map/weave `--workspace`, the project default — because needing a private
+// cwd is a property of how you fan, not of who the agent is). Empty axis
+// values have already been resolved to defaults by the caller; unknown values
+// are treated as the axis default by Resolve/chainFor, with a warning
+// (CLAUDE.md fault tolerance).
+//
+//	{none, host}          → None
+//	{worktree, host}      → Worktree
+//	{none, container}     → Container (the LIVE project dir mounted in)
+//	{worktree, container} → ContainerWorktree
+type Axes struct {
+	Workspace WorkspaceAxis
+	Runtime   RuntimeAxis
 }
 
-// PolicyNames returns the recognized isolation policy names, derived from the
-// policy types themselves so writers (agent set validation, CLI completion)
-// and Resolve can never drift apart. Order matches the degrade chain.
-func PolicyNames() []string {
-	return []string{None{}.Name(), Worktree{}.Name(), Container{}.Name()}
+// WantsWorktree reports the workspace axis asks for a worktree; anything else
+// (empty, "none", unknown) is the shared project dir.
+func (a Axes) WantsWorktree() bool { return a.Workspace == WorkspaceWorktree }
+
+// WantsContainer reports the runtime axis asks for a container; anything else
+// (empty, "host", unknown) is the host.
+func (a Axes) WantsContainer() bool { return a.Runtime == RuntimeContainer }
+
+// Zero reports no isolation on either axis (shared project dir, host).
+// Callers use it to skip isolation-only work (e.g. the fan-out's shared
+// executable trust gate) on the default path.
+func (a Axes) Zero() bool { return !a.WantsWorktree() && !a.WantsContainer() }
+
+// WorkspaceNames returns the recognized workspace-axis values; RuntimeNames
+// the runtime-axis values. Single source for writers (agent set validation,
+// CLI completion) and the schema so they never drift from the axes here.
+func WorkspaceNames() []string {
+	return []string{string(WorkspaceShared), string(WorkspaceWorktree)}
+}
+
+// RuntimeNames returns the recognized runtime-axis values.
+func RuntimeNames() []string {
+	return []string{string(RuntimeHost), string(RuntimeContainer)}
+}
+
+// warnUnknownAxes emits one advisory per unrecognized axis value; the value
+// then behaves as that axis's default (shared / host) rather than blocking.
+func warnUnknownAxes(a Axes) {
+	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
+		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
+	}
+	if a.Runtime != "" && a.Runtime != RuntimeHost && a.Runtime != RuntimeContainer {
+		clidiag.Warn("ctxloom", "unknown runtime axis %q (known: %s); treating as %q", a.Runtime, strings.Join(RuntimeNames(), "|"), RuntimeHost)
+	}
 }
 
 // ImageConfig carries the user's image configuration for containerized
@@ -155,84 +225,71 @@ type ImageConfig struct {
 	BaseContainerfile string
 }
 
-// Resolve maps an isolation policy name to its implementation for a run of the
-// named BACKEND. Empty and "none" resolve to None; "worktree" resolves to the
-// per-agent worktree config-isolation policy (over the default git-binary seam;
-// it degrades to None inside PrepareWorkspace when the tree is not a git repo or
-// the worktree add fails); "container" resolves to the container policy bound to
-// the detected runtime (docker/podman) and the BACKEND's container profile
-// (image, auth, overlay set, build sources) with the user's ImageConfig applied
-// — or degrades to None with a warning when no runtime can launch. An unknown
-// name likewise degrades to None (CLAUDE.md fault tolerance: a bad policy
-// string, or an unavailable runtime, must never block the LLM).
+// Resolve maps the requested axes to the LEAD policy for a run of the named
+// BACKEND — the head of Chain, without preparing anything. Callers that need
+// only the policy identity up front (e.g. run's approvals gating) use this;
+// preparation with per-axis degradation goes through Prepare.
 //
-// Note the container policy degrades in TWO places: here (no runtime at all) and
-// again in PrepareWorkspace (runtime present but the image absent AND not locally
-// buildable, no resolvable auth, or scratch cannot be created). Both surface a
-// warning and fall back to None, so defaults.isolation:container is a safe
-// default.
-func Resolve(name, backend string, img ImageConfig) Policy {
-	switch name {
-	case "", None{}.Name():
-		return None{}
-	case Worktree{}.Name():
-		// Config isolation, no runtime dependency — the git-repo check and the
-		// worktree-add both degrade to None inside PrepareWorkspace (caller warns).
-		return NewWorktree(nil)
-	case Container{}.Name():
+// The runtime axis degrades HERE when no container runtime is available:
+// only the container dimension is dropped — a requested worktree stays a
+// worktree (axes are independent; degradation never touches the other axis).
+// The container policies degrade AGAIN in PrepareWorkspace (runtime present
+// but the image absent and not buildable, no resolvable auth, scratch
+// creation failure) — see Prepare's chain. Unknown axis values warn and act
+// as that axis's default (CLAUDE.md fault tolerance: a bad axis value, or an
+// unavailable runtime, must never block the LLM).
+func Resolve(axes Axes, backend string, img ImageConfig) Policy {
+	return chainFor(axes, backend, img)[0]
+}
+
+// chainFor builds the ordered degrade chain for the requested axes. The
+// runtime probe runs ONCE; each degrade step drops exactly one axis:
+//
+//	{worktree, container} → ContainerWorktree → Worktree → None
+//	{none,     container} → Container (live dir) → None
+//	{worktree, host}      → Worktree → None
+//	{none,     host}      → None
+//
+// A container tier never degrades INTO a worktree that wasn't requested, and
+// a requested worktree is never dropped just because the container failed.
+func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
+	warnUnknownAxes(axes)
+
+	if axes.WantsContainer() {
 		rt := SelectRuntime("")
-		if _, isHost := rt.(Host); isHost {
-			clidiag.Warn("ctxloom", "container isolation requested but no container runtime is available; using none")
-			return None{}
+		if _, isHost := rt.(Host); !isHost {
+			if axes.WantsWorktree() {
+				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
+			}
+			return []Policy{containerFor(rt, backend, img), None{}}
 		}
-		return containerFor(rt, backend, img)
-	default:
-		clidiag.Warn("ctxloom", "unknown isolation policy %q; using none", name)
-		return None{}
+		// Runtime axis degrades alone: the workspace request below is untouched.
+		if axes.WantsWorktree() {
+			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; keeping the worktree on the host")
+		} else {
+			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; running on the host")
+		}
 	}
-}
-
-// PrepareMember prepares a FAN-OUT member's workspace for the requested isolation
-// name and the member's BACKEND (per-member engines — the backend picks the
-// container profile, with the user's ImageConfig applied), walking the §2b
-// degrade chain until a policy prepares (None never fails). It returns the
-// policy that succeeded and its prepared workspace.
-//
-// It differs from Resolve (the TOP-LEVEL case, which mounts the LIVE project) in
-// that a fan-out member's workspace is ALWAYS a worktree when it is isolated —
-// concurrent members can't share a cwd (§3). So "container" HERE means
-// worktree-in-container (ContainerWorktree), degrading container→worktree→none;
-// "worktree" degrades worktree→none; "none"/"" stay on the shared project dir.
-// Each degrade warns (CLAUDE.md fault tolerance); the member is never blocked.
-func PrepareMember(ctx context.Context, name, backend string, img ImageConfig, projectDir, agentID string) (Policy, Workspace) {
-	return prepareChain(ctx, memberChain(name, backend, img), projectDir, agentID)
-}
-
-// memberChain builds the ordered policy chain a fan-out member falls back through
-// for the requested isolation name. The container branch probes the runtime ONCE
-// (as Resolve does): with a real runtime the chain leads with worktree-in-container
-// (over the member backend's container profile, honoring the user ImageConfig)
-// then degrades to a bare worktree then none; with no runtime it skips straight
-// to the worktree tier (config isolation without a container — NOT none, which
-// would re-introduce the shared-cwd clobber §2b). "worktree" leads with the bare
-// worktree; "none"/"" and unknown resolve to none only.
-func memberChain(name, backend string, img ImageConfig) []Policy {
-	switch name {
-	case "", None{}.Name():
-		return []Policy{None{}}
-	case Worktree{}.Name():
+	if axes.WantsWorktree() {
+		// Workspace-only isolation, no runtime dependency — the git-repo check
+		// and the worktree-add both degrade to None inside PrepareWorkspace
+		// (prepareChain warns).
 		return []Policy{NewWorktree(nil), None{}}
-	case Container{}.Name(), ContainerWorktree{}.Name():
-		rt := SelectRuntime("")
-		if _, isHost := rt.(Host); isHost {
-			clidiag.Warn("ctxloom", "container isolation requested for a fan-out member but no container runtime is available; using a worktree")
-			return []Policy{NewWorktree(nil), None{}}
-		}
-		return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
-	default:
-		clidiag.Warn("ctxloom", "unknown isolation policy %q; using none", name)
-		return []Policy{None{}}
 	}
+	return []Policy{None{}}
+}
+
+// Prepare prepares a workspace for the requested axes and the run's BACKEND
+// (per-member engines — the backend picks the container profile, with the
+// user's ImageConfig applied), walking chainFor's degrade chain until a policy
+// prepares (None never fails). It returns the policy that succeeded and its
+// prepared workspace. One mechanism serves the top-level session and every
+// fan-out member alike: the workspace axis arrives from the SESSION
+// (invocation flag / project default) and the runtime axis from the AGENT
+// binding — this function just realizes their product. Each degrade warns
+// (CLAUDE.md fault tolerance); the run is never blocked.
+func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string) (Policy, Workspace) {
+	return prepareChain(ctx, chainFor(axes, backend, img), projectDir, agentID)
 }
 
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first

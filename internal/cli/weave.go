@@ -16,6 +16,7 @@ import (
 
 var (
 	weaveProfiles    []string
+	weaveWorkspace   string
 	weaveAgents      []string
 	weaveSynthesize  string
 	weaveLLM         string
@@ -93,6 +94,7 @@ func runWeave(cmd *cobra.Command, args []string) error {
 	}
 
 	result, weaveErr := operations.Weave(cmd.Context(), cfg, operations.WeaveRequest{
+		Workspace:     weaveWorkspace,
 		Members:       members,
 		Synthesize:    weaveSynthesize,
 		Task:          task,
@@ -188,6 +190,7 @@ func init() {
 	weaveCmd.Flags().StringVarP(&weaveSynthesize, "synthesize", "s", "", "Synthesis profile that combines member outputs (high-power)")
 	weaveCmd.Flags().StringVarP(&weaveLLM, "llm", "l", "", "Override the LLM for every member (synthesizer keeps its own llm:)")
 	weaveCmd.Flags().IntVar(&weaveConcurrency, "concurrency", 0, "Max members to run at once (default 4)")
+	weaveCmd.Flags().StringVar(&weaveWorkspace, "workspace", "", "Session workspace axis for every member (none|worktree; empty = project default)")
 	weaveCmd.Flags().StringVar(&weaveSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
@@ -198,4 +201,5 @@ func init() {
 	_ = weaveCmd.RegisterFlagCompletionFunc("agents", completeAgentNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("synthesize", completeProfileNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
+	_ = weaveCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 }

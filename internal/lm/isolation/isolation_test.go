@@ -36,16 +36,23 @@ func TestFactoryForWorkspace_BindsPolicy(t *testing.T) {
 	require.NotNil(t, factory, "the bridge must produce a client factory")
 }
 
-// TestResolve_DefaultsAndDegrades: empty and "none" resolve to None; an unknown
-// policy name degrades to None (fault tolerance) rather than failing.
+// TestResolve_DefaultsAndDegrades: empty/"none"/"host" axes resolve to None;
+// unknown axis values degrade to that axis's default (fault tolerance) rather
+// than failing.
 func TestResolve_DefaultsAndDegrades(t *testing.T) {
-	for _, name := range []string{"", "none"} {
-		p := Resolve(name, "claude-code", ImageConfig{})
-		assert.IsType(t, None{}, p, "policy %q resolves to None", name)
+	for _, axes := range []Axes{
+		{},
+		{Workspace: WorkspaceShared, Runtime: RuntimeHost},
+	} {
+		p := Resolve(axes, "claude-code", ImageConfig{})
+		assert.IsType(t, None{}, p, "axes %+v resolve to None", axes)
 	}
-	// Unknown → degrade to None (warns to stderr; never blocks the LLM).
-	assert.IsType(t, None{}, Resolve("worktree-not-yet-implemented", "claude-code", ImageConfig{}),
-		"an unknown policy degrades to None")
+	// Unknown axis values → degrade to the axis defaults (warn; never block).
+	assert.IsType(t, None{}, Resolve(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+		"unknown axis values degrade to None")
+	// Independence: an unknown RUNTIME never drops a requested worktree.
+	assert.IsType(t, Worktree{}, Resolve(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
+		"an unknown runtime axis degrades alone; the workspace axis survives")
 }
 
 // TestApprovals_String renders the approvals axis for diagnostics.

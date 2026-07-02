@@ -71,8 +71,8 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if len(s.Profiles) > 0 {
 			w.Printf("    profiles: %s\n", strings.Join(s.Profiles, ", "))
 		}
-		if s.Isolation != "" {
-			w.Printf("    isolation: %s\n", s.Isolation)
+		if s.Runtime != "" {
+			w.Printf("    runtime: %s\n", s.Runtime)
 		}
 	}
 	return w.Err()
@@ -125,8 +125,8 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	} else {
 		w.Println("Engine (declared): (project default)")
 	}
-	if def.Isolation != "" {
-		w.Printf("Isolation: %s\n", def.Isolation)
+	if def.Runtime != "" {
+		w.Printf("Runtime: %s\n", def.Runtime)
 	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {
@@ -180,9 +180,9 @@ Run this (or ask your agent to) when you have profiles but no agents yet.`,
 }
 
 var (
-	agentSetEngine    string
-	agentSetProfiles  []string
-	agentSetIsolation string
+	agentSetEngine   string
+	agentSetProfiles []string
+	agentSetRuntime  string
 )
 
 // agentSetCmd is the write half: add or update a LOCAL agent under the
@@ -196,13 +196,15 @@ var agentSetCmd = &cobra.Command{
 'agents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
-default. Profiles compose into one assembled context. Isolation (optional:
-none|worktree|container) sets where this agent runs as a fan-out member; omit it
-to inherit the project's isolation default.
+default. Profiles compose into one assembled context. Runtime (optional:
+host|container) sets WHERE this agent's engine process executes; omit it to
+inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
+dir) is NOT set here — it is a session trait chosen at invocation time
+(run/map/weave --workspace).
 
 Examples:
   ctxloom agent set finder --engine claude-fast --profiles finder
-  ctxloom agent set dev --engine claude-code --profiles default,go-developer --isolation container
+  ctxloom agent set dev --engine claude-code --profiles default,go-developer --runtime container
   ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -215,10 +217,10 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		entry, err := operations.SetAgent(cfg, operations.SetAgentRequest{
-			Name:      name,
-			Engine:    agentSetEngine,
-			Profiles:  agentSetProfiles,
-			Isolation: agentSetIsolation,
+			Name:     name,
+			Engine:   agentSetEngine,
+			Profiles: agentSetProfiles,
+			Runtime:  agentSetRuntime,
 		})
 		if err != nil {
 			return err
@@ -233,8 +235,8 @@ Examples:
 			if len(entry.Profiles) > 0 {
 				w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
 			}
-			if entry.Isolation != "" {
-				w.Printf(", isolation: %s", entry.Isolation)
+			if entry.Runtime != "" {
+				w.Printf(", runtime: %s", entry.Runtime)
 			}
 			w.Println(")")
 			return w.Err()
@@ -276,15 +278,21 @@ func init() {
 
 	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
 	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
-	agentSetCmd.Flags().StringVar(&agentSetIsolation, "isolation", "", "Isolation policy when run as a fan-out member (none|worktree|container; empty = project default)")
+	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames
 	_ = agentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
 	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
-	_ = agentSetCmd.RegisterFlagCompletionFunc("isolation", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return isolation.PolicyNames(), cobra.ShellCompDirectiveNoFileComp
+	_ = agentSetCmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
+}
+
+// completeWorkspaceNames completes the session-level --workspace flag values
+// (run/map/weave) from the isolation package's single source.
+func completeWorkspaceNames(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return isolation.WorkspaceNames(), cobra.ShellCompDirectiveNoFileComp
 }
 
 // completeAgentNames completes positional agent-name args.

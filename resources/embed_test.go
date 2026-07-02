@@ -233,7 +233,8 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 		"coordinator",
 		"developer",
 		"finder",
-		"--isolation",
+		"--runtime container",
+		"--workspace worktree",
 		"ctxloom agent set",
 		"ctxloom agent list",
 	} {

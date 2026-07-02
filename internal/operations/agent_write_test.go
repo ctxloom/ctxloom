@@ -48,19 +48,19 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 }
 
-// TestSetAgent_PersistsIsolation proves the isolation policy written by
-// `agent set --isolation` survives the config round-trip — the developer
-// binding of the standard trio depends on `isolation: container` persisting.
-// An unknown policy is stored as written (advisory warn only; it degrades to
-// none at resolve time per fault tolerance).
-func TestSetAgent_PersistsIsolation(t *testing.T) {
+// TestSetAgent_PersistsRuntime proves the runtime axis written by
+// `agent set --runtime` survives the config round-trip — the developer
+// binding of the standard trio depends on `runtime: container` persisting.
+// An unknown value is stored as written (advisory warn only; it acts as host
+// at resolve time per fault tolerance).
+func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 
 	_, err := SetAgent(cfg, SetAgentRequest{
-		Name:      "developer",
-		Engine:    "claude-code",
-		Profiles:  []string{"default"},
-		Isolation: "container",
+		Name:     "developer",
+		Engine:   "claude-code",
+		Profiles: []string{"default"},
+		Runtime:  "container",
 	})
 	require.NoError(t, err)
 
@@ -68,16 +68,16 @@ func TestSetAgent_PersistsIsolation(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("developer")
 	require.True(t, ok)
-	assert.Equal(t, "container", sub.Isolation)
+	assert.Equal(t, "container", sub.Runtime)
 
-	// Unknown policy: stored verbatim, never an error.
-	_, err = SetAgent(reloaded, SetAgentRequest{Name: "odd", Isolation: "podracer"})
-	require.NoError(t, err, "unknown isolation warns, never errors")
+	// Unknown value: stored verbatim, never an error.
+	_, err = SetAgent(reloaded, SetAgentRequest{Name: "odd", Runtime: "podracer"})
+	require.NoError(t, err, "unknown runtime warns, never errors")
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok = final.Agent("odd")
 	require.True(t, ok)
-	assert.Equal(t, "podracer", sub.Isolation, "stored as written")
+	assert.Equal(t, "podracer", sub.Runtime, "stored as written")
 }
 
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES

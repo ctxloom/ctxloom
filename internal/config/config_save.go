@@ -178,9 +178,11 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
 	// the block rather than leaving `agents: {}` behind.
 	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
-	// Top-level isolation default; pruned when empty ("none" is the implicit
-	// default, so an unset policy leaves no key behind).
-	setOrDelete(existing, "isolation", c.Isolation != "", c.Isolation)
+	// Session-level workspace default + agent-level runtime default; pruned
+	// when empty ("none"/"host" are the implicit defaults, so unset axes
+	// leave no keys behind).
+	setOrDelete(existing, "workspace", c.Workspace != "", c.Workspace)
+	setOrDelete(existing, "runtime", c.Runtime != "", c.Runtime)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)

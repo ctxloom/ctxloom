@@ -114,12 +114,16 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"llm:\n  configs:\n    main:\n      type: codex\n      model: gpt-codex\n",
 		},
 		{
-			"top-level isolation default",
-			"isolation: none\n",
+			"top-level workspace default (session axis)",
+			"workspace: worktree\n",
 		},
 		{
-			"agent-level isolation override",
-			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    isolation: worktree\n",
+			"top-level runtime default (agent axis)",
+			"runtime: container\n",
+		},
+		{
+			"agent-level runtime override",
+			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    runtime: container\n",
 		},
 		{
 			"per-backend isolation image overrides",

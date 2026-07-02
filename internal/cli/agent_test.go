@@ -17,7 +17,7 @@ import (
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 	list := []operations.AgentEntry{
-		{Name: "dev", Engine: "claude-code", Profiles: []string{"go-developer", "go-style"}, Isolation: "container"},
+		{Name: "dev", Engine: "claude-code", Profiles: []string{"go-developer", "go-style"}, Runtime: "container"},
 		{Name: "finder", Profiles: []string{"finder"}}, // no engine, no isolation
 	}
 	var buf bytes.Buffer
@@ -27,9 +27,9 @@ func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 	assert.Contains(t, out, "Agents (2):")
 	assert.Contains(t, out, "dev (engine: claude-code)")
 	assert.Contains(t, out, "profiles: go-developer, go-style")
-	assert.Contains(t, out, "isolation: container")
+	assert.Contains(t, out, "runtime: container")
 	assert.Contains(t, out, "finder (engine: project default)", "unset engine shows the project-default hint")
-	assert.Equal(t, 1, strings.Count(out, "isolation:"), "unset isolation prints nothing (inherits the project default)")
+	assert.Equal(t, 1, strings.Count(out, "runtime:"), "unset runtime prints nothing (inherits the project default)")
 }
 
 func TestRenderAgentList_Empty(t *testing.T) {
@@ -39,7 +39,7 @@ func TestRenderAgentList_Empty(t *testing.T) {
 }
 
 func TestRenderAgentShow_Resolved(t *testing.T) {
-	def := &operations.AgentEntry{Name: "dev", Engine: "slow", Profiles: []string{"p1", "p2"}, Isolation: "worktree", Source: "config"}
+	def := &operations.AgentEntry{Name: "dev", Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Source: "config"}
 	resolved := &operations.ResolvedAgent{
 		Name: "dev", Label: "slow", Backend: "mock", Model: "m-slow",
 		Fragments: []string{"a", "b"},
@@ -51,7 +51,7 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 	assert.Contains(t, out, "Agent: dev")
 	assert.Contains(t, out, "Source: config")
 	assert.Contains(t, out, "Engine (declared): slow")
-	assert.Contains(t, out, "Isolation: worktree")
+	assert.Contains(t, out, "Runtime: container")
 	assert.Contains(t, out, "Resolved engine: slow (backend: mock, model: m-slow)")
 	assert.Contains(t, out, "Composed fragments: 2")
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -90,11 +91,12 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 			contextText = rs.Context
 			label = rs.Label
 			currentAgent = flagAgent
-			if rs.Isolation != "" && rs.Isolation != "none" {
-				// ACP sessions live at the editor's cwd — an isolated workspace
-				// the editor cannot see would be worse than none. The fan-out
-				// paths (run/map/weave) are where isolation applies.
-				clidiag.Warn("ctxloom", "acp agent: agent %q declares isolation %q; ACP sessions run at the editor's cwd, so isolation is ignored here", flagAgent, rs.Isolation)
+			if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
+				// ACP sessions run in-process at the editor's cwd — a
+				// containerized engine the editor cannot reach would be worse
+				// than none. The session paths (run/map/weave) are where the
+				// runtime axis applies.
+				clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", flagAgent, rs.Runtime)
 			}
 		}
 	}

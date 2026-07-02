@@ -9,13 +9,13 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// ContainerWorktree is the FAN-OUT worktree-in-container policy: the
-// {Workspace} × {Runtime} composition (plan §3) whose Workspace is a per-member
-// git worktree (Phase 2) and whose Runtime is a container (Phase 1). A fan-out
-// member with isolation:container resolves HERE (via PrepareMember), NOT to the
-// top-level Container policy (which mounts the LIVE project): its own worktree is
-// bind-mounted identical-path into a fresh container as cwd, so concurrent members
-// never share a checkout AND the engine is contained. It REUSES the two proven
+// ContainerWorktree is the worktree-in-container policy: the
+// {Workspace} × {Runtime} composition (plan §3) whose Workspace is a per-agent
+// git worktree (Phase 2) and whose Runtime is a container (Phase 1). The axes
+// {workspace: worktree, runtime: container} resolve HERE (via Prepare), NOT to
+// the Container policy (which mounts the LIVE project dir): the run's own
+// worktree is bind-mounted identical-path into a fresh container as cwd, so
+// concurrent runs never share a checkout AND the engine is contained. It REUSES the two proven
 // halves — the Worktree policy's WIP-safe, nested-aware lifecycle (create + §3.1
 // excludes/skip-worktree + teardown) and the Container policy's scratch/auth/spawn
 // — rather than duplicating either. (A full orthogonal Workspace×Runtime refactor

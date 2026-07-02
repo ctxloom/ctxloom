@@ -1,8 +1,11 @@
 You are helping the user set up **ctxloom agents** — named, LOCAL bindings of an
 **engine** (an LLM backend/model) to one or more **profiles** (composed context),
-optionally with an **isolation** policy (none | worktree | container). Agents are
-what ctxloom orchestrates: `ctxloom run --agent <name>` drives one interactively,
-and `ctxloom map`/`ctxloom weave` fan a task across several in parallel.
+optionally with a **runtime** (host | container): where that agent's engine
+process executes. Agents are what ctxloom orchestrates: `ctxloom run --agent
+<name>` drives one interactively, and `ctxloom map`/`ctxloom weave` fan a task
+across several in parallel. (Workspace isolation — a git worktree per session —
+is NOT an agent property: it is chosen per invocation with `--workspace` on
+run/map/weave, or the project `workspace:` default.)
 
 The **primary shape** is a small containerized ensemble: a **coordinator** the
 user drives, plus **developer** and **finder** members it fans work to — each
@@ -57,7 +60,7 @@ an engine for each:
   **most powerful** engine. Compose the local default coding profile. Launched
   with `ctxloom run --agent coordinator`.
 - **developer** — the heavy implementer the coordinator delegates changes to.
-  Bind a **powerful** engine and `--isolation container` so parallel edits are
+  Bind a **powerful** engine and `--runtime container` so its engine runs
   contained. Compose the coding profile + the escalation-discipline fragment:
   significant changes (restructuring, interface/contract/API changes) get
   **escalated up to the coordinator** rather than decided autonomously.
@@ -105,14 +108,14 @@ Match engines to roles as guidance, but it is the user's decision:
 For each agent the user confirmed, write it to the local config:
 
 ```
-ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...> [--isolation none|worktree|container]
+ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...> [--runtime host|container]
 ```
 
 For example, the standard trio:
 
 ```
 ctxloom agent set coordinator --engine <powerful> --profiles default
-ctxloom agent set developer --engine <powerful> --profiles default,<developer-escalation profile> --isolation container
+ctxloom agent set developer --engine <powerful> --profiles default,<developer-escalation profile> --runtime container
 ctxloom agent set finder --engine <cheap> --profiles <finder profile>
 ```
 
@@ -120,9 +123,13 @@ ctxloom agent set finder --engine <cheap> --profiles <finder profile>
   project default / the profiles' own llm).
 - `--profiles` is a comma-separated list of profile names/refs from the scan;
   they compose into one assembled context for that agent.
-- `--isolation` sets where the agent runs as a fan-out member (omit to inherit
-  the project default). Container isolation needs a reachable container runtime;
-  if one isn't available here, use `worktree` and tell the user why.
+- `--runtime` sets where the agent's engine executes (omit to inherit the
+  project default). `container` needs a reachable container runtime; if one
+  isn't available here, leave the agent on the host and tell the user why.
+- Workspace isolation is NOT set on agents: when the user fans parallel members
+  that edit files, tell them to pass `--workspace worktree` to `ctxloom map`/
+  `weave` (or set the project `workspace:` default) so each member session gets
+  its own worktree.
 - Re-running `set` with the same name updates the binding; `ctxloom agent
   remove <name>` deletes one.
 

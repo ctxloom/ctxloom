@@ -80,7 +80,7 @@ func TestContainerName_SanitizesAndScopes(t *testing.T) {
 // TestResolveContainer_DegradesWithoutRuntime documents the two-place degrade: with
 // no runtime Resolve returns None; with a runtime it returns a container policy.
 func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
-	p := Resolve("container", "claude-code", ImageConfig{})
+	p := Resolve(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
 	if (Docker{}).Available() || (Podman{}).Available() {
 		assert.Equal(t, "container", p.Name(), "a launchable runtime resolves to the container policy")
 	} else {

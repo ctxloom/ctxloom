@@ -62,12 +62,16 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 
-	// Build the shared executable trust gate ONLY when isolation is actually
-	// requested (an all-none oneshot — the default — writes no per-member config and
-	// must stay byte-identical to pre-P3; gate construction runs the trust baseline
-	// + opens the store). Ignored on the injected-Factory path (isolation skipped).
+	// The single-profile oneshot's axes: the session-level workspace default
+	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
+	// profile has no agent binding to declare one). Build the shared
+	// executable trust gate ONLY when some isolation is actually requested (an
+	// all-defaults oneshot writes no per-member config and must stay
+	// byte-identical to pre-P3; gate construction runs the trust baseline +
+	// opens the store). Ignored on the injected-Factory path.
+	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.Workspace), Runtime: isolation.RuntimeAxis(cfg.Runtime)}
 	var gate bundles.ContentGate
-	if !isolation.IsNone(cfg.Isolation) {
+	if !axes.Zero() {
 		gate = NewExecutableTrustGate(cfg).Gate()
 	}
 	// The single-profile oneshot's profile set is just req.Profile (empty falls back
@@ -86,10 +90,8 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
-		// A single-profile oneshot has no agent binding, so it takes the
-		// project's top-level isolation default (empty → none). AgentID scopes a
-		// future per-agent workspace by the profile name.
-		Isolation:      cfg.Isolation,
+		// AgentID scopes a per-agent workspace by the profile name.
+		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),
 		AgentID:        req.Profile,
 		Profiles:       profiles,
@@ -119,16 +121,16 @@ type resolvedRunRequest struct {
 	Backend string
 	Model   string
 
-	// Isolation is the resolved per-agent isolation policy name (none | worktree
-	// | container); empty means none (host — today's behaviour). It selects HOW
-	// the member's plugin is spawned and WHERE its workspace lives when no
-	// Factory is injected. IsolationImage carries the user's container-image
-	// configuration for the member's backend (config isolation_images — run
-	// as-is — and isolation_base_containerfile for local builds); the zero value
-	// keeps the backend's built-in defaults. AgentID scopes/names that per-agent
-	// workspace (the member identifier). All are ignored on the injected-Factory
-	// path.
-	Isolation      string
+	// Axes is the resolved isolation request: the session-supplied workspace
+	// axis x the agent-resolved runtime axis (both already defaulted). It
+	// selects HOW the member's plugin is spawned and WHERE its workspace lives
+	// when no Factory is injected. IsolationImage carries the user's
+	// container-image configuration for the member's backend (config
+	// isolation_images — run as-is — and isolation_base_containerfile for
+	// local builds); the zero value keeps the backend's built-in defaults.
+	// AgentID scopes/names that per-agent workspace (the member identifier).
+	// All are ignored on the injected-Factory path.
+	Axes           isolation.Axes
 	IsolationImage isolation.ImageConfig
 	AgentID        string
 
@@ -187,14 +189,13 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	skipSetup := true
 	var managed *pb.ManagedConfig
 	if factory == nil {
-		// Fan-out member isolation. PrepareMember realizes the §2b degrade chain
-		// (container→worktree→none): a member's workspace is ALWAYS a worktree when
-		// isolated (never the shared project dir), so "container" here means
-		// worktree-in-container (a per-member worktree mounted into a container).
-		// It warns at each degrade and never blocks — None never fails. The last
-		// tier (none) loses cwd config isolation (shared project dir), the
+		// Member isolation. Prepare realizes the per-axis degrade chain: a
+		// runtime-axis failure drops only the container dimension (a requested
+		// worktree survives); a workspace-axis failure degrades worktree→none.
+		// It warns at each degrade and never blocks — None never fails. The
+		// none tier loses cwd config isolation (shared project dir), the
 		// documented non-git edge.
-		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
+		policy, ws := isolation.Prepare(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
 		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine

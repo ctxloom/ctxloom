@@ -169,9 +169,9 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 	assert.Equal(t, before, len(f.Calls), "second cleanup makes no further git calls")
 }
 
-// TestResolveWorktree wires the name through Resolve.
+// TestResolveWorktree wires the workspace axis through Resolve.
 func TestResolveWorktree(t *testing.T) {
-	p := Resolve("worktree", "claude-code", ImageConfig{})
+	p := Resolve(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})
 	assert.Equal(t, "worktree", p.Name())
 	assert.IsType(t, Worktree{}, p)
 }

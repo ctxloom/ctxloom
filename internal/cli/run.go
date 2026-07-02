@@ -659,14 +659,18 @@ Examples:
 		// trust store); fail-closed (a DENY omits the executable). Surfaced below.
 		execGate := operations.NewExecutableTrustGate(cfg)
 
-		// Resolve the isolation policy up front so its approvals axis can gate
-		// AutoApprove BEFORE the request is built (Approvals() needs no workspace).
-		// The external-plugin-binary path is never isolated (none). The resolved
-		// policy is reused below to prepare the workspace + spawn the client, so a
-		// container's runtime probe runs at most once per launch.
+		// The top-level session's isolation axes: the SESSION-level workspace
+		// default (cfg.Workspace) x the project runtime default (cfg.Runtime).
+		// Resolve the lead policy up front so its approvals axis can gate
+		// AutoApprove BEFORE the request is built (Approvals() needs no
+		// workspace). The external-plugin-binary path is never isolated (none).
+		runAxes := isolation.Axes{
+			Workspace: isolation.WorkspaceAxis(cfg.Workspace),
+			Runtime:   isolation.RuntimeAxis(cfg.Runtime),
+		}
 		var policy isolation.Policy = isolation.None{}
 		if llmBinary == "" {
-			policy = isolation.Resolve(cfg.Isolation, backendName, operations.IsolationImageConfig(cfg, backendName))
+			policy = isolation.Resolve(runAxes, backendName, operations.IsolationImageConfig(cfg, backendName))
 		}
 
 		// Build request. The host now assembles the config/bundle setup payload
@@ -702,7 +706,7 @@ Examples:
 		// Advisory: tell the user if a bundle executable was withheld (content-free).
 		execGate.WarnWithheld()
 
-		// Create plugin client. Isolation (cfg.Isolation, default none) decides
+		// Create plugin client. The isolation axes (runAxes, default none/host) decide
 		// WHERE the top-level run's workspace lives and HOW its plugin is spawned.
 		// The external-plugin-binary path is spawned directly — isolation wraps the
 		// built-in serve transport, not a user-supplied binary — and stays none.
@@ -714,21 +718,20 @@ Examples:
 				return fmt.Errorf("failed to start plugin: %w", err)
 			}
 		} else {
-			// Prepare the resolved policy's workspace. Fault tolerance: a container
-			// requested but unlaunchable (no runtime, or the agent image absent —
-			// today's state until the production image ships) degrades to none (the
-			// live project dir + a bare self-invoked subprocess), so
-			// defaults.isolation:container is a safe default = today's behaviour.
-			ws, perr := policy.PrepareWorkspace(ctx, workDir, activeHarp)
-			if perr != nil {
-				clidiag.Warn("ctxloom", "isolation %q workspace prepare failed; using the project directory: %v", policy.Name(), perr)
-				policy = isolation.None{}
-				ws, _ = policy.PrepareWorkspace(ctx, workDir, activeHarp)
+			// Prepare the workspace along the per-axis degrade chain. Fault
+			// tolerance: a container requested but unlaunchable (no runtime, or
+			// the agent image absent) drops ONLY the runtime axis — a requested
+			// worktree survives — and a worktree failure degrades to the live
+			// project dir, so `runtime: container` is a safe default.
+			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp)
+			if prepared.Name() != policy.Name() {
 				// The isolation boundary that justified bypassing the engine prompt
-				// never materialized (e.g. container → none); re-honor the approvals
-				// rule so an interactive fallback prompts instead of silently bypassing.
-				req.Options.AutoApprove = autoApproveForRun(mode, policy.Approvals())
+				// changed underneath us (e.g. container → none); re-honor the
+				// approvals rule so an interactive fallback prompts instead of
+				// silently bypassing.
+				req.Options.AutoApprove = autoApproveForRun(mode, prepared.Approvals())
 			}
+			policy = prepared
 			// Tear the workspace down after the client is killed (kill the plugin/
 			// container before removing its scratch — WIP-safe). Registered before
 			// client.Kill so it runs after. none's cleanup is a noop.

@@ -20,9 +20,9 @@ type AgentEntry struct {
 	Name     string   `json:"name"`
 	Engine   string   `json:"engine,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
-	// Isolation is the agent's declared per-agent isolation policy (none |
-	// worktree | container), as written; empty inherits the project default.
-	Isolation string `json:"isolation,omitempty"`
+	// Runtime is the agent's declared runtime axis (host | container), as
+	// written; empty inherits the project `runtime:` default.
+	Runtime string `json:"runtime,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -36,11 +36,11 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	out := make([]AgentEntry, 0, len(subs))
 	for _, s := range subs {
 		out = append(out, AgentEntry{
-			Name:      s.Name,
-			Engine:    s.Engine,
-			Profiles:  s.Profiles,
-			Isolation: s.Isolation,
-			Source:    s.Source,
+			Name:     s.Name,
+			Engine:   s.Engine,
+			Profiles: s.Profiles,
+			Runtime:  s.Runtime,
+			Source:   s.Source,
 		})
 	}
 	return out
@@ -57,23 +57,25 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
 	return &AgentEntry{
-		Name:      sub.Name,
-		Engine:    sub.Engine,
-		Profiles:  sub.Profiles,
-		Isolation: sub.Isolation,
-		Source:    sub.Source,
+		Name:     sub.Name,
+		Engine:   sub.Engine,
+		Profiles: sub.Profiles,
+		Runtime:  sub.Runtime,
+		Source:   sub.Source,
 	}, nil
 }
 
 // SetAgentRequest is the input for SetAgent: the binding to add or update
 // under the local `agents:` config key. Engine is optional (empty = project
 // default / the composed profiles' llm); Profiles compose into one context;
-// Isolation is optional (empty inherits the project default policy).
+// Runtime is optional (host | container; empty inherits the project
+// `runtime:` default). The workspace axis is deliberately NOT settable here —
+// it is a session trait chosen at invocation time, never stored on a binding.
 type SetAgentRequest struct {
-	Name      string   `json:"name"`
-	Engine    string   `json:"engine,omitempty"`
-	Profiles  []string `json:"profiles,omitempty"`
-	Isolation string   `json:"isolation,omitempty"`
+	Name     string   `json:"name"`
+	Engine   string   `json:"engine,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+	Runtime  string   `json:"runtime,omitempty"`
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key
@@ -105,29 +107,29 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 			name, existing.Source)
 	}
 
-	// Isolation is stored as written — validation is advisory only (an unknown
-	// policy degrades to none at resolve time, per fault tolerance), but warn
-	// NOW so a typo is caught at write time rather than at the first fan-out.
-	if req.Isolation != "" && !slices.Contains(isolation.PolicyNames(), req.Isolation) {
+	// Runtime is stored as written — validation is advisory only (an unknown
+	// value acts as host at resolve time, per fault tolerance), but warn NOW
+	// so a typo is caught at write time rather than at the first run.
+	if req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), req.Runtime) {
 		clidiag.Warn("ctxloom",
-			"agent %q declares unknown isolation %q (known: %s); it will degrade to none when run",
-			name, req.Isolation, strings.Join(isolation.PolicyNames(), "|"))
+			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
+			name, req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
 	}
 
 	if cfg.Agents == nil {
 		cfg.Agents = make(map[string]agents.Agent)
 	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Isolation: req.Isolation}
+	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Runtime: req.Runtime}
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
 	return &AgentEntry{
-		Name:      name,
-		Engine:    req.Engine,
-		Profiles:  req.Profiles,
-		Isolation: req.Isolation,
-		Source:    agents.SourceConfig,
+		Name:     name,
+		Engine:   req.Engine,
+		Profiles: req.Profiles,
+		Runtime:  req.Runtime,
+		Source:   agents.SourceConfig,
 	}, nil
 }
 
@@ -214,11 +216,12 @@ type ResolvedAgent struct {
 	// Fragments names what loaded into it.
 	Context   string   `json:"context,omitempty"`
 	Fragments []string `json:"fragments,omitempty"`
-	// Isolation is the RESOLVED per-agent isolation policy for this member
-	// (agent's own choice → project default → ""). Empty means "none" (host,
-	// today's behaviour); the fan-out maps it through isolation.Resolve to build
-	// this member's client factory + workspace.
-	Isolation string `json:"isolation,omitempty"`
+	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
+	// project `runtime:` default → ""). Empty means "host" — today's
+	// behaviour. Only the runtime axis resolves here: the WORKSPACE axis is a
+	// session trait the invocation supplies; the two meet in isolation.Axes at
+	// launch.
+	Runtime string `json:"runtime,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -290,12 +293,12 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
 	backend, model := ResolveBackend(cfg, label)
 
-	// Effective isolation policy: the agent's own choice wins, else the
-	// project's top-level default (cfg.Isolation), else empty (→ none
-	// downstream). Empty is byte-identical to today's host behaviour.
-	isolation := sub.Isolation
-	if isolation == "" {
-		isolation = cfg.Isolation
+	// Effective runtime axis: the agent's own choice wins, else the project's
+	// `runtime:` default (cfg.Runtime), else empty (→ host downstream). Empty
+	// is byte-identical to today's host behaviour.
+	runtime := sub.Runtime
+	if runtime == "" {
+		runtime = cfg.Runtime
 	}
 
 	return &ResolvedAgent{
@@ -307,7 +310,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		Model:     model,
 		Context:   ctxResult.Context,
 		Fragments: ctxResult.FragmentsLoaded,
-		Isolation: isolation,
+		Runtime:   runtime,
 	}, nil
 }
 

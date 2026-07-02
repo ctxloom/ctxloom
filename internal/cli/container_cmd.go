@@ -17,8 +17,8 @@ import (
 var containerCmd = &cobra.Command{
 	Use:   "container",
 	Short: "Manage agent container images",
-	Long: `Manage the per-backend agent images the container isolation policy runs
-(defaults.isolation: container, or an agent's isolation override).`,
+	Long: `Manage the per-backend agent images a containerized engine runs in
+(agents with 'runtime: container', or the project 'runtime:' default).`,
 }
 
 var (

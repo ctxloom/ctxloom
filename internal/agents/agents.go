@@ -68,12 +68,15 @@ type Agent struct {
 	Engine string `yaml:"engine,omitempty"`
 	// Profiles compose into one assembled context.
 	Profiles []string `yaml:"profiles,omitempty"`
-	// Isolation is the per-agent isolation policy (none | worktree | container)
-	// applied when this agent runs as a fan-out member. It overrides the
-	// project's top-level isolation default; empty inherits that default and
-	// finally falls back to "none" (host, today's behaviour). Resolution of the
-	// effective policy lives in operations.resolveAgentBinding.
-	Isolation string `yaml:"isolation,omitempty"`
+	// Runtime is the agent's RUNTIME axis (host | container): where this
+	// agent's engine process executes. Like Engine it is a cost/environment
+	// call that travels with the binding. Empty inherits the project's
+	// `runtime:` default and finally falls back to "host". Deliberately the
+	// ONLY isolation dimension an agent declares — the WORKSPACE axis
+	// (worktree vs shared dir) is a SESSION trait chosen at invocation time
+	// (run/map/weave `--workspace`, project `workspace:` default), never
+	// bound to the agent. Resolution lives in operations.resolveAgentBinding.
+	Runtime string `yaml:"runtime,omitempty"`
 }
 
 // ParseAgent unmarshals agent YAML into an Agent. Name and Source are

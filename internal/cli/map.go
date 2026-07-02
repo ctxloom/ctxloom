@@ -16,6 +16,7 @@ import (
 
 var (
 	mapProfiles    []string
+	mapWorkspace   string
 	mapAgents      []string
 	mapLLM         string
 	mapConcurrency int
@@ -75,6 +76,7 @@ func runMap(cmd *cobra.Command, args []string) error {
 	}
 
 	parts := operations.MapProfiles(cmd.Context(), cfg, operations.MapProfilesRequest{
+		Workspace:   mapWorkspace,
 		Members:     members,
 		Task:        task,
 		LLM:         mapLLM,
@@ -146,10 +148,12 @@ func init() {
 	mapCmd.Flags().StringSliceVar(&mapAgents, "agents", nil, "Named local agent(s) to run as members, each on its own engine (comma-separated/repeatable)")
 	mapCmd.Flags().StringVarP(&mapLLM, "llm", "l", "", "Override the LLM for every member (else each member's own engine/llm:)")
 	mapCmd.Flags().IntVar(&mapConcurrency, "concurrency", 0, "Max members to run at once (default 4)")
+	mapCmd.Flags().StringVar(&mapWorkspace, "workspace", "", "Session workspace axis for every member (none|worktree; empty = project default)")
 	mapCmd.Flags().CountVarP(&mapVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 	mapCmd.Flags().StringVar(&mapSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 
 	_ = mapCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = mapCmd.RegisterFlagCompletionFunc("agents", completeAgentNames)
 	_ = mapCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
+	_ = mapCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 }

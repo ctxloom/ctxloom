@@ -59,15 +59,20 @@ type Config struct {
 	// no Bundle.Agents and no remote path. Read the merged set via
 	// LoadAgents / Agent, which folds in the directory source too.
 	Agents map[string]agents.Agent `mapstructure:"agents" yaml:"agents,omitempty"`
-	// Isolation is the project-wide DEFAULT per-agent isolation policy for
-	// fan-out members (map/weave): none | worktree | container. Empty means
-	// "none" (host — today's behaviour). An agent's own `isolation` overrides
-	// this default per member. It is the top-level default only; the per-member
-	// precedence (agent → this default → none) is resolved in
-	// operations.resolveAgentBinding. Named `isolation` to avoid colliding
-	// with `profiles.defaults` (the profiles array) and `llm.defaults`
-	// (RoleDefaults).
-	Isolation string `mapstructure:"isolation" yaml:"isolation,omitempty"`
+	// Workspace is the project-wide DEFAULT for the SESSION-level workspace
+	// axis (none | worktree): where a session's working directory lives.
+	// Empty means "none" (the shared live project dir — today's behaviour).
+	// A session-creating invocation (run/map/weave `--workspace`) overrides
+	// it per session. Deliberately NOT an agent trait: needing a private cwd
+	// is a property of how a session is launched, not of who the agent is.
+	Workspace string `mapstructure:"workspace" yaml:"workspace,omitempty"`
+	// Runtime is the project-wide DEFAULT for the AGENT-level runtime axis
+	// (host | container): where an agent's engine process executes. Empty
+	// means "host". An agent binding's own `runtime:` overrides it; the
+	// precedence (agent → this default → host) is resolved in
+	// operations.resolveAgentBinding. The two axes are independent and meet
+	// only at launch (isolation.Axes).
+	Runtime string `mapstructure:"runtime" yaml:"runtime,omitempty"`
 	// IsolationImages maps a backend name (claude-code | kiro | ...) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or

@@ -241,10 +241,15 @@
       },
       "additionalProperties": false
     },
-    "isolation": {
+    "workspace": {
       "type": "string",
-      "description": "Default per-agent isolation policy for fan-out members (map/weave). 'none' (default, and the only policy active in this release) runs each member on the host in the project directory — today's behaviour. An agent's own `isolation` overrides this default; empty means none. worktree/container are reserved for later phases (an unrecognized policy degrades to none with a warning).",
-      "enum": ["none", "worktree", "container"]
+      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
+      "enum": ["none", "worktree"]
+    },
+    "runtime": {
+      "type": "string",
+      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together.",
+      "enum": ["host", "container"]
     },
     "isolation_images": {
       "type": "object",
@@ -271,10 +276,10 @@
             "description": "Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>).",
             "items": { "type": "string", "minLength": 1 }
           },
-          "isolation": {
+          "runtime": {
             "type": "string",
-            "description": "Per-agent isolation policy for this agent when run as a fan-out member. Overrides the top-level `isolation` default; empty inherits it, then falls back to none. worktree/container are reserved for later phases.",
-            "enum": ["none", "worktree", "container"]
+            "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent.",
+            "enum": ["host", "container"]
           }
         },
         "additionalProperties": false

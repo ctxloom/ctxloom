@@ -39,6 +39,7 @@ type MapProfilesRequest struct {
 	Members     []string // members (agent or bare-profile names) to run in parallel
 	Task        string   // shared task/prompt broadcast to every member
 	LLM         string   // optional override applied to all members (wins over each member's engine)
+	Workspace   string   // SESSION-level workspace axis for every member session (none | worktree; empty uses the project `workspace:` default)
 	WorkDir     string
 	Verbosity   int
 	Concurrency int // <=0 uses DefaultMapConcurrency
@@ -84,15 +85,24 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 		resolved[i] = rs
 	}
 
+	// The fan's SESSION-level workspace axis: the invocation's --workspace wins,
+	// else the project `workspace:` default. One value for every member session
+	// — the workspace is a property of how this fan launches its sessions, not
+	// of any agent binding.
+	workspace := req.Workspace
+	if workspace == "" {
+		workspace = cfg.Workspace
+	}
+
 	// Build the shared executable trust gate ONCE for this fan, but only when a
-	// member actually requests isolation — an all-none fan (the default) writes no
+	// member actually has isolation on some axis — an all-defaults fan writes no
 	// per-member config and must stay byte-identical to pre-P3, so it never touches
 	// the gate (which runs the trust baseline + opens the store). The gate's allow()
 	// is concurrency-safe, so the parallel members below share one.
 	var execGate *ExecutableTrustGate
 	var gate bundles.ContentGate
 	for _, rs := range resolved {
-		if rs != nil && !isolation.IsNone(rs.Isolation) {
+		if rs != nil && !memberAxes(workspace, rs).Zero() {
 			execGate = NewExecutableTrustGate(cfg)
 			gate = execGate.Gate()
 			break
@@ -130,12 +140,11 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				Label:     rs.Label,
 				Backend:   rs.Backend,
 				Model:     rs.Model,
-				// Per-member isolation resolved from the agent binding
-				// (agent → project default → none), plus the user-provided
-				// agent image for the member's backend when one is configured;
-				// AgentID scopes this member's future per-agent workspace by
-				// its identifier.
-				Isolation:      rs.Isolation,
+				// The member's axes: the fan's session-level workspace x the
+				// agent-resolved runtime, plus the user-provided agent image
+				// for the member's backend when one is configured; AgentID
+				// scopes this member's per-agent workspace by its identifier.
+				Axes:           memberAxes(workspace, rs),
 				IsolationImage: IsolationImageConfig(cfg, rs.Backend),
 				AgentID:        req.Members[i],
 				// The member's composed profile set + shared gate scope the
@@ -193,6 +202,7 @@ type WeaveRequest struct {
 	Synthesize    string   // synthesis profile; empty or NoSynthesize skips the reduce
 	Task          string   // shared task broadcast to members and shown to the synthesizer
 	LLM           string   // optional override for MEMBERS only (synth keeps its own llm)
+	Workspace     string   // SESSION-level workspace axis for member sessions (none | worktree; empty uses the project default)
 	InjectedParts []Part   // externally-supplied parts (e.g. non-ctxloom outputs)
 	WorkDir       string
 	Verbosity     int
@@ -216,6 +226,7 @@ func Weave(ctx context.Context, cfg *config.Config, req WeaveRequest) (*WeaveRes
 			Members:     req.Members,
 			Task:        req.Task,
 			LLM:         req.LLM,
+			Workspace:   req.Workspace,
 			WorkDir:     req.WorkDir,
 			Verbosity:   req.Verbosity,
 			Concurrency: req.Concurrency,
@@ -244,6 +255,17 @@ func Weave(ctx context.Context, cfg *config.Config, req WeaveRequest) (*WeaveRes
 	result.Report = synth.Output
 	result.Synthesizer = &Synthesizer{Profile: req.Synthesize, Label: synth.Label, Backend: synth.Backend}
 	return result, nil
+}
+
+// memberAxes is the launch-time meeting point of the two independently-owned
+// isolation axes: the fan's SESSION-level workspace (one value per fan) and
+// the member's AGENT-resolved runtime (rs.Runtime, already defaulted through
+// the project `runtime:` key). Neither axis is ever derived from the other.
+func memberAxes(workspace string, rs *ResolvedAgent) isolation.Axes {
+	return isolation.Axes{
+		Workspace: isolation.WorkspaceAxis(workspace),
+		Runtime:   isolation.RuntimeAxis(rs.Runtime),
+	}
 }
 
 // buildSynthesisTask frames the member/injected parts for the synthesis agent.

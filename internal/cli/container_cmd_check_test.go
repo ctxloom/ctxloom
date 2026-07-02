@@ -49,25 +49,25 @@ func TestRenderContainerCheck(t *testing.T) {
 	})
 }
 
-// TestRenderContainerTooling covers both shapes: no declarations (the hint
+// TestRenderTooling covers both shapes: no declarations (the hint
 // about trust review) and collected declarations attributed to their bundles
 // under the instruction preamble.
-func TestRenderContainerTooling(t *testing.T) {
+func TestRenderTooling(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
-		assert.NoError(t, renderContainerTooling(&buf, nil))
+		assert.NoError(t, renderTooling(&buf, nil))
 		assert.Contains(t, buf.String(), "No trusted bundles declare container tooling")
 	})
 
 	t.Run("declarations", func(t *testing.T) {
 		var buf bytes.Buffer
-		entries := []operations.ContainerTooling{
-			{Source: "go-tools#skills/container-tooling", Content: "Install golangci-lint."},
+		entries := []operations.ToolingDeclaration{
+			{Source: "go-tools#skills/tooling", Content: "Install golangci-lint."},
 		}
-		assert.NoError(t, renderContainerTooling(&buf, entries))
+		assert.NoError(t, renderTooling(&buf, entries))
 		out := buf.String()
 		assert.Contains(t, out, "explicit approval", "the instruction preamble leads")
-		assert.Contains(t, out, "### go-tools#skills/container-tooling")
+		assert.Contains(t, out, "### go-tools#skills/tooling")
 		assert.Contains(t, out, "Install golangci-lint.")
 	})
 }

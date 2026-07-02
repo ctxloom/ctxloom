@@ -13,17 +13,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestCollectContainerTooling_CollectsDeclarations proves collection finds
-// every bundle's `container-tooling` skill (bare-name match, like the
+// TestCollectTooling_CollectsDeclarations proves collection finds
+// every bundle's `tooling` skill (bare-name match, like the
 // agent-setup override contract), attributes it to its source, and skips
 // bundles without one. The nil loader exercises the real trust-gated
 // exposure path over locally-authored (baseline-trusted) bundles.
-func TestCollectContainerTooling_CollectsDeclarations(t *testing.T) {
+func TestCollectTooling_CollectsDeclarations(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "go-tools", `version: "1.0"
 skills:
-  container-tooling:
+  tooling:
     content: "Install golangci-lint v2 and gofumpt."
 `)
 	writeRegenBundle(t, appDir, "unrelated", `version: "1.0"
@@ -33,16 +33,16 @@ skills:
 `)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
-	got := CollectContainerTooling(cfg, nil)
-	require.Len(t, got, 1, "only the container-tooling skill is collected")
-	assert.Contains(t, got[0].Source, "container-tooling")
+	got := CollectTooling(cfg, nil)
+	require.Len(t, got, 1, "only the tooling skill is collected")
+	assert.Contains(t, got[0].Source, "tooling")
 	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
 }
 
-// TestCollectContainerTooling_NilSafe: a nil config never errors — the
+// TestCollectTooling_NilSafe: a nil config never errors — the
 // pipeline is advisory and must not block anything.
-func TestCollectContainerTooling_NilSafe(t *testing.T) {
-	assert.Nil(t, CollectContainerTooling(nil, nil))
+func TestCollectTooling_NilSafe(t *testing.T) {
+	assert.Nil(t, CollectTooling(nil, nil))
 }
 
 // TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig: the scaffold

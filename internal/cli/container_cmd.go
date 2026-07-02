@@ -100,21 +100,21 @@ isolation_images in config — those are run as-is and never built.`,
 // testable with an injected report.
 var containerDiagnose = isolation.Diagnose
 
-// containerToolingPrompt is the instruction preamble `container tooling`
+// toolingPrompt is the instruction preamble `container tooling`
 // emits above the collected bundle declarations: locate/scaffold the base
 // Containerfile, propose a diff, get EXPLICIT per-change user approval,
 // rebuild. A markdown resource, not Go — the procedure is data.
-var containerToolingPrompt = resources.MustGetPromptText("container-tooling")
+var toolingPrompt = resources.MustGetPromptText("tooling")
 
-// containerToolingCmd emits the agent-image tooling instructions plus every
-// TRUSTED bundle's `container-tooling` skill. The LLM runs this, reads the
+// toolingCmd emits the agent-image tooling instructions plus every
+// TRUSTED bundle's `tooling` skill. The LLM runs this, reads the
 // declarations, and folds them — with the user's explicit approval — into the
 // scaffolded base Containerfile. Read-only: collection goes through the trust
 // gate and nothing is written here.
-var containerToolingCmd = &cobra.Command{
+var toolingCmd = &cobra.Command{
 	Use:   "tooling",
 	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
-	Long: `Collect every trusted bundle's 'container-tooling' skill — the tools its
+	Long: `Collect every trusted bundle's 'tooling' skill — the tools its
 content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
@@ -129,30 +129,30 @@ pull/sync — the edit is the LLM's, gated by the user.`,
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		entries := operations.CollectContainerTooling(cfg, nil)
-		return emit(cmd, containerToolingJSON{Instructions: containerToolingPrompt, Declarations: entries}, func() error {
-			return renderContainerTooling(cmd.OutOrStdout(), entries)
+		entries := operations.CollectTooling(cfg, nil)
+		return emit(cmd, toolingJSON{Instructions: toolingPrompt, Declarations: entries}, func() error {
+			return renderTooling(cmd.OutOrStdout(), entries)
 		})
 	},
 }
 
-// containerToolingJSON is the --format json shape for `container tooling`.
-type containerToolingJSON struct {
+// toolingJSON is the --format json shape for `container tooling`.
+type toolingJSON struct {
 	Instructions string                        `json:"instructions"`
-	Declarations []operations.ContainerTooling `json:"declarations"`
+	Declarations []operations.ToolingDeclaration `json:"declarations"`
 }
 
-// renderContainerTooling writes the instruction preamble plus the collected
+// renderTooling writes the instruction preamble plus the collected
 // declarations, each attributed to its source bundle. Extracted from RunE so
 // the formatting is testable with injected entries.
-func renderContainerTooling(out io.Writer, entries []operations.ContainerTooling) error {
+func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
 	w := iox.NewErrWriter(out)
 	if len(entries) == 0 {
-		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'container-tooling' skill).")
+		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' skill).")
 		w.Println("Untrusted declarations are withheld — review with `ctxloom bundle review`, then re-run.")
 		return w.Err()
 	}
-	w.Println(containerToolingPrompt)
+	w.Println(toolingPrompt)
 	for _, e := range entries {
 		w.Printf("\n### %s\n\n%s\n", e.Source, e.Content)
 	}
@@ -280,7 +280,7 @@ func init() {
 		"overwrite an existing file / re-point an already-configured base")
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
-	containerCmd.AddCommand(containerToolingCmd)
+	containerCmd.AddCommand(toolingCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
 	rootCmd.AddCommand(containerCmd)
 }

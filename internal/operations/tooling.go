@@ -1,7 +1,7 @@
 // This file is the trusted-bundle → agent-image tooling pipeline. A bundle
 // whose content needs tools inside the agent container (linters, language
-// runtimes, build helpers) ships a well-known `container-tooling` skill
-// describing them; `ctxloom container tooling` collects those texts THROUGH
+// runtimes, build helpers) ships a well-known `tooling` skill
+// describing them; `ctxloom tooling` collects those texts THROUGH
 // THE TRUST GATE and emits them with instructions for the LLM to fold — with
 // explicit per-change user permission — into the local base Containerfile
 // that every locally-built agent image (default auto-build included) layers
@@ -22,28 +22,29 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// ContainerToolingSkillName is the well-known skill name a bundle ships to
-// declare the tools its content needs inside the agent image. Matching mirrors
-// the agent-setup override contract: the bare name, or the last path/# segment
-// (`<bundle>#skills/container-tooling`).
-const ContainerToolingSkillName = "container-tooling"
+// ToolingSkillName is the well-known skill name a bundle ships to declare
+// the tools its content needs available where agents run — today that means
+// the agent container image. Matching mirrors the agent-setup override
+// contract: the bare name, or the last path/# segment
+// (`<bundle>#skills/tooling`).
+const ToolingSkillName = "tooling"
 
-// ContainerTooling is one bundle's collected tooling declaration.
-type ContainerTooling struct {
+// ToolingDeclaration is one bundle's collected tooling declaration.
+type ToolingDeclaration struct {
 	// Source is the bundle-qualified skill name the text came from, so the
 	// user can trace every proposed Containerfile change to its bundle.
 	Source  string `json:"source"`
 	Content string `json:"content"`
 }
 
-// CollectContainerTooling gathers every trusted bundle's `container-tooling`
+// CollectTooling gathers every trusted bundle's `tooling`
 // skill. SECURITY: collection goes through the TRUST-GATED loader — a skill
 // from an unreviewed/untrusted bundle is withheld exactly like any other
 // gated content (bundle-supplied text driving Containerfile edits is a
 // code-execution vector), and the withholding is surfaced content-free.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
 // loader is a test seam; nil uses the gated exposure loader.
-func CollectContainerTooling(cfg *config.Config, loader *bundles.Loader) []ContainerTooling {
+func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclaration {
 	if cfg == nil {
 		return nil
 	}
@@ -57,16 +58,16 @@ func CollectContainerTooling(cfg *config.Config, loader *bundles.Loader) []Conta
 	if err != nil {
 		return nil
 	}
-	var out []ContainerTooling
+	var out []ToolingDeclaration
 	for _, info := range infos {
-		if !setupSkillNameMatches(info.Name, ContainerToolingSkillName) {
+		if !setupSkillNameMatches(info.Name, ToolingSkillName) {
 			continue
 		}
 		content, gerr := loader.GetSkill(info.Name)
 		if gerr != nil || strings.TrimSpace(content.Content) == "" {
 			continue // withheld by the gate, or empty — skip, never block
 		}
-		out = append(out, ContainerTooling{Source: info.Name, Content: content.Content})
+		out = append(out, ToolingDeclaration{Source: info.Name, Content: content.Content})
 	}
 	warnWithheld(loader)
 	return out

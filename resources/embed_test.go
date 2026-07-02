@@ -194,7 +194,7 @@ func TestGetPromptText(t *testing.T) {
 	for _, name := range []string{
 		"profile-discovery",
 		"agent-setup",
-		"container-tooling",
+		"tooling",
 		"distill-default",
 		"mcp-server-instructions",
 		"session-distill",
@@ -245,9 +245,9 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 		}
 	}
 
-	tooling, err := GetPromptText("container-tooling")
+	tooling, err := GetPromptText("tooling")
 	if err != nil {
-		t.Fatalf("GetPromptText(container-tooling): %v", err)
+		t.Fatalf("GetPromptText(tooling): %v", err)
 	}
 	for _, want := range []string{
 		"ctxloom container scaffold",
@@ -256,7 +256,7 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 		"Never apply tooling automatically",
 	} {
 		if !strings.Contains(tooling, want) {
-			t.Errorf("container-tooling prompt lost required token %q", want)
+			t.Errorf("tooling prompt lost required token %q", want)
 		}
 	}
 

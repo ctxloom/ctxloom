@@ -35,10 +35,10 @@ re-scan the repo. Enumerate only what is live config:
   dev container talking to the host's daemon), bind agents with
   `--runtime host` instead and tell the user what would enable containers
   (e.g. the dev container docker-in-docker feature).
-- **Bundle tooling** (only if containers are viable): `ctxloom container
-  tooling` — trusted bundles may declare tools the agent image needs. Follow
-  its instructions: show the user the proposed Containerfile diff and apply
-  only what they explicitly approve, then `ctxloom container build`.
+- **Bundle tooling** (only if containers are viable): `ctxloom tooling` —
+  trusted bundles may declare tools the agent image needs. Follow its
+  instructions: show the user the proposed Containerfile diff and apply only
+  what they explicitly approve, then `ctxloom container build`.
 
 Standalone (no discovery ran in this session), additionally gather:
 

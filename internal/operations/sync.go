@@ -692,9 +692,36 @@ type AutoSyncConfig struct {
 	ApplyHooks bool `mapstructure:"apply_hooks" yaml:"apply_hooks,omitempty"`
 }
 
+// startupCloneRefresh is the seam over the pre-probe clone refresh (test
+// injection point; production = refreshReferencedClones).
+var startupCloneRefresh = refreshReferencedClones
+
+// refreshReferencedClones advances every remote clone the config references
+// (profiles, bundles, and config-default roots — collectRemoteReferences
+// covers all three) to its live tip. Best-effort throughout: a collect or
+// fetch failure leaves the cache as-is; the probe and sync paths surface any
+// real problem.
+func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
+	bundleRefs, profileRefs, err := collectRemoteReferences(cfg, nil, getFS(nil))
+	if err != nil {
+		return
+	}
+	refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs, profileRefs))
+}
+
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.
 // This is meant to be called during MCP server initialization or CLI startup.
 func SyncOnStartup(ctx context.Context, cfg *config.Config) (*SyncDependenciesResult, error) {
+	// Refresh every referenced clone to its live tip BEFORE the
+	// missing-dependency probe. In steady state (everything installed) the probe
+	// reports Count 0 and short-circuits below — so this is the ONLY fetch a
+	// healthy startup performs; without it a project's clone cache goes stale
+	// indefinitely (SyncDependencies' own refresh is unreachable then, and the
+	// probe itself reads the possibly-stale cache to decide "missing"). Failures
+	// warn and continue inside refreshRepoCaches — an offline startup must never
+	// block the LLM (CLAUDE.md).
+	startupCloneRefresh(ctx, cfg)
+
 	// Check for missing dependencies first
 	checkResult, err := CheckMissingDependencies(ctx, cfg, CheckMissingDependenciesRequest{})
 	if err != nil {

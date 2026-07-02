@@ -29,7 +29,7 @@
       "fingerprint": "07ca8cbc2cb3c0f78cd5a6d27a0d4c3c",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.387825932421898,
+      "divergence": 0.3878259324218979,
       "members": [
         {
           "file": "internal/cli/remote_update.go",
@@ -53,7 +53,7 @@
       "fingerprint": "0add368f6e51d78af57a71c58b79f788",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.21787979009999336,
+      "divergence": 0.2178797900999936,
       "members": [
         {
           "file": "internal/sessions/index.go",
@@ -77,7 +77,7 @@
       "fingerprint": "0c531833192fbfd0c18fda124e058f3e",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.2776046980882533,
+      "divergence": 0.27760469808825305,
       "members": [
         {
           "file": "internal/compression/code_javascript.go",
@@ -101,7 +101,7 @@
       "fingerprint": "0e813cb20352fe1f2c92c503f42bd590",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.45410091330386837,
+      "divergence": 0.4541009133038686,
       "members": [
         {
           "file": "internal/cli/bundle.go",
@@ -221,7 +221,7 @@
       "fingerprint": "1c056d4cbf5445d451fe00ea504de010",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.2757324754210889,
+      "divergence": 0.2757324754210888,
       "members": [
         {
           "file": "internal/remote/registry.go",
@@ -293,7 +293,7 @@
       "fingerprint": "2b8fd19b3fd3f5d8dc41bacaeafa323e",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4365042137349494,
+      "divergence": 0.4365042137349493,
       "members": [
         {
           "file": "internal/antigravity/backend.go",
@@ -317,7 +317,7 @@
       "fingerprint": "2fde541d884b021b6a0ba6e804b66d9d",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4598381039570728,
+      "divergence": 0.4598381039570729,
       "members": [
         {
           "file": "internal/remote/registry.go",
@@ -341,7 +341,7 @@
       "fingerprint": "32fa1f9c8d6ef448027d4ff2ed8f3915",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4738767900639428,
+      "divergence": 0.4739037597668848,
       "members": [
         {
           "file": "internal/operations/profile_transfer.go",
@@ -365,7 +365,7 @@
       "fingerprint": "3832a85bc3480fdc6e3f7a7280ca452c",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.25305250864705886,
+      "divergence": 0.2530525086470591,
       "members": [
         {
           "file": "internal/remote/github.go",
@@ -389,7 +389,7 @@
       "fingerprint": "39607a1c60e513a1fd48e6455efe81b9",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.16123775599246826,
+      "divergence": 0.16123775599246848,
       "members": [
         {
           "file": "internal/lm/isolation/container.go",
@@ -437,7 +437,7 @@
       "fingerprint": "45c03e4e4b7827bf180bda758f1c4693",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.47428055488297594,
+      "divergence": 0.4742805548829757,
       "members": [
         {
           "file": "internal/compression/code_python.go",
@@ -485,7 +485,7 @@
       "fingerprint": "4e0f17b0b333214357c352388af35d21",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.31624751426467024,
+      "divergence": 0.31624751426467,
       "members": [
         {
           "file": "internal/cli/map.go",
@@ -557,7 +557,7 @@
       "fingerprint": "6bd29afb3c4c2e753c1929c0b3803763",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.36533242721592174,
+      "divergence": 0.36533242721592185,
       "members": [
         {
           "file": "internal/git/exec.go",
@@ -581,7 +581,7 @@
       "fingerprint": "6fce2433310e4977f0d1033df0b4e376",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4395897186076221,
+      "divergence": 0.4395897186076222,
       "members": [
         {
           "file": "internal/trust/store.go",
@@ -629,7 +629,7 @@
       "fingerprint": "71be19327fe1e532d2096d43f58641d4",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4726159302416809,
+      "divergence": 0.472615930241681,
       "members": [
         {
           "file": "internal/bundles/bundles.go",
@@ -701,7 +701,7 @@
       "fingerprint": "7ebbd7ca797091ef3d6d9d766c63ec1e",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.13501426616277368,
+      "divergence": 0.1350142661627738,
       "members": [
         {
           "file": "internal/bundles/store.go",
@@ -797,7 +797,7 @@
       "fingerprint": "97e5ba3279d6657033c862aa753bf1b6",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.11596401046288463,
+      "divergence": 0.11596401046288485,
       "members": [
         {
           "file": "internal/git/fake.go",
@@ -917,7 +917,7 @@
       "fingerprint": "a147465484d3d68d4ba238212420f002",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.46438515264890845,
+      "divergence": 0.46438515264890834,
       "members": [
         {
           "file": "internal/sessions/index.go",
@@ -1037,7 +1037,7 @@
       "fingerprint": "be8949e9b0a44dbb4c096c49d1f9e070",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.10668527040118048,
+      "divergence": 0.10668527040118059,
       "members": [
         {
           "file": "internal/compression/code_javascript.go",
@@ -1181,7 +1181,7 @@
       "fingerprint": "cc31ebc617b7229ab1f18a1d8de19ed4",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.38723589342590525,
+      "divergence": 0.38723589342590503,
       "members": [
         {
           "file": "cmd/taskloom/commands.go",
@@ -1229,7 +1229,7 @@
       "fingerprint": "cfd09eae23dceaf5b02e600e2ed3a8e0",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4005345930467721,
+      "divergence": 0.40053459304677186,
       "members": [
         {
           "file": "cmd/taskloom/root.go",
@@ -1253,7 +1253,7 @@
       "fingerprint": "d16636b28d233a06c1b0a701370ea235",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.33215092568276317,
+      "divergence": 0.3321509256827633,
       "members": [
         {
           "file": "internal/remote/registry.go",
@@ -1277,7 +1277,7 @@
       "fingerprint": "d17a2e0f17c6fc540324a9fa97f4f7e2",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4622150844032733,
+      "divergence": 0.4622150844032734,
       "members": [
         {
           "file": "cmd/ltk/manage.go",
@@ -1301,7 +1301,7 @@
       "fingerprint": "d735747ad695330b33ecc2c92a347ecf",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.2907115565489835,
+      "divergence": 0.2907115565489834,
       "members": [
         {
           "file": "internal/profiles/memstore.go",
@@ -1373,7 +1373,7 @@
       "fingerprint": "dc639274dc395a6bad399aeb154f6d52",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4825729490616121,
+      "divergence": 0.48257294906161197,
       "members": [
         {
           "file": "internal/remote/registry.go",
@@ -1421,7 +1421,7 @@
       "fingerprint": "e19e68e6668697e99c7b1e123ff27d9a",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.26421350680352573,
+      "divergence": 0.2642135068035256,
       "members": [
         {
           "file": "internal/cli/container_cmd.go",
@@ -1445,7 +1445,7 @@
       "fingerprint": "e1edc9da7bcee19687ea89baf76694a0",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4635189318274382,
+      "divergence": 0.4635189318274381,
       "members": [
         {
           "file": "internal/cli/bundle_edit.go",
@@ -1469,7 +1469,7 @@
       "fingerprint": "e35f37b4ad3a404e6c78c384904384c8",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.3848596221455931,
+      "divergence": 0.384859622145593,
       "members": [
         {
           "file": "internal/cli/remote.go",
@@ -1493,7 +1493,7 @@
       "fingerprint": "e884a2a55513df1a90d312c971afebc8",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.4312193807013974,
+      "divergence": 0.43121938070139754,
       "members": [
         {
           "file": "internal/sessions/index.go",
@@ -1517,7 +1517,7 @@
       "fingerprint": "f11a862a5e789c194405e10cf302dd21",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.2952397746040878,
+      "divergence": 0.2952397746040879,
       "members": [
         {
           "file": "internal/compression/code_javascript.go",
@@ -1541,7 +1541,7 @@
       "fingerprint": "f65273701f0ae649f1cbb39baa8821f6",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.48503211952252323,
+      "divergence": 0.48503211952252334,
       "members": [
         {
           "file": "internal/remote/registry.go",
@@ -1613,7 +1613,7 @@
       "fingerprint": "fdabe73433be7afbfaf748bae4472c0a",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.35214423896461233,
+      "divergence": 0.352144238964612,
       "members": [
         {
           "file": "internal/compression/code_python.go",
@@ -1637,7 +1637,7 @@
       "fingerprint": "feb34f09869e3876bd2ffea76d5468af",
       "tier": "api-profile",
       "section": "api",
-      "divergence": 0.44180184758132535,
+      "divergence": 0.44180184758132524,
       "members": [
         {
           "file": "cmd/taskloom/plan.go",
@@ -6451,8 +6451,8 @@
           "file": "internal/operations/profile_materialize.go",
           "name": "MaterializeProfile",
           "line_span": [
-            100,
-            104
+            106,
+            110
           ]
         }
       ]
@@ -15296,30 +15296,6 @@
       "divergence": 0.0,
       "members": [
         {
-          "file": "internal/cli/bundle_edit.go",
-          "name": "placeholders",
-          "line_span": [
-            155,
-            159
-          ]
-        },
-        {
-          "file": "internal/lm/grpc/server.go",
-          "name": "convertFragments",
-          "line_span": [
-            242,
-            246
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "b23975e9d2a98b113d82a5960d91a6ec",
-      "tier": "exact-region",
-      "section": "main",
-      "divergence": 0.0,
-      "members": [
-        {
           "file": "internal/cli/profile.go",
           "name": "expandRefsAgainstDefaultRemote",
           "line_span": [
@@ -15357,78 +15333,6 @@
           "line_span": [
             237,
             241
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "b23975e9d2a98b113d82a5960d91a6ec",
-      "tier": "exact-region",
-      "section": "main",
-      "divergence": 0.0,
-      "members": [
-        {
-          "file": "internal/config/config.go",
-          "name": "deepCopyBody",
-          "line_span": [
-            696,
-            700
-          ]
-        },
-        {
-          "file": "internal/lm/grpc/managed.go",
-          "name": "hooksToProto",
-          "line_span": [
-            122,
-            126
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "b23975e9d2a98b113d82a5960d91a6ec",
-      "tier": "exact-region",
-      "section": "main",
-      "divergence": 0.0,
-      "members": [
-        {
-          "file": "internal/lm/grpc/managed.go",
-          "name": "hooksToProto",
-          "line_span": [
-            122,
-            126
-          ]
-        },
-        {
-          "file": "internal/operations/depgraph.go",
-          "name": "shortHashes",
-          "line_span": [
-            377,
-            381
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "b23975e9d2a98b113d82a5960d91a6ec",
-      "tier": "exact-region",
-      "section": "main",
-      "divergence": 0.0,
-      "members": [
-        {
-          "file": "internal/lm/grpc/managed.go",
-          "name": "mcpServerMapToProto",
-          "line_span": [
-            237,
-            241
-          ]
-        },
-        {
-          "file": "internal/operations/depgraph.go",
-          "name": "shortHashes",
-          "line_span": [
-            377,
-            381
           ]
         }
       ]
@@ -21914,134 +21818,6 @@
       ]
     },
     {
-      "fingerprint": "167620bf826a9acb04afd977f8d0b9c2",
-      "tier": "inline-assisted",
-      "section": "main",
-      "divergence": 0.011494252873563218,
-      "members": [
-        {
-          "file": "internal/lm/isolation/runtime.go",
-          "name": "Available",
-          "line_span": [
-            70,
-            70
-          ]
-        },
-        {
-          "file": "internal/lm/isolation/runtime.go",
-          "name": "Available",
-          "line_span": [
-            102,
-            102
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "3d28906db19c2df3fb9a3a1406b561d6",
-      "tier": "inline-assisted",
-      "section": "main",
-      "divergence": 0.0,
-      "members": [
-        {
-          "file": "internal/operations/helpers.go",
-          "name": "getCachedFetcher",
-          "line_span": [
-            84,
-            88
-          ]
-        },
-        {
-          "file": "internal/operations/helpers.go",
-          "name": "GetCachedFetcher",
-          "line_span": [
-            106,
-            108
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "637c446705a2fb65d1341f245eb9b692",
-      "tier": "inline-assisted",
-      "section": "main",
-      "divergence": 0.08064516129032258,
-      "members": [
-        {
-          "file": "internal/cli/bundle_edit.go",
-          "name": "placeholderFragments",
-          "line_span": [
-            162,
-            166
-          ]
-        },
-        {
-          "file": "internal/cli/bundle_edit.go",
-          "name": "placeholderPrompts",
-          "line_span": [
-            168,
-            172
-          ]
-        },
-        {
-          "file": "internal/cli/bundle_edit.go",
-          "name": "placeholderMCP",
-          "line_span": [
-            174,
-            178
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "6a1b533466f69177a7f36dcba8190de2",
-      "tier": "inline-assisted",
-      "section": "main",
-      "divergence": 0.013422818791946308,
-      "members": [
-        {
-          "file": "internal/antigravity/antigravity.go",
-          "name": "MarshalJSON",
-          "line_span": [
-            126,
-            128
-          ]
-        },
-        {
-          "file": "internal/antigravity/antigravity.go",
-          "name": "MarshalJSON",
-          "line_span": [
-            172,
-            174
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "6f26c124cf36b3e2b60129d9c967a9c6",
-      "tier": "inline-assisted",
-      "section": "main",
-      "divergence": 0.17757009345794392,
-      "members": [
-        {
-          "file": "internal/compression/json.go",
-          "name": "preservedSummary",
-          "line_span": [
-            119,
-            128
-          ]
-        },
-        {
-          "file": "internal/compression/json.go",
-          "name": "compressedSummary",
-          "line_span": [
-            130,
-            135
-          ]
-        }
-      ]
-    },
-    {
       "fingerprint": "07c0ccc7e809ac2864ff3bc759017e10",
       "tier": "internal-repeat",
       "section": "main",
@@ -22853,8 +22629,56 @@
       "fingerprint": "5dcb13b6edad518f2bb8c1f83332fc37",
       "tier": "near-normalized",
       "section": "main",
-      "divergence": 0.11320754716981132,
+      "divergence": 0.176056338028169,
       "members": [
+        {
+          "file": "internal/cli/bundle_edit.go",
+          "name": "placeholders",
+          "line_span": [
+            151,
+            160
+          ]
+        },
+        {
+          "file": "internal/config/config.go",
+          "name": "deepCopyBody",
+          "line_span": [
+            692,
+            701
+          ]
+        },
+        {
+          "file": "internal/lm/grpc/managed.go",
+          "name": "hooksToProto",
+          "line_span": [
+            118,
+            127
+          ]
+        },
+        {
+          "file": "internal/lm/grpc/managed.go",
+          "name": "mcpServerMapToProto",
+          "line_span": [
+            233,
+            242
+          ]
+        },
+        {
+          "file": "internal/lm/grpc/managed.go",
+          "name": "mcpServerMapFromProto",
+          "line_span": [
+            244,
+            253
+          ]
+        },
+        {
+          "file": "internal/lm/grpc/server.go",
+          "name": "convertFragments",
+          "line_span": [
+            238,
+            247
+          ]
+        },
         {
           "file": "internal/operations/depgraph.go",
           "name": "shortHashes",
@@ -23389,38 +23213,6 @@
           "line_span": [
             61,
             67
-          ]
-        }
-      ]
-    },
-    {
-      "fingerprint": "9df81c9738798729d12262872c8bedb7",
-      "tier": "near-normalized",
-      "section": "main",
-      "divergence": 0.176056338028169,
-      "members": [
-        {
-          "file": "internal/cli/bundle_edit.go",
-          "name": "placeholders",
-          "line_span": [
-            151,
-            160
-          ]
-        },
-        {
-          "file": "internal/lm/grpc/managed.go",
-          "name": "mcpServerMapToProto",
-          "line_span": [
-            233,
-            242
-          ]
-        },
-        {
-          "file": "internal/lm/grpc/managed.go",
-          "name": "mcpServerMapFromProto",
-          "line_span": [
-            244,
-            253
           ]
         }
       ]
@@ -66155,8 +65947,8 @@
           "file": "tests/acceptance/completeness_test.go",
           "name": "TestCompleteness",
           "line_span": [
-            96,
-            112
+            98,
+            114
           ]
         }
       ]

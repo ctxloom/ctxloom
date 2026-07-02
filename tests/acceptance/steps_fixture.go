@@ -79,8 +79,8 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return runFixture(c, "fragment", "create", bundle, frag)
 	})
 
-	ctx.Step(`^a prompt "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, prompt, bundle string) error {
-		return runFixture(c, "skill", "create", bundle, prompt)
+	ctx.Step(`^a skill "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, skill, bundle string) error {
+		return runFixture(c, "skill", "create", bundle, skill)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a

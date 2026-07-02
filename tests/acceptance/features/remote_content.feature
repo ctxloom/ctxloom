@@ -16,9 +16,12 @@ Feature: Remote content
     And the output contains "@bundles/demo"
 
   Scenario: Reference a remote bundle and pull it
+    # A TRUSTED source locks directly on pull; an untrusted one stages the
+    # new bundle pending review instead (see the upgrade scenarios below).
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
+    And I run "ctxloom remote trust origin"
     And I run "ctxloom profile create dev --bundle demo"
     When I run "ctxloom remote pull"
     Then the command succeeds
@@ -30,6 +33,7 @@ Feature: Remote content
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
+    And I run "ctxloom remote trust origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
     When I run "ctxloom remote pull"
@@ -43,13 +47,15 @@ Feature: Remote content
     Then the resource contains "demo"
 
   Scenario: An upgrade is staged for review and approved
-    # References are hash-pinned; passive pull never stages. `remote upgrade`
-    # re-pins to HEAD and stages the change for review.
+    # Untrusted source: the initial pull stages the new bundle pending review
+    # (approved here to reach a locked baseline); `remote upgrade` then re-pins
+    # to HEAD and stages the CHANGE for review.
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
+    And I run "ctxloom bundle approve"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
     Then the command succeeds
@@ -69,6 +75,7 @@ Feature: Remote content
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
+    And I run "ctxloom bundle approve"
     And the remote "origin" advances its bundle
     And I run "ctxloom remote upgrade"
     When I run "ctxloom bundle decline"
@@ -82,6 +89,7 @@ Feature: Remote content
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
+    And I run "ctxloom bundle approve"
     And I run "ctxloom bundle pin origin/demo"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"
@@ -98,6 +106,7 @@ Feature: Remote content
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
+    And I run "ctxloom bundle approve"
     And I run "ctxloom remote trust origin"
     And the remote "origin" advances its bundle
     When I run "ctxloom remote upgrade"

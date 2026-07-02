@@ -16,11 +16,11 @@ Feature: MCP resources
     Then the resource MIME type is "application/yaml"
     And the resource contains "testing"
 
-  Scenario: The prompts resource reflects created prompts
+  Scenario: The skills resource reflects created prompts
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    And a prompt "review" in bundle "demo" exists
-    When the agent reads resource "ctxloom://prompts"
+    And a skill "review" in bundle "demo" exists
+    When the agent reads resource "ctxloom://skills"
     Then the resource MIME type is "application/yaml"
     And the resource contains "review"
 

@@ -158,6 +158,8 @@ type RemoveLocalItemsResult struct {
 // save is gated on entries pruned, never on files deleted. File removal is
 // best-effort cleanup of copies materialized by the pre-reference-only model:
 // a missing file is the normal case, other removal failures are warnings.
+// reprise:ignore — groups with MaterializeProfile on the getFS/result/warnings
+// idiom alone; the functions are unrelated and one-sided edits are expected.
 func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, error) {
 	fs := getFS(req.FS)
 	res := &RemoveLocalItemsResult{}

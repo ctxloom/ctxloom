@@ -67,6 +67,12 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		return nil, fmt.Errorf("unknown backend %q", backend)
 	}
 	fs := getFS(req.FS)
+	// The target is ours to create: materialize's whole point is standing up a
+	// fresh native surface, so a nonexistent --target dir is expected input,
+	// not an error.
+	if err := fs.MkdirAll(req.Target, 0o755); err != nil {
+		return nil, fmt.Errorf("create target dir %s: %w", req.Target, err)
+	}
 	res := &MaterializeProfileResult{Target: req.Target, Backend: backend, Profiles: req.Profiles}
 
 	// Gate the executable surfaces (bundle MCP / hooks / skill exports) at their

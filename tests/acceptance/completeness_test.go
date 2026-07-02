@@ -33,7 +33,7 @@ var excludedLeaves = map[string]string{
 	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
 	"ctxloom map":                   "fans a task out across parallel LLM sessions; @live-only, no hermetic fixture",
 	"ctxloom weave":                 "map + an LLM synthesis pass over the results; @live-only, no hermetic fixture",
-	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/prompt/bundle distill paths cover the distiller",
+	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/skill/bundle distill paths cover the distiller",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",
@@ -43,8 +43,10 @@ var excludedLeaves = map[string]string{
 	"ctxloom memory compact":        "@live + external backend session history",
 	"ctxloom bundle push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom fragment push":         "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom prompt push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
+	"ctxloom skill push":            "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom profile push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
+	"ctxloom container build":       "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
+	"ctxloom plan watch":            "long-lived file watcher (runs until interrupted); no hermetic exit",
 }
 
 // excludedTools / excludedResources are registered surface that no hermetic

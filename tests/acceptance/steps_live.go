@@ -242,7 +242,7 @@ func liveDistinctFacts() []string {
 }
 
 // liveBundleYAML builds a bundle manifest with a substantial, information-dense
-// fragment and prompt for distillation.
+// fragment and skill for distillation.
 func liveBundleYAML(fragment string) string {
 	facts := liveDistinctFacts()
 	var b strings.Builder

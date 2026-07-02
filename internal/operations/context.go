@@ -55,7 +55,13 @@ type AssembleContextRequest struct {
 type AssembleContextResult struct {
 	Profiles        []string `json:"profiles"`
 	FragmentsLoaded []string `json:"fragments_loaded"`
-	Context         string   `json:"context"`
+	// MissingFragments lists the EXPLICITLY requested fragments (Fragments in
+	// the request) that did not resolve/load. Assembly is fault-tolerant (a
+	// missing ask warns and is skipped), but callers like `run -f` treat an
+	// all-missing explicit ask as a hard error — and the always-on builtin
+	// companion fragments mean a non-empty FragmentsLoaded can't signal it.
+	MissingFragments []string `json:"missing_fragments,omitempty"`
+	Context          string   `json:"context"`
 
 	// ProfileLLM is the LLM the resolved profile(s) declared (first non-empty
 	// across the resolved set). Empty means no profile preference; callers fall
@@ -93,9 +99,14 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// Add request fragments (priority 0) and request-tag fragments. Bare asks
 	// resolve to their qualified pipeline name at intake (deterministic pick +
 	// warning when the bare name is ambiguous across bundles), so downstream
-	// dedup and ordering operate on exact identities only.
+	// dedup and ordering operate on exact identities only. The resolved asks
+	// are remembered so the result can report which EXPLICIT requests went
+	// missing.
+	requested := make([]string, 0, len(req.Fragments))
 	for _, f := range req.Fragments {
-		allFragments = append(allFragments, config.FragmentRef{Name: loader.ResolveFragmentAsk(f), Priority: 0})
+		resolved := loader.ResolveFragmentAsk(f)
+		requested = append(requested, resolved)
+		allFragments = append(allFragments, config.FragmentRef{Name: resolved, Priority: 0})
 	}
 	reqTagFragments, err := fragmentsFromTags(loader, req.Tags)
 	if err != nil {
@@ -112,6 +123,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 		return nil, err
 	}
 
+	// Which explicit asks failed to load — computed BEFORE the builtin append,
+	// against the loader-sourced names only.
+	missingRequested := missingFrom(requested, loadedNames)
+
 	// Built-in bundles inject their fragments unconditionally — the always-on
 	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
 	// — independent of profile selection, and skipped when their companion
@@ -123,11 +138,31 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	warnWithheld(loader)
 
 	return &AssembleContextResult{
-		Profiles:        profileNames,
-		FragmentsLoaded: loadedNames,
-		Context:         contextContent,
-		ProfileLLM:      profileLLM,
+		Profiles:         profileNames,
+		FragmentsLoaded:  loadedNames,
+		MissingFragments: missingRequested,
+		Context:          contextContent,
+		ProfileLLM:       profileLLM,
 	}, nil
+}
+
+// missingFrom returns the requested names absent from loaded, in request
+// order. nil when nothing was requested or everything was found.
+func missingFrom(requested, loaded []string) []string {
+	if len(requested) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(loaded))
+	for _, n := range loaded {
+		seen[n] = true
+	}
+	var missing []string
+	for _, r := range requested {
+		if !seen[r] {
+			missing = append(missing, r)
+		}
+	}
+	return missing
 }
 
 // appendBuiltinFragments appends the always-on built-in bundle fragments to the

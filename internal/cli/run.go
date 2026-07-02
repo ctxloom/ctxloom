@@ -34,6 +34,8 @@ import (
 
 var (
 	runLLM              string
+	runAgent            string
+	runWorkspace        string
 	runPrompt           string
 	runFragments        []string
 	runTags             []string
@@ -57,6 +59,12 @@ var (
 // to preview the effective context (fully inheritance-resolved) without running
 // the agent.
 type dryRunJSON struct {
+	// Agent names the --agent binding this preview resolved (empty for the
+	// classic profile flow); Workspace/Runtime are the session's resolved
+	// isolation axes.
+	Agent     string   `json:"agent,omitempty"`
+	Workspace string   `json:"workspace,omitempty"`
+	Runtime   string   `json:"runtime,omitempty"`
 	LLM       string   `json:"llm"`
 	Backend   string   `json:"backend"`
 	Profiles  []string `json:"profiles"`
@@ -75,6 +83,15 @@ func orEmpty(items []string) []string {
 		return []string{}
 	}
 	return items
+}
+
+// orDefault returns s, or def when s is empty — the axis-default rendering for
+// the dry-run preview (an unset workspace/runtime means none/host).
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 // resumeFlags bundles the four CLI flags that govern resume behavior
@@ -417,50 +434,94 @@ Examples:
 			reportCompanions(os.Stderr)
 		}
 
-		// When nothing selects context (no -p, -f, or -t) and no default profile
-		// is configured, offer an interactive profile picker on a TTY. Off a TTY
-		// or with no installed profiles this is a no-op and assembly degrades to
-		// the empty context as before (CLAUDE.md fault tolerance). Skipped under
-		// --dry-run, which is documented non-interactive: it previews assembly
-		// with the empty profile instead of blocking on a prompt.
-		if !runDryRun && runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
-			choice := resolveProfileSelection(cfg)
-			if choice.Quit {
-				fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
-				return nil
+		// Two launch sources: --agent runs a named LOCAL binding — its composed
+		// profiles become the context and its engine + runtime the transport;
+		// the interactive picker and the -p/-f/-t assembly do not apply (cobra
+		// marks the flags mutually exclusive). Everything else is the classic
+		// profile flow. An unknown --agent is a HARD error: an explicit name is
+		// user intent, unlike acp's editor-serving degrade.
+		var (
+			ctxResult   *operations.AssembleContextResult
+			label       string
+			backendName string
+			labelModel  string
+			// The session's runtime axis: the agent's resolved runtime, or the
+			// project `runtime:` default for a classic run.
+			agentRuntime = cfg.Runtime
+		)
+		if runAgent != "" {
+			rs, rerr := operations.ResolveAgent(ctx, cfg, runAgent, runLLM)
+			if rerr != nil {
+				return rerr
 			}
-			runProfile = choice.Name
-		}
+			ctxResult = &operations.AssembleContextResult{
+				Profiles:        rs.Profiles,
+				FragmentsLoaded: rs.Fragments,
+				Context:         rs.Context,
+			}
+			// ResolveAgent already applied the --llm-beats-declared-engine
+			// precedence and the project fallbacks.
+			label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
+			agentRuntime = rs.Runtime
+		} else {
+			// When nothing selects context (no -p, -f, or -t) and no default profile
+			// is configured, offer an interactive profile picker on a TTY. Off a TTY
+			// or with no installed profiles this is a no-op and assembly degrades to
+			// the empty context as before (CLAUDE.md fault tolerance). Skipped under
+			// --dry-run, which is documented non-interactive: it previews assembly
+			// with the empty profile instead of blocking on a prompt.
+			if !runDryRun && runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
+				choice := resolveProfileSelection(cfg)
+				if choice.Quit {
+					fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
+					return nil
+				}
+				runProfile = choice.Name
+			}
 
-		ctxResult, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
-			Profile:   runProfile,
-			Fragments: runFragments,
-			Tags:      runTags,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to assemble context: %w", err)
-		}
+			var aerr error
+			ctxResult, aerr = operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
+				Profile:   runProfile,
+				Fragments: runFragments,
+				Tags:      runTags,
+			})
+			if aerr != nil {
+				return fmt.Errorf("failed to assemble context: %w", aerr)
+			}
 
-		// If user explicitly requested fragments (-f flags) but none loaded, that's an error
-		if len(runFragments) > 0 && len(ctxResult.FragmentsLoaded) == 0 {
-			return fmt.Errorf("no fragments loaded: all requested fragments not found")
-		}
+			// If user explicitly requested fragments (-f flags) but none loaded,
+			// that's an error. Checked via MissingFragments — the always-on
+			// builtin companion fragments mean FragmentsLoaded is never empty,
+			// so a bare count can't see the miss.
+			if len(runFragments) > 0 && len(ctxResult.MissingFragments) == len(runFragments) {
+				return fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(ctxResult.MissingFragments, ", "))
+			}
 
-		// Determine which LLM config to use. Resolution is deferred until after
-		// context assembly because the chosen profile may declare its own LLM.
-		// Precedence: explicit --llm override (validated up front, friction),
-		// else the profile's declared llm, else the primary role's label. The
-		// label resolves to a backend type + model; the backend name (not the
-		// label) drives session naming and transport.
-		label, err := resolveRunLLM(cfg, runLLM, ctxResult.ProfileLLM)
-		if err != nil {
-			return err
+			// Determine which LLM config to use. Resolution is deferred until after
+			// context assembly because the chosen profile may declare its own LLM.
+			// Precedence: explicit --llm override (validated up front, friction),
+			// else the profile's declared llm, else the primary role's label. The
+			// label resolves to a backend type + model; the backend name (not the
+			// label) drives session naming and transport.
+			var lerr error
+			label, lerr = resolveRunLLM(cfg, runLLM, ctxResult.ProfileLLM)
+			if lerr != nil {
+				return lerr
+			}
+			// label → backend type + model (shared with the oneshot/map/weave path).
+			// The backend name (not the label) drives session naming and transport.
+			backendName, labelModel = operations.ResolveBackend(cfg, label)
 		}
-		// label → backend type + model (shared with the oneshot/map/weave path).
-		// The backend name (not the label) drives session naming and transport.
-		backendName, labelModel := operations.ResolveBackend(cfg, label)
 		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
 		llmEnv := llmEnvFor(cfg, label)
+
+		// The session's WORKSPACE axis: the invocation flag wins, else the
+		// project `workspace:` default. A session trait — never read from the
+		// agent binding.
+		sessionWorkspace := runWorkspace
+		if sessionWorkspace == "" {
+			sessionWorkspace = cfg.Workspace
+		}
 
 		// Convert context content to proto fragments
 		var protoFragments []*pb.Fragment
@@ -509,6 +570,9 @@ Examples:
 		// task seeding, no plugin launch.
 		if runDryRun {
 			payload := dryRunJSON{
+				Agent:     runAgent,
+				Workspace: sessionWorkspace,
+				Runtime:   agentRuntime,
 				LLM:       label,
 				Backend:   backendName,
 				Profiles:  orEmpty(ctxResult.Profiles),
@@ -518,6 +582,10 @@ Examples:
 				Prompt:    prompt,
 			}
 			return emit(cmd, payload, func() error {
+				if runAgent != "" {
+					fmt.Println("=== Agent ===")
+					fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, orDefault(sessionWorkspace, "none"), orDefault(agentRuntime, "host"))
+				}
 				fmt.Println("=== LLM ===")
 				fmt.Printf("%s (%s)\n", label, backendName)
 				fmt.Println("\n=== Profiles ===")
@@ -659,14 +727,15 @@ Examples:
 		// trust store); fail-closed (a DENY omits the executable). Surfaced below.
 		execGate := operations.NewExecutableTrustGate(cfg)
 
-		// The top-level session's isolation axes: the SESSION-level workspace
-		// default (cfg.Workspace) x the project runtime default (cfg.Runtime).
+		// The session's isolation axes: the SESSION-level workspace
+		// (--workspace, else the project `workspace:` default) x the runtime the
+		// launch source resolved (the agent's binding, or the project default).
 		// Resolve the lead policy up front so its approvals axis can gate
 		// AutoApprove BEFORE the request is built (Approvals() needs no
 		// workspace). The external-plugin-binary path is never isolated (none).
 		runAxes := isolation.Axes{
-			Workspace: isolation.WorkspaceAxis(cfg.Workspace),
-			Runtime:   isolation.RuntimeAxis(cfg.Runtime),
+			Workspace: isolation.WorkspaceAxis(sessionWorkspace),
+			Runtime:   isolation.RuntimeAxis(agentRuntime),
 		}
 		var policy isolation.Policy = isolation.None{}
 		if llmBinary == "" {
@@ -870,6 +939,13 @@ func init() {
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")
 	runCmd.Flags().StringSliceVarP(&runTags, "tag", "t", nil, "Include fragments with this tag (can be repeated)")
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
+	runCmd.Flags().StringVar(&runAgent, "agent", "", "Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)")
+	runCmd.Flags().StringVar(&runWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default)")
+	runCmd.MarkFlagsMutuallyExclusive("agent", "profile")
+	runCmd.MarkFlagsMutuallyExclusive("agent", "fragment")
+	runCmd.MarkFlagsMutuallyExclusive("agent", "tag")
+	_ = runCmd.RegisterFlagCompletionFunc("agent", completeAgentNames)
+	_ = runCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")

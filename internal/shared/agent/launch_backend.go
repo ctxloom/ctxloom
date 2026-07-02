@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
 // ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks
@@ -75,6 +77,47 @@ func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, skills ContentSki
 
 // History returns the session history accessor.
 func (b *LaunchBackend) History() SessionHistory { return b.history }
+
+// ExecuteCLI runs the shared tail of an exec-style Execute: the dry-run
+// preview stop, the v16 argv trace, env assembly (the request env plus the
+// SCM context-file path), and interactive/non-interactive routing. A concrete
+// backend resolves its model + argv — the genuinely engine-specific half —
+// and delegates the launch here, so the launch plumbing can't drift between
+// engines.
+func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
+	if req.DryRun {
+		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
+	}
+	b.TraceArgs(req.Verbosity, args, stderr)
+	env := b.ExecuteEnv(req)
+	if req.Mode == ModeInteractive {
+		exitCode, err := b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
+		return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	}
+	exitCode, err := b.RunNonInteractive(ctx, args, env, stdout, stderr)
+	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+}
+
+// TraceArgs prints the resolved argv at verbosity 16+ — the launch trace
+// every exec-style backend shows.
+func (b *LaunchBackend) TraceArgs(verbosity uint32, args []string, stderr io.Writer) {
+	if verbosity >= 16 {
+		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
+	}
+}
+
+// ExecuteEnv assembles the child env: the request env plus the SCM
+// context-file path when context was provided.
+func (b *LaunchBackend) ExecuteEnv(req *ExecuteRequest) map[string]string {
+	env := make(map[string]string, len(req.Env)+1)
+	for k, v := range req.Env {
+		env[k] = v
+	}
+	if p := b.ContextFilePath(); p != "" {
+		env[SCMContextFileEnv] = p
+	}
+	return env
+}
 
 // ContextFilePath returns the on-disk path of the provided context file, or ""
 // when no context was provided. Execute passes it into the child env via the

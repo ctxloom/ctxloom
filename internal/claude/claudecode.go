@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sort"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -74,31 +72,15 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		Provider:  "anthropic",
 	}
 
-	// Dry run
-	if req.DryRun {
-		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
-	}
-
-	// Build args
-	args := b.buildArgs(req)
-
-	// Verbosity level 16+: show command
-	if req.Verbosity >= 16 {
-		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
-	}
-
-	// Build env with context file path
-	env := make(map[string]string)
-	for k, v := range req.Env {
-		env[k] = v
-	}
-	if b.ContextFilePath() != "" {
-		env[agent.SCMContextFileEnv] = b.ContextFilePath()
-	}
-
 	// Minimal oneshot runs with --output-format json: buffer the envelope,
 	// emit the assistant text, and record the model the CLI actually used.
-	if req.Mode == agent.ModeOneshot && req.SkipSetup {
+	// The branch bypasses the shared tail's routing, so it assembles its own
+	// trace/env from the same helpers; dry-run still short-circuits first
+	// (inside ExecuteCLI for the common path, here for this one).
+	if !req.DryRun && req.Mode == agent.ModeOneshot && req.SkipSetup {
+		args := b.buildArgs(req)
+		b.TraceArgs(req.Verbosity, args, stderr)
+		env := b.ExecuteEnv(req)
 		var raw bytes.Buffer
 		exitCode, err := b.RunNonInteractive(ctx, args, env, &raw, stderr)
 		text, model, perr := parseClaudeJSONResult(raw.Bytes())
@@ -115,16 +97,7 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
 
-	// Run based on mode
-	var exitCode int32
-	var err error
-	if req.Mode == agent.ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
-	} else {
-		exitCode, err = b.RunNonInteractive(ctx, args, env, stdout, stderr)
-	}
-
-	return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req), modelInfo, stdout, stderr)
 }
 
 // claudeJSONResult is the subset of the `claude --output-format json` envelope

@@ -14,13 +14,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -202,19 +200,6 @@ func marshalWithExtra(shape any, extra map[string]json.RawMessage) ([]byte, erro
 // antigravityMCPFile represents the structure of .agents/mcp_config.json.
 // Server entries are kept raw so fields ctxloom doesn't model (serverUrl for
 // remote servers, headers, future additions) survive a rewrite byte-for-byte.
-type antigravityMCPFile struct {
-	Servers map[string]json.RawMessage `json:"mcpServers,omitempty"`
-	Other   map[string]json.RawMessage `json:"-"`
-}
-
-// antigravityMCPServer is the stdio server shape ctxloom writes. Remote
-// servers (serverUrl) are user-authored and pass through raw.
-type antigravityMCPServer struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-}
-
 // WriteSettings implements SettingsWriter for Antigravity CLI: hooks to
 // hooks.json, MCP servers to mcp_config.json.
 //
@@ -252,7 +237,7 @@ func (w *AntigravityHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire
 		return err
 	}
 
-	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
+	return w.mcpFile(projectDir).WriteServers(mcp, bundleMCP)
 }
 
 // loadHooksFile loads existing hooks.json or returns an empty structure.
@@ -499,180 +484,18 @@ func (w *AntigravityHookWriter) removeExactCommand(hf *antigravityHooksFile, eve
 const antigravityMCPLedger = ".ctxloom-mcp-managed"
 
 // mcpLedgerPath returns the path to the managed-server ledger.
-func (w *AntigravityHookWriter) mcpLedgerPath(projectDir string) string {
-	return filepath.Join(projectDir, AgentsDir, antigravityMCPLedger)
-}
-
-// readMCPLedger returns the managed server names from the ledger, if any.
-func (w *AntigravityHookWriter) readMCPLedger(projectDir string) []string {
-	data, err := afero.ReadFile(w.getFS(), w.mcpLedgerPath(projectDir))
-	if err != nil {
-		return nil
+// mcpFile binds the shared MCP-registry reconciler (agent.MCPFileConfig —
+// load/save/ledger/reconcile live there, shared with kiro) to this project's
+// mcp_config.json + sidecar ledger.
+func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
+	return agent.MCPFileConfig{
+		FS:         w.getFS(),
+		Path:       w.MCPConfigPath(projectDir),
+		LedgerPath: filepath.Join(projectDir, AgentsDir, antigravityMCPLedger),
+		Label:      AgentsDir + "/mcp_config.json",
+		PluginKey:  "antigravity",
+		Warn:       w.warn,
 	}
-	var names []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
-		}
-	}
-	return names
-}
-
-// writeMCPLedger persists the managed names, removing the ledger when empty.
-func (w *AntigravityHookWriter) writeMCPLedger(projectDir string, names []string) error {
-	fs := w.getFS()
-	path := w.mcpLedgerPath(projectDir)
-	if len(names) == 0 {
-		if exists, _ := afero.Exists(fs, path); exists {
-			return fs.Remove(path)
-		}
-		return nil
-	}
-	sort.Strings(names)
-	// Atomic write (shared helper) so a crash mid-write can't leave a torn
-	// ledger and silently orphan a managed stdio server in mcp_config.json —
-	// the exact failure the ledger exists to prevent. iox.WriteFileAtomicFs is
-	// an exact-perm drop-in for afero.WriteFile (keeps 0644, no .bak sidecar).
-	return iox.WriteFileAtomicFs(fs, path, []byte(strings.Join(names, "\n")+"\n"), 0644)
-}
-
-// writeMCPConfig reconciles ctxloom-managed MCP servers into mcp_config.json,
-// preserving user-authored entries (including remote serverUrl servers) raw.
-// Managed ownership is tracked in the sidecar ledger: every previously
-// managed name is dropped, then the current managed set is re-added — so
-// renames and removals in config/bundles propagate instead of orphaning
-// entries.
-func (w *AntigravityHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
-	mcpPath := w.MCPConfigPath(projectDir)
-	mf, err := w.loadMCPFile(mcpPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing mcp_config.json: %w", err)
-	}
-
-	// Reconcile: drop everything previously managed (the ledger), plus the
-	// well-known ctxloom server name for pre-ledger files.
-	delete(mf.Servers, AppMCPServerName)
-	for _, name := range w.readMCPLedger(projectDir) {
-		delete(mf.Servers, name)
-	}
-
-	var managed []string
-	add := func(name string, s antigravityMCPServer) {
-		w.setServer(mf, name, s)
-		managed = append(managed, name)
-	}
-
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(AppMCPServerName, antigravityMCPServer{
-			Command: agent.CtxloomBinary,
-			Args:    agent.CtxloomMCPArgs,
-		})
-	}
-
-	for name, server := range bundleMCP {
-		add(name, antigravityMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-	}
-
-	if mcp != nil {
-		for name, server := range mcp.Servers {
-			add(name, antigravityMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-		}
-		if backendServers, ok := mcp.Plugins["antigravity"]; ok {
-			for name, server := range backendServers {
-				add(name, antigravityMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-			}
-		}
-	}
-
-	if err := w.saveMCPFile(mcpPath, mf); err != nil {
-		return err
-	}
-	return w.writeMCPLedger(projectDir, managed)
-}
-
-// setServer marshals a typed stdio server entry into the raw server map.
-func (w *AntigravityHookWriter) setServer(mf *antigravityMCPFile, name string, s antigravityMCPServer) {
-	data, err := json.Marshal(s)
-	if err != nil {
-		w.warn("failed to marshal MCP server %q: %v", name, err)
-		return
-	}
-	mf.Servers[name] = data
-}
-
-// loadMCPFile loads existing mcp_config.json or returns an empty structure.
-// An empty file (agy itself creates zero-byte mcp_config.json files) and a
-// parse failure both degrade to empty with a warning for the latter.
-func (w *AntigravityHookWriter) loadMCPFile(path string) (*antigravityMCPFile, error) {
-	mf := &antigravityMCPFile{
-		Servers: make(map[string]json.RawMessage),
-		Other:   make(map[string]json.RawMessage),
-	}
-
-	data, err := afero.ReadFile(w.getFS(), path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return mf, nil
-		}
-		return nil, err
-	}
-	if len(data) == 0 {
-		return mf, nil
-	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		w.warn("failed to parse %s/mcp_config.json: %v - existing MCP servers may not be preserved", AgentsDir, err)
-		return mf, nil
-	}
-
-	if serversRaw, ok := raw["mcpServers"]; ok {
-		if err := json.Unmarshal(serversRaw, &mf.Servers); err != nil {
-			w.warn("failed to parse mcpServers in mcp_config.json: %v - existing MCP servers may not be preserved", err)
-		}
-		delete(raw, "mcpServers")
-	}
-	mf.Other = raw
-	return mf, nil
-}
-
-// saveMCPFile writes mcp_config.json back atomically. When nothing remains
-// (no servers, no other fields) and the file does not exist, nothing is
-// written — uninstall never creates files.
-func (w *AntigravityHookWriter) saveMCPFile(path string, mf *antigravityMCPFile) error {
-	output := make(map[string]interface{})
-	for k, v := range mf.Other {
-		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			w.warn("failed to preserve mcp_config.json field %q: %v", k, err)
-			continue
-		}
-		output[k] = val
-	}
-	if len(mf.Servers) > 0 {
-		servers := make(map[string]interface{}, len(mf.Servers))
-		for name, rawServer := range mf.Servers {
-			var val interface{}
-			if err := json.Unmarshal(rawServer, &val); err != nil {
-				w.warn("failed to preserve MCP server %q: %v", name, err)
-				continue
-			}
-			servers[name] = val
-		}
-		output["mcpServers"] = servers
-	}
-
-	if len(output) == 0 {
-		if exists, _ := afero.Exists(w.getFS(), path); !exists {
-			return nil
-		}
-	}
-
-	data, err := agent.CanonicalJSON(output)
-	if err != nil {
-		return fmt.Errorf("failed to marshal mcp_config.json: %w", err)
-	}
-	return agent.AtomicWriteFile(w.getFS(), path, data, "mcp_config.json")
 }
 
 // Managed-context section markers in .agents/AGENTS.md. agy reads
@@ -796,21 +619,7 @@ func (w *AntigravityHookWriter) RemoveSettings(projectDir string) error {
 		}
 	}
 
-	mcpPath := w.MCPConfigPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
-		mf, err := w.loadMCPFile(mcpPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing mcp_config.json: %w", err)
-		}
-		delete(mf.Servers, AppMCPServerName)
-		for _, name := range w.readMCPLedger(projectDir) {
-			delete(mf.Servers, name)
-		}
-		if err := w.saveMCPFile(mcpPath, mf); err != nil {
-			return err
-		}
-	}
-	if err := w.writeMCPLedger(projectDir, nil); err != nil {
+	if err := w.mcpFile(projectDir).RemoveServers(); err != nil {
 		return err
 	}
 
@@ -832,22 +641,11 @@ func (w *AntigravityHookWriter) Status(projectDir string) (agent.SettingsStatus,
 		status.HooksPresent = antigravityHasManagedHook(hf)
 	}
 
-	mcpPath := w.MCPConfigPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
-		mf, err := w.loadMCPFile(mcpPath)
-		if err != nil {
-			return status, fmt.Errorf("failed to load existing mcp_config.json: %w", err)
-		}
-		if _, ok := mf.Servers[AppMCPServerName]; ok {
-			status.MCPPresent = true
-		}
-		for _, name := range w.readMCPLedger(projectDir) {
-			if _, ok := mf.Servers[name]; ok {
-				status.MCPPresent = true
-				break
-			}
-		}
+	mcpPresent, err := w.mcpFile(projectDir).ManagedPresent()
+	if err != nil {
+		return status, err
 	}
+	status.MCPPresent = mcpPresent
 
 	// The managed context section is Antigravity's stand-in for the
 	// SessionStart injection hook other agents carry, so it counts as a

@@ -145,37 +145,36 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 // `bundle edit --add-*` flags: a starter item the user fills in later.
 // Distillation is left off (runBundleEdit passes no Distiller) since there's no
 // real content yet.
-func placeholderFragments(names []string) map[string]operations.BundleFragmentInput {
+// placeholders builds the name→placeholder-item map shared by the three
+// scaffold kinds; make derives each item from its name. nil for no names, so
+// an absent flag leaves the bundle section absent.
+func placeholders[T any](names []string, make_ func(name string) T) map[string]T {
 	if len(names) == 0 {
 		return nil
 	}
-	m := make(map[string]operations.BundleFragmentInput, len(names))
+	m := make(map[string]T, len(names))
 	for _, n := range names {
-		m[n] = operations.BundleFragmentInput{Content: "# " + n + "\n\nAdd content here."}
+		m[n] = make_(n)
 	}
 	return m
+}
+
+func placeholderFragments(names []string) map[string]operations.BundleFragmentInput {
+	return placeholders(names, func(n string) operations.BundleFragmentInput {
+		return operations.BundleFragmentInput{Content: "# " + n + "\n\nAdd content here."}
+	})
 }
 
 func placeholderPrompts(names []string) map[string]operations.BundleSkillInput {
-	if len(names) == 0 {
-		return nil
-	}
-	m := make(map[string]operations.BundleSkillInput, len(names))
-	for _, n := range names {
-		m[n] = operations.BundleSkillInput{Description: n, Content: "Add prompt content here."}
-	}
-	return m
+	return placeholders(names, func(n string) operations.BundleSkillInput {
+		return operations.BundleSkillInput{Description: n, Content: "Add prompt content here."}
+	})
 }
 
 func placeholderMCP(names []string) map[string]operations.BundleMCPInput {
-	if len(names) == 0 {
-		return nil
-	}
-	m := make(map[string]operations.BundleMCPInput, len(names))
-	for _, n := range names {
-		m[n] = operations.BundleMCPInput{Command: n}
-	}
-	return m
+	return placeholders(names, func(n string) operations.BundleMCPInput {
+		return operations.BundleMCPInput{Command: n}
+	})
 }
 
 var bundleDeleteForce bool

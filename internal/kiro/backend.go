@@ -8,9 +8,7 @@ package kiro
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -89,35 +87,10 @@ func (b *Kiro) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	modelName := req.Model
 	modelInfo := &agent.ModelInfo{ModelName: modelName, Provider: "aws-bedrock"}
 
-	if req.DryRun {
-		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
-	}
-
-	args := b.buildArgs(req, modelName)
-
-	if req.Verbosity >= 16 {
-		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
-	}
-
-	env := make(map[string]string)
-	for k, v := range req.Env {
-		env[k] = v
-	}
-	if b.ContextFilePath() != "" {
-		env[agent.SCMContextFileEnv] = b.ContextFilePath()
-	}
-
-	// Auth is ambient (like claude): the user's `kiro-cli login` subscription, or
-	// KIRO_API_KEY in the inherited env for headless. No auth env is set here.
-	var exitCode int32
-	var err error
-	if req.Mode == agent.ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
-	} else {
-		exitCode, err = b.RunNonInteractive(ctx, args, env, stdout, stderr)
-	}
-
-	return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	// Auth is ambient (like claude): the user's `kiro-cli login` subscription,
+	// or KIRO_API_KEY in the inherited env for headless — no auth env is set
+	// here. The launch tail (trace/env/routing) is the shared ExecuteCLI.
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for `kiro-cli chat`.

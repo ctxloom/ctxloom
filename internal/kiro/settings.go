@@ -3,15 +3,11 @@ package kiro
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -182,7 +178,7 @@ func (w *KiroWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPConfig,
 	if err := w.reconcileSteering(projectDir, contextHash); err != nil {
 		return err
 	}
-	return w.writeMCPConfig(projectDir, mcp, bundleMCP)
+	return w.mcpFile(projectDir).WriteServers(mcp, bundleMCP)
 }
 
 func (w *KiroWriter) writeAgentConfig(projectDir string, h kiroHooks) error {
@@ -238,165 +234,18 @@ func (w *KiroWriter) reconcileSteering(projectDir, hash string) error {
 
 // kiroMCPServer is the stdio server shape ctxloom writes. Remote (url) servers
 // are user-authored and pass through raw.
-type kiroMCPServer struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-}
-
-// kiroMCPFile represents .kiro/settings/mcp.json. Server entries are kept raw so
-// fields ctxloom doesn't model (url/headers/oauth/disabled/autoApprove for
-// user-authored servers) survive a rewrite byte-for-byte.
-type kiroMCPFile struct {
-	Servers map[string]json.RawMessage
-	Other   map[string]json.RawMessage
-}
-
-func (w *KiroWriter) readMCPLedger(projectDir string) []string {
-	data, err := afero.ReadFile(w.getFS(), w.mcpLedgerPath(projectDir))
-	if err != nil {
-		return nil
+// mcpFile binds the shared MCP-registry reconciler (agent.MCPFileConfig —
+// load/save/ledger/reconcile live there, shared with antigravity) to this
+// project's settings/mcp.json + sidecar ledger.
+func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
+	return agent.MCPFileConfig{
+		FS:         w.getFS(),
+		Path:       w.mcpPath(projectDir),
+		LedgerPath: w.mcpLedgerPath(projectDir),
+		Label:      kiroDir + "/settings/mcp.json",
+		PluginKey:  "kiro",
+		Warn:       w.warn,
 	}
-	var names []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
-		}
-	}
-	return names
-}
-
-func (w *KiroWriter) writeMCPLedger(projectDir string, names []string) error {
-	fs := w.getFS()
-	path := w.mcpLedgerPath(projectDir)
-	if len(names) == 0 {
-		if exists, _ := afero.Exists(fs, path); exists {
-			return fs.Remove(path)
-		}
-		return nil
-	}
-	sort.Strings(names)
-	return iox.WriteFileAtomicFs(fs, path, []byte(strings.Join(names, "\n")+"\n"), 0644)
-}
-
-func (w *KiroWriter) writeMCPConfig(projectDir string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
-	mcpPath := w.mcpPath(projectDir)
-	mf, err := w.loadMCPFile(mcpPath)
-	if err != nil {
-		return fmt.Errorf("failed to load existing mcp.json: %w", err)
-	}
-
-	// Reconcile: drop everything previously managed (the ledger) plus the
-	// well-known ctxloom server name for pre-ledger files.
-	delete(mf.Servers, agent.MCPServerName)
-	for _, name := range w.readMCPLedger(projectDir) {
-		delete(mf.Servers, name)
-	}
-
-	var managed []string
-	add := func(name string, s kiroMCPServer) {
-		w.setServer(mf, name, s)
-		managed = append(managed, name)
-	}
-
-	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
-		add(agent.MCPServerName, kiroMCPServer{Command: agent.CtxloomBinary, Args: agent.CtxloomMCPArgs})
-	}
-	for name, server := range bundleMCP {
-		add(name, kiroMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-	}
-	if mcp != nil {
-		for name, server := range mcp.Servers {
-			add(name, kiroMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-		}
-		if backendServers, ok := mcp.Plugins["kiro"]; ok {
-			for name, server := range backendServers {
-				add(name, kiroMCPServer{Command: server.Command, Args: server.Args, Env: server.Env})
-			}
-		}
-	}
-
-	if err := w.saveMCPFile(mcpPath, mf); err != nil {
-		return err
-	}
-	return w.writeMCPLedger(projectDir, managed)
-}
-
-func (w *KiroWriter) setServer(mf *kiroMCPFile, name string, s kiroMCPServer) {
-	data, err := json.Marshal(s)
-	if err != nil {
-		w.warn("failed to marshal MCP server %q: %v", name, err)
-		return
-	}
-	mf.Servers[name] = data
-}
-
-func (w *KiroWriter) loadMCPFile(path string) (*kiroMCPFile, error) {
-	mf := &kiroMCPFile{
-		Servers: make(map[string]json.RawMessage),
-		Other:   make(map[string]json.RawMessage),
-	}
-	data, err := afero.ReadFile(w.getFS(), path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return mf, nil
-		}
-		return nil, err
-	}
-	if len(data) == 0 {
-		return mf, nil
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		w.warn("failed to parse %s/settings/mcp.json: %v - existing MCP servers may not be preserved", kiroDir, err)
-		return mf, nil
-	}
-	if serversRaw, ok := raw["mcpServers"]; ok {
-		if err := json.Unmarshal(serversRaw, &mf.Servers); err != nil {
-			w.warn("failed to parse mcpServers in mcp.json: %v - existing MCP servers may not be preserved", err)
-		}
-		delete(raw, "mcpServers")
-	}
-	mf.Other = raw
-	return mf, nil
-}
-
-func (w *KiroWriter) saveMCPFile(path string, mf *kiroMCPFile) error {
-	output := make(map[string]interface{})
-	for k, v := range mf.Other {
-		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			w.warn("failed to preserve mcp.json field %q: %v", k, err)
-			continue
-		}
-		output[k] = val
-	}
-	if len(mf.Servers) > 0 {
-		servers := make(map[string]interface{}, len(mf.Servers))
-		for name, rawServer := range mf.Servers {
-			var val interface{}
-			if err := json.Unmarshal(rawServer, &val); err != nil {
-				w.warn("failed to preserve MCP server %q: %v", name, err)
-				continue
-			}
-			servers[name] = val
-		}
-		output["mcpServers"] = servers
-	}
-
-	if len(output) == 0 {
-		if exists, _ := afero.Exists(w.getFS(), path); !exists {
-			return nil
-		}
-	}
-	if err := w.getFS().MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("failed to create %s settings directory: %w", kiroDir, err)
-	}
-	data, err := agent.CanonicalJSON(output)
-	if err != nil {
-		return fmt.Errorf("failed to marshal mcp.json: %w", err)
-	}
-	return agent.AtomicWriteFile(w.getFS(), path, data, "mcp.json")
 }
 
 // RemoveSettings implements SettingsWriter for Kiro CLI: it removes the
@@ -411,21 +260,7 @@ func (w *KiroWriter) RemoveSettings(projectDir string) error {
 		}
 	}
 
-	mcpPath := w.mcpPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
-		mf, err := w.loadMCPFile(mcpPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing mcp.json: %w", err)
-		}
-		delete(mf.Servers, agent.MCPServerName)
-		for _, name := range w.readMCPLedger(projectDir) {
-			delete(mf.Servers, name)
-		}
-		if err := w.saveMCPFile(mcpPath, mf); err != nil {
-			return err
-		}
-	}
-	if err := w.writeMCPLedger(projectDir, nil); err != nil {
+	if err := w.mcpFile(projectDir).RemoveServers(); err != nil {
 		return err
 	}
 
@@ -445,22 +280,11 @@ func (w *KiroWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 		}
 	}
 
-	mcpPath := w.mcpPath(projectDir)
-	if exists, _ := afero.Exists(fs, mcpPath); exists {
-		mf, err := w.loadMCPFile(mcpPath)
-		if err != nil {
-			return status, fmt.Errorf("failed to load existing mcp.json: %w", err)
-		}
-		if _, ok := mf.Servers[agent.MCPServerName]; ok {
-			status.MCPPresent = true
-		}
-		for _, name := range w.readMCPLedger(projectDir) {
-			if _, ok := mf.Servers[name]; ok {
-				status.MCPPresent = true
-				break
-			}
-		}
+	mcpPresent, err := w.mcpFile(projectDir).ManagedPresent()
+	if err != nil {
+		return status, err
 	}
+	status.MCPPresent = mcpPresent
 
 	// The steering file is Kiro's stand-in for the SessionStart injection hook
 	// other agents carry, so it counts as a managed hook for wired-status.

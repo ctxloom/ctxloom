@@ -2,9 +2,7 @@ package codex
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -62,18 +60,9 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	}
 	modelInfo := &agent.ModelInfo{ModelName: modelName, Provider: "openai"}
 
-	if req.DryRun {
-		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
-	}
-
-	args := b.buildArgs(req)
-	if req.Verbosity >= 16 {
-		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
-	}
-
 	// Context reaches Codex through the SessionStart hook + context file (the
-	// shared file+hook mechanism), so Execute only forwards the context-file path
-	// in the env — it no longer prepends context to the prompt.
+	// shared file+hook mechanism), so Execute only forwards the context-file
+	// path in the env (ExecuteCLI) — it never prepends context to the prompt.
 	//
 	// CONCURRENCY LIMIT (weave/map fan-out): the SessionStart hook is registered
 	// in a WORKSPACE-FIXED file (.codex/config.toml) with the per-run context hash
@@ -85,23 +74,7 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// has NO redirection lever, so per-agent CONCURRENT isolation requires a
 	// per-agent cwd (git worktree) or container. See taskloom loyal-eel / memory
 	// per-agent-config-delivery (ISOLATION AXIS).
-	env := make(map[string]string)
-	for k, v := range req.Env {
-		env[k] = v
-	}
-	if b.ContextFilePath() != "" {
-		env[agent.SCMContextFileEnv] = b.ContextFilePath()
-	}
-
-	var exitCode int32
-	var err error
-	if req.Mode == agent.ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
-	} else {
-		exitCode, err = b.RunNonInteractive(ctx, args, env, stdout, stderr)
-	}
-
-	return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req), modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for the codex CLI. Oneshot

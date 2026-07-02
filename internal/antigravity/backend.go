@@ -2,9 +2,7 @@ package antigravity
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -61,42 +59,14 @@ func (b *Antigravity) Execute(ctx context.Context, req *agent.ExecuteRequest, st
 	// forced here — agy is closed-source and fast-moving, so its current
 	// default tier is the safer choice when nothing is pinned.
 	modelName := req.Model
-	modelInfo := &agent.ModelInfo{
-		ModelName: modelName,
-		Provider:  "google",
-	}
+	modelInfo := &agent.ModelInfo{ModelName: modelName, Provider: "google"}
 
-	if req.DryRun {
-		return &agent.ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
-	}
-
-	args := b.buildArgs(req, modelName)
-
-	if req.Verbosity >= 16 {
-		_, _ = fmt.Fprintf(stderr, "[v16] %s %s\n", b.BinaryPath, strings.Join(args, " "))
-	}
-
-	env := make(map[string]string)
-	for k, v := range req.Env {
-		env[k] = v
-	}
-	if b.ContextFilePath() != "" {
-		env[agent.SCMContextFileEnv] = b.ContextFilePath()
-	}
-
-	// Route on mode alone: ModeInteractive with an initial prompt builds
-	// `-i <prompt>` (agy runs the prompt then STAYS in the session), which
-	// needs the pty/stdin/resize wiring just as much as a bare interactive
-	// launch — running it non-interactively would leave a dead session.
-	var exitCode int32
-	var err error
-	if req.Mode == agent.ModeInteractive {
-		exitCode, err = b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
-	} else {
-		exitCode, err = b.RunNonInteractive(ctx, args, env, stdout, stderr)
-	}
-
-	return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
+	// buildArgs routes on mode alone: ModeInteractive with an initial prompt
+	// builds `-i <prompt>` (agy runs the prompt then STAYS in the session),
+	// which needs the pty/stdin/resize wiring just as much as a bare
+	// interactive launch — running it non-interactively would leave a dead
+	// session. The launch tail (trace/env/routing) is the shared ExecuteCLI.
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for agy.

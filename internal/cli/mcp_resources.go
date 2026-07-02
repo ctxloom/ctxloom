@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
@@ -54,35 +55,35 @@ func (s *ctxServer) registerResources(server *mcp.Server) {
 		Name:        "fragments",
 		Description: "All local context fragments with tags and source locations. Replaces the list_fragments tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourceFragments)
+	}, listResource(s, operations.ListFragments))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceProfilesURI,
 		Name:        "profiles",
 		Description: "All configured profiles with their bundle lists. Replaces the list_profiles tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourceProfiles)
+	}, listResource(s, operations.ListProfiles))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourcePromptsURI,
 		Name:        "skills",
 		Description: "All available skills with descriptions. Replaces the list_skills tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourceSkills)
+	}, listResource(s, operations.ListSkills))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceRemotesURI,
 		Name:        "remotes",
 		Description: "Configured remote sources. Replaces the list_remotes tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourceRemotes)
+	}, listResource(s, operations.ListRemotes))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceMCPServersURI,
 		Name:        "mcp servers",
 		Description: "Configured MCP servers per backend. Replaces the list_mcp_servers tool.",
 		MIMEType:    "application/yaml",
-	}, s.handleResourceMCPServers)
+	}, listResource(s, operations.ListMCPServers))
 
 	server.AddResource(&mcp.Resource{
 		URI:         resourceSessionsURI,
@@ -183,44 +184,19 @@ func (s *ctxServer) handleResourceSessionsRecent(_ context.Context, req *mcp.Rea
 
 // --- Listings (Phase 4 Lever A) ---
 
-func (s *ctxServer) handleResourceFragments(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListFragments(ctx, s.cfg, operations.ListFragmentsRequest{})
-	if err != nil {
-		return nil, err
+// listResource adapts one operations lister into a resource handler: every
+// listing resource is the same shape — call the lister with a zero request,
+// YAML-marshal the result — so the per-kind handlers reduce to which lister
+// they bind.
+func listResource[Req, Res any](s *ctxServer, list func(context.Context, *config.Config, Req) (Res, error)) func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		var zero Req
+		result, err := list(ctx, s.cfg, zero)
+		if err != nil {
+			return nil, err
+		}
+		return marshalResourceYAML(req.Params.URI, result)
 	}
-	return marshalResourceYAML(req.Params.URI, result)
-}
-
-func (s *ctxServer) handleResourceProfiles(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListProfiles(ctx, s.cfg, operations.ListProfilesRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return marshalResourceYAML(req.Params.URI, result)
-}
-
-func (s *ctxServer) handleResourceSkills(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListSkills(ctx, s.cfg, operations.ListSkillsRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return marshalResourceYAML(req.Params.URI, result)
-}
-
-func (s *ctxServer) handleResourceRemotes(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListRemotes(ctx, s.cfg, operations.ListRemotesRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return marshalResourceYAML(req.Params.URI, result)
-}
-
-func (s *ctxServer) handleResourceMCPServers(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-	result, err := operations.ListMCPServers(ctx, s.cfg, operations.ListMCPServersRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return marshalResourceYAML(req.Params.URI, result)
 }
 
 // handleResourceSessionsAll returns every harp-named session in the index,

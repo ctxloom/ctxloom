@@ -23,76 +23,63 @@ func WriteCommandFilesFor(backendName, workDir string, prompts []*bundles.Loaded
 	return d.writeCommands(workDir, d.exports(prompts), opts...)
 }
 
-// claudeExports maps loaded bundle content to Claude command exports, resolving
-// the claude-code per-prompt LLM export config.
-func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+// buildExports is the shared export loop: names + content are engine-agnostic
+// plumbing, and pick projects the prompt's per-engine LLM export config into
+// the engine-specific fields (enablement, description, hints). Each engine's
+// field mapping stays explicit in its own function below — only the loop is
+// shared, so an engine gaining an export field touches one place.
+func buildExports(prompts []*bundles.LoadedContent, pick func(*bundles.LoadedContent) agent.CommandExport) []agent.CommandExport {
 	names := exportNames(prompts)
 	out := make([]agent.CommandExport, 0, len(prompts))
 	for _, p := range prompts {
+		e := pick(p)
+		e.Name = names[p.Name]
+		e.Content = p.Content
+		out = append(out, e)
+	}
+	return out
+}
+
+// claudeExports resolves the claude-code per-prompt LLM export config.
+func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cc := p.LLM.ClaudeCode
-		out = append(out, agent.CommandExport{
-			Name:         names[p.Name],
-			Content:      p.Content,
+		return agent.CommandExport{
 			Enabled:      cc.IsEnabled(),
 			Description:  cc.Description,
 			ArgumentHint: cc.ArgumentHint,
 			AllowedTools: cc.AllowedTools,
 			Model:        cc.Model,
-		})
-	}
-	return out
+		}
+	})
 }
 
-// antigravityExports maps loaded bundle content to Antigravity command
-// exports, resolving the antigravity per-prompt LLM export config.
+// antigravityExports resolves the antigravity per-prompt LLM export config.
 func antigravityExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	names := exportNames(prompts)
-	out := make([]agent.CommandExport, 0, len(prompts))
-	for _, p := range prompts {
+	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		a := p.LLM.Antigravity
-		out = append(out, agent.CommandExport{
-			Name:        names[p.Name],
-			Content:     p.Content,
-			Enabled:     a.IsEnabled(),
-			Description: a.Description,
-		})
-	}
-	return out
+		return agent.CommandExport{Enabled: a.IsEnabled(), Description: a.Description}
+	})
 }
 
-// codexExports maps loaded bundle content to Codex command exports, resolving
-// the codex per-prompt LLM export config.
+// codexExports resolves the codex per-prompt LLM export config.
 func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	names := exportNames(prompts)
-	out := make([]agent.CommandExport, 0, len(prompts))
-	for _, p := range prompts {
+	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cx := p.LLM.Codex
-		out = append(out, agent.CommandExport{
-			Name:         names[p.Name],
-			Content:      p.Content,
+		return agent.CommandExport{
 			Enabled:      cx.IsEnabled(),
 			Description:  cx.Description,
 			ArgumentHint: cx.ArgumentHint,
-		})
-	}
-	return out
+		}
+	})
 }
 
-// kiroExports maps loaded bundle content to Kiro skill exports, resolving the
-// kiro per-prompt LLM export config.
+// kiroExports resolves the kiro per-prompt LLM export config.
 func kiroExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	names := exportNames(prompts)
-	out := make([]agent.CommandExport, 0, len(prompts))
-	for _, p := range prompts {
+	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		k := p.LLM.Kiro
-		out = append(out, agent.CommandExport{
-			Name:        names[p.Name],
-			Content:     p.Content,
-			Enabled:     k.IsEnabled(),
-			Description: k.Description,
-		})
-	}
-	return out
+		return agent.CommandExport{Enabled: k.IsEnabled(), Description: k.Description}
+	})
 }
 
 // exportNames maps each prompt's full identity (LoadedContent.Name) to its

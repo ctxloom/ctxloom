@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 // ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks
@@ -41,7 +42,26 @@ type LaunchBackend struct {
 	skills    ContentSkills
 	context   HashedContext
 	history   SessionHistory
+
+	// nativeContextDelivery marks a backend (claude) that loads ctxloom's
+	// assembled context from a launch flag (--append-system-prompt-file) rather
+	// than the SessionStart injection hook. When set, Setup materializes the
+	// framed context file and omits the context-injection hook.
+	nativeContextDelivery bool
+	// nativeContextPath is the framed context file Setup materialized for
+	// launch-flag delivery, read by the concrete backend's buildArgs.
+	nativeContextPath string
 }
+
+// EnableNativeContextDelivery marks this backend as delivering ctxloom's
+// assembled context via a launch flag (claude's --append-system-prompt-file)
+// instead of the SessionStart context-injection hook. Call from the concrete
+// constructor; Setup then materializes the framed file and suppresses the hook.
+func (b *LaunchBackend) EnableNativeContextDelivery() { b.nativeContextDelivery = true }
+
+// NativeContextFilePath returns the framed context file Setup materialized for
+// launch-flag delivery, or "" (native delivery off, or no context this run).
+func (b *LaunchBackend) NativeContextFilePath() string { return b.nativeContextPath }
 
 // InitLaunch wires the constructed capabilities into the base. Call it from the
 // concrete constructor once the capabilities (which usually close over the
@@ -80,13 +100,28 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 		return fmt.Errorf("failed to provide context: %w", err)
 	}
 
+	// Native context delivery (claude): materialize the framed context file for
+	// --append-system-prompt-file and suppress the SessionStart injection hook by
+	// withholding the hash from MergeManaged. If materialization fails, keep the
+	// hash so the hook still delivers context — never lose the user's context
+	// (CLAUDE.md fault tolerance).
+	contextHash := b.context.GetContextHash()
+	if b.nativeContextDelivery && contextHash != "" {
+		if path, err := WriteFramedContextFile(b.WorkDir(), contextHash); err != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom: warning: framed context materialize failed; keeping the injection hook: %v\n", err)
+		} else if path != "" {
+			b.nativeContextPath = path
+			contextHash = ""
+		}
+	}
+
 	if req.Managed != nil {
 		if len(req.Managed.Skills) > 0 {
 			if err := b.skills.RegisterFromContent(b.WorkDir(), req.Managed.Skills); err != nil {
 				return fmt.Errorf("failed to register skills: %w", err)
 			}
 		}
-		b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), b.context.GetContextHash())
+		b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
 	}
 
 	if err := b.lifecycle.Flush(b.WorkDir()); err != nil {

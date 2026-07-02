@@ -74,6 +74,17 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// Context reaches Codex through the SessionStart hook + context file (the
 	// shared file+hook mechanism), so Execute only forwards the context-file path
 	// in the env — it no longer prepends context to the prompt.
+	//
+	// CONCURRENCY LIMIT (weave/map fan-out): the SessionStart hook is registered
+	// in a WORKSPACE-FIXED file (.codex/config.toml) with the per-run context hash
+	// baked into its command, and Codex natively reads a WORKSPACE-FIXED AGENTS.md
+	// — neither has a per-invocation redirect (Codex has no --mcp-config/--settings/
+	// --append-system-prompt equivalent). So N codex agents in one cwd would each
+	// rewrite config.toml — last writer wins → cross-agent context clobber. Unlike
+	// claude (per-invocation flags) and kiro (per-agent agent-JSON `--agent`), codex
+	// has NO redirection lever, so per-agent CONCURRENT isolation requires a
+	// per-agent cwd (git worktree) or container. See taskloom loyal-eel / memory
+	// per-agent-config-delivery (ISOLATION AXIS).
 	env := make(map[string]string)
 	for k, v := range req.Env {
 		env[k] = v

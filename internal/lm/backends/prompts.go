@@ -21,18 +21,18 @@ import (
 // assemblies would silently delete whatever one produced and the other didn't.
 //
 // Bundle prompts come from one of two sources, chosen by the SELECTED (or
-// default) profiles (profile prompt curation, opt-in):
-//   - When the profiles declare a NON-EMPTY prompts: list, ONLY those are
-//     exported (each at its pinned version), force-enabled so a curated prompt
-//     surfaces even if its bundle didn't flag it as a slash command — the
-//     profile explicitly curates the set, suppressing the global auto-export.
-//     The curated set is scoped to the SELECTED profiles (profileNames), so a
-//     `run -p X` curates from X rather than the configured defaults.
-//   - Otherwise (the common case) every bundle prompt is loaded and the
-//     downstream per-backend mapper applies each prompt's own enabled flag —
-//     the global, profile-agnostic fallback, unchanged. (The profile-scoped
-//     surface for skills is config.ResolveBundleSkills; the opt-in curation
-//     above is how a profile narrows the exported skill set.)
+// default) profiles:
+//   - When the profiles declare a NON-EMPTY prompts: list (profile prompt
+//     curation, opt-in), ONLY those are exported (each at its pinned version),
+//     force-enabled so a curated prompt surfaces even if its bundle didn't flag
+//     it as a slash command — the profile explicitly curates the set. Scoped to
+//     the SELECTED profiles (profileNames), so `run -p X` curates from X rather
+//     than the configured defaults.
+//   - Otherwise (the common case) the SELECTED (or default) profiles' bundle
+//     skills are exported via config.ResolveBundleSkills, each still gated by
+//     the downstream per-backend enabled flag — the profile-scoped analog of
+//     the mcp/hooks resolvers (ResolveBundleMCPServers/ResolveBundleHooks), so
+//     `run -p X` carries only X's bundle skills, not every pulled bundle's.
 //
 // Builtins are always present in both modes (ctxloom's core commands aren't
 // part of the curatable bundle-prompt set).
@@ -55,31 +55,19 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 		}
 	}
 
-	loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
-
-	// Profile prompt curation (opt-in): a non-empty curated set replaces the
-	// global flag-based auto-export, scoped to the SELECTED profiles.
+	// Profile prompt curation (opt-in): a non-empty curated set exports EXACTLY
+	// the listed prompts (force-enabled), scoped to the SELECTED profiles.
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
+		loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
 		return append(prompts, loadCuratedPrompts(loader, curated)...)
 	}
 
-	infos, err := loader.ListAllSkills()
-	if err != nil {
-		// The reconciling writers remove-all-then-re-add, so a transient load
-		// failure silently deletes the user's installed slash commands for
-		// this run unless it is at least surfaced.
-		clidiag.Warn("ctxloom", "bundle prompts unavailable; slash commands limited to builtins: %v", err)
-		return prompts
-	}
-	for _, info := range infos {
-		content, err := loader.GetSkill(info.Name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "skipping prompt %q: %v", info.Name, err)
-			continue
-		}
-		prompts = append(prompts, content)
-	}
-	return prompts
+	// Uncurated (common case): export the SELECTED (or default) profiles' bundle
+	// skills via the profile-scoped resolver — the analog of ResolveBundleMCPServers
+	// / ResolveBundleHooks — so `run -p X` carries only X's bundle skills. Each is
+	// still gated downstream by its per-backend enabled flag; a trust-withheld skill
+	// never loads. opts thread the seed + trust gate into the resolver's loader.
+	return append(prompts, cfg.ResolveBundleSkills(profileNames, opts...)...)
 }
 
 // resolveProfilePromptRefs returns the union of prompt refs curated by the

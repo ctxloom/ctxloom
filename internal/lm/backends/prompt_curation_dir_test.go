@@ -1,9 +1,10 @@
 // Directory-profile prompt-curation tests verify that a directory profile
 // (.ctxloom/profiles/<name>.yaml) carrying a prompts: list gets the SAME opt-in
 // curation as an inline profile (prompt_curation_test.go): a non-empty list
-// exports EXACTLY those (force-enabled, version-pinned, gated), an empty list
-// keeps today's global auto-export, the set unions across parent inheritance,
-// and a directory default unions with an inline default. The directory path
+// exports EXACTLY those (force-enabled, version-pinned, gated), an uncurated
+// profile falls back to its referenced bundles' skills (profile-scoped, not the
+// old global sweep), the set unions across parent inheritance, and a directory
+// default unions with an inline default. The directory path
 // reaches LoadSkillExports' curation point through profiles.ResolvedProfile
 // (the loader fallback in resolveProfilePromptRefs), not config's inline map.
 package backends
@@ -58,18 +59,33 @@ func TestLoadSkillExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T) 
 		"only the directory profile's listed prompt is exported; the globally-flagged 'hidden' is suppressed")
 }
 
-// TestLoadSkillExports_DirProfileEmptyListKeepsGlobalExport proves a directory
-// profile with NO prompts: list keeps today's global flag-based auto-export
-// (opt-in: no silent change) — parity with the inline EmptyList case.
-func TestLoadSkillExports_DirProfileEmptyListKeepsGlobalExport(t *testing.T) {
+// TestLoadSkillExports_DirProfileUncuratedScopesToReferencedBundles proves an
+// uncurated directory profile falls back to the skills of the bundles IT
+// references — profile-scoped, not the old global sweep. The profile pulls
+// dev-tools, so dev-tools' skills export; a second seeded bundle the profile
+// does NOT reference contributes nothing.
+func TestLoadSkillExports_DirProfileUncuratedScopesToReferencedBundles(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
-		"x": "bundles:\n  - dev-tools\n", // no prompts: list
+		"x": "bundles:\n  - dev-tools\n", // references dev-tools only, no prompts:
 	}, nil)
 
-	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	seed := map[string]*bundles.Bundle{
+		"dev-tools": {Skills: map[string]bundles.BundleSkill{
+			"review":  {Content: "REVIEW"},
+			"explain": {Content: "EXPLAIN"},
+		}},
+		"other-tools": {Skills: map[string]bundles.BundleSkill{
+			"unrelated": {Content: "UNRELATED"},
+		}},
+	}
 
-	assert.ElementsMatch(t, []string{"review", "explain", "commit", "hidden"}, bundlePromptItems(prompts),
-		"with no curation, every bundle prompt is auto-exported (global behavior)")
+	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(seed))
+
+	items := bundlePromptItems(prompts)
+	assert.ElementsMatch(t, []string{"review", "explain"}, items,
+		"an uncurated profile exports the skills of the bundles it references")
+	assert.NotContains(t, items, "unrelated",
+		"a bundle the profile does not reference contributes no skills (scoped, not global)")
 }
 
 // TestLoadSkillExports_DirProfileCurationUnionsParents proves a directory

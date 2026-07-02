@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -49,6 +50,17 @@ func TestBuildInjectContextOutput(t *testing.T) {
 		require.NotNil(t, out.HookSpecificOutput)
 		assert.Equal(t, "SessionStart", out.HookSpecificOutput.HookEventName,
 			"hook event name MUST be SessionStart — agent hook writers route by this string")
+	})
+
+	// Lock the hook's single-shot (unchunked, no-essence) framing to the shared
+	// agent.FrameProjectContext that claude's --append-system-prompt-file
+	// delivery uses, so the SessionStart-hook and native-flag paths can't drift.
+	t.Run("single_shot_matches_frame_project_context", func(t *testing.T) {
+		out := buildInjectContextOutput("shared framing body", "", 1, 1)
+		require.NotNil(t, out.HookSpecificOutput)
+		assert.Equal(t, agent.FrameProjectContext("shared framing body"),
+			out.HookSpecificOutput.AdditionalContext,
+			"the hook's single-shot output must equal the native-flag framing")
 	})
 }
 

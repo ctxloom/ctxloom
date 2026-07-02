@@ -681,6 +681,15 @@ func (w *AntigravityHookWriter) saveMCPFile(path string, mf *antigravityMCPFile)
 // so the injection hook other agents use can never run here. Content between
 // the markers is ctxloom-owned and reconciled on every apply; anything
 // outside them is the user's and preserved byte-for-byte.
+//
+// CONCURRENCY LIMIT (weave/map fan-out): .agents/AGENTS.md is a WORKSPACE-FIXED
+// path, and agy exposes no per-invocation context redirect (no --mcp-config /
+// --settings / --append-system-prompt equivalent). So N antigravity agents run
+// in one cwd would each rewrite this one file — last writer wins → cross-agent
+// context bleed/clobber. Unlike claude (per-invocation flags) and kiro (per-agent
+// agent-JSON `--agent`), antigravity has NO redirection lever, so per-agent
+// CONCURRENT isolation requires a per-agent cwd (git worktree) or container.
+// See taskloom loyal-eel / memory per-agent-config-delivery (ISOLATION AXIS).
 const (
 	managedContextBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
 	managedContextEnd   = "<!-- ctxloom:context:end -->"

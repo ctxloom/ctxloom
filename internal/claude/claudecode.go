@@ -54,6 +54,10 @@ func NewClaudeCode(writeSettings agent.WriteSettingsFunc) *ClaudeCode {
 		agent.NewBaseContextProvider(),
 		NewClaudeSessionHistory(b),
 	)
+	// claude loads ctxloom's assembled context natively via
+	// --append-system-prompt-file (buildArgs), so Setup materializes the framed
+	// context file and omits the SessionStart context-injection hook.
+	b.EnableNativeContextDelivery()
 	return b
 }
 
@@ -205,6 +209,16 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 
 	if req.Mode == agent.ModeOneshot {
 		args = append(args, "--print")
+	}
+
+	// Native context delivery: load ctxloom's assembled context from the framed
+	// file Setup materialized, via claude's own --append-system-prompt-file, in
+	// place of a SessionStart injection hook. Skipped in minimal/distill mode
+	// (SkipSetup), which intentionally drops context.
+	if !req.SkipSetup {
+		if p := b.NativeContextFilePath(); p != "" {
+			args = append(args, "--append-system-prompt-file", p)
+		}
 	}
 
 	// Minimal mode for distillation/compaction - skip all unnecessary startup.

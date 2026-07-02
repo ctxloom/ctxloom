@@ -1,8 +1,9 @@
 // Profile prompt-curation tests verify the opt-in exposure semantics of
 // LoadSkillExports: a profile with a non-empty prompts: list exports EXACTLY
-// those (force-enabled, version-pinned, gated), suppressing the global
-// flag-based auto-export; an empty list keeps today's global behavior; the
-// curated set unions across parents + multiple default profiles.
+// those (force-enabled, version-pinned, gated), suppressing the uncurated
+// auto-export; an uncurated profile falls back to its referenced bundles'
+// skills (profile-scoped, not the old global sweep); the curated set unions
+// across parents + multiple default profiles.
 package backends
 
 import (
@@ -76,18 +77,20 @@ func TestLoadSkillExports_CuratedSetExportsExactlyThose(t *testing.T) {
 		"only the profile-listed prompt is exported; the globally-flagged 'hidden' is suppressed")
 }
 
-// TestLoadSkillExports_EmptyListKeepsGlobalExport proves a profile with NO
-// prompts: list keeps today's global flag-based auto-export (opt-in: no silent
-// change).
-func TestLoadSkillExports_EmptyListKeepsGlobalExport(t *testing.T) {
+// TestLoadSkillExports_UncuratedProfileWithoutBundlesExportsNoBundleSkills
+// proves an uncurated profile that references no bundles exports NONE of the
+// seeded bundle's skills — the fallback is profile-scoped (ResolveBundleSkills),
+// not the old global ListAllSkills sweep, so a bundle the profile never pulled
+// can't leak in. Only builtins remain.
+func TestLoadSkillExports_UncuratedProfileWithoutBundlesExportsNoBundleSkills(t *testing.T) {
 	cfg := curationCfg(t, []string{"p"}, map[string]config.Profile{
-		"p": {}, // no prompts: list
+		"p": {}, // no prompts: list, no bundles
 	})
 
 	prompts := LoadSkillExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
 
-	assert.ElementsMatch(t, []string{"review", "explain", "commit", "hidden"}, bundlePromptItems(prompts),
-		"with no curation, every bundle prompt is auto-exported (global behavior)")
+	assert.Empty(t, bundlePromptItems(prompts),
+		"an uncurated profile referencing no bundles exports no bundle skills (scoped, not global)")
 }
 
 // TestLoadSkillExports_CurationUnionsParentsAndDefaults proves the curated set

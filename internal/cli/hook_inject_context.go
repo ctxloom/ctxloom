@@ -193,23 +193,18 @@ func buildInjectContextOutput(content, resumedEssence string, part, total int) H
 	}
 
 	if content != "" {
-		header := "# Project Context (assembled by ctxloom)"
+		// Header/preamble text is shared with claude's native
+		// --append-system-prompt-file delivery (agent.FrameProjectContext) so the
+		// two paths can't drift; here it's composed per-segment for the chunked
+		// SessionStart hook. A single-shot call (total<=1) reproduces
+		// agent.FrameProjectContext(content) exactly.
+		header := agent.ProjectContextHeader
 		if total > 1 {
-			header = fmt.Sprintf("# Project Context (assembled by ctxloom) — segment %d of %d", part, total)
+			header = fmt.Sprintf("%s — segment %d of %d", agent.ProjectContextHeader, part, total)
 		}
 		var preamble string
 		if part <= 1 {
-			preamble = "\n\n_The content below was assembled by ctxloom from your active profile " +
-				"(see `.ctxloom/config.yaml` → `defaults.profiles`). It contains the " +
-				"coding standards, language conventions, testing practices, and other " +
-				"guidance that apply to this project. Treat it as authoritative project " +
-				"instructions._" +
-				"\n\n_Manage ctxloom with its CLI (run `ctxloom` through your shell): create/edit " +
-				"bundles, profiles, fragments, and prompts; `ctxloom remote pull`, `ctxloom remote " +
-				"trust <name>`, `ctxloom bundle review`/`approve`; `ctxloom manage hooks install`. The ctxloom " +
-				"MCP tools are only for retrieving context during the session — searching and loading " +
-				"fragments, prompts (skills), and prior session history. Task tracking is the " +
-				"separate `taskloom` MCP server and `taskloom` CLI._"
+			preamble = agent.ProjectContextPreamble
 			if total > 1 {
 				preamble += fmt.Sprintf("\n\n_This context is delivered in %d ordered segments._", total)
 			}

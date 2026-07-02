@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -150,6 +152,31 @@ func TestClaudeCode_BuildArgs_Model(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "--model flag should be set")
+}
+
+// TestClaudeCode_BuildArgs_NativeContextFlag verifies that after Setup a normal
+// run loads ctxloom's assembled context via --append-system-prompt-file pointing
+// at the framed file, while the minimal/distill path (which drops context) does
+// not. This is the SessionStart-injection replacement for claude.
+func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
+	backend := NewClaudeCode(writeClaudeSettings)
+	work := t.TempDir()
+
+	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
+		WorkDir:   work,
+		Fragments: []*agent.Fragment{{Content: "project rules"}},
+		Managed:   &agent.ManagedConfig{},
+	}))
+	framed := backend.NativeContextFilePath()
+	require.NotEmpty(t, framed, "Setup must materialize the framed context file for the flag")
+
+	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})
+	assert.True(t, argPair(args, "--append-system-prompt-file", framed),
+		"a normal run loads ctxloom context via --append-system-prompt-file")
+
+	minArgs := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true})
+	assert.NotContains(t, minArgs, "--append-system-prompt-file",
+		"minimal/distill mode must not load ctxloom context")
 }
 
 // TestClaudeCode_BuildArgs_OneshotMode verifies that oneshot mode adds

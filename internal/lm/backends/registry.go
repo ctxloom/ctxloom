@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -178,6 +179,25 @@ func init() {
 		newWriter:     codex.NewWriter,
 		exports:       codexExports,
 		writeCommands: codex.WriteCommandFiles,
+	})
+
+	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the
+	// agent reads from cwd: the ctxloom agent (.kiro/agents/ctxloom.json — hooks +
+	// skill resources), MCP (.kiro/settings/mcp.json), context (.kiro/steering/),
+	// skills (.kiro/skills/<n>/SKILL.md).
+	registerDescriptor(agentDescriptor{
+		name: "kiro",
+		newBackend: func() agent.Backend {
+			b := kiro.NewKiro(WriteSettings)
+			b.SetLauncher(RunLaunchSpec)
+			return b
+		},
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &kiro.KiroConfig{})
+		},
+		newWriter:     kiro.NewWriter,
+		exports:       kiroExports,
+		writeCommands: kiro.WriteCommandFiles,
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

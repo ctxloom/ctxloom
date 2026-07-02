@@ -78,6 +78,23 @@ func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return out
 }
 
+// kiroExports maps loaded bundle content to Kiro skill exports, resolving the
+// kiro per-prompt LLM export config.
+func kiroExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
+	names := exportNames(prompts)
+	out := make([]agent.CommandExport, 0, len(prompts))
+	for _, p := range prompts {
+		k := p.LLM.Kiro
+		out = append(out, agent.CommandExport{
+			Name:        names[p.Name],
+			Content:     p.Content,
+			Enabled:     k.IsEnabled(),
+			Description: k.Description,
+		})
+	}
+	return out
+}
+
 // exportNames maps each prompt's full identity (LoadedContent.Name) to its
 // export-facing command name. The short form (bundle's last path segment +
 // item, see LoadedContent.ExportName) is used whenever it's unambiguous within

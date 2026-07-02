@@ -27,3 +27,6 @@ RUN npm install -g @anthropic-ai/claude-code \
     && claude --version
 
 COPY ctxloom /usr/local/bin/ctxloom
+# Validate the layered ctxloom runs on this base (the daily build is
+# glibc-linked; an ABI mismatch must fail the build, not the run).
+RUN /usr/local/bin/ctxloom version

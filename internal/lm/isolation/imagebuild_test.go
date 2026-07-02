@@ -37,7 +37,60 @@ func TestEnsureImage_AbsentWithoutRecipeDegrades(t *testing.T) {
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not present")
-	assert.Contains(t, err.Error(), "no embedded build recipe")
+	assert.Contains(t, err.Error(), "no local build recipe")
+}
+
+// TestEnsureImage_UserImageIsNeverBuilt: a user-provided image override (config
+// isolation_images) is run AS-IS — an absent override degrades without any
+// build attempt, even for a backend that IS locally buildable.
+func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
+	c := containerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro", "my-registry/my-kiro:v2")
+	assert.Equal(t, "my-registry/my-kiro:v2", c.image)
+	err := c.ensureImage(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no local build recipe")
+}
+
+// TestBuildSources_Precedence pins the source order: an explicit base override
+// wins outright; else the official client image overlay leads and the embedded
+// install Containerfile follows; a profile with neither yields nothing.
+func TestBuildSources_Precedence(t *testing.T) {
+	// Synthetic profile with BOTH sources (no current profile ships an official
+	// image — claude's documented ref does not resolve publicly).
+	both := containerProfile{officialImage: "vendor/client:latest", containerfile: []byte("FROM x\n"), validate: "client --version"}
+	srcs := buildSources(both, "")
+	require.Len(t, srcs, 2)
+	assert.Contains(t, srcs[0].desc, "official client image vendor/client:latest")
+	assert.Contains(t, srcs[1].desc, "install Containerfile")
+
+	override := buildSources(both, "my-base:latest")
+	require.Len(t, override, 1, "an explicit base override wins outright")
+	assert.Contains(t, override[0].desc, "my-base:latest")
+
+	for _, backend := range []string{"claude-code", "kiro"} {
+		got := buildSources(containerProfileFor(backend), "")
+		require.Len(t, got, 1, "backend %q builds via its install recipe", backend)
+		assert.Contains(t, got[0].desc, "install Containerfile")
+	}
+
+	assert.Empty(t, buildSources(containerProfileFor("codex"), ""), "no recipe for unprofiled backends")
+}
+
+// TestOverlayContainerfile pins the generated overlay: the base FROM, the
+// ENTRYPOINT reset (the isolation runtime supplies the argv), the client
+// validate gate, the ctxloom layer, and the in-image ctxloom gate (a
+// glibc-linked daily build must fail the BUILD on an incompatible base).
+func TestOverlayContainerfile(t *testing.T) {
+	cf := string(overlayContainerfile("ghcr.io/anthropics/claude-code:latest", "claude --version"))
+	assert.Contains(t, cf, "FROM ghcr.io/anthropics/claude-code:latest\n")
+	assert.Contains(t, cf, "ENTRYPOINT []\n")
+	assert.Contains(t, cf, "RUN claude --version\n")
+	assert.Contains(t, cf, "COPY ctxloom /usr/local/bin/ctxloom\n")
+	assert.Contains(t, cf, "RUN /usr/local/bin/ctxloom version\n")
+
+	noValidate := string(overlayContainerfile("base:1", ""))
+	assert.NotContains(t, noValidate, "RUN base", "no client validate command → no client RUN gate")
+	assert.Contains(t, noValidate, "RUN /usr/local/bin/ctxloom version\n", "the ctxloom gate always runs")
 }
 
 // TestEnsureImage_BuildFailureDegrades: an absent image WITH a recipe attempts a

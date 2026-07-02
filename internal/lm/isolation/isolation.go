@@ -143,8 +143,10 @@ func IsNone(name string) bool {
 // it degrades to None inside PrepareWorkspace when the tree is not a git repo or
 // the worktree add fails); "container" resolves to the container policy bound to
 // the detected runtime (docker/podman) and the BACKEND's container profile
-// (image, auth, overlay set, local-build recipe) — or degrades to None with a
-// warning when no runtime can launch. An unknown name likewise degrades to None
+// (image, auth, overlay set, build sources) — or degrades to None with a warning
+// when no runtime can launch. image is the optional USER-PROVIDED agent image
+// (config isolation_images), run as-is; empty keeps the profile default (which
+// IS built on the fly when absent). An unknown name likewise degrades to None
 // (CLAUDE.md fault tolerance: a bad policy string, or an unavailable runtime,
 // must never block the LLM).
 //
@@ -153,7 +155,7 @@ func IsNone(name string) bool {
 // buildable, no resolvable auth, or scratch cannot be created). Both surface a
 // warning and fall back to None, so defaults.isolation:container is a safe
 // default.
-func Resolve(name, backend string) Policy {
+func Resolve(name, backend, image string) Policy {
 	switch name {
 	case "", None{}.Name():
 		return None{}
@@ -167,7 +169,7 @@ func Resolve(name, backend string) Policy {
 			clidiag.Warn("ctxloom", "container isolation requested but no container runtime is available; using none")
 			return None{}
 		}
-		return NewContainerFor(rt, backend)
+		return containerFor(rt, backend, image)
 	default:
 		clidiag.Warn("ctxloom", "unknown isolation policy %q; using none", name)
 		return None{}
@@ -176,9 +178,9 @@ func Resolve(name, backend string) Policy {
 
 // PrepareMember prepares a FAN-OUT member's workspace for the requested isolation
 // name and the member's BACKEND (per-member engines — the backend picks the
-// container profile), walking the §2b degrade chain until a policy prepares
-// (None never fails). It returns the policy that succeeded and its prepared
-// workspace.
+// container profile; image is the optional user-provided override, run as-is),
+// walking the §2b degrade chain until a policy prepares (None never fails). It
+// returns the policy that succeeded and its prepared workspace.
 //
 // It differs from Resolve (the TOP-LEVEL case, which mounts the LIVE project) in
 // that a fan-out member's workspace is ALWAYS a worktree when it is isolated —
@@ -186,19 +188,19 @@ func Resolve(name, backend string) Policy {
 // worktree-in-container (ContainerWorktree), degrading container→worktree→none;
 // "worktree" degrades worktree→none; "none"/"" stay on the shared project dir.
 // Each degrade warns (CLAUDE.md fault tolerance); the member is never blocked.
-func PrepareMember(ctx context.Context, name, backend, projectDir, agentID string) (Policy, Workspace) {
-	return prepareChain(ctx, memberChain(name, backend), projectDir, agentID)
+func PrepareMember(ctx context.Context, name, backend, image, projectDir, agentID string) (Policy, Workspace) {
+	return prepareChain(ctx, memberChain(name, backend, image), projectDir, agentID)
 }
 
 // memberChain builds the ordered policy chain a fan-out member falls back through
 // for the requested isolation name. The container branch probes the runtime ONCE
 // (as Resolve does): with a real runtime the chain leads with worktree-in-container
-// (over the member backend's container profile) then degrades to a bare worktree
-// then none; with no runtime it skips straight to the worktree tier (config
-// isolation without a container — NOT none, which would re-introduce the
-// shared-cwd clobber §2b). "worktree" leads with the bare worktree; "none"/""
-// and unknown resolve to none only.
-func memberChain(name, backend string) []Policy {
+// (over the member backend's container profile, honoring the user image override)
+// then degrades to a bare worktree then none; with no runtime it skips straight
+// to the worktree tier (config isolation without a container — NOT none, which
+// would re-introduce the shared-cwd clobber §2b). "worktree" leads with the bare
+// worktree; "none"/"" and unknown resolve to none only.
+func memberChain(name, backend, image string) []Policy {
 	switch name {
 	case "", None{}.Name():
 		return []Policy{None{}}
@@ -210,7 +212,7 @@ func memberChain(name, backend string) []Policy {
 			clidiag.Warn("ctxloom", "container isolation requested for a fan-out member but no container runtime is available; using a worktree")
 			return []Policy{NewWorktree(nil), None{}}
 		}
-		return []Policy{NewContainerWorktreeFor(rt, backend, nil), NewWorktree(nil), None{}}
+		return []Policy{NewContainerWorktreeFor(rt, backend, image, nil), NewWorktree(nil), None{}}
 	default:
 		clidiag.Warn("ctxloom", "unknown isolation policy %q; using none", name)
 		return []Policy{None{}}

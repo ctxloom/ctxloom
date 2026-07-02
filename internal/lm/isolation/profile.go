@@ -13,9 +13,18 @@ import (
 //   - image: the agent image tag this engine runs in (it must carry the engine
 //     CLI — a kiro run in a claude image would launch a container whose engine
 //     spawn fails, which is worse than degrading).
-//   - containerfile: the embedded Containerfile that can build that image
-//     LOCALLY when it is absent (ensureImage); nil = not locally buildable, so
-//     an absent image degrades exactly as before.
+//   - officialImage: the client's OFFICIAL upstream image, when the vendor ships
+//     one. Preferred local-build source: ctxloom is overlaid onto it (see
+//     overlayContainerfile), so a fresh `--pull` build rides the vendor's most
+//     recent client. Empty = no official image (community images don't count —
+//     they are not a trustworthy base).
+//   - containerfile: the embedded INSTALL Containerfile that builds the image
+//     from a distro base by fetching the MOST RECENT client CLI (never pinned).
+//     Fallback build source when there is no official image (or its build
+//     fails); nil + no officialImage = not locally buildable, so an absent
+//     image degrades exactly as before.
+//   - validate: the in-image command that proves the client is runnable (the
+//     `<client> --version` build gate) — a broken image never ships.
 //   - resolveAuth: how the in-container engine authenticates (scoped env
 //     passthrough and/or read-only credential mounts into the fresh HOME).
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
@@ -32,7 +41,9 @@ import (
 // the seam); the names are part of the descriptor contract.
 type containerProfile struct {
 	image         string
+	officialImage string
 	containerfile []byte
+	validate      string
 	resolveAuth   func(containerHome string) (containerAuth, bool)
 	authHint      string
 	overlayDirs   []string
@@ -65,16 +76,27 @@ func containerProfileFor(backend string) containerProfile {
 	switch backend {
 	case "claude-code":
 		return containerProfile{
-			image:         defaultContainerImage,
+			image: defaultContainerImage,
+			// No officialImage: ghcr.io/anthropics/claude-code appears in docs
+			// but does not resolve publicly (manifest unknown; verified live
+			// 2026-07), so the npm install Containerfile — which fetches the
+			// most recent claude — is the build source. A user can still
+			// overlay onto any client-shipping base via `container build
+			// --base-image`.
 			containerfile: containerfiles.ClaudeCode,
+			validate:      "claude --version",
 			resolveAuth:   resolveClaudeContainerAuth,
 			authHint:      "no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine",
 			overlayDirs:   defaultOverlayDirs,
 		}
 	case "kiro":
 		return containerProfile{
-			image:         "ctxloom-agent-kiro:latest",
+			image: "ctxloom-agent-kiro:latest",
+			// No officialImage: kiro ships no official container image (only
+			// community ones); the install Containerfile fetches the most recent
+			// kiro-cli via the official installer instead.
 			containerfile: containerfiles.Kiro,
+			validate:      "kiro-cli --version",
 			resolveAuth:   resolveKiroContainerAuth,
 			authHint:      "no KIRO_API_KEY to authenticate the in-container engine (subscription credential mounts pend live verification)",
 			overlayDirs:   kiroOverlayDirs,

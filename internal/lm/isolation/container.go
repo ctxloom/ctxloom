@@ -78,9 +78,9 @@ func NewContainer(rt ContainerRuntime, image string) Container {
 
 // NewContainerFor builds the container policy for a REGISTERED backend name: the
 // backend's container profile picks the agent image, the auth resolver, the
-// managed-config overlay set, and the embedded Containerfile that lets
-// ensureImage build the image locally when it is absent. Unknown/empty names get
-// the default profile (the generic agent image + claude auth, no local build).
+// managed-config overlay set, and the build sources that let ensureImage build
+// the image locally when it is absent. Unknown/empty names get the default
+// profile (the generic agent image + claude auth, no local build).
 func NewContainerFor(rt ContainerRuntime, backend string) Container {
 	p := containerProfileFor(backend)
 	return Container{
@@ -91,6 +91,20 @@ func NewContainerFor(rt ContainerRuntime, backend string) Container {
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
 	}
+}
+
+// containerFor builds the backend's container policy with an optional
+// USER-PROVIDED image override (config isolation_images). The override is run
+// AS-IS — never locally built or overlaid (the user owns it) — so an absent
+// override degrades with a warning instead of triggering the on-the-fly build.
+func containerFor(rt ContainerRuntime, backend, image string) Container {
+	c := NewContainerFor(rt, backend)
+	if image != "" {
+		c.image = image
+		c.profile.officialImage = ""
+		c.profile.containerfile = nil
+	}
+	return c
 }
 
 // Name identifies the policy.

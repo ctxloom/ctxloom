@@ -13,7 +13,9 @@ import (
 func TestContainerProfileFor_Claude(t *testing.T) {
 	p := containerProfileFor("claude-code")
 	assert.Equal(t, defaultContainerImage, p.image)
+	assert.Empty(t, p.officialImage, "no publicly-resolvable official claude-code image (verified live); the npm install recipe builds")
 	assert.NotEmpty(t, p.containerfile, "claude is locally buildable (embedded Containerfile)")
+	assert.Equal(t, "claude --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".claude")
 	assert.NotContains(t, p.overlayDirs, ".kiro")
 }
@@ -24,7 +26,9 @@ func TestContainerProfileFor_Claude(t *testing.T) {
 func TestContainerProfileFor_Kiro(t *testing.T) {
 	p := containerProfileFor("kiro")
 	assert.Equal(t, "ctxloom-agent-kiro:latest", p.image)
+	assert.Empty(t, p.officialImage, "kiro ships no official container image (community images are not a trustworthy base)")
 	assert.NotEmpty(t, p.containerfile, "kiro is locally buildable (embedded Containerfile)")
+	assert.Equal(t, "kiro-cli --version", p.validate)
 	assert.Contains(t, p.overlayDirs, ".kiro")
 	assert.NotContains(t, p.overlayDirs, ".claude", "kiro writes no .claude config")
 }

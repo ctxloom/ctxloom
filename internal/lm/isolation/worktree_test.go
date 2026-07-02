@@ -171,7 +171,7 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 
 // TestResolveWorktree wires the name through Resolve.
 func TestResolveWorktree(t *testing.T) {
-	p := Resolve("worktree", "claude-code")
+	p := Resolve("worktree", "claude-code", "")
 	assert.Equal(t, "worktree", p.Name())
 	assert.IsType(t, Worktree{}, p)
 }

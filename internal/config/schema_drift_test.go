@@ -121,6 +121,10 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"subagent-level isolation override",
 			"subagents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    isolation: worktree\n",
 		},
+		{
+			"per-backend isolation image overrides",
+			"isolation_images:\n  kiro: registry.example.com/my-kiro:v2\n  claude-code: my-claude:latest\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

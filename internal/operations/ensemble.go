@@ -131,10 +131,13 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				Backend:   rs.Backend,
 				Model:     rs.Model,
 				// Per-member isolation resolved from the subagent binding
-				// (subagent → project default → none); AgentID scopes this
-				// member's future per-agent workspace by its identifier.
-				Isolation: rs.Isolation,
-				AgentID:   req.Members[i],
+				// (subagent → project default → none), plus the user-provided
+				// agent image for the member's backend when one is configured;
+				// AgentID scopes this member's future per-agent workspace by
+				// its identifier.
+				Isolation:      rs.Isolation,
+				IsolationImage: cfg.IsolationImageFor(rs.Backend),
+				AgentID:        req.Members[i],
 				// The member's composed profile set + shared gate scope the
 				// per-member managed config written when the member is isolated.
 				Profiles: rs.Profiles,

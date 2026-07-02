@@ -68,12 +68,19 @@ type Config struct {
 	// operations.resolveSubagentBinding. Named `isolation` to avoid colliding
 	// with `profiles.defaults` (the profiles array) and `llm.defaults`
 	// (RoleDefaults).
-	Isolation string       `mapstructure:"isolation" yaml:"isolation,omitempty"`
-	AppPaths  []string     // Resolved .ctxloom directory (at most one)
-	AppRoot   string       // Project root (parent of .ctxloom directory)
-	AppDir    string       // Full path to the .ctxloom directory
-	Source    ConfigSource // Where the configuration was loaded from
-	Warnings  []string     // Non-fatal warnings collected during load
+	Isolation string `mapstructure:"isolation" yaml:"isolation,omitempty"`
+	// IsolationImages maps a backend name (claude-code | kiro | ...) to a
+	// USER-PROVIDED agent image for containerized runs. An entry overrides the
+	// built-in per-backend default tag and is run AS-IS: never locally built or
+	// overlaid (the user owns it), so an absent override degrades with a warning
+	// instead of triggering the on-the-fly build. Missing entries keep the
+	// built-in default (which IS auto-built when absent).
+	IsolationImages map[string]string `mapstructure:"isolation_images" yaml:"isolation_images,omitempty"`
+	AppPaths        []string          // Resolved .ctxloom directory (at most one)
+	AppRoot         string            // Project root (parent of .ctxloom directory)
+	AppDir          string            // Full path to the .ctxloom directory
+	Source          ConfigSource      // Where the configuration was loaded from
+	Warnings        []string          // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
@@ -132,6 +139,16 @@ type EditorConfig struct {
 // appended), then the VISUAL and EDITOR environment variables, then nano.
 // Multi-word values like "code --wait" are whitespace-split into binary +
 // leading args (strings.Fields — full shell quoting is not supported).
+// IsolationImageFor returns the user-provided agent image override for the
+// named backend's containerized runs, or "" when the backend keeps the built-in
+// default image (nil-safe).
+func (c *Config) IsolationImageFor(backend string) string {
+	if c == nil {
+		return ""
+	}
+	return c.IsolationImages[backend]
+}
+
 func (c *Config) GetEditorCommand() (string, []string) {
 	if bin, args := splitEditorCommand(c.Editor.Command); bin != "" {
 		return bin, append(args, c.Editor.Args...)

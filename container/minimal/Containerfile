@@ -11,3 +11,6 @@
 # binary on a writable base with a fresh HOME.
 FROM alpine:latest
 COPY ctxloom /usr/local/bin/ctxloom
+# Validate the layered ctxloom runs on this base — alpine is musl, so only a
+# static (CGO_ENABLED=0) build passes; a glibc-linked binary fails the build.
+RUN /usr/local/bin/ctxloom version

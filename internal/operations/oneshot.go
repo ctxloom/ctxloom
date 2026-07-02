@@ -89,8 +89,9 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		// A single-profile oneshot has no subagent binding, so it takes the
 		// project's top-level isolation default (empty → none). AgentID scopes a
 		// future per-agent workspace by the profile name.
-		Isolation: cfg.Isolation,
-		AgentID:   req.Profile,
+		Isolation:      cfg.Isolation,
+		IsolationImage: cfg.IsolationImageFor(backendName),
+		AgentID:        req.Profile,
 		Profiles:  profiles,
 		Gate:      gate,
 		Factory:   req.Factory,
@@ -121,10 +122,14 @@ type resolvedRunRequest struct {
 	// Isolation is the resolved per-agent isolation policy name (none | worktree
 	// | container); empty means none (host — today's behaviour). It selects HOW
 	// the member's plugin is spawned and WHERE its workspace lives when no
-	// Factory is injected. AgentID scopes/names that per-agent workspace (the
-	// member identifier). Both are ignored on the injected-Factory path.
-	Isolation string
-	AgentID   string
+	// Factory is injected. IsolationImage is the optional USER-PROVIDED agent
+	// image for a containerized member (config isolation_images, keyed by the
+	// member's backend), run as-is; empty keeps the backend's built-in default.
+	// AgentID scopes/names that per-agent workspace (the member identifier).
+	// All are ignored on the injected-Factory path.
+	Isolation      string
+	IsolationImage string
+	AgentID        string
 
 	// Profiles is the member's resolved profile set — the SAME set that scoped its
 	// assembled Context. When the member's workspace is ISOLATED (worktree/
@@ -177,7 +182,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// It warns at each degrade and never blocks — None never fails. The last
 		// tier (none) loses cwd config isolation (shared project dir), the
 		// documented non-git edge.
-		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.Backend, req.WorkDir, req.AgentID)
+		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
 		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine

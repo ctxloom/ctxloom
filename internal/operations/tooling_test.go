@@ -35,7 +35,8 @@ skills:
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the tooling skill is collected")
-	assert.Contains(t, got[0].Source, "tooling")
+	assert.Contains(t, got[0].Source, "#skills/tooling", "source is the bundle-qualified ref")
+	assert.Contains(t, got[0].Source, "go-tools", "source names the bundle")
 	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
 }
 

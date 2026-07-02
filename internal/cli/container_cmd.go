@@ -138,7 +138,7 @@ pull/sync — the edit is the LLM's, gated by the user.`,
 
 // toolingJSON is the --format json shape for `container tooling`.
 type toolingJSON struct {
-	Instructions string                        `json:"instructions"`
+	Instructions string                          `json:"instructions"`
 	Declarations []operations.ToolingDeclaration `json:"declarations"`
 }
 
@@ -280,7 +280,9 @@ func init() {
 		"overwrite an existing file / re-point an already-configured base")
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
-	containerCmd.AddCommand(toolingCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
 	rootCmd.AddCommand(containerCmd)
+	// Top-level on purpose: tooling is the general bundle-declaration
+	// collector; the container image is (today) where declarations land.
+	rootCmd.AddCommand(toolingCmd)
 }

@@ -63,11 +63,16 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 		if !setupSkillNameMatches(info.Name, ToolingSkillName) {
 			continue
 		}
-		content, gerr := loader.GetSkill(info.Name)
+		// Fetch by BUNDLE-QUALIFIED ref: many bundles ship a skill with this
+		// same well-known name, and a bare-name fetch would resolve every one
+		// of them to the first match. The ref also gives the user a traceable
+		// source per declaration.
+		ref := info.Bundle + "#skills/" + info.Name
+		content, gerr := loader.GetSkill(ref)
 		if gerr != nil || strings.TrimSpace(content.Content) == "" {
 			continue // withheld by the gate, or empty — skip, never block
 		}
-		out = append(out, ToolingDeclaration{Source: info.Name, Content: content.Content})
+		out = append(out, ToolingDeclaration{Source: ref, Content: content.Content})
 	}
 	warnWithheld(loader)
 	return out

@@ -687,16 +687,16 @@ type AutoSyncConfig struct {
 var startupCloneRefresh = refreshReferencedClones
 
 // refreshReferencedClones advances every remote clone the config references
-// (profiles, bundles, and config-default roots — collectRemoteReferences
-// covers all three) to its live tip. Best-effort throughout: a collect or
-// fetch failure leaves the cache as-is; the probe and sync paths surface any
-// real problem.
+// (the bundle refs collectRemoteReferences gathers across profiles and config
+// defaults) to its live tip. Best-effort throughout: a collect or fetch
+// failure leaves the cache as-is; the probe and sync paths surface any real
+// problem.
 func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
-	bundleRefs, profileRefs, err := collectRemoteReferences(cfg, nil, getFS(nil))
+	bundleRefs, err := collectRemoteReferences(cfg, nil, getFS(nil))
 	if err != nil {
 		return
 	}
-	refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs, profileRefs))
+	refreshRepoCaches(ctx, newRepoCache(cfg), syncRefURLs(bundleRefs))
 }
 
 // SyncOnStartup is a convenience function that runs sync with sensible defaults.

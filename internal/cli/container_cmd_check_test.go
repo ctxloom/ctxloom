@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // TestRenderContainerCheck covers the human rendering across the report's
@@ -45,5 +46,28 @@ func TestRenderContainerCheck(t *testing.T) {
 		assert.Contains(t, out, "in a container:  no")
 		assert.Contains(t, out, "runtime:         none")
 		assert.Contains(t, out, "shared fs:       unprobed: no runtime")
+	})
+}
+
+// TestRenderContainerTooling covers both shapes: no declarations (the hint
+// about trust review) and collected declarations attributed to their bundles
+// under the instruction preamble.
+func TestRenderContainerTooling(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		var buf bytes.Buffer
+		assert.NoError(t, renderContainerTooling(&buf, nil))
+		assert.Contains(t, buf.String(), "No trusted bundles declare container tooling")
+	})
+
+	t.Run("declarations", func(t *testing.T) {
+		var buf bytes.Buffer
+		entries := []operations.ContainerTooling{
+			{Source: "go-tools#skills/container-tooling", Content: "Install golangci-lint."},
+		}
+		assert.NoError(t, renderContainerTooling(&buf, entries))
+		out := buf.String()
+		assert.Contains(t, out, "explicit approval", "the instruction preamble leads")
+		assert.Contains(t, out, "### go-tools#skills/container-tooling")
+		assert.Contains(t, out, "Install golangci-lint.")
 	})
 }

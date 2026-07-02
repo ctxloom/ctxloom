@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/resources"
 )
 
 var containerCmd = &cobra.Command{
@@ -99,6 +100,102 @@ isolation_images in config — those are run as-is and never built.`,
 // testable with an injected report.
 var containerDiagnose = isolation.Diagnose
 
+// containerToolingPrompt is the instruction preamble `container tooling`
+// emits above the collected bundle declarations: locate/scaffold the base
+// Containerfile, propose a diff, get EXPLICIT per-change user approval,
+// rebuild. A markdown resource, not Go — the procedure is data.
+var containerToolingPrompt = resources.MustGetPromptText("container-tooling")
+
+// containerToolingCmd emits the agent-image tooling instructions plus every
+// TRUSTED bundle's `container-tooling` skill. The LLM runs this, reads the
+// declarations, and folds them — with the user's explicit approval — into the
+// scaffolded base Containerfile. Read-only: collection goes through the trust
+// gate and nothing is written here.
+var containerToolingCmd = &cobra.Command{
+	Use:   "tooling",
+	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Long: `Collect every trusted bundle's 'container-tooling' skill — the tools its
+content needs inside the agent container image — and emit them with
+instructions for the LLM: scaffold/locate the editable base Containerfile
+('ctxloom container scaffold'), propose the additions as a diff, get the
+user's explicit approval per change, then rebuild ('ctxloom container build').
+
+Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
+like any other gated content, and nothing is ever applied automatically on
+pull/sync — the edit is the LLM's, gated by the user.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		entries := operations.CollectContainerTooling(cfg, nil)
+		return emit(cmd, containerToolingJSON{Instructions: containerToolingPrompt, Declarations: entries}, func() error {
+			return renderContainerTooling(cmd.OutOrStdout(), entries)
+		})
+	},
+}
+
+// containerToolingJSON is the --format json shape for `container tooling`.
+type containerToolingJSON struct {
+	Instructions string                        `json:"instructions"`
+	Declarations []operations.ContainerTooling `json:"declarations"`
+}
+
+// renderContainerTooling writes the instruction preamble plus the collected
+// declarations, each attributed to its source bundle. Extracted from RunE so
+// the formatting is testable with injected entries.
+func renderContainerTooling(out io.Writer, entries []operations.ContainerTooling) error {
+	w := iox.NewErrWriter(out)
+	if len(entries) == 0 {
+		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'container-tooling' skill).")
+		w.Println("Untrusted declarations are withheld — review with `ctxloom bundle review`, then re-run.")
+		return w.Err()
+	}
+	w.Println(containerToolingPrompt)
+	for _, e := range entries {
+		w.Printf("\n### %s\n\n%s\n", e.Source, e.Content)
+	}
+	return w.Err()
+}
+
+// containerScaffoldCmd is the write half the tooling flow calls (with the
+// user's permission): materialize the embedded default base Containerfile as
+// an editable local file and wire it into config, so the default auto-build
+// and explicit builds pick it up from then on.
+var (
+	containerScaffoldPath  string
+	containerScaffoldForce bool
+)
+
+var containerScaffoldCmd = &cobra.Command{
+	Use:   "scaffold",
+	Short: "Materialize the editable base Containerfile and wire it into config",
+	Long: `Write the embedded default base Containerfile to an editable local file
+(default: .ctxloom/base.Containerfile) and set 'isolation_base_containerfile'
+so every locally-built agent image — the default auto-build included — layers
+on it. Content-identical to what the default build was already using, so
+nothing changes until you edit it.
+
+Idempotent and WIP-safe: an already-configured base is returned as-is, and an
+existing file at the target is adopted, never overwritten (--force overwrites).`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		path, err := operations.ScaffoldContainerBase(cfg, containerScaffoldPath, containerScaffoldForce)
+		if err != nil {
+			return err
+		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Base Containerfile: %s\n", path)
+		w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
+		return w.Err()
+	},
+}
+
 // containerCheckCmd reports whether `runtime: container` agents can actually
 // launch here: in-container detection, runtime reachability, image presence,
 // and the shared-filesystem probe (the docker-outside-of-docker detector).
@@ -177,7 +274,13 @@ func init() {
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,
 		"reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)")
+	containerScaffoldCmd.Flags().StringVar(&containerScaffoldPath, "path", "",
+		"project-root-relative path for the base Containerfile (default .ctxloom/base.Containerfile)")
+	containerScaffoldCmd.Flags().BoolVar(&containerScaffoldForce, "force", false,
+		"overwrite an existing file / re-point an already-configured base")
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
+	containerCmd.AddCommand(containerToolingCmd)
+	containerCmd.AddCommand(containerScaffoldCmd)
 	rootCmd.AddCommand(containerCmd)
 }

@@ -44,7 +44,7 @@ func TestEnsureImage_AbsentWithoutRecipeDegrades(t *testing.T) {
 // isolation_images) is run AS-IS — an absent override degrades without any
 // build attempt, even for a backend that IS locally buildable.
 func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
-	c := containerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro", "my-registry/my-kiro:v2")
+	c := containerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "kiro", ImageConfig{Image: "my-registry/my-kiro:v2"})
 	assert.Equal(t, "my-registry/my-kiro:v2", c.image)
 	err := c.ensureImage(context.Background())
 	require.Error(t, err)
@@ -58,22 +58,37 @@ func TestBuildSources_Precedence(t *testing.T) {
 	// Synthetic profile with BOTH sources (no current profile ships an official
 	// image — claude's documented ref does not resolve publicly).
 	both := containerProfile{officialImage: "vendor/client:latest", containerfile: []byte("FROM x\n"), validate: "client --version"}
-	srcs := buildSources(both, "")
+	srcs := buildSources(both, "", "")
 	require.Len(t, srcs, 2)
 	assert.Contains(t, srcs[0].desc, "official client image vendor/client:latest")
+	assert.Nil(t, srcs[0].base, "an overlay is single-stage")
 	assert.Contains(t, srcs[1].desc, "install Containerfile")
+	require.NotNil(t, srcs[1].base, "the install recipe layers onto the shared base stage")
+	assert.NotEmpty(t, srcs[1].base.containerfile, "the default base is the embedded Containerfile")
 
-	override := buildSources(both, "my-base:latest")
+	override := buildSources(both, "my-base:latest", "")
 	require.Len(t, override, 1, "an explicit base override wins outright")
 	assert.Contains(t, override[0].desc, "my-base:latest")
+	assert.Nil(t, override[0].base)
+
+	// A user base Containerfile LEADS (their environment, our agent layers),
+	// with the official overlay and the default-base recipe as fallbacks.
+	userBase := buildSources(both, "", "/proj/Containerfile.base")
+	require.Len(t, userBase, 3)
+	assert.Contains(t, userBase[0].desc, "user base Containerfile /proj/Containerfile.base")
+	require.NotNil(t, userBase[0].base)
+	assert.Equal(t, "/proj/Containerfile.base", userBase[0].base.path)
+	assert.Contains(t, userBase[1].desc, "official client image")
+	assert.Contains(t, userBase[2].desc, "install Containerfile")
 
 	for _, backend := range []string{"claude-code", "kiro"} {
-		got := buildSources(containerProfileFor(backend), "")
+		got := buildSources(containerProfileFor(backend), "", "")
 		require.Len(t, got, 1, "backend %q builds via its install recipe", backend)
 		assert.Contains(t, got[0].desc, "install Containerfile")
+		require.NotNil(t, got[0].base, "backend %q layers onto the shared base", backend)
 	}
 
-	assert.Empty(t, buildSources(containerProfileFor("codex"), ""), "no recipe for unprofiled backends")
+	assert.Empty(t, buildSources(containerProfileFor("codex"), "", ""), "no recipe for unprofiled backends")
 }
 
 // TestOverlayContainerfile pins the generated overlay: the base FROM, the

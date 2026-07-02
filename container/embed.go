@@ -13,14 +13,24 @@ import _ "embed"
 //go:embed minimal/Containerfile
 var Minimal []byte
 
-// ClaudeCode is the production claude agent image: a real claude CLI plus the
-// static ctxloom binary.
+// Base is the DEFAULT shared base image (stage 1 of every locally-built agent
+// image): the distro plus the coding-agent tool layer (git, ripgrep, curl,
+// certs, unzip, jq). The production Containerfiles layer agent specifics onto
+// it via ARG BASE_IMAGE; a user-provided base Containerfile replaces this one
+// (isolation_base_containerfile / `container build --base-containerfile`).
+//
+//go:embed base/Containerfile
+var Base []byte
+
+// ClaudeCode is the production claude agent image's AGENT stage: a real claude
+// CLI + the claude-code-acp adapter plus the static ctxloom binary, layered
+// onto the base image via ARG BASE_IMAGE.
 //
 //go:embed production/Containerfile-claude-code
 var ClaudeCode []byte
 
-// Kiro is the production kiro agent image: a real kiro-cli plus the static
-// ctxloom binary.
+// Kiro is the production kiro agent image's AGENT stage: a real kiro-cli plus
+// the static ctxloom binary, layered onto the base image via ARG BASE_IMAGE.
 //
 //go:embed production/Containerfile-kiro
 var Kiro []byte

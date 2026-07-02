@@ -60,6 +60,10 @@ type Container struct {
 	binaryPath string           // the container's ctxloom path (runs `llm serve <backend>`)
 	home       string           // fresh $HOME inside the container
 	socketDir  string           // fixed in-container unix-socket dir (bind-mount target)
+	// baseContainerfile is the user-provided base Containerfile a local build
+	// layers the agent stage onto (config isolation_base_containerfile;
+	// "" = the embedded default base).
+	baseContainerfile string
 }
 
 // Ensure Container satisfies the Policy interface.
@@ -93,14 +97,17 @@ func NewContainerFor(rt ContainerRuntime, backend string) Container {
 	}
 }
 
-// containerFor builds the backend's container policy with an optional
-// USER-PROVIDED image override (config isolation_images). The override is run
-// AS-IS — never locally built or overlaid (the user owns it) — so an absent
-// override degrades with a warning instead of triggering the on-the-fly build.
-func containerFor(rt ContainerRuntime, backend, image string) Container {
+// containerFor builds the backend's container policy with the user's image
+// configuration: an image override (config isolation_images) is run AS-IS —
+// never locally built or overlaid (the user owns it) — so an absent override
+// degrades with a warning instead of triggering the on-the-fly build; a base
+// Containerfile (config isolation_base_containerfile) makes the on-the-fly
+// build layer the agent stage onto the user's base instead of the default.
+func containerFor(rt ContainerRuntime, backend string, img ImageConfig) Container {
 	c := NewContainerFor(rt, backend)
-	if image != "" {
-		c.image = image
+	c.baseContainerfile = img.BaseContainerfile
+	if img.Image != "" {
+		c.image = img.Image
 		c.profile.officialImage = ""
 		c.profile.containerfile = nil
 	}

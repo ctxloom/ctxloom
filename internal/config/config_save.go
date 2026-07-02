@@ -184,6 +184,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.IsolationImages) > 0, c.IsolationImages)
+	setOrDelete(existing, "isolation_base_containerfile", c.IsolationBaseContainerfile != "", c.IsolationBaseContainerfile)
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)

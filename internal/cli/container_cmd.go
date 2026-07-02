@@ -22,9 +22,10 @@ var containerCmd = &cobra.Command{
 }
 
 var (
-	containerBuildBaseImage string
-	containerBuildRuntime   string
-	containerBuildKeepCache bool
+	containerBuildBaseImage         string
+	containerBuildBaseContainerfile string
+	containerBuildRuntime           string
+	containerBuildKeepCache         bool
 )
 
 var containerBuildCmd = &cobra.Command{
@@ -33,19 +34,25 @@ var containerBuildCmd = &cobra.Command{
 	Long: `Build the agent image a containerized run of the given backend uses
 (the configured default backend when omitted).
 
-The image is assembled from the best available source: the client's OFFICIAL
-container image when the vendor ships one (ctxloom overlaid on top), otherwise
-an embedded recipe that installs the MOST RECENT client CLI — never pinned. In
-both cases the client validates the build from inside the image (its --version
-gate), and the RUNNING ctxloom binary is layered in, so a rebuilt image never
-needs a ctxloom release.
+The image builds in two stages: a shared BASE (the distro plus the coding-agent
+tool layer — git, ripgrep, curl, certs, jq) and the engine's AGENT stage (the
+client CLI install plus the RUNNING ctxloom binary) layered on top, so a
+rebuilt image never needs a ctxloom release. The client validates the build
+from inside the image (its --version gate), and the install fetches the MOST
+RECENT client — never pinned.
+
+The base stage is yours to replace: --base-containerfile (or config
+isolation_base_containerfile) builds the base from your own Containerfile —
+your tools, your certs, your mirrors — and the same agent stage layers on top.
+Alternatively --base-image skips the client install entirely and overlays
+ctxloom onto an image that ALREADY ships the client CLI.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
 `+"`ctxloom run`/`map`/`weave`"+` also build this image automatically when it
-is absent; this command is the explicit path (refresh, custom base). To run a
-fully user-provided image instead, set isolation_images in config — those are
-run as-is and never built.`,
+is absent (honoring isolation_base_containerfile); this command is the explicit
+path (refresh, custom base). To run a fully user-provided image instead, set
+isolation_images in config — those are run as-is and never built.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var backend string
@@ -63,11 +70,20 @@ run as-is and never built.`,
 			backend, _ = operations.ResolveBackend(cfg, "")
 		}
 
+		baseContainerfile := containerBuildBaseContainerfile
+		if baseContainerfile == "" {
+			// The config knob applies when the flag doesn't override it, so the
+			// explicit build and the on-the-fly build produce the same image.
+			if cfg, cerr := GetConfig(); cerr == nil {
+				baseContainerfile = cfg.IsolationBaseContainerfilePath()
+			}
+		}
 		image, err := isolation.BuildAgentImage(cmd.Context(), backend, isolation.ImageBuildOptions{
-			BaseImage: containerBuildBaseImage,
-			Runtime:   containerBuildRuntime,
-			KeepCache: containerBuildKeepCache,
-			Output:    os.Stdout,
+			BaseImage:         containerBuildBaseImage,
+			BaseContainerfile: baseContainerfile,
+			Runtime:           containerBuildRuntime,
+			KeepCache:         containerBuildKeepCache,
+			Output:            os.Stdout,
 		})
 		if err != nil {
 			return err
@@ -80,6 +96,8 @@ run as-is and never built.`,
 func init() {
 	containerBuildCmd.Flags().StringVar(&containerBuildBaseImage, "base-image", "",
 		"overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources")
+	containerBuildCmd.Flags().StringVar(&containerBuildBaseContainerfile, "base-containerfile", "",
+		"build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of the embedded default")
 	containerBuildCmd.Flags().StringVar(&containerBuildRuntime, "runtime", "",
 		"container runtime to build with (docker|podman); auto-detected when empty")
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,

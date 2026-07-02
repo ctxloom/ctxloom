@@ -125,6 +125,10 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"per-backend isolation image overrides",
 			"isolation_images:\n  kiro: registry.example.com/my-kiro:v2\n  claude-code: my-claude:latest\n",
 		},
+		{
+			"user base containerfile for local agent-image builds",
+			"isolation_base_containerfile: container/base.Containerfile\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

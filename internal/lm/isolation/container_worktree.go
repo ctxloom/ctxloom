@@ -61,11 +61,12 @@ func NewContainerWorktree(rt ContainerRuntime, image string, g git.Git) Containe
 
 // NewContainerWorktreeFor builds the composition for a REGISTERED backend name:
 // the container half comes from the backend's container profile (image, auth,
-// build sources — see NewContainerFor) with an optional user-provided image
-// override (run as-is, never built), the worktree half from the Git seam.
-func NewContainerWorktreeFor(rt ContainerRuntime, backend, image string, g git.Git) ContainerWorktree {
+// build sources — see NewContainerFor) with the user's image configuration
+// applied (image override run as-is / base Containerfile for local builds),
+// the worktree half from the Git seam.
+func NewContainerWorktreeFor(rt ContainerRuntime, backend string, img ImageConfig, g git.Git) ContainerWorktree {
 	return ContainerWorktree{
-		container: containerFor(rt, backend, image),
+		container: containerFor(rt, backend, img),
 		worktree:  NewWorktree(g),
 	}
 }

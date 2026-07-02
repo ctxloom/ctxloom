@@ -1,16 +1,14 @@
-# Production ctxloom agent image (kiro): the locally-built STATIC linux ctxloom
-# binary PLUS a real kiro-cli, so the plugin (`ctxloom llm serve kiro`) can spawn
-# `kiro-cli` INSIDE the container for an isolated run. Mirrors
-# Containerfile-claude-code and is the target of the kiro container profile's
-# image tag (ctxloom-agent-kiro:latest — built ahead of time by the
-# `container-build-kiro` just recipe, or on the fly by the isolation policy when
-# the tag is absent).
+# Production ctxloom agent image (kiro) — the AGENT-SPECIFICS stage: a real
+# kiro-cli plus the locally-built ctxloom binary, layered onto the shared base
+# image (container/base/Containerfile by default; a user base via
+# isolation_base_containerfile / `container build --base-containerfile`). The
+# plugin (`ctxloom llm serve kiro`) spawns `kiro-cli` INSIDE the container for an
+# isolated run. Mirrors Containerfile-claude-code and is the target of the kiro
+# container profile's image tag (ctxloom-agent-kiro:latest).
 #
-# debian bookworm-slim (glibc) is the install base: the official installer
-# (curl -fsSL https://cli.kiro.dev/install | bash) drops kiro-cli under
-# ~/.local/bin, so it is relocated to /usr/local/bin where any uid finds it (the
-# rootful-docker path runs the container --user <host uid>, not root). The static
-# ctxloom (CGO_ENABLED=0) runs on any base.
+# BASE CONTRACT: Debian-family with apt. The installer prerequisites (curl,
+# certs, unzip) are installed here anyway — a no-op on the default base, which
+# already carries them — so a lean user base still builds.
 #
 # AUTH is NOT baked in — it crosses at RUN time via KIRO_API_KEY env passthrough
 # (Kiro's headless mode skips the browser login when it is set). Subscription
@@ -21,12 +19,14 @@
 # No ENTRYPOINT: the isolation runtime builds the full in-container argv
 # (/usr/local/bin/ctxloom llm serve kiro ...) on a writable base with a fresh
 # HOME. The build context must contain the static binary at ./ctxloom.
-FROM debian:bookworm-slim
+ARG BASE_IMAGE=ctxloom-agent-base:latest
+FROM ${BASE_IMAGE}
+ENTRYPOINT []
 
 # Install kiro-cli via the official installer and fail the build if it is not
-# runnable, so a broken image never ships. The installer needs curl + certs (and
-# unzip for its archive); the binary is relocated to /usr/local/bin unless the
-# installer already put it on the standard PATH.
+# runnable, so a broken image never ships. The binary lands under ~/.local/bin
+# and is relocated to /usr/local/bin where any uid finds it (the rootful-docker
+# path runs the container --user <host uid>, not root).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/* \

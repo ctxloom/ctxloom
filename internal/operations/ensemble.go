@@ -136,7 +136,7 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				// AgentID scopes this member's future per-agent workspace by
 				// its identifier.
 				Isolation:      rs.Isolation,
-				IsolationImage: cfg.IsolationImageFor(rs.Backend),
+				IsolationImage: IsolationImageConfig(cfg, rs.Backend),
 				AgentID:        req.Members[i],
 				// The member's composed profile set + shared gate scope the
 				// per-member managed config written when the member is isolated.

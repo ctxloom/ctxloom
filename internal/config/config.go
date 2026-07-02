@@ -75,6 +75,13 @@ type Config struct {
 	// instead of triggering the on-the-fly build. Missing entries keep the
 	// built-in default (which IS auto-built when absent).
 	IsolationImages map[string]string `mapstructure:"isolation_images" yaml:"isolation_images,omitempty"`
+	// IsolationBaseContainerfile is a USER-PROVIDED base Containerfile for
+	// locally-built agent images: the on-the-fly build (and `ctxloom container
+	// build`) layers the engine's agent stage onto a base built from this file
+	// instead of the embedded default base (container/base/Containerfile).
+	// Relative paths resolve against the project root.
+	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
+
 	AppPaths        []string          // Resolved .ctxloom directory (at most one)
 	AppRoot         string            // Project root (parent of .ctxloom directory)
 	AppDir          string            // Full path to the .ctxloom directory
@@ -146,6 +153,20 @@ func (c *Config) IsolationImageFor(backend string) string {
 		return ""
 	}
 	return c.IsolationImages[backend]
+}
+
+// IsolationBaseContainerfilePath returns the user-provided base Containerfile
+// for locally-built agent images, resolved against the project root when
+// relative ("" = the embedded default base; nil-safe).
+func (c *Config) IsolationBaseContainerfilePath() string {
+	if c == nil || c.IsolationBaseContainerfile == "" {
+		return ""
+	}
+	p := c.IsolationBaseContainerfile
+	if !filepath.IsAbs(p) && c.AppRoot != "" {
+		p = filepath.Join(c.AppRoot, p)
+	}
+	return p
 }
 
 func (c *Config) GetEditorCommand() (string, []string) {

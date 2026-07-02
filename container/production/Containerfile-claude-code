@@ -1,13 +1,20 @@
-# Production ctxloom agent image (claude): the locally-built STATIC linux ctxloom
-# binary PLUS a real claude CLI, so the plugin (`ctxloom llm serve claudecode`) can
-# spawn `claude` INSIDE the container for a top-level isolated run. Unlike
-# container/minimal (transport only, Info()/mock level), this image carries a real
-# engine and is the target of the container isolation policy's default image tag
-# (ctxloom-agent:latest — see the `container-build-claude` just recipe).
+# Production ctxloom agent image (claude) — the AGENT-SPECIFICS stage: a real
+# claude CLI plus the locally-built ctxloom binary, layered onto the shared base
+# image (container/base/Containerfile by default; a user base via
+# isolation_base_containerfile / `container build --base-containerfile`). The
+# plugin (`ctxloom llm serve claudecode`) spawns `claude` INSIDE the container
+# for a top-level isolated run. This image is the target of the container
+# isolation policy's default image tag (ctxloom-agent:latest).
 #
-# node:22-slim (Debian/glibc) is the portable install base: `npm i -g
-# @anthropic-ai/claude-code` lands `claude` on PATH (/usr/local/bin) and its native
-# helpers link against glibc. The static ctxloom (CGO_ENABLED=0) runs on any base.
+# The claude-code-acp ADAPTER ships alongside the claude CLI: claude's structured
+# chat (the Chat RPC — and `ctxloom acp` when the engine is containerized) rides
+# the ACP adapter, which the in-container plugin resolves from PATH. Without it
+# the image supports pty runs only and structured chat degrades with the
+# install-hint error.
+#
+# BASE CONTRACT: node/npm on PATH (the default base is node:22-slim; a user base
+# must ship node too — the npm install fails the build otherwise, so a broken
+# combination never ships).
 #
 # AUTH is NOT baked in — it crosses at RUN time, chosen by the container policy:
 #   - env passthrough: the host's ANTHROPIC_* vars (when ANTHROPIC_API_KEY is set), or
@@ -19,12 +26,17 @@
 # (/usr/local/bin/ctxloom llm serve <backend> ...) on a writable base with a fresh
 # HOME. The build context must contain the static binary at ./ctxloom (the
 # `container-build-claude` recipe builds it with CGO_ENABLED=0).
-FROM node:22-slim
+ARG BASE_IMAGE=ctxloom-agent-base:latest
+FROM ${BASE_IMAGE}
+ENTRYPOINT []
 
-# Install the claude CLI globally and fail the build if it is not runnable, so a
-# broken image never ships (npm's postinstall pins the native binary for this arch).
-RUN npm install -g @anthropic-ai/claude-code \
-    && claude --version
+# Install the claude CLI + the ACP adapter globally and fail the build if either
+# is not usable, so a broken image never ships (npm's postinstall pins the native
+# binary for this arch). The adapter has no --version (running it bare would serve
+# ACP on stdio and hang), so its gate is PATH presence.
+RUN npm install -g @anthropic-ai/claude-code @zed-industries/claude-code-acp \
+    && claude --version \
+    && command -v claude-code-acp
 
 COPY ctxloom /usr/local/bin/ctxloom
 # Validate the layered ctxloom runs on this base (the daily build is

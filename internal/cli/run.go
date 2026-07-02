@@ -666,7 +666,7 @@ Examples:
 		// container's runtime probe runs at most once per launch.
 		var policy isolation.Policy = isolation.None{}
 		if llmBinary == "" {
-			policy = isolation.Resolve(cfg.Isolation, backendName, cfg.IsolationImageFor(backendName))
+			policy = isolation.Resolve(cfg.Isolation, backendName, operations.IsolationImageConfig(cfg, backendName))
 		}
 
 		// Build request. The host now assembles the config/bundle setup payload

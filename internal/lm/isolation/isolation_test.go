@@ -40,11 +40,11 @@ func TestFactoryForWorkspace_BindsPolicy(t *testing.T) {
 // policy name degrades to None (fault tolerance) rather than failing.
 func TestResolve_DefaultsAndDegrades(t *testing.T) {
 	for _, name := range []string{"", "none"} {
-		p := Resolve(name, "claude-code", "")
+		p := Resolve(name, "claude-code", ImageConfig{})
 		assert.IsType(t, None{}, p, "policy %q resolves to None", name)
 	}
 	// Unknown → degrade to None (warns to stderr; never blocks the LLM).
-	assert.IsType(t, None{}, Resolve("worktree-not-yet-implemented", "claude-code", ""),
+	assert.IsType(t, None{}, Resolve("worktree-not-yet-implemented", "claude-code", ImageConfig{}),
 		"an unknown policy degrades to None")
 }
 

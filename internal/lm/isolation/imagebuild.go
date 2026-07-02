@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -26,21 +27,50 @@ const imageBuildTimeout = 10 * time.Minute
 // tests, like hostHomeDir): it yields the path buildImage bakes into the image.
 var resolveSelfExe = selfLinuxExe
 
-// buildSource is one way to produce the agent image locally: a Containerfile
-// (a rendered overlay onto a client-shipped base, or the embedded install
-// recipe) plus a description for degrade diagnostics.
+// baseImageTag is the local tag the shared base stage builds to; the agent
+// stages FROM it via --build-arg BASE_IMAGE.
+const baseImageTag = "ctxloom-agent-base:latest"
+
+// buildSource is one way to produce the agent image locally: the agent-stage
+// Containerfile (a rendered overlay onto a client-shipped base, or the embedded
+// install recipe), optionally preceded by a BASE stage, plus a description for
+// degrade diagnostics.
 type buildSource struct {
 	desc          string
 	containerfile []byte
+	// base, when non-nil, is stage 1: a base image built first and tagged
+	// baseImageTag, which the agent stage above FROMs via --build-arg.
+	base *baseStage
 }
 
-// buildSources orders a profile's local-build sources. An explicit base
-// override wins outright (the caller asserts the client lives there); else the
-// client's OFFICIAL image is overlaid first (a fresh --pull build rides the
-// vendor's most recent client), falling back to the embedded install
-// Containerfile (which fetches the most recent client CLI — never pinned).
-// Empty means the image cannot be built locally.
-func buildSources(p containerProfile, baseOverride string) []buildSource {
+// baseStage describes the shared stage-1 base image build: a user-provided
+// Containerfile on disk (its directory is the build context, so its COPYs
+// work), or the embedded default base.
+type baseStage struct {
+	desc          string
+	path          string // user Containerfile path ("" = embedded default)
+	containerfile []byte // embedded default content (used when path == "")
+}
+
+// defaultBaseStage is the embedded shared base (container/base/Containerfile).
+func defaultBaseStage() *baseStage {
+	return &baseStage{desc: "default base Containerfile", containerfile: containerfiles.Base}
+}
+
+// userBaseStage is a user-provided base Containerfile on disk.
+func userBaseStage(path string) *baseStage {
+	return &baseStage{desc: "user base Containerfile " + path, path: path}
+}
+
+// buildSources orders a profile's local-build sources. An explicit base-IMAGE
+// override wins outright (the caller asserts the client lives there). Else, for
+// a profile with an agent-stage recipe, a user base CONTAINERFILE leads (their
+// environment, our agent layers), the client's OFFICIAL image overlay follows
+// (a fresh --pull build rides the vendor's most recent client), and the
+// embedded install recipe over the default base (which fetches the MOST RECENT
+// client CLI — never pinned) is the fallback. Empty means the image cannot be
+// built locally.
+func buildSources(p containerProfile, baseOverride, baseContainerfile string) []buildSource {
 	if baseOverride != "" {
 		return []buildSource{{
 			desc:          "overlay on base image " + baseOverride,
@@ -48,6 +78,13 @@ func buildSources(p containerProfile, baseOverride string) []buildSource {
 		}}
 	}
 	var out []buildSource
+	if len(p.containerfile) > 0 && baseContainerfile != "" {
+		out = append(out, buildSource{
+			desc:          "agent stage on the user base Containerfile " + baseContainerfile,
+			containerfile: p.containerfile,
+			base:          userBaseStage(baseContainerfile),
+		})
+	}
 	if p.officialImage != "" {
 		out = append(out, buildSource{
 			desc:          "overlay on the official client image " + p.officialImage,
@@ -55,7 +92,11 @@ func buildSources(p containerProfile, baseOverride string) []buildSource {
 		})
 	}
 	if len(p.containerfile) > 0 {
-		out = append(out, buildSource{desc: "embedded install Containerfile", containerfile: p.containerfile})
+		out = append(out, buildSource{
+			desc:          "embedded install Containerfile",
+			containerfile: p.containerfile,
+			base:          defaultBaseStage(),
+		})
 	}
 	return out
 }
@@ -90,7 +131,7 @@ func (c Container) ensureImage(ctx context.Context) error {
 	if c.imagePresent(ctx) {
 		return nil
 	}
-	sources := buildSources(c.profile, "")
+	sources := buildSources(c.profile, "", c.baseContainerfile)
 	if len(sources) == 0 {
 		return fmt.Errorf("container image %q is not present (no local build recipe for this engine; provide the image, or configure isolation_images)", c.image)
 	}
@@ -101,7 +142,7 @@ func (c Container) ensureImage(ctx context.Context) error {
 	clidiag.Warn("ctxloom", "container image %q not found; building it locally (first run — this may take a few minutes)", c.image)
 	var lastErr error
 	for _, src := range sources {
-		err := buildImage(ctx, c.runtime, c.image, src.containerfile, selfExe, false, nil)
+		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, false, nil)
 		if err == nil && !c.imagePresent(ctx) {
 			err = fmt.Errorf("image %q is still absent after a build via the %s", c.image, src.desc)
 		}
@@ -114,12 +155,66 @@ func (c Container) ensureImage(ctx context.Context) error {
 	return fmt.Errorf("local build of container image %q failed: %w", c.image, lastErr)
 }
 
+// buildFromSource executes one build source: the base stage first when the
+// source has one (tagged baseImageTag, handed to the agent stage via
+// --build-arg BASE_IMAGE), then the agent/overlay stage with the running
+// ctxloom binary in its context. `fresh` pulls + skips cache on stages whose
+// FROM is an external image; the agent stage over a just-built local base
+// never --pulls (the tag exists only locally) but still skips cache so the
+// client install re-runs.
+func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src buildSource, selfExe string, fresh bool, output io.Writer) error {
+	var buildArgs []string
+	if src.base != nil {
+		if err := buildBaseImage(ctx, rt, src.base, fresh, output); err != nil {
+			return fmt.Errorf("base image (%s): %w", src.base.desc, err)
+		}
+		buildArgs = append(buildArgs, "BASE_IMAGE="+baseImageTag)
+	}
+	return buildImage(ctx, rt, image, src.containerfile, selfExe, buildFlags{
+		pull:      fresh && src.base == nil,
+		noCache:   fresh,
+		buildArgs: buildArgs,
+	}, output)
+}
+
+// buildBaseImage builds the stage-1 base image (baseImageTag). A user-provided
+// Containerfile builds with ITS OWN directory as the context (so its COPYs
+// resolve); the embedded default builds from a scratch context.
+func buildBaseImage(ctx context.Context, rt ContainerRuntime, base *baseStage, fresh bool, output io.Writer) error {
+	flags := buildFlags{pull: fresh, noCache: fresh}
+	if base.path != "" {
+		abs, err := filepath.Abs(base.path)
+		if err != nil {
+			return fmt.Errorf("base containerfile: %w", err)
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return fmt.Errorf("base containerfile: %w", err)
+		}
+		return runImageBuild(ctx, rt, baseImageTag, abs, filepath.Dir(abs), flags, output)
+	}
+
+	dir, err := os.MkdirTemp("", "ctxloom-imgbase-")
+	if err != nil {
+		return fmt.Errorf("base build context: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	file := filepath.Join(dir, "Containerfile")
+	if err := os.WriteFile(file, base.containerfile, 0o644); err != nil {
+		return fmt.Errorf("base build context: %w", err)
+	}
+	return runImageBuild(ctx, rt, baseImageTag, file, dir, flags, output)
+}
+
 // ImageBuildOptions parameterize an explicit agent-image build
 // (`ctxloom container build`).
 type ImageBuildOptions struct {
 	// BaseImage overlays ctxloom onto this user-chosen base — which must
 	// already ship the client CLI — instead of the profile's build sources.
 	BaseImage string
+	// BaseContainerfile builds the shared base stage from this user-provided
+	// Containerfile instead of the embedded default; the engine's agent stage
+	// layers on top. Mutually exclusive with BaseImage.
+	BaseContainerfile string
 	// Runtime prefers a container runtime by name ("docker" | "podman");
 	// empty auto-detects.
 	Runtime string
@@ -133,14 +228,18 @@ type ImageBuildOptions struct {
 }
 
 // BuildAgentImage builds the agent image for the REGISTERED backend name from
-// the best available source — the caller's base-image overlay, the client's
-// official image, or the embedded install Containerfile — layering the RUNNING
-// ctxloom binary in (any dev build works; no ctxloom release needed). Each
-// source validates the client inside the build (`<client> --version`), so a
-// broken image never ships. Returns the image tag it built.
+// the best available source — the caller's base-image overlay, the agent stage
+// on a user base Containerfile, the client's official image, or the embedded
+// install recipe over the default base — layering the RUNNING ctxloom binary in
+// (any dev build works; no ctxloom release needed). Each source validates the
+// client inside the build (`<client> --version`), so a broken image never
+// ships. Returns the image tag it built.
 func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions) (string, error) {
+	if opts.BaseImage != "" && opts.BaseContainerfile != "" {
+		return "", fmt.Errorf("base-image and base-containerfile are mutually exclusive (an image asserts the client is preinstalled; a containerfile gets the client layered on)")
+	}
 	p := containerProfileFor(backend)
-	sources := buildSources(p, opts.BaseImage)
+	sources := buildSources(p, opts.BaseImage, opts.BaseContainerfile)
 	if len(sources) == 0 {
 		return "", fmt.Errorf("backend %q has no local build recipe (no official client image and no embedded Containerfile); pass --base-image with the client preinstalled", backend)
 	}
@@ -157,7 +256,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 		if opts.Output != nil {
 			fmt.Fprintf(opts.Output, "ctxloom: building %s via the %s (%s)\n", p.image, src.desc, rt.Name())
 		}
-		if err := buildImage(ctx, rt, p.image, src.containerfile, selfExe, !opts.KeepCache, opts.Output); err != nil {
+		if err := buildFromSource(ctx, rt, p.image, src, selfExe, !opts.KeepCache, opts.Output); err != nil {
 			clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
 			lastErr = err
 			continue
@@ -194,29 +293,49 @@ func selfLinuxExe() (string, error) {
 	return exe, nil
 }
 
-// buildImage runs `<runtime> build -t <image>` over a temp context holding the
-// Containerfile plus the running static ctxloom binary. fresh adds --pull
-// --no-cache (refresh the base, re-run the client install → most recent
-// client). output streams the build live when set; otherwise output is
-// captured and surfaced (tail only) on failure. Capped at imageBuildTimeout.
-func buildImage(ctx context.Context, rt ContainerRuntime, image string, containerfile []byte, selfExe string, fresh bool, output io.Writer) error {
+// buildFlags are the per-stage `<runtime> build` knobs: --pull (refresh an
+// EXTERNAL base — never set when the FROM is the locally-built base tag, which
+// no registry has), --no-cache (re-run installs → most recent client), and
+// --build-arg values (BASE_IMAGE for agent stages).
+type buildFlags struct {
+	pull      bool
+	noCache   bool
+	buildArgs []string
+}
+
+// buildImage runs one agent/overlay stage over a temp context holding the
+// Containerfile plus the running static ctxloom binary.
+func buildImage(ctx context.Context, rt ContainerRuntime, image string, containerfile []byte, selfExe string, flags buildFlags, output io.Writer) error {
 	dir, err := os.MkdirTemp("", "ctxloom-imgbuild-")
 	if err != nil {
 		return fmt.Errorf("image build context: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	if err := os.WriteFile(filepath.Join(dir, "Containerfile"), containerfile, 0o644); err != nil {
+	file := filepath.Join(dir, "Containerfile")
+	if err := os.WriteFile(file, containerfile, 0o644); err != nil {
 		return fmt.Errorf("image build context: %w", err)
 	}
 	if err := copyExecutable(selfExe, filepath.Join(dir, "ctxloom")); err != nil {
 		return fmt.Errorf("image build context: %w", err)
 	}
+	return runImageBuild(ctx, rt, image, file, dir, flags, output)
+}
 
+// runImageBuild executes `<runtime> build -t <image> -f <file> <contextDir>`.
+// output streams the build live when set; otherwise output is captured and
+// surfaced (tail only) on failure. Capped at imageBuildTimeout.
+func runImageBuild(ctx context.Context, rt ContainerRuntime, image, file, contextDir string, flags buildFlags, output io.Writer) error {
 	args := []string{"build", "-t", image}
-	if fresh {
-		args = append(args, "--pull", "--no-cache")
+	if flags.pull {
+		args = append(args, "--pull")
 	}
-	args = append(args, "-f", filepath.Join(dir, "Containerfile"), dir)
+	if flags.noCache {
+		args = append(args, "--no-cache")
+	}
+	for _, ba := range flags.buildArgs {
+		args = append(args, "--build-arg", ba)
+	}
+	args = append(args, "-f", file, contextDir)
 
 	bctx, cancel := context.WithTimeout(ctx, imageBuildTimeout)
 	defer cancel()

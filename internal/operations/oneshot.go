@@ -90,7 +90,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		// project's top-level isolation default (empty → none). AgentID scopes a
 		// future per-agent workspace by the profile name.
 		Isolation:      cfg.Isolation,
-		IsolationImage: cfg.IsolationImageFor(backendName),
+		IsolationImage: IsolationImageConfig(cfg, backendName),
 		AgentID:        req.Profile,
 		Profiles:  profiles,
 		Gate:      gate,
@@ -122,13 +122,14 @@ type resolvedRunRequest struct {
 	// Isolation is the resolved per-agent isolation policy name (none | worktree
 	// | container); empty means none (host — today's behaviour). It selects HOW
 	// the member's plugin is spawned and WHERE its workspace lives when no
-	// Factory is injected. IsolationImage is the optional USER-PROVIDED agent
-	// image for a containerized member (config isolation_images, keyed by the
-	// member's backend), run as-is; empty keeps the backend's built-in default.
-	// AgentID scopes/names that per-agent workspace (the member identifier).
-	// All are ignored on the injected-Factory path.
+	// Factory is injected. IsolationImage carries the user's container-image
+	// configuration for the member's backend (config isolation_images — run
+	// as-is — and isolation_base_containerfile for local builds); the zero value
+	// keeps the backend's built-in defaults. AgentID scopes/names that per-agent
+	// workspace (the member identifier). All are ignored on the injected-Factory
+	// path.
 	Isolation      string
-	IsolationImage string
+	IsolationImage isolation.ImageConfig
 	AgentID        string
 
 	// Profiles is the member's resolved profile set — the SAME set that scoped its
@@ -144,6 +145,17 @@ type resolvedRunRequest struct {
 	Gate bundles.ContentGate
 
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
+}
+
+// IsolationImageConfig assembles the user's container-image configuration for
+// a backend's isolated runs: the per-backend prebuilt-image override (config
+// isolation_images) plus the base Containerfile local builds layer the agent
+// stage onto (config isolation_base_containerfile).
+func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageConfig {
+	return isolation.ImageConfig{
+		Image:             cfg.IsolationImageFor(backend),
+		BaseContainerfile: cfg.IsolationBaseContainerfilePath(),
+	}
 }
 
 // runResolvedAgent launches the resolved backend once in ONESHOT mode with the

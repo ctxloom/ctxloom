@@ -498,7 +498,7 @@ container-build-minimal:
 # ~/.claude credential mount). Follows the self-contained container-build-minimal
 # pattern (docker, static binary, no base-image dependency); the Go test gate never
 # depends on this image (the build is slow/network-bound).
-container-build-claude:
+container-build-claude: container-build-base
     #!/usr/bin/env bash
     set -euo pipefail
     ctx=$(mktemp -d)
@@ -508,7 +508,21 @@ container-build-claude:
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/production/Containerfile-claude-code "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
+        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
         -f "$ctx/Containerfile" "$ctx"
+
+# Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
+# plus the coding-agent tool layer (git, ripgrep, curl, certs, unzip, jq). The
+# per-engine recipes layer their agent stage on top via --build-arg BASE_IMAGE.
+# To bring your own base instead, use `ctxloom container build
+# --base-containerfile <file>` (or config isolation_base_containerfile).
+container-build-base:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    cp container/base/Containerfile "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent-base:latest -f "$ctx/Containerfile" "$ctx"
 
 # Build the PRODUCTION kiro agent image: the locally-built static linux ctxloom
 # PLUS a real kiro-cli (official installer on debian slim), tagged
@@ -516,7 +530,7 @@ container-build-claude:
 # Auth is NOT baked in — KIRO_API_KEY crosses at run time (headless mode). The
 # isolation policy can also build this image ON THE FLY from the embedded
 # Containerfile when the tag is absent; this recipe is the ahead-of-time path.
-container-build-kiro:
+container-build-kiro: container-build-base
     #!/usr/bin/env bash
     set -euo pipefail
     ctx=$(mktemp -d)
@@ -525,7 +539,9 @@ container-build-kiro:
         -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/production/Containerfile-kiro "$ctx/Containerfile"
-    {{container_cmd}} build -t ctxloom-agent-kiro:latest -f "$ctx/Containerfile" "$ctx"
+    {{container_cmd}} build -t ctxloom-agent-kiro:latest \
+        --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
+        -f "$ctx/Containerfile" "$ctx"
 
 # List all ctxloom container images
 container-list:

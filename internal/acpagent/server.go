@@ -333,12 +333,16 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 // events as session/update notifications, forward its permission requests to
 // the client, relay a session/cancel to the engine, and reply with the stop
 // reason when the turn completes.
-func (s *Server) runTurn(sess *session, text string, reply func(any, *jsonrpc.Error)) {
-	defer func() {
+func (s *Server) runTurn(sess *session, text string, replyWire func(any, *jsonrpc.Error)) {
+	// The turn must close BEFORE its response reaches the wire: the client may
+	// send the next prompt the instant it reads the reply, and that prompt
+	// must not race a deferred reset into "a turn is already in flight".
+	reply := func(result any, rerr *jsonrpc.Error) {
 		sess.mu.Lock()
 		sess.inTurn = false
 		sess.mu.Unlock()
-	}()
+		replyWire(result, rerr)
+	}
 
 	// Send the message; a dead engine (closed conversation) surfaces on Errs.
 	select {

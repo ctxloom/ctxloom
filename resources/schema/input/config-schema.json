@@ -243,7 +243,7 @@
     },
     "isolation": {
       "type": "string",
-      "description": "Default per-agent isolation policy for fan-out members (map/weave). 'none' (default, and the only policy active in this release) runs each member on the host in the project directory — today's behaviour. A subagent's own `isolation` overrides this default; empty means none. worktree/container are reserved for later phases (an unrecognized policy degrades to none with a warning).",
+      "description": "Default per-agent isolation policy for fan-out members (map/weave). 'none' (default, and the only policy active in this release) runs each member on the host in the project directory — today's behaviour. An agent's own `isolation` overrides this default; empty means none. worktree/container are reserved for later phases (an unrecognized policy degrades to none with a warning).",
       "enum": ["none", "worktree", "container"]
     },
     "isolation_images": {
@@ -256,15 +256,15 @@
       "minLength": 1,
       "description": "USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of using the embedded default base. Relative paths resolve against the project root."
     },
-    "subagents": {
+    "agents": {
       "type": "object",
-      "description": "Local-only engine↔profile bindings. A subagent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/subagents/<name>.yaml files.",
+      "description": "Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files.",
       "additionalProperties": {
         "type": "object",
         "properties": {
           "engine": {
             "type": "string",
-            "description": "LLM config label/backend hoisted to this subagent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend)"
+            "description": "LLM config label/backend hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend)"
           },
           "profiles": {
             "type": "array",
@@ -273,7 +273,7 @@
           },
           "isolation": {
             "type": "string",
-            "description": "Per-agent isolation policy for this subagent when run as a fan-out member. Overrides the top-level `isolation` default; empty inherits it, then falls back to none. worktree/container are reserved for later phases.",
+            "description": "Per-agent isolation policy for this agent when run as a fan-out member. Overrides the top-level `isolation` default; empty inherits it, then falls back to none. worktree/container are reserved for later phases.",
             "enum": ["none", "worktree", "container"]
           }
         },

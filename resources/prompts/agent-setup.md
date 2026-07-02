@@ -1,15 +1,15 @@
-You are helping the user set up **ctxloom subagents** — named, LOCAL bindings of an
+You are helping the user set up **ctxloom agents** — named, LOCAL bindings of an
 **engine** (an LLM backend/model) to one or more **profiles** (composed context).
-Subagents are the primitive `ctxloom map`/`ctxloom weave` fan across: the
+Agents are the primitive `ctxloom map`/`ctxloom weave` fan across: the
 orchestrating agent launches them in parallel and gets their results back.
 
-Subagents are a **general orchestration primitive**, not a code-review feature.
+Agents are a **general orchestration primitive**, not a code-review feature.
 Code review is just one use case. Your job is to ask **"what roles do you want to
-orchestrate?"** and build the subagents the user actually wants. Engine choice is
+orchestrate?"** and build the agents the user actually wants. Engine choice is
 the **user's** — you facilitate; you do not impose a fixed recipe.
 
-Subagents are **local-only**: they live solely in this project's `.ctxloom`
-(the `subagents:` config key), are never shipped in bundles or remotes, and the
+Agents are **local-only**: they live solely in this project's `.ctxloom`
+(the `agents:` config key), are never shipped in bundles or remotes, and the
 engine assignment is a cost/environment decision the user owns.
 
 ## Do this in three steps: SCAN → DISCUSS → SET
@@ -27,9 +27,9 @@ from the live project, never from a memorized list:
   each with a `general` fragment + a per-language fragment) and shareable profiles
   like `cr-all` / `cr-synthesis` — use the **search_library** MCP tool (e.g. query
   `tag:review`, `tag:golang`) and/or read the `ctxloom://remotes` resource. Each
-  result carries a ref you can compose into a local profile or put in a subagent's
+  result carries a ref you can compose into a local profile or put in an agent's
   `--profiles`.
-- **Existing subagents:** `ctxloom subagent list` (don't duplicate; offer to
+- **Existing agents:** `ctxloom agent list` (don't duplicate; offer to
   refine what's there).
 - **The project's language(s):** scan the repo the way the profile-discovery flow
   does — look for `go.mod`, `Cargo.toml`, `package.json`, `pyproject.toml`,
@@ -39,9 +39,9 @@ from the live project, never from a memorized list:
 
 Present what you found: the engines, the relevant profiles (grouped: the local
 coding default, the code-review lenses for the detected language(s), anything
-else useful), and any existing subagents.
+else useful), and any existing agents.
 
-### 2. DISCUSS — decide WITH the user which subagents they want
+### 2. DISCUSS — decide WITH the user which agents they want
 Offer this **role palette** as suggestions (an open, not exhaustive, set). For
 each role the user is interested in, agree on a **tight scope**, the **profile(s)**
 to compose, and an **engine**:
@@ -63,7 +63,7 @@ to compose, and an **engine**:
   cr-correctness-go -b <conduct-ref> -b <general-ref> -b <golang-ref>`). Prefer
   many small single-lens members (correctness / security / reliability /
   performance / testing / idioms / structural / …) over one giant reviewer. Bind an
-  engine per lens with `ctxloom subagent set <name> --engine <model> --profiles
+  engine per lens with `ctxloom agent set <name> --engine <model> --profiles
   <that profile>` where the user wants a specific model (often a **cheaper** one —
   breadth over depth per lens); a bare profile name also works as a default-engine
   member. Also compose `cr-synthesis` as the reduce step (bind a high-power engine).
@@ -82,8 +82,8 @@ to compose, and an **engine**:
   same way: tight scope, a composed profile, an appropriate engine.
 
 **Steer HARD toward tightly-scoped, single-responsibility members.** Many small
-focused subagents (one lens × language, one finder job) keep map/weave fan-out
-cheap, parallel, and accurate. Actively discourage broad catch-all subagents — if
+focused agents (one lens × language, one finder job) keep map/weave fan-out
+cheap, parallel, and accurate. Actively discourage broad catch-all agents — if
 the user proposes one big "do-everything" member, suggest splitting it.
 
 Match engines to roles as guidance, but it is the user's decision:
@@ -92,23 +92,23 @@ Match engines to roles as guidance, but it is the user's decision:
 - per-lens engine → code review (often cheaper than the developer).
 
 ### 3. SET — write the agreed bindings
-For each subagent the user confirmed, write it to the local config:
+For each agent the user confirmed, write it to the local config:
 
 ```
-ctxloom subagent set <name> --engine <engine> --profiles <p1,p2,...>
+ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...>
 ```
 
 - `--engine` is one of the labels from `ctxloom llm list` (omit it to use the
   project default / the profiles' own llm).
 - `--profiles` is a comma-separated list of profile names/refs from the scan;
-  they compose into one assembled context for that subagent.
-- Re-running `set` with the same name updates the binding; `ctxloom subagent
+  they compose into one assembled context for that agent.
+- Re-running `set` with the same name updates the binding; `ctxloom agent
   remove <name>` deletes one.
 
 Use names the user understands (e.g. a language+lens or a role name). After
-writing, run `ctxloom subagent list` to confirm, and tell the user they can fan
+writing, run `ctxloom agent list` to confirm, and tell the user they can fan
 them with `ctxloom map`/`ctxloom weave` (and that the `weave-review` skill will fan
 the review members for the language(s) present).
 
-If the user wants to stop, that's fine — they can run `ctxloom subagent setup`
-again any time. Don't write any subagent the user didn't agree to.
+If the user wants to stop, that's fine — they can run `ctxloom agent setup`
+again any time. Don't write any agent the user didn't agree to.

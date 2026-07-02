@@ -32,7 +32,7 @@ type InitializeProjectResult struct {
 // `init` scaffolds and wires as config `profiles.defaults`. Generic by design
 // (it mirrors the `profiles.defaults` concept, not any role/archetype): the
 // archetype taxonomy — developer/finder/code-review, per-(language × lens)
-// members — is data, living in the subagent-setup prompt and ctxloom-default's
+// members — is data, living in the agent-setup prompt and ctxloom-default's
 // profiles, never baked into this binary as names.
 const SeedProfileName = "default"
 

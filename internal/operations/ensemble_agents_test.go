@@ -7,22 +7,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/subagents"
 )
 
-// subagentFanConfig is the Phase-C fan fixture: two profiles each carrying a
+// agentFanConfig is the Phase-C fan fixture: two profiles each carrying a
 // DISTINCT fragment (so a member's composed context is identifiable in its
-// output), and two subagents whose engine DISAGREES with their profile's llm —
-// so a resolved member's backend proves whether the subagent engine (override)
+// output), and two agents whose engine DISAGREES with their profile's llm —
+// so a resolved member's backend proves whether the agent engine (override)
 // or the profile llm (bare-profile fall-through) won.
 //
 //	profile sec-profile : llm agy-code,    fragment security-rules ("Security Rules")
 //	profile perf-profile: llm claude-fast, fragment go-patterns    ("Go Patterns")
-//	subagent sec : engine claude-fast over sec-profile  (overrides agy-code)
-//	subagent perf: engine agy-code   over perf-profile  (overrides claude-fast)
-func subagentFanConfig() *config.Config {
+//	agent sec : engine claude-fast over sec-profile  (overrides agy-code)
+//	agent perf: engine agy-code   over perf-profile  (overrides claude-fast)
+func agentFanConfig() *config.Config {
 	return &config.Config{
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
@@ -36,7 +36,7 @@ func subagentFanConfig() *config.Config {
 			"sec-profile":  {LLM: "agy-code", Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
 			"perf-profile": {LLM: "claude-fast", Fragments: []config.FragmentRef{{Name: "dev#fragments/go-patterns"}}},
 		}},
-		Subagents: map[string]subagents.Subagent{
+		Agents: map[string]agents.Agent{
 			"sec":  {Engine: "claude-fast", Profiles: []string{"sec-profile"}},
 			"perf": {Engine: "agy-code", Profiles: []string{"perf-profile"}},
 		},
@@ -47,12 +47,12 @@ func emitFragmentsFactory(string, string, int) (pb.Client, error) {
 	return &stubClient{emitFragments: true}, nil
 }
 
-// TestMapProfiles_FansSubagentsEachOwnEngineAndContext is the heart of Phase C:
-// `map --subagents sec,perf` fans the two NAMED subagents, and each runs on ITS
+// TestMapProfiles_FansAgentsEachOwnEngineAndContext is the heart of Phase C:
+// `map --agents sec,perf` fans the two NAMED agents, and each runs on ITS
 // OWN engine + ITS OWN composed profile-context — not one shared engine.
-func TestMapProfiles_FansSubagentsEachOwnEngineAndContext(t *testing.T) {
+func TestMapProfiles_FansAgentsEachOwnEngineAndContext(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := subagentFanConfig()
+	cfg := agentFanConfig()
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
 		Members: []string{"sec", "perf"},
@@ -65,7 +65,7 @@ func TestMapProfiles_FansSubagentsEachOwnEngineAndContext(t *testing.T) {
 	assert.Equal(t, "sec", parts[0].Profile)
 	assert.Equal(t, "perf", parts[1].Profile)
 
-	// Per-member engine: each subagent's engine OVERRODE its profile's llm, so the
+	// Per-member engine: each agent's engine OVERRODE its profile's llm, so the
 	// two members resolved to DIFFERENT backends (not one shared engine).
 	assert.False(t, parts[0].Failed())
 	assert.Equal(t, "claude-code", parts[0].Backend, "sec engine claude-fast overrides sec-profile's agy-code")
@@ -81,16 +81,16 @@ func TestMapProfiles_FansSubagentsEachOwnEngineAndContext(t *testing.T) {
 }
 
 // TestMapProfiles_BareProfileSugarUsesDefaultEngine proves the no-regression
-// guarantee: bare profile members (no subagent of that name) run exactly like
-// before — each on its OWN profile's llm, NOT a subagent override. The contrast
+// guarantee: bare profile members (no agent of that name) run exactly like
+// before — each on its OWN profile's llm, NOT an agent override. The contrast
 // with the previous test is sharp: the same two profiles, fanned bare, resolve
-// to the OPPOSITE backends because no subagent engine is in play.
+// to the OPPOSITE backends because no agent engine is in play.
 func TestMapProfiles_BareProfileSugarUsesDefaultEngine(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := subagentFanConfig()
+	cfg := agentFanConfig()
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
-		Members: []string{"sec-profile", "perf-profile"}, // bare profiles, not subagents
+		Members: []string{"sec-profile", "perf-profile"}, // bare profiles, not agents
 		Task:    "review",
 		Loader:  loader,
 		Factory: emitFragmentsFactory,
@@ -104,16 +104,16 @@ func TestMapProfiles_BareProfileSugarUsesDefaultEngine(t *testing.T) {
 	assert.Contains(t, parts[1].Output, "Go Patterns")
 }
 
-// TestMapProfiles_MixedSubagentAndBareProfile proves members may MIX: a named
-// subagent and a bare profile in one fan, each resolving by its own rule. sec
-// (subagent, engine override) and sec-profile (bare, own llm) compose the SAME
+// TestMapProfiles_MixedAgentAndBareProfile proves members may MIX: a named
+// agent and a bare profile in one fan, each resolving by its own rule. sec
+// (agent, engine override) and sec-profile (bare, own llm) compose the SAME
 // fragment yet resolve to DIFFERENT engines, side by side.
-func TestMapProfiles_MixedSubagentAndBareProfile(t *testing.T) {
+func TestMapProfiles_MixedAgentAndBareProfile(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := subagentFanConfig()
+	cfg := agentFanConfig()
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
-		Members: []string{"sec", "sec-profile"}, // subagent + bare profile
+		Members: []string{"sec", "sec-profile"}, // agent + bare profile
 		Task:    "review",
 		Loader:  loader,
 		Factory: emitFragmentsFactory,
@@ -121,7 +121,7 @@ func TestMapProfiles_MixedSubagentAndBareProfile(t *testing.T) {
 
 	require.Len(t, parts, 2)
 	assert.Equal(t, "sec", parts[0].Profile)
-	assert.Equal(t, "claude-code", parts[0].Backend, "subagent sec: engine override → claude-fast")
+	assert.Equal(t, "claude-code", parts[0].Backend, "agent sec: engine override → claude-fast")
 	assert.Equal(t, "sec-profile", parts[1].Profile)
 	assert.Equal(t, "antigravity", parts[1].Backend, "bare sec-profile: own llm → agy-code")
 	// Both composed the same fragment.
@@ -129,12 +129,12 @@ func TestMapProfiles_MixedSubagentAndBareProfile(t *testing.T) {
 	assert.Contains(t, parts[1].Output, "Security Rules")
 }
 
-// TestMapProfiles_LLMOverrideWinsOverSubagentEngine proves the map/weave --llm
-// override beats even a subagent's declared engine: forcing every member onto one
+// TestMapProfiles_LLMOverrideWinsOverAgentEngine proves the map/weave --llm
+// override beats even an agent's declared engine: forcing every member onto one
 // engine (a cost/availability knob) collapses the per-member engines.
-func TestMapProfiles_LLMOverrideWinsOverSubagentEngine(t *testing.T) {
+func TestMapProfiles_LLMOverrideWinsOverAgentEngine(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := subagentFanConfig()
+	cfg := agentFanConfig()
 
 	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
 		Members: []string{"sec", "perf"}, // sec→claude-fast, perf→agy-code by default
@@ -149,12 +149,12 @@ func TestMapProfiles_LLMOverrideWinsOverSubagentEngine(t *testing.T) {
 	assert.Equal(t, "antigravity", parts[1].Backend, "--llm override beats perf's engine")
 }
 
-// TestWeave_FansSubagentBareMixSynthesizesAndInjects proves the weave composite
-// over the Phase-C fan: a subagent + a bare profile member run (each on its own
+// TestWeave_FansAgentBareMixSynthesizesAndInjects proves the weave composite
+// over the Phase-C fan: an agent + a bare profile member run (each on its own
 // engine), an injected part is appended, and the synthesizer reduces them all.
-func TestWeave_FansSubagentBareMixSynthesizesAndInjects(t *testing.T) {
+func TestWeave_FansAgentBareMixSynthesizesAndInjects(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := subagentFanConfig()
+	cfg := agentFanConfig()
 	cfg.Profiles.Definitions["synth"] = config.Profile{LLM: "agy-code"}
 
 	// echo stub: the synthesizer's report is the framed synthesis input, so we can
@@ -162,7 +162,7 @@ func TestWeave_FansSubagentBareMixSynthesizesAndInjects(t *testing.T) {
 	factory := func(string, string, int) (pb.Client, error) { return &stubClient{echo: true}, nil }
 
 	res, err := Weave(context.Background(), cfg, WeaveRequest{
-		Members:       []string{"sec", "perf-profile"}, // subagent + bare profile
+		Members:       []string{"sec", "perf-profile"}, // agent + bare profile
 		Synthesize:    "synth",
 		Task:          "review the diff",
 		InjectedParts: []Part{{Profile: "legacy", Output: "old finding"}},
@@ -174,7 +174,7 @@ func TestWeave_FansSubagentBareMixSynthesizesAndInjects(t *testing.T) {
 	// Members ran (each on its own engine) + injected part appended, in order.
 	require.Len(t, res.Parts, 3)
 	assert.Equal(t, "sec", res.Parts[0].Profile)
-	assert.Equal(t, "claude-code", res.Parts[0].Backend, "subagent sec engine override")
+	assert.Equal(t, "claude-code", res.Parts[0].Backend, "agent sec engine override")
 	assert.Equal(t, "perf-profile", res.Parts[1].Profile)
 	assert.Equal(t, "claude-code", res.Parts[1].Backend, "bare perf-profile own claude-fast")
 	assert.Equal(t, "legacy", res.Parts[2].Profile)

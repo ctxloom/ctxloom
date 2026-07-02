@@ -11,10 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestBuildACPAgentEntries_DefaultPlusSubagents: the plain agent leads, then
-// one entry per subagent whose args select it via --subagent.
-func TestBuildACPAgentEntries_DefaultPlusSubagents(t *testing.T) {
-	subs := []operations.SubagentEntry{
+// TestBuildACPAgentEntries_DefaultPlusAgents: the plain agent leads, then
+// one entry per agent whose args select it via --agent.
+func TestBuildACPAgentEntries_DefaultPlusAgents(t *testing.T) {
+	subs := []operations.AgentEntry{
 		{Name: "docs", Profiles: []string{"d1", "d2"}},
 		{Name: "reviewer", Engine: "fast", Profiles: []string{"review"}},
 	}
@@ -24,10 +24,10 @@ func TestBuildACPAgentEntries_DefaultPlusSubagents(t *testing.T) {
 	assert.Equal(t, "ctxloom", entries[0].Name)
 	assert.Equal(t, "/usr/local/bin/ctxloom", entries[0].Command)
 	assert.Equal(t, []string{"acp"}, entries[0].Args)
-	assert.Empty(t, entries[0].Subagent)
+	assert.Empty(t, entries[0].Agent)
 
 	assert.Equal(t, "ctxloom: docs", entries[1].Name)
-	assert.Equal(t, []string{"acp", "--subagent", "docs"}, entries[1].Args)
+	assert.Equal(t, []string{"acp", "--agent", "docs"}, entries[1].Args)
 	assert.Equal(t, []string{"d1", "d2"}, entries[1].Profiles)
 
 	assert.Equal(t, "ctxloom: reviewer", entries[2].Name)
@@ -37,7 +37,7 @@ func TestBuildACPAgentEntries_DefaultPlusSubagents(t *testing.T) {
 // TestZedAgentServersBlock_ValidJSONStableOrder: the paste block is valid JSON
 // keyed by entry name, in entry order (a Go map would randomize it).
 func TestZedAgentServersBlock_ValidJSONStableOrder(t *testing.T) {
-	entries := buildACPAgentEntries([]operations.SubagentEntry{
+	entries := buildACPAgentEntries([]operations.AgentEntry{
 		{Name: "reviewer", Engine: "fast"},
 	}, "/bin/ctxloom")
 
@@ -50,16 +50,16 @@ func TestZedAgentServersBlock_ValidJSONStableOrder(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(block), &parsed), "the block must be valid JSON: %s", block)
 	require.Len(t, parsed, 2)
 	assert.Equal(t, "/bin/ctxloom", parsed["ctxloom"].Command)
-	assert.Equal(t, []string{"acp", "--subagent", "reviewer"}, parsed["ctxloom: reviewer"].Args)
+	assert.Equal(t, []string{"acp", "--agent", "reviewer"}, parsed["ctxloom: reviewer"].Args)
 
-	// Stable order: the default entry renders before the subagent entry.
+	// Stable order: the default entry renders before the agent entry.
 	assert.Less(t, bytes.Index([]byte(block), []byte(`"ctxloom"`)), bytes.Index([]byte(block), []byte(`"ctxloom: reviewer"`)))
 }
 
 // TestRenderACPAgents_ListsEntriesAndZedBlock: the human output names every
 // entry, its engine/profiles, and includes the ready-to-paste Zed block.
 func TestRenderACPAgents_ListsEntriesAndZedBlock(t *testing.T) {
-	entries := buildACPAgentEntries([]operations.SubagentEntry{
+	entries := buildACPAgentEntries([]operations.AgentEntry{
 		{Name: "reviewer", Engine: "fast", Profiles: []string{"r1", "r2"}},
 		{Name: "docs", Profiles: []string{"d"}},
 	}, "/bin/ctxloom")
@@ -73,17 +73,17 @@ func TestRenderACPAgents_ListsEntriesAndZedBlock(t *testing.T) {
 	assert.Contains(t, out, "profiles: r1, r2")
 	assert.Contains(t, out, "engine: (project default)")
 	assert.Contains(t, out, "agent_servers")
-	assert.Contains(t, out, `"args":["acp","--subagent","docs"]`)
+	assert.Contains(t, out, `"args":["acp","--agent","docs"]`)
 }
 
-// TestRenderACPAgents_NoSubagents: with no subagents the default entry still
-// advertises, with a pointer to defining subagents.
-func TestRenderACPAgents_NoSubagents(t *testing.T) {
+// TestRenderACPAgents_NoAgents: with no agents the default entry still
+// advertises, with a pointer to defining agents.
+func TestRenderACPAgents_NoAgents(t *testing.T) {
 	entries := buildACPAgentEntries(nil, "/bin/ctxloom")
 	require.Len(t, entries, 1)
 
 	var buf bytes.Buffer
 	require.NoError(t, renderACPAgents(&buf, entries))
 	assert.Contains(t, buf.String(), "ctxloom")
-	assert.Contains(t, buf.String(), "subagent")
+	assert.Contains(t, buf.String(), "agent")
 }

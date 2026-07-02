@@ -16,7 +16,7 @@ import (
 
 var (
 	weaveProfiles    []string
-	weaveSubagents   []string
+	weaveAgents      []string
 	weaveSynthesize  string
 	weaveLLM         string
 	weaveConcurrency int
@@ -29,15 +29,15 @@ var (
 
 var weaveCmd = &cobra.Command{
 	Use:   "weave [flags] [task...]",
-	Short: "Fan a task across subagents/profiles in parallel, then synthesize the results",
+	Short: "Fan a task across agents/profiles in parallel, then synthesize the results",
 	Long: `Run several members in parallel over one shared task (map), then pipe their
 outputs into a high-power synthesis profile that combines them into a single
 result (reduce).
 
-A member is either a local subagent (--subagents) or a bare profile (-p):
-  --subagents a,b   named subagents, each run on ITS OWN engine + composed
+A member is either a local agent (--agents) or a bare profile (-p):
+  --agents a,b   named agents, each run on ITS OWN engine + composed
                     profile-context (the engine binding is yours, set locally)
-  -p prof1,prof2    bare profiles — sugar for a default-engine subagent: each
+  -p prof1,prof2    bare profiles — sugar for a default-engine agent: each
                     runs with its profile's own llm: (unless --llm overrides all)
 Members from both flags run together. The -s synthesizer runs on its own
 (typically high-power) llm:. The whole map→reduce runs in-process — no shell —
@@ -58,7 +58,7 @@ The task is taken from the arguments, or from stdin when no arguments are given.
 Examples:
   ctxloom weave -p code-review/security -p code-review/perf \
     -s code-review/synthesis "review this diff"
-  ctxloom weave --subagents go-cr-security,go-cr-correctness -s synthesis "review"
+  ctxloom weave --agents go-cr-security,go-cr-correctness -s synthesis "review"
   git diff | ctxloom weave -p reviewer/a -p reviewer/b -s synthesis
   ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
   ctxloom weave -s synth --parts-from ./collected "merge these findings"
@@ -67,9 +67,9 @@ Examples:
 }
 
 func runWeave(cmd *cobra.Command, args []string) error {
-	members := mergeMembers(weaveSubagents, weaveProfiles)
+	members := mergeMembers(weaveAgents, weaveProfiles)
 	if len(members) == 0 && weavePartsFrom == "" && len(weaveParts) == 0 {
-		return fmt.Errorf("nothing to weave: pass members (--subagents/-p) and/or injected parts (--part/--parts-from)")
+		return fmt.Errorf("nothing to weave: pass members (--agents/-p) and/or injected parts (--part/--parts-from)")
 	}
 	if !weaveNoSynth && weaveSynthesize == "" {
 		return fmt.Errorf("a synthesis profile is required (-s/--synthesize); or pass --no-synthesize to emit parts only")
@@ -184,7 +184,7 @@ func init() {
 	rootCmd.AddCommand(weaveCmd)
 
 	weaveCmd.Flags().StringSliceVarP(&weaveProfiles, "profile", "p", nil, "Bare profile member, default-engine sugar (repeatable)")
-	weaveCmd.Flags().StringSliceVar(&weaveSubagents, "subagents", nil, "Named local subagent member(s), each on its own engine (comma-separated/repeatable)")
+	weaveCmd.Flags().StringSliceVar(&weaveAgents, "agents", nil, "Named local agent member(s), each on its own engine (comma-separated/repeatable)")
 	weaveCmd.Flags().StringVarP(&weaveSynthesize, "synthesize", "s", "", "Synthesis profile that combines member outputs (high-power)")
 	weaveCmd.Flags().StringVarP(&weaveLLM, "llm", "l", "", "Override the LLM for every member (synthesizer keeps its own llm:)")
 	weaveCmd.Flags().IntVar(&weaveConcurrency, "concurrency", 0, "Max members to run at once (default 4)")
@@ -195,7 +195,7 @@ func init() {
 	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 
 	_ = weaveCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
-	_ = weaveCmd.RegisterFlagCompletionFunc("subagents", completeSubagentNames)
+	_ = weaveCmd.RegisterFlagCompletionFunc("agents", completeAgentNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("synthesize", completeProfileNames)
 	_ = weaveCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 }

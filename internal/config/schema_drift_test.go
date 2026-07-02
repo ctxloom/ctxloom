@@ -118,8 +118,8 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"isolation: none\n",
 		},
 		{
-			"subagent-level isolation override",
-			"subagents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    isolation: worktree\n",
+			"agent-level isolation override",
+			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    isolation: worktree\n",
 		},
 		{
 			"per-backend isolation image overrides",

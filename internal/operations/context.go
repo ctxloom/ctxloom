@@ -37,7 +37,7 @@ type AssembleContextRequest struct {
 	// Profiles composes SEVERAL named profiles into one assembled context (union
 	// of fragments, later-wins variables, first-non-empty llm) — the same merge
 	// the configured-defaults path already runs, surfaced as an explicit ask so a
-	// subagent can bind multiple profiles. When non-empty it takes precedence over
+	// agent can bind multiple profiles. When non-empty it takes precedence over
 	// Profile; an explicit set's resolution failures are hard errors (not the
 	// fault-tolerant skip the defaults path uses).
 	Profiles  []string `json:"profiles"`
@@ -159,7 +159,7 @@ func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) 
 	// A multi-profile compose ask wins over the single-profile field: collected
 	// in order and merged downstream by collectProfileFragments (the same loop
 	// the configured-defaults path uses), so the constituent profiles of a
-	// subagent fold into one context.
+	// agent fold into one context.
 	if len(req.Profiles) > 0 {
 		return req.Profiles
 	}

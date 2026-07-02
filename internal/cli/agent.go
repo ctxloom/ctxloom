@@ -13,52 +13,52 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// subagentSetupPrompt is the agent-assisted setup prompt `subagent setup` emits
+// agentSetupPrompt is the agent-assisted setup prompt `agent setup` emits
 // for the LLM to follow: SCAN available engines/profiles → DISCUSS roles with the
 // user → SET the chosen engine↔profile bindings. It is deliberately a markdown
 // RESOURCE, not Go: the role palette, steering, and example names are data the
-// taxonomy can evolve without a code change (see resources/prompts/subagent-setup.md).
-var subagentSetupPrompt = resources.MustGetPromptText("subagent-setup")
+// taxonomy can evolve without a code change (see resources/prompts/agent-setup.md).
+var agentSetupPrompt = resources.MustGetPromptText("agent-setup")
 
-var subagentCmd = &cobra.Command{
-	Use:   "subagent",
-	Short: "Inspect local subagents (engine↔profile bindings)",
-	Long: `Inspect subagents — named, LOCAL-ONLY bindings of an LLM engine to one or
+var agentCmd = &cobra.Command{
+	Use:   "agent",
+	Short: "Inspect local agents (engine↔profile bindings)",
+	Long: `Inspect agents — named, LOCAL-ONLY bindings of an LLM engine to one or
 more composed profiles.
 
-A subagent names an 'engine' (the LLM config label/backend, which overrides the
+An agent names an 'engine' (the LLM config label/backend, which overrides the
 constituent profiles' own llm) and a list of 'profiles' that compose into one
-assembled context. Subagents are defined solely in your .ctxloom — under the
-'subagents:' key of config.yaml and/or as .ctxloom/subagents/<name>.yaml files.
+assembled context. Agents are defined solely in your .ctxloom — under the
+'agents:' key of config.yaml and/or as .ctxloom/agents/<name>.yaml files.
 They are never shipped in bundles or remotes: the engine choice is yours.`,
 }
 
-var subagentListCmd = &cobra.Command{
+var agentListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List all local subagents",
+	Short:   "List all local agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		list := operations.ListSubagents(cfg)
+		list := operations.ListAgents(cfg)
 		return emit(cmd, list, func() error {
-			return renderSubagentList(cmd.OutOrStdout(), list)
+			return renderAgentList(cmd.OutOrStdout(), list)
 		})
 	},
 }
 
-// renderSubagentList writes the human-readable summary of the subagent list.
+// renderAgentList writes the human-readable summary of the agent list.
 // Extracted from RunE so the formatting is testable without cobra/config.
-func renderSubagentList(out io.Writer, list []operations.SubagentEntry) error {
+func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 	w := iox.NewErrWriter(out)
 	if len(list) == 0 {
-		w.Println("No subagents defined.")
-		w.Println("Define one under 'subagents:' in .ctxloom/config.yaml or as .ctxloom/subagents/<name>.yaml.")
+		w.Println("No agents defined.")
+		w.Println("Define one under 'agents:' in .ctxloom/config.yaml or as .ctxloom/agents/<name>.yaml.")
 		return w.Err()
 	}
-	w.Printf("Subagents (%d):\n", len(list))
+	w.Printf("Agents (%d):\n", len(list))
 	for _, s := range list {
 		w.Printf("  %s", s.Name)
 		if s.Engine != "" {
@@ -74,9 +74,9 @@ func renderSubagentList(out io.Writer, list []operations.SubagentEntry) error {
 	return w.Err()
 }
 
-var subagentShowCmd = &cobra.Command{
+var agentShowCmd = &cobra.Command{
 	Use:   "show <name>",
-	Short: "Show a subagent and its resolved engine",
+	Short: "Show an agent and its resolved engine",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -88,7 +88,7 @@ var subagentShowCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		def, err := operations.GetSubagent(cfg, name)
+		def, err := operations.GetAgent(cfg, name)
 		if err != nil {
 			return err
 		}
@@ -96,23 +96,23 @@ var subagentShowCmd = &cobra.Command{
 		// behavior is visible. Resolution is fault-tolerant for show: a failure
 		// (e.g. a missing constituent profile) still prints the definition with a
 		// warning rather than failing the command.
-		resolved, rerr := operations.ResolveSubagent(cmd.Context(), cfg, name, "")
-		return emit(cmd, subagentShowJSON{Definition: def, Resolved: resolved}, func() error {
-			return renderSubagentShow(cmd.OutOrStdout(), def, resolved, rerr)
+		resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
+		return emit(cmd, agentShowJSON{Definition: def, Resolved: resolved}, func() error {
+			return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
 		})
 	},
 }
 
-// subagentShowJSON is the --format json shape for `subagent show`: the declared
+// agentShowJSON is the --format json shape for `agent show`: the declared
 // definition plus the resolved engine/backend (nil when resolution failed).
-type subagentShowJSON struct {
-	Definition *operations.SubagentEntry    `json:"definition"`
-	Resolved   *operations.ResolvedSubagent `json:"resolved,omitempty"`
+type agentShowJSON struct {
+	Definition *operations.AgentEntry    `json:"definition"`
+	Resolved   *operations.ResolvedAgent `json:"resolved,omitempty"`
 }
 
-func renderSubagentShow(out io.Writer, def *operations.SubagentEntry, resolved *operations.ResolvedSubagent, rerr error) error {
+func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error) error {
 	w := iox.NewErrWriter(out)
-	w.Printf("Subagent: %s\n", def.Name)
+	w.Printf("Agent: %s\n", def.Name)
 	if def.Source != "" {
 		w.Printf("Source: %s\n", def.Source)
 	}
@@ -139,32 +139,32 @@ func renderSubagentShow(out io.Writer, def *operations.SubagentEntry, resolved *
 	return w.Err()
 }
 
-// subagentSetupCmd surfaces the agent-assisted setup prompt for the LLM to run.
+// agentSetupCmd surfaces the agent-assisted setup prompt for the LLM to run.
 // It writes the prompt to stdout; the agent (which has shell access) runs
-// `ctxloom subagent setup`, reads the emitted instructions, and follows them
-// (scan engines/profiles → discuss roles with the user → `subagent set`). This is
+// `ctxloom agent setup`, reads the emitted instructions, and follows them
+// (scan engines/profiles → discuss roles with the user → `agent set`). This is
 // the same surface the SessionStart nudge points the user at.
-var subagentSetupCmd = &cobra.Command{
+var agentSetupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Print the agent-assisted subagent-setup prompt for the LLM to follow",
-	Long: `Emit the subagent-setup prompt: instructions for the LLM to interview you and
-configure subagents (engine↔profile bindings) collaboratively.
+	Short: "Print the agent-assisted agent-setup prompt for the LLM to follow",
+	Long: `Emit the agent-setup prompt: instructions for the LLM to interview you and
+configure agents (engine↔profile bindings) collaboratively.
 
-Subagents are a general orchestration primitive — cheap finders, code-review
+Agents are a general orchestration primitive — cheap finders, code-review
 lenses, escalating developers, and more — that map/weave fan across. The prompt
 has the agent SCAN what's available (engines via 'ctxloom llm list', profiles via
 'ctxloom profile list' + search_library), DISCUSS which roles you want, then write
-them with 'ctxloom subagent set'. Engine choice stays yours.
+them with 'ctxloom agent set'. Engine choice stays yours.
 
-Run this (or ask your agent to) when you have profiles but no subagents yet.`,
+Run this (or ask your agent to) when you have profiles but no agents yet.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// A bundle can ship its own `subagent-setup` skill to override the built-in
+		// A bundle can ship its own `agent-setup` skill to override the built-in
 		// onboarding/composition guidance (data, not baked into the binary); fall
 		// back to the built-in when none is installed or config can't load.
-		prompt := subagentSetupPrompt
+		prompt := agentSetupPrompt
 		if cfg, err := GetConfig(); err == nil {
-			prompt = operations.ResolveSetupPrompt(cfg, subagentSetupPrompt)
+			prompt = operations.ResolveSetupPrompt(cfg, agentSetupPrompt)
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Println(prompt)
@@ -173,27 +173,27 @@ Run this (or ask your agent to) when you have profiles but no subagents yet.`,
 }
 
 var (
-	subagentSetEngine   string
-	subagentSetProfiles []string
+	agentSetEngine   string
+	agentSetProfiles []string
 )
 
-// subagentSetCmd is the write half: add or update a LOCAL subagent under the
-// `subagents:` config key. This is what the setup flow calls to persist the
+// agentSetCmd is the write half: add or update a LOCAL agent under the
+// `agents:` config key. This is what the setup flow calls to persist the
 // binding the user chose. Generic by design — it stores whatever name/engine/
 // profiles are passed; no role/lens names are baked in.
-var subagentSetCmd = &cobra.Command{
+var agentSetCmd = &cobra.Command{
 	Use:   "set <name>",
-	Short: "Add or update a local subagent (engine↔profile binding)",
+	Short: "Add or update a local agent (engine↔profile binding)",
 	Long: `Bind an LLM engine to one or more profiles under a name, written to the
-'subagents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
+'agents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context.
 
 Examples:
-  ctxloom subagent set finder --engine claude-fast --profiles finder
-  ctxloom subagent set dev --engine claude-code --profiles default,go-developer
-  ctxloom subagent set reviewer --profiles cr-correctness-golang   # default engine`,
+  ctxloom agent set finder --engine claude-fast --profiles finder
+  ctxloom agent set dev --engine claude-code --profiles default,go-developer
+  ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -204,10 +204,10 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		entry, err := operations.SetSubagent(cfg, operations.SetSubagentRequest{
+		entry, err := operations.SetAgent(cfg, operations.SetAgentRequest{
 			Name:     name,
-			Engine:   subagentSetEngine,
-			Profiles: subagentSetProfiles,
+			Engine:   agentSetEngine,
+			Profiles: agentSetProfiles,
 		})
 		if err != nil {
 			return err
@@ -218,7 +218,7 @@ Examples:
 			if engine == "" {
 				engine = "project default"
 			}
-			w.Printf("Set subagent %q (engine: %s", entry.Name, engine)
+			w.Printf("Set agent %q (engine: %s", entry.Name, engine)
 			if len(entry.Profiles) > 0 {
 				w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
 			}
@@ -228,11 +228,11 @@ Examples:
 	},
 }
 
-// subagentRemoveCmd deletes a config-key subagent and persists the removal.
-var subagentRemoveCmd = &cobra.Command{
+// agentRemoveCmd deletes a config-key agent and persists the removal.
+var agentRemoveCmd = &cobra.Command{
 	Use:     "remove <name>",
 	Aliases: []string{"rm", "delete"},
-	Short:   "Remove a local subagent from config.yaml",
+	Short:   "Remove a local agent from config.yaml",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -243,40 +243,40 @@ var subagentRemoveCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		if err := operations.RemoveSubagent(cfg, name); err != nil {
+		if err := operations.RemoveAgent(cfg, name); err != nil {
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("Removed subagent %q\n", name)
+		w.Printf("Removed agent %q\n", name)
 		return w.Err()
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(subagentCmd)
-	subagentCmd.AddCommand(subagentListCmd)
-	subagentCmd.AddCommand(subagentShowCmd)
-	subagentCmd.AddCommand(subagentSetupCmd)
-	subagentCmd.AddCommand(subagentSetCmd)
-	subagentCmd.AddCommand(subagentRemoveCmd)
+	rootCmd.AddCommand(agentCmd)
+	agentCmd.AddCommand(agentListCmd)
+	agentCmd.AddCommand(agentShowCmd)
+	agentCmd.AddCommand(agentSetupCmd)
+	agentCmd.AddCommand(agentSetCmd)
+	agentCmd.AddCommand(agentRemoveCmd)
 
-	subagentSetCmd.Flags().StringVar(&subagentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
-	subagentSetCmd.Flags().StringSliceVar(&subagentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
+	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
+	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 
-	subagentShowCmd.ValidArgsFunction = completeSubagentNames
-	subagentRemoveCmd.ValidArgsFunction = completeSubagentNames
-	_ = subagentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
-	_ = subagentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
+	agentShowCmd.ValidArgsFunction = completeAgentNames
+	agentRemoveCmd.ValidArgsFunction = completeAgentNames
+	_ = agentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
+	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 }
 
-// completeSubagentNames completes positional subagent-name args.
-func completeSubagentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+// completeAgentNames completes positional agent-name args.
+func completeAgentNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	var names []string
-	for _, s := range operations.ListSubagents(cfg) {
+	for _, s := range operations.ListAgents(cfg) {
 		names = append(names, s.Name)
 	}
 	return filterPrefix(names, toComplete), cobra.ShellCompDirectiveNoFileComp

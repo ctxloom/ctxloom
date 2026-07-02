@@ -14,7 +14,7 @@ config:
 # baseline conduct/practice + developer profiles — so the seeded default is a
 # real, editable local coding profile, not a bare remote reference. Edit it,
 # add language/stack profiles via discovery, or split it into tighter per-role
-# profiles bound to engines with `ctxloom subagent setup`.
+# profiles bound to engines with `ctxloom agent setup`.
 profiles:
   defaults:
     - default

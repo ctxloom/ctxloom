@@ -193,7 +193,7 @@ func TestListBuiltinBundles(t *testing.T) {
 func TestGetPromptText(t *testing.T) {
 	for _, name := range []string{
 		"profile-discovery",
-		"subagent-setup",
+		"agent-setup",
 		"distill-default",
 		"mcp-server-instructions",
 		"session-distill",

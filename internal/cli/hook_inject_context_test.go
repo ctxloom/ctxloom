@@ -278,7 +278,7 @@ func TestClearRecoveryMessage(t *testing.T) {
 }
 
 // TestComposeSystemMessage proves the two SessionStart nudges (clear-recovery +
-// subagent-setup) coexist: non-empty parts join with a blank line, empties drop.
+// agent-setup) coexist: non-empty parts join with a blank line, empties drop.
 func TestComposeSystemMessage(t *testing.T) {
 	assert.Equal(t, "a\n\nb", composeSystemMessage("a", "b"))
 	assert.Equal(t, "b", composeSystemMessage("", "b"))
@@ -286,10 +286,10 @@ func TestComposeSystemMessage(t *testing.T) {
 	assert.Empty(t, composeSystemMessage("", ""))
 }
 
-// TestSubagentSetupNudge_Wiring proves the SessionStart hook fires the nudge
-// exactly when the project rooted at workDir has profiles but no subagents, once
+// TestAgentSetupNudge_Wiring proves the SessionStart hook fires the nudge
+// exactly when the project rooted at workDir has profiles but no agents, once
 // (part<=1), and never blocks on a config it can't load.
-func TestSubagentSetupNudge_Wiring(t *testing.T) {
+func TestAgentSetupNudge_Wiring(t *testing.T) {
 	t.Setenv(projectroot.EnvVar, "") // don't let an ambient root override workDir
 
 	writeRoot := func(t *testing.T, body string) string {
@@ -300,18 +300,18 @@ func TestSubagentSetupNudge_Wiring(t *testing.T) {
 		return root
 	}
 
-	t.Run("profiles, no subagents → nudge on first chunk", func(t *testing.T) {
+	t.Run("profiles, no agents → nudge on first chunk", func(t *testing.T) {
 		root := writeRoot(t, "version: 5\nprofiles:\n  defaults:\n    - default\n")
-		assert.NotEmpty(t, subagentSetupNudge(root, 1))
-		assert.Empty(t, subagentSetupNudge(root, 2), "fires once, on the first chunk")
+		assert.NotEmpty(t, agentSetupNudge(root, 1))
+		assert.Empty(t, agentSetupNudge(root, 2), "fires once, on the first chunk")
 	})
 
-	t.Run("subagent configured → silent", func(t *testing.T) {
-		root := writeRoot(t, "version: 5\nprofiles:\n  defaults:\n    - default\nsubagents:\n  dev:\n    profiles: [default]\n")
-		assert.Empty(t, subagentSetupNudge(root, 1))
+	t.Run("agent configured → silent", func(t *testing.T) {
+		root := writeRoot(t, "version: 5\nprofiles:\n  defaults:\n    - default\nagents:\n  dev:\n    profiles: [default]\n")
+		assert.Empty(t, agentSetupNudge(root, 1))
 	})
 
 	t.Run("no .ctxloom → silent, never blocks", func(t *testing.T) {
-		assert.Empty(t, subagentSetupNudge(t.TempDir(), 1))
+		assert.Empty(t, agentSetupNudge(t.TempDir(), 1))
 	})
 }

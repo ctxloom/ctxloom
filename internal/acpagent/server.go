@@ -12,7 +12,7 @@
 // engine conversation primed with it), session/prompt (one turn at a time;
 // ctxloom's assembled context rides the FIRST turn as a lead block — the same
 // delivery model as the oneshot fan-out's lead fragment), session/set_mode
-// (ctxloom profile sets — the composed defaults, each profile, each subagent's
+// (ctxloom profile sets — the composed defaults, each profile, each agent's
 // composed set — surfaced as ACP session modes; a switch re-assembles the
 // lead context for the next turn), session/cancel (cancels the in-flight TURN;
 // the session stays usable and the prompt resolves with stopReason
@@ -69,7 +69,7 @@ type EngineChat struct {
 	// connection-local generated id.
 	Harp string
 	// Modes surfaces ctxloom profile sets as ACP session modes (nil = none):
-	// the composed defaults, each installed profile, and each subagent's
+	// the composed defaults, each installed profile, and each agent's
 	// composed profile set.
 	Modes *SessionModes
 	// AssembleMode re-assembles the lead context for a mode's profile set,
@@ -106,14 +106,14 @@ type SessionModes struct {
 }
 
 // SessionMode is one selectable mode: a profile set to assemble — the composed
-// default set, one ctxloom profile, or a subagent's composed profiles.
+// default set, one ctxloom profile, or an agent's composed profiles.
 type SessionMode struct {
 	ID   string
 	Name string
 	// Profiles is the profile set this mode assembles; nil means the
 	// configured defaults.
 	Profiles []string
-	// Engine is the mode's declared engine binding (subagent modes; "" = none).
+	// Engine is the mode's declared engine binding (agent modes; "" = none).
 	// Informational at set_mode time: the session's engine is pinned at
 	// launch, so a differing engine warns rather than switches.
 	Engine string
@@ -485,11 +485,11 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 }
 
 // handleSetMode switches the session's mode (= a ctxloom profile set: the
-// composed defaults, one profile, or a subagent's composed profiles): the
+// composed defaults, one profile, or an agent's composed profiles): the
 // mode's context is re-assembled and rides the NEXT prompt as a lead block,
 // and the client is notified via a current_mode_update. The engine
 // conversation itself continues — a mode switch changes the context, not the
-// running engine (a subagent mode's engine binding applies only at launch).
+// running engine (an agent mode's engine binding applies only at launch).
 func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	var req setModeParams
 	if err := json.Unmarshal(params, &req); err != nil {

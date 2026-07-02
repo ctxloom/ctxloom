@@ -19,7 +19,7 @@ type acpAgentEntry struct {
 	Name     string   `json:"name"`
 	Command  string   `json:"command"`
 	Args     []string `json:"args"`
-	Subagent string   `json:"subagent,omitempty"`
+	Agent    string   `json:"agent,omitempty"`
 	Engine   string   `json:"engine,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
 }
@@ -28,8 +28,8 @@ var acpAgentsCmd = &cobra.Command{
 	Use:   "agents",
 	Short: "List the ACP agent entries to configure in an editor",
 	Long: `List this project's advertisable ACP agent entries: the plain ctxloom agent
-plus one entry per subagent (ACP has no in-protocol agent selection — a client
-picks the agent by choosing which command it launches, so each subagent
+plus one entry per agent (ACP has no in-protocol agent selection — a client
+picks the agent by choosing which command it launches, so each agent
 advertises as its own agent entry).
 
 The output includes a ready-to-paste Zed settings.json "agent_servers" block;
@@ -40,7 +40,7 @@ other ACP clients configure the same command/args in their own format.`,
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		entries := buildACPAgentEntries(operations.ListSubagents(cfg), ctxloomExecutable())
+		entries := buildACPAgentEntries(operations.ListAgents(cfg), ctxloomExecutable())
 		return emit(cmd, entries, func() error {
 			return renderACPAgents(cmd.OutOrStdout(), entries)
 		})
@@ -59,15 +59,15 @@ func ctxloomExecutable() string {
 }
 
 // buildACPAgentEntries builds the advertisable entries: the plain default
-// agent first, then one per subagent (already name-sorted by ListSubagents).
-func buildACPAgentEntries(subs []operations.SubagentEntry, exe string) []acpAgentEntry {
+// agent first, then one per agent (already name-sorted by ListAgents).
+func buildACPAgentEntries(subs []operations.AgentEntry, exe string) []acpAgentEntry {
 	entries := []acpAgentEntry{{Name: "ctxloom", Command: exe, Args: []string{"acp"}}}
 	for _, s := range subs {
 		entries = append(entries, acpAgentEntry{
 			Name:     "ctxloom: " + s.Name,
 			Command:  exe,
-			Args:     []string{"acp", "--subagent", s.Name},
-			Subagent: s.Name,
+			Args:     []string{"acp", "--agent", s.Name},
+			Agent:    s.Name,
 			Engine:   s.Engine,
 			Profiles: s.Profiles,
 		})
@@ -88,7 +88,7 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	w.Printf("ACP agent entries (%d):\n", len(entries))
 	for _, e := range entries {
 		w.Printf("  %s\n", e.Name)
-		if e.Subagent != "" {
+		if e.Agent != "" {
 			if e.Engine != "" {
 				w.Printf("    engine: %s\n", e.Engine)
 			} else {
@@ -102,8 +102,8 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	}
 	if len(entries) == 1 {
 		w.Println()
-		w.Println("No subagents defined — each subagent would advertise as its own agent entry.")
-		w.Println("Define one under 'subagents:' in .ctxloom/config.yaml or as .ctxloom/subagents/<name>.yaml.")
+		w.Println("No agents defined — each agent would advertise as its own agent entry.")
+		w.Println("Define one under 'agents:' in .ctxloom/config.yaml or as .ctxloom/agents/<name>.yaml.")
 	}
 	w.Println()
 	w.Println(`Zed settings.json — merge into "agent_servers" (other ACP clients configure the same command/args):`)

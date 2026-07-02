@@ -1,4 +1,4 @@
-package subagents
+package agents
 
 import (
 	"os"
@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeSubagentFile(t *testing.T, dir, name, body string) {
+func writeAgentFile(t *testing.T, dir, name, body string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0644))
 }
 
-func TestParseSubagent(t *testing.T) {
-	sub, err := ParseSubagent([]byte("engine: fast\nprofiles:\n  - p1\n  - p2\n"))
+func TestParseAgent(t *testing.T) {
+	sub, err := ParseAgent([]byte("engine: fast\nprofiles:\n  - p1\n  - p2\n"))
 	require.NoError(t, err)
 	assert.Equal(t, "fast", sub.Engine)
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
@@ -25,13 +25,13 @@ func TestParseSubagent(t *testing.T) {
 	assert.Empty(t, sub.Source)
 }
 
-// TestLoader_ListReadsDirectory proves a subagent loads from a
-// .ctxloom/subagents/<name>.yaml file, with Name from the filename and Source
+// TestLoader_ListReadsDirectory proves an agent loads from a
+// .ctxloom/agents/<name>.yaml file, with Name from the filename and Source
 // from the path.
 func TestLoader_ListReadsDirectory(t *testing.T) {
 	dir := t.TempDir()
-	writeSubagentFile(t, dir, "dev.yaml", "engine: claude-code\nprofiles: [go-developer]\n")
-	writeSubagentFile(t, dir, "finder.yaml", "profiles: [finder]\n")
+	writeAgentFile(t, dir, "dev.yaml", "engine: claude-code\nprofiles: [go-developer]\n")
+	writeAgentFile(t, dir, "finder.yaml", "profiles: [finder]\n")
 
 	list, err := NewLoader([]string{dir}).List()
 	require.NoError(t, err)
@@ -46,12 +46,12 @@ func TestLoader_ListReadsDirectory(t *testing.T) {
 	assert.Empty(t, list[1].Engine, "engine is optional")
 }
 
-// TestLoader_FaultTolerantBadFile proves a malformed subagent file is skipped
+// TestLoader_FaultTolerantBadFile proves a malformed agent file is skipped
 // (warned, not fatal) and the valid ones still load — ctxloom fault tolerance.
 func TestLoader_FaultTolerantBadFile(t *testing.T) {
 	dir := t.TempDir()
-	writeSubagentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
-	writeSubagentFile(t, dir, "bad.yaml", "engine: [this, is, not, a, string\n: : :\n")
+	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "bad.yaml", "engine: [this, is, not, a, string\n: : :\n")
 
 	list, err := NewLoader([]string{dir}).List()
 	require.NoError(t, err, "a bad file must not fail the whole list")
@@ -65,16 +65,16 @@ func TestLoader_MissingDirectory(t *testing.T) {
 	assert.Empty(t, list)
 }
 
-// TestGetSubagentDirs returns only directories that exist on disk.
-func TestGetSubagentDirs(t *testing.T) {
+// TestGetAgentDirs returns only directories that exist on disk.
+func TestGetAgentDirs(t *testing.T) {
 	root := t.TempDir()
 	app := filepath.Join(root, ".ctxloom")
-	require.NoError(t, os.MkdirAll(filepath.Join(app, "subagents"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(app, "agents"), 0755))
 
-	dirs := GetSubagentDirs([]string{app})
+	dirs := GetAgentDirs([]string{app})
 	require.Len(t, dirs, 1)
-	assert.Equal(t, filepath.Join(app, "subagents"), dirs[0])
+	assert.Equal(t, filepath.Join(app, "agents"), dirs[0])
 
-	// No subagents dir → no entry.
-	assert.Empty(t, GetSubagentDirs([]string{filepath.Join(root, "absent")}))
+	// No agents dir → no entry.
+	assert.Empty(t, GetAgentDirs([]string{filepath.Join(root, "absent")}))
 }

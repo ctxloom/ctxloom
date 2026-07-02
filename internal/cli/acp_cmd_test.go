@@ -10,12 +10,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestSessionModesFrom_ProfilesAndSubagents: the mode list is default set,
-// then profiles (each assembling just itself), then subagents (each assembling
+// TestSessionModesFrom_ProfilesAndAgents: the mode list is default set,
+// then profiles (each assembling just itself), then agents (each assembling
 // its composed profile set, carrying its declared engine, namespaced so a
-// subagent can never collide with a profile of the same name).
-func TestSessionModesFrom_ProfilesAndSubagents(t *testing.T) {
-	subs := []operations.SubagentEntry{
+// agent can never collide with a profile of the same name).
+func TestSessionModesFrom_ProfilesAndAgents(t *testing.T) {
+	subs := []operations.AgentEntry{
 		{Name: "reviewer", Engine: "fast", Profiles: []string{"r1", "r2"}},
 		{Name: "docs", Profiles: []string{"d"}},
 	}
@@ -32,24 +32,24 @@ func TestSessionModesFrom_ProfilesAndSubagents(t *testing.T) {
 	assert.Equal(t, "go", modes.Available[1].ID)
 	assert.Equal(t, []string{"go"}, modes.Available[1].Profiles)
 
-	// The subagent "reviewer" coexists with the PROFILE "reviewer": namespaced id.
-	assert.Equal(t, "subagent:reviewer", modes.Available[3].ID)
-	assert.Equal(t, "reviewer (subagent)", modes.Available[3].Name)
+	// The agent "reviewer" coexists with the PROFILE "reviewer": namespaced id.
+	assert.Equal(t, "agent:reviewer", modes.Available[3].ID)
+	assert.Equal(t, "reviewer (agent)", modes.Available[3].Name)
 	assert.Equal(t, []string{"r1", "r2"}, modes.Available[3].Profiles)
 	assert.Equal(t, "fast", modes.Available[3].Engine)
 
-	assert.Equal(t, "subagent:docs", modes.Available[4].ID)
+	assert.Equal(t, "agent:docs", modes.Available[4].ID)
 	assert.Empty(t, modes.Available[4].Engine)
 }
 
 // TestSessionModesFrom_CurrentSelection: the launch selection decides the
-// current mode — subagent beats profile beats default.
+// current mode — agent beats profile beats default.
 func TestSessionModesFrom_CurrentSelection(t *testing.T) {
-	subs := []operations.SubagentEntry{{Name: "reviewer", Profiles: []string{"r"}}}
+	subs := []operations.AgentEntry{{Name: "reviewer", Profiles: []string{"r"}}}
 
 	modes := sessionModesFrom([]string{"go"}, subs, "", nil, "reviewer")
 	require.NotNil(t, modes)
-	assert.Equal(t, "subagent:reviewer", modes.Current)
+	assert.Equal(t, "agent:reviewer", modes.Current)
 
 	modes = sessionModesFrom([]string{"go"}, subs, "go", nil, "")
 	require.NotNil(t, modes)
@@ -72,11 +72,11 @@ func TestSessionModesFrom_Empty(t *testing.T) {
 	assert.Nil(t, sessionModesFrom(nil, nil, "", nil, ""))
 }
 
-// TestSessionModesFrom_SubagentsOnly: subagents alone still advertise modes
-// (default + subagents) even with no installed profiles.
-func TestSessionModesFrom_SubagentsOnly(t *testing.T) {
-	modes := sessionModesFrom(nil, []operations.SubagentEntry{{Name: "docs", Profiles: []string{"d"}}}, "", nil, "")
+// TestSessionModesFrom_AgentsOnly: agents alone still advertise modes
+// (default + agents) even with no installed profiles.
+func TestSessionModesFrom_AgentsOnly(t *testing.T) {
+	modes := sessionModesFrom(nil, []operations.AgentEntry{{Name: "docs", Profiles: []string{"d"}}}, "", nil, "")
 	require.NotNil(t, modes)
 	require.Len(t, modes.Available, 2)
-	assert.Equal(t, "subagent:docs", modes.Available[1].ID)
+	assert.Equal(t, "agent:docs", modes.Available[1].ID)
 }

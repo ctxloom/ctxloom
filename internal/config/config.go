@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -22,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/ctxloom/ctxloom/internal/subagents"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -53,18 +53,18 @@ type Config struct {
 	Hooks    wire.HooksConfig `mapstructure:"hooks" yaml:"hooks,omitempty"`
 	MCP      wire.MCPConfig   `mapstructure:"mcp" yaml:"mcp,omitempty"`
 	Profiles ProfilesConfig   `mapstructure:"profiles" yaml:"profiles,omitempty"`
-	// Subagents is the LOCAL-ONLY engine↔profile binding map, the in-config half
-	// of the subagent entity (the other half is .ctxloom/subagents/*.yaml). Keyed
-	// by subagent name. It is NEVER a bundle item kind and NEVER remote — there is
-	// no Bundle.Subagents and no remote path. Read the merged set via
-	// LoadSubagents / Subagent, which folds in the directory source too.
-	Subagents map[string]subagents.Subagent `mapstructure:"subagents" yaml:"subagents,omitempty"`
+	// Agents is the LOCAL-ONLY engine↔profile binding map, the in-config half
+	// of the agent entity (the other half is .ctxloom/agents/*.yaml). Keyed
+	// by agent name. It is NEVER a bundle item kind and NEVER remote — there is
+	// no Bundle.Agents and no remote path. Read the merged set via
+	// LoadAgents / Agent, which folds in the directory source too.
+	Agents map[string]agents.Agent `mapstructure:"agents" yaml:"agents,omitempty"`
 	// Isolation is the project-wide DEFAULT per-agent isolation policy for
 	// fan-out members (map/weave): none | worktree | container. Empty means
-	// "none" (host — today's behaviour). A subagent's own `isolation` overrides
+	// "none" (host — today's behaviour). An agent's own `isolation` overrides
 	// this default per member. It is the top-level default only; the per-member
-	// precedence (subagent → this default → none) is resolved in
-	// operations.resolveSubagentBinding. Named `isolation` to avoid colliding
+	// precedence (agent → this default → none) is resolved in
+	// operations.resolveAgentBinding. Named `isolation` to avoid colliding
 	// with `profiles.defaults` (the profiles array) and `llm.defaults`
 	// (RoleDefaults).
 	Isolation string `mapstructure:"isolation" yaml:"isolation,omitempty"`
@@ -82,11 +82,11 @@ type Config struct {
 	// Relative paths resolve against the project root.
 	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
 
-	AppPaths        []string          // Resolved .ctxloom directory (at most one)
-	AppRoot         string            // Project root (parent of .ctxloom directory)
-	AppDir          string            // Full path to the .ctxloom directory
-	Source          ConfigSource      // Where the configuration was loaded from
-	Warnings        []string          // Non-fatal warnings collected during load
+	AppPaths []string     // Resolved .ctxloom directory (at most one)
+	AppRoot  string       // Project root (parent of .ctxloom directory)
+	AppDir   string       // Full path to the .ctxloom directory
+	Source   ConfigSource // Where the configuration was loaded from
+	Warnings []string     // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;

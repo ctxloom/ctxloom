@@ -40,15 +40,15 @@ is used as a fallback.
 init scaffolds a LOCAL default coding profile (.ctxloom/profiles/default.yaml,
 inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
 remote so its code-review lens profiles are available. It does NOT create
-subagents — binding an engine to your profiles is your call, set up later with
-'ctxloom subagent setup'.
+agents — binding an engine to your profiles is your call, set up later with
+'ctxloom agent setup'.
 
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine (claude-code, antigravity, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI to help discover and configure profiles
 
-After init, run 'ctxloom subagent setup' (or ask your agent to) to bind engines
+After init, run 'ctxloom agent setup' (or ask your agent to) to bind engines
 to profiles for orchestrated roles — cheap finders, code-review lenses, and
 escalating developers that 'ctxloom map'/'ctxloom weave' fan across.
 
@@ -772,11 +772,11 @@ func wantsRelaunch(input string) bool {
 }
 
 // printRunHint tells the user how to pick up the new configuration later, and
-// points at subagent setup — the deliberately-not-auto-seeded next step (binding
+// points at agent setup — the deliberately-not-auto-seeded next step (binding
 // engines to profiles for orchestrated roles).
 func printRunHint() {
 	fmt.Println("Run `ctxloom run` when ready — it picks up everything init installed.")
-	fmt.Println("Then run `ctxloom subagent setup` (or ask your agent to) to bind engines to")
+	fmt.Println("Then run `ctxloom agent setup` (or ask your agent to) to bind engines to")
 	fmt.Println("profiles for orchestrated roles (finders, code-review lenses, developers).")
 }
 

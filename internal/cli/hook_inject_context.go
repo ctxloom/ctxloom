@@ -127,13 +127,13 @@ Output format (JSON to stdout):
 			}
 		}
 		// Compose the user-facing SessionStart nudges: the clear-recovery hint
-		// (when a /clear left a recoverable prior session) and the subagent-setup
-		// nudge (when this project has profiles but no subagents). Both ride the
+		// (when a /clear left a recoverable prior session) and the agent-setup
+		// nudge (when this project has profiles but no agents). Both ride the
 		// systemMessage channel and can co-occur, so they are joined rather than
 		// one clobbering the other.
 		output.SystemMessage = composeSystemMessage(
 			clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
-			subagentSetupNudge(workDir, part),
+			agentSetupNudge(workDir, part),
 		)
 
 		// Output JSON to stdout
@@ -158,15 +158,15 @@ func clearRecoveryMessage(source string, part int, recoverable bool) string {
 	return "ctxloom: context cleared. Run /recover to bring your previous session's context back."
 }
 
-// subagentSetupNudge returns the Phase F "profiles but no subagents" nudge for
+// agentSetupNudge returns the Phase F "profiles but no agents" nudge for
 // the project rooted at workDir, or "" when it should not fire. It loads the
 // project config (rooted at workDir/.ctxloom) and delegates the trigger decision
-// to operations.SubagentSetupNudge (profiles present AND no subagents). It fires
+// to operations.AgentSetupNudge (profiles present AND no agents). It fires
 // once per SessionStart (part<=1, so a multi-chunk inject doesn't repeat it) and
 // is fully fault-tolerant: a config-load failure yields "" and never blocks
-// startup (CLAUDE.md). The condition self-resolves the moment any subagent is
+// startup (CLAUDE.md). The condition self-resolves the moment any agent is
 // configured.
-func subagentSetupNudge(workDir string, part int) string {
+func agentSetupNudge(workDir string, part int) string {
 	if part > 1 {
 		return ""
 	}
@@ -174,13 +174,13 @@ func subagentSetupNudge(workDir string, part int) string {
 	if err != nil {
 		return ""
 	}
-	return operations.SubagentSetupNudge(cfg)
+	return operations.AgentSetupNudge(cfg)
 }
 
 // composeSystemMessage joins the non-empty SessionStart system messages with a
 // blank line. Empty inputs drop out, so passing only empties yields "" (no
 // systemMessage emitted), and any combination of the clear-recovery and
-// subagent-setup nudges renders cleanly.
+// agent-setup nudges renders cleanly.
 func composeSystemMessage(msgs ...string) string {
 	parts := make([]string, 0, len(msgs))
 	for _, m := range msgs {

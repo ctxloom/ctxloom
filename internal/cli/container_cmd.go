@@ -18,7 +18,7 @@ var containerCmd = &cobra.Command{
 	Use:   "container",
 	Short: "Manage agent container images",
 	Long: `Manage the per-backend agent images the container isolation policy runs
-(defaults.isolation: container, or a subagent's isolation override).`,
+(defaults.isolation: container, or an agent's isolation override).`,
 }
 
 var (
@@ -49,7 +49,7 @@ ctxloom onto an image that ALREADY ships the client CLI.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
-`+"`ctxloom run`/`map`/`weave`"+` also build this image automatically when it
+` + "`ctxloom run`/`map`/`weave`" + ` also build this image automatically when it
 is absent (honoring isolation_base_containerfile); this command is the explicit
 path (refresh, custom base). To run a fully user-provided image instead, set
 isolation_images in config — those are run as-is and never built.`,

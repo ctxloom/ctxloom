@@ -173,11 +173,11 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "editor", c.Editor.Command != "" || len(c.Editor.Args) > 0, c.Editor)
 	setOrDelete(existing, "profiles", c.Profiles.hasAny(), c.Profiles)
 	delete(existing, "defaults") // superseded by config + profiles blocks
-	// Persist only the config-key subagents (c.Subagents). Directory-sourced
-	// subagents live in their own .ctxloom/subagents/*.yaml files and are not
+	// Persist only the config-key agents (c.Agents). Directory-sourced
+	// agents live in their own .ctxloom/agents/*.yaml files and are not
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
-	// the block rather than leaving `subagents: {}` behind.
-	setOrDelete(existing, "subagents", len(c.Subagents) > 0, c.Subagents)
+	// the block rather than leaving `agents: {}` behind.
+	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
 	// Top-level isolation default; pruned when empty ("none" is the implicit
 	// default, so an unset policy leaves no key behind).
 	setOrDelete(existing, "isolation", c.Isolation != "", c.Isolation)

@@ -41,11 +41,11 @@ const (
 	// ProfilesDir is the subdirectory for profiles.
 	ProfilesDir = "profiles"
 
-	// SubagentsDir is the subdirectory for local-only subagent definitions
-	// (.ctxloom/subagents/<name>.yaml). Subagents are an end-user, LOCAL-only
+	// AgentsDir is the subdirectory for local-only agent definitions
+	// (.ctxloom/agents/<name>.yaml). Agents are an end-user, LOCAL-only
 	// engine↔profile binding — never shipped in bundles or remotes — so this
 	// directory has no remote/cache analog, unlike ProfilesDir.
-	SubagentsDir = "subagents"
+	AgentsDir = "agents"
 
 	// LocalDir is the subdirectory for project-authored, version-controlled
 	// content referenced via the ctxloom:local source. Unlike CacheDir it is
@@ -176,10 +176,10 @@ func ProfilesPath(appPath string) string {
 	return filepath.Join(appPath, ProfilesDir)
 }
 
-// SubagentsPath returns the path to the local subagents directory (at appPath
+// AgentsPath returns the path to the local agents directory (at appPath
 // root). Local-only: there is no cache/remote counterpart.
-func SubagentsPath(appPath string) string {
-	return filepath.Join(appPath, SubagentsDir)
+func AgentsPath(appPath string) string {
+	return filepath.Join(appPath, AgentsDir)
 }
 
 // BundlesPath returns the path to the bundles directory (under cache/).

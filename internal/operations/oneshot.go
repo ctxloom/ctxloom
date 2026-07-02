@@ -86,15 +86,15 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
-		// A single-profile oneshot has no subagent binding, so it takes the
+		// A single-profile oneshot has no agent binding, so it takes the
 		// project's top-level isolation default (empty → none). AgentID scopes a
 		// future per-agent workspace by the profile name.
 		Isolation:      cfg.Isolation,
 		IsolationImage: IsolationImageConfig(cfg, backendName),
 		AgentID:        req.Profile,
-		Profiles:  profiles,
-		Gate:      gate,
-		Factory:   req.Factory,
+		Profiles:       profiles,
+		Gate:           gate,
+		Factory:        req.Factory,
 	})
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 
 // resolvedRunRequest is an already-resolved agent run: a composed context and the
 // transport it resolved to. It is the seam shared by RunOneshot (which resolves a
-// single profile) and the map/weave fan (which resolves a subagent or a
+// single profile) and the map/weave fan (which resolves an agent or a
 // bare-profile member), so the backend-launch tail is written once.
 type resolvedRunRequest struct {
 	Context   string // assembled context injected as the agent's lead fragment
@@ -161,7 +161,7 @@ func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageCon
 // runResolvedAgent launches the resolved backend once in ONESHOT mode with the
 // composed context as the lead fragment and stdout captured. It carries no
 // context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
-// for a single profile, ResolveSubagent for a subagent/bare-profile member) — so
+// for a single profile, ResolveAgent for an agent/bare-profile member) — so
 // the two paths share one backend-launch tail and can never drift.
 func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error) {
 	var fragments []*pb.Fragment

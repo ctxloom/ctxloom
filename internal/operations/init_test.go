@@ -46,11 +46,11 @@ func TestInitializeProject_RequiresAppDir(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestInitializeProject_ScaffoldsSeedProfileNotSubagents proves Phase F's init
+// TestInitializeProject_ScaffoldsSeedProfileNotAgents proves Phase F's init
 // shape: a LOCAL default coding profile is scaffolded (inheriting ctxloom-default
-// content), the config wires it as the default, and NO subagents are seeded
-// (engine binding is the user's, via `subagent setup`).
-func TestInitializeProject_ScaffoldsSeedProfileNotSubagents(t *testing.T) {
+// content), the config wires it as the default, and NO agents are seeded
+// (engine binding is the user's, via `agent setup`).
+func TestInitializeProject_ScaffoldsSeedProfileNotAgents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
@@ -66,14 +66,14 @@ func TestInitializeProject_ScaffoldsSeedProfileNotSubagents(t *testing.T) {
 	assert.Contains(t, body, "parents:", "seed profile inherits remote baseline content")
 
 	// The config wires the LOCAL profile name as the default (not a bare remote ref),
-	// and seeds NO subagents.
+	// and seeds NO agents.
 	cfgData, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
 	require.NoError(t, err)
 	cfg, err := config.ParseConfig(cfgData)
 	require.NoError(t, err)
 	assert.Equal(t, []string{SeedProfileName}, cfg.Profiles.Defaults, "default is the local profile name")
-	assert.Empty(t, cfg.Subagents, "init must NOT seed subagents")
-	assert.NotContains(t, string(cfgData), "subagents:", "no subagents block in the seeded config")
+	assert.Empty(t, cfg.Agents, "init must NOT seed agents")
+	assert.NotContains(t, string(cfgData), "agents:", "no agents block in the seeded config")
 }
 
 // TestScaffoldSeedProfile_WriteIfAbsent proves a re-init does not clobber a

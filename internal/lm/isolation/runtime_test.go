@@ -129,8 +129,63 @@ func TestAddrTranslator_PrefixSwap(t *testing.T) {
 }
 
 // TestInContainer_EnvMarkers: the dev-container env markers trip detection (the
-// filesystem markers are host-dependent and covered by the runtime path).
+// filesystem markers are host-dependent and covered by the seam tests below).
 func TestInContainer_EnvMarkers(t *testing.T) {
 	t.Setenv("REMOTE_CONTAINERS", "true")
 	assert.True(t, InContainer(), "REMOTE_CONTAINERS marks an in-container process")
+}
+
+// TestInContainerFrom_Markers drives the seam-injected detection core across
+// every marker class WITHOUT touching the real /proc, sentinel files, or env
+// (CI itself runs in containers; the hostile-env suite junks the env). Each
+// hit is named for `container check`.
+func TestInContainerFrom_Markers(t *testing.T) {
+	none := func(string) error { return os.ErrNotExist }
+	noFile := func(string) ([]byte, error) { return nil, os.ErrNotExist }
+	noEnv := func(string) string { return "" }
+
+	tests := []struct {
+		name     string
+		stat     func(string) error
+		readFile func(string) ([]byte, error)
+		getenv   func(string) string
+		want     []string
+	}{
+		{"no markers → outside", none, noFile, noEnv, nil},
+		{"docker sentinel", func(p string) error {
+			if p == "/.dockerenv" {
+				return nil
+			}
+			return os.ErrNotExist
+		}, noFile, noEnv, []string{"/.dockerenv"}},
+		{"podman sentinel", func(p string) error {
+			if p == "/run/.containerenv" {
+				return nil
+			}
+			return os.ErrNotExist
+		}, noFile, noEnv, []string{"/run/.containerenv"}},
+		{"DEVCONTAINER env", none, noFile, func(e string) string {
+			if e == "DEVCONTAINER" {
+				return "true"
+			}
+			return ""
+		}, []string{"$DEVCONTAINER"}},
+		{"kubernetes env", none, noFile, func(e string) string {
+			if e == "KUBERNETES_SERVICE_HOST" {
+				return "10.0.0.1"
+			}
+			return ""
+		}, []string{"$KUBERNETES_SERVICE_HOST"}},
+		{"cgroup v1 docker", none, func(string) ([]byte, error) {
+			return []byte("12:cpuset:/docker/abc123"), nil
+		}, noEnv, []string{"cgroup:docker"}},
+		{"cgroup v2 bare → no marker", none, func(string) ([]byte, error) {
+			return []byte("0::/"), nil
+		}, noEnv, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, inContainerFrom(tt.stat, tt.readFile, tt.getenv))
+		})
+	}
 }

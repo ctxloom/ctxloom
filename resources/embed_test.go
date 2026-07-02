@@ -235,6 +235,7 @@ func TestSetupPrompts_ContentContract(t *testing.T) {
 		"finder",
 		"--runtime container",
 		"--workspace worktree",
+		"ctxloom container check",
 		"ctxloom agent set",
 		"ctxloom agent list",
 	} {

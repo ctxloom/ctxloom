@@ -180,6 +180,18 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	if err := c.ensureImage(ctx); err != nil {
 		return containerScratch{}, err
 	}
+	// The image is now locally present, so the shared-filesystem probe is one
+	// cheap scratch container. A mismatch means every identical-path mount
+	// below (project dir, socket scratch, auth, gitdir mirror) would resolve
+	// against a DIFFERENT filesystem and the plugin handshake would hang —
+	// erroring HERE turns that hang into the caller's clean per-axis degrade.
+	if perr := sharedFSCheck(ctx, c.runtime, c.image); perr != nil {
+		hint := "bind mounts of this process's paths cannot resolve through the daemon"
+		if InContainer() {
+			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
+		}
+		return containerScratch{}, fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(c.runtime), hint, perr)
+	}
 	auth, ok := c.profile.resolveAuth(c.home)
 	if !ok {
 		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)

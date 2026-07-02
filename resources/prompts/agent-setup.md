@@ -30,6 +30,11 @@ re-scan the repo. Enumerate only what is live config:
   values.
 - **Existing agents:** `ctxloom agent list` (don't duplicate; offer to refine
   what's there).
+- **Container capability:** `ctxloom container check` — read its guidance. If
+  it reports that containerized agents would degrade here (no runtime, or a
+  dev container talking to the host's daemon), bind agents with
+  `--runtime host` instead and tell the user what would enable containers
+  (e.g. the dev container docker-in-docker feature).
 
 Standalone (no discovery ran in this session), additionally gather:
 

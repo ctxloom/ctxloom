@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 var containerCmd = &cobra.Command{
@@ -93,6 +95,79 @@ isolation_images in config — those are run as-is and never built.`,
 	},
 }
 
+// containerDiagnose is the Diagnose seam, a var so the CLI rendering is
+// testable with an injected report.
+var containerDiagnose = isolation.Diagnose
+
+// containerCheckCmd reports whether `runtime: container` agents can actually
+// launch here: in-container detection, runtime reachability, image presence,
+// and the shared-filesystem probe (the docker-outside-of-docker detector).
+// Diagnostic only — always exits 0, never builds or changes anything.
+var containerCheckCmd = &cobra.Command{
+	Use:   "check [backend]",
+	Short: "Diagnose container capability (runtime, image, shared filesystem)",
+	Long: `Report whether containerized agents ('runtime: container') can launch here:
+
+  - whether THIS process runs inside a container (dev container, CI, pod)
+  - which container runtime is reachable (docker | podman)
+  - whether the backend's agent image is present locally
+  - whether the runtime's daemon shares this filesystem — the marker probe
+    that detects docker-outside-of-docker, where bind mounts silently
+    resolve against the WRONG filesystem and launches hang
+
+Diagnostic only: always exits 0 and never builds images or changes state.
+Run it inside a dev container to learn whether to enable docker-in-docker
+or keep agents on 'runtime: host'.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var backend string
+		if len(args) == 1 {
+			backend = args[0]
+			if names := backends.List(); !slices.Contains(names, backend) {
+				sort.Strings(names)
+				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
+			}
+		} else if cfg, err := GetConfig(); err == nil {
+			backend, _ = operations.ResolveBackend(cfg, "")
+		}
+		img := isolation.ImageConfig{}
+		if cfg, err := GetConfig(); err == nil {
+			img = operations.IsolationImageConfig(cfg, backend)
+		}
+		d := containerDiagnose(cmd.Context(), backend, img)
+		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
+	},
+}
+
+// renderContainerCheck writes the human-readable diagnosis. Extracted from
+// RunE so the formatting is testable with an injected report.
+func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) error {
+	w := iox.NewErrWriter(out)
+	w.Printf("Container capability (backend: %s)\n", backend)
+	if d.InContainer {
+		w.Printf("  in a container:  yes (%s)\n", strings.Join(d.Markers, ", "))
+	} else {
+		w.Println("  in a container:  no")
+	}
+	if d.Reachable {
+		w.Printf("  runtime:         %s (reachable)\n", d.Runtime)
+	} else {
+		w.Printf("  runtime:         %s\n", d.Runtime)
+	}
+	if d.Image != "" {
+		presence := "absent"
+		if d.ImagePresent {
+			presence = "present"
+		}
+		w.Printf("  agent image:     %s (%s)\n", d.Image, presence)
+	}
+	w.Printf("  shared fs:       %s\n", d.SharedFS)
+	for _, g := range d.Guidance {
+		w.Printf("  -> %s\n", g)
+	}
+	return w.Err()
+}
+
 func init() {
 	containerBuildCmd.Flags().StringVar(&containerBuildBaseImage, "base-image", "",
 		"overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources")
@@ -103,5 +178,6 @@ func init() {
 	containerBuildCmd.Flags().BoolVar(&containerBuildKeepCache, "keep-cache", false,
 		"reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)")
 	containerCmd.AddCommand(containerBuildCmd)
+	containerCmd.AddCommand(containerCheckCmd)
 	rootCmd.AddCommand(containerCmd)
 }

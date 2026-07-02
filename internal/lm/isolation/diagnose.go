@@ -1,0 +1,113 @@
+package isolation
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+// Diagnosis is the container-capability report `ctxloom container check`
+// renders: each field answers one axis of "would `runtime: container`
+// actually launch here, and if not, why". Read-only — Diagnose never builds
+// an image or changes state, and it never errors (a diagnostic that blocks
+// startup would violate the fault-tolerance contract).
+type Diagnosis struct {
+	// InContainer + Markers: whether THIS process runs inside a container
+	// (dev container, CI, pod) and which heuristics matched.
+	InContainer bool     `json:"in_container"`
+	Markers     []string `json:"markers,omitempty"`
+	// Runtime is the selected container runtime ("docker" | "podman" |
+	// "none"); Reachable whether its daemon answered.
+	Runtime   string `json:"runtime"`
+	Reachable bool   `json:"reachable"`
+	// Image is the backend's agent image reference; ImagePresent whether it
+	// exists locally (Diagnose never builds it).
+	Image        string `json:"image,omitempty"`
+	ImagePresent bool   `json:"image_present"`
+	// SharedFS reports whether the daemon shares this process's filesystem:
+	// "ok" (marker probe passed), "mismatch: …" (probe failed — the
+	// docker-outside-of-docker signature), or "unprobed: …" (no local image
+	// to probe with; an advisory heuristic is included).
+	SharedFS string `json:"shared_fs"`
+	// Guidance is the actionable summary, one line per finding.
+	Guidance []string `json:"guidance,omitempty"`
+}
+
+// Diagnose builds the container-capability report for the named backend.
+// Behavior-accurate where possible (daemon reachability, the marker probe
+// against a present image) and clearly-labeled advisory where not.
+func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
+	d := Diagnosis{Markers: containerMarkers(), SharedFS: "unprobed: no runtime"}
+	d.InContainer = len(d.Markers) > 0
+
+	rt := SelectRuntime("")
+	if _, isHost := rt.(Host); isHost {
+		d.Runtime = "none"
+		d.Guidance = append(d.Guidance,
+			"no container runtime is reachable: `runtime: container` agents will degrade to the host"+noRuntimeHint())
+		return d
+	}
+	d.Runtime = rt.Name()
+	d.Reachable = true
+
+	c := containerFor(rt, backend, img)
+	d.Image = c.image
+	d.ImagePresent = c.imagePresent(ctx)
+
+	if d.ImagePresent {
+		diagnoseProbe(ctx, rt, c.image, &d)
+	} else {
+		diagnoseAdvisory(ctx, rt, &d)
+		d.Guidance = append(d.Guidance,
+			fmt.Sprintf("agent image %s is not present; a containerized run builds it on first use (or run `ctxloom container build %s`)", c.image, backend))
+	}
+	return d
+}
+
+// diagnoseProbe runs the definitive marker probe against the present image
+// and folds the outcome into the diagnosis.
+func diagnoseProbe(ctx context.Context, rt ContainerRuntime, image string, d *Diagnosis) {
+	if perr := sharedFSProbe(ctx, rt, image); perr != nil {
+		d.SharedFS = "mismatch: " + perr.Error()
+		g := "the daemon does NOT share this process's filesystem: containerized agents cannot mount this project"
+		if d.InContainer {
+			g += " — this looks like docker-outside-of-docker; enable the dev container docker-in-docker feature, or keep agents on `runtime: host`"
+		}
+		d.Guidance = append(d.Guidance, g)
+		return
+	}
+	d.SharedFS = "ok"
+	d.Guidance = append(d.Guidance, "containerized agents can launch here (`runtime: container`)")
+}
+
+// diagnoseAdvisory fills SharedFS with the cheap no-image heuristic: a daemon
+// whose reported name matches our hostname is almost certainly local (true
+// DinD or a plain host); a differing name inside a container suggests the
+// host's daemon. Labeled advisory — the marker probe is the real answer.
+func diagnoseAdvisory(ctx context.Context, rt ContainerRuntime, d *Diagnosis) {
+	name, err := daemonName(ctx, rt)
+	host, herr := os.Hostname()
+	switch {
+	case err != nil || herr != nil:
+		d.SharedFS = "unprobed: no local image to probe with"
+	case name == host:
+		d.SharedFS = "unprobed: likely shared (advisory: daemon name matches this hostname)"
+	default:
+		d.SharedFS = fmt.Sprintf("unprobed: possibly the host's daemon (advisory: daemon name %q != hostname %q)", name, host)
+		if d.InContainer {
+			d.Guidance = append(d.Guidance,
+				"the daemon may be the host's (docker-outside-of-docker); containerized agents would fail their filesystem probe and degrade")
+		}
+	}
+}
+
+// daemonName asks the runtime for its daemon's reported name.
+func daemonName(ctx context.Context, rt ContainerRuntime) (string, error) {
+	out, err := exec.CommandContext(ctx, rt.Binary(), "info", "--format", "{{.Name}}").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}

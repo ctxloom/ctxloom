@@ -203,6 +203,17 @@ func RuntimeNames() []string {
 	return []string{string(RuntimeHost), string(RuntimeContainer)}
 }
 
+// noRuntimeHint appends devcontainer-specific guidance to the no-runtime
+// degrade warnings when this process itself runs inside a container — the
+// exact situation where "no runtime" usually means "the dev container wasn't
+// given one" rather than "docker isn't installed".
+func noRuntimeHint() string {
+	if InContainer() {
+		return " (this process is inside a container without a nested runtime — enable the dev container docker-in-docker feature, or accept the host)"
+	}
+	return ""
+}
+
 // warnUnknownAxes emits one advisory per unrecognized axis value; the value
 // then behaves as that axis's default (shared / host) rather than blocking.
 func warnUnknownAxes(a Axes) {
@@ -265,9 +276,9 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		}
 		// Runtime axis degrades alone: the workspace request below is untouched.
 		if axes.WantsWorktree() {
-			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; keeping the worktree on the host")
+			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; keeping the worktree on the host%s", noRuntimeHint())
 		} else {
-			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; running on the host")
+			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; running on the host%s", noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {

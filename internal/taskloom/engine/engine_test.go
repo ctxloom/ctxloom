@@ -164,6 +164,10 @@ func TestAntigravity_GlobalScopeUnsupported(t *testing.T) {
 }
 
 func TestConfigPath_Scopes(t *testing.T) {
+	// The codex rows assert the DEFAULT (~/.codex) path; pin CODEX_HOME empty
+	// so an inherited value (the hostile-env suite poisons it) can't redirect
+	// the home resolution.
+	t.Setenv("CODEX_HOME", "")
 	tests := []struct {
 		engine string
 		global bool

@@ -16,6 +16,10 @@ func TestMCPRegistrar_Name(t *testing.T) {
 }
 
 func TestMCPRegistrar_ConfigPath(t *testing.T) {
+	// This test asserts the DEFAULT (~/.codex) global path; pin CODEX_HOME
+	// empty so an inherited value (the hostile-env suite poisons it) can't
+	// redirect the home resolution. The override itself is covered below.
+	t.Setenv("CODEX_HOME", "")
 	p, err := (MCPRegistrar{}).ConfigPath("/proj", false)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/proj", ".codex", "config.toml"), p)

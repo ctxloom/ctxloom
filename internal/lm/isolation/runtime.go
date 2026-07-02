@@ -185,28 +185,54 @@ func dockerIsRootless() bool {
 	return strings.Contains(string(out), "rootless")
 }
 
-// InContainer reports whether THIS process is already running inside a container
-// (DinD / dev-container). Markers: the docker sentinel file, container runtime
-// signatures in the init cgroup, and the well-known dev-container env vars. Used
-// by the container policy's degrade decision: nesting a container runtime inside
-// an unequipped dev-container is exactly where launch fails, so an in-container
-// process without a reachable runtime degrades to None rather than blocking.
-func InContainer() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
+// InContainer reports whether THIS process is already running inside a
+// container (dev container, CI job, pod). Markers: the docker/podman sentinel
+// files, the well-known dev-container/k8s env vars, and container-runtime
+// signatures in the init cgroup. It gates the devcontainer-specific wording on
+// degrade warnings and feeds `container check`; the actual can-containers-
+// launch decision is behavior-based (runtime reachability + the shared-fs
+// probe), never this heuristic alone.
+func InContainer() bool { return len(containerMarkers()) > 0 }
+
+// containerMarkers returns the matched in-container markers (empty = none),
+// for InContainer and the `container check` diagnosis.
+func containerMarkers() []string {
+	return inContainerFrom(
+		func(p string) error { _, err := os.Stat(p); return err },
+		os.ReadFile,
+		os.Getenv,
+	)
+}
+
+// inContainerFrom is the seam-injected core of the in-container detection:
+// stat/readFile/getenv arrive as functions so tests never touch the real
+// /proc, sentinel files, or process env (CI itself runs inside containers,
+// and the hostile-env suite junks the environment). Returns every marker that
+// matched, named for diagnostics.
+func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, error), getenv func(string) string) []string {
+	var markers []string
+	for _, f := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if stat(f) == nil {
+			markers = append(markers, f)
+		}
 	}
-	if os.Getenv("REMOTE_CONTAINERS") != "" || os.Getenv("CODESPACES") != "" {
-		return true
+	for _, e := range []string{"REMOTE_CONTAINERS", "CODESPACES", "DEVCONTAINER", "KUBERNETES_SERVICE_HOST"} {
+		if getenv(e) != "" {
+			markers = append(markers, "$"+e)
+		}
 	}
-	if b, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+	// cgroup v1 runtime signatures — BEST-EFFORT ONLY: cgroup v2 exposes a
+	// bare "0::/" with no runtime marker, which is why the sentinel-file and
+	// env probes lead and this never stands alone as a negative signal.
+	if b, err := readFile("/proc/1/cgroup"); err == nil {
 		s := string(b)
 		for _, marker := range []string{"docker", "containerd", "kubepods", "/lxc/"} {
 			if strings.Contains(s, marker) {
-				return true
+				markers = append(markers, "cgroup:"+marker)
 			}
 		}
 	}
-	return false
+	return markers
 }
 
 // SelectRuntime picks the container runtime by config preference then detection.

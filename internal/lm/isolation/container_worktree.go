@@ -48,12 +48,23 @@ type ContainerWorktree struct {
 // Ensure ContainerWorktree satisfies the Policy interface.
 var _ Policy = ContainerWorktree{}
 
-// NewContainerWorktree builds the composition over a container runtime + image and
-// a Git seam (nil → the default git binary; tests pass a git.Fake to drive the
+// NewContainerWorktree builds the composition over a container runtime + an
+// EXPLICIT image (default profile, no local build — see NewContainer) and a Git
+// seam (nil → the default git binary; tests pass a git.Fake to drive the
 // worktree lifecycle without a real repo).
 func NewContainerWorktree(rt ContainerRuntime, image string, g git.Git) ContainerWorktree {
 	return ContainerWorktree{
 		container: NewContainer(rt, image),
+		worktree:  NewWorktree(g),
+	}
+}
+
+// NewContainerWorktreeFor builds the composition for a REGISTERED backend name:
+// the container half comes from the backend's container profile (image, auth,
+// local-build recipe — see NewContainerFor), the worktree half from the Git seam.
+func NewContainerWorktreeFor(rt ContainerRuntime, backend string, g git.Git) ContainerWorktree {
+	return ContainerWorktree{
+		container: NewContainerFor(rt, backend),
 		worktree:  NewWorktree(g),
 	}
 }

@@ -420,10 +420,11 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Len(t, result.Backends, 3)
+	assert.Len(t, result.Backends, 4)
 	assert.Contains(t, result.Backends, "claude-code")
 	assert.Contains(t, result.Backends, "antigravity")
 	assert.Contains(t, result.Backends, "codex")
+	assert.Contains(t, result.Backends, "kiro")
 
 	// Verify each backend's settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
@@ -435,6 +436,10 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 	assert.True(t, exists)
 
 	exists, err = afero.Exists(fs, "/project/.codex/config.toml")
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	exists, err = afero.Exists(fs, "/project/.kiro/agents/ctxloom.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
@@ -457,7 +462,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Len(t, result.Backends, 3)
+	assert.Len(t, result.Backends, 4)
 }
 
 // TestApplyHooks_ConfigLoadError tests error handling when config load fails.

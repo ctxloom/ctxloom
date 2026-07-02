@@ -1,0 +1,38 @@
+# Production ctxloom agent image (kiro): the locally-built STATIC linux ctxloom
+# binary PLUS a real kiro-cli, so the plugin (`ctxloom llm serve kiro`) can spawn
+# `kiro-cli` INSIDE the container for an isolated run. Mirrors
+# Containerfile-claude-code and is the target of the kiro container profile's
+# image tag (ctxloom-agent-kiro:latest — built ahead of time by the
+# `container-build-kiro` just recipe, or on the fly by the isolation policy when
+# the tag is absent).
+#
+# debian bookworm-slim (glibc) is the install base: the official installer
+# (curl -fsSL https://cli.kiro.dev/install | bash) drops kiro-cli under
+# ~/.local/bin, so it is relocated to /usr/local/bin where any uid finds it (the
+# rootful-docker path runs the container --user <host uid>, not root). The static
+# ctxloom (CGO_ENABLED=0) runs on any base.
+#
+# AUTH is NOT baked in — it crosses at RUN time via KIRO_API_KEY env passthrough
+# (Kiro's headless mode skips the browser login when it is set). Subscription
+# `kiro-cli login` credential mounts are a follow-up pending live verification of
+# the credential file layout (the same doc-first posture as the kiro settings
+# writer). The image ships no secrets and is safe to cache/share.
+#
+# No ENTRYPOINT: the isolation runtime builds the full in-container argv
+# (/usr/local/bin/ctxloom llm serve kiro ...) on a writable base with a fresh
+# HOME. The build context must contain the static binary at ./ctxloom.
+FROM debian:bookworm-slim
+
+# Install kiro-cli via the official installer and fail the build if it is not
+# runnable, so a broken image never ships. The installer needs curl + certs (and
+# unzip for its archive); the binary is relocated to /usr/local/bin unless the
+# installer already put it on the standard PATH.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://cli.kiro.dev/install | bash \
+    && { command -v kiro-cli >/dev/null 2>&1 \
+         || install -m 0755 /root/.local/bin/kiro-cli /usr/local/bin/kiro-cli; } \
+    && kiro-cli --version
+
+COPY ctxloom /usr/local/bin/ctxloom

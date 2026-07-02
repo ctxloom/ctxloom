@@ -177,7 +177,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// It warns at each degrade and never blocks — None never fails. The last
 		// tier (none) loses cwd config isolation (shared project dir), the
 		// documented non-git edge.
-		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.WorkDir, req.AgentID)
+		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.Backend, req.WorkDir, req.AgentID)
 		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine

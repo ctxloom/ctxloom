@@ -66,7 +66,7 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 // the host project clean of ctxloom's per-run config writes.
 func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
 	root := t.TempDir()
-	mounts, err := containerConfigOverlay("/proj", root)
+	mounts, err := containerConfigOverlay("/proj", root, defaultOverlayDirs)
 	require.NoError(t, err)
 	require.Len(t, mounts, 2)
 

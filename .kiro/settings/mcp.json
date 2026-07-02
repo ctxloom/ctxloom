@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ctxloom": {
+      "args": [
+        "mcp"
+      ],
+      "command": "ctxloom"
+    }
+  }
+}

@@ -74,20 +74,20 @@ func TestClaudeCredentialMounts_OmitsAbsentDotClaude(t *testing.T) {
 	assert.True(t, mounts[0].ReadOnly)
 }
 
-// TestResolveContainerAuth_PrefersEnvThenCredsThenDegrades pins the precedence:
+// TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades pins the precedence:
 // ANTHROPIC_API_KEY (env passthrough) wins; else credential-mount; else ok=false
 // so the caller degrades to None.
-func TestResolveContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T) {
+func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "") // ensure no ambient key
 
 	// No key, no creds → degrade (the caller falls back to none).
-	_, ok := resolveContainerAuth("/root")
+	_, ok := resolveClaudeContainerAuth("/root")
 	assert.False(t, ok, "no resolvable auth → degrade to none")
 
 	// Creds present, still no key → credential-mount.
 	writeCreds(t, home, false)
-	auth, ok := resolveContainerAuth("/root")
+	auth, ok := resolveClaudeContainerAuth("/root")
 	require.True(t, ok)
 	assert.Equal(t, authCredentialMount, auth.mode)
 	assert.NotEmpty(t, auth.mounts)
@@ -95,7 +95,7 @@ func TestResolveContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T) {
 
 	// Key present → env passthrough PREFERRED over the mounted creds.
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok = resolveContainerAuth("/root")
+	auth, ok = resolveClaudeContainerAuth("/root")
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.env, "ANTHROPIC_API_KEY=sk-test")

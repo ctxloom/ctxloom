@@ -36,13 +36,14 @@ const (
 // below). Any inability to launch degrades to None via an error the caller
 // catches — the LLM never blocks (CLAUDE.md).
 //
-// AUTH crosses the boundary deliberately and scoped (PrepareWorkspace →
-// resolveContainerAuth): the container gets either the host's ANTHROPIC_* vars
-// (env passthrough, when ANTHROPIC_API_KEY is set) or the host's ~/.claude OAuth
-// credentials bind-mounted READ-ONLY into the fresh HOME (subscription auth). No
-// resolvable auth → PrepareWorkspace errors → the caller degrades to None (the
-// host session is already authenticated). Only the TRUSTED top-level run reaches
-// this; low-trust fan-out auth (per-agent keys/budgets, T1.5) is a later concern.
+// AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
+// profile's resolveAuth): the container gets the engine's scoped env passthrough
+// (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set; kiro: KIRO_API_KEY) or the
+// engine's credentials bind-mounted READ-ONLY into the fresh HOME (claude
+// subscription OAuth). No resolvable auth → PrepareWorkspace errors → the caller
+// degrades to None (the host session is already authenticated). Only the TRUSTED
+// top-level run reaches this; low-trust fan-out auth (per-agent keys/budgets,
+// T1.5) is a later concern.
 //
 // CONFIG: ctxloom's managed-config writers (.claude/settings.json, commands, the
 // framed context file under .ctxloom/cache) target the run's cwd, which here is
@@ -55,21 +56,37 @@ const (
 type Container struct {
 	runtime    ContainerRuntime
 	image      string
-	binaryPath string // the container's ctxloom path (runs `llm serve <backend>`)
-	home       string // fresh $HOME inside the container
-	socketDir  string // fixed in-container unix-socket dir (bind-mount target)
+	profile    containerProfile // backend-keyed knobs: auth, overlays, local-build recipe
+	binaryPath string           // the container's ctxloom path (runs `llm serve <backend>`)
+	home       string           // fresh $HOME inside the container
+	socketDir  string           // fixed in-container unix-socket dir (bind-mount target)
 }
 
 // Ensure Container satisfies the Policy interface.
 var _ Policy = Container{}
 
-// NewContainer builds a container policy bound to a runtime + image. Exposed so
-// the docker-gated integration test (and future callers with a resolved image)
-// can construct it directly; Resolve("container") builds the default.
+// NewContainer builds a container policy bound to a runtime + an EXPLICIT image
+// over the default (claude-oriented) profile, with no local-build recipe — the
+// image the caller names either exists or the gate degrades. Exposed for the
+// docker-gated integration test and callers with a resolved image;
+// Resolve("container", backend) goes through NewContainerFor instead.
 func NewContainer(rt ContainerRuntime, image string) Container {
+	c := NewContainerFor(rt, "")
+	c.image = image
+	return c
+}
+
+// NewContainerFor builds the container policy for a REGISTERED backend name: the
+// backend's container profile picks the agent image, the auth resolver, the
+// managed-config overlay set, and the embedded Containerfile that lets
+// ensureImage build the image locally when it is absent. Unknown/empty names get
+// the default profile (the generic agent image + claude auth, no local build).
+func NewContainerFor(rt ContainerRuntime, backend string) Container {
+	p := containerProfileFor(backend)
 	return Container{
 		runtime:    rt,
-		image:      image,
+		image:      p.image,
+		profile:    p,
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
 		socketDir:  defaultContainerSocketDir,
@@ -97,9 +114,11 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 	}
 	// The top-level run bind-mounts the LIVE project rw, so ctxloom's managed-config
 	// writers would land in the host project; shadow each with a scratch overlay to
-	// keep the host clean. (The worktree-in-container composition skips this — its
-	// mounted workspace is an ephemeral worktree, so writes there are torn down.)
-	overlays, err := containerConfigOverlay(projectDir, sc.root)
+	// keep the host clean. The overlay set is the PROFILE's (claude: .claude;
+	// kiro: .kiro; plus the shared .ctxloom/cache). (The worktree-in-container
+	// composition skips this — its mounted workspace is an ephemeral worktree, so
+	// writes there are torn down.)
+	overlays, err := containerConfigOverlay(projectDir, sc.root, c.profile.overlayDirs)
 	if err != nil {
 		_ = os.RemoveAll(sc.root)
 		return nil, err
@@ -126,8 +145,9 @@ type containerScratch struct {
 }
 
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
-// the required image present, and resolvable engine auth — then provisions the
-// host scratch (temp root + socket dir). Any gate failure returns an error so the
+// the required image present (or locally buildable, see ensureImage), and
+// resolvable engine auth (the profile's resolver) — then provisions the host
+// scratch (temp root + socket dir). Any gate failure returns an error so the
 // caller degrades (the top-level run → None; a fan-out member → a bare worktree).
 // It is the shared front-half of BOTH the top-level Container workspace and the
 // worktree-in-container composition; each layers its own extra mounts (config
@@ -136,12 +156,12 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	if c.runtime == nil || !c.runtime.Available() {
 		return containerScratch{}, fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
 	}
-	if !c.imagePresent(ctx) {
-		return containerScratch{}, fmt.Errorf("container image %q is not present", c.image)
+	if err := c.ensureImage(ctx); err != nil {
+		return containerScratch{}, err
 	}
-	auth, ok := resolveContainerAuth(c.home)
+	auth, ok := c.profile.resolveAuth(c.home)
 	if !ok {
-		return containerScratch{}, fmt.Errorf("container auth: no ANTHROPIC_API_KEY and no ~/.claude credentials to authenticate the in-container engine")
+		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
 	}
 	root, err := os.MkdirTemp("", "ctxloom-iso-")
 	if err != nil {
@@ -191,28 +211,19 @@ func (c Container) spawnInContainer(backendName, label string, verbosity int, ag
 	return pb.NewContainerClient(backendName, label, verbosity, runnerFunc, hostSocketDir)
 }
 
-// managedConfigOverlayDirs are the project-relative DIRECTORIES ctxloom's
-// managed-config writers target under the run's cwd: .claude (settings.json,
-// commands/, skills) and .ctxloom/cache (the framed context file the engine reads
-// via --append-system-prompt-file). For a container top-level run the project is
+// containerConfigOverlay builds one bind mount per managed-config directory
+// (the profile's overlayDirs — project-relative DIRECTORIES the engine's
+// managed-config writers target under the run's cwd), backed by a fresh scratch
+// dir under scratchRoot, whose container target shadows the same path inside the
+// bind-mounted project. For a container top-level run the project is
 // bind-mounted rw at its identical path, so these writes would otherwise land in
-// the HOST project; overlaying each with a fresh writable scratch dir shadows the
-// host copy (writes go to scratch, host stays clean). Directories only — a
-// single-file overlay would break the atomic write+rename the writers use, which
-// is why the project-root file .mcp.json is deliberately NOT here (flagged residue,
-// see the Container doc).
-var managedConfigOverlayDirs = []string{
-	".claude",
-	filepath.FromSlash(".ctxloom/cache"),
-}
-
-// containerConfigOverlay builds one bind mount per managed-config directory,
-// backed by a fresh scratch dir under scratchRoot, whose container target shadows
-// the same path inside the bind-mounted project. Keeps the host project clean of
-// ctxloom's per-run config writes.
-func containerConfigOverlay(projectDir, scratchRoot string) ([]Mount, error) {
-	mounts := make([]Mount, 0, len(managedConfigOverlayDirs))
-	for i, rel := range managedConfigOverlayDirs {
+// the HOST project; the overlay keeps it clean (writes go to scratch).
+// Directories only — a single-file overlay would break the atomic write+rename
+// the writers use, which is why the project-root file .mcp.json is deliberately
+// NOT overlaid (flagged residue, see the Container doc).
+func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
+	mounts := make([]Mount, 0, len(overlayDirs))
+	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
 		if err := os.MkdirAll(host, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay scratch: %w", err)

@@ -463,11 +463,9 @@ tf-validate:
 
 # ===== Container targets =====
 
-# Container registry (override with: just registry=ghcr.io/user container-build-all)
+# Container registry prefix for locally-built utility images (the acceptance
+# image); the agent images are local-only tags.
 registry := "localhost"
-
-# Container variant: wolfi (glibc, secure) or alpine (musl, smaller)
-variant := "wolfi"
 
 # Build the MINIMAL isolation image: the locally-built static linux ctxloom on a
 # small base, tagged ctxloom-agent:latest (the default the container isolation
@@ -483,11 +481,6 @@ container-build-minimal:
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
-
-# Build base agent container
-container-build-base:
-    podman build -t {{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-base container/{{variant}}/
 
 # Build the PRODUCTION claude agent image: the locally-built static linux ctxloom
 # PLUS a real claude CLI (npm @anthropic-ai/claude-code on node:22-slim), tagged
@@ -510,135 +503,26 @@ container-build-claude:
     {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
         -f "$ctx/Containerfile" "$ctx"
 
-# Build Gemini CLI agent container
-container-build-gemini: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-gemini:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-gemini container/{{variant}}/
-
-# Build Codex agent container
-container-build-codex: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-codex:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-codex container/{{variant}}/
-
-# Build Cline agent container
-container-build-cline: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-cline:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-cline container/{{variant}}/
-
-# Build Aider agent container (standalone - Python)
-container-build-aider:
-    podman build -t {{registry}}/ctxloom-agent-aider:latest \
-        -f container/{{variant}}/Containerfile-aider container/{{variant}}/
-
-# Build Goose agent container (standalone - Block)
-container-build-goose:
-    podman build -t {{registry}}/ctxloom-agent-goose:latest \
-        -f container/{{variant}}/Containerfile-goose container/{{variant}}/
-
-# Build Q Developer agent container (standalone - Amazon)
-container-build-qdeveloper:
-    podman build -t {{registry}}/ctxloom-agent-qdeveloper:latest \
-        -f container/{{variant}}/Containerfile-qdeveloper container/{{variant}}/
-
-# Build all agent containers
-container-build-agents: container-build-claude container-build-gemini container-build-codex container-build-cline container-build-aider container-build-goose container-build-qdeveloper
-
-# ===== Language LSP containers =====
-
-# Build Go LSP container (gopls + tools)
-container-build-lang-go: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-go:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-go container/{{variant}}/
-
-# Build Python LSP container (pyright + tools)
-container-build-lang-python: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-python:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-python container/{{variant}}/
-
-# Build Rust LSP container (rust-analyzer + tools)
-container-build-lang-rust: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-rust:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-rust container/{{variant}}/
-
-# Build TypeScript LSP container (typescript-language-server)
-container-build-lang-typescript: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-typescript:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-typescript container/{{variant}}/
-
-# Build Java LSP container (jdtls + tools)
-container-build-lang-java: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-java:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-java container/{{variant}}/
-
-# Build C# LSP container (omnisharp)
-container-build-lang-csharp: container-build-base
-    podman build -t {{registry}}/ctxloom-lsp-csharp:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/lang/Containerfile-csharp container/{{variant}}/
-
-# Build all language LSP containers
-container-build-langs: container-build-lang-go container-build-lang-python container-build-lang-rust container-build-lang-typescript container-build-lang-java container-build-lang-csharp
-
-# Build all containers (base + langs + agents)
-container-build-all: container-build-langs container-build-agents
-
-# Push all agent containers to registry
-container-push-agents:
-    podman push {{registry}}/ctxloom-agent-base:latest
-    podman push {{registry}}/ctxloom-agent-claude:latest
-    podman push {{registry}}/ctxloom-agent-gemini:latest
-    podman push {{registry}}/ctxloom-agent-codex:latest
-    podman push {{registry}}/ctxloom-agent-cline:latest
-    podman push {{registry}}/ctxloom-agent-aider:latest
-    podman push {{registry}}/ctxloom-agent-goose:latest
-    podman push {{registry}}/ctxloom-agent-qdeveloper:latest
-
-# Push all language LSP containers to registry
-container-push-langs:
-    podman push {{registry}}/ctxloom-lsp-go:latest
-    podman push {{registry}}/ctxloom-lsp-python:latest
-    podman push {{registry}}/ctxloom-lsp-rust:latest
-    podman push {{registry}}/ctxloom-lsp-typescript:latest
-    podman push {{registry}}/ctxloom-lsp-java:latest
-    podman push {{registry}}/ctxloom-lsp-csharp:latest
-
-# Push all containers to registry
-container-push-all: container-push-langs container-push-agents
-
-# Clean agent container images
-container-clean-agents:
-    -podman rmi {{registry}}/ctxloom-agent-claude:latest
-    -podman rmi {{registry}}/ctxloom-agent-gemini:latest
-    -podman rmi {{registry}}/ctxloom-agent-codex:latest
-    -podman rmi {{registry}}/ctxloom-agent-cline:latest
-    -podman rmi {{registry}}/ctxloom-agent-aider:latest
-    -podman rmi {{registry}}/ctxloom-agent-goose:latest
-    -podman rmi {{registry}}/ctxloom-agent-qdeveloper:latest
-
-# Clean language LSP container images
-container-clean-langs:
-    -podman rmi {{registry}}/ctxloom-lsp-go:latest
-    -podman rmi {{registry}}/ctxloom-lsp-python:latest
-    -podman rmi {{registry}}/ctxloom-lsp-rust:latest
-    -podman rmi {{registry}}/ctxloom-lsp-typescript:latest
-    -podman rmi {{registry}}/ctxloom-lsp-java:latest
-    -podman rmi {{registry}}/ctxloom-lsp-csharp:latest
-
-# Clean all container images
-container-clean: container-clean-agents container-clean-langs
-    -podman rmi {{registry}}/ctxloom-agent-base:latest
+# Build the PRODUCTION kiro agent image: the locally-built static linux ctxloom
+# PLUS a real kiro-cli (official installer on debian slim), tagged
+# ctxloom-agent-kiro:latest (the image the kiro container profile looks for).
+# Auth is NOT baked in — KIRO_API_KEY crosses at run time (headless mode). The
+# isolation policy can also build this image ON THE FLY from the embedded
+# Containerfile when the tag is absent; this recipe is the ahead-of-time path.
+container-build-kiro:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    cp container/production/Containerfile-kiro "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent-kiro:latest -f "$ctx/Containerfile" "$ctx"
 
 # List all ctxloom container images
 container-list:
-    @podman images | grep -E "ctxloom-(agent|lsp)" | sort
+    @{{container_cmd}} images | grep -E "ctxloom-agent" | sort
 
 # ===== Devcontainer overlay pattern =====
 # Runs targets inside devcontainer with CGO dependencies (libtokenizers, ONNX runtime)

@@ -34,10 +34,10 @@ func (m containerAuthMode) String() string {
 
 // containerAuth is the resolved plan for authenticating the engine INSIDE a
 // container: the scoped env vars to inject (env passthrough) and/or the read-only
-// credential mounts to bind into the fresh HOME (subscription OAuth). It is
-// deliberately claude-oriented for the P1 production image (claude first); a new
-// engine adds its own trigger var + credential paths behind this same resolve
-// seam. Only the TRUSTED top-level run reaches it — low-trust fan-out auth
+// credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
+// resolves its own plan behind the containerProfile.resolveAuth seam (claude:
+// ANTHROPIC_* passthrough or ~/.claude mounts; kiro: KIRO_API_KEY passthrough).
+// Only the TRUSTED top-level run reaches it — low-trust fan-out auth
 // (budget-capped per-agent keys, T1.5) is a separate, later concern.
 type containerAuth struct {
 	mode   containerAuthMode
@@ -62,19 +62,41 @@ var claudeAuthEnvVars = []string{
 // mounted credentials). Overridable in tests.
 var hostHomeDir = os.UserHomeDir
 
-// resolveContainerAuth builds the auth plan for a container run whose fresh HOME
-// is containerHome. It PREFERS env passthrough (an ANTHROPIC_API_KEY in the host
-// env — the user's chosen default) and otherwise falls back to mounting the
-// host's subscription OAuth credentials read-only into the container HOME. It
-// returns ok=false only when NEITHER is available, so the caller degrades to None
-// rather than launching an unauthenticated engine that would hang or fail
-// (CLAUDE.md fault tolerance).
-func resolveContainerAuth(containerHome string) (containerAuth, bool) {
+// resolveClaudeContainerAuth builds the auth plan for a containerized claude run
+// whose fresh HOME is containerHome. It PREFERS env passthrough (an
+// ANTHROPIC_API_KEY in the host env — the user's chosen default) and otherwise
+// falls back to mounting the host's subscription OAuth credentials read-only into
+// the container HOME. It returns ok=false only when NEITHER is available, so the
+// caller degrades to None rather than launching an unauthenticated engine that
+// would hang or fail (CLAUDE.md fault tolerance).
+func resolveClaudeContainerAuth(containerHome string) (containerAuth, bool) {
 	if env := scopedEnv(os.Getenv, claudeAuthEnvVars); os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return containerAuth{mode: authEnv, env: env}, true
 	}
 	if mounts, ok := claudeCredentialMounts(containerHome); ok {
 		return containerAuth{mode: authCredentialMount, mounts: mounts}, true
+	}
+	return containerAuth{mode: authNone}, false
+}
+
+// kiroAuthEnvVars is the SCOPED set of Kiro auth vars a kiro run honors — the
+// only host env allowed to cross into the container for kiro auth. KIRO_API_KEY
+// presence is the trigger (Kiro's headless mode skips the browser login when it
+// is set). NEVER logged.
+var kiroAuthEnvVars = []string{
+	"KIRO_API_KEY",
+}
+
+// resolveKiroContainerAuth builds the auth plan for a containerized kiro run:
+// KIRO_API_KEY env passthrough (headless mode) only. Subscription `kiro-cli
+// login` credentials live under ~/.kiro ALONGSIDE session state the engine must
+// write, so a wholesale read-only mount would break the engine and the exact
+// credential file layout is unverified live — no credential-mount fallback until
+// it is (the same doc-first posture as the kiro settings writer). ok=false →
+// the caller degrades rather than launching an engine stuck at a browser login.
+func resolveKiroContainerAuth(string) (containerAuth, bool) {
+	if env := scopedEnv(os.Getenv, kiroAuthEnvVars); os.Getenv("KIRO_API_KEY") != "" {
+		return containerAuth{mode: authEnv, env: env}, true
 	}
 	return containerAuth{mode: authNone}, false
 }

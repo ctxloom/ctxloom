@@ -111,17 +111,17 @@ func TestContainerWorktreeWorkspace_NoConfigHomeEnv(t *testing.T) {
 // then none.
 func TestMemberChain_NonContainer(t *testing.T) {
 	for _, name := range []string{"", "none"} {
-		chain := memberChain(name)
+		chain := memberChain(name, "claude-code")
 		require.Len(t, chain, 1, "policy %q", name)
 		assert.IsType(t, None{}, chain[0])
 	}
 
-	wt := memberChain("worktree")
+	wt := memberChain("worktree", "claude-code")
 	require.Len(t, wt, 2)
 	assert.IsType(t, Worktree{}, wt[0], "worktree leads with the bare worktree")
 	assert.IsType(t, None{}, wt[1], "then degrades to none on a non-git repo")
 
-	unknown := memberChain("bogus-policy")
+	unknown := memberChain("bogus-policy", "claude-code")
 	require.Len(t, unknown, 1)
 	assert.IsType(t, None{}, unknown[0], "an unknown policy resolves to none")
 }
@@ -130,7 +130,7 @@ func TestMemberChain_NonContainer(t *testing.T) {
 // worktree-in-container then degrades worktree→none; with no runtime it skips
 // straight to the worktree tier (config isolation without a container).
 func TestMemberChain_Container(t *testing.T) {
-	chain := memberChain("container")
+	chain := memberChain("container", "claude-code")
 	if (Docker{}).Available() || (Podman{}).Available() {
 		require.Len(t, chain, 3)
 		assert.IsType(t, ContainerWorktree{}, chain[0], "a runtime member leads with worktree-in-container")

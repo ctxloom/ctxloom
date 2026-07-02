@@ -92,12 +92,25 @@ func (c CodexConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
+// KiroConfig holds configuration for exporting prompts as Kiro CLI skills
+// (agentskills.io SKILL.md files, invocable as /<name> slash commands).
+type KiroConfig struct {
+	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
+	Description string `yaml:"description"` // For skill discovery + /help
+}
+
+// IsEnabled returns true unless explicitly disabled (opt-out model).
+func (c KiroConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
 	ClaudeCode  ClaudeCodeConfig  `yaml:"claude-code"`
 	Antigravity AntigravityConfig `yaml:"antigravity"`
 	Codex       CodexConfig       `yaml:"codex"`
+	Kiro        KiroConfig        `yaml:"kiro"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

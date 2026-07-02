@@ -53,14 +53,14 @@ func TestDecodeMessageLine(t *testing.T) {
 func TestReadMessagesLoop(t *testing.T) {
 	// Two lines; the second carries an escaped tab to prove decoding runs.
 	in := strings.NewReader("hello\nwo\\trld\n")
-	out := make(chan string, 8)
+	out := make(chan agent.ChatMessage, 8)
 
 	require.NoError(t, readMessagesLoop(context.Background(), in, out))
 	close(out)
 
 	var got []string
 	for m := range out {
-		got = append(got, m)
+		got = append(got, m.Text)
 	}
 	require.Len(t, got, 2)
 	assert.Equal(t, "hello", got[0])
@@ -70,13 +70,13 @@ func TestReadMessagesLoop(t *testing.T) {
 // TestReadMessagesLoop_NoTrailingNewline: a final line without a newline is
 // still delivered.
 func TestReadMessagesLoop_NoTrailingNewline(t *testing.T) {
-	out := make(chan string, 2)
+	out := make(chan agent.ChatMessage, 2)
 	require.NoError(t, readMessagesLoop(context.Background(), strings.NewReader("only line"), out))
 	close(out)
 
 	var got []string
 	for m := range out {
-		got = append(got, m)
+		got = append(got, m.Text)
 	}
 	assert.Equal(t, []string{"only line"}, got)
 }
@@ -146,13 +146,13 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	var captured []string
 	captureDone := make(chan struct{})
 	mock := &pb.MockClient{
-		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
-			in := make(chan string)
+		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+			in := make(chan agent.ChatMessage)
 			events := make(chan agent.ChatEvent)
 			errs := make(chan error)
 			go func() {
 				for m := range in {
-					captured = append(captured, m)
+					captured = append(captured, m.Text)
 				}
 				close(captureDone)
 				// Input half-closed: emit the turn, then end the stream cleanly.
@@ -181,8 +181,8 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 func TestRunStructuredREPL_StreamEndsBeforeStdinEOF(t *testing.T) {
 	streamErr := errors.New("backend died")
 	mock := &pb.MockClient{
-		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
-			in := make(chan string, 8) // buffered so a pending send never blocks the test
+		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+			in := make(chan agent.ChatMessage, 8) // buffered so a pending send never blocks the test
 			events := make(chan agent.ChatEvent)
 			errs := make(chan error, 1)
 			// Backend dies immediately: park the error, then close the stream.

@@ -27,7 +27,7 @@ type MockClient struct {
 	WatchSessionFunc func(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error)
 
 	// ChatFunc is called when Chat is invoked.
-	ChatFunc func(ctx context.Context, req agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error)
+	ChatFunc func(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error)
 
 	// ListSessionsFunc is called when ListSessions is invoked.
 	ListSessionsFunc func(ctx context.Context) ([]agent.SessionMeta, error)
@@ -111,11 +111,11 @@ func (m *MockClient) WatchSession(ctx context.Context, sessionID string) (<-chan
 
 // Chat drives a structured chat; the default drains the input channel and
 // returns immediately-closed event/error channels.
-func (m *MockClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
+func (m *MockClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
 	if m.ChatFunc != nil {
 		return m.ChatFunc(ctx, req)
 	}
-	in := make(chan string)
+	in := make(chan agent.ChatMessage)
 	events := make(chan agent.ChatEvent)
 	errs := make(chan error)
 	go func() { //nolint:revive // drain so the caller never blocks writing input

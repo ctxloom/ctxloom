@@ -50,7 +50,7 @@ func (s *stubClient) GetSession(context.Context, string) (*agent.Session, error)
 func (s *stubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
 	return nil, nil, nil
 }
-func (s *stubClient) Chat(context.Context, agent.ChatRequest) (chan<- string, <-chan agent.ChatEvent, <-chan error, error) {
+func (s *stubClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
 	return nil, nil, nil, nil
 }
 func (s *stubClient) ListSessions(context.Context) ([]agent.SessionMeta, error)  { return nil, nil }

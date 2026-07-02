@@ -70,6 +70,62 @@ func (sess *session) mapEvent(ev agent.ChatEvent) []api.SessionUpdate {
 	}
 }
 
+// replayEntry maps one RECORDED session entry onto session/update
+// notifications for session/load replay. Unlike the live mapping, user entries
+// ARE emitted (the spec's replay includes the user's messages); system entries
+// stay dropped (structural, not conversation content).
+func (sess *session) replayEntry(e agent.SessionEntry) []api.SessionUpdate {
+	if e.Type == agent.EntryTypeUser {
+		if e.Content == "" {
+			return nil
+		}
+		return []api.SessionUpdate{{
+			Type:             api.SessionUpdateTypeUserMessageChunk,
+			UserMessageChunk: &api.SessionUpdateUserMessageChunk{Content: textBlock(e.Content)},
+		}}
+	}
+	return sess.mapEvent(agent.ChatEvent{Entry: &e})
+}
+
+// permissionRequestWire renders a forwarded engine permission request as the
+// outbound session/request_permission body. The referenced toolCall reuses the
+// most recent OPEN generated id for the same tool name — the engine announces
+// the tool_call just before asking permission for it — falling back to a fresh
+// id when none is open (a lone toolCallId is still valid ACP).
+func (sess *session) permissionRequestWire(p *agent.PermissionRequest) api.RequestPermissionRequest {
+	req := api.RequestPermissionRequest{
+		SessionId: sess.id,
+		ToolCall:  api.ToolCallUpdate{ToolCallId: sess.peekToolCall(p.ToolName)},
+	}
+	if p.ToolName != "" {
+		title := p.ToolName
+		req.ToolCall.Title = &title
+	}
+	if v := rawValue(p.ToolInput); v != nil {
+		req.ToolCall.RawInput = v
+	}
+	for _, o := range p.Options {
+		req.Options = append(req.Options, api.PermissionOption{
+			OptionId: api.PermissionOptionId(o.ID),
+			Kind:     api.PermissionOptionKind(o.Kind),
+			Name:     o.Name,
+		})
+	}
+	return req
+}
+
+// peekToolCall returns the NEWEST open call id for name without consuming it
+// (the result will pop it later), or a fresh id when none is open.
+func (sess *session) peekToolCall(name string) api.ToolCallId {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	if ids := sess.openCall[name]; len(ids) > 0 {
+		return ids[len(ids)-1]
+	}
+	sess.toolSeq++
+	return api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+}
+
 // pushToolCall generates a fresh toolCallId and records it as the open call
 // for name, so the eventual result can target it.
 func (sess *session) pushToolCall(name string) api.ToolCallId {

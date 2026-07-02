@@ -170,7 +170,7 @@ func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
 	in, events, errs, err := c.Chat(context.Background(), agent.ChatRequest{Model: "m"})
 	require.NoError(t, err)
 
-	in <- "hello"
+	in <- agent.ChatMessage{Text: "hello"}
 	close(in)
 
 	var got []agent.ChatEvent

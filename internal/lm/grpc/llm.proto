@@ -126,11 +126,14 @@ message ResponseBoundary {
 message Heartbeat {}
 
 // ChatInput is one message on the Chat stream. The first MUST carry `start`;
-// thereafter the frontend sends `user_message` turns and half-closes to end input.
+// thereafter the frontend sends `user_message` turns (plus `permission_answer`
+// / `cancel_turn` control messages) and half-closes to end input.
 message ChatInput {
   oneof input {
-    ChatStart       start        = 1; // first message only
-    ChatUserMessage user_message = 2; // a structured user turn
+    ChatStart            start             = 1; // first message only
+    ChatUserMessage      user_message      = 2; // a structured user turn
+    ChatPermissionAnswer permission_answer = 3; // answers a ChatPermissionRequest
+    ChatCancelTurn       cancel_turn       = 4; // abandon the in-flight turn, keep the conversation
   }
 }
 
@@ -141,6 +144,21 @@ message ChatStart {
   string model = 2;
   map<string, string> env = 3;
   bool auto_approve = 4;
+  // Surface engine permission requests as ChatPermissionRequest events and
+  // park until the ChatPermissionAnswer arrives, instead of auto-deciding
+  // (auto_approve → allow, otherwise reject).
+  bool forward_permissions = 5;
+  // Caller-supplied MCP servers to attach to the conversation, in addition to
+  // whatever native config the engine reads from its cwd.
+  repeated ChatMCPServer mcp_servers = 6;
+}
+
+// ChatMCPServer is one caller-supplied stdio MCP server for a chat run.
+message ChatMCPServer {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
 }
 
 // ChatUserMessage is one inbound user turn (plain text in v1).
@@ -148,15 +166,47 @@ message ChatUserMessage {
   string text = 1;
 }
 
+// ChatPermissionAnswer resolves the ChatPermissionRequest with the same id:
+// option_id names the chosen option; empty means dismissed/cancelled.
+message ChatPermissionAnswer {
+  string id = 1;
+  string option_id = 2;
+}
+
+// ChatCancelTurn asks the backend to abandon the in-flight turn; the
+// conversation stays alive and the turn completes with stop reason "cancelled".
+message ChatCancelTurn {}
+
 // ChatEvent is one normalized outbound event; exactly one is set. `entry` is
 // conversation content (many per response), `complete` the response's
-// completion + accounting (one per response), `session` one-time session info.
+// completion + accounting (one per response), `session` one-time session info,
+// `permission` a forwarded mid-turn engine permission request (only under
+// ChatStart.forward_permissions; answered via ChatPermissionAnswer).
 message ChatEvent {
   oneof event {
-    SessionEntry    entry    = 1;
-    TurnMeta        complete = 2;
-    ChatSessionInfo session  = 3;
+    SessionEntry          entry      = 1;
+    TurnMeta              complete   = 2;
+    ChatSessionInfo       session    = 3;
+    ChatPermissionRequest permission = 4;
   }
+}
+
+// ChatPermissionRequest is a forwarded engine permission request: the engine
+// wants to run tool_name and offers the given decision options. id correlates
+// the eventual ChatPermissionAnswer.
+message ChatPermissionRequest {
+  string id = 1;
+  string tool_name = 2;
+  bytes  tool_input = 3; // raw JSON, may be empty
+  repeated ChatPermissionOption options = 4;
+}
+
+// ChatPermissionOption is one decision the engine offers. kind is the ACP
+// option-kind vocabulary: allow_once | allow_always | reject_once | reject_always.
+message ChatPermissionOption {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
 }
 
 // TurnMeta is per-response completion metadata a client can surface (context

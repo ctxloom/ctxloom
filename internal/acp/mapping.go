@@ -157,6 +157,24 @@ type permissionResult struct {
 	Outcome permissionOutcome `json:"outcome"`
 }
 
+// permissionRequestEvent maps an inbound session/request_permission onto the
+// backend-agnostic forwarded-permission event: the tool's human-readable title,
+// its raw input, and the offered options verbatim (the upstream decider needs
+// the real option ids to answer with).
+func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent.PermissionRequest {
+	p := &agent.PermissionRequest{ID: id, ToolInput: rawJSON(req.ToolCall.RawInput)}
+	if req.ToolCall.Title != nil {
+		p.ToolName = *req.ToolCall.Title
+	}
+	if p.ToolName == "" {
+		p.ToolName = titleString(req.ToolCall.Kind)
+	}
+	for _, o := range req.Options {
+		p.Options = append(p.Options, agent.PermissionOption{ID: string(o.OptionId), Kind: string(o.Kind), Name: o.Name})
+	}
+	return p
+}
+
 // decidePermission answers a tool-call permission request. It mirrors how the
 // claude driver handles permissions: allow only under AutoApprove, otherwise
 // reject. When allowing it selects an allow_* option; when rejecting it selects a

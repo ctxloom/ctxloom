@@ -118,36 +118,57 @@ func NewConn(ctx context.Context, r io.Reader, w io.Writer, closer io.Closer, ha
 // cancelled, or the connection closes. On success it unmarshals the result into
 // result (when non-nil).
 func (c *Conn) Call(ctx context.Context, method string, params, result any) error {
+	await, err := c.Go(method, params)
+	if err != nil {
+		return err
+	}
+	return await(ctx, result)
+}
+
+// Go issues a request and returns once the frame is WRITTEN — so a caller can
+// order later frames (e.g. a session/cancel notification) strictly after this
+// request — plus an await that blocks for the response. Exactly one await call
+// must follow a successful Go (it owns the pending slot's cleanup).
+func (c *Conn) Go(method string, params any) (func(ctx context.Context, result any) error, error) {
 	id := atomic.AddInt64(&c.nextID, 1)
 	ch := make(chan rpcMessage, 1)
 
 	c.pendingMu.Lock()
 	c.pending[id] = ch
 	c.pendingMu.Unlock()
-	defer func() {
+
+	if err := c.writeFrame(rpcMessage{Method: method, ID: json.RawMessage(strconv.FormatInt(id, 10)), Params: mustParams(method, params)}); err != nil {
 		c.pendingMu.Lock()
 		delete(c.pending, id)
 		c.pendingMu.Unlock()
-	}()
-
-	if err := c.writeFrame(rpcMessage{Method: method, ID: json.RawMessage(strconv.FormatInt(id, 10)), Params: mustParams(method, params)}); err != nil {
-		return err
+		return nil, err
 	}
 
-	select {
-	case resp := <-ch:
-		if resp.Error != nil {
-			return resp.Error
+	await := func(ctx context.Context, result any) error {
+		defer func() {
+			c.pendingMu.Lock()
+			delete(c.pending, id)
+			c.pendingMu.Unlock()
+		}()
+		select {
+		case resp, ok := <-ch:
+			if !ok {
+				return c.closedErr() // failPending closed the slot (connection died)
+			}
+			if resp.Error != nil {
+				return resp.Error
+			}
+			if result != nil && len(resp.Result) > 0 {
+				return json.Unmarshal(resp.Result, result)
+			}
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.closedErr()
 		}
-		if result != nil && len(resp.Result) > 0 {
-			return json.Unmarshal(resp.Result, result)
-		}
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-c.done:
-		return c.closedErr()
 	}
+	return await, nil
 }
 
 // Notify sends a notification (no response expected).
@@ -239,7 +260,7 @@ func (c *Conn) failPending() {
 	c.pendingMu.Lock()
 	defer c.pendingMu.Unlock()
 	for id, ch := range c.pending {
-		close(ch) // a closed channel yields the zero rpcMessage; Call() then returns closedErr via <-c.done
+		close(ch) // the await detects the closed slot and returns closedErr
 		delete(c.pending, id)
 	}
 }

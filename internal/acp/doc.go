@@ -51,6 +51,6 @@
 //   - The generic "acp" descriptor exists for ARBITRARY/unlisted ACP agents
 //     (`type: acp` + `command: "<agent> acp"`). A generic agent's native config
 //     format is unknown, so it deliberately materializes nothing: context still
-//     reaches a run as the lead fragment / prompt; MCP-over-session/new is a
-//     later addition (session.go sends an empty mcpServers list today).
+//     reaches a run as the lead fragment / prompt, and caller-supplied MCP
+//     servers (ChatRequest.MCPServers) ride session/new's mcpServers.
 package acp

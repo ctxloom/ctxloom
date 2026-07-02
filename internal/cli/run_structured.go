@@ -265,12 +265,12 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 // forever once a dead/cancelled chat stream stops draining out. Escapes within a
 // line are decoded (see decodeMessageLine) so a single typed line can carry
 // newlines, tabs, and quotes.
-func readMessagesLoop(ctx context.Context, in io.Reader, out chan<- string) error {
+func readMessagesLoop(ctx context.Context, in io.Reader, out chan<- agent.ChatMessage) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		select {
-		case out <- decodeMessageLine(scanner.Text()):
+		case out <- agent.ChatMessage{Text: decodeMessageLine(scanner.Text())}:
 		case <-ctx.Done():
 			return ctx.Err()
 		}

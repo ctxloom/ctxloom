@@ -27,10 +27,10 @@ type acpAgentEntry struct {
 var acpAgentsCmd = &cobra.Command{
 	Use:   "agents",
 	Short: "List the ACP agent entries to configure in an editor",
-	Long: `List this project's advertisable ACP agent entries: the plain ctxloom agent
-plus one entry per agent (ACP has no in-protocol agent selection — a client
-picks the agent by choosing which command it launches, so each agent
-advertises as its own agent entry).
+	Long: `List this project's advertisable ACP agent-server entries: the plain ctxloom
+entry plus one per agent binding (ACP has no in-protocol selection — a client
+picks by choosing which command it launches, so each binding advertises as its
+own agent-server entry).
 
 The output includes a ready-to-paste Zed settings.json "agent_servers" block;
 other ACP clients configure the same command/args in their own format.`,
@@ -102,7 +102,7 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	}
 	if len(entries) == 1 {
 		w.Println()
-		w.Println("No agents defined — each agent would advertise as its own agent entry.")
+		w.Println("No agent bindings defined — each binding would advertise as its own agent-server entry.")
 		w.Println("Define one under 'agents:' in .ctxloom/config.yaml or as .ctxloom/agents/<name>.yaml.")
 	}
 	w.Println()

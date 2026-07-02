@@ -97,9 +97,9 @@ func TestKiroWriter_MCPPreservesUserAndLedgers(t *testing.T) {
 		MCPServers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	require.NoError(t, json.Unmarshal(data, &f))
-	assert.Contains(t, f.MCPServers, "user-srv")             // user entry preserved
-	assert.Contains(t, f.MCPServers, "weather")              // managed server added
-	assert.Contains(t, f.MCPServers, agent.MCPServerName)    // ctxloom auto-registered
+	assert.Contains(t, f.MCPServers, "user-srv")          // user entry preserved
+	assert.Contains(t, f.MCPServers, "weather")           // managed server added
+	assert.Contains(t, f.MCPServers, agent.MCPServerName) // ctxloom auto-registered
 
 	ledger, err := afero.ReadFile(fs, "/proj/.kiro/settings/"+kiroMCPLedger)
 	require.NoError(t, err)

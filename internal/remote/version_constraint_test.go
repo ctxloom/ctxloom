@@ -65,12 +65,12 @@ func TestLockEntry_SelectorKind_DerivesForLegacyEntries(t *testing.T) {
 		e    LockEntry
 		want SelectorKind
 	}{
-		{LockEntry{Kind: SelectorTag}, SelectorTag},                       // explicit wins
-		{LockEntry{Version: "v1.2.0"}, SelectorVersion},                   // a recorded tag ⇒ version
-		{LockEntry{RequestedVersion: "^1.2"}, SelectorVersion},            // semver shape
-		{LockEntry{RequestedVersion: "abc1234"}, SelectorSHA},             // hex shape
-		{LockEntry{RequestedVersion: ""}, SelectorBranch},                 // empty ⇒ default branch
-		{LockEntry{RequestedVersion: "main"}, SelectorBranch},             // bare name derives to branch
+		{LockEntry{Kind: SelectorTag}, SelectorTag},            // explicit wins
+		{LockEntry{Version: "v1.2.0"}, SelectorVersion},        // a recorded tag ⇒ version
+		{LockEntry{RequestedVersion: "^1.2"}, SelectorVersion}, // semver shape
+		{LockEntry{RequestedVersion: "abc1234"}, SelectorSHA},  // hex shape
+		{LockEntry{RequestedVersion: ""}, SelectorBranch},      // empty ⇒ default branch
+		{LockEntry{RequestedVersion: "main"}, SelectorBranch},  // bare name derives to branch
 	}
 	for _, c := range cases {
 		if got := c.e.SelectorKind(); got != c.want {
@@ -81,9 +81,9 @@ func TestLockEntry_SelectorKind_DerivesForLegacyEntries(t *testing.T) {
 
 func TestParseSelector(t *testing.T) {
 	cases := []struct {
-		expr      string
-		wantKind  SelectorKind
-		wantBare  string
+		expr     string
+		wantKind SelectorKind
+		wantBare string
 	}{
 		{"sha:abc1234", SelectorSHA, "abc1234"},
 		{"tag:main", SelectorTag, "main"},

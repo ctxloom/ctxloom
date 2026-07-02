@@ -40,10 +40,10 @@ func TestMain(m *testing.M) {
 
 		origWD, wdErr := os.Getwd()
 		if work, werr := os.MkdirTemp("", "ctxloom-test-cwd-*"); werr == nil {
-			if cerr := os.Chdir(work); cerr == nil {
+			if cerr := os.Chdir(work); cerr == nil { //nolint:forbidigo // no *testing.T in TestMain
 				defer func() {
 					if wdErr == nil {
-						_ = os.Chdir(origWD)
+						_ = os.Chdir(origWD) //nolint:forbidigo // no *testing.T in TestMain
 					}
 					_ = os.RemoveAll(work)
 				}()

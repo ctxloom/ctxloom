@@ -45,11 +45,11 @@ func TestKiro_ConfigureIgnoresForeignConfig(t *testing.T) {
 
 func TestKiro_BuildArgs(t *testing.T) {
 	tests := []struct {
-		name    string
+		name      string
 		configure *KiroConfig
-		req     *agent.ExecuteRequest
-		model   string
-		want    []string
+		req       *agent.ExecuteRequest
+		model     string
+		want      []string
 	}{
 		{
 			name: "oneshot prompt is headless positional",

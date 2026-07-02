@@ -565,12 +565,6 @@ func reportMissingDefaults(out io.Writer, missing []string) {
 	fmt.Fprintln(out, "\nUpdate your ctxloom.yaml to fix the defaults.profiles list.")
 }
 
-// analyzeBundleReferences cross-checks the lockfile against the bundle
-// references declared by local profiles, via the operations core.
-func analyzeBundleReferences(lockfile *remote.Lockfile, appDir string) *operations.BundleAnalysis {
-	return operations.AnalyzeBundleReferences(operations.AnalyzeBundleReferencesRequest{Lockfile: lockfile, AppDir: appDir})
-}
-
 func shortSHA(sha string) string {
 	if len(sha) > 7 {
 		return sha[:7]

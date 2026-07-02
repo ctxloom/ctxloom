@@ -500,4 +500,3 @@ func sliceLines(content string, line, limit *int) string {
 	}
 	return strings.Join(lines[start:end], "\n")
 }
-

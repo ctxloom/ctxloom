@@ -178,6 +178,9 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
 	// the block rather than leaving `subagents: {}` behind.
 	setOrDelete(existing, "subagents", len(c.Subagents) > 0, c.Subagents)
+	// Top-level isolation default; pruned when empty ("none" is the implicit
+	// default, so an unset policy leaves no key behind).
+	setOrDelete(existing, "isolation", c.Isolation != "", c.Isolation)
 	setOrDelete(existing, "sync", c.Sync.AutoSync != nil, c.Sync)
 	setOrDelete(existing, "mcp", len(c.MCP.Servers) > 0 || len(c.MCP.Plugins) > 0 || c.MCP.AutoRegisterCtxloom != nil, c.MCP)
 	setOrDelete(existing, "hooks", c.Hooks.HasAny(), c.Hooks)

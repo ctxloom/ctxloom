@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
 // DefaultMapConcurrency bounds how many member agents run at once, keeping
@@ -83,6 +84,21 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 		resolved[i] = rs
 	}
 
+	// Build the shared executable trust gate ONCE for this fan, but only when a
+	// member actually requests isolation — an all-none fan (the default) writes no
+	// per-member config and must stay byte-identical to pre-P3, so it never touches
+	// the gate (which runs the trust baseline + opens the store). The gate's allow()
+	// is concurrency-safe, so the parallel members below share one.
+	var execGate *ExecutableTrustGate
+	var gate bundles.ContentGate
+	for _, rs := range resolved {
+		if rs != nil && !isolation.IsNone(rs.Isolation) {
+			execGate = NewExecutableTrustGate(cfg)
+			gate = execGate.Gate()
+			break
+		}
+	}
+
 	sem := make(chan struct{}, conc)
 	var wg sync.WaitGroup
 	for i := range req.Members {
@@ -114,7 +130,16 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				Label:     rs.Label,
 				Backend:   rs.Backend,
 				Model:     rs.Model,
-				Factory:   req.Factory,
+				// Per-member isolation resolved from the subagent binding
+				// (subagent → project default → none); AgentID scopes this
+				// member's future per-agent workspace by its identifier.
+				Isolation: rs.Isolation,
+				AgentID:   req.Members[i],
+				// The member's composed profile set + shared gate scope the
+				// per-member managed config written when the member is isolated.
+				Profiles: rs.Profiles,
+				Gate:     gate,
+				Factory:  req.Factory,
 			})
 			if err != nil {
 				parts[i] = Part{Profile: req.Members[i], Err: err.Error()}
@@ -129,6 +154,9 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 		}(i)
 	}
 	wg.Wait()
+	// Advisory: name how many bundle executables the shared gate withheld across
+	// isolated members (content-free; nil-safe when no gate was built).
+	execGate.WarnWithheld()
 	return parts
 }
 

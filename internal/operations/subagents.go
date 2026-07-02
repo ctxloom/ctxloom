@@ -17,6 +17,9 @@ type SubagentEntry struct {
 	Name     string   `json:"name"`
 	Engine   string   `json:"engine,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
+	// Isolation is the subagent's declared per-agent isolation policy (none |
+	// worktree | container), as written; empty inherits the project default.
+	Isolation string `json:"isolation,omitempty"`
 	// Source is "config" for a config.yaml `subagents:` entry, otherwise the
 	// .ctxloom/subagents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -30,10 +33,11 @@ func ListSubagents(cfg *config.Config) []SubagentEntry {
 	out := make([]SubagentEntry, 0, len(subs))
 	for _, s := range subs {
 		out = append(out, SubagentEntry{
-			Name:     s.Name,
-			Engine:   s.Engine,
-			Profiles: s.Profiles,
-			Source:   s.Source,
+			Name:      s.Name,
+			Engine:    s.Engine,
+			Profiles:  s.Profiles,
+			Isolation: s.Isolation,
+			Source:    s.Source,
 		})
 	}
 	return out
@@ -50,10 +54,11 @@ func GetSubagent(cfg *config.Config, name string) (*SubagentEntry, error) {
 		return nil, fmt.Errorf("subagent %q not found", name)
 	}
 	return &SubagentEntry{
-		Name:     sub.Name,
-		Engine:   sub.Engine,
-		Profiles: sub.Profiles,
-		Source:   sub.Source,
+		Name:      sub.Name,
+		Engine:    sub.Engine,
+		Profiles:  sub.Profiles,
+		Isolation: sub.Isolation,
+		Source:    sub.Source,
 	}, nil
 }
 
@@ -76,6 +81,11 @@ type ResolvedSubagent struct {
 	// Fragments names what loaded into it.
 	Context   string   `json:"context,omitempty"`
 	Fragments []string `json:"fragments,omitempty"`
+	// Isolation is the RESOLVED per-agent isolation policy for this member
+	// (subagent's own choice → project default → ""). Empty means "none" (host,
+	// today's behaviour); the fan-out maps it through isolation.Resolve to build
+	// this member's client factory + workspace.
+	Isolation string `json:"isolation,omitempty"`
 }
 
 // ResolveSubagent resolves the named subagent into a composed context + an
@@ -146,6 +156,14 @@ func resolveSubagentBinding(ctx context.Context, cfg *config.Config, name string
 	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
 	backend, model := ResolveBackend(cfg, label)
 
+	// Effective isolation policy: the subagent's own choice wins, else the
+	// project's top-level default (cfg.Isolation), else empty (→ none
+	// downstream). Empty is byte-identical to today's host behaviour.
+	isolation := sub.Isolation
+	if isolation == "" {
+		isolation = cfg.Isolation
+	}
+
 	return &ResolvedSubagent{
 		Name:      name,
 		Engine:    sub.Engine,
@@ -155,6 +173,7 @@ func resolveSubagentBinding(ctx context.Context, cfg *config.Config, name string
 		Model:     model,
 		Context:   ctxResult.Context,
 		Fragments: ctxResult.FragmentsLoaded,
+		Isolation: isolation,
 	}, nil
 }
 

@@ -60,11 +60,20 @@ type Config struct {
 	// no Bundle.Subagents and no remote path. Read the merged set via
 	// LoadSubagents / Subagent, which folds in the directory source too.
 	Subagents map[string]subagents.Subagent `mapstructure:"subagents" yaml:"subagents,omitempty"`
-	AppPaths  []string                      // Resolved .ctxloom directory (at most one)
-	AppRoot   string                        // Project root (parent of .ctxloom directory)
-	AppDir    string                        // Full path to the .ctxloom directory
-	Source    ConfigSource                  // Where the configuration was loaded from
-	Warnings  []string                      // Non-fatal warnings collected during load
+	// Isolation is the project-wide DEFAULT per-agent isolation policy for
+	// fan-out members (map/weave): none | worktree | container. Empty means
+	// "none" (host — today's behaviour). A subagent's own `isolation` overrides
+	// this default per member. It is the top-level default only; the per-member
+	// precedence (subagent → this default → none) is resolved in
+	// operations.resolveSubagentBinding. Named `isolation` to avoid colliding
+	// with `profiles.defaults` (the profiles array) and `llm.defaults`
+	// (RoleDefaults).
+	Isolation string       `mapstructure:"isolation" yaml:"isolation,omitempty"`
+	AppPaths  []string     // Resolved .ctxloom directory (at most one)
+	AppRoot   string       // Project root (parent of .ctxloom directory)
+	AppDir    string       // Full path to the .ctxloom directory
+	Source    ConfigSource // Where the configuration was loaded from
+	Warnings  []string     // Non-fatal warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;

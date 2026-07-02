@@ -63,6 +63,12 @@ type Subagent struct {
 	Engine string `yaml:"engine,omitempty"`
 	// Profiles compose into one assembled context.
 	Profiles []string `yaml:"profiles,omitempty"`
+	// Isolation is the per-agent isolation policy (none | worktree | container)
+	// applied when this subagent runs as a fan-out member. It overrides the
+	// project's top-level isolation default; empty inherits that default and
+	// finally falls back to "none" (host, today's behaviour). Resolution of the
+	// effective policy lives in operations.resolveSubagentBinding.
+	Isolation string `yaml:"isolation,omitempty"`
 }
 
 // ParseSubagent unmarshals subagent YAML into a Subagent. Name and Source are

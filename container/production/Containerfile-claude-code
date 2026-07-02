@@ -1,0 +1,29 @@
+# Production ctxloom agent image (claude): the locally-built STATIC linux ctxloom
+# binary PLUS a real claude CLI, so the plugin (`ctxloom llm serve claudecode`) can
+# spawn `claude` INSIDE the container for a top-level isolated run. Unlike
+# container/minimal (transport only, Info()/mock level), this image carries a real
+# engine and is the target of the container isolation policy's default image tag
+# (ctxloom-agent:latest — see the `container-build-claude` just recipe).
+#
+# node:22-slim (Debian/glibc) is the portable install base: `npm i -g
+# @anthropic-ai/claude-code` lands `claude` on PATH (/usr/local/bin) and its native
+# helpers link against glibc. The static ctxloom (CGO_ENABLED=0) runs on any base.
+#
+# AUTH is NOT baked in — it crosses at RUN time, chosen by the container policy:
+#   - env passthrough: the host's ANTHROPIC_* vars (when ANTHROPIC_API_KEY is set), or
+#   - credential mount: the host's ~/.claude/.credentials.json + ~/.claude.json
+#     bind-mounted READ-ONLY into the fresh $HOME (subscription OAuth).
+# So the image ships no secrets and is safe to cache/share.
+#
+# No ENTRYPOINT: the isolation runtime builds the full in-container argv
+# (/usr/local/bin/ctxloom llm serve <backend> ...) on a writable base with a fresh
+# HOME. The build context must contain the static binary at ./ctxloom (the
+# `container-build-claude` recipe builds it with CGO_ENABLED=0).
+FROM node:22-slim
+
+# Install the claude CLI globally and fail the build if it is not runnable, so a
+# broken image never ships (npm's postinstall pins the native binary for this arch).
+RUN npm install -g @anthropic-ai/claude-code \
+    && claude --version
+
+COPY ctxloom /usr/local/bin/ctxloom

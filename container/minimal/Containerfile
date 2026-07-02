@@ -1,0 +1,13 @@
+# Minimal ctxloom agent image: the locally-built STATIC linux ctxloom binary on a
+# small base, able to run `ctxloom llm serve <backend>` as a go-plugin server. This
+# is the isolation TRANSPORT image — it proves plugin-in-container gRPC without an
+# engine CLI or auth (Info()/mock-level). The PRODUCTION agent image (a real engine
+# CLI installed + auth scoping) is a separate, deliberate follow-up.
+#
+# The build context must contain the static binary at ./ctxloom (see the
+# `container-build-minimal` just recipe, which builds it with CGO_ENABLED=0). No
+# ENTRYPOINT: the isolation runtime builds the full in-container argv
+# (/usr/local/bin/ctxloom llm serve <backend> ...), so the image only needs the
+# binary on a writable base with a fresh HOME.
+FROM alpine:latest
+COPY ctxloom /usr/local/bin/ctxloom

@@ -469,16 +469,46 @@ registry := "localhost"
 # Container variant: wolfi (glibc, secure) or alpine (musl, smaller)
 variant := "wolfi"
 
+# Build the MINIMAL isolation image: the locally-built static linux ctxloom on a
+# small base, tagged ctxloom-agent:latest (the default the container isolation
+# policy looks for). Proves the plugin-in-container transport without an engine CLI
+# or auth. The production agent image (real engine + auth) is a separate follow-up.
+container-build-minimal:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    cp container/minimal/Containerfile "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
+
 # Build base agent container
 container-build-base:
     podman build -t {{registry}}/ctxloom-agent-base:latest \
         -f container/{{variant}}/Containerfile-base container/{{variant}}/
 
-# Build Claude Code agent container
-container-build-claude: container-build-base
-    podman build -t {{registry}}/ctxloom-agent-claude:latest \
-        --build-arg BASE_IMAGE={{registry}}/ctxloom-agent-base:latest \
-        -f container/{{variant}}/Containerfile-claude-code container/{{variant}}/
+# Build the PRODUCTION claude agent image: the locally-built static linux ctxloom
+# PLUS a real claude CLI (npm @anthropic-ai/claude-code on node:22-slim), tagged
+# ctxloom-agent:latest (the default image the container isolation policy looks for)
+# AND ctxloom-agent-claude:latest. Unlike container-build-minimal (transport only),
+# this runs a REAL engine in-container for a top-level isolated `ctxloom run`. Auth
+# is NOT baked in — it crosses at run time (ANTHROPIC_* passthrough, or a read-only
+# ~/.claude credential mount). Follows the self-contained container-build-minimal
+# pattern (docker, static binary, no base-image dependency); the Go test gate never
+# depends on this image (the build is slow/network-bound).
+container-build-claude:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ctx=$(mktemp -d)
+    trap 'rm -rf "$ctx"' EXIT
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -o "$ctx/ctxloom" ./cmd/ctxloom
+    cp container/production/Containerfile-claude-code "$ctx/Containerfile"
+    {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
+        -f "$ctx/Containerfile" "$ctx"
 
 # Build Gemini CLI agent container
 container-build-gemini: container-build-base

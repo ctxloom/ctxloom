@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
@@ -658,6 +659,16 @@ Examples:
 		// trust store); fail-closed (a DENY omits the executable). Surfaced below.
 		execGate := operations.NewExecutableTrustGate(cfg)
 
+		// Resolve the isolation policy up front so its approvals axis can gate
+		// AutoApprove BEFORE the request is built (Approvals() needs no workspace).
+		// The external-plugin-binary path is never isolated (none). The resolved
+		// policy is reused below to prepare the workspace + spawn the client, so a
+		// container's runtime probe runs at most once per launch.
+		var policy isolation.Policy = isolation.None{}
+		if llmBinary == "" {
+			policy = isolation.Resolve(cfg.Isolation)
+		}
+
 		// Build request. The host now assembles the config/bundle setup payload
 		// (slash commands, hooks, MCP, statusline) and ships it in ManagedConfig
 		// so the backend plugin never self-loads ctxloom config/bundles. The
@@ -674,8 +685,13 @@ Examples:
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
 			Options: &pb.RunOptions{
-				WorkDir:     workDir,
-				AutoApprove: true,
+				WorkDir: workDir,
+				// AutoApprove rule (STAGE 1): a non-interactive ONESHOT (run --print)
+				// has no human to answer the engine's permission prompt, so it must
+				// auto-approve or it would hang; an INTERACTIVE run auto-approves only
+				// when the isolation policy is a real boundary that bypasses approvals
+				// (container). none/worktree keep the engine's in-tool prompt.
+				AutoApprove: autoApproveForRun(mode, policy.Approvals()),
 				Mode:        mode,
 				Env:         runEnv,
 				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
@@ -686,19 +702,47 @@ Examples:
 		// Advisory: tell the user if a bundle executable was withheld (content-free).
 		execGate.WarnWithheld()
 
-		// Create plugin client
-		var client *pb.LLMRunner
+		// Create plugin client. Isolation (cfg.Isolation, default none) decides
+		// WHERE the top-level run's workspace lives and HOW its plugin is spawned.
+		// The external-plugin-binary path is spawned directly — isolation wraps the
+		// built-in serve transport, not a user-supplied binary — and stays none.
+		var client pb.Client
 		if llmBinary != "" {
 			// Use external plugin binary
 			client, err = pb.NewLLMRunner(llmBinary, llmArgs, runVerbosity)
+			if err != nil {
+				return fmt.Errorf("failed to start plugin: %w", err)
+			}
 		} else {
-			// Use built-in plugin via self-invocation, carrying the resolved
-			// label so serve configures exactly this entry (not the first
-			// map-ordered entry of the same type).
-			client, err = pb.NewSelfInvokingClientForLabel(backendName, label, runVerbosity)
-		}
-		if err != nil {
-			return fmt.Errorf("failed to start plugin: %w", err)
+			// Prepare the resolved policy's workspace. Fault tolerance: a container
+			// requested but unlaunchable (no runtime, or the agent image absent —
+			// today's state until the production image ships) degrades to none (the
+			// live project dir + a bare self-invoked subprocess), so
+			// defaults.isolation:container is a safe default = today's behaviour.
+			ws, perr := policy.PrepareWorkspace(ctx, workDir, activeHarp)
+			if perr != nil {
+				clidiag.Warn("ctxloom", "isolation %q workspace prepare failed; using the project directory: %v", policy.Name(), perr)
+				policy = isolation.None{}
+				ws, _ = policy.PrepareWorkspace(ctx, workDir, activeHarp)
+				// The isolation boundary that justified bypassing the engine prompt
+				// never materialized (e.g. container → none); re-honor the approvals
+				// rule so an interactive fallback prompts instead of silently bypassing.
+				req.Options.AutoApprove = autoApproveForRun(mode, policy.Approvals())
+			}
+			// Tear the workspace down after the client is killed (kill the plugin/
+			// container before removing its scratch — WIP-safe). Registered before
+			// client.Kill so it runs after. none's cleanup is a noop.
+			defer func() { _ = ws.Cleanup() }()
+			// The engine's cwd lands in the prepared workspace (identical-path for
+			// container/none; a worktree in Phase 2).
+			req.Options.WorkDir = ws.Dir()
+			// Spawn through the policy, carrying the resolved label so serve
+			// configures exactly this entry (not the first map-ordered entry of the
+			// same type).
+			client, err = policy.SpawnClient(backendName, label, runVerbosity, ws)
+			if err != nil {
+				return fmt.Errorf("failed to start plugin: %w", err)
+			}
 		}
 		defer client.Kill()
 
@@ -735,6 +779,17 @@ Examples:
 
 		return nil
 	},
+}
+
+// autoApproveForRun computes RunOptions.AutoApprove for the top-level run from the
+// execution mode and the isolation policy's approvals axis (STAGE 1). A
+// non-interactive ONESHOT (run --print) has no human to answer the engine's
+// permission prompt, so it always auto-approves (else it hangs); an INTERACTIVE
+// run auto-approves only when the policy bypasses approvals because a real
+// out-of-engine boundary contains the blast radius (container). none/worktree keep
+// the engine's in-tool prompt.
+func autoApproveForRun(mode pb.ExecutionMode, approvals isolation.Approvals) bool {
+	return mode == pb.ExecutionMode_ONESHOT || approvals == isolation.ApprovalsBypass
 }
 
 // resolveRunLLM picks the config label to launch. Precedence: an explicit

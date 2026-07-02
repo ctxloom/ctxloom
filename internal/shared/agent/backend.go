@@ -203,7 +203,14 @@ type ManagedConfig struct {
 
 // ExecuteRequest contains the runtime parameters for execution.
 type ExecuteRequest struct {
-	Prompt      *Fragment
+	Prompt *Fragment
+	// WorkDir is the working directory the run executes in (the child engine's
+	// cwd). It makes cwd a first-class Execute input, decoupled from Setup: the
+	// runner applies it before Execute on EVERY path — including SkipSetup
+	// oneshot/map/weave fan-out, where Setup (and its SetWorkDir) never runs — so
+	// the passed workspace always reaches the child instead of defaulting to the
+	// plugin's inherited ".". Empty means "unset" (BaseBackend.WorkDir → ".").
+	WorkDir     string
 	Mode        ExecutionMode
 	Model       string
 	Env         map[string]string

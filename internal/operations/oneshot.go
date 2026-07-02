@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
@@ -61,6 +62,22 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 
+	// Build the shared executable trust gate ONLY when isolation is actually
+	// requested (an all-none oneshot — the default — writes no per-member config and
+	// must stay byte-identical to pre-P3; gate construction runs the trust baseline
+	// + opens the store). Ignored on the injected-Factory path (isolation skipped).
+	var gate bundles.ContentGate
+	if !isolation.IsNone(cfg.Isolation) {
+		gate = NewExecutableTrustGate(cfg).Gate()
+	}
+	// The single-profile oneshot's profile set is just req.Profile (empty falls back
+	// to the configured defaults inside AssembleManagedConfig), matching how the
+	// assembled context above was scoped.
+	var profiles []string
+	if req.Profile != "" {
+		profiles = []string{req.Profile}
+	}
+
 	res, err := runResolvedAgent(ctx, resolvedRunRequest{
 		Context:   ctxResult.Context,
 		Task:      req.Task,
@@ -69,6 +86,13 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
+		// A single-profile oneshot has no subagent binding, so it takes the
+		// project's top-level isolation default (empty → none). AgentID scopes a
+		// future per-agent workspace by the profile name.
+		Isolation: cfg.Isolation,
+		AgentID:   req.Profile,
+		Profiles:  profiles,
+		Gate:      gate,
 		Factory:   req.Factory,
 	})
 	if err != nil {
@@ -94,6 +118,26 @@ type resolvedRunRequest struct {
 	Backend string
 	Model   string
 
+	// Isolation is the resolved per-agent isolation policy name (none | worktree
+	// | container); empty means none (host — today's behaviour). It selects HOW
+	// the member's plugin is spawned and WHERE its workspace lives when no
+	// Factory is injected. AgentID scopes/names that per-agent workspace (the
+	// member identifier). Both are ignored on the injected-Factory path.
+	Isolation string
+	AgentID   string
+
+	// Profiles is the member's resolved profile set — the SAME set that scoped its
+	// assembled Context. When the member's workspace is ISOLATED (worktree/
+	// container), it scopes the per-member ManagedConfig (mcp/hooks/skills) written
+	// natively into the isolated cwd, mirroring the top-level run. Ignored for a
+	// none member (which shares the project cwd and writes no managed config).
+	Profiles []string
+	// Gate is the shared executable trust gate (built ONCE per fan) threaded into
+	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/skill
+	// exports gate at their own choke exactly as the top-level run. nil = no gating
+	// (and none members never consult it).
+	Gate bundles.ContentGate
+
 	Factory pb.ClientFactory // nil self-invokes the compiled-in backend
 }
 
@@ -107,23 +151,79 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	if req.Context != "" {
 		fragments = append(fragments, &pb.Fragment{Content: req.Context})
 	}
+
+	// Decide WHERE this member runs and HOW its plugin is spawned. An injected
+	// Factory (test seam / caller override) wins exactly as before: the isolation
+	// policy is skipped entirely, WorkDir stays req.WorkDir, and no workspace is
+	// prepared or torn down — byte-identical to the pre-isolation path. Only when
+	// Factory is nil does the resolved policy take over. Default (empty/none) →
+	// the live project dir + a bare self-invoked subprocess (== the old
+	// pb.DefaultClientFactory), so this is zero functional change until an
+	// isolation is actually requested.
+	factory := req.Factory
+	workDir := req.WorkDir
+	var workspaceEnv map[string]string
+	// A none member (or the injected-Factory test path) keeps the pre-P3 delivery:
+	// SkipSetup:true, no managed write, context as the lead fragment. An ISOLATED
+	// member flips to SkipSetup:false + a per-member ManagedConfig written into its
+	// isolated cwd (set below).
+	skipSetup := true
+	var managed *pb.ManagedConfig
+	if factory == nil {
+		// Fan-out member isolation. PrepareMember realizes the §2b degrade chain
+		// (container→worktree→none): a member's workspace is ALWAYS a worktree when
+		// isolated (never the shared project dir), so "container" here means
+		// worktree-in-container (a per-member worktree mounted into a container).
+		// It warns at each degrade and never blocks — None never fails. The last
+		// tier (none) loses cwd config isolation (shared project dir), the
+		// documented non-git edge.
+		policy, ws := isolation.PrepareMember(ctx, req.Isolation, req.WorkDir, req.AgentID)
+		workDir = ws.Dir()
+		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
+		// config layer; nil for none/container. Threaded into the member's engine
+		// env below so the shared ~/.claude.json etc. don't clobber.
+		workspaceEnv = isolation.WorkspaceEnv(ws)
+		// Tear the workspace down after the run. Registered BEFORE the client so
+		// it runs AFTER client.Kill() (kill the plugin before removing its
+		// workspace — WIP-safe for the worktree teardown). none's cleanup is a noop.
+		defer func() { _ = ws.Cleanup() }()
+		factory = isolation.FactoryForWorkspace(policy, ws)
+
+		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written
+		// into its isolated cwd (the point of the worktree, plan §2b). Assemble it
+		// exactly as the top-level run does (backends.AssembleManagedConfig with the
+		// SAME workDir/gate/profiles) so the plugin's Setup materializes
+		// .mcp.json/.claude/AGENTS.md/.kiro/ into ws.Dir() and delivers context ONCE
+		// from the lead fragment — mirroring run.go's SkipSetup:false delivery. A
+		// none member (Isolated == false, incl. a worktree that degraded to none)
+		// shares the project cwd, so it stays on the SkipSetup:true / lead-fragment
+		// path: writing per-member config there would clobber the one shared surface.
+		if isolation.Isolated(policy) {
+			skipSetup = false
+			managed = pb.ManagedConfigToProto(
+				backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles))
+		}
+	}
+
 	runReq := &pb.RunStart{
 		Fragments: fragments,
 		Prompt:    &pb.Fragment{Content: req.Task},
 		Options: &pb.RunOptions{
-			WorkDir:     req.WorkDir,
+			WorkDir: workDir,
+			Env:     workspaceEnv,
+			// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer
+			// the engine's permission prompt, so a member must auto-approve or it
+			// hangs. The approvals axis (isolated→bypass, none→prompt) differentiates
+			// INTERACTIVE runs only; here it is invariant true (STAGE 1).
 			AutoApprove: true,
 			Mode:        pb.ExecutionMode_ONESHOT,
 			Model:       req.Model,
 			Verbosity:   uint32(req.Verbosity * 16),
-			SkipSetup:   true,
+			SkipSetup:   skipSetup,
 		},
+		ManagedConfig: managed,
 	}
 
-	factory := req.Factory
-	if factory == nil {
-		factory = pb.DefaultClientFactory()
-	}
 	client, err := factory(req.Backend, req.Label, req.Verbosity)
 	if err != nil {
 		return nil, fmt.Errorf("start plugin: %w", err)

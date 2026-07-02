@@ -1,0 +1,89 @@
+package isolation
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// fakeRuntime is a ContainerRuntime stub for the degrade-path tests: it reports a
+// configurable availability and binary without touching a real daemon.
+type fakeRuntime struct {
+	name      string
+	binary    string
+	available bool
+}
+
+func (f fakeRuntime) Name() string             { return f.name }
+func (f fakeRuntime) Binary() string           { return f.binary }
+func (f fakeRuntime) Available() bool          { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
+func (fakeRuntime) RemoveArgs(string) []string { return nil }
+
+// TestContainer_Axes pins the policy's identity: name "container", approvals
+// BYPASS (the container is the boundary that replaces the in-engine prompt).
+func TestContainer_Axes(t *testing.T) {
+	c := NewContainer(fakeRuntime{name: "docker", available: true}, "img")
+	assert.Equal(t, "container", c.Name())
+	assert.Equal(t, ApprovalsBypass, c.Approvals(), "isolated runs bypass the in-engine approval prompt")
+}
+
+// TestContainer_PrepareDegrades: an unavailable runtime OR a missing image makes
+// PrepareWorkspace return an error so the caller falls back to None — never blocks.
+func TestContainer_PrepareDegrades(t *testing.T) {
+	ctx := context.Background()
+
+	// Runtime cannot launch → error mentioning the runtime.
+	_, err := NewContainer(fakeRuntime{name: "docker", available: false}, "img").
+		PrepareWorkspace(ctx, "/proj", "m")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot launch")
+
+	// Runtime available but image absent (binary "" → imagePresent false) → error.
+	_, err = NewContainer(fakeRuntime{name: "docker", binary: "", available: true}, "img").
+		PrepareWorkspace(ctx, "/proj", "m")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not present")
+}
+
+// TestContainerWorkspace_DirAndCleanup: Dir() is the identical-path project dir;
+// Cleanup removes the host socket scratch and is idempotent.
+func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
+	scratch, err := os.MkdirTemp("", "ctxloom-iso-test-")
+	require.NoError(t, err)
+	ws := &containerWorkspace{dir: "/proj", scratchRoot: scratch, agentID: "m"}
+
+	assert.Equal(t, "/proj", ws.Dir(), "workspace dir is the identical-path project directory")
+	require.NoError(t, ws.Cleanup())
+	_, statErr := os.Stat(scratch)
+	assert.True(t, os.IsNotExist(statErr), "cleanup removes the scratch tree")
+	assert.NoError(t, ws.Cleanup(), "cleanup is idempotent")
+}
+
+// TestContainerName_SanitizesAndScopes: the name is a valid, unique,
+// teardown-targetable container name derived from the agent id.
+func TestContainerName_SanitizesAndScopes(t *testing.T) {
+	n := containerName("code review/aspect:sec")
+	assert.True(t, strings.HasPrefix(n, "ctxloom-iso-"), "scoped name prefix")
+	assert.NotContains(t, n, "/", "path separators stripped")
+	assert.NotContains(t, n, ":", "colons stripped")
+	assert.NotEqual(t, containerName("m"), containerName("m"), "names are unique per spawn")
+
+	// An empty/garbage agent id still yields a valid name.
+	assert.True(t, strings.HasPrefix(containerName("///"), "ctxloom-iso-agent-"))
+}
+
+// TestResolveContainer_DegradesWithoutRuntime documents the two-place degrade: with
+// no runtime Resolve returns None; with a runtime it returns a container policy.
+func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
+	p := Resolve("container")
+	if (Docker{}).Available() || (Podman{}).Available() {
+		assert.Equal(t, "container", p.Name(), "a launchable runtime resolves to the container policy")
+	} else {
+		assert.Equal(t, "none", p.Name(), "no runtime degrades to none")
+	}
+}

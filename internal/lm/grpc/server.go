@@ -165,6 +165,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	// Build execute request from RunStart
 	execReq := &agent.ExecuteRequest{
 		Prompt:      convertFragment(req.Prompt),
+		WorkDir:     workDir,
 		Mode:        agent.ExecutionMode(opts.GetMode()),
 		Model:       opts.GetModel(),
 		Env:         env,
@@ -175,6 +176,17 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		SkipSetup:   opts.GetSkipSetup(),
 		Stdin:       stdinR,
 		Resize:      resizeCh,
+	}
+
+	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
+	// SkipSetup fan-out (oneshot/map/weave) skips Setup — so without this the
+	// passed WorkDir is dropped and the engine runs in the plugin's inherited
+	// "." (the isolation-blocking cwd bug). SetWorkDir lives on BaseBackend
+	// (every real backend embeds it) but not the Backend interface, and a
+	// bare test fake may lack it, so apply it by capability check. Idempotent
+	// with Setup's own SetWorkDir on the non-skip path (same value).
+	if w, ok := s.Impl.(interface{ SetWorkDir(string) }); ok {
+		w.SetWorkDir(execReq.WorkDir)
 	}
 
 	// Execute the backend

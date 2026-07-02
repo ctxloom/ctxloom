@@ -313,5 +313,59 @@ func TestGRPCServer_Run_NilOptionsTreatedAsEmpty(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// launchCapturingBackend embeds BaseBackend and routes Execute through the
+// injected Launcher, capturing the resulting LaunchSpec. It is a real backend
+// (not a hand-rolled fake) so the whole WorkDir → SetWorkDir → LaunchSpec.WorkDir
+// chain runs, letting a test assert the cwd the runtime would exec in.
+type launchCapturingBackend struct {
+	agent.BaseBackend
+	captured agent.LaunchSpec
+}
+
+func newLaunchCapturingBackend() *launchCapturingBackend {
+	b := &launchCapturingBackend{BaseBackend: agent.NewBaseBackend("capture", "1.0.0")}
+	b.BinaryPath = "/bin/true"
+	b.SetLauncher(func(_ context.Context, spec agent.LaunchSpec, _ io.Reader, _, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
+		b.captured = spec
+		return 0, nil
+	})
+	return b
+}
+
+func (b *launchCapturingBackend) History() agent.SessionHistory { return nil }
+
+func (b *launchCapturingBackend) Setup(_ context.Context, req *agent.SetupRequest) error {
+	b.SetWorkDir(req.WorkDir)
+	return nil
+}
+
+func (b *launchCapturingBackend) Cleanup(_ context.Context) error { return nil }
+
+func (b *launchCapturingBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	code, err := b.RunNonInteractive(ctx, nil, req.Env, stdout, stderr)
+	return &agent.ExecuteResult{ExitCode: code}, err
+}
+
+// TestGRPCServer_Run_SkipSetupHonorsWorkDir is the regression for the SkipSetup
+// cwd gap: on the oneshot/map/weave fan-out path Setup is skipped, so its
+// SetWorkDir never runs; the passed WorkDir must still reach the child (the
+// engine's cwd) instead of defaulting to the plugin's inherited "." — otherwise
+// per-agent isolation can never set a workspace. Before the fix the captured
+// spec.WorkDir was ".".
+func TestGRPCServer_Run_SkipSetupHonorsWorkDir(t *testing.T) {
+	backend := newLaunchCapturingBackend()
+	srv := &GRPCServer{Impl: backend}
+	stream := newFakeRunServer()
+
+	stream.recv = []*RunInput{runStartInput(&RunStart{
+		Prompt:  &Fragment{Content: "hi"},
+		Options: &RunOptions{WorkDir: "/tmp/agent-workspace", Mode: ExecutionMode_ONESHOT, SkipSetup: true},
+	})}
+	err := srv.Run(stream)
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/agent-workspace", backend.captured.WorkDir,
+		"SkipSetup run must exec in the passed WorkDir, not the plugin's inherited cwd")
+}
+
 // Silence unused import in case bytes goes unused after a future edit.
 var _ = bytes.NewBuffer

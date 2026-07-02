@@ -113,6 +113,14 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"llm config entry with explicit type",
 			"llm:\n  configs:\n    main:\n      type: codex\n      model: gpt-codex\n",
 		},
+		{
+			"top-level isolation default",
+			"isolation: none\n",
+		},
+		{
+			"subagent-level isolation override",
+			"subagents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    isolation: worktree\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

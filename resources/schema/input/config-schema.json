@@ -241,6 +241,11 @@
       },
       "additionalProperties": false
     },
+    "isolation": {
+      "type": "string",
+      "description": "Default per-agent isolation policy for fan-out members (map/weave). 'none' (default, and the only policy active in this release) runs each member on the host in the project directory — today's behaviour. A subagent's own `isolation` overrides this default; empty means none. worktree/container are reserved for later phases (an unrecognized policy degrades to none with a warning).",
+      "enum": ["none", "worktree", "container"]
+    },
     "subagents": {
       "type": "object",
       "description": "Local-only engine↔profile bindings. A subagent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/subagents/<name>.yaml files.",
@@ -255,6 +260,11 @@
             "type": "array",
             "description": "Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>).",
             "items": { "type": "string", "minLength": 1 }
+          },
+          "isolation": {
+            "type": "string",
+            "description": "Per-agent isolation policy for this subagent when run as a fan-out member. Overrides the top-level `isolation` default; empty inherits it, then falls back to none. worktree/container are reserved for later phases.",
+            "enum": ["none", "worktree", "container"]
           }
         },
         "additionalProperties": false

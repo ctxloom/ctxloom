@@ -137,6 +137,13 @@ func IsNone(name string) bool {
 	return name == "" || name == None{}.Name()
 }
 
+// PolicyNames returns the recognized isolation policy names, derived from the
+// policy types themselves so writers (agent set validation, CLI completion)
+// and Resolve can never drift apart. Order matches the degrade chain.
+func PolicyNames() []string {
+	return []string{None{}.Name(), Worktree{}.Name(), Container{}.Name()}
+}
+
 // ImageConfig carries the user's image configuration for containerized
 // isolation: Image is the optional prebuilt agent-image override (config
 // isolation_images), run AS-IS and never built; BaseContainerfile is the

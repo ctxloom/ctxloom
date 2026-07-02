@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -70,6 +71,9 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if len(s.Profiles) > 0 {
 			w.Printf("    profiles: %s\n", strings.Join(s.Profiles, ", "))
 		}
+		if s.Isolation != "" {
+			w.Printf("    isolation: %s\n", s.Isolation)
+		}
 	}
 	return w.Err()
 }
@@ -120,6 +124,9 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 		w.Printf("Engine (declared): %s\n", def.Engine)
 	} else {
 		w.Println("Engine (declared): (project default)")
+	}
+	if def.Isolation != "" {
+		w.Printf("Isolation: %s\n", def.Isolation)
 	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {
@@ -173,8 +180,9 @@ Run this (or ask your agent to) when you have profiles but no agents yet.`,
 }
 
 var (
-	agentSetEngine   string
-	agentSetProfiles []string
+	agentSetEngine    string
+	agentSetProfiles  []string
+	agentSetIsolation string
 )
 
 // agentSetCmd is the write half: add or update a LOCAL agent under the
@@ -188,11 +196,13 @@ var agentSetCmd = &cobra.Command{
 'agents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
-default. Profiles compose into one assembled context.
+default. Profiles compose into one assembled context. Isolation (optional:
+none|worktree|container) sets where this agent runs as a fan-out member; omit it
+to inherit the project's isolation default.
 
 Examples:
   ctxloom agent set finder --engine claude-fast --profiles finder
-  ctxloom agent set dev --engine claude-code --profiles default,go-developer
+  ctxloom agent set dev --engine claude-code --profiles default,go-developer --isolation container
   ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -205,9 +215,10 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		entry, err := operations.SetAgent(cfg, operations.SetAgentRequest{
-			Name:     name,
-			Engine:   agentSetEngine,
-			Profiles: agentSetProfiles,
+			Name:      name,
+			Engine:    agentSetEngine,
+			Profiles:  agentSetProfiles,
+			Isolation: agentSetIsolation,
 		})
 		if err != nil {
 			return err
@@ -221,6 +232,9 @@ Examples:
 			w.Printf("Set agent %q (engine: %s", entry.Name, engine)
 			if len(entry.Profiles) > 0 {
 				w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
+			}
+			if entry.Isolation != "" {
+				w.Printf(", isolation: %s", entry.Isolation)
 			}
 			w.Println(")")
 			return w.Err()
@@ -262,11 +276,15 @@ func init() {
 
 	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
 	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
+	agentSetCmd.Flags().StringVar(&agentSetIsolation, "isolation", "", "Isolation policy when run as a fan-out member (none|worktree|container; empty = project default)")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames
 	_ = agentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
 	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
+	_ = agentSetCmd.RegisterFlagCompletionFunc("isolation", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return isolation.PolicyNames(), cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 // completeAgentNames completes positional agent-name args.

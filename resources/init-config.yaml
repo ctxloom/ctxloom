@@ -12,9 +12,10 @@ config:
 # Default profiles loaded for context assembly. init scaffolds a LOCAL profile
 # named `default` (.ctxloom/profiles/default.yaml) that inherits ctxloom-default's
 # baseline conduct/practice + developer profiles — so the seeded default is a
-# real, editable local coding profile, not a bare remote reference. Edit it,
-# add language/stack profiles via discovery, or split it into tighter per-role
-# profiles bound to engines with `ctxloom agent setup`.
+# real, editable local coding profile, not a bare remote reference. Edit it, or
+# add language/stack profiles via discovery. Agents (the coordinator/developer/
+# finder bindings under `agents:`) compose these profiles; `ctxloom agent setup`
+# re-enters that interview any time.
 profiles:
   defaults:
     - default

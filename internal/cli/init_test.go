@@ -71,3 +71,24 @@ func TestPersonalRemoteRequests(t *testing.T) {
 		assert.Empty(t, personalRemoteRequests(nil, "github"))
 	})
 }
+
+// TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup pins the collapsed
+// init interview: the ONE prompt the discovery session receives is profile
+// discovery followed by the agent-setup interview (discovery first), so
+// profile selection and agent binding happen in a single continuous
+// conversation. A nil config (load failure at launch) must still compose both
+// halves from the built-in texts — fault tolerance, never a truncated prompt.
+// (Bundle-shipped `agent-setup` overrides substitute the setup half via
+// operations.ResolveSetupPrompt, whose matching contract is covered in
+// internal/operations/setup_prompt_test.go.)
+func TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup(t *testing.T) {
+	got := discoverySessionPrompt(nil)
+
+	di := strings.Index(got, "search_library")       // discovery-half marker
+	si := strings.Index(got, "SCAN → DISCUSS → SET") // setup-half marker
+	require.GreaterOrEqual(t, di, 0, "discovery half missing from the merged prompt")
+	require.GreaterOrEqual(t, si, 0, "agent-setup half missing from the merged prompt")
+	assert.Less(t, di, si, "discovery must precede agent setup — profiles are the setup's inputs")
+	assert.Equal(t, got, profileDiscoveryPrompt+"\n\n---\n\n"+agentSetupPrompt,
+		"nil config composes the two built-in texts verbatim")
+}

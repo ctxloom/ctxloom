@@ -39,18 +39,17 @@ is used as a fallback.
 
 init scaffolds a LOCAL default coding profile (.ctxloom/profiles/default.yaml,
 inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
-remote so its code-review lens profiles are available. It does NOT create
-agents — binding an engine to your profiles is your call, set up later with
-'ctxloom agent setup'.
+remote so its code-review lens profiles are available.
 
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine (claude-code, antigravity, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
-  3. Launching your AI to help discover and configure profiles
+  3. Launching your AI for one setup interview: discover and configure
+     profiles, then bind agents to them (a coordinator you drive, a
+     containerized developer, a cheap finder — plus any other roles)
 
-After init, run 'ctxloom agent setup' (or ask your agent to) to bind engines
-to profiles for orchestrated roles — cheap finders, code-review lenses, and
-escalating developers that 'ctxloom map'/'ctxloom weave' fan across.
+Skipped or interrupted the interview? 'ctxloom agent setup' (or ask your
+agent to run it) re-enters the agent-binding half any time.
 
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
@@ -385,9 +384,25 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // list_profiles / create_profile / update_profile — those are not MCP tools.
 var profileDiscoveryPrompt = resources.MustGetPromptText("profile-discovery")
 
-// launchEngineWithPrompt starts the AI with the profile discovery prompt.
-// Errors (failed launch, errored session) are returned for the caller to
-// degrade on — init never fails because of them, but a clean return is the
+// discoverySessionPrompt composes the ONE prompt the init discovery session
+// receives: profile discovery followed by the agent-setup interview, so
+// content selection and agent binding happen in a single continuous
+// conversation (profiles are chosen, then the agents that use them are bound —
+// no mid-session prompt fetch). The agent-setup half resolves through
+// ResolveSetupPrompt so a bundle-shipped `agent-setup` skill override is
+// honored at init exactly as it is for `ctxloom agent setup`; a nil config
+// degrades to the built-in text (CLAUDE.md fault tolerance).
+func discoverySessionPrompt(cfg *config.Config) string {
+	setup := agentSetupPrompt
+	if cfg != nil {
+		setup = operations.ResolveSetupPrompt(cfg, agentSetupPrompt)
+	}
+	return profileDiscoveryPrompt + "\n\n---\n\n" + setup
+}
+
+// launchEngineWithPrompt starts the AI with the merged discovery + agent-setup
+// prompt. Errors (failed launch, errored session) are returned for the caller
+// to degrade on — init never fails because of them, but a clean return is the
 // signal that offering a relaunch into `ctxloom run` is safe.
 func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	client, err := pb.NewSelfInvokingClient(engine, 0)
@@ -396,8 +411,16 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	}
 	defer client.Kill()
 
+	// Config is best-effort here: it only feeds the bundle-override lookup for
+	// the agent-setup half, and init just wrote it — but a load failure must
+	// not sink the discovery launch.
+	var cfg *config.Config
+	if c, cerr := GetConfig(); cerr == nil {
+		cfg = c
+	}
+
 	req := &pb.RunStart{
-		Prompt: &pb.Fragment{Content: profileDiscoveryPrompt},
+		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
 		Options: &pb.RunOptions{
 			WorkDir:     workDir,
 			AutoApprove: true,
@@ -772,12 +795,13 @@ func wantsRelaunch(input string) bool {
 }
 
 // printRunHint tells the user how to pick up the new configuration later, and
-// points at agent setup — the deliberately-not-auto-seeded next step (binding
-// engines to profiles for orchestrated roles).
+// points at agent setup as the re-entry for a skipped/interrupted interview
+// (the discovery session covers agent binding itself; this hint is the
+// backstop, alongside the SessionStart nudge).
 func printRunHint() {
 	fmt.Println("Run `ctxloom run` when ready — it picks up everything init installed.")
-	fmt.Println("Then run `ctxloom agent setup` (or ask your agent to) to bind engines to")
-	fmt.Println("profiles for orchestrated roles (finders, code-review lenses, developers).")
+	fmt.Println("Skipped agent setup during discovery? `ctxloom agent setup` (or ask your")
+	fmt.Println("agent to run it) re-enters that interview any time.")
 }
 
 // offerSessionRelaunch asks whether to start the configured session now and,

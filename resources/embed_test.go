@@ -216,3 +216,42 @@ func TestGetPromptText(t *testing.T) {
 		t.Error("GetPromptText(missing) returned nil error")
 	}
 }
+
+// TestSetupPrompts_ContentContract pins the tokens the collapsed init
+// interview depends on: the agent-setup prompt must lead with the standard
+// trio and teach the write surface (`agent set`, `--isolation`), and the
+// profile-discovery prompt must bridge into agent setup rather than ending
+// the conversation after profiles. A drift here silently breaks the merged
+// discovery session (internal/cli.discoverySessionPrompt) without any
+// compile-time signal.
+func TestSetupPrompts_ContentContract(t *testing.T) {
+	setup, err := GetPromptText("agent-setup")
+	if err != nil {
+		t.Fatalf("GetPromptText(agent-setup): %v", err)
+	}
+	for _, want := range []string{
+		"coordinator",
+		"developer",
+		"finder",
+		"--isolation",
+		"ctxloom agent set",
+		"ctxloom agent list",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("agent-setup prompt lost required token %q", want)
+		}
+	}
+
+	discovery, err := GetPromptText("profile-discovery")
+	if err != nil {
+		t.Fatalf("GetPromptText(profile-discovery): %v", err)
+	}
+	for _, want := range []string{
+		"agent setup",
+		"one continuous setup interview",
+	} {
+		if !strings.Contains(discovery, want) {
+			t.Errorf("profile-discovery prompt lost the agent-setup bridge token %q", want)
+		}
+	}
+}

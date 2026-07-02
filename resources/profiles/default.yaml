@@ -1,5 +1,5 @@
 version: "1.0.0"
-description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely, and run `ctxloom agent setup` to bind engines to profiles for orchestrated roles (cheap finders, code-review lenses, escalating developers)."
+description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom agent setup` re-enters that interview any time."
 tags:
   - default
 # A LOCAL profile (owned and editable in this project's .ctxloom), not a bare

@@ -3,10 +3,13 @@ package operations
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -64,11 +67,13 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 
 // SetAgentRequest is the input for SetAgent: the binding to add or update
 // under the local `agents:` config key. Engine is optional (empty = project
-// default / the composed profiles' llm); Profiles compose into one context.
+// default / the composed profiles' llm); Profiles compose into one context;
+// Isolation is optional (empty inherits the project default policy).
 type SetAgentRequest struct {
-	Name     string   `json:"name"`
-	Engine   string   `json:"engine,omitempty"`
-	Profiles []string `json:"profiles,omitempty"`
+	Name      string   `json:"name"`
+	Engine    string   `json:"engine,omitempty"`
+	Profiles  []string `json:"profiles,omitempty"`
+	Isolation string   `json:"isolation,omitempty"`
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key
@@ -100,19 +105,29 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 			name, existing.Source)
 	}
 
+	// Isolation is stored as written — validation is advisory only (an unknown
+	// policy degrades to none at resolve time, per fault tolerance), but warn
+	// NOW so a typo is caught at write time rather than at the first fan-out.
+	if req.Isolation != "" && !slices.Contains(isolation.PolicyNames(), req.Isolation) {
+		clidiag.Warn("ctxloom",
+			"agent %q declares unknown isolation %q (known: %s); it will degrade to none when run",
+			name, req.Isolation, strings.Join(isolation.PolicyNames(), "|"))
+	}
+
 	if cfg.Agents == nil {
 		cfg.Agents = make(map[string]agents.Agent)
 	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles}
+	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Isolation: req.Isolation}
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
 	return &AgentEntry{
-		Name:     name,
-		Engine:   req.Engine,
-		Profiles: req.Profiles,
-		Source:   agents.SourceConfig,
+		Name:      name,
+		Engine:    req.Engine,
+		Profiles:  req.Profiles,
+		Isolation: req.Isolation,
+		Source:    agents.SourceConfig,
 	}, nil
 }
 
@@ -163,8 +178,9 @@ func AgentSetupNudge(cfg *config.Config) string {
 		return "" // nothing to bind engines to yet
 	}
 	return "ctxloom: this project has profiles but no agents configured. " +
-		"Run `ctxloom agent setup` (or ask your agent to) to orchestrate roles — " +
-		"binding engines to profiles for cheap finders, code-review lenses, and escalating developers."
+		"Run `ctxloom agent setup` (or ask your agent to) to bind engines to profiles — " +
+		"the standard trio is a coordinator you drive, a containerized developer, and a cheap finder, " +
+		"plus code-review lenses and any other roles you want to orchestrate."
 }
 
 // hasAnyProfiles reports whether the project has any profile to bind an agent

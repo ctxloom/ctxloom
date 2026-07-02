@@ -1,4 +1,4 @@
-Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and skills for your development workflow.
+Welcome to ctxloom! I'll help you discover and set up context profiles, fragments, and skills for your development workflow — and then bind the agents that will run them.
 
 **First, scan the current directory** for project indicators like:
 - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
@@ -46,10 +46,18 @@ Welcome to ctxloom! I'll help you discover and set up context profiles, fragment
 `ctxloom profile default <name>` so `ctxloom run` loads it automatically.
 Defaults are a list; a default may be a local name or a remote ref, and
 `ctxloom profile default --unset <name>` clears one. Confirm the final default
-profile(s) with the user before exiting.
+profile(s) with the user.
 
-**When setup is complete**, tell the user to exit this session. The profiles,
-hooks, and MCP servers just installed are NOT active in this discovery session;
-on exit, ctxloom offers to relaunch into a fresh session that picks them all up.
+**Then continue straight into agent setup** — the second half of this prompt
+(below the `---`). Profiles are only half the picture: agents are named
+engine↔profile bindings that ctxloom orchestrates (`ctxloom run --agent`,
+`ctxloom map`/`weave`), and the stack you just detected plus the profiles you
+just created are their inputs. Don't end the conversation between the two
+halves — this is one continuous setup interview.
+
+**When ALL setup (profiles AND agents) is complete**, tell the user to exit
+this session. The profiles, hooks, MCP servers, and agents just installed are
+NOT active in this discovery session; on exit, ctxloom offers to relaunch into
+a fresh session that picks them all up.
 
 If you'd prefer to skip this setup, just say "skip" and configure manually later.

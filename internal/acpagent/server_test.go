@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,10 +26,10 @@ type fakeEngine struct {
 	closed   chan struct{}
 
 	// optional EngineChat extensions applied by chat()
-	harp            string
-	modes           *SessionModes
-	assembleProfile func(ctx context.Context, profile string) (string, error)
-	replay          []agent.SessionEntry
+	harp         string
+	modes        *SessionModes
+	assembleMode func(ctx context.Context, mode SessionMode) (string, error)
+	replay       []agent.SessionEntry
 }
 
 func newFakeEngine() *fakeEngine {
@@ -56,10 +57,10 @@ func (f *fakeEngine) chat(contextText string) *EngineChat {
 				close(f.events)
 			}
 		},
-		Harp:            f.harp,
-		Modes:           f.modes,
-		AssembleProfile: f.assembleProfile,
-		Replay:          f.replay,
+		Harp:         f.harp,
+		Modes:        f.modes,
+		AssembleMode: f.assembleMode,
+		Replay:       f.replay,
 	}
 }
 
@@ -498,22 +499,24 @@ func TestServe_McpServersPassThrough(t *testing.T) {
 	assert.Equal(t, map[string]string{"K": "V"}, req.MCPServers[0].Env)
 }
 
-// TestServe_SessionModes: profiles surface as modes in the session/new
+// TestServe_SessionModes: profile sets surface as modes in the session/new
 // response; session/set_mode re-assembles the lead context (it rides the next
-// prompt), updates the current mode, and notifies current_mode_update.
+// prompt), updates the current mode, and notifies current_mode_update. A
+// subagent mode threads its whole composed profile set into the assembly.
 func TestServe_SessionModes(t *testing.T) {
 	eng := newFakeEngine()
 	eng.modes = &SessionModes{
 		Current: DefaultModeID,
 		Available: []SessionMode{
 			{ID: DefaultModeID, Name: "default (base)"},
-			{ID: "review", Name: "review"},
+			{ID: "review", Name: "review", Profiles: []string{"review"}},
+			{ID: "subagent:reviewer", Name: "reviewer (subagent)", Profiles: []string{"r1", "r2"}, Engine: "fast"},
 		},
 	}
-	assembled := make(chan string, 1)
-	eng.assembleProfile = func(_ context.Context, profile string) (string, error) {
-		assembled <- profile
-		return "REVIEW CONTEXT", nil
+	assembled := make(chan SessionMode, 1)
+	eng.assembleMode = func(_ context.Context, mode SessionMode) (string, error) {
+		assembled <- mode
+		return strings.ToUpper(mode.ID) + " CONTEXT", nil
 	}
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat("BASE CONTEXT"), nil })
@@ -533,15 +536,19 @@ func TestServe_SessionModes(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(resp.Result, &newResp))
 	assert.Equal(t, DefaultModeID, newResp.Modes.CurrentModeId)
-	require.Len(t, newResp.Modes.AvailableModes, 2)
+	require.Len(t, newResp.Modes.AvailableModes, 3)
 	assert.Equal(t, "review", newResp.Modes.AvailableModes[1].Id)
+	assert.Equal(t, "subagent:reviewer", newResp.Modes.AvailableModes[2].Id)
+	assert.Equal(t, "reviewer (subagent)", newResp.Modes.AvailableModes[2].Name)
 
-	// Switch mode BEFORE the first turn: the new profile's context replaces the
+	// Switch mode BEFORE the first turn: the new mode's context replaces the
 	// initial lead block. The current_mode_update notification is written
 	// before the reply, so it arrives with the response's update batch.
 	resp, updates := c.waitResponse(c.send("session/set_mode", `{"sessionId":"`+newResp.SessionId+`","modeId":"review"}`))
 	require.Nil(t, resp.Error)
-	assert.Equal(t, "review", <-assembled)
+	mode := <-assembled
+	assert.Equal(t, "review", mode.ID)
+	assert.Equal(t, []string{"review"}, mode.Profiles)
 
 	require.Len(t, updates, 1)
 	assert.Contains(t, string(updates[0].Params), `"current_mode_update"`)
@@ -554,6 +561,14 @@ func TestServe_SessionModes(t *testing.T) {
 	}()
 	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"`+newResp.SessionId+`","prompt":[{"type":"text","text":"hello"}]}`))
 	require.Nil(t, resp.Error)
+
+	// A subagent mode threads its composed profile set (and declared engine)
+	// into the assembly.
+	resp, _ = c.waitResponse(c.send("session/set_mode", `{"sessionId":"`+newResp.SessionId+`","modeId":"subagent:reviewer"}`))
+	require.Nil(t, resp.Error)
+	mode = <-assembled
+	assert.Equal(t, []string{"r1", "r2"}, mode.Profiles, "the subagent's whole composed set reaches the assembler")
+	assert.Equal(t, "fast", mode.Engine)
 
 	// An unknown mode errors.
 	resp, _ = c.waitResponse(c.send("session/set_mode", `{"sessionId":"`+newResp.SessionId+`","modeId":"nope"}`))

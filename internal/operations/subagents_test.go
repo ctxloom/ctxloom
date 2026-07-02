@@ -72,7 +72,7 @@ func TestResolveSubagent_ComposesAndOverridesEngine(t *testing.T) {
 		"dev": {Engine: "slow", Profiles: []string{"p1", "p2"}},
 	})
 
-	res, err := ResolveSubagent(context.Background(), cfg, "dev")
+	res, err := ResolveSubagent(context.Background(), cfg, "dev", "")
 	require.NoError(t, err)
 
 	// Compose: both profiles' fragments reach the one assembled context.
@@ -87,6 +87,23 @@ func TestResolveSubagent_ComposesAndOverridesEngine(t *testing.T) {
 	assert.Equal(t, "m-slow", res.Model)
 }
 
+// TestResolveSubagent_ExplicitEngineOverrideWins proves a caller-supplied
+// engine override (ACP --llm, the map/weave -l member override) beats the
+// subagent's own declared engine — the same precedence the fan-out members use.
+func TestResolveSubagent_ExplicitEngineOverrideWins(t *testing.T) {
+	root := t.TempDir()
+	writeSubagentProfileFixture(t, root)
+	cfg := subagentTestConfig(root, map[string]subagents.Subagent{
+		"dev": {Engine: "slow", Profiles: []string{"p1"}},
+	})
+
+	res, err := ResolveSubagent(context.Background(), cfg, "dev", "fast")
+	require.NoError(t, err)
+	assert.Equal(t, "fast", res.Label, "explicit override beats the declared engine")
+	assert.Equal(t, "m-fast", res.Model)
+	assert.Equal(t, "slow", res.Engine, "the DECLARED engine is still reported as written")
+}
+
 // TestResolveSubagent_EngineUnsetFallsBackToProfileLLM proves an empty engine
 // falls back to the composed profiles' llm (first non-empty).
 func TestResolveSubagent_EngineUnsetFallsBackToProfileLLM(t *testing.T) {
@@ -96,7 +113,7 @@ func TestResolveSubagent_EngineUnsetFallsBackToProfileLLM(t *testing.T) {
 		"dev": {Profiles: []string{"p1", "p2"}}, // no engine
 	})
 
-	res, err := ResolveSubagent(context.Background(), cfg, "dev")
+	res, err := ResolveSubagent(context.Background(), cfg, "dev", "")
 	require.NoError(t, err)
 	assert.Equal(t, "fast", res.Label, "no engine → the composed profiles' llm (p1's 'fast')")
 }
@@ -111,7 +128,7 @@ func TestResolveSubagent_EngineUnsetNoProfileLLMUsesProjectDefault(t *testing.T)
 		"plain": {Profiles: []string{"p3"}}, // p3 declares no llm
 	})
 
-	res, err := ResolveSubagent(context.Background(), cfg, "plain")
+	res, err := ResolveSubagent(context.Background(), cfg, "plain", "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Equal(t, "primary", res.Label, "no engine, no profile llm → project primary")
@@ -139,7 +156,7 @@ func TestListSubagents_MultipleNamedBothSources(t *testing.T) {
 
 	// Both resolve.
 	for _, name := range []string{"dev", "finder"} {
-		_, err := ResolveSubagent(context.Background(), cfg, name)
+		_, err := ResolveSubagent(context.Background(), cfg, name, "")
 		require.NoErrorf(t, err, "subagent %q must resolve", name)
 	}
 }
@@ -161,7 +178,7 @@ func TestResolveSubagent_BundleProfileMember(t *testing.T) {
 		},
 	}
 
-	res, err := ResolveSubagent(context.Background(), cfg, "reviewer")
+	res, err := ResolveSubagent(context.Background(), cfg, "reviewer", "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE", "bundle profile's composed fragment reaches context")
 	assert.Equal(t, "fast", res.Label, "bundle profile's llm flows through when engine is unset")
@@ -171,7 +188,7 @@ func TestResolveSubagent_BundleProfileMember(t *testing.T) {
 func TestResolveSubagent_NotFound(t *testing.T) {
 	root := t.TempDir()
 	cfg := subagentTestConfig(root, nil)
-	_, err := ResolveSubagent(context.Background(), cfg, "nope")
+	_, err := ResolveSubagent(context.Background(), cfg, "nope", "")
 	assert.Error(t, err)
 }
 
@@ -213,7 +230,7 @@ func TestSubagent_Ungated_NotBaselined(t *testing.T) {
 	}
 
 	// Ungated: resolves with no trust setup whatsoever.
-	_, err := ResolveSubagent(context.Background(), cfg, "reviewer")
+	_, err := ResolveSubagent(context.Background(), cfg, "reviewer", "")
 	require.NoError(t, err)
 
 	// Not baselined: the baseline enumerates the bundle's fragment/mcp/hook (3),

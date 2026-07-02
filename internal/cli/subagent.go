@@ -88,7 +88,7 @@ var subagentShowCmd = &cobra.Command{
 		// behavior is visible. Resolution is fault-tolerant for show: a failure
 		// (e.g. a missing constituent profile) still prints the definition with a
 		// warning rather than failing the command.
-		resolved, rerr := operations.ResolveSubagent(cmd.Context(), cfg, name)
+		resolved, rerr := operations.ResolveSubagent(cmd.Context(), cfg, name, "")
 		return emit(cmd, subagentShowJSON{Definition: def, Resolved: resolved}, func() error {
 			return renderSubagentShow(cmd.OutOrStdout(), def, resolved, rerr)
 		})

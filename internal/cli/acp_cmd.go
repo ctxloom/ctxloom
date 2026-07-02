@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	acpProfile string
-	acpLLM     string
+	acpProfile  string
+	acpLLM      string
+	acpSubagent string
 )
 
 var acpCmd = &cobra.Command{
@@ -36,28 +37,36 @@ Each session/new opens one engine conversation rooted at the request's cwd
 the first turn as a lead block, and client-supplied mcpServers pass through to
 the engine. Engine permission requests forward to the connected editor as
 session/request_permission — the editor's own approval UI decides. ctxloom
-profiles surface as ACP session modes (session/set_mode re-assembles the lead
-context for the next turn). Sessions are recorded under ctxloom harp names,
-and session/load resumes a recorded harp: its history replays to the client
-and primes the fresh engine conversation.
+profile sets (the composed defaults, each profile, each subagent's composed
+set) surface as ACP session modes; session/set_mode re-assembles the lead
+context for the next turn, while the ENGINE stays pinned at launch. Sessions
+are recorded under ctxloom harp names, and session/load resumes a recorded
+harp: its history replays to the client and primes the fresh engine
+conversation.
+
+--subagent serves one subagent as the agent: its composed profiles become the
+session context and its engine binding picks the backend (an explicit --llm
+still wins). Configure one editor agent entry per subagent to pick subagents
+from the editor — 'ctxloom acp agents' prints the entries ready to paste.
 
 Stdout carries the protocol; all diagnostics go to stderr.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return acpagent.Serve(cmd.Context(), os.Stdin, os.Stdout, func(ctx context.Context, req acpagent.OpenRequest) (*acpagent.EngineChat, error) {
-			return openACPEngineChat(ctx, req, acpProfile, acpLLM)
+			return openACPEngineChat(ctx, req, acpProfile, acpSubagent, acpLLM)
 		})
 	},
 }
 
 // openACPEngineChat is the production ChatOpener: it loads ctxloom config for
-// the session's cwd, assembles the profile's context, resolves the engine
-// label (override → profile llm → primary), records the session under a harp,
-// and opens the plugin's structured chat — the same substrate `run
-// --structured` drives. For a resume (session/load) it additionally fetches
-// the recorded harp's history: the entries replay to the ACP client, and a
-// rendered transcript primes the fresh engine via the first-turn lead block.
-func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfile, llmOverride string) (*acpagent.EngineChat, error) {
+// the session's cwd, assembles the context (a subagent's composed profiles, or
+// the profile flow), resolves the engine label (override → subagent engine /
+// profile llm → primary), records the session under a harp, and opens the
+// plugin's structured chat — the same substrate `run --structured` drives. For
+// a resume (session/load) it additionally fetches the recorded harp's history:
+// the entries replay to the ACP client, and a rendered transcript primes the
+// fresh engine via the first-turn lead block.
+func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfile, flagSubagent, llmOverride string) (*acpagent.EngineChat, error) {
 	cfg, err := loadConfigForDir(req.Cwd)
 	if err != nil {
 		return nil, err
@@ -68,25 +77,48 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		profile = flagProfile
 	}
 
-	// Context assembly is fault-tolerant (CLAUDE.md): a failed assembly warns
-	// and the session still opens — the engine runs without ctxloom context
-	// rather than refusing the editor's session.
-	var contextText, profileLLM string
-	var resolvedProfiles []string
-	if ctxResult, cerr := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profile: profile}); cerr != nil {
-		clidiag.Warn("ctxloom", "acp agent: context assembly failed; continuing without context: %v", cerr)
-	} else {
-		contextText = ctxResult.Context
-		profileLLM = ctxResult.ProfileLLM
-		resolvedProfiles = ctxResult.Profiles
+	// A subagent binding resolves engine + composed profiles in one step. Per
+	// fault tolerance an unresolvable subagent degrades to the plain profile
+	// flow (warn) rather than refusing the editor's session.
+	var contextText, label string
+	var defaultProfiles []string
+	currentSubagent := ""
+	if flagSubagent != "" {
+		if rs, rerr := operations.ResolveSubagent(ctx, cfg, flagSubagent, llmOverride); rerr != nil {
+			clidiag.Warn("ctxloom", "acp agent: subagent %q unavailable; opening a default session: %v", flagSubagent, rerr)
+		} else {
+			contextText = rs.Context
+			label = rs.Label
+			currentSubagent = flagSubagent
+			if rs.Isolation != "" && rs.Isolation != "none" {
+				// ACP sessions live at the editor's cwd — an isolated workspace
+				// the editor cannot see would be worse than none. The fan-out
+				// paths (run/map/weave) are where isolation applies.
+				clidiag.Warn("ctxloom", "acp agent: subagent %q declares isolation %q; ACP sessions run at the editor's cwd, so isolation is ignored here", flagSubagent, rs.Isolation)
+			}
+		}
 	}
 
-	label := llmOverride
-	if label == "" {
-		label = profileLLM
-	}
-	if label == "" {
-		label = cfg.PrimaryLabel()
+	if currentSubagent == "" {
+		// Context assembly is fault-tolerant (CLAUDE.md): a failed assembly
+		// warns and the session still opens — the engine runs without ctxloom
+		// context rather than refusing the editor's session.
+		var profileLLM string
+		if ctxResult, cerr := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profile: profile}); cerr != nil {
+			clidiag.Warn("ctxloom", "acp agent: context assembly failed; continuing without context: %v", cerr)
+		} else {
+			contextText = ctxResult.Context
+			profileLLM = ctxResult.ProfileLLM
+			defaultProfiles = ctxResult.Profiles
+		}
+
+		label = llmOverride
+		if label == "" {
+			label = profileLLM
+		}
+		if label == "" {
+			label = cfg.PrimaryLabel()
+		}
 	}
 	backendName, model := operations.ResolveBackend(cfg, label)
 
@@ -143,23 +175,32 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		}
 	})
 	return &acpagent.EngineChat{
-		Context:         contextText,
-		In:              in,
-		Events:          events,
-		Errs:            errs,
-		Close:           closeOnce,
-		Harp:            harp,
-		Modes:           buildSessionModes(cfg, profile, resolvedProfiles),
-		AssembleProfile: assembleProfileFunc(cfg),
-		Replay:          replay,
+		Context:      contextText,
+		In:           in,
+		Events:       events,
+		Errs:         errs,
+		Close:        closeOnce,
+		Harp:         harp,
+		Modes:        buildSessionModes(cfg, profile, defaultProfiles, currentSubagent),
+		AssembleMode: assembleModeFunc(cfg, label),
+		Replay:       replay,
 	}, nil
 }
 
-// buildSessionModes surfaces the cwd's ctxloom profiles as ACP session modes:
-// a synthetic "default" mode for the configured default set (which may compose
-// several profiles), then one mode per installed profile. nil when the profile
-// list is unavailable — the session simply advertises no modes.
-func buildSessionModes(cfg *config.Config, initialProfile string, resolvedProfiles []string) *acpagent.SessionModes {
+// subagentModePrefix namespaces subagent mode IDs so a subagent can never
+// collide with a profile of the same name.
+const subagentModePrefix = "subagent:"
+
+// subagentModeID is the ACP mode id advertising the named subagent.
+func subagentModeID(name string) string { return subagentModePrefix + name }
+
+// buildSessionModes surfaces the cwd's ctxloom profile sets as ACP session
+// modes: a synthetic "default" mode for the configured default set (which may
+// compose several profiles), one mode per installed profile, and one mode per
+// subagent (its composed profile set; the engine binding applies only at
+// launch — see assembleModeFunc). nil when the profile list is unavailable —
+// the session simply advertises no modes.
+func buildSessionModes(cfg *config.Config, initialProfile string, defaultProfiles []string, currentSubagent string) *acpagent.SessionModes {
 	loader := cfg.GetProfileLoader()
 	if loader == nil {
 		return nil
@@ -169,37 +210,66 @@ func buildSessionModes(cfg *config.Config, initialProfile string, resolvedProfil
 		clidiag.Warn("ctxloom", "acp agent: listing profiles for session modes: %v", err)
 		return nil
 	}
-	if len(list) == 0 {
+	profileNames := make([]string, 0, len(list))
+	for _, p := range list {
+		profileNames = append(profileNames, p.Name)
+	}
+	return sessionModesFrom(profileNames, operations.ListSubagents(cfg), initialProfile, defaultProfiles, currentSubagent)
+}
+
+// sessionModesFrom is the pure mode-list builder behind buildSessionModes:
+// default set, profiles, then subagents, with the current mode following the
+// launch selection (subagent > profile > default).
+func sessionModesFrom(profileNames []string, subs []operations.SubagentEntry, initialProfile string, defaultProfiles []string, currentSubagent string) *acpagent.SessionModes {
+	if len(profileNames) == 0 && len(subs) == 0 {
 		return nil
 	}
 
 	defaultName := "default"
-	if len(resolvedProfiles) > 0 {
-		defaultName = "default (" + strings.Join(resolvedProfiles, ", ") + ")"
+	if len(defaultProfiles) > 0 {
+		defaultName = "default (" + strings.Join(defaultProfiles, ", ") + ")"
 	}
 	modes := &acpagent.SessionModes{
 		Current:   acpagent.DefaultModeID,
 		Available: []acpagent.SessionMode{{ID: acpagent.DefaultModeID, Name: defaultName}},
 	}
 	seen := false
-	for _, p := range list {
-		modes.Available = append(modes.Available, acpagent.SessionMode{ID: p.Name, Name: p.Name})
-		seen = seen || p.Name == initialProfile
+	for _, name := range profileNames {
+		modes.Available = append(modes.Available, acpagent.SessionMode{ID: name, Name: name, Profiles: []string{name}})
+		seen = seen || name == initialProfile
 	}
-	if initialProfile != "" {
+	for _, s := range subs {
+		modes.Available = append(modes.Available, acpagent.SessionMode{
+			ID:       subagentModeID(s.Name),
+			Name:     s.Name + " (subagent)",
+			Profiles: s.Profiles,
+			Engine:   s.Engine,
+		})
+	}
+	switch {
+	case currentSubagent != "":
+		modes.Current = subagentModeID(currentSubagent)
+	case initialProfile != "":
 		if !seen {
-			modes.Available = append(modes.Available, acpagent.SessionMode{ID: initialProfile, Name: initialProfile})
+			modes.Available = append(modes.Available, acpagent.SessionMode{ID: initialProfile, Name: initialProfile, Profiles: []string{initialProfile}})
 		}
 		modes.Current = initialProfile
 	}
 	return modes
 }
 
-// assembleProfileFunc backs session/set_mode: re-assemble the lead context for
-// the chosen profile ("" = the configured defaults).
-func assembleProfileFunc(cfg *config.Config) func(ctx context.Context, profile string) (string, error) {
-	return func(ctx context.Context, profile string) (string, error) {
-		res, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profile: profile})
+// assembleModeFunc backs session/set_mode: re-assemble the lead context for
+// the chosen mode's profile set (nil = the configured defaults). The session's
+// ENGINE is pinned at launch: a subagent mode declaring a different engine
+// still re-composes that subagent's context, and the warning names the launch
+// flag that honors the binding fully.
+func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.Context, mode acpagent.SessionMode) (string, error) {
+	return func(ctx context.Context, mode acpagent.SessionMode) (string, error) {
+		if mode.Engine != "" && mode.Engine != sessionLabel {
+			clidiag.Warn("ctxloom", "acp agent: mode %q declares engine %q but this session runs %q — the engine is pinned at launch (use `ctxloom acp --subagent %s` to honor it)",
+				mode.ID, mode.Engine, sessionLabel, strings.TrimPrefix(mode.ID, subagentModePrefix))
+		}
+		res, err := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profiles: mode.Profiles})
 		if err != nil {
 			return "", err
 		}
@@ -305,6 +375,8 @@ func loadConfigForDir(dir string) (*config.Config, error) {
 
 func init() {
 	acpCmd.Flags().StringVarP(&acpProfile, "profile", "p", "", "profile to assemble context from (default: the configured defaults)")
-	acpCmd.Flags().StringVarP(&acpLLM, "llm", "l", "", "LLM config label to drive (default: the profile's llm, then the primary)")
+	acpCmd.Flags().StringVarP(&acpLLM, "llm", "l", "", "LLM config label to drive (default: the subagent's/profile's llm, then the primary)")
+	acpCmd.Flags().StringVarP(&acpSubagent, "subagent", "a", "", "subagent to serve as the agent: its composed profiles + engine binding (see 'ctxloom subagent list')")
+	acpCmd.MarkFlagsMutuallyExclusive("profile", "subagent")
 	rootCmd.AddCommand(acpCmd)
 }

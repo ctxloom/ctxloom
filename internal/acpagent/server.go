@@ -12,7 +12,8 @@
 // engine conversation primed with it), session/prompt (one turn at a time;
 // ctxloom's assembled context rides the FIRST turn as a lead block — the same
 // delivery model as the oneshot fan-out's lead fragment), session/set_mode
-// (ctxloom profiles surfaced as ACP session modes; a switch re-assembles the
+// (ctxloom profile sets — the composed defaults, each profile, each subagent's
+// composed set — surfaced as ACP session modes; a switch re-assembles the
 // lead context for the next turn), session/cancel (cancels the in-flight TURN;
 // the session stays usable and the prompt resolves with stopReason
 // "cancelled"). Engine permission requests forward to the connected editor as
@@ -66,26 +67,36 @@ type EngineChat struct {
 	// by session/load later. "" (accounting unavailable) falls back to a
 	// connection-local generated id.
 	Harp string
-	// Modes surfaces ctxloom profiles as ACP session modes (nil = none).
+	// Modes surfaces ctxloom profile sets as ACP session modes (nil = none):
+	// the composed defaults, each installed profile, and each subagent's
+	// composed profile set.
 	Modes *SessionModes
-	// AssembleProfile re-assembles the lead context for a profile, backing
-	// session/set_mode (nil = mode switching unsupported).
-	AssembleProfile func(ctx context.Context, profile string) (string, error)
+	// AssembleMode re-assembles the lead context for a mode's profile set,
+	// backing session/set_mode (nil = mode switching unsupported). A mode
+	// switch changes the CONTEXT only — the engine is pinned at launch.
+	AssembleMode func(ctx context.Context, mode SessionMode) (string, error)
 	// Replay is the recorded history to replay to the client on session/load.
 	Replay []agent.SessionEntry
 }
 
-// SessionModes describes the profile-backed ACP session modes of a session.
+// SessionModes describes the profile-set-backed ACP session modes of a session.
 type SessionModes struct {
 	Current   string
 	Available []SessionMode
 }
 
-// SessionMode is one selectable mode (one ctxloom profile, or the composed
-// default set).
+// SessionMode is one selectable mode: a profile set to assemble — the composed
+// default set, one ctxloom profile, or a subagent's composed profiles.
 type SessionMode struct {
 	ID   string
 	Name string
+	// Profiles is the profile set this mode assembles; nil means the
+	// configured defaults.
+	Profiles []string
+	// Engine is the mode's declared engine binding (subagent modes; "" = none).
+	// Informational at set_mode time: the session's engine is pinned at
+	// launch, so a differing engine warns rather than switches.
+	Engine string
 }
 
 // OpenRequest describes the engine conversation an ACP session needs.
@@ -438,10 +449,12 @@ func (s *Server) forwardPermission(sess *session, p *agent.PermissionRequest) {
 	}
 }
 
-// handleSetMode switches the session's mode (= ctxloom profile): the profile's
-// context is re-assembled and rides the NEXT prompt as a lead block, and the
-// client is notified via a current_mode_update. The engine conversation itself
-// continues — a mode switch changes the context, not the running engine.
+// handleSetMode switches the session's mode (= a ctxloom profile set: the
+// composed defaults, one profile, or a subagent's composed profiles): the
+// mode's context is re-assembled and rides the NEXT prompt as a lead block,
+// and the client is notified via a current_mode_update. The engine
+// conversation itself continues — a mode switch changes the context, not the
+// running engine (a subagent mode's engine binding applies only at launch).
 func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	var req setModeParams
 	if err := json.Unmarshal(params, &req); err != nil {
@@ -454,24 +467,19 @@ func (s *Server) handleSetMode(params json.RawMessage, reply func(any, *jsonrpc.
 		return
 	}
 	modes := sess.snapshotModes()
-	if modes == nil || sess.engine.AssembleProfile == nil {
+	if modes == nil || sess.engine.AssembleMode == nil {
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "session modes not supported for this session"})
 		return
 	}
-	if !modeAvailable(modes, req.ModeId) {
+	mode, ok := modeByID(modes, req.ModeId)
+	if !ok {
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown mode " + req.ModeId})
 		return
 	}
 
-	// "default" is the synthetic composed-defaults mode: an empty profile
-	// re-assembles the configured default set.
-	profile := req.ModeId
-	if profile == DefaultModeID {
-		profile = ""
-	}
-	contextText, err := sess.engine.AssembleProfile(sess.ctx, profile)
+	contextText, err := sess.engine.AssembleMode(sess.ctx, mode)
 	if err != nil {
-		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "assemble profile: " + err.Error()})
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "assemble mode: " + err.Error()})
 		return
 	}
 

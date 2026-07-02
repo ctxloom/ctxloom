@@ -98,19 +98,20 @@ type ResolvedSubagent struct {
 //     merge mirrors profile-parent semantics (later wins / union);
 //  2. apply the subagent's engine as the backend, OVERRIDING the composed
 //     profiles' llm. Precedence (resolveOneshotLabel, shared with run/oneshot):
-//     the declared engine wins; an empty engine falls back to the composed
-//     profiles' llm, then the project's primary/default backend ("default = the
-//     project backend").
+//     engineOverride (a caller-level -l/--llm) wins over the declared engine;
+//     either wins over the composed profiles' llm, then the project's
+//     primary/default backend ("default = the project backend"). Pass "" for no
+//     override.
 //
 // The subagent DEFINITION is ungated config: resolution touches no trust gate
 // and no baseline. (Its constituent fragments/mcp/hooks still gate downstream
 // when the composed context is actually assembled/applied.)
-func ResolveSubagent(ctx context.Context, cfg *config.Config, name string) (*ResolvedSubagent, error) {
+func ResolveSubagent(ctx context.Context, cfg *config.Config, name, engineOverride string) (*ResolvedSubagent, error) {
 	sub, ok := cfg.Subagent(name)
 	if !ok {
 		return nil, fmt.Errorf("subagent %q not found", name)
 	}
-	return resolveSubagentBinding(ctx, cfg, name, sub, "", nil)
+	return resolveSubagentBinding(ctx, cfg, name, sub, engineOverride, nil)
 }
 
 // resolveSubagentBinding is the shared compose+engine core ResolveSubagent and

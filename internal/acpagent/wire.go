@@ -81,14 +81,14 @@ func currentModeUpdateWire(modeID string) any {
 	}{SessionUpdate: "current_mode_update", CurrentModeId: modeID}
 }
 
-// modeAvailable reports whether id names one of the session's modes.
-func modeAvailable(m *SessionModes, id string) bool {
+// modeByID returns the session mode named by id.
+func modeByID(m *SessionModes, id string) (SessionMode, bool) {
 	for _, mode := range m.Available {
 		if mode.ID == id {
-			return true
+			return mode, true
 		}
 	}
-	return false
+	return SessionMode{}, false
 }
 
 // stopReasonToACP maps an engine's completion stop reason onto the ACP

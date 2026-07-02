@@ -144,6 +144,27 @@ func BundleProfileRef(bundle, name string) string {
 	return CanonicalBundleRef(bundle) + ProfileSelector + name
 }
 
+// CanonicalProfileKey returns the version-less canonical identity of a
+// bundle-profile ref — "<CanonicalBundleRef(bundle)>#profiles/<name>" — the
+// key shape the config bundle-profile seed uses. Any "@<version>" pin is
+// dropped whether it sits on the bundle part ("X@<sha>#profiles/n") or trails
+// the profile name ("X#profiles/n@<sha>"): the lockfile pins the bundle, so
+// profile identity stays version-agnostic (the profile mirror of
+// SplitFragmentVersion/SplitPromptVersion). ok is false when ref carries no
+// "#profiles/" selector. NOTE CanonicalKey is NOT a substitute: it parses the
+// whole ref and drops the item selector entirely, collapsing a bundle profile
+// to its bundle.
+func CanonicalProfileKey(ref string) (string, bool) {
+	bundle, name, ok := SplitBundleProfileRef(ref)
+	if !ok {
+		return "", false
+	}
+	if atIdx := strings.LastIndex(name, "@"); atIdx != -1 {
+		name = name[:atIdx]
+	}
+	return BundleProfileRef(bundle, name), true
+}
+
 // SplitBundleProfileRef splits a "<bundle>#profiles/<name>" reference into its
 // bundle part and the bare profile name. ok is false when ref carries no
 // "#profiles/" selector — e.g. a plain local profile name or a top-level
@@ -155,6 +176,40 @@ func SplitBundleProfileRef(ref string) (bundle, name string, ok bool) {
 		return "", "", false
 	}
 	return ref[:i], ref[i+len(ProfileSelector):], true
+}
+
+// RetiredProfileSelector is the item-type segment of the RETIRED top-level
+// profile distribution grammar ("<url>@profiles/<name>"). Top-level profile
+// distribution was removed with ItemTypeProfile — profiles ship inside bundles
+// (ProfileSelector) — but the segment constant survives so load-time migration
+// (the profile upgrade pipeline) and sync collection can recognize the retired
+// form and steer it to the bundle-profile grammar instead of treating it as an
+// installable reference.
+const RetiredProfileSelector = "@profiles/"
+
+// SplitRetiredProfileRef reports whether ref is written in the retired
+// top-level profile distribution grammar ("<url>@profiles/<name>[@version]")
+// and splits it into the repo URL and bare profile name. Any trailing
+// "@<version>" pin is dropped: the successor "<bundle>#profiles/<name>" grammar
+// pins via the bundle's lockfile entry, not the ref. ok is false for anything
+// else — the successor form (carries a "#" selector), non-canonical refs, and
+// local names — so callers can hand any ref here safely.
+func SplitRetiredProfileRef(ref string) (url, name string, ok bool) {
+	if !IsCanonicalRef(ref) || strings.Contains(ref, "#") {
+		return "", "", false
+	}
+	i := strings.Index(ref, RetiredProfileSelector)
+	if i == -1 {
+		return "", "", false
+	}
+	url, name = ref[:i], ref[i+len(RetiredProfileSelector):]
+	if atIdx := strings.LastIndex(name, "@"); atIdx != -1 {
+		name = name[:atIdx]
+	}
+	if url == "" || name == "" {
+		return "", "", false
+	}
+	return url, name, true
 }
 
 // IsCanonicalRef checks if a reference is in canonical URL format.

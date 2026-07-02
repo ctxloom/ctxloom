@@ -276,6 +276,13 @@ func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
 	if p, ok := l.seeded[name]; ok {
 		return p, true
 	}
+	// A bundle-profile ref canonicalizes selector-preserving: CanonicalKey
+	// would drop the "#profiles/<name>" selector and collapse the ref to its
+	// bundle, never matching a seed key.
+	if key, ok := remote.CanonicalProfileKey(name); ok && key != name {
+		p, ok := l.seeded[key]
+		return p, ok
+	}
 	if key, ok := remote.CanonicalKey(name); ok && key != name {
 		p, ok := l.seeded[key]
 		return p, ok
@@ -475,11 +482,13 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 		ownURL = l.remoteURLResolver(remoteAlias)
 	}
 
-	// Upgrade older on-disk schema (e.g. bare/alias bundle refs) to the current
-	// canonical form in memory before unmarshaling. Applied upgrades are recorded
-	// as pending so an interactive caller may persist the rewrite with consent
-	// (see upgrade.go).
-	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver).Run(data); len(applied) > 0 {
+	// Upgrade older on-disk schema (e.g. bare/alias bundle refs, retired
+	// @profiles/ parents) to the current canonical form in memory before
+	// unmarshaling. Applied upgrades are recorded as pending so an interactive
+	// caller may persist the rewrite with consent (see upgrade.go). The seeded
+	// map is the discovery surface for retired-parent rewrites — it is populated
+	// at construction (WithSeededProfiles), before any Load reaches here.
+	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.seeded).Run(data); len(applied) > 0 {
 		data = upgraded
 		if !l.pendingPaths[path] {
 			if l.pendingPaths == nil {
@@ -647,9 +656,15 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		// version-less canonical ref; unseeded URL refs fall back to the local
 		// materialized name), so the parent ref recurses as-is. Canonicalize
 		// the recursion name so the visited map treats a bundle-shipped parent
-		// "<bundle>#profiles/p" and its "@<sha>"-pinned form as the same profile.
+		// "<bundle>#profiles/p" and its "@<sha>"-pinned form as the same
+		// profile. A bundle-profile parent MUST go through CanonicalProfileKey
+		// (selector-preserving): CanonicalKey drops the "#profiles/<name>"
+		// selector, collapsing the parent to its bundle — which is never a
+		// profile name, so every bundle-profile parent resolved as not found.
 		parentName := parent
-		if key, ok := remote.CanonicalKey(parent); ok {
+		if key, ok := remote.CanonicalProfileKey(parent); ok {
+			parentName = key
+		} else if key, ok := remote.CanonicalKey(parent); ok {
 			parentName = key
 		}
 
@@ -663,14 +678,27 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// a real cycle or risk runaway recursion.
 				return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 			case errors.Is(err, errs.ErrProfileNotFound):
-				clidiag.Warn("ctxloom",
-					"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
-					name, parent)
+				// WarnOnce: resolution re-runs in every subsystem that builds a
+				// loader (assembly, hooks, MCP, ...), so an unresolvable parent
+				// would otherwise repeat the same line a dozen times per startup.
+				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
+					// The retired top-level @profiles/ grammar can never pull, so
+					// "remote pull" would be wrong advice. The load-time upgrade
+					// rewrites this parent automatically once a bundle shipping
+					// the profile is installed — refreshing pins is the fix.
+					clidiag.WarnOnce("ctxloom",
+						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; run `ctxloom remote upgrade` to refresh pins, or point the parent at \"<url>@bundles/<bundle>#profiles/<name>\"",
+						name, parent, bare)
+				} else {
+					clidiag.WarnOnce("ctxloom",
+						"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
+						name, parent)
+				}
 			default:
 				// Corrupt parent (invalid YAML, IO/permission error): warn and
 				// skip this branch rather than aborting the whole resolution, so
 				// the user still reaches their LLM (CLAUDE.md fault tolerance).
-				clidiag.Warn("ctxloom",
+				clidiag.WarnOnce("ctxloom",
 					"profile %q: parent %s failed to load (%v); skipping",
 					name, parent, err)
 			}

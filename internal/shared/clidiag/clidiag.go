@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 )
 
 // Line returns the "<prog>: warning: <msg>\n" line without writing it, for
@@ -29,6 +30,35 @@ func Fwarn(w io.Writer, prog, format string, args ...any) {
 // Warn prints a "<prog>: warning: <msg>" line to stderr.
 func Warn(prog, format string, args ...any) {
 	Fwarn(os.Stderr, prog, format, args...)
+}
+
+// onceSeen dedups WarnOnce/FwarnOnce lines per process, keyed by the full
+// formatted line (Line's doc calls this out as its dedup-key use).
+var (
+	onceMu   sync.Mutex
+	onceSeen = map[string]struct{}{}
+)
+
+// FwarnOnce writes the warning line to w at most once per process for
+// identical formatted content. Repeat diagnostics from independently
+// constructed components — e.g. every subsystem building its own profile
+// loader and re-hitting the same unresolvable parent — collapse to a single
+// line instead of spamming startup. Best-effort like Fwarn.
+func FwarnOnce(w io.Writer, prog, format string, args ...any) {
+	msg := Line(prog, format, args...)
+	onceMu.Lock()
+	defer onceMu.Unlock()
+	if _, seen := onceSeen[msg]; seen {
+		return
+	}
+	onceSeen[msg] = struct{}{}
+	_, _ = io.WriteString(w, msg)
+}
+
+// WarnOnce prints a "<prog>: warning: <msg>" line to stderr at most once per
+// process for identical formatted content.
+func WarnOnce(prog, format string, args ...any) {
+	FwarnOnce(os.Stderr, prog, format, args...)
 }
 
 // Warner binds a program name so callers that warn repeatedly don't repeat it.

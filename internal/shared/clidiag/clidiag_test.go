@@ -19,6 +19,20 @@ func TestFwarn(t *testing.T) {
 	}
 }
 
+func TestFwarnOnce_DedupsIdenticalLines(t *testing.T) {
+	var b strings.Builder
+	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-first")
+	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-first")
+	if got, want := b.String(), "ctxloom: warning: dedup case \"clidiag-once-first\"\n"; got != want {
+		t.Fatalf("FwarnOnce = %q, want single line %q", got, want)
+	}
+	// A different formatted line still emits.
+	FwarnOnce(&b, "ctxloom", "dedup case %q", "clidiag-once-second")
+	if got := b.String(); strings.Count(got, "\n") != 2 {
+		t.Fatalf("distinct line should emit, got %q", got)
+	}
+}
+
 func TestWarnerBindsProg(t *testing.T) {
 	var b strings.Builder
 	Fwarn(&b, string(Warner("ltk")), "bad rule %q", "x")

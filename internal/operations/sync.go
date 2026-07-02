@@ -352,8 +352,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 		}
 		for _, name := range defaults {
 			if isRemoteReference(name) {
-				base, _, _ := strings.Cut(name, "#")
-				bundleSet.Add(base)
+				addRemoteBundleBase(bundleSet, name, "default profile")
 			}
 		}
 	}
@@ -399,8 +398,7 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 	// selector is re-applied at assembly time by the bundle loader.
 	for _, b := range bundles {
 		if isRemoteReference(b) {
-			base, _, _ := strings.Cut(b, "#")
-			bundleSet.Add(base)
+			addRemoteBundleBase(bundleSet, b, fmt.Sprintf("profile %q", profileName))
 		}
 	}
 
@@ -412,8 +410,7 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 			// Sync (and lock) the underlying bundle by stripping the selector,
 			// mirroring the #fragments/ handling above; the bundle profile's own
 			// composed bundles are closed by FlattenDependencies.
-			base, _, _ := strings.Cut(parent, "#")
-			bundleSet.Add(base)
+			addRemoteBundleBase(bundleSet, parent, fmt.Sprintf("profile %q", profileName))
 		} else {
 			// Local parent - recursively collect its references. Strip "profile:"
 			// prefix if present (distinguishes a profile ref from a bundle ref).
@@ -421,6 +418,29 @@ func collectProfileReferencesRecursive(cfg *config.Config, profileName string, b
 			collectProfileReferencesRecursive(cfg, localName, bundleSet, visited)
 		}
 	}
+}
+
+// addRemoteBundleBase adds ref's bundle base (item selector stripped) to
+// bundleSet after checking the base still parses as a distributable reference.
+// A ref in the retired top-level "@profiles/" grammar — or otherwise
+// unparseable — must never enter the install plan: it cannot pull, so planning
+// it walks the user into a confirmed install that then fails with "unknown
+// item type". Warn once and keep collecting (CLAUDE.md fault tolerance:
+// report the failure, continue with what works). owner names the referencing
+// profile for the diagnostic.
+func addRemoteBundleBase(bundleSet collections.Set[string], ref, owner string) {
+	base, _, _ := strings.Cut(ref, "#")
+	if _, _, retired := remote.SplitRetiredProfileRef(base); retired {
+		clidiag.WarnOnce("ctxloom",
+			"%s references %s in the retired top-level @profiles/ grammar; profiles ship inside bundles now (\"<url>@bundles/<bundle>#profiles/<name>\") — run `ctxloom remote upgrade` to refresh pins; skipping from sync",
+			owner, ref)
+		return
+	}
+	if _, err := remote.ParseReference(base); err != nil {
+		clidiag.WarnOnce("ctxloom", "%s references invalid ref %s (%v); skipping from sync", owner, ref, err)
+		return
+	}
+	bundleSet.Add(base)
 }
 
 // isRemoteReference checks if a reference points to a remote source. Remote

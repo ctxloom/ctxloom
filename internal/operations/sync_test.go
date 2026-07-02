@@ -159,6 +159,62 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	}
 }
 
+// TestCollectRemoteReferences_RetiredProfileRefsSkipped verifies a ref in the
+// retired top-level "@profiles/" grammar never enters the install plan — it
+// cannot pull, so planning it walks the user into a confirmed install that then
+// fails with "unknown item type". The rest of the profile's refs still collect
+// (fault tolerance: skip the broken branch, keep what works).
+func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	validBundle := "https://github.com/test/ctxloom@bundles/go-tools"
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"test": {
+				Bundles: []string{validBundle},
+				Parents: []string{
+					// Retired top-level profile distribution grammar.
+					"https://github.com/ctxloom/ctxloom-default@profiles/go-developer",
+				},
+			},
+		}},
+		AppPaths: []string{testBaseDir},
+	}
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	if err != nil {
+		t.Fatalf("collectRemoteReferences failed: %v", err)
+	}
+	if len(bundles) != 1 || bundles[0] != validBundle {
+		t.Errorf("expected only %q collected, got %v", validBundle, bundles)
+	}
+}
+
+// TestCollectRemoteReferences_RetiredDefaultProfileSkipped covers the config
+// defaults root path: a retired "@profiles/" default must not become a
+// dependency root either.
+func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{
+			Defaults:    []string{"https://github.com/o/r@profiles/dev"},
+			Definitions: map[string]config.Profile{},
+		},
+		AppPaths: []string{testBaseDir},
+	}
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	bundles, err := collectRemoteReferences(cfg, nil, fs)
+	if err != nil {
+		t.Fatalf("collectRemoteReferences failed: %v", err)
+	}
+	if len(bundles) != 0 {
+		t.Errorf("expected no roots from a retired default ref, got %v", bundles)
+	}
+}
+
 // TestIsRemoteReference tests the heuristic for remote detection.
 //
 // NON-OBVIOUS: A reference is considered remote if it has a slash OR looks

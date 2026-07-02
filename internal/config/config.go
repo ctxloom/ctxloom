@@ -393,7 +393,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		}
 		bundle, lerr := loader.LoadFile(info.Path)
 		if lerr != nil {
-			warnOncePerRun(clidiag.Line("ctxloom", "failed to load bundle %q for its profiles: %v", info.Name, lerr))
+			clidiag.WarnOnce("ctxloom", "failed to load bundle %q for its profiles: %v", info.Name, lerr)
 			continue
 		}
 		// info.Name is the bundle's full resolution identity (the canonical ref for
@@ -421,7 +421,28 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(loaded) == 0 {
 		return nil
 	}
+	rewriteRetiredSeedParents(loaded)
 	return loaded
+}
+
+// rewriteRetiredSeedParents rewrites seeded bundle-profile parents authored in
+// the retired top-level "@profiles/" grammar to their bundle-shipped successor.
+// Seeded profiles arrive already parsed and never pass through the loader's
+// document upgrade pipeline, so this applies the same discovery-based rewrite
+// against the full seed: to the one seeded bundle profile the repo ships under
+// that name, verbatim when unmatched or ambiguous (profiles/upgrade.go owns the
+// rule). In-memory only — a seeded profile is read-only and migrates at its
+// source.
+func rewriteRetiredSeedParents(loaded map[string]*profiles.Profile) {
+	for _, p := range loaded {
+		for i, parent := range p.Parents {
+			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
+				if successor, found := profiles.FindBundleProfileKey(loaded, url, name); found {
+					p.Parents[i] = successor
+				}
+			}
+		}
+	}
 }
 
 // cloneBundleProfile returns a copy of a bundle profile safe to mutate
@@ -933,7 +954,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
 	for name, err := range failures {
-		warnOncePerRun(clidiag.Line("ctxloom", "failed to load remote bundle %q from cache: %v", name, err))
+		clidiag.WarnOnce("ctxloom", "failed to load remote bundle %q from cache: %v", name, err)
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
@@ -944,7 +965,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		}
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
-			warnOncePerRun(clidiag.Line("ctxloom", "failed to parse remote bundle %q: %v", canonical, perr))
+			clidiag.WarnOnce("ctxloom", "failed to parse remote bundle %q: %v", canonical, perr)
 			continue
 		}
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.
@@ -953,24 +974,6 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		loaded[canonical] = b
 	}
 	return loaded
-}
-
-var (
-	warnedOnceMu   sync.Mutex
-	warnedOnceSeen = map[string]struct{}{}
-)
-
-// warnOncePerRun writes msg to stderr at most once per process for identical
-// text, collapsing the duplicate remote-bundle warnings emitted when profile
-// resolution re-seeds the same bundles several times during one startup.
-func warnOncePerRun(msg string) {
-	warnedOnceMu.Lock()
-	defer warnedOnceMu.Unlock()
-	if _, seen := warnedOnceSeen[msg]; seen {
-		return
-	}
-	warnedOnceSeen[msg] = struct{}{}
-	fmt.Fprint(os.Stderr, msg)
 }
 
 // SourceName returns a human-readable name for the config source.

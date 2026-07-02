@@ -3,6 +3,7 @@ package backends
 import (
 	"os/exec"
 
+	"github.com/ctxloom/ctxloom/internal/acp"
 	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -198,6 +199,24 @@ func init() {
 		newWriter:     kiro.NewWriter,
 		exports:       kiroExports,
 		writeCommands: kiro.WriteCommandFiles,
+	})
+
+	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
+	// chosen by config (`command: "kiro-cli acp"`, `claude-code-acp`, a future
+	// `agy acp`) — new ACP agents become CONFIG, not code. Structured chat +
+	// headless oneshot only (no TUI). It deliberately registers NO settings
+	// writer and NO command exports: a GENERIC agent has no known native config
+	// format to materialize (context still reaches a run as the lead fragment /
+	// prompt). The KNOWN agents' ACP paths ride their OWN backends — kiro/codex
+	// StructuredChat delegates to this driver — where materialization is the
+	// target's own writer; that is the settings-delegation answer, so no
+	// per-target "acp-<agent>" descriptors exist.
+	registerDescriptor(agentDescriptor{
+		name:       "acp",
+		newBackend: func() agent.Backend { return acp.NewACP(WriteSettings) },
+		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
+			return decodeBody(body, &acp.ACPConfig{})
+		},
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

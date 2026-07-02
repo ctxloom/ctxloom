@@ -37,24 +37,20 @@
 //	              the agent→client callback handler (permission, fs read/write)
 //	acp.go      — ACPConfig, the ACP backend, argv builder, subprocess transport
 //
-// # TODO(acp): descriptor registration + materialization delegation
+// # Registration + materialization delegation (RESOLVED)
 //
-// This increment is deliberately UNREGISTERED — internal/lm/backends/registry.go
-// is untouched — mirroring how internal/kiro first landed. Registering an "acp"
-// descriptor trips TestDescriptorTable_Invariants, which requires every non-mock
-// backend to carry a settings writer AND command exports/writer. A GENERIC ACP
-// backend has no settings format of its own: its config materialization must
-// DELEGATE to the TARGET agent's writer (kiro/claude/codex) selected by
-// ACPConfig.AgentEngine — an unresolved design question:
+// The registry carries ONE generic "acp" descriptor (backend + config decode
+// only — see the invariant-test exemption). The materialization-delegation
+// question dissolved rather than needing a fan-out mechanism:
 //
-//   - How does the descriptor pick the delegate writer/exports from agent_engine,
-//     and how does an "acp" backend's Name() reconcile with the invariant that
-//     descriptor name == backend Name()?
-//   - Do we register ONE "acp" descriptor that fans out by agent_engine, or one
-//     per target ("acp-kiro", …)? Either way the config-materialization delegation
-//     (WriteSettings/exports/writeCommands → the target agent's) must be wired
-//     before registration, or the invariant test (rightly) fails.
-//
-// Until that is settled, internal/acp stays green and standalone; nothing outside
-// this package references it yet.
+//   - KNOWN agents' ACP paths ride their OWN backends: kiro and codex implement
+//     agent.StructuredChat by delegating to this package's driver (NewChatDriver)
+//     with their agent-specific ACP command. Their descriptors already carry the
+//     correct writer/exports, so config materialization is the target's own —
+//     delegation for free, no "acp-kiro"-style descriptors.
+//   - The generic "acp" descriptor exists for ARBITRARY/unlisted ACP agents
+//     (`type: acp` + `command: "<agent> acp"`). A generic agent's native config
+//     format is unknown, so it deliberately materializes nothing: context still
+//     reaches a run as the lead fragment / prompt; MCP-over-session/new is a
+//     later addition (session.go sends an empty mcpServers list today).
 package acp

@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -31,14 +31,6 @@ func (ClaudeConfig) BackendType() string { return "claude-code" }
 type ClaudeCode struct {
 	agent.LaunchBackend
 	writeSettings agent.WriteSettingsFunc
-	// openChatTransport opens the stream-json transport for the StructuredChat
-	// capability. Defaults to spawnChatTransport (a real `claude` subprocess);
-	// tests override it with in-memory pipes so they never spawn a process.
-	openChatTransport chatTransportFunc
-	// now stamps chat-stream entries that arrive without a timestamp — claude-code's
-	// stream-json carries no per-event time, so we record receipt time here so the
-	// protocol always has one. Injected for deterministic tests; nil means time.Now.
-	now func() time.Time
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings. The
@@ -163,6 +155,26 @@ func parseClaudeJSONResult(data []byte) (text, model string, err error) {
 	}
 	model, _ = pickByMaxOutput(env.ModelUsage, func(u claudeModelUsage) int { return u.OutputTokens })
 	return env.Result, model, nil
+}
+
+// pickByMaxOutput returns the map entry with the largest output measure,
+// breaking ties on sorted key for determinism. Used to attribute a result to
+// the GENERATING model among the CLI's per-model usage entries.
+func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var best string
+	var bestVal T
+	bestTokens := -1
+	for _, id := range ids {
+		if n := out(m[id]); n > bestTokens {
+			best, bestVal, bestTokens = id, m[id], n
+		}
+	}
+	return best, bestVal
 }
 
 // sessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.

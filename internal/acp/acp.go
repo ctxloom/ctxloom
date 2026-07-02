@@ -67,9 +67,21 @@ type ACP struct {
 	now func() time.Time
 }
 
+// NewChatDriver builds an ACP client for EMBEDDING inside a target agent's own
+// backend: kiro/codex implement agent.StructuredChat by delegating to this
+// driver with their agent-specific ACP command (e.g. "kiro-cli acp",
+// "codex-acp"). The embedding backend owns setup/materialization — this driver
+// only speaks the protocol, which is exactly why the delegation keeps the
+// target's native config correct (see doc.go).
+func NewChatDriver(cfg ACPConfig) *ACP {
+	b := NewACP(nil)
+	b.Configure(&cfg)
+	return b
+}
+
 // NewACP constructs a generic ACP client backend. The writeSettings dispatch is
-// injected for parity with the other backends (unused until registration wires
-// the target-agent delegation — see doc.go).
+// injected for parity with the other backends (nil for an embedded chat driver,
+// whose owner runs its own lifecycle — see NewChatDriver).
 func NewACP(writeSettings agent.WriteSettingsFunc) *ACP {
 	b := &ACP{writeSettings: writeSettings}
 	b.BaseBackend = agent.NewBaseBackend("acp", "1.0.0")

@@ -56,7 +56,7 @@ func NewKiro(writeSettings agent.WriteSettingsFunc) *Kiro {
 		agent.NewBaseLifecycle("kiro", b.writeSettings),
 		&KiroSkills{},
 		agent.NewBaseContextProvider(),
-		&kiroSessionHistory{},
+		newKiroSessionHistory(),
 	)
 	return b
 }

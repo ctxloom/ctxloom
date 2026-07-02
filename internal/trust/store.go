@@ -195,13 +195,7 @@ func (s *Store) snapshot() storeFile {
 		BaselinedAt:     s.baselinedAt,
 	}
 	for _, g := range s.grants {
-		out.Grants = append(out.Grants, grantRecord{
-			RepoURL:     g.RepoURL,
-			Ref:         g.Ref,
-			ContentHash: g.ContentHash,
-			Form:        g.Form,
-			SHAAtGrant:  g.SHAAtGrant,
-		})
+		out.Grants = append(out.Grants, grantRecord(g))
 	}
 	sort.Slice(out.Grants, func(i, j int) bool {
 		a, b := out.Grants[i], out.Grants[j]

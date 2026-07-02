@@ -19,7 +19,8 @@ import (
 //	EntryTypeToolResult → tool_call_update (pops the matching open id; failed → status failed)
 //	EntryTypeUser       → (dropped — never echo the user's message back)
 //	EntryTypeSystem     → (dropped — structural, not conversation content)
-//	ChatSessionInfo     → (dropped — no wire projection in slice 1)
+//	ChatSessionInfo     → session_info_update (model/mcp header; see sessionInfoUpdateWire)
+//	TurnMeta (Complete) → usage_update (context gauge + cost; see usageUpdateWire) then ends the turn
 
 // mapEvent converts one chat event into 0..1 session updates, tracking
 // tool-call id pairing on the session.
@@ -151,6 +152,43 @@ func (sess *session) popToolCall(name string) api.ToolCallId {
 	}
 	sess.toolSeq++
 	return api.ToolCallId("call-" + strconv.FormatInt(sess.toolSeq, 10))
+}
+
+// sessionInfoUpdateWire projects one ChatSessionInfo (the engine's one-time
+// start-of-chat metadata) onto a session_info_update session/update, so a
+// client can render a model/mcp header. Returns nil when there is nothing worth
+// surfacing (so an empty ChatSessionInfo emits no notification).
+func sessionInfoUpdateWire(info *agent.ChatSessionInfo) any {
+	if info == nil || (info.Model == "" && info.PermissionMode == "" && info.ContextWindow == 0 && len(info.MCPServers) == 0) {
+		return nil
+	}
+	u := sessionInfoUpdate{
+		SessionUpdate:  "session_info_update",
+		Model:          info.Model,
+		PermissionMode: info.PermissionMode,
+		ContextWindow:  info.ContextWindow,
+	}
+	for _, m := range info.MCPServers {
+		u.McpServers = append(u.McpServers, mcpStatusWire{Name: m.Name, Status: m.Status})
+	}
+	return u
+}
+
+// usageUpdateWire projects one turn's completion accounting (TurnMeta) onto a
+// usage_update session/update — the context-window gauge and cumulative cost.
+// `used`/`size` follow ctxloom's own gauge convention (InputTokens against the
+// model's ContextWindow; see run_structured.go), CostUSD is reported in USD.
+// Returns nil when the turn carried no accounting worth reporting (so a bare
+// completion — e.g. a cancel — emits no gauge).
+func usageUpdateWire(c *agent.TurnMeta) any {
+	if c == nil || (c.InputTokens == 0 && c.ContextWindow == 0 && c.CostUSD == 0) {
+		return nil
+	}
+	u := usageUpdate{SessionUpdate: "usage_update", Used: c.InputTokens, Size: c.ContextWindow}
+	if c.CostUSD != 0 {
+		u.Cost = &usageCost{Amount: c.CostUSD, Currency: "USD"}
+	}
+	return u
 }
 
 // textBlock wraps text in an ACP text content block.

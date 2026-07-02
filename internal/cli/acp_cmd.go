@@ -184,7 +184,25 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		Modes:        buildSessionModes(cfg, profile, defaultProfiles, currentSubagent),
 		AssembleMode: assembleModeFunc(cfg, label),
 		Replay:       replay,
+		LLMs:         buildSessionLLMs(cfg, label),
 	}, nil
+}
+
+// buildSessionLLMs advertises the cwd's configured LLMs (the labels `-l`/`--llm`
+// accepts, matching `ctxloom llm list`) so a client can DISPLAY the available
+// engines and mark the launched one (current). This is advertisement only: the
+// session's engine is pinned at launch — a live mid-session LLM switch is not
+// implemented. nil when no LLMs are enumerable.
+func buildSessionLLMs(cfg *config.Config, current string) *acpagent.SessionLLMs {
+	names := availableLLMNames(cfg)
+	if len(names) == 0 {
+		return nil
+	}
+	llms := &acpagent.SessionLLMs{Current: current}
+	for _, n := range names {
+		llms.Available = append(llms.Available, acpagent.LLMInfo{ID: n, Name: n})
+	}
+	return llms
 }
 
 // subagentModePrefix namespaces subagent mode IDs so a subagent can never

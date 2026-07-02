@@ -31,15 +31,17 @@ type agentInfoBlock struct {
 const DefaultModeID = "default"
 
 // newSessionResult is the session/new response body: the SDK's
-// NewSessionResponse plus the modes state it predates.
+// NewSessionResponse plus the modes/models state it predates.
 type newSessionResult struct {
 	SessionId api.SessionId `json:"sessionId"`
 	Modes     *modeState    `json:"modes,omitempty"`
+	Models    *modelState   `json:"models,omitempty"`
 }
 
-// loadSessionResult is the session/load response body (modes state only).
+// loadSessionResult is the session/load response body (modes + models state).
 type loadSessionResult struct {
-	Modes *modeState `json:"modes,omitempty"`
+	Modes  *modeState  `json:"modes,omitempty"`
+	Models *modelState `json:"models,omitempty"`
 }
 
 // modeState is the ACP session-mode state block.
@@ -58,6 +60,72 @@ type modeWire struct {
 type setModeParams struct {
 	SessionId api.SessionId `json:"sessionId"`
 	ModeId    string        `json:"modeId"`
+}
+
+// modelState advertises the LLMs a session could run, mirroring the emerging
+// ACP model-selection shape (availableModels + currentModelId). It is
+// ADVERTISEMENT ONLY: the pinned SDK has no model surface, and ctxloom pins the
+// engine's LLM at launch (a live mid-session switch is not implemented — there
+// is no session/set_model here). A client can display the available engines and
+// the launched one; selecting a different one is not yet honored.
+type modelState struct {
+	CurrentModelId  string      `json:"currentModelId,omitempty"`
+	AvailableModels []modelWire `json:"availableModels"`
+}
+
+// modelWire is one advertised LLM: its ctxloom config label (id) and display name.
+type modelWire struct {
+	ModelId string `json:"modelId"`
+	Name    string `json:"name"`
+}
+
+// modelStateWire renders a session's advertised LLMs for the wire (nil when the
+// session advertises none).
+func modelStateWire(l *SessionLLMs) *modelState {
+	if l == nil || len(l.Available) == 0 {
+		return nil
+	}
+	out := &modelState{CurrentModelId: l.Current}
+	for _, m := range l.Available {
+		out.AvailableModels = append(out.AvailableModels, modelWire{ModelId: m.ID, Name: m.Name})
+	}
+	return out
+}
+
+// usageUpdate is the session/update variant reporting context-window usage and
+// cumulative cost — the ACP session-usage RFD shape (`used`/`size`/`cost`). The
+// pinned SDK predates the usage_update variant, so it is hand-rolled here (it
+// collapses onto the SDK's type when the SDK gains it).
+type usageUpdate struct {
+	SessionUpdate string     `json:"sessionUpdate"` // always "usage_update"
+	Used          int        `json:"used"`          // tokens currently in context
+	Size          int        `json:"size"`          // total context-window size
+	Cost          *usageCost `json:"cost,omitempty"`
+}
+
+// usageCost is the optional cumulative cost of a usage_update.
+type usageCost struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"` // ISO 4217
+}
+
+// sessionInfoUpdate is a session/update carrying one-time session metadata
+// (model, permission mode, context window, MCP server status) so a client can
+// render a model/session header. NOTE: session_info_update is NOT a variant in
+// the pinned SDK, nor a settled ACP variant — this is a best-effort
+// forward-looking shape; a client that doesn't recognize it simply ignores it.
+type sessionInfoUpdate struct {
+	SessionUpdate  string          `json:"sessionUpdate"` // always "session_info_update"
+	Model          string          `json:"model,omitempty"`
+	PermissionMode string          `json:"permissionMode,omitempty"`
+	ContextWindow  int             `json:"contextWindow,omitempty"`
+	McpServers     []mcpStatusWire `json:"mcpServers,omitempty"`
+}
+
+// mcpStatusWire is one MCP server's connection status in a session_info_update.
+type mcpStatusWire struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // modeStateWire renders the session's mode state for the wire (nil when the

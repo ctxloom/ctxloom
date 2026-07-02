@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,7 @@ type fakeEngine struct {
 	modes        *SessionModes
 	assembleMode func(ctx context.Context, mode SessionMode) (string, error)
 	replay       []agent.SessionEntry
+	llms         *SessionLLMs
 }
 
 func newFakeEngine() *fakeEngine {
@@ -61,6 +63,7 @@ func (f *fakeEngine) chat(contextText string) *EngineChat {
 		Modes:        f.modes,
 		AssembleMode: f.assembleMode,
 		Replay:       f.replay,
+		LLMs:         f.llms,
 	}
 }
 
@@ -616,6 +619,121 @@ func TestServe_SessionLoad(t *testing.T) {
 	}()
 	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"tidy-old-harp","prompt":[{"type":"text","text":"continue please"}]}`))
 	require.Nil(t, resp.Error)
+}
+
+// TestPromptText_ResourceBlocks: promptText inlines `resource` (embedded text,
+// labeled by uri) and renders `resource_link` as a labeled reference line, so
+// "add context" content reaches the engine. Text passes through; a binary blob
+// resource (no text) is still dropped.
+func TestPromptText_ResourceBlocks(t *testing.T) {
+	raw := `[
+		{"type":"text","text":"look at this"},
+		{"type":"resource","resource":{"uri":"file:///a.go","text":"package main","mimeType":"text/x-go"}},
+		{"type":"resource_link","name":"spec","uri":"file:///spec.md","title":"Design Spec","description":"the plan"},
+		{"type":"resource","resource":{"uri":"file:///bin","blob":"AAAA","mimeType":"application/octet-stream"}}
+	]`
+	var blocks []api.ContentBlock
+	require.NoError(t, json.Unmarshal([]byte(raw), &blocks))
+
+	got := promptText(blocks)
+	assert.Contains(t, got, "look at this", "text block passes through")
+	assert.Contains(t, got, "package main", "embedded resource text is inlined")
+	assert.Contains(t, got, "file:///a.go", "the embedded resource is labeled by its uri")
+	assert.Contains(t, got, "file:///spec.md", "the resource link references its uri")
+	assert.Contains(t, got, "Design Spec", "the resource link uses its title as the label")
+	assert.NotContains(t, got, "AAAA", "a binary blob resource has no text projection and is dropped")
+}
+
+// TestServe_UsageAndSessionInfo: the engine's one-time ChatSessionInfo projects
+// onto a session_info_update (model/mcp header), and a turn's completion
+// accounting rides ahead of the prompt response as a usage_update (context
+// gauge + cost).
+func TestServe_UsageAndSessionInfo(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	go func() {
+		eng.receivedText(t)
+		eng.events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{
+			Model:         "claude-sonnet",
+			ContextWindow: 200000,
+			MCPServers:    []agent.MCPStatus{{Name: "tools", Status: "connected"}},
+		}}
+		eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hi"}}
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{InputTokens: 53000, ContextWindow: 200000, CostUSD: 0.045, StopReason: "end_turn"}}
+	}()
+
+	resp, updates := c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`))
+	require.Nil(t, resp.Error)
+	assert.Contains(t, string(resp.Result), `"end_turn"`)
+
+	// session_info_update, the assistant chunk, then usage_update (ahead of the reply).
+	require.Len(t, updates, 3)
+	var joined string
+	for _, u := range updates {
+		joined += string(u.Params)
+	}
+	assert.Contains(t, joined, `"session_info_update"`)
+	assert.Contains(t, joined, "claude-sonnet")
+	assert.Contains(t, joined, "connected")
+	assert.Contains(t, joined, `"usage_update"`)
+	assert.Contains(t, joined, `"used":53000`)
+	assert.Contains(t, joined, `"size":200000`)
+	assert.Contains(t, joined, `"amount":0.045`)
+}
+
+// TestServe_UsageOmittedWhenEmpty: a completion with no accounting emits no
+// usage_update (the gauge would be meaningless), so a bare turn streams only
+// its content updates.
+func TestServe_UsageOmittedWhenEmpty(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	go func() {
+		eng.receivedText(t)
+		eng.events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "hi"}}
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	}()
+
+	resp, updates := c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`))
+	require.Nil(t, resp.Error)
+	require.Len(t, updates, 1, "only the assistant chunk — no usage_update for an empty completion")
+	assert.NotContains(t, string(updates[0].Params), "usage_update")
+}
+
+// TestServe_AdvertisesLLMs: a session advertising LLMs surfaces them in the
+// session/new response as a models state (availableModels + currentModelId).
+func TestServe_AdvertisesLLMs(t *testing.T) {
+	eng := newFakeEngine()
+	eng.llms = &SessionLLMs{
+		Current:   "fast",
+		Available: []LLMInfo{{ID: "primary", Name: "primary"}, {ID: "fast", Name: "fast"}},
+	}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	resp, _ := c.waitResponse(c.send("session/new", `{"cwd":"/proj","mcpServers":[]}`))
+	require.Nil(t, resp.Error)
+
+	var newResp struct {
+		Models struct {
+			CurrentModelId  string `json:"currentModelId"`
+			AvailableModels []struct {
+				ModelId string `json:"modelId"`
+				Name    string `json:"name"`
+			} `json:"availableModels"`
+		} `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Result, &newResp))
+	assert.Equal(t, "fast", newResp.Models.CurrentModelId)
+	require.Len(t, newResp.Models.AvailableModels, 2)
+	assert.Equal(t, "primary", newResp.Models.AvailableModels[0].ModelId)
+	assert.Equal(t, "fast", newResp.Models.AvailableModels[1].ModelId)
 }
 
 // TestServe_SessionLoad_OpenError: a failed resume (unknown harp) surfaces as

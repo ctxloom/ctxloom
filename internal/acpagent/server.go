@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
@@ -77,6 +78,25 @@ type EngineChat struct {
 	AssembleMode func(ctx context.Context, mode SessionMode) (string, error)
 	// Replay is the recorded history to replay to the client on session/load.
 	Replay []agent.SessionEntry
+	// LLMs advertises the ctxloom LLMs this session could run (nil = none). It
+	// is ADVERTISEMENT ONLY — the engine's LLM is pinned at launch; a live
+	// mid-session switch is not implemented (see modelState in wire.go).
+	LLMs *SessionLLMs
+}
+
+// SessionLLMs advertises the ctxloom LLM configs available to a session and
+// which one launched. Informational: a client can display the engines and the
+// current pick, but changing it mid-session is not supported (the engine is
+// pinned at launch).
+type SessionLLMs struct {
+	Current   string
+	Available []LLMInfo
+}
+
+// LLMInfo is one advertised LLM: its ctxloom config label (ID) and display name.
+type LLMInfo struct {
+	ID   string
+	Name string
 }
 
 // SessionModes describes the profile-set-backed ACP session modes of a session.
@@ -224,7 +244,7 @@ func (s *Server) handleSessionNew(params json.RawMessage, reply func(any, *jsonr
 		reply(nil, rerr)
 		return
 	}
-	reply(newSessionResult{SessionId: sess.id, Modes: modeStateWire(sess.snapshotModes())}, nil)
+	reply(newSessionResult{SessionId: sess.id, Modes: modeStateWire(sess.snapshotModes()), Models: modelStateWire(sess.engine.LLMs)}, nil)
 }
 
 // handleSessionLoad resumes a recorded ctxloom session: it opens a fresh
@@ -254,7 +274,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 			}
 		}
 	}
-	reply(loadSessionResult{Modes: modeStateWire(sess.snapshotModes())}, nil)
+	reply(loadSessionResult{Modes: modeStateWire(sess.snapshotModes()), Models: modelStateWire(sess.engine.LLMs)}, nil)
 }
 
 // openSession opens the engine conversation and registers the session. A
@@ -383,7 +403,22 @@ func (s *Server) runTurn(sess *session, text string, replyWire func(any, *jsonrp
 				}
 				return
 			}
+			if ev.Session != nil {
+				// One-time session metadata (model/mcp): surface it as a
+				// session_info_update so a client can render a model header.
+				if rerr := s.emitUpdate(sess, sessionInfoUpdateWire(ev.Session)); rerr != nil {
+					reply(nil, rerr)
+					return
+				}
+				continue
+			}
 			if ev.Complete != nil {
+				// The turn's accounting rides ahead of the completion as a
+				// usage_update (context gauge + cost), then the turn ends.
+				if rerr := s.emitUpdate(sess, usageUpdateWire(ev.Complete)); rerr != nil {
+					reply(nil, rerr)
+					return
+				}
 				reply(api.PromptResponse{StopReason: sess.stopReason(ev.Complete.StopReason)}, nil)
 				return
 			}
@@ -394,8 +429,8 @@ func (s *Server) runTurn(sess *session, text string, replyWire func(any, *jsonrp
 				continue
 			}
 			for _, upd := range sess.mapEvent(ev) {
-				if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: upd}); err != nil {
-					reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "notify: " + err.Error()})
+				if rerr := s.emitUpdate(sess, upd); rerr != nil {
+					reply(nil, rerr)
 					return
 				}
 			}
@@ -571,6 +606,20 @@ func (sess *session) snapshotModes() *SessionModes {
 	return &m
 }
 
+// emitUpdate sends one session/update notification for the session, returning a
+// JSON-RPC error when the transport fails (so the caller can fail the turn). A
+// nil update is a no-op — the wire projections return nil when there is nothing
+// worth surfacing.
+func (s *Server) emitUpdate(sess *session, update any) *jsonrpc.Error {
+	if update == nil {
+		return nil
+	}
+	if err := s.conn.Notify(api.MethodSessionUpdate, sessionUpdateParams{SessionId: sess.id, Update: update}); err != nil {
+		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "notify: " + err.Error()}
+	}
+	return nil
+}
+
 // engineError renders a conversation-fatal engine error as a JSON-RPC error
 // (nil-safe: a closed Errs channel yields nil).
 func engineError(err error) *jsonrpc.Error {
@@ -581,19 +630,76 @@ func engineError(err error) *jsonrpc.Error {
 	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msg}
 }
 
-// promptText flattens a prompt's content blocks to text (non-text blocks are
-// dropped; images/resources are a later addition).
+// promptText flattens a prompt's content blocks to text for the engine (which
+// consumes text). Text blocks pass through; `resource` blocks inline their
+// embedded resource's text; `resource_link` blocks become a labeled reference
+// line — so "add context" content reaches the engine instead of vanishing.
+// Binary/opaque blocks (images, audio, blob resources) have no text projection
+// and are still dropped.
 func promptText(blocks []api.ContentBlock) string {
-	var out string
+	var parts []string
 	for _, b := range blocks {
-		if b.Type == api.ContentBlockTypeText && b.Text != nil {
-			if out != "" {
-				out += "\n"
+		switch b.Type {
+		case api.ContentBlockTypeText:
+			if b.Text != nil && b.Text.Text != "" {
+				parts = append(parts, b.Text.Text)
 			}
-			out += b.Text.Text
+		case api.ContentBlockTypeResource:
+			if s := embeddedResourceText(b.Resource); s != "" {
+				parts = append(parts, s)
+			}
+		case api.ContentBlockTypeResourceLink:
+			if s := resourceLinkText(b.ResourceLink); s != "" {
+				parts = append(parts, s)
+			}
 		}
 	}
-	return out
+	return strings.Join(parts, "\n")
+}
+
+// embeddedResourceText inlines an embedded `resource` block's text. ACP embeds
+// either a text resource ({uri,text,mimeType}) or a binary blob
+// ({uri,blob,mimeType}); only text is inlinable, so a blob (no "text") yields ""
+// (dropped). A uri, when present, prefixes the text as a label. The embedded
+// resource is loosely typed (interface{}), so it is read as a decoded object.
+func embeddedResourceText(r *api.ContentBlockResource) string {
+	if r == nil || r.Resource == nil {
+		return ""
+	}
+	m, ok := (*r.Resource).(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	text, _ := m["text"].(string)
+	if text == "" {
+		return ""
+	}
+	if uri, _ := m["uri"].(string); uri != "" {
+		return uri + ":\n" + text
+	}
+	return text
+}
+
+// resourceLinkText renders a `resource_link` block as one labeled reference
+// line, so a referenced resource reaches the engine as a pointer it can act on
+// rather than being dropped. A link with no uri has nothing to reference.
+func resourceLinkText(l *api.ContentBlockResourceLink) string {
+	if l == nil || l.Uri == "" {
+		return ""
+	}
+	label := l.Name
+	if t, ok := l.Title.(string); ok && t != "" {
+		label = t
+	}
+	line := "[resource: "
+	if label != "" {
+		line += label + " — "
+	}
+	line += l.Uri + "]"
+	if d, ok := l.Description.(string); ok && d != "" {
+		line += " " + d
+	}
+	return line
 }
 
 // mcpServersFromACP maps the client's session mcpServers onto the engine chat

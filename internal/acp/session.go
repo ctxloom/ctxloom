@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshgarnett/agent-client-protocol-go/acp/api"
 
+	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -61,15 +62,15 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		autoApprove: req.AutoApprove,
 		clock:       b.clock(),
 	}
-	conn := newRPCConn(ctx, tr.stdout, tr.stdin, closerFunc(tr.close), sess)
+	conn := jsonrpc.NewConn(ctx, tr.stdout, tr.stdin, jsonrpc.CloserFunc(tr.close), sess)
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
 	// transport (unblocking a parked reader), then waits for the read loop to exit
 	// so nothing races the deferred close(out).
 	teardown := func() {
 		cancel()
-		_ = conn.close()
-		<-conn.done
+		_ = conn.Close()
+		<-conn.Done()
 	}
 
 	sessionID, err := b.setup(ctx, conn, req)
@@ -82,7 +83,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// tears the transport down. Used on any ctx cancellation — between turns or
 	// mid-prompt.
 	cancelTurn := func() {
-		_ = conn.notify(api.MethodSessionCancel, api.CancelNotification{SessionId: sessionID})
+		_ = conn.Notify(api.MethodSessionCancel, api.CancelNotification{SessionId: sessionID})
 		teardown()
 	}
 
@@ -122,7 +123,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 }
 
 // setup runs the initialize + session/new handshake, returning the new session id.
-func (b *ACP) setup(ctx context.Context, conn *rpcConn, req agent.ChatRequest) (api.SessionId, error) {
+func (b *ACP) setup(ctx context.Context, conn *jsonrpc.Conn, req agent.ChatRequest) (api.SessionId, error) {
 	initParams := initializeParams{
 		ProtocolVersion: api.ACPProtocolVersion,
 		ClientCapabilities: api.ClientCapabilities{
@@ -134,7 +135,7 @@ func (b *ACP) setup(ctx context.Context, conn *rpcConn, req agent.ChatRequest) (
 		ClientInfo: &clientInfoBlock{Name: clientName, Version: clientVersion},
 	}
 	var initResp api.InitializeResponse
-	if err := conn.call(ctx, api.MethodInitialize, initParams, &initResp); err != nil {
+	if err := conn.Call(ctx, api.MethodInitialize, initParams, &initResp); err != nil {
 		return "", err
 	}
 
@@ -144,7 +145,7 @@ func (b *ACP) setup(ctx context.Context, conn *rpcConn, req agent.ChatRequest) (
 	}
 	newReq := api.NewSessionRequest{Cwd: cwd, McpServers: []api.McpServer{}}
 	var newResp api.NewSessionResponse
-	if err := conn.call(ctx, api.MethodSessionNew, newReq, &newResp); err != nil {
+	if err := conn.Call(ctx, api.MethodSessionNew, newReq, &newResp); err != nil {
 		return "", err
 	}
 	return newResp.SessionId, nil
@@ -154,7 +155,7 @@ func (b *ACP) setup(ctx context.Context, conn *rpcConn, req agent.ChatRequest) (
 // turn ends, returning the stop reason. The turn's session/update stream is
 // consumed concurrently by the read loop (chatSession.handleNotification), which
 // forwards mapped entries to `out` before this call's response arrives.
-func (b *ACP) prompt(ctx context.Context, conn *rpcConn, sessionID api.SessionId, text string) (string, error) {
+func (b *ACP) prompt(ctx context.Context, conn *jsonrpc.Conn, sessionID api.SessionId, text string) (string, error) {
 	promptReq := api.PromptRequest{
 		SessionId: sessionID,
 		Prompt: []api.PromptRequestPromptElem{
@@ -162,7 +163,7 @@ func (b *ACP) prompt(ctx context.Context, conn *rpcConn, sessionID api.SessionId
 		},
 	}
 	var resp api.PromptResponse
-	if err := conn.call(ctx, api.MethodSessionPrompt, promptReq, &resp); err != nil {
+	if err := conn.Call(ctx, api.MethodSessionPrompt, promptReq, &resp); err != nil {
 		return "", err
 	}
 	return rawText(resp.StopReason), nil
@@ -192,9 +193,9 @@ func (s *chatSession) send(ev agent.ChatEvent) bool {
 	}
 }
 
-// handleNotification maps a session/update onto chat entries and forwards them.
+// HandleNotification maps a session/update onto chat entries and forwards them.
 // Unknown notifications and malformed updates are dropped (warn + continue).
-func (s *chatSession) handleNotification(ctx context.Context, method string, params json.RawMessage) {
+func (s *chatSession) HandleNotification(ctx context.Context, method string, params json.RawMessage) {
 	if method != api.MethodSessionUpdate {
 		return
 	}
@@ -210,55 +211,57 @@ func (s *chatSession) handleNotification(ctx context.Context, method string, par
 	}
 }
 
-// handleRequest answers an agent→client request. Unknown methods (e.g. the
-// declined terminal/*) get a JSON-RPC method-not-found error rather than crashing.
-func (s *chatSession) handleRequest(ctx context.Context, method string, params json.RawMessage) (any, *rpcError) {
+// HandleRequest answers an agent→client request, replying inline (every client
+// callback is quick — permission decisioning and local fs I/O). Unknown methods
+// (e.g. the declined terminal/*) get a JSON-RPC method-not-found error rather
+// than crashing.
+func (s *chatSession) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	switch method {
 	case api.MethodSessionRequestPermission:
-		return s.handlePermission(params)
+		reply(s.handlePermission(params))
 	case api.MethodFsReadTextFile:
-		return s.handleFsRead(params)
+		reply(s.handleFsRead(params))
 	case api.MethodFsWriteTextFile:
-		return s.handleFsWrite(params)
+		reply(s.handleFsWrite(params))
 	default:
-		return nil, &rpcError{Code: codeMethodNotFound, Message: "acp: method not supported: " + method}
+		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: method not supported: " + method})
 	}
 }
 
 // handlePermission auto-allows when AutoApprove is set, otherwise rejects —
 // mirroring the claude driver, since a structured (non-interactive) chat has no
 // human to prompt.
-func (s *chatSession) handlePermission(params json.RawMessage) (any, *rpcError) {
+func (s *chatSession) handlePermission(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.RequestPermissionRequest
 	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
 	return decidePermission(req.Options, s.autoApprove), nil
 }
 
 // handleFsRead serves fs/read_text_file from the local filesystem, honoring the
 // optional 1-based line offset and line limit.
-func (s *chatSession) handleFsRead(params json.RawMessage) (any, *rpcError) {
+func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.ReadTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
 	data, err := os.ReadFile(req.Path)
 	if err != nil {
-		return nil, &rpcError{Code: codeInternalError, Message: err.Error()}
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
 	return api.ReadTextFileResponse{Content: sliceLines(string(data), req.Line, req.Limit)}, nil
 }
 
 // handleFsWrite serves fs/write_text_file to the local filesystem. It returns a
 // content-less success (JSON null result).
-func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *rpcError) {
+func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
 	if err := os.WriteFile(req.Path, []byte(req.Content), 0o644); err != nil {
-		return nil, &rpcError{Code: codeInternalError, Message: err.Error()}
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: err.Error()}
 	}
 	return nil, nil
 }
@@ -307,12 +310,3 @@ func sliceLines(content string, line, limit *int) string {
 	return strings.Join(lines[start:end], "\n")
 }
 
-// closerFunc adapts a teardown func to io.Closer for the rpc connection.
-type closerFunc func() error
-
-func (f closerFunc) Close() error {
-	if f == nil {
-		return nil
-	}
-	return f()
-}

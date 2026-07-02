@@ -1,4 +1,4 @@
-package acp
+package jsonrpc
 
 import (
 	"bytes"
@@ -12,39 +12,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockHandler is an rpcHandler with pluggable behavior for the codec tests.
+// mockHandler is an Handler with pluggable behavior for the codec tests.
 type mockHandler struct {
-	onRequest func(ctx context.Context, method string, params json.RawMessage) (any, *rpcError)
+	onRequest func(ctx context.Context, method string, params json.RawMessage) (any, *Error)
 	onNotify  func(ctx context.Context, method string, params json.RawMessage)
 }
 
-func (m *mockHandler) handleRequest(ctx context.Context, method string, params json.RawMessage) (any, *rpcError) {
+func (m *mockHandler) HandleRequest(ctx context.Context, method string, params json.RawMessage, reply func(any, *Error)) {
 	if m.onRequest != nil {
-		return m.onRequest(ctx, method, params)
+		reply(m.onRequest(ctx, method, params))
+		return
 	}
-	return nil, &rpcError{Code: codeMethodNotFound, Message: "no handler"}
+	reply(nil, &Error{Code: CodeMethodNotFound, Message: "no handler"})
 }
 
-func (m *mockHandler) handleNotification(ctx context.Context, method string, params json.RawMessage) {
+func (m *mockHandler) HandleNotification(ctx context.Context, method string, params json.RawMessage) {
 	if m.onNotify != nil {
 		m.onNotify(ctx, method, params)
 	}
 }
 
-// newTestConn wires an rpcConn to an in-memory "server" side over two pipes,
+// newTestConn wires an Conn to an in-memory "server" side over two pipes,
 // returning the conn plus the server's frame reader and a frame writer.
-func newTestConn(t *testing.T, handler rpcHandler) (*rpcConn, *json.Decoder, func(rpcMessage)) {
+func newTestConn(t *testing.T, handler Handler) (*Conn, *json.Decoder, func(rpcMessage)) {
 	t.Helper()
 	c2sR, c2sW := io.Pipe() // client → server
 	s2cR, s2cW := io.Pipe() // server → client
 
-	closer := closerFunc(func() error {
+	closer := CloserFunc(func() error {
 		_ = c2sW.Close()
 		_ = s2cR.Close()
 		return nil
 	})
-	conn := newRPCConn(context.Background(), s2cR, c2sW, closer, handler)
-	t.Cleanup(func() { _ = conn.close() })
+	conn := NewConn(context.Background(), s2cR, c2sW, closer, handler)
+	t.Cleanup(func() { _ = conn.Close() })
 
 	serverDec := json.NewDecoder(c2sR)
 	serverWrite := func(m rpcMessage) {
@@ -62,7 +63,7 @@ func newTestConn(t *testing.T, handler rpcHandler) (*rpcConn, *json.Decoder, fun
 // newline-delimited JSON (NOT LSP Content-Length), one JSON object per line.
 func TestWriteFrame_NewlineDelimited(t *testing.T) {
 	var buf bytes.Buffer
-	c := &rpcConn{w: &buf}
+	c := &Conn{w: &buf}
 	require.NoError(t, c.writeFrame(rpcMessage{Method: "ping"}))
 	require.NoError(t, c.writeFrame(rpcMessage{Method: "pong"}))
 
@@ -83,7 +84,7 @@ func TestCall_RequestResponse(t *testing.T) {
 	var res result
 	done := make(chan error, 1)
 	go func() {
-		done <- conn.call(context.Background(), "initialize", map[string]any{"protocolVersion": 1}, &res)
+		done <- conn.Call(context.Background(), "initialize", map[string]any{"protocolVersion": 1}, &res)
 	}()
 
 	var req rpcMessage
@@ -104,14 +105,14 @@ func TestCall_ErrorResponse(t *testing.T) {
 	conn, serverDec, serverWrite := newTestConn(t, &mockHandler{})
 
 	done := make(chan error, 1)
-	go func() { done <- conn.call(context.Background(), "session/new", map[string]any{}, nil) }()
+	go func() { done <- conn.Call(context.Background(), "session/new", map[string]any{}, nil) }()
 
 	var req rpcMessage
 	require.NoError(t, serverDec.Decode(&req))
-	serverWrite(rpcMessage{ID: req.ID, Error: &rpcError{Code: -32000, Message: "auth required"}})
+	serverWrite(rpcMessage{ID: req.ID, Error: &Error{Code: -32000, Message: "auth required"}})
 
 	err := <-done
-	var rerr *rpcError
+	var rerr *Error
 	require.ErrorAs(t, err, &rerr)
 	assert.Equal(t, -32000, rerr.Code)
 	assert.Contains(t, rerr.Error(), "auth required")
@@ -123,7 +124,7 @@ func TestNotify(t *testing.T) {
 
 	// notify writes to an unbuffered pipe, so read concurrently to unblock it.
 	notified := make(chan error, 1)
-	go func() { notified <- conn.notify("session/cancel", map[string]any{"sessionId": "s1"}) }()
+	go func() { notified <- conn.Notify("session/cancel", map[string]any{"sessionId": "s1"}) }()
 
 	var m rpcMessage
 	require.NoError(t, serverDec.Decode(&m))
@@ -137,7 +138,7 @@ func TestNotify(t *testing.T) {
 // handler and its result is written back echoing the request id.
 func TestServeInboundRequest(t *testing.T) {
 	handler := &mockHandler{
-		onRequest: func(_ context.Context, method string, params json.RawMessage) (any, *rpcError) {
+		onRequest: func(_ context.Context, method string, params json.RawMessage) (any, *Error) {
 			assert.Equal(t, "session/request_permission", method)
 			assert.JSONEq(t, `{"options":[]}`, string(params))
 			return map[string]any{"outcome": map[string]any{"outcome": "cancelled"}}, nil
@@ -164,5 +165,5 @@ func TestServeInboundRequest_UnknownMethod(t *testing.T) {
 	var resp rpcMessage
 	require.NoError(t, serverDec.Decode(&resp))
 	require.NotNil(t, resp.Error)
-	assert.Equal(t, codeMethodNotFound, resp.Error.Code)
+	assert.Equal(t, CodeMethodNotFound, resp.Error.Code)
 }

@@ -9,7 +9,33 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
 )
+
+// rpcMessage mirrors the JSON-RPC wire frame. Kept LOCAL: the fake agent is
+// deliberately independent of the production codec (internal/acp/jsonrpc) so a
+// codec bug cannot hide by being symmetric on both ends of a test.
+type rpcMessage struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *jsonrpc.Error  `json:"error,omitempty"`
+}
+
+// marshalResult renders a response result, defaulting to JSON null.
+func marshalResult(result any) json.RawMessage {
+	if result == nil {
+		return json.RawMessage("null")
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return data
+}
 
 // fakeAgent is a synthetic ACP agent for driving the client end-to-end over
 // in-memory pipes — no subprocess, no auth. It is a small async JSON-RPC peer
@@ -75,7 +101,7 @@ func (a *fakeAgent) readLoop() {
 }
 
 func (a *fakeAgent) writeFrame(m rpcMessage) error {
-	m.JSONRPC = jsonrpcVersion
+	m.JSONRPC = "2.0"
 	data, err := json.Marshal(m)
 	if err != nil {
 		return err

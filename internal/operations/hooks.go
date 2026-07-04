@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 )
@@ -169,16 +170,18 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,
-// returning its hash. Fault tolerance: a regen failure must not block hook
-// application — warn and return an empty hash so the SessionStart injection
-// hook is simply omitted this round.
+// returning its hash. A regen failure is fatal-class in strict mode (the
+// SessionStart-injected context silently going stale/absent is exactly what
+// fail-loudly exists to catch); in degraded mode it stays a warning and the
+// injection hook is simply omitted this round.
 func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, workDir string, contextOpts []agent.ContextFileOption) string {
 	if !req.RegenerateContext {
 		return ""
 	}
 	contextHash, err := regenerateContext(freshCfg, workDir, bundleLoaderOpts(req), contextOpts...)
 	if err != nil {
-		clidiag.Warn("ctxloom", "regenerate context failed: %v", err)
+		strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+			"regenerate context failed: %v", err)
 		return ""
 	}
 	return contextHash
@@ -205,9 +208,11 @@ type hookApplyParams struct {
 }
 
 // applyHooksToBackends applies hooks to each backend, returning the backends
-// that took and the per-backend failures. Fault tolerance: a single backend's
-// failure is recorded and warned, then the rest still run — a partially applied
-// set beats none. Context cancellation aborts the whole loop.
+// that took and the per-backend failures. A single backend's failure is
+// recorded and the rest still run — a partially applied set beats none — but
+// partial is no longer success in strict mode: each per-backend failure is a
+// fatal-class finding the startup choke owner aborts on. Degraded mode keeps
+// the warn-and-continue. Context cancellation aborts the whole loop.
 func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, applyErrors []string, err error) {
 	applied = []string{}
 	for _, backendName := range p.backendNames {
@@ -215,7 +220,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 			return applied, applyErrors, ctx.Err()
 		}
 		if e := applyHooksToBackend(backendName, p); e != nil {
-			clidiag.Warn("ctxloom", "%s", e)
+			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
 			continue
 		}
@@ -277,7 +282,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	for _, ref := range orderedRefs {
 		content, err := loadFragmentRef(loader, ref)
 		if err != nil {
-			warnVersionFetchFailure(ref, err)
+			warnFragmentLoadFailure(ref, err)
 			continue
 		}
 		backendFrags = append(backendFrags, &agent.Fragment{
@@ -308,10 +313,12 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	contextHash, err := agent.WriteContextFile(workDir, backendFrags, opts...)
 	if err != nil {
-		// Degrade (the SessionStart injection hook is simply omitted), but
-		// say so — a silent skip leaves the user wondering where their
-		// context went.
-		clidiag.Warn("ctxloom", "context file write failed; SessionStart injection skipped: %v", err)
+		// Fatal-class in strict mode (context regen failure); degraded mode
+		// degrades — the SessionStart injection hook is simply omitted, but
+		// says so rather than leaving the user wondering where their context
+		// went.
+		strictness.Fail(strictness.ClassApply, "fix the write failure, then re-apply (ctxloom manage hooks install)",
+			"context file write failed; SessionStart injection skipped: %v", err)
 		return "", nil
 	}
 	return contextHash, nil

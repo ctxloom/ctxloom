@@ -85,4 +85,5 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerFileSteps(ctx)
 	registerMCPSteps(ctx)
 	registerLiveSteps(ctx)
+	registerReviewSteps(ctx)
 }

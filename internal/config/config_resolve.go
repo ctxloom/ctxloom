@@ -6,8 +6,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -293,12 +293,15 @@ func guardProfileResolution(profiles map[string]Profile, name string, visited co
 	return profile, nil
 }
 
-// resolveProfileParents resolves each parent depth-first. Per ctxloom's
-// fault-tolerance philosophy (CLAUDE.md) — and matching
-// profiles.Loader.ResolveProfile — an unresolvable parent is a stderr warning
-// and that branch is skipped, so the rest of the profile still resolves and the
-// user reaches their LLM. Circular references and depth overruns stay fatal:
-// continuing would mask a real misconfiguration or risk runaway recursion.
+// resolveProfileParents resolves each parent depth-first. An unresolvable
+// parent is fatal-class in strict mode (the configured chain is an explicit
+// ask; a silently thinner profile is what fail-loudly exists to catch): the
+// branch is skipped so the rest still resolves, the warning streams either
+// way, and the startup choke owner aborts on the collected finding. In
+// degraded mode this stays warn-and-skip, matching
+// profiles.Loader.ResolveProfile. Circular references and depth overruns stay
+// hard errors in both modes: continuing would mask a real misconfiguration or
+// risk runaway recursion.
 func resolveProfileParents(profiles map[string]Profile, profile Profile, name string, visited collections.Set[string], builder *profileBuilder, depth int) error {
 	for _, parentName := range profile.Parents {
 		err := resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)
@@ -306,7 +309,7 @@ func resolveProfileParents(profiles map[string]Profile, profile Profile, name st
 			continue
 		}
 		if errors.Is(err, errs.ErrProfileNotFound) {
-			clidiag.Warn("ctxloom",
+			strictness.Fail(strictness.ClassRef, "fix the parents of the inline profile in .ctxloom/config.yaml",
 				"profile %q: parent %q not found; skipping",
 				name, parentName)
 			continue

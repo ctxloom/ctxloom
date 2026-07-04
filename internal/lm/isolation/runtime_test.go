@@ -27,16 +27,18 @@ func sampleSpec() RunSpec {
 	}
 }
 
-// TestDockerRootless_OmitsUser: rootless docker maps container-root to the host
-// user, so the argv must NOT carry --user (the bind-mounted socket is already
-// host-owned). The identical-path project mount, socket mount, workdir, image, and
-// in-container command must all render.
-func TestDockerRootless_OmitsUser(t *testing.T) {
+// TestDockerRootless_RunsAsMappedRoot: rootless docker maps container-root to
+// the host user — the ONLY uid that does — so the argv carries neither --user
+// nor a PUID remap request (the run stays container-root). The identical-path
+// project mount, socket mount, workdir, image, and in-container command must
+// all render.
+func TestDockerRootless_RunsAsMappedRoot(t *testing.T) {
 	args := Docker{rootless: true}.RunArgs(sampleSpec())
 	joined := strings.Join(args, " ")
 
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4], "run head")
 	assert.NotContains(t, joined, "--user", "rootless docker maps root→host user; no --user")
+	assert.NotContains(t, joined, "PUID", "no identity remap: container-root IS the launching user")
 	assert.Contains(t, joined, "-v /home/u/proj:/home/u/proj", "identical-path project mount")
 	assert.Contains(t, joined, "-v /tmp/sock:/run/ctxloom/plugin", "socket-dir mount")
 	assert.Contains(t, joined, "-e HOME=/root", "fresh HOME")
@@ -47,24 +49,40 @@ func TestDockerRootless_OmitsUser(t *testing.T) {
 		args[len(args)-5:], "image then in-container argv")
 }
 
-// TestDockerRootful_AddsUser: a rootful daemon needs --user <uid>:<gid> so the
-// plugin's bind-mounted socket lands host-user-owned (connectable).
-func TestDockerRootful_AddsUser(t *testing.T) {
-	args := Docker{rootless: false}.RunArgs(sampleSpec())
-	assert.Contains(t, strings.Join(args, " "),
-		fmt.Sprintf("--user %d:%d", os.Getuid(), os.Getgid()),
-		"rootful docker runs as the host user")
+// TestDockerRootful_PassesIdentityEnv: under a rootful daemon the container
+// starts as root and PUID/PGID tell the image entrypoint to remap its ctxloom
+// user to the launching uid/gid and drop to it — so the plugin's bind-mounted
+// socket and every project write land host-user-owned. No --user: the
+// entrypoint needs root to usermod.
+func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
+	joined := strings.Join(Docker{rootless: false}.RunArgs(sampleSpec()), " ")
+	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()), "launching uid crosses for the remap")
+	assert.Contains(t, joined, fmt.Sprintf("-e PGID=%d", os.Getgid()), "launching gid crosses for the remap")
+	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
 }
 
-// TestPodman_DockerCompatibleArgv: podman's argv matches docker's (minus --user;
-// rootless by default). Same run head + rendered tail.
-func TestPodman_DockerCompatibleArgv(t *testing.T) {
+// TestPodmanRootful_DockerCompatibleArgv: rootful podman matches rootful
+// docker — identity env for the entrypoint remap, no keep-id, no --user.
+func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
 	args := Podman{}.RunArgs(sampleSpec())
 	joined := strings.Join(args, " ")
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4])
+	assert.NotContains(t, joined, "keep-id")
 	assert.NotContains(t, joined, "--user")
+	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
 	assert.Contains(t, joined, "-v /home/u/proj:/home/u/proj")
 	assert.Equal(t, []string{"rm", "-f", "c1"}, Podman{}.RemoveArgs("c1"))
+}
+
+// TestPodmanRootless_KeepIDAsRoot: rootless podman needs keep-id so the
+// launching uid maps to ITSELF in-container, and must enter as namespaced root
+// (keep-id's default user is the host uid, which could not usermod) so the
+// entrypoint can remap ctxloom to PUID/PGID and drop to it.
+func TestPodmanRootless_KeepIDAsRoot(t *testing.T) {
+	joined := strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " ")
+	assert.Contains(t, joined, "--userns=keep-id", "launching uid maps to itself")
+	assert.Contains(t, joined, "--user 0:0", "enter as namespaced root for the remap")
+	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
 }
 
 // TestRemoveArgs force-removes by name for teardown.

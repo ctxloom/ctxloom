@@ -26,6 +26,10 @@ type Diagnosis struct {
 	// exists locally (Diagnose never builds it).
 	Image        string `json:"image,omitempty"`
 	ImagePresent bool   `json:"image_present"`
+	// ImageStale is meaningful only when ImagePresent + locally buildable: the
+	// image's baked ctxloom/companion binaries no longer match the host's, so
+	// the next containerized run rebuilds it. Diagnose reports; it never builds.
+	ImageStale bool `json:"image_stale,omitempty"`
 	// SharedFS reports whether the daemon shares this process's filesystem:
 	// "ok" (marker probe passed), "mismatch: …" (probe failed — the
 	// docker-outside-of-docker signature), or "unprobed: …" (no local image
@@ -57,6 +61,14 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 	d.ImagePresent = c.imagePresent(ctx)
 
 	if d.ImagePresent {
+		// Staleness is meaningful only for a locally-buildable image; a
+		// user-owned isolation_images override (no build sources) is run as-is
+		// and never flagged stale.
+		if len(buildSources(c.profile, "", c.baseContainerfile)) > 0 && imageStale(c.imageLabels(ctx), HostProvenanceDigest()) {
+			d.ImageStale = true
+			d.Guidance = append(d.Guidance,
+				fmt.Sprintf("agent image %s was built from different ctxloom/companion binaries than are installed now; the next containerized run rebuilds it (or run `ctxloom container build %s`)", c.image, backend))
+		}
 		diagnoseProbe(ctx, rt, c.image, &d)
 	} else {
 		diagnoseAdvisory(ctx, rt, &d)

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
@@ -280,14 +281,75 @@ func (l *Loader) lookupSeeded(name string) (*Profile, bool) {
 	// would drop the "#profiles/<name>" selector and collapse the ref to its
 	// bundle, never matching a seed key.
 	if key, ok := remote.CanonicalProfileKey(name); ok && key != name {
-		p, ok := l.seeded[key]
-		return p, ok
+		if p, ok := l.seeded[key]; ok {
+			return p, true
+		}
+		// "<alias>/<bundle>#profiles/<name>": the pure-string canonicalizer
+		// reads the alias as a local path segment; resolve it against the
+		// remote registry so the alias spelling reaches the same seed entry
+		// as the canonical URL.
+		if aliasKey, ok := l.aliasSeededKey(name); ok {
+			p, ok := l.seeded[aliasKey]
+			return p, ok
+		}
+		return nil, false
 	}
 	if key, ok := remote.CanonicalKey(name); ok && key != name {
 		p, ok := l.seeded[key]
 		return p, ok
 	}
 	return nil, false
+}
+
+// canonicalProfileName returns the version-less canonical identity of a
+// profile reference, for recursion and visited-map dedup. A bundle-profile
+// ref resolves alias-first (so "<alias>/<bundle>#profiles/<p>" and its
+// canonical URL spelling share one identity), then through the
+// selector-preserving CanonicalProfileKey — CanonicalKey would drop the
+// "#profiles/<name>" selector and collapse the ref to its bundle, which is
+// never a profile name. Non-selector refs and plain local names pass through
+// CanonicalKey / unchanged.
+func (l *Loader) canonicalProfileName(ref string) string {
+	if _, _, ok := remote.SplitBundleProfileRef(ref); ok {
+		if key, ok := l.aliasSeededKey(ref); ok {
+			return key
+		}
+		if key, ok := remote.CanonicalProfileKey(ref); ok {
+			return key
+		}
+		return ref
+	}
+	if key, ok := remote.CanonicalKey(ref); ok {
+		return key
+	}
+	return ref
+}
+
+// aliasSeededKey resolves an "<alias>/<bundle>#profiles/<name>" reference to
+// its canonical seed key via the remote registry. The bare-name grammar is
+// untouched: a parent or -p WITHOUT a "#profiles/" selector never reaches
+// here, so a local profile in a subdirectory (e.g. "personal/go-developer")
+// keeps winning for selector-less names. ok is false when the loader has no
+// registry resolver, the ref carries no selector, the bundle part is already
+// canonical or ctxloom:local, or the alias names no configured remote.
+func (l *Loader) aliasSeededKey(name string) (string, bool) {
+	if l.remoteURLResolver == nil {
+		return "", false
+	}
+	bundle, _, ok := remote.SplitBundleProfileRef(name)
+	if !ok || remote.IsCanonicalRef(bundle) || strings.HasPrefix(bundle, remote.LocalSource) {
+		return "", false
+	}
+	alias, rest, found := strings.Cut(bundle, "/")
+	if !found || alias == "" || rest == "" {
+		return "", false
+	}
+	url := l.remoteURLResolver(alias)
+	if url == "" {
+		return "", false
+	}
+	candidate := url + "@" + remote.ItemTypeBundle.DirName() + "/" + rest + name[strings.Index(name, remote.ProfileSelector):]
+	return remote.CanonicalProfileKey(candidate)
 }
 
 // PendingUpgrades returns the in-memory schema upgrades Load applied to older
@@ -407,6 +469,15 @@ func (l *Loader) Load(name string) (*Profile, error) {
 		return p, nil
 	}
 
+	// A bundle-profile ref ("...#profiles/<name>") or scheme-qualified remote
+	// ref that missed the seed can never resolve from disk: bundle profiles
+	// exist only via the lockfile-built seed map. Say so — the bare "not
+	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
+	// reserved in local profile names, so the selector is unambiguous.)
+	if strings.Contains(name, remote.ProfileSelector) || isRemoteProfileRef(name) {
+		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
+	}
+
 	// Names reach here from MCP tools and CLI args, so the local form must be
 	// confined to the profiles directories before it is joined into a path —
 	// the same guard Save applies (and the profile-side mirror of
@@ -431,13 +502,6 @@ func (l *Loader) Load(name string) (*Profile, error) {
 				return profile, nil
 			}
 		}
-	}
-	// A remote-shaped ref that reached the fs fallback has no seed entry:
-	// remote profiles are never materialized to disk, so the only way this
-	// lookup succeeds is via the lockfile-built seed map. Say so — the bare
-	// "not found" otherwise reads as "the profile doesn't exist upstream".
-	if isRemoteProfileRef(name) {
-		return nil, fmt.Errorf("%w: %s (remote profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
 	}
 	return nil, fmt.Errorf("%w: %s", errs.ErrProfileNotFound, name)
 }
@@ -562,6 +626,12 @@ func validateProfileName(name string) error {
 	if name == "" {
 		return fmt.Errorf("profile name is required")
 	}
+	// '#' is reserved for bundle-item selectors, so a "<bundle>#profiles/<n>"
+	// ref is structurally never a local profile file — the seed intercept in
+	// Load is a guarantee, not a coincidence.
+	if strings.Contains(name, "#") {
+		return fmt.Errorf("invalid profile name %q: '#' is reserved for bundle refs (<bundle>#profiles/<name>)", name)
+	}
 	cleaned := filepath.Clean(filepath.FromSlash(name))
 	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("invalid profile name %q: must stay within the profiles directory", name)
@@ -646,27 +716,21 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Clone visited map for each parent to handle diamond inheritance correctly.
 	// This allows shared ancestors to be resolved through different paths.
 	//
-	// Per ctxloom's fault-tolerance philosophy (CLAUDE.md), an unresolvable
-	// parent is a stderr warning and that branch is skipped — the rest of
-	// the profile still resolves so the user can reach their LLM. Circular
-	// references and depth-limit overruns remain fatal because continuing
-	// would mask a real misconfiguration or risk runaway recursion.
+	// An unresolvable parent is fatal-class in strict mode (fail-loudly): the
+	// branch is skipped so the rest of the profile still resolves, the warning
+	// streams either way, and the startup choke owner aborts on the collected
+	// finding. In degraded mode (--degraded / CTXLOOM_DEGRADED=1) this is pure
+	// warn-and-skip so the user still reaches their LLM. Circular references
+	// and depth-limit overruns remain hard errors in both modes because
+	// continuing would mask a real misconfiguration or risk runaway recursion.
 	for _, parent := range profile.Parents {
 		// Load normalizes the ref (seeded remote bundles are keyed by their
 		// version-less canonical ref; unseeded URL refs fall back to the local
 		// materialized name), so the parent ref recurses as-is. Canonicalize
 		// the recursion name so the visited map treats a bundle-shipped parent
-		// "<bundle>#profiles/p" and its "@<sha>"-pinned form as the same
-		// profile. A bundle-profile parent MUST go through CanonicalProfileKey
-		// (selector-preserving): CanonicalKey drops the "#profiles/<name>"
-		// selector, collapsing the parent to its bundle — which is never a
-		// profile name, so every bundle-profile parent resolved as not found.
-		parentName := parent
-		if key, ok := remote.CanonicalProfileKey(parent); ok {
-			parentName = key
-		} else if key, ok := remote.CanonicalKey(parent); ok {
-			parentName = key
-		}
+		// "<bundle>#profiles/p", its "@<sha>"-pinned form, and its
+		// "<alias>/<bundle>#profiles/p" spelling as the same profile.
+		parentName := l.canonicalProfileName(parent)
 
 		// Clone visited map for this parent branch
 		parentVisited := cloneVisited(visited)
@@ -678,27 +742,28 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// a real cycle or risk runaway recursion.
 				return nil, fmt.Errorf("failed to resolve parent %s: %w", parent, err)
 			case errors.Is(err, errs.ErrProfileNotFound):
-				// WarnOnce: resolution re-runs in every subsystem that builds a
+				// FailOnce: resolution re-runs in every subsystem that builds a
 				// loader (assembly, hooks, MCP, ...), so an unresolvable parent
-				// would otherwise repeat the same line a dozen times per startup.
+				// would otherwise repeat the same line — and finding — a dozen
+				// times per startup.
 				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
 					// The retired top-level @profiles/ grammar can never pull, so
 					// "remote pull" would be wrong advice. The load-time upgrade
 					// rewrites this parent automatically once a bundle shipping
 					// the profile is installed — refreshing pins is the fix.
-					clidiag.WarnOnce("ctxloom",
+					strictness.FailOnce(strictness.ClassRef, "ctxloom remote upgrade",
 						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; run `ctxloom remote upgrade` to refresh pins, or point the parent at \"<url>@bundles/<bundle>#profiles/<name>\"",
 						name, parent, bare)
 				} else {
-					clidiag.WarnOnce("ctxloom",
+					strictness.FailOnce(strictness.ClassRef, "ctxloom remote pull",
 						"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
 						name, parent)
 				}
 			default:
-				// Corrupt parent (invalid YAML, IO/permission error): warn and
-				// skip this branch rather than aborting the whole resolution, so
-				// the user still reaches their LLM (CLAUDE.md fault tolerance).
-				clidiag.WarnOnce("ctxloom",
+				// Corrupt parent (invalid YAML, IO/permission error): skip this
+				// branch rather than aborting the whole resolution — degraded
+				// mode still reaches the LLM; strict mode aborts on the finding.
+				strictness.FailOnce(strictness.ClassRef, "fix or remove the parent profile file",
 					"profile %q: parent %s failed to load (%v); skipping",
 					name, parent, err)
 			}

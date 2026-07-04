@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 var (
@@ -68,6 +69,13 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 // the entries replay to the ACP client, and a rendered transcript primes the
 // fresh engine via the first-turn lead block.
 func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfile, flagAgent, llmOverride string) (*acpagent.EngineChat, error) {
+	// Fail-loudly gate, per session: checkpoint before config load + assembly
+	// so this session's fatal findings don't bleed across sessions (the process
+	// keeps running). In strict mode findingsError below surfaces them to the
+	// editor as a session-open failure; in degraded mode it is a no-op and the
+	// session opens with whatever context survived.
+	startupMark := strictness.Checkpoint()
+
 	cfg, err := loadConfigForDir(req.Cwd)
 	if err != nil {
 		return nil, err
@@ -123,6 +131,13 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 		}
 	}
 	backendName, model := operations.ResolveBackend(cfg, label)
+
+	// Strict mode: refuse to open the session when config load or assembly
+	// recorded a fatal finding, surfacing the full list to the editor. Degraded
+	// mode returns nil here and the session opens (ACP's usual fault tolerance).
+	if ferr := findingsError(startupMark); ferr != nil {
+		return nil, ferr
+	}
 
 	// Session accounting: resume the named harp, or mint a fresh one. A resume
 	// of an unknown/unbound harp is a hard error (the client asked for THAT

@@ -69,7 +69,8 @@ func (m *MockLM) WriteConfig() error {
 	// Extract sections to preserve (profiles only - defaults will be rebuilt)
 	profilesSection := extractYAMLSection(existingConfig, "profiles:")
 
-	// Build config with mock settings (schema v3: labeled configs + role map).
+	// Build config with mock settings (schema v4: labeled configs + role map,
+	// config.use_distilled under the config: section).
 	var config strings.Builder
 	config.WriteString("version: 4\n")
 	config.WriteString("llm:\n")
@@ -83,7 +84,7 @@ func (m *MockLM) WriteConfig() error {
 	config.WriteString("  defaults:\n")
 	config.WriteString("    primary: mock\n")
 
-	config.WriteString("defaults:\n")
+	config.WriteString("config:\n")
 	config.WriteString("  use_distilled: false\n")
 
 	if profilesSection != "" {

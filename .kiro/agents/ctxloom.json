@@ -11,6 +11,12 @@
         "command": "ctxloom hook stamp-plan",
         "matcher": "fs_write"
       }
+    ],
+    "preToolUse": [
+      {
+        "command": "ltk evaluate",
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+      }
     ]
   },
   "includeMcpJson": true,

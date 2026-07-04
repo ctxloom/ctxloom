@@ -2,7 +2,7 @@
 title: "Weave (ensembles)"
 ---
 
-**Weave** is ctxloom's map-reduce for agents: fan a task out to several profiles
+**Weave** is ctxloom's map-reduce for agents: fan a task out to several members
 in parallel — each a self-contained agent carrying its own context and LLM — then
 pipe their outputs into one high-power **synthesis** agent that combines them into
 a single result.
@@ -14,10 +14,15 @@ any task that benefits from several specialized passes followed by a merge.
 
 ## The pieces
 
-Each member is an ordinary [profile](/concepts/profiles/). What makes it an agent
-is its assembled context (the specialization) plus its [`llm:`](/concepts/profiles/#preferred-llm-llm)
-(its model). Members can run on cheap, specialized models; the synthesizer on a
-high-power one.
+A member is either a named local [agent](/concepts/agents/) (`--agents a,b` —
+each on its own engine binding) or a bare [profile](/concepts/profiles/)
+(`-p` — sugar for a default-engine agent, running with the profile's own
+[`llm:`](/concepts/profiles/#preferred-llm-llm)). Members from both flags run
+together. What specializes a member is its assembled context plus its
+engine/`llm:` binding; members can run on cheap, specialized models while the
+synthesizer runs on a high-power one. `-l`/`--llm` overrides the LLM for every
+member (the synthesizer keeps its own), and `--workspace worktree` gives each
+member an isolated git worktree.
 
 ```
 ctxloom weave -p code-review/security -p code-review/performance \
@@ -28,6 +33,13 @@ ctxloom weave -p code-review/security -p code-review/performance \
    └─ code-review/architecture  agent · own llm · parallel ┘
                                                             │
    synthesize → code-review/synthesis (high-power llm) ─────┴─→ one report
+```
+
+The same fan-out with named agents as members:
+
+```
+ctxloom weave --agents go-cr-security,go-cr-correctness \
+              -s synthesis  "review this change"
 ```
 
 ## Composable: one engine, three commands
@@ -67,6 +79,6 @@ ctxloom weave -s synth --parts-from ./collected "merge these findings"
 
 A failed member becomes a labeled error part and never aborts the others; if
 synthesis fails, the labeled parts are emitted instead so work is never lost.
-Concurrency is bounded (default 4). Each weave costs N member runs plus one
+Concurrency is bounded (`--concurrency`, default 4). Each weave costs N member runs plus one
 synthesis run, so prefer cheap/specialized `llm:` for members and reserve the
 high-power model for the synthesizer.

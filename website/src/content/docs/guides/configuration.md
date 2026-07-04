@@ -9,17 +9,20 @@ ctxloom uses YAML configuration files stored in the `.ctxloom/` directory.
 ```
 .ctxloom/
 ├── config.yaml              # Main configuration
-├── bundles/                 # Bundle YAML files
-│   ├── my-bundle.yaml
-│   └── remote-name/         # Pulled remote bundles
-│       └── bundle.yaml
-├── profiles/                # Profile YAML files
-│   ├── developer.yaml
-│   └── team/
-│       └── backend.yaml
-├── remotes.yaml             # Remote registry
+├── remotes.yaml             # Remote registry (and custom forges)
 ├── lock.yaml                # Dependency lockfile
-└── .auth/                   # Git authentication
+├── trust.yaml               # Trust grants and blacklist
+├── profiles/                # Profile YAML files
+│   └── developer.yaml
+├── agents/                  # Agent bindings (alternative to config.yaml agents:)
+│   └── dev.yaml
+├── local/                   # Committed local bundle overrides
+│   └── bundles/
+├── cache/                   # Fetched and generated state (gitignored)
+│   ├── bundles/             # Local + pulled bundle YAML files
+│   ├── repos/               # Remote git clones
+│   └── context/             # Assembled context files
+└── sessions/                # Distilled session summaries
 ```
 
 ## Config Hierarchy
@@ -31,106 +34,126 @@ ctxloom uses a single source (no merging):
 
 ## config.yaml Reference
 
+The current schema is version 4. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom manage config init` scaffolds one.
+
 ```yaml
-# Editor configuration
-editor:
-  command: "vim"                 # Editor command
-  args: ["-c", "set number"]     # Additional arguments
-  # Fallback: VISUAL env → EDITOR env → nano
+version: 4
 
-# Language model configuration — every LLM setting lives under `llm:`
+# Language model configuration.
+# `llm.configs` is a registry of arbitrarily-labeled backend configs — the
+# backend is determined ONLY by each entry's `type`. `llm.defaults` maps a
+# role to the label that plays it. ctxloom ships a built-in primary
+# (claude-code) and fast config (claude-code on haiku), so this block is
+# only needed to change models, binaries, or role pairings.
 llm:
-  default: claude-code           # Default LLM backend
-  model: opus                    # Default model (optional)
-  configs:                       # Per-LLM overrides (optional)
-    claude-code:
-      binary_path: "/path/to/bin"
-      model: "claude-opus-4-5"
-      args: []                   # Extra CLI arguments
-      env:                       # Environment variables
-        CUSTOM_VAR: "value"
-    antigravity:
-      type: antigravity          # Antigravity CLI (binary: agy)
-      model: "gemini-3-pro"      # Optional; agy's own default when unset
-  compaction:                    # LLM used for distillation (optional)
-    llm: claude-code
-    model: haiku
-    chunks: 8000
+  configs:
+    big:   { type: claude-code, model: claude-opus-4-8 }
+    quick: { type: claude-code, model: claude-haiku-4-5-20251001 }
+    g:     { type: antigravity }         # Antigravity CLI (agy); model optional
+  defaults:
+    primary: big      # coding/interactive role → label
+    fast: quick       # compression role (distill, compaction) → label
 
-# Default settings
-defaults:
-  profiles:                      # Default profiles to load
-    - ctxloom-default/go-developer
-    - ctxloom-default/code-reviewer
-  use_distilled: true            # Prefer distilled versions (default: true)
+# Behavioral settings
+config:
+  use_distilled: true         # prefer distilled fragment versions (default true)
+  compaction_chunks: 8000     # target tokens per compaction chunk
+  statusline: true            # let ctxloom manage the HUD statusline
+
+# Editor (fallback: VISUAL env → EDITOR env → nano)
+editor:
+  command: "vim"
+  args: []
+
+# Profiles: the default list to load, plus inline definitions
+profiles:
+  defaults:                   # a LIST — multiple defaults compose
+    - developer
+  definitions:                # inline profiles (alternative to .ctxloom/profiles/)
+    my-profile:
+      description: "Inline profile"
+      parents: []
+      bundles: []
+      variables:
+        VARIABLE: "value"
+
+# Agents: local engine↔profile bindings (see the Agents concept page)
+agents:
+  dev:
+    engine: claude-code
+    profiles: [developer]
+    runtime: container        # optional; host|container
+
+# Project-wide isolation defaults
+workspace: none               # session workspace axis: none|worktree
+runtime: host                 # agent runtime axis: host|container
+
+# Container-image overrides for containerized agents
+isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
+isolation_images:             # fully user-provided images, run as-is
+  claude-code: my-registry/claude-agent:latest
 
 # Sync configuration
 sync:
-  auto_sync: true                # Auto-sync on startup (default: true)
+  auto_sync: true             # sync referenced remotes on startup (default true)
 
 # Hooks configuration
 hooks:
-  unified:                       # Backend-agnostic hooks
+  unified:                    # backend-agnostic hooks
     pre_tool: []
     post_tool: []
     session_start: []
     session_end: []
     pre_shell: []
     post_file_edit: []
-  plugins:                       # Backend-specific hooks
+  plugins:                    # backend-specific hooks
     claude-code:
       EventName: []
 
 # MCP Server configuration
 mcp:
-  auto_register_ctxloom: true        # Auto-register ctxloom's MCP server
-  servers:                       # Unified MCP servers (all backends)
+  auto_register_ctxloom: true # auto-register ctxloom's own MCP server
+  servers:                    # unified MCP servers (all backends)
     my-server:
       command: "npx my-mcp"
       args: ["--flag"]
       env:
         ENV_VAR: "value"
-  plugins:                       # Backend-specific servers
+  plugins:                    # backend-specific servers
     claude-code:
       server-name:
         command: "..."
-
-# Inline profiles (alternative to .ctxloom/profiles/)
-profiles:
-  my-profile:
-    description: "Inline profile"
-    parents: []
-    tags: []
-    bundles: []
-    variables:
-      VARIABLE: "value"
-
-# To make a profile load by default, list it under defaults.profiles above.
 ```
 
 ## LLMs
 
-Available LLM backends:
+Registered LLM backends:
 
-| LLM | CLI | Description |
-|--------|-----|-------------|
+| Backend | CLI | Description |
+|---------|-----|-------------|
 | `claude-code` | [Claude Code](https://claude.ai/code) | Anthropic's Claude (default) |
 | `antigravity` | [Antigravity CLI](https://antigravity.google) (`agy`) | Google's Antigravity |
-| `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI (provisional) |
+| `codex` | [Codex CLI](https://github.com/openai/codex) | OpenAI Codex |
+| `kiro` | Kiro | AWS Kiro (chat rides its ACP adapter) |
+| `acp` | any ACP agent | Generic Agent Client Protocol backend descriptor |
 
-Select the default with `llm.default` (or per-run with `--llm <name>`). Override a
-backend's binary, model, args, or environment under `llm.configs`:
+A **config label** is an arbitrary name for a fully-specified backend config; the backend is chosen by the entry's `type`. Two labels can point at the same backend with different models (e.g. a `big` and a `quick` claude-code). Set the interactive default with `llm.defaults.primary` (or per-run with `--llm <label>`), and the compression role with `llm.defaults.fast`:
 
 ```yaml
 llm:
-  default: claude-code
   configs:
     claude-code:
-      model: "claude-opus-4-5"
-      args: ["--dangerously-skip-permissions"]
+      type: claude-code
+      model: "claude-opus-4-8"
+      binary_path: "/path/to/bin"   # optional
+      args: []                      # extra CLI arguments
       env:
-        ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+        CUSTOM_VAR: "value"
+  defaults:
+    primary: claude-code
 ```
+
+`ctxloom llm list` shows the available backends; `ctxloom llm default <label>` sets the primary.
 
 ### Antigravity
 
@@ -161,11 +184,21 @@ antigravity equivalent) are dropped.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `use_distilled` | `true` | Prefer distilled content |
-| `auto_sync` | `true` | Sync remotes on startup |
-| `llm.default` | `claude-code` | Default LLM backend |
-| `auto_register_ctxloom` | `true` | Register ctxloom MCP server |
-| `statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
+| `config.use_distilled` | `true` | Prefer distilled content |
+| `config.compaction_chunks` | `8000` | Tokens per compaction chunk |
+| `config.statusline` | `true` | Manage the ctxloom HUD statusline (set `false` to keep your own) |
+| `sync.auto_sync` | `true` | Sync remotes on startup |
+| `llm.defaults.primary` | `claude-code` | Default LLM backend |
+| `mcp.auto_register_ctxloom` | `true` | Register ctxloom's MCP server |
+| `workspace` | `none` | Session workspace axis default |
+| `runtime` | `host` | Agent runtime axis default |
+
+## Agents and Isolation
+
+The `agents:`, `workspace:`, `runtime:`, `isolation_images:`, and
+`isolation_base_containerfile:` keys configure local agent bindings and where
+they execute. See [Agents & Isolation](/concepts/agents/) for the model, and
+prefer `ctxloom agent set` over hand-editing the `agents:` key.
 
 ## Hooks
 
@@ -200,7 +233,7 @@ ctxloom injects context via **SessionStart hooks** rather than editing `CLAUDE.m
 - Keeps `CLAUDE.md` clean for your own project documentation
 - Injects fresh context at the start of each session
 
-Context is written to `.ctxloom/context/[hash].md` and injected via hook. For
+Context is written to `.ctxloom/cache/context/[hash].md` and injected via hook. For
 the Antigravity backend (which has no SessionStart event), context is delivered
 via a ctxloom-managed section in `.agents/AGENTS.md` instead. See
 [Hooks and Context Injection](/guides/hooks) for details.
@@ -209,15 +242,13 @@ via a ctxloom-managed section in `.agents/AGENTS.md` instead. See
 
 ```yaml
 sync:
-  auto_sync: true      # Sync on MCP server startup
-  lock: true           # Update lock.yaml after sync
-  apply_hooks: true    # Apply hooks after sync
+  auto_sync: true      # Sync on startup (the only sync setting)
 ```
 
 ### Lockfile
 
 The `lock.yaml` records the resolved remote items for reproducible pulls. It is
-updated automatically whenever you pull or update:
+updated automatically whenever you pull or upgrade:
 
 ```bash
 ctxloom remote pull        # Fetch referenced content and update lock.yaml
@@ -225,14 +256,15 @@ ctxloom remote pull        # Fetch referenced content and update lock.yaml
 
 ## Memory Configuration
 
-Session memory is always enabled. Compaction settings live under `llm.compaction`:
+Session memory is always enabled. The compaction/distillation model is the
+**fast role** (`llm.defaults.fast`), and chunking is a behavioral setting:
 
 ```yaml
 llm:
-  compaction:
-    llm: claude-code   # LLM used for distillation
-    model: haiku       # Model (fast + cheap)
-    chunks: 8000       # Tokens per chunk
+  defaults:
+    fast: quick              # config label used for distillation
+config:
+  compaction_chunks: 8000    # tokens per chunk
 ```
 
 See [Session Memory Guide](/getting-started/memory) for usage details.

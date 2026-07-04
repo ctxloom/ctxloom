@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -99,35 +100,26 @@ func effectiveSkillHash(t *testing.T, appDir, bundle, name string) string {
 	return hash
 }
 
-// TestRunBundleTrust_RoundTrip drives `ctxloom bundle trust/untrust` through to
-// the on-disk store: each direction sets the SHA-agnostic posture and is
-// re-readable, and the human output names the new posture.
-func TestRunBundleTrust_RoundTrip(t *testing.T) {
+// TestRunBundleTrust_DeprecatedNoOp drives the retired `ctxloom bundle
+// trust/untrust` stubs: they exit zero, print nothing to stdout (the
+// deprecation warning goes to stderr), and make NO store change — postures no
+// longer exist, so no trust.yaml is even created.
+func TestRunBundleTrust_DeprecatedNoOp(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
-	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	c, out := testCmd()
-	require.NoError(t, runBundleTrust(c, cfg, "experimental", false))
-	assert.Contains(t, out.String(), "is now untrusted")
+	require.NoError(t, runBundleTrust(c, "experimental"))
+	assert.Empty(t, out.String(), "the deprecation stub writes only a stderr warning")
 
-	dec, ok := loadTrustStore(t, appDir).BundlePosture("experimental")
-	require.True(t, ok, "untrust must persist a posture")
-	assert.Equal(t, trust.Deny, dec)
-
-	c, out = testCmd()
-	require.NoError(t, runBundleTrust(c, cfg, "experimental", true))
-	assert.Contains(t, out.String(), "is now trusted")
-
-	dec, ok = loadTrustStore(t, appDir).BundlePosture("experimental")
-	require.True(t, ok)
-	assert.Equal(t, trust.Allow, dec, "re-trust must flip the posture back to allow")
+	_, statErr := os.Stat(paths.TrustPath(appDir))
+	assert.True(t, os.IsNotExist(statErr), "bundle trust/untrust must not touch the trust store")
 }
 
-// TestRunItemTrust_GrantsLocalFragment drives `ctxloom trust <ref>`: the grant
-// is written under the canonical (ctxloom:local) repo key, bound to the item's
-// recomputed effective-content hash — never an author-supplied value.
-func TestRunItemTrust_GrantsLocalFragment(t *testing.T) {
+// TestRunItemTrust_AcceptsLocalFragment drives `ctxloom trust <ref>`: the
+// acceptance is written under the canonical (ctxloom:local) repo key, bound to
+// the item's recomputed content hash — never an author-supplied value.
+func TestRunItemTrust_AcceptsLocalFragment(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
@@ -135,25 +127,26 @@ func TestRunItemTrust_GrantsLocalFragment(t *testing.T) {
 
 	c, out := testCmd()
 	require.NoError(t, runItemTrust(c, cfg, "demo#fragments/x"))
-	assert.Contains(t, out.String(), "Trusted demo#fragments/x")
+	assert.Contains(t, out.String(), "Accepted demo#fragments/x")
 
 	wantHash := effectiveFragmentHash(t, appDir, "demo", "x")
 
 	store := loadTrustStore(t, appDir)
-	g, ok := store.GrantMatch(remote.LocalSource, "demo#fragments/x", wantHash)
-	require.True(t, ok, "grant must be keyed by canonical repo + effective hash")
-	assert.Equal(t, remote.LocalSource, g.RepoURL)
-	assert.Equal(t, wantHash, g.ContentHash)
-	// A different hash must NOT match — the grant is content-pinned.
-	_, ok = store.GrantMatch(remote.LocalSource, "demo#fragments/x", "sha256:other")
-	assert.False(t, ok)
+	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/x")
+	require.True(t, ok, "acceptance must be keyed by the canonical repo + ref")
+	assert.Equal(t, remote.LocalSource, item.RepoURL)
+	assert.Equal(t, trust.StateAccepted, item.State)
+	// Content-pinned: the recorded raw hash is exactly the recomputed one (the
+	// seeded fragment is NoDistill, so there is no distilled slot).
+	assert.Equal(t, wantHash, item.RawHash)
+	assert.Empty(t, item.DistilledHash)
 }
 
-// TestRunItemTrust_GrantsLocalSkill drives `ctxloom trust <bundle>#skills/<name>`:
-// the exact ref the list emits after the prompt->skill rename. It must no longer
-// error "unknown item kind" and must write a grant keyed by the canonical
-// (#prompts/) key bound to the skill's recomputed effective-content hash.
-func TestRunItemTrust_GrantsLocalSkill(t *testing.T) {
+// TestRunItemTrust_AcceptsLocalSkill drives `ctxloom trust <bundle>#skills/<name>`:
+// the exact ref the list emits after the prompt->skill rename. It must not
+// error "unknown item kind" and must record an acceptance keyed by the
+// canonical (#prompts/) key bound to the skill's recomputed content hash.
+func TestRunItemTrust_AcceptsLocalSkill(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
@@ -164,21 +157,23 @@ func TestRunItemTrust_GrantsLocalSkill(t *testing.T) {
 	// (res.Ref == tRef.Key(), Kind.Dir()=="prompts") — the store address, not the
 	// input spelling.
 	require.NoError(t, runItemTrust(c, cfg, "demo#skills/review"))
-	assert.Contains(t, out.String(), "Trusted demo#prompts/review")
+	assert.Contains(t, out.String(), "Accepted demo#prompts/review")
 
 	wantHash := effectiveSkillHash(t, appDir, "demo", "review")
 
 	// Stored under the canonical #prompts/ key (trust.KindPrompt.Dir()), so the
-	// assembly gate and existing grants resolve identically regardless of spelling.
+	// assembly gate and existing acceptances resolve identically regardless of
+	// spelling.
 	store := loadTrustStore(t, appDir)
-	g, ok := store.GrantMatch(remote.LocalSource, "demo#prompts/review", wantHash)
-	require.True(t, ok, "grant must be keyed by canonical repo + effective hash")
-	assert.Equal(t, wantHash, g.ContentHash)
+	item, ok := store.Lookup(remote.LocalSource, "demo#prompts/review")
+	require.True(t, ok, "acceptance must be keyed by the canonical repo + ref")
+	assert.Equal(t, trust.StateAccepted, item.State)
+	assert.Equal(t, wantHash, item.RawHash)
 }
 
 // TestRunBlacklist_WritesBothComponents drives `ctxloom blacklist <ref>`: it
-// writes the sticky ref-level block AND the content-hash denylist entry, so the
-// content is blocked both by ref and (if renamed/moved) by hash.
+// writes the ref-level rejected state AND the content-hash denylist entry, so
+// the content is blocked both by ref and (if renamed/moved) by hash.
 func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
@@ -187,36 +182,39 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 
 	c, out := testCmd()
 	require.NoError(t, runBlacklist(c, cfg, "demo#fragments/curl-pipe-sh"))
-	assert.Contains(t, out.String(), "Blacklisted demo#fragments/curl-pipe-sh")
+	assert.Contains(t, out.String(), "Rejected demo#fragments/curl-pipe-sh")
 
 	wantHash := effectiveFragmentHash(t, appDir, "demo", "curl-pipe-sh")
 
 	store := loadTrustStore(t, appDir)
 	// Ref-level (sticky) component.
-	assert.True(t, store.BlacklistMatch(remote.LocalSource, "demo#fragments/curl-pipe-sh"),
-		"sticky ref-level blacklist must be recorded")
+	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/curl-pipe-sh")
+	require.True(t, ok, "ref-level rejected state must be recorded")
+	assert.Equal(t, trust.StateRejected, item.State)
 	// Content-hash (denylist) companion.
-	assert.True(t, store.DenylistMatch(wantHash),
+	assert.True(t, store.DeniedHash(wantHash),
 		"the item's content hash must be recorded on the denylist")
 }
 
 // TestRunBlacklist_CanonicalizedKeying drives `ctxloom blacklist` against a
-// remote ref spelled one way and proves the on-disk block matches a *different*
-// spelling of the same repo — URL variants cannot escape a blacklist. The
-// content is unresolvable here (no bundle on disk), so only the durable sticky
-// ref block is written; that is exactly the path that must canonicalize.
+// remote ref spelled one way and proves the on-disk rejection matches a
+// *different* spelling of the same repo — URL variants cannot escape a
+// rejection. The content is unresolvable here (no bundle on disk), so only the
+// durable ref-level state is written; that is exactly the path that must
+// canonicalize.
 func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	cfg := &config.Config{AppPaths: []string{appDir}}
 
 	c, _ := testCmd()
-	// Blacklist with a .git suffix + mixed case + trailing variant.
+	// Reject with a .git suffix + mixed case + trailing variant.
 	require.NoError(t, runBlacklist(c, cfg,
 		"https://github.com/Acme/Repo.git@bundles/tooling#fragments/solid"))
 
 	store := loadTrustStore(t, appDir)
 	// Query with an entirely different spelling of the same repo (git@ form).
-	assert.True(t, store.BlacklistMatch("git@github.com:acme/repo", "tooling#fragments/solid"),
-		"a URL variant of the same remote must resolve to the same blacklist key")
+	item, ok := store.Lookup("git@github.com:acme/repo", "tooling#fragments/solid")
+	require.True(t, ok, "a URL variant of the same remote must resolve to the same rejection key")
+	assert.Equal(t, trust.StateRejected, item.State)
 }

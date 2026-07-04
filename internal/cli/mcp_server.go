@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -41,6 +42,10 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
+	// Fail-loudly gate: checkpoint before the boot sequence so every
+	// fatal-class finding it records is caught here.
+	startupMark := strictness.Checkpoint()
+
 	s := &ctxServer{}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
@@ -50,6 +55,16 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 			return nil
 		}
 		return err
+	}
+
+	// Strict mode: the SDK owns the initialize handshake, so we cannot refuse
+	// it per-protocol; instead abort before serving when startup collected a
+	// fatal finding. failOnFindings returns the exit-3 ExitError (Execute
+	// os.Exit's on it), so the client sees a server that failed to launch
+	// rather than one that silently serves empty context. Degraded mode
+	// returns nil and serves as before.
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
 	}
 
 	instructions := mcpServerInstructions
@@ -139,15 +154,6 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-
-	// Record the one-time per-item trust baseline (TR6) against the now-settled
-	// active set. Behavior-preserving (no enforcement yet); a failure only means
-	// more items gate once enforcement lands, so warn and continue.
-	s.baselineTrust()
-
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
 	return nil
 }
 
@@ -161,7 +167,7 @@ func loadStartupConfig() *config.Config {
 		cfg = &config.Config{
 			LM:       config.LMConfig{Configs: make(map[string]config.LLMConfig)},
 			Profiles: config.ProfilesConfig{Definitions: make(map[string]config.Profile)},
-			Warnings: []string{fmt.Sprintf("failed to load config: %v", err)},
+			Warnings: []config.Warning{{Kind: config.WarnKindRead, Text: fmt.Sprintf("failed to load config: %v", err)}},
 		}
 	}
 	printConfigWarnings(os.Stderr, cfg.Warnings)
@@ -240,24 +246,6 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 		RegenerateContext: true,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
-	}
-}
-
-// baselineTrust records the one-time TR6 trust baseline: a snapshot of every
-// currently-resolvable remote (bundle) item, minted as trusted grants so that
-// when per-item enforcement (TR5) activates on-by-default, content already
-// present at rollout stays trusted and only new/changed content gates. It runs
-// at most once (guarded by a marker in trust.yaml); a failure warns and
-// continues — a missing baseline only means more items gate later (the safe
-// direction), never a blocked startup (CLAUDE.md).
-func (s *ctxServer) baselineTrust() {
-	res, err := operations.BaselineTrust(s.cfg, operations.BaselineTrustRequest{})
-	if err != nil {
-		clidiag.Warn("ctxloom", "trust baseline failed: %v", err)
-		return
-	}
-	if res.Status == "baselined" {
-		fmt.Fprintf(os.Stderr, "ctxloom: recorded trust baseline (%d item(s) trusted, %d skipped)\n", res.Granted, res.Failed)
 	}
 }
 

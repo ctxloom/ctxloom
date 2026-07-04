@@ -34,3 +34,11 @@ var ClaudeCode []byte
 //
 //go:embed production/Containerfile-kiro
 var Kiro []byte
+
+// Entrypoint is the agent-image entrypoint script: the runtime PUID/PGID
+// identity remap (generic ctxloom user → the launching uid/gid, then a
+// privilege drop). Staged into every agent-stage build context as
+// `ctxloom-entrypoint` and installed by the agent Containerfiles.
+//
+//go:embed entrypoint.sh
+var Entrypoint []byte

@@ -33,7 +33,7 @@ func TestGetPrompt_Pinned_ResolvesHistoricalVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	def, versions := promptVersions("DEFAULT-REVIEW", map[string]string{"c1": "V1-REVIEW"})
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
 	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
@@ -51,7 +51,7 @@ func TestGetPrompt_Unversioned_Unchanged(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	def, versions := promptVersions("DEFAULT-REVIEW", map[string]string{"c1": "V1-REVIEW"})
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("DEFAULT-REVIEW"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#prompts/review", promptHash("DEFAULT-REVIEW"), ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
 	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
@@ -82,7 +82,7 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 
 	// `ctxloom trust` of the pinned version's own hash exposes it (fresh loader so
 	// the version cache + withheld set don't carry the prior decision).
-	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V2-REVIEW"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#prompts/review", promptHash("V2-REVIEW"), ""))
 	loader2, _ := versionPinnedLoader(t, store, def, versions)
 	res, err := GetSkill(context.Background(), nil, GetSkillRequest{
 		Name:   cqVersionRef + "#skills/review@c2",
@@ -99,7 +99,7 @@ func TestGetPrompt_Pinned_FetchFailureFailsClosed(t *testing.T) {
 	def, versions := promptVersions("DEFAULT-REVIEW", map[string]string{"c1": "V1-REVIEW"})
 	// "broken" is intentionally absent ⇒ the fake resolver errors.
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
 	_, err := GetSkill(context.Background(), nil, GetSkillRequest{
@@ -115,7 +115,7 @@ func TestGetPrompt_ExplicitVersionField(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	def, versions := promptVersions("DEFAULT-REVIEW", map[string]string{"c1": "V1-REVIEW"})
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#prompts/review", promptHash("V1-REVIEW"), ""))
 	loader, _ := versionPinnedLoader(t, store, def, versions)
 
 	res, err := GetSkill(context.Background(), nil, GetSkillRequest{

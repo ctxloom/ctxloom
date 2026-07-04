@@ -14,29 +14,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// hookHashOf is the executable-surface hash a bundle-hook grant binds to.
+// hookHashOf is the executable-surface hash a bundle-hook acceptance binds to.
 func hookHashOf(h bundles.BundleHook) string { return h.ComputeContentHash() }
 
 const (
 	gatePostgresRef = acmeBundle + "tooling#mcp/postgres"
 	gateHookRef     = acmeBundle + "tooling#hooks/pre_tool/0"
 )
-
-// execGateSeed seeds one REMOTE bundle (acme tooling) with an MCP server and a
-// pre_tool hook, keyed by its canonical ref so the gate ref / baseline / grant
-// key shapes all agree.
-func execGateSeed() map[string]*bundles.Bundle {
-	seed := map[string]*bundles.Bundle{
-		acmeBundle + "tooling": {
-			Name: acmeBundle + "tooling",
-			MCP:  map[string]bundles.BundleMCP{"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}}},
-			Hooks: bundles.BundleHooks{
-				PreTool: []bundles.BundleHook{{Matcher: "Bash", Command: "echo hook", Type: "command"}},
-			},
-		},
-	}
-	return seed
-}
 
 func postgresHash() string {
 	return mcpHashOf(bundles.BundleMCP{Command: "pg-mcp", Args: []string{"--port", "5432"}})
@@ -45,38 +29,39 @@ func toolingHookHash() string {
 	return hookHashOf(bundles.BundleHook{Matcher: "Bash", Command: "echo hook", Type: "command"})
 }
 
-// TestExecGate_MCP_CascadeResolves drives the REAL cascade through the gate func
-// on an MCP-server ref: an explicit grant ALLOWS exposure, no grant from an
-// untrusted remote DENIES, and a sticky blacklist DENIES regardless. This is the
-// executable choke's deny path — the security-critical surface.
+// TestExecGate_MCP_CascadeResolves drives the REAL decision function through
+// the gate func on an MCP-server ref: an acceptance ALLOWS exposure, no
+// acceptance from an untrusted remote DENIES (pending), and a rejection DENIES
+// regardless. This is the executable choke's deny path — the security-critical
+// surface.
 func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 
-	// No grant + untrusted remote → DENY.
+	// Pending (never reviewed) + untrusted remote → DENY.
 	store := newTrustStore(t)
 	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
 	assert.False(t, gate(gatePostgresRef, postgresHash(), "raw"),
-		"an ungranted MCP server from an untrusted remote must be withheld")
+		"an unreviewed MCP server from an untrusted remote must be withheld")
 
-	// Explicit grant for the exact hash → ALLOW.
-	require.NoError(t, store.AddGrant(trustRepo, "tooling#mcp/postgres", postgresHash(), "raw", ""))
+	// Acceptance at the exact hash → ALLOW.
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#mcp/postgres", postgresHash(), ""))
 	assert.True(t, gate(gatePostgresRef, postgresHash(), "raw"),
-		"a granted MCP server must be exposed")
+		"an accepted MCP server must be exposed")
 
-	// A content change (different hash) drops the grant → DENY.
+	// A content change (different hash) returns it to pending → DENY.
 	assert.False(t, gate(gatePostgresRef, "sha256:deadbeef", "raw"),
 		"a changed MCP executable surface (new hash) must re-gate")
 
-	// Sticky blacklist beats the grant → DENY.
-	require.NoError(t, store.Blacklist(trustRepo, "tooling#mcp/postgres", postgresHash()))
+	// Rejection beats the acceptance → DENY.
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#mcp/postgres", postgresHash()))
 	assert.False(t, gate(gatePostgresRef, postgresHash(), "raw"),
-		"a blacklisted MCP server must be withheld even with a matching grant")
+		"a rejected MCP server must be withheld even after a prior acceptance")
 }
 
-// TestExecGate_Hook_CascadeResolves drives the REAL cascade on a bundle-hook ref
-// ("<bundle>#hooks/<event>/<index>"): grant → ALLOW, no grant (untrusted remote)
-// → DENY, blacklist → DENY.
+// TestExecGate_Hook_CascadeResolves drives the REAL decision function on a
+// bundle-hook ref ("<bundle>#hooks/<event>/<index>"): accepted → ALLOW,
+// pending (untrusted remote) → DENY, rejected → DENY.
 func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -84,61 +69,42 @@ func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 	store := newTrustStore(t)
 	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
 	assert.False(t, gate(gateHookRef, toolingHookHash(), "raw"),
-		"an ungranted bundle hook from an untrusted remote must be withheld")
+		"an unreviewed bundle hook from an untrusted remote must be withheld")
 
-	require.NoError(t, store.AddGrant(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash(), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash(), ""))
 	assert.True(t, gate(gateHookRef, toolingHookHash(), "raw"),
-		"a granted bundle hook must be applied")
+		"an accepted bundle hook must be applied")
 
-	require.NoError(t, store.Blacklist(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash()))
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash()))
 	assert.False(t, gate(gateHookRef, toolingHookHash(), "raw"),
-		"a blacklisted bundle hook must be withheld")
+		"a rejected bundle hook must be withheld")
 }
 
-// TestExecGate_BaselineGrantsHooksAndMCP proves the TR6 baseline (extended in
-// this change) snapshots pre-existing REMOTE bundle hooks AND MCP servers so they
-// survive rollout, while local executables are never granted; and the real gate
-// then ALLOWS the baselined versions.
-func TestExecGate_BaselineGrantsHooksAndMCP(t *testing.T) {
-	seed := execGateSeed()
-	// Add a LOCAL bundle whose hook/mcp must NOT be granted.
-	seed["demo"] = &bundles.Bundle{
-		Name:  "demo",
-		MCP:   map[string]bundles.BundleMCP{"localmcp": {Command: "local-cmd"}},
-		Hooks: bundles.BundleHooks{PreTool: []bundles.BundleHook{{Command: "echo local", Type: "command"}}},
-	}
-	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(seed))
+// TestExecGate_TrustedSourceExemptsExecutables proves the first-party
+// trusted-source exemption covers cloned executables (the ctxloom-default
+// case): with the remote in the trusted-sources set, its MCP server and hook
+// pass the exec gate with no per-item review state at all — while a rejection
+// still beats the exemption.
+func TestExecGate_TrustedSourceExemptsExecutables(t *testing.T) {
+	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: true})
+	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	store := newTrustStore(t)
+	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
 
-	res, err := BaselineTrust(nil, BaselineTrustRequest{Store: store, Loader: loader})
-	require.NoError(t, err)
-	// remote: mcp + hook granted (2); local: mcp + hook skipped (2).
-	assert.Equal(t, 2, res.Granted, "remote MCP + hook baselined")
-	assert.Equal(t, 2, res.Local, "local executables tallied but not granted")
+	assert.True(t, gate(gatePostgresRef, postgresHash(), "raw"),
+		"a trusted source's MCP server is exempt from review")
+	assert.True(t, gate(gateHookRef, toolingHookHash(), "raw"),
+		"a trusted source's bundle hook is exempt from review")
 
-	_, mcpOK := store.GrantMatch(trustRepo, "tooling#mcp/postgres", postgresHash())
-	assert.True(t, mcpOK, "pre-existing remote MCP server must be baselined")
-	_, hookOK := store.GrantMatch(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash())
-	assert.True(t, hookOK, "pre-existing remote bundle hook must be baselined")
-
-	// Local executables are never auto-trusted.
-	localMCPHash := mcpHashOf(bundles.BundleMCP{Command: "local-cmd"})
-	_, localMCPOK := store.GrantMatch(remote.LocalSource, "demo#mcp/localmcp", localMCPHash)
-	assert.False(t, localMCPOK, "local MCP executable must not be baselined")
-	_, localHookOK := store.GrantMatch(remote.LocalSource, "demo#hooks/pre_tool/0", hookHashOf(bundles.BundleHook{Command: "echo local", Type: "command"}))
-	assert.False(t, localHookOK, "local hook executable must not be baselined")
-
-	// The gate now ALLOWS the baselined remote versions even from an untrusted remote.
-	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
-	gate := (&contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, store: store, registry: reg}).allow
-	assert.True(t, gate(gatePostgresRef, postgresHash(), "raw"), "baselined MCP server survives the gate")
-	assert.True(t, gate(gateHookRef, toolingHookHash(), "raw"), "baselined bundle hook survives the gate")
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#mcp/postgres", postgresHash()))
+	assert.False(t, gate(gatePostgresRef, postgresHash(), "raw"),
+		"rejection beats the trusted-source exemption")
 }
 
 // TestExecGate_ResolveBundleMCPServers_RealCascade drives the FULL profile→
 // bundle→settings path with the REAL executable gate over a LOCAL on-disk bundle:
-// a granted local MCP server is written while an ungranted sibling is withheld,
-// and the in-binary builtin servers are exempt.
+// a first-party local MCP server is written while a rejected sibling is
+// withheld, and the in-binary builtin servers are exempt.
 func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
@@ -154,19 +120,19 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 
 	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
 
-	// Local bundle MCP servers are project-authored, so they auto-trust. A
-	// blacklist still withholds one — the denylist/blacklist tiers precede the
-	// local tier.
+	// Local bundle MCP servers are project-authored (first-party), so they are
+	// exposed with no review state. A rejection still withholds one — the
+	// rejected step precedes the local exemption.
 	store, err := getTrustStore(cfg, nil, nil)
 	require.NoError(t, err)
 	noisyHash := mcpHashOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}})
-	require.NoError(t, store.Blacklist(remote.LocalSource, "mcp-bundle#mcp/noisy-server", noisyHash))
+	require.NoError(t, store.SetRejected(remote.LocalSource, "mcp-bundle#mcp/noisy-server", noisyHash))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleMCPServers(nil)
 
-	assert.Contains(t, result, "quiet-server", "auto-trusted local MCP server must be written to settings")
-	assert.NotContains(t, result, "noisy-server", "blacklisted local MCP executable must be withheld")
+	assert.Contains(t, result, "quiet-server", "first-party local MCP server must be written to settings")
+	assert.NotContains(t, result, "noisy-server", "rejected local MCP executable must be withheld")
 	builtin := false
 	for _, s := range result {
 		if s.SCM == "bundle:builtin:taskloom" {
@@ -176,8 +142,8 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	assert.True(t, builtin, "in-binary builtin MCP servers are exempt from the gate")
 }
 
-// TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: an auto-trusted
-// local bundle hook is applied while a blacklisted sibling is withheld.
+// TestExecGate_ResolveBundleHooks_RealCascade is the hook twin: a first-party
+// local bundle hook is applied while a rejected sibling is withheld.
 func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	restore := config.SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
 	defer restore()
@@ -193,12 +159,12 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 
 	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
 
-	// Local bundle hooks auto-trust (project-authored); a blacklist still withholds
-	// one — blacklist precedes the local tier.
+	// Local bundle hooks are first-party (project-authored); a rejection still
+	// withholds one — the rejected step precedes the local exemption.
 	store, err := getTrustStore(cfg, nil, nil)
 	require.NoError(t, err)
 	denyHash := hookHashOf(bundles.BundleHook{Command: "echo deny", Type: "command"})
-	require.NoError(t, store.Blacklist(remote.LocalSource, "hook-bundle#hooks/session_start/0", denyHash))
+	require.NoError(t, store.SetRejected(remote.LocalSource, "hook-bundle#hooks/session_start/0", denyHash))
 
 	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
 	result := cfg.ResolveBundleHooks(nil)
@@ -214,13 +180,13 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 			denyApplied = true
 		}
 	}
-	assert.True(t, keepApplied, "auto-trusted local bundle hook must be applied")
-	assert.False(t, denyApplied, "blacklisted local bundle hook must NOT be applied")
+	assert.True(t, keepApplied, "first-party local bundle hook must be applied")
+	assert.False(t, denyApplied, "rejected local bundle hook must NOT be applied")
 }
 
 // TestExecGate_FailClosed proves the executable gate withholds on any failure to
 // positively justify exposure (denyAll store, unparseable ref) and tallies the
-// withheld refs for the "N withheld" advisory.
+// withheld refs for the pending advisory.
 func TestExecGate_FailClosed(t *testing.T) {
 	// denyAll (unreadable store) → every executable withheld, all recorded.
 	g := &contentGate{denyAll: true}
@@ -228,6 +194,9 @@ func TestExecGate_FailClosed(t *testing.T) {
 	assert.False(t, e.Gate()(gatePostgresRef, postgresHash(), "raw"))
 	assert.False(t, e.Gate()(gateHookRef, toolingHookHash(), "raw"))
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
+	pending, rejected := g.withheldTally()
+	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
+	assert.Equal(t, 0, rejected)
 
 	// Unparseable ref → withhold (no selector).
 	g2 := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, store: newTrustStore(t)}
@@ -241,12 +210,28 @@ func TestExecGate_FailClosed(t *testing.T) {
 	nilGate.WarnWithheld()
 }
 
+// TestExecGate_WithheldTallySplitsRejected proves the advisory tally separates
+// pending from rejected: one unreviewed item and one rejected item withhold as
+// (1 pending, 1 rejected).
+func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
+	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
+	store := newTrustStore(t)
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#hooks/pre_tool/0", toolingHookHash()))
+	g := &contentGate{cfg: &config.Config{AppPaths: []string{testBaseDir}}, store: store, registry: reg}
+
+	assert.False(t, g.allow(gatePostgresRef, postgresHash(), "raw"), "pending item withheld")
+	assert.False(t, g.allow(gateHookRef, toolingHookHash(), "raw"), "rejected item withheld")
+	pending, rejected := g.withheldTally()
+	assert.Equal(t, 1, pending)
+	assert.Equal(t, 1, rejected)
+}
+
 // TestExecGate_CLIHookTrustThenBlacklist ties the interactive/CLI hook-trust
-// mutations to the TR5 exec choke: a hook the user trusts via SetItemTrust (the
-// `ctxloom trust <bundle>#hooks/<id>` / `bundle show -i` [t] path) then passes
-// the executable gate, and a hook the user blacklists via SetBlacklist (the [b]
-// path) is withheld by that same gate — the sticky ref block beats the grant.
-// The gate is rebuilt after each mutation so it reads the freshly-persisted store.
+// mutations to the exec choke: a project-local hook is first-party (passes the
+// gate with no review state), and a hook the user rejects via SetBlacklist (the
+// `ctxloom blacklist` / [b] path) is withheld by that same gate — the rejection
+// beats the local exemption. The gate is rebuilt after the mutation so it reads
+// the freshly-persisted store.
 func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	bundlesDir := filepath.Join(appDir, "cache", "bundles")
@@ -258,19 +243,20 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	ref := "hookb#hooks/pre_tool/0"
 	hookHash := hookHashOf(bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"})
 
-	// A project-local bundle hook auto-trusts (no grant needed) → passes the gate.
+	// A project-local bundle hook is first-party (no acceptance needed) → passes.
 	assert.True(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
-		"an auto-trusted local bundle hook must pass the exec gate")
+		"a first-party local bundle hook must pass the exec gate")
 
-	// CLI blacklist → the exec gate withholds it (sticky block beats local auto-trust).
+	// CLI rejection → the exec gate withholds it (rejection beats the local
+	// exemption).
 	_, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
 	require.NoError(t, err)
 	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookHash, "raw"),
-		"a CLI-blacklisted bundle hook must be withheld by the exec gate")
+		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 
 // Ensure trust.KindHook participates in the dir/selector grammar end to end.
 func TestKindHook_Dir(t *testing.T) {
 	assert.Equal(t, "hooks", trust.KindHook.Dir())
-	assert.False(t, trust.KindHook.IsContent(), "a hook is an executable surface, not auto-allowed content")
+	assert.False(t, trust.KindHook.IsContent(), "a hook is an executable surface, not content")
 }

@@ -53,7 +53,7 @@ ctxloom run -t python -t security "review Python security"
 
 ```bash
 # Edit fragment content in your editor
-ctxloom bundle fragment edit my-bundle coding-standards
+ctxloom fragment edit my-bundle#fragments/coding-standards
 ```
 
 This opens the fragment content in your `$VISUAL` or `$EDITOR`.
@@ -132,22 +132,8 @@ Deploy directly without containerization.
 {{/USE_DOCKER}}
 ```
 
-### Built-in Variables
-
-These are always available:
-
-| Variable | Description |
-|----------|-------------|
-| `CTXLOOM_ROOT` | Project root directory |
-| `CTXLOOM_DIR` | Path to .ctxloom directory |
-
-```yaml
-fragments:
-  paths:
-    content: |
-      Project: {{ CTXLOOM_ROOT }}
-      Config: {{ CTXLOOM_DIR }}/config.yaml
-```
+There are no built-in variables: the template data is exactly the profile's
+`variables:` map. An undefined variable renders empty and produces a warning.
 
 See the [Templating Guide](/guides/templating) for complete syntax and advanced features.
 

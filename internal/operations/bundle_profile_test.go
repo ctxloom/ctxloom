@@ -135,18 +135,12 @@ func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
 	assert.False(t, ok, "the profile's MCP server still gates at the exec choke")
 }
 
-// TestBundleProfile_NotBaselined is the structural gate-exemption invariant: the
-// trust baseline enumerates fragment/prompt/mcp/hook but NEVER profiles, so a
-// profile definition is never baselined and never run through EffectiveTrust.
-func TestBundleProfile_NotBaselined(t *testing.T) {
-	root := t.TempDir()
-	writeBundleProfileFixture(t, root)
-	cfg := bundleProfileConfig(root)
-
-	loader := cfg.SeededBundleLoader(false)
-	_, res := collectBaselineGrants(cfg, loader)
-	// kit ships 1 fragment + 1 mcp + 1 hook = 3 enumerated items. If the profile
-	// were (wrongly) a gated kind, Total would be 4.
-	assert.Equal(t, 3, res.Total,
-		"baseline must enumerate fragment/mcp/hook but NOT the bundle profile")
+// TestBundleProfile_NotAReviewableKind is the structural gate-exemption
+// invariant: the trust ref grammar addresses fragment/prompt/mcp/hook but
+// NEVER profiles, so a profile definition can carry no review state and is
+// never run through EffectiveTrust (its constituent items are). (This replaces
+// the retired TR6-baseline enumeration proxy with the grammar itself.)
+func TestBundleProfile_NotAReviewableKind(t *testing.T) {
+	_, _, _, err := parseTrustItemRef("kit#profiles/dev")
+	assert.Error(t, err, "a profile must not be addressable as a trust item kind")
 }

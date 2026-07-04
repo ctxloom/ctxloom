@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -21,9 +22,9 @@ import (
 // profile "dev" pulls in a local bundle "tools" carrying two MCP servers,
 // "alpha" and "beta". CTXLOOM_ROOT points config.Load() and projectroot at the
 // same root, so the real trust handlers + ApplyHooks operate end-to-end on this
-// project. Both servers are project-local executables, which the cascade never
-// auto-trusts (not even at baseline), so each is withheld until explicitly
-// trusted. Returns the project root (where .claude/.mcp.json lands).
+// project. Both servers are project-local executables — first-party under the
+// review model, so they are exposed until explicitly rejected. Returns the
+// project root (where .claude/.mcp.json lands).
 func scrubProjectRoot(t *testing.T) string {
 	t.Helper()
 	testsupport.Isolate(t) // junk HOME so config.Load reads only this project
@@ -130,6 +131,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 		"a failed managed-artifact refresh must not fail the blacklist")
 
 	store := loadTrustStore(t, filepath.Join(root, paths.AppDirName))
-	assert.True(t, store.BlacklistMatch(remote.LocalSource, "tools#mcp/alpha"),
-		"the blacklist must persist even when the post-mutation refresh fails")
+	item, ok := store.Lookup(remote.LocalSource, "tools#mcp/alpha")
+	require.True(t, ok, "the rejection must persist even when the post-mutation refresh fails")
+	assert.Equal(t, trust.StateRejected, item.State)
 }

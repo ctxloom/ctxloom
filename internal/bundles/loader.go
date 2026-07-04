@@ -13,8 +13,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // ContentGate is the per-item trust gate (trust rework, TR5) for resolved
@@ -24,7 +24,7 @@ import (
 // reports whether the item may be exposed (true) or must be withheld (false).
 //
 // A nil gate means no enforcement — management/listing loaders resolve content
-// without gating so they can still see untrusted items (to baseline, grant, or
+// without gating so they can still see pending items (to review, accept, or
 // stamp them). Fail-closed semantics are the gate's own responsibility: a
 // resolve/hash/store error must return false (withhold), never default-allow.
 type ContentGate func(ref, contentHash, form string) bool
@@ -367,9 +367,13 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 						bundles = append(bundles, bundleInfo)
 						seen.Add(bundleName)
 					} else {
-						// Degrade, but say so: a corrupt bundle silently
-						// vanishing from list output is undiagnosable.
-						clidiag.Warn("ctxloom", "skipping bundle %s: %v", bundlePath, err)
+						// A local bundle that fails to load is fatal-class in
+						// strict mode (fail-loudly): the warning streams either
+						// way, and a startup choke owner aborts on the finding.
+						// Degraded mode keeps the warn-and-skip so a corrupt
+						// bundle never silently vanishes from list output.
+						strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
+							"skipping bundle %s: %v", bundlePath, err)
 					}
 				}
 				return nil
@@ -388,7 +392,8 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 					bundles = append(bundles, bundleInfo)
 					seen.Add(bundleName)
 				} else {
-					clidiag.Warn("ctxloom", "skipping bundle %s: %v", path, err)
+					strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
+						"skipping bundle %s: %v", path, err)
 				}
 			}
 			return nil

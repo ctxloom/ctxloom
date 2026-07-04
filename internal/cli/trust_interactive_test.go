@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // TestParseItemTrustChoice covers the menu parse: only an explicit t/b acts;
@@ -35,8 +36,8 @@ func TestParseItemTrustChoice(t *testing.T) {
 	}
 }
 
-// TestApplyItemTrustChoice_Grant: the [t] action writes a content-pinned grant,
-// identical to `ctxloom trust <ref>`.
+// TestApplyItemTrustChoice_Grant: the [t] action records a content-pinned
+// acceptance, identical to `ctxloom trust <ref>`.
 func TestApplyItemTrustChoice_Grant(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
@@ -45,16 +46,18 @@ func TestApplyItemTrustChoice_Grant(t *testing.T) {
 
 	c, out := testCmd()
 	require.NoError(t, applyItemTrustChoice(c, cfg, "demo#fragments/x", itemTrustGrant))
-	assert.Contains(t, out.String(), "Trusted demo#fragments/x")
+	assert.Contains(t, out.String(), "Accepted demo#fragments/x")
 
 	wantHash := effectiveFragmentHash(t, appDir, "demo", "x")
 	store := loadTrustStore(t, appDir)
-	_, ok := store.GrantMatch(remote.LocalSource, "demo#fragments/x", wantHash)
-	assert.True(t, ok, "[t] must write a grant bound to the effective-content hash")
+	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/x")
+	require.True(t, ok, "[t] must record an accepted state")
+	assert.Equal(t, trust.StateAccepted, item.State)
+	assert.Equal(t, wantHash, item.RawHash, "[t] must bind the acceptance to the content hash")
 }
 
-// TestApplyItemTrustChoice_Blacklist: the [b] action writes BOTH the sticky
-// ref-level block and the content-hash denylist entry, identical to
+// TestApplyItemTrustChoice_Blacklist: the [b] action writes BOTH the ref-level
+// rejected state and the content-hash denylist entry, identical to
 // `ctxloom blacklist <ref>`.
 func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 	appDir := t.TempDir()
@@ -64,13 +67,14 @@ func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 
 	c, out := testCmd()
 	require.NoError(t, applyItemTrustChoice(c, cfg, "demo#fragments/curl-pipe-sh", itemTrustBlacklist))
-	assert.Contains(t, out.String(), "Blacklisted demo#fragments/curl-pipe-sh")
+	assert.Contains(t, out.String(), "Rejected demo#fragments/curl-pipe-sh")
 
 	wantHash := effectiveFragmentHash(t, appDir, "demo", "curl-pipe-sh")
 	store := loadTrustStore(t, appDir)
-	assert.True(t, store.BlacklistMatch(remote.LocalSource, "demo#fragments/curl-pipe-sh"),
-		"[b] must write the sticky ref-level block")
-	assert.True(t, store.DenylistMatch(wantHash),
+	item, ok := store.Lookup(remote.LocalSource, "demo#fragments/curl-pipe-sh")
+	require.True(t, ok, "[b] must record a rejected state")
+	assert.Equal(t, trust.StateRejected, item.State)
+	assert.True(t, store.DeniedHash(wantHash),
 		"[b] must record the item's content hash on the denylist")
 }
 
@@ -88,11 +92,8 @@ func TestApplyItemTrustChoice_Skip(t *testing.T) {
 
 	// No write happened: the store maps are empty and no trust.yaml exists.
 	store := loadTrustStore(t, appDir)
-	wantHash := effectiveFragmentHash(t, appDir, "demo", "x")
-	_, ok := store.GrantMatch(remote.LocalSource, "demo#fragments/x", wantHash)
-	assert.False(t, ok, "skip must not write a grant")
-	assert.False(t, store.BlacklistMatch(remote.LocalSource, "demo#fragments/x"),
-		"skip must not write a blacklist")
+	_, ok := store.Lookup(remote.LocalSource, "demo#fragments/x")
+	assert.False(t, ok, "skip must not record any review state")
 
 	_, statErr := os.Stat(paths.TrustPath(appDir))
 	assert.True(t, os.IsNotExist(statErr), "skip must not create the trust store file")

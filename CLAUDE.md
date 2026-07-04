@@ -41,3 +41,7 @@ The MCP server startup should:
 4. Apply hooks (warn on errors, continue)
 5. **Always respond with initialized** - the agent must start
 
+## Generated Docs
+
+Generated CLI reference pages live in `website/src/content/docs/reference/cli/ctxloom_*.md` — never hand-edit them; edit the command definitions in `internal/cli` and run `just gen-docs`.
+

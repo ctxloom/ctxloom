@@ -14,16 +14,28 @@ ctxloom bundle create my-standards
 ctxloom bundle create my-standards -d "My coding standards"
 ```
 
-This creates `.ctxloom/bundles/my-standards.yaml`:
+This creates `.ctxloom/cache/bundles/my-standards.yaml` with an example
+fragment and skill:
 
 ```yaml
-version: "1.0.0"
-description: "My coding standards"
-tags: []
+version: 1.0.0
+description: My coding standards
+fragments:
+    example:
+        tags:
+            - example
+        content: |-
+            # Example Fragment
 
-fragments: {}
-
-prompts: {}
+            Add your content here.
+        no_distill: true
+skills:
+    example:
+        description: Example prompt
+        tags:
+            - example
+        content: Example prompt content. Describe what this prompt does.
+        no_distill: true
 ```
 
 ## Edit Your Bundle
@@ -59,7 +71,7 @@ fragments:
       - Wrap errors with context
       - Use sentinel errors sparingly
 
-prompts:
+skills:
   code-review:
     description: "Review code for issues"
     tags: [review]
@@ -72,7 +84,7 @@ prompts:
 
 ## Bundle Structure
 
-A bundle is a YAML file containing fragments (context), prompts (slash commands), and MCP servers.
+A bundle is a YAML file containing fragments (context), skills (exported as slash commands), MCP servers, profiles, and hooks.
 
 ```yaml
 version: "1.0.0"                    # Required: semantic version
@@ -95,12 +107,12 @@ fragments:
       # Context Content
       Your markdown content here...
 
-prompts:
-  prompt-name:
+skills:
+  skill-name:
     description: "For /help output"
     tags: [tags]
     content: |
-      # Prompt Template
+      # Skill Template
       Your prompt here...
 
 mcp:
@@ -109,6 +121,15 @@ mcp:
     args: ["--flag", "value"]
     env:
       API_KEY: "${API_KEY}"
+
+profiles:                           # Profiles shipped with the bundle,
+  profile-name:                     # addressed <bundle>#profiles/<name>
+    bundles: [my-bundle#fragments/fragment-name]
+
+hooks:                              # Agent lifecycle hooks
+  pre_tool:
+    - matcher: "Bash"
+      command: "./scripts/check.sh"
 ```
 
 ### Fragment Fields
@@ -117,19 +138,19 @@ mcp:
 |-------|-------------|
 | `content` | **Required.** The actual content sent to AI |
 | `tags` | Additional tags (merged with bundle tags) |
-| `variables` | Mustache variables used in content |
 | `notes` | Human notes (NOT sent to AI) |
 | `installation` | Setup instructions (NOT sent to AI) |
 | `no_distill` | If true, skip compression |
 
-### Prompt Fields
+### Skill Fields
 
 | Field | Description |
 |-------|-------------|
 | `content` | **Required.** The prompt template |
 | `description` | Human-readable description (shown in /help) |
 | `tags` | Tags for filtering |
-| `variables` | Mustache variables used |
+| `no_distill` | If true, skip compression |
+| `llm` | Per-backend export settings for the exported slash command, keyed by backend (`claude-code`, `antigravity`, `codex`, `kiro`): `enabled`, `description`, and per-backend extras like `argument_hint`, `allowed_tools`, `model` |
 
 ### MCP Server Fields
 
@@ -144,7 +165,7 @@ mcp:
 ### Add a Fragment
 
 ```bash
-ctxloom bundle fragment add my-standards testing
+ctxloom fragment create my-standards testing
 ```
 
 Then edit to add content:
@@ -152,17 +173,17 @@ Then edit to add content:
 ctxloom bundle edit my-standards
 ```
 
-### Add a Prompt
+### Add a Skill
 
 ```bash
-ctxloom bundle prompt add my-standards code-review
+ctxloom skill create my-standards code-review
 ```
 
 ### Delete Content
 
 ```bash
-ctxloom bundle fragment delete my-standards#fragments/old-fragment
-ctxloom bundle prompt delete my-standards#prompts/old-prompt
+ctxloom fragment delete my-standards#fragments/old-fragment
+ctxloom skill delete my-standards#skills/old-prompt
 ```
 
 ## Test Your Bundle
@@ -188,15 +209,13 @@ To share bundles via GitHub/GitLab, create a repository with this structure:
 ```
 my-ctxloom-repo/
 ├── ctxloom/
-│   ├── bundles/
-│   │   ├── go-development.yaml
-│   │   └── testing-patterns.yaml
-│   └── profiles/
-│       └── go-developer.yaml
+│   └── bundles/
+│       ├── go-development.yaml
+│       └── testing-patterns.yaml
 └── README.md
 ```
 
-The `ctxloom/` directory is **required** for ctxloom to recognize the repository.
+The `ctxloom/` directory is **required** for ctxloom to recognize the repository. Profiles ship inside bundles (a bundle's `profiles:` key) and are addressed `<bundle>#profiles/<name>` — remote repos have no top-level profiles directory.
 
 ### Naming for Discovery
 
@@ -210,10 +229,10 @@ Name your repository `ctxloom` or `ctxloom-*` to be discoverable:
 
 ```bash
 # Create repo structure
-mkdir -p ctxloom/bundles ctxloom/profiles
+mkdir -p ctxloom/bundles
 
 # Copy your bundles
-cp .ctxloom/bundles/my-standards.yaml ctxloom/bundles/
+cp .ctxloom/cache/bundles/my-standards.yaml ctxloom/bundles/
 
 # Push to GitHub
 git init

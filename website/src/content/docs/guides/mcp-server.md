@@ -2,7 +2,7 @@
 title: "MCP Server"
 ---
 
-ctxloom can run as an MCP (Model Context Protocol) server, allowing AI assistants to access your context directly.
+ctxloom can run as an MCP (Model Context Protocol) server, allowing AI assistants to retrieve context during a session.
 
 ## Running the MCP Server
 
@@ -45,64 +45,39 @@ mcp:
   auto_register_ctxloom: false
 ```
 
-## Available MCP Tools
+## What the Server Exposes
 
-### Context Tools
+The MCP surface is deliberately small: it retrieves context and works with session memory. Everything that *manages* ctxloom — bundles, profiles, remotes, review/approval, trust, hooks — is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
 
-| Tool | Description |
-|------|-------------|
-| `list_fragments` | List fragments with optional filtering |
-| `get_fragment` | Get specific fragment content |
-| `list_profiles` | List all profiles |
-| `get_profile` | Get profile configuration |
-| `assemble_context` | Combine fragments, profiles, tags |
-| `list_prompts` | List all prompts |
-| `get_prompt` | Get prompt content |
-| `search_content` | Search across all content types |
-
-### Management Tools
+### Tools
 
 | Tool | Description |
 |------|-------------|
-| `create_profile` | Create new profile |
-| `update_profile` | Modify existing profile |
-| `delete_profile` | Remove profile |
-| `create_fragment` | Create new fragment |
-| `delete_fragment` | Remove fragment |
-| `apply_hooks` | Apply hooks to backend configs |
+| `assemble_context` | Combine a profile, fragments, and/or tags into context |
+| `search_content` | Search installed content (fragments, skills, profiles, MCP servers) |
+| `search_library` | Search installable bundles across configured remotes (discovery) |
+| `compact_session` | Compact a session log into a distilled summary |
+| `load_session` | Distill and load a session by ID or harp name |
+| `recover_session` | Recover the most-recent session's context after `/clear` |
+| `get_previous_session` | Get the previous session's distilled content |
 
-### Remote Tools
+### Resources
 
-| Tool | Description |
-|------|-------------|
-| `list_remotes` | List configured remotes |
-| `add_remote` | Register new remote |
-| `remove_remote` | Unregister remote |
-| `discover_remotes` | Search GitHub/GitLab for ctxloom repos |
-| `browse_remote` | List items in remote |
-| `preview_remote` | Preview content before pulling |
-| `confirm_pull` | Install previewed item |
+Read-only listings are exposed as MCP resources rather than tools:
 
-### MCP Server Tools
+| URI | Contents |
+|-----|----------|
+| `ctxloom://help` | Orientation for the connected agent |
+| `ctxloom://fragments`, `ctxloom://fragments/{name}` | Fragment listing / content |
+| `ctxloom://skills`, `ctxloom://skills/{name}` | Skill listing / content |
+| `ctxloom://profiles`, `ctxloom://profiles/{name}` | Profile listing / configuration |
+| `ctxloom://remotes`, `ctxloom://remotes/{name}/contents` | Remotes / a remote's bundles |
+| `ctxloom://mcp-servers` | Configured MCP servers |
+| `ctxloom://sessions`, `ctxloom://sessions/recent` | Session listings |
 
-| Tool | Description |
-|------|-------------|
-| `list_mcp_servers` | List configured servers |
-| `add_mcp_server` | Add server config |
-| `remove_mcp_server` | Remove server |
-| `set_mcp_auto_register` | Toggle auto-registration |
+See the [MCP Tools Reference](/reference/mcp-tools/) for parameter schemas.
 
-### Sync Tools
-
-| Tool | Description |
-|------|-------------|
-| `sync_dependencies` | Sync remote dependencies |
-| `lock_dependencies` | Generate lockfile |
-| `install_dependencies` | Install from lockfile |
-| `check_outdated` | Check for updates |
-| `check_missing_dependencies` | Find missing deps |
-
-## Tool Schemas
+## Tool Schemas (summary)
 
 ### assemble_context
 
@@ -111,17 +86,6 @@ mcp:
   "profile": "string",
   "bundles": ["string"],
   "tags": ["string"]
-}
-```
-
-### list_fragments
-
-```json
-{
-  "query": "string",
-  "tags": ["string"],
-  "sort_by": "name|source",
-  "sort_order": "asc|desc"
 }
 ```
 
@@ -138,54 +102,12 @@ mcp:
 }
 ```
 
-### create_profile
+### search_library
 
 ```json
 {
-  "name": "string (required)",
-  "description": "string",
-  "parents": ["string"],
-  "bundles": ["string"],
-  "tags": ["string"],
-  "default": "boolean"
-}
-```
-
-### update_profile
-
-```json
-{
-  "name": "string (required)",
-  "description": "string",
-  "add_parents": ["string"],
-  "remove_parents": ["string"],
-  "add_bundles": ["string"],
-  "remove_bundles": ["string"],
-  "add_tags": ["string"],
-  "remove_tags": ["string"],
-  "default": "boolean"
-}
-```
-
-### add_mcp_server
-
-```json
-{
-  "name": "string (required)",
-  "command": "string (required)",
-  "args": ["string"],
-  "backend": "unified|claude-code|antigravity"
-}
-```
-
-### sync_dependencies
-
-```json
-{
-  "profiles": ["string"],
-  "force": "boolean",
-  "lock": "boolean",
-  "apply_hooks": "boolean"
+  "query": "string (required; plain words or tag:NAME)",
+  "item_type": "bundle"
 }
 ```
 
@@ -204,15 +126,17 @@ Within an AI assistant conversation:
 ● ctxloom - search_content (MCP)(query: "python", types: ["fragment"])
   ⎿ { "results": [...], "count": 5 }
 
-> list available remotes
+> what bundles could I install for Go?
 
-● ctxloom - list_remotes (MCP)()
-  ⎿ { "remotes": [{"name": "ctxloom-default", ...}] }
+● ctxloom - search_library (MCP)(query: "tag:golang")
+  ⎿ { "results": [{"name": "go-development", "pull_ref": "...", ...}] }
 ```
+
+Management requests route through the CLI instead — e.g. "pull the remotes" runs `ctxloom remote pull` in the shell.
 
 ## Managing MCP Servers
 
-ctxloom can manage MCP server configurations:
+ctxloom manages MCP server configurations with the CLI:
 
 ```bash
 ctxloom manage mcp servers list
@@ -241,7 +165,7 @@ mcp:
       PGPASSWORD: "${PGPASSWORD}"
 ```
 
-These MCP servers are registered when the bundle is used.
+These MCP servers are registered when the bundle is used, subject to [review and trust](/concepts/review-and-trust/).
 
 ## Security Considerations
 
@@ -254,4 +178,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom remote pull`.
+Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you grant them (`ctxloom trust <ref>` or `ctxloom bundle trust <name>`).

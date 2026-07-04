@@ -22,8 +22,8 @@ import (
 // `show` output stays byte-for-byte identical for scripts. All trust UI is
 // written to stderr so it never mingles with the content on stdout.
 //
-// The actual mutations reuse the single TR2 path (runItemTrust / runBlacklist /
-// runBundleTrust → operations.Set*), and the interactive read reuses the single
+// The actual mutations reuse the single plumbing path (runItemTrust /
+// runBlacklist → operations.Set*), and the interactive read reuses the single
 // shared stdin reader via promptLine / promptYesNo (run.go) — no second
 // bufio.Reader is created (ctxloom-code-08-002).
 
@@ -95,12 +95,13 @@ func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 
 // offerBundleTrust is the TTY-gated interactive trust review for `bundle show
 // <name> -i`. It prints every item's effective trust + source — fragments,
-// prompts, MCP servers, AND bundle hooks — resolved through one shared TR3
+// prompts, MCP servers, AND bundle hooks — resolved through one shared
 // TrustStamper (store + registry read once, each bundle materialized once) to
-// stderr. It then offers an explicit per-hook [t]rust/[b]lacklist action (hooks
-// are executables the SHA-agnostic posture cannot content-pin) and finally offers
-// to mark the whole bundle trusted (a SHA-agnostic posture via SetBundleTrust).
-// The bundle body is already on stdout; only an explicit action writes.
+// stderr, then offers an explicit per-hook [t]rust/[b]lacklist action. The
+// whole-bundle posture offer is gone (trust-simplify: postures no longer
+// affect exposure; the review porcelain's accept-bundle is hash-bound and
+// arrives in slice 2). The bundle body is already on stdout; only an explicit
+// action writes.
 func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundle *bundles.Bundle) error {
 	stamper := operations.NewTrustStamper(cfg)
 	fmt.Fprintf(os.Stderr, "\nPer-item effective trust for bundle %q:\n", name)
@@ -117,21 +118,11 @@ func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundl
 		printBundleHookTrust(os.Stderr, stamper, name, e)
 	}
 
-	// Bundle hooks are arbitrary-command executables the cascade never
-	// auto-trusts, and the SHA-agnostic whole-bundle posture below cannot pin a
-	// hook's executable surface — so offer an explicit per-hook [t]rust/[b]lacklist
-	// (a content-pinned grant / sticky block) before the bundle-grain prompt,
-	// routed through the same TR2 path as `ctxloom trust|blacklist
+	// Bundle hooks are arbitrary-command executables — offer an explicit
+	// per-hook [t]rust/[b]lacklist (a content-pinned acceptance / sticky
+	// rejection), routed through the same path as `ctxloom trust|blacklist
 	// <bundle>#hooks/<event>/<index>`. Viewing never trusts.
-	if err := offerBundleHookTrust(cmd, cfg, name, bundle); err != nil {
-		return err
-	}
-
-	yes, err := promptYesNo("\nMark bundle trusted? [y/N] ")
-	if err != nil || !yes {
-		return nil // viewing never trusts
-	}
-	return runBundleTrust(cmd, cfg, name, true)
+	return offerBundleHookTrust(cmd, cfg, name, bundle)
 }
 
 // offerBundleHookTrust walks the bundle's hooks in canonical identity order and
@@ -180,12 +171,11 @@ func printBundleHookTrust(w io.Writer, stamper *operations.TrustStamper, bundle 
 
 // reviewLocalMCPTrust is the TTY-gated trust review for `manage mcp servers show
 // -i`. The servers it lists are project/plugin-local configured executables, not
-// bundle items: the trust model never auto-trusts them (TR3 ForLocalMCP) and —
-// because they carry no bundle ref — they have no SetItemTrust/SetBlacklist
-// mutation path. This surface therefore REVIEWS the posture (to stderr) and
-// points at the ref-based commands for bundle-sourced MCP servers, rather than
-// offering a t/b action that could not be honored. (See follow-up: a local-MCP
-// grant primitive is out of TR4 scope.)
+// bundle items: they are first-party (exposed via the local exemption unless
+// rejected) and — because they carry no bundle ref — they have no
+// SetItemTrust/SetBlacklist mutation path. This surface therefore REVIEWS the
+// posture (to stderr) and points at the ref-based commands for bundle-sourced
+// MCP servers, rather than offering a t/b action that could not be honored.
 func reviewLocalMCPTrust(cfg *config.Config, entries []operations.MCPServerEntry) {
 	stamper := operations.NewTrustStamper(cfg)
 	for _, e := range entries {

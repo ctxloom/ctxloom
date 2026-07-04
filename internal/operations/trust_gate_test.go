@@ -21,7 +21,7 @@ import (
 
 // acmeToolingSeed seeds one REMOTE bundle (acme tooling) with fragments and
 // prompts, keyed by its canonical ref so AssembleContext's ResolveFragmentAsk
-// resolves to it and the gate ref matches the baseline/grant key shape.
+// resolves to it and the gate ref matches the review-state key shape.
 func acmeToolingSeed() map[string]*bundles.Bundle {
 	seed := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {
@@ -41,8 +41,8 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 }
 
 // gatedAcmeLoader builds a loader over acmeToolingSeed wired to a contentGate
-// resolving against store + an untrusted acme remote, so only grants/blacklist/
-// denylist decide exposure (the remote tier denies by default).
+// resolving against store + an untrusted acme remote, so only review states
+// (accepted/rejected) decide exposure — everything else is pending (withheld).
 func gatedAcmeLoader(t *testing.T, store *trust.Store) (*bundles.Loader, *config.Config) {
 	t.Helper()
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
@@ -59,16 +59,17 @@ const (
 )
 
 // TestExposureGate_AssembleContext_WithholdsDenied proves the assembly surface
-// omits a blacklisted fragment AND an untrusted (grant-less) one, keeps a granted
-// sibling, and surfaces the withheld refs content-free via loader.Withheld().
+// omits a rejected fragment AND a pending (never-reviewed) one, keeps an
+// accepted sibling, and surfaces the withheld refs content-free via
+// loader.Withheld().
 func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	store := newTrustStore(t)
-	if err := store.AddGrant(trustRepo, "tooling#fragments/solid", fragHash("solid body"), "raw", ""); err != nil {
-		t.Fatalf("AddGrant: %v", err)
+	if err := store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("solid body"), ""); err != nil {
+		t.Fatalf("SetAccepted: %v", err)
 	}
-	if err := store.Blacklist(trustRepo, "tooling#fragments/evil", fragHash("evil body")); err != nil {
-		t.Fatalf("Blacklist: %v", err)
+	if err := store.SetRejected(trustRepo, "tooling#fragments/evil", fragHash("evil body")); err != nil {
+		t.Fatalf("SetRejected: %v", err)
 	}
 	loader, cfg := gatedAcmeLoader(t, store)
 
@@ -78,9 +79,9 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Contains(t, res.Context, "solid body", "granted sibling must be present")
-	assert.NotContains(t, res.Context, "evil body", "blacklisted fragment must be withheld")
-	assert.NotContains(t, res.Context, "swapped body", "untrusted grant-less fragment must be withheld")
+	assert.Contains(t, res.Context, "solid body", "accepted sibling must be present")
+	assert.NotContains(t, res.Context, "evil body", "rejected fragment must be withheld")
+	assert.NotContains(t, res.Context, "swapped body", "pending (unreviewed) fragment must be withheld")
 	assert.Len(t, res.FragmentsLoaded, 1)
 
 	withheld := loader.Withheld()
@@ -89,15 +90,15 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 }
 
 // TestExposureGate_Resource_GetFragmentWithheld proves the ctxloom://fragments/
-// and ctxloom://prompts/ resource path (operations.GetFragment/GetPrompt) omits a
-// denied item — surfacing the distinct withheld sentinel — while a trusted one
+// and ctxloom://prompts/ resource path (operations.GetFragment/GetSkill) omits a
+// denied item — surfacing the distinct withheld sentinel — while an accepted one
 // still resolves.
 func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "tooling#fragments/solid", fragHash("solid body"), "raw", ""))
-	require.NoError(t, store.Blacklist(trustRepo, "tooling#fragments/evil", fragHash("evil body")))
-	require.NoError(t, store.AddGrant(trustRepo, "tooling#prompts/review", promptHash("review body"), "raw", ""))
-	require.NoError(t, store.Blacklist(trustRepo, "tooling#prompts/evilprompt", promptHash("evil prompt body")))
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("solid body"), ""))
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#fragments/evil", fragHash("evil body")))
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#prompts/review", promptHash("review body"), ""))
+	require.NoError(t, store.SetRejected(trustRepo, "tooling#prompts/evilprompt", promptHash("evil prompt body")))
 	loader, cfg := gatedAcmeLoader(t, store)
 
 	// Fragment resource.
@@ -115,11 +116,11 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 	assert.Contains(t, okPrompt.Content, "review body")
 }
 
-// TestExposureGate_BaselineInterplay proves the migration contract end to end at
-// an exposure surface: a baselined (pre-existing) version stays exposed; a
-// post-baseline content swap (new hash ∉ baseline, no grant, untrusted remote) is
-// withheld; an explicit grant for the new hash then re-exposes it.
-func TestExposureGate_BaselineInterplay(t *testing.T) {
+// TestExposureGate_UpdateRegatesExactly proves the review invariant end to end
+// at an exposure surface: an accepted version stays exposed; an upstream
+// content swap (new hash, no acceptance, untrusted source) returns the item to
+// pending and is withheld; accepting the new content re-exposes it.
+func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	cfg := &config.Config{AppPaths: []string{testBaseDir}}
 	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
 
@@ -128,19 +129,18 @@ func TestExposureGate_BaselineInterplay(t *testing.T) {
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v1 body"}}},
 	}
 	store := newTrustStore(t)
-	// Baseline the v1 content (mints a grant for its effective hash).
-	if _, err := BaselineTrust(cfg, BaselineTrustRequest{Store: store, Loader: bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1))}); err != nil {
-		t.Fatalf("BaselineTrust: %v", err)
-	}
+	// A human accepted the v1 content (records its hash).
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("v1 body"), ""))
 	gate := (&contentGate{cfg: cfg, store: store, registry: reg}).allow
 
-	// v1 stays exposed (baselined).
+	// v1 stays exposed (accepted at this exact hash).
 	l1 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
 	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
 
-	// A post-baseline content swap → new hash ∉ baseline, no grant → withheld.
+	// An upstream content swap → new hash, the acceptance no longer matches →
+	// pending → withheld.
 	v2 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
@@ -150,7 +150,7 @@ func TestExposureGate_BaselineInterplay(t *testing.T) {
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
 	// An explicit `ctxloom trust` of the new version re-exposes it.
-	require.NoError(t, store.AddGrant(trustRepo, "tooling#fragments/solid", fragHash("v2 body"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "tooling#fragments/solid", fragHash("v2 body"), ""))
 	got2, err := l2.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v2 body", got2.Content)
@@ -176,13 +176,14 @@ func TestExposureGate_FailClosed(t *testing.T) {
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "denyAll must withhold even a would-be-trusted item, got %v", err)
 }
 
-// TestExposureGate_FullPath_BaselineRunsAndBlacklistWithholds drives the REAL
+// TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds drives the REAL
 // exposure path (no injected loader): AssembleContext → exposureLoader →
-// newContentGate. It proves (a) the baseline auto-runs on this entrypoint so
-// pre-existing local content stays exposed (follow-up #4), and (b) a blacklisted
-// item is withheld while its sibling is not — all on a virtualized fs (no OS
-// pollution), proving cfg.FS() threading.
-func TestExposureGate_FullPath_BaselineRunsAndBlacklistWithholds(t *testing.T) {
+// newContentGate. It proves (a) project-local content is exposed via the
+// first-party exemption with NO prior trust state (a fresh store — no baseline
+// exists in the three-state model), and (b) a rejected item is withheld while
+// its sibling is not — all on a virtualized fs (no OS pollution), proving
+// cfg.FS() threading.
+func TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
@@ -203,7 +204,7 @@ fragments:
 	cfg, err := config.Load(config.WithFS(fs), config.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	// Blacklist one local fragment (beats the local auto-allow).
+	// Reject one local fragment (rejection beats the local exemption).
 	if _, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked", FS: fs}); err != nil {
 		t.Fatalf("SetBlacklist: %v", err)
 	}
@@ -212,18 +213,13 @@ fragments:
 		Fragments: []string{"dev#fragments/keep", "dev#fragments/blocked"},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, res.Context, "KEEP-MARKER", "trusted local sibling must be present")
-	assert.NotContains(t, res.Context, "BLOCKED-MARKER", "blacklisted local fragment must be withheld")
-
-	// The gate ran the baseline on this entrypoint (marker persisted to memfs).
-	reread, err := trust.New(paths.TrustPath(appDir), trust.WithFS(fs))
-	require.NoError(t, err)
-	assert.True(t, reread.IsBaselined(), "baseline must have run via the exposure gate")
+	assert.Contains(t, res.Context, "KEEP-MARKER", "local sibling must be present (first-party exemption, no review state needed)")
+	assert.NotContains(t, res.Context, "BLOCKED-MARKER", "rejected local fragment must be withheld")
 }
 
 // TestExposureGate_SessionStartRegen_Withholds proves the SessionStart regen
 // entrypoint (ApplyHooks RegenerateContext → regenerateContext → exposureLoader)
-// withholds a blacklisted fragment from the injected context file while keeping
+// withholds a rejected fragment from the injected context file while keeping
 // its sibling.
 func TestExposureGate_SessionStartRegen_Withholds(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -275,6 +271,6 @@ fragments:
 
 	data, err := os.ReadFile(filepath.Join(tmpDir, agent.SCMContextSubdir, result.ContextHash+".md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "KEEP-MARKER", "trusted sibling must be in the regenerated context")
-	assert.NotContains(t, string(data), "BLOCKED-MARKER", "blacklisted fragment must be withheld from SessionStart regen")
+	assert.Contains(t, string(data), "KEEP-MARKER", "the local sibling must be in the regenerated context")
+	assert.NotContains(t, string(data), "BLOCKED-MARKER", "the rejected fragment must be withheld from SessionStart regen")
 }

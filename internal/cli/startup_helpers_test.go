@@ -53,9 +53,9 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 func TestPrintConfigWarnings_EmitsPrefixedLinePerWarning(t *testing.T) {
 	var buf bytes.Buffer
 
-	printConfigWarnings(&buf, []string{
-		"config.yaml is malformed: yaml: line 3: mapping values are not allowed",
-		"profile \"dev\" failed schema validation",
+	printConfigWarnings(&buf, []config.Warning{
+		{Kind: config.WarnKindParse, Text: "config.yaml is malformed: yaml: line 3: mapping values are not allowed"},
+		{Kind: config.WarnKindValidate, Text: "profile \"dev\" failed schema validation"},
 	})
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")

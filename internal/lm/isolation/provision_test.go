@@ -82,3 +82,53 @@ func TestContainerConfigOverlay_ShadowsManagedPaths(t *testing.T) {
 	assert.True(t, targets[filepath.Join("/proj", ".claude")], ".claude shadowed")
 	assert.True(t, targets[filepath.Join("/proj", ".ctxloom/cache")], ".ctxloom/cache shadowed")
 }
+
+// TestContainerConfigOverlay_SeedsFromProject: each overlay scratch dir starts
+// as a COPY of the project's corresponding managed-config directory — the
+// engine sees the user's existing commands/settings instead of an empty shadow,
+// while writes still land in scratch. An overlay dir absent from the project
+// (the fresh-project case) seeds nothing and still mounts.
+func TestContainerConfigOverlay_SeedsFromProject(t *testing.T) {
+	proj := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".claude", "commands"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".claude", "settings.json"), []byte(`{"user":true}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(proj, ".claude", "commands", "mine.md"), []byte("hand-written"), 0o644))
+	// .ctxloom/cache deliberately absent from the project.
+
+	root := t.TempDir()
+	mounts, err := containerConfigOverlay(proj, root, defaultOverlayDirs)
+	require.NoError(t, err)
+	require.Len(t, mounts, 2)
+
+	seeded, err := os.ReadFile(filepath.Join(mounts[0].Host, "settings.json"))
+	require.NoError(t, err)
+	assert.Equal(t, `{"user":true}`, string(seeded), "top-level file seeded into the overlay")
+	nested, err := os.ReadFile(filepath.Join(mounts[0].Host, "commands", "mine.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "hand-written", string(nested), "nested user-authored content seeded")
+
+	entries, err := os.ReadDir(mounts[1].Host)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "absent project dir seeds an empty overlay")
+}
+
+// TestHostTerminalEnv_ForwardsOnlySetVars: the host's TERM/COLORTERM cross into
+// the container run env verbatim; unset vars are omitted so the image default
+// applies. Nothing else is ever forwarded here.
+func TestHostTerminalEnv_ForwardsOnlySetVars(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      map[string]string
+		expected []string
+	}{
+		{"both set", map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}, []string{"TERM=xterm-256color", "COLORTERM=truecolor"}},
+		{"term only", map[string]string{"TERM": "screen"}, []string{"TERM=screen"}},
+		{"none set", map[string]string{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hostTerminalEnv(func(k string) string { return tt.env[k] })
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}

@@ -1135,7 +1135,8 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
 		assert.Len(t, cfg.Warnings, 1)
-		assert.Contains(t, cfg.Warnings[0], "failed to parse config")
+		assert.Contains(t, cfg.Warnings[0].Text, "failed to parse config")
+		assert.Equal(t, WarnKindParse, cfg.Warnings[0].Kind, "parse failures carry the parse kind so the strict gate can classify them")
 	})
 }
 
@@ -2199,7 +2200,8 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 	assert.NotNil(t, cfg)
 	assert.NotEmpty(t, cfg.Warnings)
 	// Schema validation catches parse errors first
-	assert.Contains(t, cfg.Warnings[0], "config validation warning")
+	assert.Contains(t, cfg.Warnings[0].Text, "config validation warning")
+	assert.Equal(t, WarnKindValidate, cfg.Warnings[0].Kind, "schema failures carry the validate kind so the strict gate can classify them")
 }
 
 func TestResilientStartup_NonExistentProfile(t *testing.T) {

@@ -9,7 +9,7 @@ before:
     # the deliberately-retained pre-split genproto monolith pin (see go.mod),
     # rewriting go.mod/go.sum mid-release. download only hydrates the cache.
     - go mod download
-    - go run ./scripts/genman
+    - go run ./scripts/gendocs --man man/man1
 
 builds:
   # Standard build - includes memory and vectors (no CGO required)

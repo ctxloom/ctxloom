@@ -22,7 +22,7 @@ Registry:
   ctxloom remote add <name> <url>        Register a remote
   ctxloom remote rm <name>               Remove a remote
   ctxloom remote default <name>          Set the default remote
-  ctxloom remote trust <name>            Auto-apply this remote's bundle changes
+  ctxloom remote trust <name>            Trust a source (its content is exposed unreviewed)
   ctxloom remote untrust <name>          Require review for this remote again
 
 Discovery:
@@ -149,23 +149,48 @@ var remoteListCmd = &cobra.Command{
 	},
 }
 
+// remoteTrustYes skips the interactive confirmation on `remote trust`.
+var remoteTrustYes bool
+
 var remoteTrustCmd = &cobra.Command{
 	Use:   "trust <name>",
-	Short: "Trust a remote so its bundle changes auto-apply without review",
-	Long: `Mark a remote as trusted. Bundle changes from a trusted remote are applied
-automatically during sync, without surfacing for review. Any changes currently
-pending from this remote are approved.
+	Short: "Trust a remote as a source: everything it publishes reaches the agent unreviewed",
+	Long: `Add a remote to the trusted-sources set. Every item a trusted source
+publishes — including all future updates — is exposed to the agent without
+per-item review. Content from an untrusted remote stays pending (withheld)
+until a human accepts it; its staged bundle changes likewise stay pending
+until approved.
+
+Trusting a source does not touch per-item review states: an item you rejected
+stays rejected even when its source is trusted.
 
 Revoke with 'ctxloom remote untrust <name>'.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !confirmRemoteTrust(args[0]) {
+			fmt.Fprintln(cmd.OutOrStdout(), "Aborted; remote unchanged.")
+			return nil
+		}
 		return setRemoteTrust(cmd, args[0], true)
 	},
 }
 
+// confirmRemoteTrust asks the user to confirm the consequence of trusting a
+// source. Only an interactive terminal is prompted (scripts/CI keep working);
+// --yes skips the prompt explicitly. Anything but an explicit yes — including
+// a read error — aborts (fail closed on the mutation).
+func confirmRemoteTrust(name string) bool {
+	if remoteTrustYes || !isInteractiveTerminal() {
+		return true
+	}
+	yes, err := promptYesNo(fmt.Sprintf(
+		"Trusting %q exposes everything it publishes — including future updates — to the agent without review. Continue? [y/N] ", name))
+	return err == nil && yes
+}
+
 var remoteUntrustCmd = &cobra.Command{
 	Use:   "untrust <name>",
-	Short: "Revoke trust from a remote so its changes require review again",
+	Short: "Remove a remote from the trusted-sources set so its content is reviewed again",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return setRemoteTrust(cmd, args[0], false)
@@ -306,6 +331,9 @@ func init() {
 	remoteCmd.AddCommand(remotePullCmd)
 	remoteCmd.AddCommand(remoteTrustCmd)
 	remoteCmd.AddCommand(remoteUntrustCmd)
+
+	remoteTrustCmd.Flags().BoolVarP(&remoteTrustYes, "yes", "y", false,
+		"Skip the confirmation prompt")
 
 	remoteAddCmd.Flags().StringVar(&remoteAddForge, "forge", "",
 		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")

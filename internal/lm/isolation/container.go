@@ -13,6 +13,7 @@ import (
 	"time"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Default container-policy parameters. The image is the REQUIRED agent image: the
@@ -21,9 +22,12 @@ import (
 // The binary/home/socket-dir are the in-container conventions the minimal image
 // (and the future production image) must honour.
 const (
-	defaultContainerImage     = "ctxloom-agent:latest"
-	defaultContainerBinary    = "/usr/local/bin/ctxloom"
-	defaultContainerHome      = "/root"
+	defaultContainerImage  = "ctxloom-agent:latest"
+	defaultContainerBinary = "/usr/local/bin/ctxloom"
+	// defaultContainerHome is the ctxloom user's home baked into the agent
+	// images (the entrypoint remaps that user to the launching uid/gid and
+	// hands it this home). Auth credential mounts land under it.
+	defaultContainerHome      = "/home/ctxloom"
 	defaultContainerSocketDir = "/run/ctxloom/plugin"
 )
 
@@ -148,7 +152,7 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 		dir:         projectDir,
 		scratchRoot: sc.root,
 		socketDir:   sc.socketDir,
-		extraEnv:    sc.auth.env,
+		extraEnv:    sc.runEnv(),
 		extraMounts: append(append([]Mount(nil), sc.auth.mounts...), overlays...),
 		authMode:    sc.auth.mode,
 		agentID:     agentID,
@@ -157,12 +161,22 @@ func (c Container) PrepareWorkspace(ctx context.Context, projectDir, agentID str
 
 // containerScratch is the host-side scratch every container run needs regardless
 // of its workspace: the temp root removed on Cleanup, the `sock` subdir go-plugin
-// creates the unix-socket dir under (bind-mounted into the container), and the
-// resolved engine auth (env passthrough or read-only credential mounts).
+// creates the unix-socket dir under (bind-mounted into the container), the
+// resolved engine auth (env passthrough or read-only credential mounts), and the
+// host terminal description forwarded into the run.
 type containerScratch struct {
 	root      string
 	socketDir string
 	auth      containerAuth
+	termEnv   []string
+}
+
+// runEnv composes the per-run env threaded into the container spec: the scoped
+// auth passthrough plus the host terminal description (TERM/COLORTERM), which
+// the curated handshake env deliberately drops. Returns a fresh slice so
+// callers never alias the scratch's fields.
+func (sc containerScratch) runEnv() []string {
+	return append(append([]string(nil), sc.auth.env...), sc.termEnv...)
 }
 
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
@@ -205,7 +219,24 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container socket scratch: %w", err)
 	}
-	return containerScratch{root: root, socketDir: socketDir, auth: auth}, nil
+	return containerScratch{root: root, socketDir: socketDir, auth: auth, termEnv: hostTerminalEnv(os.Getenv)}, nil
+}
+
+// hostTerminalEnv forwards the host's terminal description into the container
+// (a docker/podman -e overrides the image ENV): the curated handshake env
+// (containerHandshakeEnv) deliberately drops the host environment, which would
+// leave the engine's TERM at the image default — or `dumb` — and strip
+// color/cursor control from every CLI it spawns. TERM/COLORTERM carry no
+// secrets and describe the terminal the user is actually watching, so they
+// cross verbatim; an unset var is omitted and the image default applies.
+func hostTerminalEnv(getenv func(string) string) []string {
+	var out []string
+	for _, key := range []string{"TERM", "COLORTERM"} {
+		if v := getenv(key); v != "" {
+			out = append(out, key+"="+v)
+		}
+	}
+	return out
 }
 
 // SpawnClient launches the plugin inside a container for the prepared workspace
@@ -246,11 +277,13 @@ func (c Container) spawnInContainer(backendName, label string, verbosity int, ag
 
 // containerConfigOverlay builds one bind mount per managed-config directory
 // (the profile's overlayDirs — project-relative DIRECTORIES the engine's
-// managed-config writers target under the run's cwd), backed by a fresh scratch
-// dir under scratchRoot, whose container target shadows the same path inside the
-// bind-mounted project. For a container top-level run the project is
-// bind-mounted rw at its identical path, so these writes would otherwise land in
-// the HOST project; the overlay keeps it clean (writes go to scratch).
+// managed-config writers target under the run's cwd), backed by a scratch dir
+// under scratchRoot SEEDED from the project's existing content, whose container
+// target shadows the same path inside the bind-mounted project. For a container
+// top-level run the project is bind-mounted rw at its identical path, so these
+// writes would otherwise land in the HOST project; the overlay keeps it clean
+// (writes go to scratch) while the seed keeps the engine's view complete
+// (user-authored commands/settings are visible, not hidden by an empty shadow).
 // Directories only — a single-file overlay would break the atomic write+rename
 // the writers use, which is why the project-root file .mcp.json is deliberately
 // NOT overlaid (flagged residue, see the Container doc).
@@ -261,9 +294,28 @@ func containerConfigOverlay(projectDir, scratchRoot string, overlayDirs []string
 		if err := os.MkdirAll(host, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay scratch: %w", err)
 		}
+		seedOverlay(filepath.Join(projectDir, rel), host)
 		mounts = append(mounts, Mount{Host: host, Container: filepath.Join(projectDir, rel)})
 	}
 	return mounts, nil
+}
+
+// seedOverlay copies the project's managed-config directory into its fresh
+// scratch overlay, so the container starts from the project's existing config
+// instead of an empty shadow. The in-container managed writers then reconcile
+// their own managed subset on top exactly as they do on the host (settings
+// merge, manifest-tracked commands, context append) — user-authored content
+// survives, and every write still lands in scratch, never the host. Best-effort
+// per CLAUDE.md fault tolerance: an absent source is the fresh-project case,
+// and a copy failure degrades to a partial (or empty) overlay with a warning —
+// the run is never blocked.
+func seedOverlay(src, dst string) {
+	if info, err := os.Stat(src); err != nil || !info.IsDir() {
+		return
+	}
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		clidiag.Warn("ctxloom", "container overlay seed from %s incomplete: %v", src, err)
+	}
 }
 
 // imagePresent reports whether the required image exists locally (no implicit

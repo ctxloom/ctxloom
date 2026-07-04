@@ -9,7 +9,7 @@ Build context on the fly without creating profile files. Perfect for one-off tas
 Instead of creating a profile YAML file, use command-line flags to assemble context dynamically:
 
 ```bash
-# Using bundles
+# Using fragments
 ctxloom run -f go-development -f testing-patterns "help me write tests"
 
 # Using tags
@@ -26,7 +26,7 @@ ctxloom run -f security -t best-practices "review this code"
 Instead of creating `profiles/go-dev.yaml`:
 
 ```bash
-# Ad-hoc "profile" with multiple bundles
+# Ad-hoc "profile" with multiple fragments
 ctxloom run \
   -f go-development \
   -f testing-patterns \

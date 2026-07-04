@@ -23,7 +23,7 @@ The alternative is worse: `/clear` then manually copy-paste chunks of your chat 
 2. **External processing** - ctxloom reads the raw session transcript from disk (JSONL files)
 3. **Separate LLM** - A dedicated model (configurable, default: Haiku) distills the content
 4. **Controlled compression** - Extractive strategy preserves decisions, code, and next steps
-5. **Persistent storage** - Distilled summaries are saved to `.ctxloom/memory/`
+5. **Persistent storage** - Distilled summaries are saved to `.ctxloom/sessions/`
 6. **Reliable recovery** - Sessions are read from disk at request time, so the previous session is always findable
 
 The workflow is simple: when you hit context limits, `/clear` and `/recover`. No timing anxiety.
@@ -111,17 +111,20 @@ The compaction process:
    - Context established
    - Progress achieved
    - Next steps planned
-4. **Store** - Result saved to `.ctxloom/memory/distilled/`
+4. **Store** - Result saved to `.ctxloom/sessions/` in the project
 
 The distilled output is typically 10-20% of the original size while preserving actionable information.
 
 ### Storage
 
-Memory is stored in:
+Distilled session summaries live in the project under `.ctxloom/sessions/`.
+Sessions themselves are tracked in a harp-keyed index in your home directory:
+
 ```
-.ctxloom/memory/
-└── distilled/           # Compacted session summaries
-    └── session-id.md
+~/.ctxloom/sessions/
+├── index.yaml               # Session index (harp name → session metadata)
+└── <harp-name>/
+    └── essence.md           # Distilled essence for that session
 ```
 
 ### Cross-Agent Workflows
@@ -157,8 +160,7 @@ Session memory provides these MCP tools:
 | Tool | Description |
 |------|-------------|
 | `compact_session` | Compact current or specified session |
-| `list_sessions` | List available sessions with compaction status |
-| `load_session` | Distill and load a specific session by ID |
+| `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
 | `recover_session` | Recover the most-recent session's context after `/clear` |
 | `get_previous_session` | Get the previous session for this project (read-time) |
 
@@ -174,8 +176,11 @@ Session's getting long, compact it
 ### Example: Load Specific Session
 
 ```
-Use load_session to load session abc123def456
+Load session swift-amber-falcon
 ```
+
+`load_session` accepts either a backend session ID (UUID) or a harp name; harp
+names are listed in the `ctxloom://sessions/recent` resource.
 
 ### Example: Recover Previous Session
 
@@ -193,14 +198,15 @@ Show me recent sessions
 
 ## Advanced Configuration
 
-Compaction settings live under `llm.compaction`:
+The compaction/distillation model is the `fast` role in `llm.defaults`; the
+chunk size lives under `config`:
 
 ```yaml
 llm:
-  compaction:
-    llm: claude-code   # LLM used for distillation
-    model: haiku       # Model to use (fast + cheap)
-    chunks: 8000       # Tokens per chunk
+  defaults:
+    fast: claude-fast      # config label used for compaction/distillation
+config:
+  compaction_chunks: 8000  # target tokens per compaction chunk
 ```
 
 ## CLI Commands
@@ -220,6 +226,24 @@ ctxloom memory list
 ```
 
 Shows all sessions with their compaction status.
+
+### Managing the Session Index
+
+Sessions are harp-named (e.g. `swift-amber-falcon`) and recorded in the index
+at `~/.ctxloom/sessions/index.yaml` automatically once launched with
+`ctxloom run`. The `ctxloom session` family reads and manages that index:
+
+```bash
+ctxloom session list                    # Sessions for the current project
+ctxloom session list --all              # Sessions for every project
+ctxloom session show <harp>             # Print a session's distilled essence
+ctxloom session rename <old> <new>      # Rename an index entry
+ctxloom session forget <harp>           # Drop an entry (files stay on disk)
+ctxloom session distill <harp>          # Force-distill a session
+```
+
+`session distill` is useful for sessions that ended before auto-compact ran —
+distill first, then load with `load_session` or `ctxloom run --session <harp>`.
 
 ## Best Practices
 
@@ -241,11 +265,11 @@ If recovery can't find the previous session:
 If compaction fails:
 - Check that the LLM is configured correctly
 - Ensure you have API access for the compaction model
-- Try with a smaller `chunk_size` if sessions are very large
+- Try a smaller `config.compaction_chunks` if sessions are very large
 
-### Memory Not Loading on Start
+### Distilled Session Missing
 
-In eager mode, if memory isn't loading:
-- Check `memory.load_on_start` isn't set to `false`
-- Verify a distilled session exists in `.ctxloom/memory/distilled/`
-- Check for errors in session start hooks
+If a session you expect to load has no distilled content:
+- Check `.ctxloom/sessions/` in the project for distilled summaries
+- Run `ctxloom session list` to confirm the session is in the index
+- Force-distill it with `ctxloom session distill <harp>` (for sessions that ended before auto-compact ran)

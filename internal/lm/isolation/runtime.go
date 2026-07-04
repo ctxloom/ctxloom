@@ -54,10 +54,14 @@ type Mount struct {
 }
 
 // Docker launches containers via the docker CLI. rootless records whether the
-// daemon is rootless: under rootless docker the container's root user maps to the
-// invoking host user (so the plugin's unix socket on a bind mount is owned by —
-// and connectable from — the host user WITHOUT --user); under a rootful daemon we
-// pass --user <uid>:<gid> so the socket lands host-user-owned instead of root's.
+// daemon is rootless — the axis that decides the run's identity mapping:
+// under rootless docker the container's ROOT user maps to the invoking host
+// user (the only uid that does — a non-root container user would map to a
+// subuid and wreck bind-mount ownership), so the run stays container-root and
+// no PUID is passed. Under a rootful daemon the container starts as root and
+// PUID/PGID tell the image entrypoint to remap its `ctxloom` user to the
+// launching uid/gid and drop to it — named non-root identity with correct
+// host-side ownership (socket and project files land launching-user-owned).
 type Docker struct{ rootless bool }
 
 // Name identifies the runtime.
@@ -73,12 +77,22 @@ func (Docker) Available() bool { return runtimeReachable("docker") }
 func (d Docker) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	if !d.rootless {
-		// Rootful daemon: run as the host user so the plugin's bind-mounted unix
-		// socket is host-user-owned (connectable). Rootless already maps root→host.
-		args = append(args, "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+		// Rootful daemon: the entrypoint remaps ctxloom to the launching
+		// uid/gid and drops privileges. Rootless already maps root→host user.
+		args = append(args, identityEnvArgs()...)
 	}
 	args = append(args, renderRunSpec(spec)...)
 	return args
+}
+
+// identityEnvArgs renders the PUID/PGID env that tells the agent image's
+// entrypoint to remap its generic ctxloom user to the launching uid/gid and
+// drop privileges to it.
+func identityEnvArgs() []string {
+	return []string{
+		"-e", fmt.Sprintf("PUID=%d", os.Getuid()),
+		"-e", fmt.Sprintf("PGID=%d", os.Getgid()),
+	}
 }
 
 // RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
@@ -86,11 +100,14 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 func (Docker) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
 
 // Podman launches containers via the podman CLI. podman's run/rm argv is
-// docker-CLI-compatible; podman runs rootless by default and maps container root
-// to the host user like rootless docker, so it never needs --user here. (Built
-// but not daemon-tested on this host — no podman installed; the argv is the only
-// difference from Docker.)
-type Podman struct{}
+// docker-CLI-compatible. rootless records whether the engine is rootless:
+// rootless podman needs --userns=keep-id so the launching uid maps to ITSELF
+// in-container instead of a subuid — then the entrypoint's PUID/PGID remap
+// yields a run that is genuinely non-root in-container AND correctly owned on
+// the host, something rootless docker cannot express. Rootful podman behaves
+// like rootful docker (identity mapping; entrypoint remap only). (Built but
+// not daemon-tested on this host — no podman installed.)
+type Podman struct{ rootless bool }
 
 // Name identifies the runtime.
 func (Podman) Name() string { return "podman" }
@@ -101,13 +118,38 @@ func (Podman) Binary() string { return "podman" }
 // Available reports podman CLI on PATH + a reachable engine.
 func (Podman) Available() bool { return runtimeReachable("podman") }
 
-// RunArgs renders the spec into a `podman run` argv (docker-compatible).
-func (Podman) RunArgs(spec RunSpec) []string {
-	return append([]string{"run", "--rm", "--name", spec.Name}, renderRunSpec(spec)...)
+// RunArgs renders the spec into a `podman run` argv (docker-compatible). Both
+// modes start as container-root and let the image entrypoint remap ctxloom to
+// the launching uid/gid (PUID/PGID) and drop to it; rootless additionally
+// needs keep-id so that uid maps to itself on the host instead of a subuid.
+func (p Podman) RunArgs(spec RunSpec) []string {
+	args := []string{"run", "--rm", "--name", spec.Name}
+	if p.rootless {
+		// keep-id's DEFAULT user is the host uid (not root), which couldn't
+		// remap; enter as namespaced root so the entrypoint can usermod+drop.
+		args = append(args, "--userns=keep-id", "--user", "0:0")
+	}
+	args = append(args, identityEnvArgs()...)
+	return append(args, renderRunSpec(spec)...)
 }
 
 // RemoveArgs force-removes the container.
 func (Podman) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
+
+// podmanIsRootless reports whether the podman engine is rootless (`podman info`
+// security flag). Best-effort: on any error it returns true — podman is
+// rootless by default, and keep-id under a rootful engine errors loudly at
+// launch (degrading the run) while a missing keep-id under rootless silently
+// wrecks bind-mount ownership, the worse failure.
+func podmanIsRootless() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.Security.Rootless}}").Output()
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(string(out)) != "false"
+}
 
 // Host is the non-container runtime: the plugin runs as a bare host subprocess
 // (the None and — Phase 2 — worktree policies). It satisfies ContainerRuntime so
@@ -245,7 +287,7 @@ func SelectRuntime(prefer string) ContainerRuntime {
 	newDocker := func() ContainerRuntime { return Docker{rootless: dockerIsRootless()} }
 	byName := map[string]func() ContainerRuntime{
 		"docker": newDocker,
-		"podman": func() ContainerRuntime { return Podman{} },
+		"podman": func() ContainerRuntime { return Podman{rootless: podmanIsRootless()} },
 	}
 	if prefer != "" {
 		if mk, ok := byName[prefer]; ok {

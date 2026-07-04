@@ -390,9 +390,15 @@ install: build-compressed
 uninstall:
     rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
-# Generate man pages
+# Generate CLI docs (man pages + website markdown) from the command tree.
+# The cobra command definitions in internal/cli are the single source of
+# truth; CI fails on drift (gen-docs-check in justfile.container).
+gen-docs:
+    go run ./scripts/gendocs --man man/man1 --markdown website/src/content/docs/reference/cli
+
+# Generate man pages only (the --man half of gen-docs)
 man:
-    go run ./scripts/genman
+    go run ./scripts/gendocs --man man/man1
 
 # Install man pages (Linux/macOS)
 man-install: man
@@ -506,9 +512,22 @@ container-build-claude: container-build-base
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
         -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
+    # Companions mirrored from the host (the agent stage's COPY companions/
+    # requires the dir even when empty; a missing companion just warns).
+    mkdir -p "$ctx/companions"
+    for b in taskloom ltk reprise; do
+        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
+        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
+    done
+    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
     cp container/production/Containerfile-claude-code "$ctx/Containerfile"
+    # Stamp the provenance digest computed by the very binary being baked, so a
+    # later `ctxloom run` with that same binary sees the image as current.
+    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
     {{container_cmd}} build -t ctxloom-agent:latest -t ctxloom-agent-claude:latest \
         --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
+        --build-arg CTXLOOM_VERSION={{version}} \
+        --build-arg CTXLOOM_PROVENANCE="$prov" \
         -f "$ctx/Containerfile" "$ctx"
 
 # Build the shared agent-image BASE stage (ctxloom-agent-base:latest): the distro
@@ -538,9 +557,22 @@ container-build-kiro: container-build-base
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
         -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
+    # Companions mirrored from the host (the agent stage's COPY companions/
+    # requires the dir even when empty; a missing companion just warns).
+    mkdir -p "$ctx/companions"
+    for b in taskloom ltk reprise; do
+        if p=$(command -v "$b"); then cp "$p" "$ctx/companions/$b"; \
+        else echo "warning: companion $b not on PATH; image builds without it" >&2; fi
+    done
+    cp container/entrypoint.sh "$ctx/ctxloom-entrypoint"
     cp container/production/Containerfile-kiro "$ctx/Containerfile"
+    # Stamp the provenance digest computed by the very binary being baked, so a
+    # later `ctxloom run` with that same binary sees the image as current.
+    prov=$("$ctx/ctxloom" container provenance 2>/dev/null || echo "")
     {{container_cmd}} build -t ctxloom-agent-kiro:latest \
         --build-arg BASE_IMAGE=ctxloom-agent-base:latest \
+        --build-arg CTXLOOM_VERSION={{version}} \
+        --build-arg CTXLOOM_PROVENANCE="$prov" \
         -f "$ctx/Containerfile" "$ctx"
 
 # List all ctxloom container images
@@ -640,3 +672,8 @@ dev-shell: dev-image
         -w /workspace \
         {{devcontainer_image}}:latest \
         bash
+
+# TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
+# chain — proto artifacts are already generated on disk. Remove after use.
+test-acceptance-nobuild:
+    go test -tags "acceptance integration" -count=1 ./tests/acceptance/...

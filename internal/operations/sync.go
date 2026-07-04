@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // SyncDependenciesRequest contains parameters for syncing dependencies.
@@ -217,12 +218,16 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 
 	// Apply hooks whenever there were remote references, so MCP servers from
 	// bundles get registered even if every dependency was already installed.
+	// A wholesale apply failure is fatal-class in strict mode (hook/MCP/
+	// settings apply — per-backend partial failures are already instrumented
+	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
 		if _, err := syncHooksStep(ctx, cfg, ApplyHooksRequest{
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {
-			clidiag.Warn("ctxloom", "failed to apply hooks after sync: %v", err)
+			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+				"failed to apply hooks after sync: %v", err)
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}

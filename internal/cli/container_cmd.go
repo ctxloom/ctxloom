@@ -100,6 +100,24 @@ isolation_images in config — those are run as-is and never built.`,
 // testable with an injected report.
 var containerDiagnose = isolation.Diagnose
 
+// containerProvenanceCmd prints the content digest of the ctxloom + companion
+// binaries THIS ctxloom would bake into an agent image — the value stamped as
+// the image's ctxloom.provenance label. Hidden plumbing: the ahead-of-time
+// `container-build-*` just recipes run the freshly-built binary through it to
+// stamp a label matching what they bake, so a later run doesn't see the image
+// as stale. Also handy for debugging a rebuild ("does the image's label match
+// `ctxloom container provenance`?").
+var containerProvenanceCmd = &cobra.Command{
+	Use:    "provenance",
+	Short:  "Print the content digest of the binaries baked into agent images",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest())
+		return nil
+	},
+}
+
 // toolingPrompt is the instruction preamble `container tooling`
 // emits above the collected bundle declarations: locate/scaffold the base
 // Containerfile, propose a diff, get EXPLICIT per-change user approval,
@@ -255,6 +273,9 @@ func renderContainerCheck(out io.Writer, backend string, d isolation.Diagnosis) 
 		presence := "absent"
 		if d.ImagePresent {
 			presence = "present"
+			if d.ImageStale {
+				presence = "present (stale — rebuilds next run)"
+			}
 		}
 		w.Printf("  agent image:     %s (%s)\n", d.Image, presence)
 	}
@@ -281,6 +302,7 @@ func init() {
 	containerCmd.AddCommand(containerBuildCmd)
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
+	containerCmd.AddCommand(containerProvenanceCmd)
 	rootCmd.AddCommand(containerCmd)
 	// Top-level on purpose: tooling is the general bundle-declaration
 	// collector; the container image is (today) where declarations land.

@@ -17,6 +17,7 @@ require (
 	github.com/joshgarnett/agent-client-protocol-go v0.0.0-20250902121345-69cbaf95b89e
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/afero v1.15.0
@@ -69,7 +70,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

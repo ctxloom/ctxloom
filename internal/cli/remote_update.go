@@ -546,8 +546,8 @@ func reportBundleIssues(out io.Writer, analysis *operations.BundleAnalysis) {
 		for _, orphan := range analysis.Orphans {
 			fmt.Fprintf(out, "  - %s\n", orphan)
 		}
-		fmt.Fprintln(out, "\nTo remove orphaned bundles, delete them manually from .ctxloom/bundles/")
-		fmt.Fprintln(out, "Then run 'ctxloom remote pull' to update the lockfile.")
+		fmt.Fprintln(out, "\nOrphaned bundles are lockfile references (nothing is materialized on disk).")
+		fmt.Fprintln(out, "To remove one, delete its entry from .ctxloom/lock.yaml.")
 	}
 }
 

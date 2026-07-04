@@ -129,7 +129,7 @@ func SplitPromptVersion(ref string) (canonical, version string) {
 // variables) — so the selector is the profile counterpart to FragmentSelector /
 // PromptSelector, keeping the bundle-item grammar in one place. Unlike those,
 // there is no trust kind for profiles: a profile definition is orchestration/
-// config, never baselined and never gated. Its constituent leaves still gate at
+// config, carrying no review state and never gated. Its constituent leaves still gate at
 // their own chokes (fragments/skills at content assembly, mcp/hooks at the exec
 // choke) — only the profile definition itself is ungated.
 const ProfileSelector = "#profiles/"

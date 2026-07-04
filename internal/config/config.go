@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/resources"
@@ -91,7 +92,7 @@ type Config struct {
 	AppRoot  string       // Project root (parent of .ctxloom directory)
 	AppDir   string       // Full path to the .ctxloom directory
 	Source   ConfigSource // Where the configuration was loaded from
-	Warnings []string     // Non-fatal warnings collected during load
+	Warnings []Warning    // Kind-tagged warnings collected during load
 
 	// PendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
@@ -728,11 +729,10 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 			return nil
 		}
 		// An existing-but-unreadable config (EACCES, a directory in its place, a
-		// transient I/O error) must not block startup any more than a malformed one
-		// does: warn and continue with the default-overlaid empty config. CLAUDE.md
-		// is explicit that missing/unreadable files produce warnings, never a hard
-		// stop — and the sibling parse/validate branches below already degrade.
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to read config at %s: %v", configPath, err))
+		// transient I/O error) degrades to the default-overlaid empty config with
+		// a kind-tagged warning; the strict startup gate (fail-loudly) turns it
+		// into a fatal finding, while --degraded launches anyway.
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindRead, Text: fmt.Sprintf("failed to read config at %s: %v", configPath, err)})
 		zap.L().Warn("config_read_warning", zap.String("path", configPath), zap.Error(err))
 		return nil
 	}
@@ -748,11 +748,18 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 		cfg.PendingUpgrade = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
 	}
+	// A lossy upgrade (a dropped user-set value) is collected by the pipeline
+	// rather than printed inline, so the loader can tag it with its kind and
+	// the strict startup gate can abort on it (fail-loudly).
+	for _, lost := range drainMigrationWarnings() {
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindMigrationLossy, Text: lost})
+		zap.L().Warn("config_migration_lossy", zap.String("path", configPath), zap.String("warning", lost))
+	}
 
 	// Validate against schema before parsing - warn but continue on failure
 	if validator != nil {
 		if err := validator.ValidateBytes(data); err != nil {
-			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("config validation warning at %s: %v", configPath, err))
+			cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(err))
 		}
 	}
@@ -764,7 +771,7 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	// credential. yaml.Unmarshal preserves key case and matches ParseConfig (the
 	// init path), so both entry points decode a config identically.
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("failed to parse config at %s: %v", configPath, err))
+		cfg.Warnings = append(cfg.Warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse config at %s: %v", configPath, err)})
 		zap.L().Warn("config_parse_warning", zap.String("path", configPath), zap.Error(err))
 		// Return nil - we have a valid (partially loaded) config with warnings
 		return nil
@@ -980,7 +987,12 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
 	for name, err := range failures {
-		clidiag.WarnOnce("ctxloom", "failed to load remote bundle %q from cache: %v", name, err)
+		// A lockfile-active bundle that fails to load is fatal-class in strict
+		// mode (the user pinned it; content silently missing from a session is
+		// the failure fail-loudly exists to catch). Warns and continues in
+		// degraded mode.
+		strictness.FailOnce(strictness.ClassBundle, "ctxloom remote pull (or remove the bundle from its profiles)",
+			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
@@ -991,7 +1003,10 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		}
 		b, perr := bundles.ParseBundle(data)
 		if perr != nil {
-			clidiag.WarnOnce("ctxloom", "failed to parse remote bundle %q: %v", canonical, perr)
+			// Same fatal class as the read failure above: a pinned bundle whose
+			// content cannot be used must not silently vanish from assembly.
+			strictness.FailOnce(strictness.ClassBundle, "fix the bundle at its source, or remove it from its profiles",
+				"failed to parse remote bundle %q: %v", canonical, perr)
 			continue
 		}
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.

@@ -83,15 +83,18 @@ type itemRow struct {
 	Remote      string `json:"remote"`
 	BundleLabel string `json:"bundle_label"`
 	SourceURL   string `json:"source_url,omitempty"`
-	// Trusted and TrustSource are the TR3 effective-trust stamp: whether the
-	// per-item trust cascade currently exposes this item, and which tier decided
-	// it (explicit-grant|bundle|local|remote|blacklist|denylist|default). They
-	// are populated only for --format json (see stampItemTrust); the human
-	// listing is unchanged. An item whose content cannot be resolved/hashed is
-	// stamped conservatively (trusted=false, default) rather than failing the
-	// listing — TR3 is read-only and never enforces here.
+	// Trusted, TrustSource, and State are the effective-trust stamp: whether
+	// the decision function currently exposes this item, which step decided it
+	// (rejected|local|trusted-source|accepted|pending), and the three-state
+	// review rendering (pending|accepted|rejected — exempt allows render
+	// accepted, with TrustSource saying why). They are populated only for
+	// --format json (see stampItemTrust); the human listing is unchanged. An
+	// item whose content cannot be resolved/hashed is stamped conservatively
+	// (trusted=false, pending) rather than failing the listing — the stamp is
+	// read-only and never enforces here.
 	Trusted     bool   `json:"trusted"`
 	TrustSource string `json:"trust_source"`
+	State       string `json:"state"`
 }
 
 // remoteURLMap maps each configured remote's URL to its name (best-effort: a
@@ -211,7 +214,7 @@ func printItemInfos(rows []itemRow, itemType ItemType) {
 	}
 }
 
-// stampItemTrust annotates each row with its effective trust (TR3). It builds a
+// stampItemTrust annotates each row with its effective trust. It builds a
 // single TrustStamper for the whole listing — trust store and remote registry
 // read once, each bundle materialized+hashed once via the shared loader cache —
 // so the content-keyed stamp does not re-fetch per item. Per-item failures are
@@ -223,6 +226,7 @@ func stampItemTrust(cfg *config.Config, itemType ItemType, rows []itemRow) {
 		res := stamper.ForRef(rows[i].Ref)
 		rows[i].Trusted = res.Trusted()
 		rows[i].TrustSource = string(res.Source)
+		rows[i].State = string(res.State())
 	}
 }
 

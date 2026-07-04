@@ -46,7 +46,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
 	ref := cqVersionRef + "@c1#fragments/solid"
 
 	// Inline profile path (the proven baseline).
@@ -81,7 +81,7 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
 	ref := cqVersionRef + "@c1:fragments/solid"
 
 	loaderInline, cfgInline := versionPinnedLoader(t, store, def, versions)

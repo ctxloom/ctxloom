@@ -69,7 +69,7 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 	}
 	store := newTrustStore(t)
 	// Trust the PINNED version's content (its own hash) — `ctxloom trust` on it.
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
 	loader, cfg := versionPinnedLoader(t, store, def, versions)
 	cfg = profileCfg(cfg, "pinned", config.Profile{
 		BundleItems: []string{cqVersionRef + "@c1:fragments/solid"},
@@ -91,7 +91,7 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V1-BODY"), ""))
 	loader, cfg := versionPinnedLoader(t, store, def, versions)
 	cfg = profileCfg(cfg, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: cqVersionRef + "@c1#fragments/solid"}},
@@ -112,7 +112,7 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 		"c1": {Fragments: map[string]bundles.BundleFragment{"solid": {Content: "V1-BODY"}}},
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("DEFAULT-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("DEFAULT-BODY"), ""))
 	loader, cfg := versionPinnedLoader(t, store, def, versions)
 	cfg = profileCfg(cfg, "plain", config.Profile{
 		BundleItems: []string{cqVersionRef + ":fragments/solid"},
@@ -137,8 +137,8 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 		}},
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/alpha", fragHash("ALPHA-V1"), "raw", ""))
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/beta", fragHash("BETA-V1"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/alpha", fragHash("ALPHA-V1"), ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/beta", fragHash("BETA-V1"), ""))
 	loader, cfg := versionPinnedLoader(t, store, def, versions)
 	cfg = profileCfg(cfg, "wholepin", config.Profile{
 		Bundles: []string{cqVersionRef + "@c1"},
@@ -176,7 +176,7 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 
 	// `ctxloom trust` of the pinned version's own hash exposes it (fresh loader so
 	// the version cache + withheld set don't carry the prior decision).
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/solid", fragHash("V2-BODY"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/solid", fragHash("V2-BODY"), ""))
 	loader2, _ := versionPinnedLoader(t, store, def, versions)
 	res2, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Loader: loader2})
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 		// "broken" is intentionally absent ⇒ the fake resolver errors.
 	}
 	store := newTrustStore(t)
-	require.NoError(t, store.AddGrant(trustRepo, "cq#fragments/good", fragHash("GOOD-V1"), "raw", ""))
+	require.NoError(t, store.SetAccepted(trustRepo, "cq#fragments/good", fragHash("GOOD-V1"), ""))
 	loader, cfg := versionPinnedLoader(t, store, def, versions)
 	cfg = profileCfg(cfg, "mixed", config.Profile{
 		BundleItems: []string{

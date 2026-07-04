@@ -504,7 +504,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 	primary, _ := getAvailableEngines()
 	selectedEngine = pickDefaultEngine(selectedEngine, primary)
 
-	if launchDiscovery(cmd, selectedEngine, appDir, interactive) {
+	ranDiscovery := launchDiscovery(cmd, selectedEngine, appDir, interactive)
+
+	// The interview ends with a review session when pending items exist
+	// (trust-simplify slice 2): after the first pull/sync AND the discovery
+	// session (whose installs can add pending items), before the real session
+	// starts. Fault tolerant — a review failure never aborts init.
+	offerInitReview(cmd, interactive)
+
+	if ranDiscovery {
 		return offerSessionRelaunch()
 	}
 	return nil

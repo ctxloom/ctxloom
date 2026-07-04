@@ -2,7 +2,7 @@
 title: "Templating"
 ---
 
-Fragments and prompts support [Mustache](https://mustache.github.io/) templating for dynamic content.
+Fragments and skills support [Mustache](https://mustache.github.io/) templating for dynamic content.
 
 ## Basic Syntax
 
@@ -17,24 +17,9 @@ fragments:
       Team: {{TEAM}}
 ```
 
-## Built-in Variables
-
-These variables are always available:
-
-| Variable | Description |
-|----------|-------------|
-| `CTXLOOM_ROOT` | Project root directory (parent of .ctxloom) |
-| `CTXLOOM_DIR` | Full path to .ctxloom directory |
-
-```yaml
-fragments:
-  paths:
-    content: |
-      Project root: {{CTXLOOM_ROOT}}
-      Config location: {{CTXLOOM_DIR}}
-```
-
 ## Defining Variables
+
+Template data comes entirely from the resolved profile's `variables:` map — there are no built-in variables. Undefined variables render as empty with a warning. (The `CTXLOOM_ROOT` shell environment variable overrides project-root detection; it is not available inside templates.)
 
 ### In Profiles
 
@@ -52,9 +37,10 @@ variables:
 ```yaml
 # .ctxloom/config.yaml
 profiles:
-  quick:
-    variables:
-      MODE: "fast"
+  definitions:
+    quick:
+      variables:
+        MODE: "fast"
 ```
 
 ## Variable Inheritance
@@ -85,26 +71,19 @@ variables:
 Hello, {{name}}!
 ```
 
-### Sections (Conditionals/Lists)
+### Sections (Conditionals)
+
+Profile variables are strings, so a section acts as a presence toggle: any non-empty value enables it, and an unset or empty variable skips it. Lists are not supported, so section iteration is not available.
 
 ```yaml
 variables:
-  FEATURES:
-    - auth
-    - logging
-    - metrics
-  DEBUG: true
+  DEBUG: "true"
 ```
 
 ```mustache
 {{#DEBUG}}
 Debug mode is enabled.
 {{/DEBUG}}
-
-Features:
-{{#FEATURES}}
-- {{.}}
-{{/FEATURES}}
 ```
 
 ### Inverted Sections (Falsy Check)
@@ -158,7 +137,7 @@ content: |
 ```yaml
 # Profile
 variables:
-  USE_DOCKER: true
+  USE_DOCKER: "true"
   CI_PLATFORM: "github"
 
 # Fragment
@@ -174,30 +153,10 @@ content: |
   {{/CI_PLATFORM}}
 ```
 
-### List Iteration
-
-```yaml
-# Profile
-variables:
-  REVIEWERS:
-    - Alice
-    - Bob
-    - Charlie
-
-# Fragment
-content: |
-  ## Code Review
-
-  Reviewers:
-  {{#REVIEWERS}}
-  - {{.}}
-  {{/REVIEWERS}}
-```
-
 ## Best Practices
 
 1. **Use descriptive names** - `PROJECT_NAME` not `pn`
-2. **Document required variables** - Use `variables:` field in fragments
+2. **Document required variables** - Note them in the fragment's `notes:` field
 3. **Provide defaults in profiles** - Avoid undefined variable warnings
 4. **Keep templates simple** - Complex logic belongs in code
 5. **Use sections for optionals** - `{{#VAR}}...{{/VAR}}` handles missing gracefully

@@ -298,9 +298,13 @@ func GetProfile(ctx context.Context, cfg *config.Config, req GetProfileRequest) 
 	if loader == nil {
 		loader = profileLoader(cfg)
 	}
+	// Return the loader's error verbatim: it carries the ErrProfileNotFound
+	// sentinel plus the actionable detail (the remote-pull hint for a
+	// seed-missing bundle profile, the reserved-'#' explanation) that a flat
+	// re-wrap used to discard.
 	profile, err := loader.Load(req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("profile not found: %s", req.Name)
+		return nil, err
 	}
 
 	return &GetProfileResult{
@@ -648,11 +652,11 @@ type SetDefaultProfileResult struct {
 // SetDefaultProfile adds (or, with Unset, removes) a profile from the config
 // defaults list. defaults is a LIST, so multiple defaults may coexist and a
 // default may be a bare local profile name OR a remote ref — both are valid
-// targets for `run`/`weave` when no profile is given. A bare local name is
-// validated against the loader; a reference (canonical URL or ctxloom:local) is
-// accepted as-is, since its target lives in a remote the loader can't resolve
-// synchronously. This is the supported replacement for the default-setting that
-// `install --profile` did, minus the parent-graft.
+// targets for `run`/`weave` when no profile is given. Every added default is
+// checked against the loader; a remote-shaped ref that doesn't resolve yet is
+// accepted with a not-installed warning (pull may not have run), while an
+// unresolvable plain local name is an error. This is the supported replacement
+// for the default-setting that `install --profile` did, minus the parent-graft.
 func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultProfileRequest) (*SetDefaultProfileResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
@@ -661,18 +665,24 @@ func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultPr
 		return nil, fmt.Errorf("unset and exclusive are mutually exclusive")
 	}
 
-	// Validate existence only for a bare local name we're adding: removals must
-	// stay possible even after the underlying profile is gone, and refs point
-	// into remotes the loader cannot resolve here.
+	// Validate existence for any added default, regardless of spelling —
+	// acceptance must not depend on how a ref is written. A target the loader
+	// can't resolve is still accepted WITH a warning when it is remote-shaped
+	// (canonical URL or a "#profiles/" bundle-profile ref: its bundle may
+	// simply not be pulled yet); a plain local name must exist. Removals skip
+	// validation so a default can be unset after its profile is gone.
 	if !req.Unset {
-		if _, err := remote.ParseReference(req.Name); err != nil {
-			loader := req.Loader
-			if loader == nil {
-				loader = profileLoader(cfg)
-			}
-			if !loader.Exists(req.Name) {
+		loader := req.Loader
+		if loader == nil {
+			loader = profileLoader(cfg)
+		}
+		if !loader.Exists(req.Name) {
+			_, parseErr := remote.ParseReference(req.Name)
+			remoteShaped := parseErr == nil || strings.Contains(req.Name, remote.ProfileSelector)
+			if !remoteShaped {
 				return nil, fmt.Errorf("profile %q not found", req.Name)
 			}
+			clidiag.Warn("ctxloom", "default profile %s is not installed yet — run 'ctxloom remote pull'", req.Name)
 		}
 	}
 

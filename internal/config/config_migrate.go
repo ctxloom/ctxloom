@@ -1,16 +1,47 @@
 package config
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // versionKey is the top-level integer schema-version field on config.yaml.
 const versionKey = "version"
+
+// migrationWarnings collects lossy-migration diagnostics raised while the
+// upgrade pipeline runs. The Upgrader interface has no warning channel and no
+// access to the Config being built, so lossy steps record here and
+// loadConfigFile drains into cfg.Warnings (kind migration-lossy) right after
+// configUpgrades.Run — the pipeline's single call site — so the strict startup
+// gate can abort on a silently dropped setting instead of it scrolling past as
+// an unclassified stderr line.
+var (
+	migrationWarnMu   sync.Mutex
+	migrationWarnings []string
+)
+
+// recordMigrationWarning notes a lossy migration (a user-set value the upgrade
+// had to drop). The message must name the key to fix.
+func recordMigrationWarning(format string, args ...any) {
+	migrationWarnMu.Lock()
+	defer migrationWarnMu.Unlock()
+	migrationWarnings = append(migrationWarnings, fmt.Sprintf(format, args...))
+}
+
+// drainMigrationWarnings returns and clears the collected lossy-migration
+// diagnostics.
+func drainMigrationWarnings() []string {
+	migrationWarnMu.Lock()
+	defer migrationWarnMu.Unlock()
+	out := migrationWarnings
+	migrationWarnings = nil
+	return out
+}
 
 // CurrentConfigVersion is the config *schema* version ctxloom writes and
 // upgrades toward. It is an integer, deliberately distinct from the application
@@ -180,10 +211,11 @@ func migrateLLMv3(root *yaml.Node) {
 				upgrade.MapSet(entry, "model", upgrade.ScalarNode(cm.Value))
 			} else {
 				// No compaction.llm and no primary label means there is no LLM
-				// label to attach the model to. Warn rather than silently drop
-				// the user's chosen compaction model (this migration is
-				// irreversible on disk).
-				clidiag.Warn("ctxloom", "config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
+				// label to attach the model to. Record the loss (surfaced as a
+				// migration-lossy config warning; fatal in strict mode) rather
+				// than silently drop the user's chosen compaction model — this
+				// migration is irreversible on disk.
+				recordMigrationWarning("config migration: dropped compaction model %q (no LLM label to attach it to); set llm.defaults.fast and re-specify the model", cm.Value)
 			}
 		}
 		// compaction.chunks → config.compaction_chunks

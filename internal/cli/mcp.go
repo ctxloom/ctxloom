@@ -58,12 +58,12 @@ var mcpListCmd = &cobra.Command{
 }
 
 // mcpListRow is the --format json shape for `ctxloom mcp list`: a configured MCP
-// server plus its TR3 effective-trust stamp. These are project/plugin-level
-// (local) servers; per the trust model a local executable is never auto-trusted,
-// so trusted is false unless an explicit grant, the content denylist, or a
-// bundle posture decides it. (Bundle-sourced MCP items — addressed
-// <bundle>#mcp/<name> — are gated at their own choke in TR5 and are not what
-// this command lists.)
+// server plus its effective-trust stamp. These are project/plugin-level (local)
+// servers; per the trust model they are first-party (the user configured them
+// in this project), so they are exposed via the local exemption unless
+// explicitly rejected. (Bundle-sourced MCP items — addressed
+// <bundle>#mcp/<name> — are gated at their own choke and are not what this
+// command lists.)
 type mcpListRow struct {
 	Name        string   `json:"name"`
 	Command     string   `json:"command"`
@@ -71,6 +71,7 @@ type mcpListRow struct {
 	Backend     string   `json:"backend"`
 	Trusted     bool     `json:"trusted"`
 	TrustSource string   `json:"trust_source"`
+	State       string   `json:"state"`
 }
 
 // mcpListJSON is the top-level --format json payload for `ctxloom mcp list`.
@@ -128,6 +129,7 @@ func stampMCPTrust(cfg *config.Config, servers []operations.MCPServerEntry, rows
 		})
 		rows[i].Trusted = res.Trusted()
 		rows[i].TrustSource = string(res.Source)
+		rows[i].State = string(res.State())
 	}
 }
 
@@ -272,9 +274,9 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// TR4 interactive trust review. TTY-gated and json-suppressed so the entry
+	// Interactive trust review. TTY-gated and json-suppressed so the entry
 	// output above is byte-for-byte unchanged; the review goes to stderr. These
-	// are configured-local servers (never auto-trusted, no SetItemTrust path), so
+	// are configured-local servers (first-party, no SetItemTrust ref path), so
 	// the surface reviews the posture rather than offering a t/b action — see
 	// reviewLocalMCPTrust.
 	if mcpShowInteractive && result.Found && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {

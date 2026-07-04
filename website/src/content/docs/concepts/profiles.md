@@ -15,7 +15,7 @@ llm: claude-fast                    # Preferred LLM (config label or backend)
 
 parents:                            # Inherit from other profiles
   - base-profile
-  - ctxloom-default/python-developer
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
 
 tags:                              # Include fragments with these tags
   - golang
@@ -25,7 +25,7 @@ bundles:                           # Bundle references
   - go-development                 # Local bundle
   - ctxloom-default/security             # Remote bundle
   - my-bundle#fragments/specific  # Specific fragment
-  - my-bundle#prompts/review      # Specific prompt
+  - my-bundle#skills/review       # Specific skill
 
 variables:                         # Template variables (Mustache)
   DATABASE_URL: "postgresql://..."
@@ -34,7 +34,7 @@ variables:                         # Template variables (Mustache)
 ```
 
 To mark a profile as the default for `ctxloom run`, list it under
-`defaults.profiles` in `.ctxloom/config.yaml` (see [Default Profiles](#default-profiles) below). The legacy per-file `default: true` flag is no longer supported.
+`profiles.defaults` in `.ctxloom/config.yaml` (see [Default Profiles](#default-profiles) below). The legacy per-file `default: true` flag is no longer supported.
 
 When `ctxloom run` is invoked with no profile and no configured default, it shows
 an interactive picker of installed profiles (skipped when not on a terminal).
@@ -51,13 +51,18 @@ This field is what makes a profile a self-contained agent for `ctxloom map` /
 `weave`: each parallel member runs on its own `llm:`, and the synthesizer on a
 high-power one.
 
+Profiles are also what [agents](/concepts/agents/) bind engines to: an agent is
+a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
+`run --agent` and `map`/`weave --agents`.
+
 ## Content Reference Syntax
 
 | Format | Description |
 |--------|-------------|
 | `bundle-name` | Entire bundle (all content) |
 | `bundle#fragments/name` | Specific fragment |
-| `bundle#prompts/name` | Specific prompt |
+| `bundle#skills/name` | Specific skill |
+| `bundle#profiles/name` | Profile shipped by the bundle |
 | `bundle#mcp` | All MCP servers from bundle |
 | `bundle#mcp/name` | Specific MCP server |
 | `remote/bundle` | Bundle from remote |
@@ -79,8 +84,8 @@ ctxloom run -p developer "implement error handling"
 # Preview profile context
 ctxloom run -p developer --dry-run
 
-# Use remote profile directly
-ctxloom run -p ctxloom-default/python-developer "help with Python"
+# Use a bundle-shipped profile directly (canonical URL ref)
+ctxloom run -p 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer' "help with Go"
 
 # Combine profile with extra fragments
 ctxloom run -p developer -f security#fragments/owasp "audit code"
@@ -95,13 +100,19 @@ ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
 ctxloom profile delete old-profile      # Remove profile
 ctxloom profile default developer       # Set/show the default profile(s)
+ctxloom profile materialize developer --target ./out  # Write the assembled agent surface
 ```
 
-To consume a remote profile, author a local profile that inherits from it, then
-pull:
+`profile materialize` writes a profile's assembled surface (context, MCP
+config, hooks, commands) into a target directory as a backend's native on-disk
+layout, so an externally-launched agent inherits the profile without ctxloom in
+the loop.
+
+Remote profiles ship inside bundles. To consume one, author a local profile
+that inherits from it, then pull:
 
 ```bash
-ctxloom profile create my-dev --parent ctxloom-default/dev
+ctxloom profile create my-dev --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer'
 ctxloom remote pull
 ```
 
@@ -110,7 +121,7 @@ ctxloom remote pull
 ```bash
 ctxloom profile create backend \
   --parent base \
-  --parent ctxloom-default/security \
+  --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer' \
   -b go-development \
   -b testing \
   -d "Backend developer profile"
@@ -137,7 +148,7 @@ variables:
 description: "Developer profile"
 parents:
   - base                    # Inherit from local
-  - ctxloom-default/security      # Inherit from remote
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
 bundles:
   - dev-tools              # Add more bundles
 variables:
@@ -171,12 +182,12 @@ exclude_mcp:
   - slow-server             # Don't include this MCP server
 ```
 
-Prompts are deliberately not excludable. Exclusion exists for content that is
+Skills are deliberately not excludable. Exclusion exists for content that is
 *pushed* on the session — fragments are ingested into the context window and
 MCP servers run and consume resources, so an unwanted one has a real cost. A
-prompt is only a slash command: it does nothing until you invoke it, so an
-unwanted prompt just sits unused in the menu. Bundle authors can still scope
-where a prompt surfaces per backend with the prompt's `llm.<backend>.enabled`
+skill is only a slash command: it does nothing until you invoke it, so an
+unwanted skill just sits unused in the menu. Bundle authors can still scope
+where a skill surfaces per backend with the skill's `llm.<backend>.enabled`
 flag.
 
 ### Managing Exclusions
@@ -190,19 +201,6 @@ ctxloom profile modify developer --include-fragment verbose-logging
 
 # View exclusions
 ctxloom profile show developer
-```
-
-### Via MCP Tools
-
-```json
-{
-  "tool": "update_profile",
-  "arguments": {
-    "name": "developer",
-    "add_exclude_fragments": ["verbose-logging"],
-    "remove_exclude_mcp": ["slow-server"]
-  }
-}
 ```
 
 ### Exclusion Inheritance
@@ -241,27 +239,25 @@ ctxloom uses a "bookend" placement strategy based on LLM attention research:
 ctxloom profile edit developer
 ```
 
-Or via the MCP tool when the profile uses inline fragment definitions.
-
 ## Default Profiles
 
 List profiles to load automatically in `.ctxloom/config.yaml`:
 
 ```yaml
-defaults:
-  profiles:
+profiles:
+  defaults:
     - developer
-    - ctxloom-default/base
+    - base
 ```
 
 The default is a **list**, and each entry may be a local profile name or a
-remote ref. ctxloom auto-promotes a profile here when:
+bundle-qualified profile ref. ctxloom auto-promotes a profile here when:
 
-- you create the first profile (via `create_profile` or interactive setup), or
+- you create the first profile (via `ctxloom profile create` or interactive setup), or
 - you reference a remote profile and no default is configured yet, or
 - exactly one profile is installed locally (single-profile fallback at run time).
 
-If you want a different default later, edit `defaults.profiles` directly or use
+If you want a different default later, edit `profiles.defaults` directly or use
 the `profile default` command:
 
 ```bash
@@ -294,17 +290,18 @@ See [Templating](/guides/templating) for full variable documentation.
 
 ## Inline Profiles
 
-Profiles can be defined directly in config.yaml:
+Profiles can be defined directly in config.yaml under `profiles.definitions`:
 
 ```yaml
 # .ctxloom/config.yaml
 profiles:
-  quick-review:
-    description: "Quick code review"
-    bundles:
-      - code-review
-    variables:
-      REVIEW_DEPTH: "surface"
+  definitions:
+    quick-review:
+      description: "Quick code review"
+      bundles:
+        - code-review
+      variables:
+        REVIEW_DEPTH: "surface"
 ```
 
 Use like any other profile:

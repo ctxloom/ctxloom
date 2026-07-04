@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
@@ -326,7 +327,8 @@ var runCmd = &cobra.Command{
 	Short: "Assemble context and run AI",
 	Long: `Assemble context from fragments and execute the configured LLM.
 
-Fragments are loaded from bundles in .ctxloom/bundles/.
+Fragments are loaded from installed bundles: local bundles in
+.ctxloom/cache/bundles/ plus remote bundles pinned in the lockfile.
 
 Use --profile/-p to load a predefined set of fragments and variables.
 Use --tag/-t to include all fragments with a specific tag.
@@ -353,6 +355,12 @@ Examples:
   ctxloom run -t security "check for vulnerabilities"
   ctxloom run -vv -p developer "debug mode"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Fail-loudly gate: checkpoint before any startup choke fires, so every
+		// fatal finding collected across config load, sync, and assembly is
+		// caught at one place (failOnFindings below) and the launch aborts with
+		// the full list. Degraded mode records nothing, so the gate is a no-op.
+		startupMark := strictness.Checkpoint()
+
 		// Load configuration
 		cfg, err := config.Load()
 		if err != nil {
@@ -512,6 +520,17 @@ Examples:
 			// The backend name (not the label) drives session naming and transport.
 			backendName, labelModel = operations.ResolveBackend(cfg, label)
 		}
+
+		// Strict startup gate: config load, sync, and assembly have run and any
+		// fatal-class fault (broken config, unresolvable default profile/parent,
+		// failed bundle load, partial hook apply) has been recorded. Abort now —
+		// before launching the backend — listing every finding with its fix.
+		// A dry run is gated too: previewing a broken setup should say so. In
+		// degraded mode this returns nil and the launch proceeds as before.
+		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+			return ferr
+		}
+
 		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
 		llmEnv := llmEnvFor(cfg, label)
 
@@ -721,10 +740,10 @@ Examples:
 		}
 
 		// Gate the executable surfaces (bundle MCP servers + bundle hooks + prompt
-		// command-file exports) the host ships in ManagedConfig (trust rework, TR5):
-		// these bypass the content loader, so each is gated at its own choke via
-		// this injected gate. Built once (runs the migration baseline + opens the
-		// trust store); fail-closed (a DENY omits the executable). Surfaced below.
+		// command-file exports) the host ships in ManagedConfig: these bypass the
+		// content loader, so each is gated at its own choke via this injected
+		// gate. Built once (opens the trust store + registry); fail-closed (a
+		// DENY omits the executable). Surfaced below.
 		execGate := operations.NewExecutableTrustGate(cfg)
 
 		// The session's isolation axes: the SESSION-level workspace

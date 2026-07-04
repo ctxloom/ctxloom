@@ -218,10 +218,13 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 
 // --- UNGATED invariant ----------------------------------------------------
 
-// TestAgent_Ungated_NotBaselined proves the agent DEFINITION is ungated
-// orchestration/config: it resolves with no trust store/baseline, and the trust
-// baseline never enumerates it (its constituent bundle items still are).
-func TestAgent_Ungated_NotBaselined(t *testing.T) {
+// TestAgent_Ungated proves the agent DEFINITION is ungated orchestration/
+// config: it resolves with no trust state whatsoever (a fresh, empty store) —
+// only its constituent bundle items go through the review model. (The
+// enumeration half of the old assertion rode on the retired TR6 baseline; the
+// structural "agents are never a bundle item kind" guard lives in
+// TestAgent_LocalOnly_NeverFromBundle above.)
+func TestAgent_Ungated(t *testing.T) {
 	root := t.TempDir()
 	writeBundleProfileFixture(t, root) // kit: 1 fragment + 1 mcp + 1 hook + 1 profile
 	cfg := &config.Config{
@@ -232,11 +235,4 @@ func TestAgent_Ungated_NotBaselined(t *testing.T) {
 	// Ungated: resolves with no trust setup whatsoever.
 	_, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
 	require.NoError(t, err)
-
-	// Not baselined: the baseline enumerates the bundle's fragment/mcp/hook (3),
-	// never the agent binding (which would make it 4+).
-	loader := cfg.SeededBundleLoader(false)
-	_, res := collectBaselineGrants(cfg, loader)
-	assert.Equal(t, 3, res.Total,
-		"trust baseline enumerates fragment/mcp/hook but NOT the agent definition")
 }

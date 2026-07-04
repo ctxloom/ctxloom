@@ -43,12 +43,12 @@ import (
 func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
 	prompts := builtinSkills()
 
-	// Gate prompt command-file exports through the same per-item trust cascade as
-	// content (trust rework, TR5 follow-up #2): a prompt whose effective content
-	// the cascade denies must not be exported as a slash command either. The gate
-	// is the cfg-injected executable gate (nil on management paths = no gating);
-	// it keys on "<bundle>#prompts/<name>", identical to the content choke, so a
-	// baselined/granted prompt is exported and an untrusted one is withheld.
+	// Gate prompt command-file exports through the same per-item decision
+	// function as content: a prompt whose effective content the trust model
+	// denies must not be exported as a slash command either. The gate is the
+	// cfg-injected executable gate (nil on management paths = no gating); it
+	// keys on "<bundle>#prompts/<name>", identical to the content choke, so an
+	// accepted/exempt prompt is exported and a pending/rejected one is withheld.
 	if cfg != nil {
 		if gate := cfg.ExecutableTrustGate(); gate != nil {
 			opts = append(opts, bundles.WithTrustGate(gate))

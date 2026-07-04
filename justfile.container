@@ -40,7 +40,7 @@ default: build
 # Build ctxloom with all features (treesitter). Codegen prerequisites run here
 # (the ctxloom module can't depend on these container-level recipes), then the
 # actual go build is delegated to the ctxloom module (cmd/ctxloom/justfile).
-build: validate proto gen-schemas
+build: validate proto gen-schemas gen-docs
     just ctxloom::build
 
 # Build without CGO - static
@@ -213,6 +213,19 @@ lint:
 # never enters the production binary.
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
+
+# Generate CLI docs (man pages + website markdown) from the command tree.
+# The cobra command definitions in internal/cli are the single source of
+# truth; the website pages are checked in, the man pages are gitignored
+# release artifacts.
+gen-docs:
+    go run ./scripts/gendocs --man man/man1 --markdown website/src/content/docs/reference/cli
+
+# Drift gate: regenerate the CLI docs and fail if the checked-in website pages
+# no longer match the command definitions. man/man1 is gitignored, so only the
+# website directory is diffed. Run in the CI lint job.
+gen-docs-check: gen-docs
+    git diff --exit-code -- website/src/content/docs/reference/cli
 
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's

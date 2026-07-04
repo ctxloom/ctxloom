@@ -33,9 +33,9 @@ flowchart TB
 
     subgraph Storage["Storage Layer"]
         direction LR
-        sbundles[".ctxloom/bundles/"]
+        sbundles[".ctxloom/cache/bundles/"]
         sprofiles[".ctxloom/profiles/"]
-        scontext[".ctxloom/context/"]
+        scontext[".ctxloom/cache/context/"]
     end
 ```
 
@@ -43,7 +43,7 @@ flowchart TB
 
 ### Bundles
 
-**Purpose:** Package related fragments, prompts, and MCP server configs.
+**Purpose:** Package related fragments, skills, MCP server configs, profiles, and hooks.
 
 **Structure:**
 ```yaml
@@ -52,12 +52,18 @@ fragments:
   name:
     content: "..."
     tags: [...]
-prompts:
+skills:
   name:
     content: "..."
 mcp:
   server-name:
     command: "..."
+profiles:
+  name:
+    bundles: [...]
+hooks:
+  session_start:
+    - command: "..."
 ```
 
 **Key behaviors:**
@@ -80,7 +86,7 @@ tags: [tag1, tag2]
 **Key behaviors:**
 - Inheritance through parents
 - Merge bundles and tags from all ancestors
-- One default profile active at a time
+- Default profiles are a list (`profiles.defaults` in config.yaml); all entries load together
 
 ### Context Assembly
 
@@ -94,7 +100,7 @@ tags: [tag1, tag2]
 5. Deduplicate by content hash
 6. Write to context file
 
-**Output:** Single markdown file in `.ctxloom/context/<hash>.md`
+**Output:** Single markdown file in `.ctxloom/cache/context/<hash>.md`
 
 ### Remotes
 
@@ -102,8 +108,8 @@ tags: [tag1, tag2]
 
 **Components:**
 - **Registry:** Tracks configured remotes in `.ctxloom/remotes.yaml`
-- **Fetcher:** GitHub/GitLab API clients for content retrieval
-- **Discovery:** Search forges for ctxloom repositories
+- **Fetcher:** A GitHub REST adapter, plus a generic `git` adapter (clone + local read) for every other host — GitLab, Gitea, self-hosted
+- **Discovery:** Search GitHub for ctxloom repositories
 
 ### Hooks
 
@@ -120,14 +126,20 @@ flowchart TD
 
 ### MCP Server
 
-**Purpose:** Expose ctxloom functionality to AI tools via Model Context Protocol.
+**Purpose:** Expose ctxloom's retrieval surface to AI tools via Model Context Protocol.
 
-**Capabilities:**
-- List/get fragments, profiles, prompts
-- Search content
-- Manage remotes
-- Assemble context
-- Apply hooks
+**Tools:**
+- `assemble_context` — assemble context from profiles, fragments, or tags
+- `search_content` / `search_library` — search installed and remote content
+- Session memory: `compact_session`, `load_session`, `recover_session`, `get_previous_session`
+
+**Resources:** listings are exposed as MCP resources rather than tools —
+`ctxloom://fragments`, `ctxloom://profiles`, `ctxloom://skills`,
+`ctxloom://remotes`, `ctxloom://mcp-servers`, `ctxloom://sessions`, and
+`ctxloom://help`.
+
+There are no management tools: creating or editing bundles, profiles, and
+remotes is done with the ctxloom CLI.
 
 ## Data Flow
 
@@ -137,7 +149,7 @@ flowchart TD
 flowchart TD
     A["1. User starts session"] --> B["2. SessionStart hook fires"]
     B --> C["3. Hook runs: ctxloom hook inject-context"]
-    C --> D["4. ctxloom reads .ctxloom/context/hash.md"]
+    C --> D["4. ctxloom reads .ctxloom/cache/context/hash.md"]
     D --> E["5. Content output to stdout"]
     E --> F["6. AI tool receives context"]
     F --> G["7. Context file deleted"]
@@ -149,9 +161,9 @@ flowchart TD
 flowchart TD
     A["1. ctxloom remote pull"] --> B["2. Load profile dependencies"]
     B --> C["3. For each remote bundle"]
-    C --> D["Fetch from GitHub/GitLab"]
+    C --> D["Fetch via forge adapter (GitHub API or git clone)"]
     C --> E["Validate structure"]
-    C --> F["Write to .ctxloom/bundles/"]
+    C --> F["Resolve SHA from clone cache"]
     D --> G["4. Update lockfile"]
     E --> G
     F --> G
@@ -166,15 +178,21 @@ flowchart TD
 ```
 .ctxloom/
 ├── config.yaml          # Project configuration
-├── bundles/             # Local and pulled bundles
-│   ├── local-bundle.yaml
-│   └── remote/
-│       └── pulled-bundle.yaml
+├── cache/               # Regeneratable content (safe to delete)
+│   ├── bundles/         # Local bundles
+│   │   └── local-bundle.yaml
+│   ├── context/         # Generated context files
+│   │   └── <hash>.md
+│   └── repos/           # Clone cache for remote repositories
+├── local/               # Committed project-authored content
+│   └── bundles/         # (referenced via ctxloom:local)
 ├── profiles/            # Profile definitions
 │   └── default.yaml
-├── context/             # Generated context files
-│   └── <hash>.md
+├── agents/              # Local agent bindings (engine <-> profiles)
+│   └── <name>.yaml
+├── sessions/            # Distilled project sessions
 ├── remotes.yaml         # Remote registry
+├── trust.yaml           # Per-item trust grants and blacklists
 └── lock.yaml            # Dependency lockfile
 ```
 
@@ -183,8 +201,12 @@ flowchart TD
 ```
 ~/.ctxloom/
 ├── config.yaml          # User defaults
-├── bundles/             # User-wide bundles
-├── profiles/            # User-wide profiles
+├── cache/
+│   └── bundles/         # User-wide bundles
+├── sessions/            # Session index and per-harp session state
+│   ├── index.yaml
+│   └── <harp>/essence.md
+├── tasks/               # Per-project task logs
 └── remotes.yaml         # User-wide remotes
 ```
 
@@ -231,10 +253,10 @@ Remote fetchers implement:
 
 ```go
 type Fetcher interface {
-    FetchFile(owner, repo, path, ref) ([]byte, error)
-    ListDir(owner, repo, path, ref) ([]DirEntry, error)
-    SearchRepos(query, limit) ([]RepoInfo, error)
-    ValidateRepo(owner, repo) (bool, error)
+    FetchFile(ctx context.Context, owner, repo, path, ref string) ([]byte, error)
+    ListDir(ctx context.Context, owner, repo, path, ref string) ([]DirEntry, error)
+    SearchRepos(ctx context.Context, query string, limit int) ([]RepoInfo, error)
+    ValidateRepo(ctx context.Context, owner, repo string) (bool, error)
 }
 ```
 

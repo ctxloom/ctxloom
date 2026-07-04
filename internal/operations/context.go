@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Mustache tag types from cbroglie/mustache.
@@ -242,10 +243,13 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 		profile, err := resolveProfile(cfg, pName, loader, profileLoaderFunc)
 		if err != nil {
 			// An explicitly requested profile failing is the user's signal to
-			// fix the ask. A configured default failing must not block startup
-			// (CLAUDE.md fault tolerance): warn, skip, assemble what's left.
+			// fix the ask — a hard error. A configured default failing is
+			// fatal-class in strict mode (the default IS an explicit ask, just
+			// a persisted one): skip it so degraded mode still assembles what's
+			// left, and let the startup choke owner abort on the finding.
 			if fromDefaults {
-				clidiag.Warn("ctxloom", "skipping default profile %s: %v", pName, err)
+				strictness.Fail(strictness.ClassRef, "fix profiles.defaults in .ctxloom/config.yaml, or install the missing content (ctxloom remote pull)",
+					"skipping default profile %s: %v", pName, err)
 				continue
 			}
 			return nil, nil, "", fmt.Errorf("failed to resolve profile %s: %w", pName, err)
@@ -310,7 +314,9 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 // versions) and applies variable substitution. Returns empty content when there
 // are no fragments. A fragment that fails to load — not found, gate-withheld, or
 // a pinned version that fails to fetch — is skipped so the rest still assemble
-// (fault tolerance), matching the tolerant LoadMultiple/GetFragment behavior.
+// in degraded mode; in strict mode the skip records a fatal finding (see
+// warnFragmentLoadFailure) so a profile-pushed fragment can never silently
+// vanish from the session.
 func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
 	if len(ordered) == 0 {
 		return "", nil, nil
@@ -319,7 +325,7 @@ func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, 
 	for _, ref := range ordered {
 		lc, err := loadFragmentRef(loader, ref)
 		if err != nil {
-			warnVersionFetchFailure(ref, err)
+			warnFragmentLoadFailure(ref, err)
 			continue
 		}
 		parts = append(parts, strings.TrimSpace(lc.Content))
@@ -346,15 +352,24 @@ func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef) (*bundles.L
 	return loader.GetFragmentAtVersion(ref.Name, ref.Version)
 }
 
-// warnVersionFetchFailure surfaces a single warning when a version-pinned ref
-// fails to fetch/resolve (the safe withhold direction, but new info worth
-// diagnosing). A gate withhold is already surfaced content-free by warnWithheld,
-// and an unversioned not-found stays silent (existing tolerant behavior).
-func warnVersionFetchFailure(ref config.FragmentRef, err error) {
-	if ref.Version == "" || errors.Is(err, errs.ErrFragmentWithheld) {
+// warnFragmentLoadFailure surfaces a profile-pushed fragment that failed to
+// load during assembly. Unresolvable refs are fatal-class in strict mode: the
+// warning streams either way and the startup choke owner aborts on the
+// finding. This also fixes the historical silent skip — an UNVERSIONED miss
+// used to say nothing at all; it now warns in degraded mode too. A gate
+// withhold is exempt: it is already surfaced content-free by warnWithheld and
+// stays a warning in both modes (trust withholding is never a startup fault).
+func warnFragmentLoadFailure(ref config.FragmentRef, err error) {
+	if errors.Is(err, errs.ErrFragmentWithheld) {
 		return
 	}
-	clidiag.Warn("ctxloom", "withholding %s@%s: %v", ref.Name, ref.Version, err)
+	if ref.Version != "" {
+		strictness.Fail(strictness.ClassRef, "fix the pinned version in the referencing profile, or ctxloom remote pull",
+			"withholding %s@%s: %v", ref.Name, ref.Version, err)
+		return
+	}
+	strictness.Fail(strictness.ClassRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom remote pull)",
+		"fragment %s failed to load (%v); skipping", ref.Name, err)
 }
 
 // dedupeFragmentRefs removes duplicates, keeping the highest priority for each

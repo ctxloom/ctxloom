@@ -60,7 +60,7 @@ subagents:
 	assert.Empty(t, cfg.LoadAgents())
 	warned := false
 	for _, w := range cfg.Warnings {
-		if strings.Contains(w, "subagents") {
+		if strings.Contains(w.Text, "subagents") {
 			warned = true
 			break
 		}

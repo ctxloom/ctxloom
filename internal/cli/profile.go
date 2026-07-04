@@ -289,7 +289,7 @@ default set.
 Examples:
   ctxloom profile default                 # show current default(s)
   ctxloom profile default go-developer    # add a default
-  ctxloom profile default https://github.com/user/ctxloom@profiles/dev
+  ctxloom profile default 'https://github.com/user/ctxloom@bundles/dev#profiles/dev'
   ctxloom profile default --unset go-developer
   ctxloom profile default --exclusive go-developer  # make it the ONLY default`,
 	Args: cobra.MaximumNArgs(1),
@@ -440,7 +440,7 @@ var profileUpdateCmd = &cobra.Command{
 	Long: `Modify an existing profile by adding or removing items.
 
 Examples:
-  ctxloom profile modify go-developer --add-parent https://github.com/user/ctxloom@profiles/developer
+  ctxloom profile modify go-developer --add-parent 'https://github.com/user/ctxloom@bundles/dev#profiles/developer'
   ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@bundles/go-development
   ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
@@ -615,12 +615,12 @@ func init() {
 	profileCmd.AddCommand(profileExportCmd)
 	profileCmd.AddCommand(profileImportCmd)
 
-	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name>")
+	profileCreateCmd.Flags().StringSliceVar(&profileCreateParents, "parent", nil, "Parent profile(s) to inherit from: a local name or <bundle>#profiles/<name> (bundle = canonical URL, remote/bundle alias, or local bundle name)")
 	profileCreateCmd.Flags().StringSliceVarP(&profileCreateBundles, "bundle", "b", nil, "Bundle URL(s) to include")
 	profileCreateCmd.Flags().StringVarP(&profileCreateDescription, "description", "d", "", "Description of the profile")
 	profileCreateCmd.Flags().StringVar(&profileCreateLLM, "llm", "", "Preferred LLM config label/backend to launch (overridable by run -l)")
 
-	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile(s) to add: a local name or <bundle>#profiles/<name>")
+	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddParents, "add-parent", nil, "Parent profile(s) to add: a local name or <bundle>#profiles/<name> (bundle = canonical URL, remote/bundle alias, or local bundle name)")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveParents, "remove-parent", nil, "Parent profile(s) to remove")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateAddBundles, "add-bundle", nil, "Bundle URL(s) to add")
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveBundles, "remove-bundle", nil, "Bundle URL(s) to remove")

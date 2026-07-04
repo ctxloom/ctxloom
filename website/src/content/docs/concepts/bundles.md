@@ -2,11 +2,11 @@
 title: "Bundles"
 ---
 
-A **bundle** is a versioned YAML file containing related fragments, prompts, and MCP server configurations.
+A **bundle** is a versioned YAML file containing related fragments, skills, and MCP server configurations. A bundle can also ship profiles (addressed as `<bundle>#profiles/<name>`) and hook definitions.
 
 ## Bundle Structure
 
-Bundles are stored in `.ctxloom/bundles/` as YAML files:
+Local bundles are stored in `.ctxloom/cache/bundles/` as YAML files:
 
 ```yaml
 version: "1.0.0"                    # Bundle version (required)
@@ -38,15 +38,15 @@ fragments:
     distilled_by: "claude-code"     # Model that created it
     no_distill: false               # Disable distillation
 
-prompts:
-  prompt-name:
-    description: "Prompt description"
+skills:
+  skill-name:
+    description: "Skill description"
     tags: [tool, generation]
     notes: "Human notes"            # NOT sent to AI
     installation: "Setup"           # Returned to AI on install
     content: |
-      # Prompt Content
-      Your prompt template here...
+      # Skill Content
+      Your skill template here...
 
     # Per-LLM export settings
     llm:
@@ -65,6 +65,16 @@ mcp:
       API_KEY: "${API_KEY}"
     notes: "Human notes"            # NOT sent to AI
     installation: "Install guide"   # Returned to AI on install
+
+profiles:
+  profile-name:                     # Shipped profile, addressed as
+    description: "..."              # <bundle>#profiles/profile-name
+    bundles: [...]
+    tags: [...]
+
+hooks:
+  session_start:                    # Keyed by lifecycle event
+    - command: "..."
 ```
 
 ## Key Fields
@@ -82,11 +92,11 @@ mcp:
 | `distilled` | string | Token-efficient version |
 | `distilled_by` | string | Model that created distillation |
 
-### Prompt Fields
+### Skill Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `content` | string | Required. The prompt template |
+| `content` | string | Required. The skill content |
 | `description` | string | Human-readable description |
 | `tags` | array | Tags for filtering |
 | `llm` | object | Per-LLM export settings (slash-command surface per backend) |
@@ -149,9 +159,10 @@ Reference bundle content using hash syntax:
 
 | Syntax | Description |
 |--------|-------------|
-| `bundle-name` | Entire bundle (all fragments, prompts, MCP) |
+| `bundle-name` | Entire bundle (all fragments, skills, MCP) |
 | `bundle#fragments/name` | Specific fragment |
-| `bundle#prompts/name` | Specific prompt |
+| `bundle#skills/name` | Specific skill |
+| `bundle#profiles/name` | Profile shipped by the bundle |
 | `bundle#mcp` | All MCP servers |
 | `bundle#mcp/name` | Specific MCP server |
 | `remote/bundle` | Bundle from remote |
@@ -162,6 +173,6 @@ Reference bundle content using hash syntax:
 These fields serve different purposes:
 
 - `notes` - Internal documentation for humans only. Never sent to the AI.
-- `installation` - Setup instructions. **Returned to the AI when a bundle is installed** via the MCP `pull_remote` tool, so the AI can follow setup steps automatically.
+- `installation` - Setup instructions, surfaced when the bundle is installed via `ctxloom remote pull` so they can be followed as setup steps.
 
-This allows bundle authors to include setup commands (npm install, environment variables, etc.) that the AI will execute after installation.
+This allows bundle authors to include setup commands (npm install, environment variables, etc.) that the user or their agent can run after installation.

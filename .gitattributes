@@ -1,0 +1,4 @@
+# Generated CLI reference pages (`just gen-docs` from internal/cli) —
+# collapsed in diffs and excluded from language stats.
+website/src/content/docs/reference/cli/ctxloom.md linguist-generated=true
+website/src/content/docs/reference/cli/ctxloom_*.md linguist-generated=true

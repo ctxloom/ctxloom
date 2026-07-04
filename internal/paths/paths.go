@@ -214,6 +214,15 @@ func ReposCachePath(appPath string) string {
 	return filepath.Join(GetCacheDir(appPath), ReposCacheDir)
 }
 
+// TrustObjectsPath returns the accepted-content snapshot directory (under
+// cache/): content-addressed copies of the bytes a human accepted at review,
+// keyed by their recorded content hash. The review porcelain diffs an UPDATE
+// against them. Pure cache: deleting it only degrades update review from a
+// diff to a full-content display (the hashes in trust.yaml stay authoritative).
+func TrustObjectsPath(appPath string) string {
+	return filepath.Join(GetCacheDir(appPath), TrustFileName, "objects")
+}
+
 // DefaultAppDir returns the default app directory path relative to current directory.
 func DefaultAppDir() string {
 	return AppDirName

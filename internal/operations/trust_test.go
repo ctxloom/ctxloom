@@ -12,6 +12,21 @@ import (
 
 const trustRepo = "https://github.com/acme/repo"
 
+// acmeBundle is the canonical bundle-ref prefix for the (remote) acme repo, so
+// seed keys parse back to RepoURL == trustRepo with bundle paths after it.
+const acmeBundle = "https://github.com/acme/repo@bundles/"
+
+// promptHash recomputes the effective-content hash for a no-distill prompt body
+// (preferDistilled true ⇒ raw bytes when there is no distilled form).
+func promptHash(body string) string {
+	p := bundles.BundleSkill{Content: body}
+	h, _ := p.EffectiveContentHash(true)
+	return h
+}
+
+// mcpHashOf is the executable-surface hash an MCP acceptance binds to.
+func mcpHashOf(m bundles.BundleMCP) string { return m.ComputeContentHash() }
+
 func newTrustStore(t *testing.T) *trust.Store {
 	t.Helper()
 	s, err := trust.New("", trust.WithFS(afero.NewMemMapFs()))
@@ -46,115 +61,98 @@ func newRegistry(t *testing.T, specs ...remoteSpec) *remote.Registry {
 	return reg
 }
 
-// TestEffectiveTrust_Cascade table-drives the full precedence and every tier.
+// rawForm/distilledForm name the Form values the resolver keys accepted-hash
+// slots on.
+var (
+	rawForm       = string(bundles.FormRaw)
+	distilledForm = string(bundles.FormDistilled)
+)
+
+// TestEffectiveTrust_Cascade table-drives the decision function's full
+// precedence and every step: rejected (ref state + denylist, beating local and
+// trusted sources), local, trusted source, accepted (current-form hash
+// binding, lazy-migration single slots), and the pending default.
 func TestEffectiveTrust_Cascade(t *testing.T) {
 	tests := []struct {
 		name    string
 		setup   func(*trust.Store)
 		ref     trust.Ref
 		hash    string
+		form    string
 		remotes []remoteSpec
 		want    trust.Decision
 		source  trust.Source
 	}{
-		// --- precedence: denylist > blacklist > grant (shared setup) ---
+		// --- rejected: ref state and content denylist ---
 		{
-			name: "denylist beats blacklist (and grant)",
-			setup: func(s *trust.Store) {
-				_ = s.Blacklist(trustRepo, "tooling#mcp/postgres", "sha256:H1")
-				_ = s.AddGrant(trustRepo, "tooling#mcp/postgres", "sha256:H2", "raw", "")
-			},
+			name:   "rejected ref state denies",
+			setup:  func(s *trust.Store) { _ = s.SetRejected(trustRepo, "tooling#mcp/postgres", "sha256:H1") },
 			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
 			hash:   "sha256:H1",
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceDenylist,
+			source: trust.SourceRejected,
 		},
 		{
-			name: "blacklist beats grant",
+			name: "rejection survives a content change (new hash still denied)",
 			setup: func(s *trust.Store) {
-				_ = s.Blacklist(trustRepo, "tooling#mcp/postgres", "sha256:H1")
-				_ = s.AddGrant(trustRepo, "tooling#mcp/postgres", "sha256:H2", "raw", "")
+				_ = s.SetRejected(trustRepo, "tooling#mcp/postgres", "sha256:H1")
 			},
 			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
-			hash:   "sha256:H2", // a granted hash, but the ref is blacklisted
+			hash:   "sha256:H3-brand-new", // never seen; the sticky ref rejection still wins
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceBlacklist,
+			source: trust.SourceRejected,
 		},
 		{
-			name: "blacklist survives a content change (new hash still denied)",
-			setup: func(s *trust.Store) {
-				_ = s.Blacklist(trustRepo, "tooling#mcp/postgres", "sha256:H1")
-				_ = s.AddGrant(trustRepo, "tooling#mcp/postgres", "sha256:H2", "raw", "")
-			},
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"},
-			hash:   "sha256:H3-brand-new", // never seen; sticky ref blacklist still wins
+			name:  "renamed identical content stays rejected via denylist, even on a trusted source",
+			setup: func(s *trust.Store) { _ = s.SetRejected(trustRepo, "old#fragments/foo", "sha256:DEAD") },
+			// A different (renamed) ref with the SAME content, on a TRUSTED remote:
+			// the denylist still denies (rejection beats the source exemption).
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "new", Kind: trust.KindFragment, Name: "foo-v2"},
+			hash:    "sha256:DEAD",
+			form:    rawForm,
+			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
+			want:    trust.Deny,
+			source:  trust.SourceRejected,
+		},
+		{
+			name:   "rejection beats the local exemption",
+			setup:  func(s *trust.Store) { _ = s.SetRejected(remote.LocalSource, "dev#fragments/x", "sha256:X") },
+			ref:    trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
+			hash:   "sha256:X",
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceBlacklist,
+			source: trust.SourceRejected,
+		},
+		{
+			name:    "rejection beats a trusted source (ref state)",
+			setup:   func(s *trust.Store) { _ = s.SetRejected(trustRepo, "tooling#fragments/bad") },
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "bad"},
+			hash:    "sha256:whatever",
+			form:    rawForm,
+			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
+			want:    trust.Deny,
+			source:  trust.SourceRejected,
 		},
 
-		// --- grants: exact-hash binding, invalidation, multi-version ---
+		// --- URL-variant rejection match ---
 		{
-			name:   "grant allows the exact granted hash",
-			setup:  func(s *trust.Store) { _ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:GA", "distilled", "") },
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
-			hash:   "sha256:GA",
-			want:   trust.Allow,
-			source: trust.SourceExplicitGrant,
-		},
-		{
-			name:   "grant invalidated when content hash changes",
-			setup:  func(s *trust.Store) { _ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:GA", "distilled", "") },
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
-			hash:   "sha256:CHANGED", // grant was for GA → no match → default DENY
+			name:   "URL-variant rejection match (git@ vs https, case, .git)",
+			setup:  func(s *trust.Store) { _ = s.SetRejected("https://github.com/Acme/Repo.git", "tooling#fragments/x") },
+			ref:    trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "x"},
+			hash:   "sha256:whatever",
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceDefault,
-		},
-		{
-			name: "multiple coexisting trusted versions (v1)",
-			setup: func(s *trust.Store) {
-				_ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:V1", "distilled", "9f3c1d7")
-				_ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:V2", "distilled", "c40b8e2")
-			},
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
-			hash:   "sha256:V1",
-			want:   trust.Allow,
-			source: trust.SourceExplicitGrant,
-		},
-		{
-			name: "multiple coexisting trusted versions (v2)",
-			setup: func(s *trust.Store) {
-				_ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:V1", "distilled", "9f3c1d7")
-				_ = s.AddGrant(trustRepo, "lib#fragments/solid", "sha256:V2", "distilled", "c40b8e2")
-			},
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
-			hash:   "sha256:V2",
-			want:   trust.Allow,
-			source: trust.SourceExplicitGrant,
+			source: trust.SourceRejected,
 		},
 
-		// --- bundle posture (SHA-agnostic) ---
-		{
-			name:   "bundle posture untrusted denies a grant-less item",
-			setup:  func(s *trust.Store) { _ = s.SetBundle("experimental", trust.Deny) },
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "experimental", Kind: trust.KindFragment, Name: "f"},
-			hash:   "sha256:anything",
-			want:   trust.Deny,
-			source: trust.SourceBundle,
-		},
-		{
-			name:   "bundle posture trusted allows a grant-less item",
-			setup:  func(s *trust.Store) { _ = s.SetBundle("blessed", trust.Allow) },
-			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "blessed", Kind: trust.KindMCP, Name: "m"},
-			hash:   "sha256:anything",
-			want:   trust.Allow,
-			source: trust.SourceBundle,
-		},
-
-		// --- local content vs local executable ---
+		// --- local first-party exemption (all kinds) ---
 		{
 			name:   "local fragment auto-allowed",
 			ref:    trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
 			hash:   "sha256:local",
+			form:   rawForm,
 			want:   trust.Allow,
 			source: trust.SourceLocal,
 		},
@@ -162,6 +160,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			name:   "local prompt auto-allowed",
 			ref:    trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindPrompt, Name: "y"},
 			hash:   "sha256:local",
+			form:   rawForm,
 			want:   trust.Allow,
 			source: trust.SourceLocal,
 		},
@@ -169,85 +168,134 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			name:   "local mcp auto-allowed (project-authored executable)",
 			ref:    trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindMCP, Name: "z"},
 			hash:   "sha256:local",
+			form:   rawForm,
 			want:   trust.Allow,
 			source: trust.SourceLocal,
 		},
 
-		// --- renamed/moved identical content stays denied via denylist ---
+		// --- trusted source ---
 		{
-			name: "renamed/moved identical content stays denied via denylist",
-			setup: func(s *trust.Store) {
-				// Blacklisting old#fragments/foo records its content hash in the denylist.
-				_ = s.Blacklist(trustRepo, "old#fragments/foo", "sha256:DEAD")
-			},
-			// A different (renamed) ref with the SAME content, on a TRUSTED remote.
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "new", Kind: trust.KindFragment, Name: "foo-v2"},
-			hash:    "sha256:DEAD",
-			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
-			want:    trust.Deny,
-			source:  trust.SourceDenylist,
-		},
-
-		// --- URL-variant blacklist match ---
-		{
-			name:   "URL-variant blacklist match (git@ vs https, case, .git)",
-			setup:  func(s *trust.Store) { _ = s.Blacklist("https://github.com/Acme/Repo.git", "tooling#fragments/x", "") },
-			ref:    trust.Ref{RepoURL: "git@github.com:acme/repo", Bundle: "tooling", Kind: trust.KindFragment, Name: "x"},
-			hash:   "sha256:whatever",
-			want:   trust.Deny,
-			source: trust.SourceBlacklist,
-		},
-
-		// --- remote tier ---
-		{
-			name:    "trusted remote allows a grant-less item",
+			name:    "trusted source allows an unreviewed item",
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 			hash:    "sha256:x",
+			form:    rawForm,
 			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
 			want:    trust.Allow,
-			source:  trust.SourceRemote,
+			source:  trust.SourceTrustedSource,
 		},
 		{
-			name:    "untrusted remote denies a grant-less item",
+			name:    "trusted source allows a cloned executable (mcp) — e.g. ctxloom-default",
+			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "pg"},
+			hash:    "sha256:x",
+			form:    rawForm,
+			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
+			want:    trust.Allow,
+			source:  trust.SourceTrustedSource,
+		},
+		{
+			name:    "untrusted registered remote is NOT a trusted source (pending)",
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 			hash:    "sha256:x",
+			form:    rawForm,
 			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: false}},
 			want:    trust.Deny,
-			source:  trust.SourceRemote,
+			source:  trust.SourcePending,
+		},
+
+		// --- accepted: current-form hash binding ---
+		{
+			name: "accepted allows the exact raw hash",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", "sha256:R", "sha256:D")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
+			hash:   "sha256:R",
+			form:   rawForm,
+			want:   trust.Allow,
+			source: trust.SourceAccepted,
 		},
 		{
-			name:   "unknown remote falls to default deny",
+			name: "accepted allows the exact distilled hash",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", "sha256:R", "sha256:D")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
+			hash:   "sha256:D",
+			form:   distilledForm,
+			want:   trust.Allow,
+			source: trust.SourceAccepted,
+		},
+		{
+			name: "acceptance invalidated when content hash changes (back to pending)",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", "sha256:R", "sha256:D")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
+			hash:   "sha256:CHANGED",
+			form:   rawForm,
+			want:   trust.Deny,
+			source: trust.SourcePending,
+		},
+		{
+			name: "form-flip closed: a raw acceptance cannot validate a distilled exposure",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", "sha256:R", "sha256:D")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
+			hash:   "sha256:R", // the RAW hash presented as the distilled form
+			form:   distilledForm,
+			want:   trust.Deny,
+			source: trust.SourcePending,
+		},
+		{
+			name: "lazy-migrated single-slot acceptance allows only its own form (raw slot)",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/lazy", "sha256:RAWONLY", "")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "lazy"},
+			hash:   "sha256:RAWONLY",
+			form:   rawForm,
+			want:   trust.Allow,
+			source: trust.SourceAccepted,
+		},
+		{
+			name: "lazy-migrated empty slot for the current form is pending (fail closed)",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/lazy", "sha256:RAWONLY", "")
+			},
+			ref:  trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "lazy"},
+			hash: "sha256:DISTNOW", // current exposure is the distilled form; its slot is empty
+			form: distilledForm,
+			want: trust.Deny, source: trust.SourcePending,
+		},
+		{
+			name: "unknown form matches no slot (fail closed)",
+			setup: func(s *trust.Store) {
+				_ = s.SetAccepted(trustRepo, "lib#fragments/solid", "sha256:R", "")
+			},
+			ref:    trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
+			hash:   "sha256:R",
+			form:   "", // caller failed to say which form — never allow on a guess
+			want:   trust.Deny,
+			source: trust.SourcePending,
+		},
+
+		// --- pending default ---
+		{
+			name:   "unknown remote falls to pending deny",
 			ref:    trust.Ref{RepoURL: "https://github.com/nobody/unknown", Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 			hash:   "sha256:x",
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceDefault,
-		},
-
-		// --- D4b safety boundary: a CLONED executable (RepoURL set, IsLocal false)
-		//     follows its remote's trust, NEVER the local auto-allow tier. This is
-		//     what keeps `local content is trusted` from leaking to clones. ---
-		{
-			name:    "trusted remote allows a cloned executable (mcp) — e.g. ctxloom-default",
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "pg"},
-			hash:    "sha256:x",
-			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: true}},
-			want:    trust.Allow,
-			source:  trust.SourceRemote,
+			source: trust.SourcePending,
 		},
 		{
-			name:    "untrusted remote denies a cloned executable (mcp) — no local leak",
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "pg"},
-			hash:    "sha256:x",
-			remotes: []remoteSpec{{name: "acme", url: trustRepo, trust: false}},
-			want:    trust.Deny,
-			source:  trust.SourceRemote,
-		},
-		{
-			name:   "cloned executable from an unknown remote fails closed (default deny)",
+			name:   "cloned executable from an unknown remote fails closed (pending)",
 			ref:    trust.Ref{RepoURL: "https://github.com/nobody/unknown", Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"},
 			hash:   "sha256:x",
+			form:   rawForm,
 			want:   trust.Deny,
-			source: trust.SourceDefault,
+			source: trust.SourcePending,
 		},
 	}
 
@@ -261,6 +309,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 				Ref:         tt.ref,
 				ContentHash: tt.hash,
+				Form:        tt.form,
 				Store:       store,
 				Registry:    reg,
 			})
@@ -286,6 +335,7 @@ func TestEffectiveTrust_CorruptStoreFailsClosed(t *testing.T) {
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:         trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"}, // would normally ALLOW
 		ContentHash: "sha256:x",
+		Form:        rawForm,
 		FS:          fs,
 	})
 	if err != nil {
@@ -293,6 +343,57 @@ func TestEffectiveTrust_CorruptStoreFailsClosed(t *testing.T) {
 	}
 	if res.Decision != trust.Deny {
 		t.Errorf("corrupt store resolve = %s, want deny (fail closed)", res.Decision)
+	}
+}
+
+// TestEffectiveTrust_V1MigratedGrantResolves drives the v1→v2 migration through
+// the resolver end to end: a REAL v1 trust.yaml (grant + blacklist) is loaded
+// from disk and the migrated states decide exposure — the grant allows exactly
+// its recorded form-hash and gates a changed hash; the blacklist rejects.
+func TestEffectiveTrust_V1MigratedGrantResolves(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	v1 := `version: 1
+grants:
+  - repo_url: https://github.com/acme/repo
+    ref: tooling#fragments/solid
+    content_hash: sha256:V1HASH
+    form: raw
+blacklist:
+  - repo_url: https://github.com/acme/repo
+    ref: tooling#fragments/evil
+`
+	if err := afero.WriteFile(fs, ".ctxloom/trust.yaml", []byte(v1), 0o644); err != nil {
+		t.Fatalf("seed v1 trust.yaml: %v", err)
+	}
+	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: false})
+
+	resolve := func(ref trust.Ref, hash, form string) *EffectiveTrustResult {
+		t.Helper()
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: ref, ContentHash: hash, Form: form, Registry: reg, FS: fs,
+		})
+		if err != nil {
+			t.Fatalf("EffectiveTrust: %v", err)
+		}
+		return res
+	}
+
+	solid := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
+	if res := resolve(solid, "sha256:V1HASH", rawForm); res.Decision != trust.Allow || res.Source != trust.SourceAccepted {
+		t.Errorf("migrated grant at its hash = {%s,%s}, want {allow, accepted}", res.Decision, res.Source)
+	}
+	if res := resolve(solid, "sha256:UPSTREAM-EDIT", rawForm); res.Decision != trust.Deny || res.Source != trust.SourcePending {
+		t.Errorf("migrated grant at a changed hash = {%s,%s}, want {deny, pending}", res.Decision, res.Source)
+	}
+	// The lazily-migrated grant filled only the raw slot: a distilled exposure
+	// of this ref gates until re-accepted.
+	if res := resolve(solid, "sha256:SOMEDISTILL", distilledForm); res.Decision != trust.Deny || res.Source != trust.SourcePending {
+		t.Errorf("migrated grant, other form = {%s,%s}, want {deny, pending}", res.Decision, res.Source)
+	}
+
+	evil := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "evil"}
+	if res := resolve(evil, "sha256:anything", rawForm); res.Decision != trust.Deny || res.Source != trust.SourceRejected {
+		t.Errorf("migrated blacklist = {%s,%s}, want {deny, rejected}", res.Decision, res.Source)
 	}
 }
 
@@ -305,6 +406,7 @@ func seededLoader() (*bundles.Loader, string) {
 		Version: "1.0",
 		Fragments: map[string]bundles.BundleFragment{
 			"solid": {Content: "always raw fragment body"},
+			"dual":  {Content: "raw body", Distilled: "distilled body"},
 		},
 		MCP: map[string]bundles.BundleMCP{
 			"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}},
@@ -315,7 +417,7 @@ func seededLoader() (*bundles.Loader, string) {
 	return loader, mcp.ComputeContentHash()
 }
 
-func TestSetItemTrust_GrantsCurrentVersion(t *testing.T) {
+func TestSetItemTrust_AcceptsCurrentVersion(t *testing.T) {
 	loader, mcpHash := seededLoader()
 	store := newTrustStore(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#mcp/postgres"
@@ -324,27 +426,61 @@ func TestSetItemTrust_GrantsCurrentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetItemTrust: %v", err)
 	}
-	if res.ContentHash != mcpHash {
-		t.Errorf("granted hash = %q, want %q", res.ContentHash, mcpHash)
+	if res.Status != "accepted" {
+		t.Errorf("status = %q, want accepted", res.Status)
+	}
+	if res.RawHash != mcpHash || res.DistilledHash != "" {
+		t.Errorf("accepted hashes = {raw:%q distilled:%q}, want {%q, empty}", res.RawHash, res.DistilledHash, mcpHash)
 	}
 	if res.Ref != "tooling#mcp/postgres" || res.RepoURL != trustRepo {
-		t.Errorf("grant key = {%q,%q}, want {tooling#mcp/postgres, %q}", res.Ref, res.RepoURL, trustRepo)
+		t.Errorf("accepted key = {%q,%q}, want {tooling#mcp/postgres, %q}", res.Ref, res.RepoURL, trustRepo)
 	}
 
-	// The grant must make the local-untrusted executable resolve ALLOW for the
-	// exact granted hash, and only that hash.
+	// The acceptance must make the unreviewed remote executable resolve ALLOW for
+	// the exact accepted hash, and only that hash.
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
 	reg := newRegistry(t)
-	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: mcpHash, Store: store, Registry: reg})
+	got, err := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: mcpHash, Form: rawForm, Store: store, Registry: reg})
 	if err != nil {
-		t.Fatalf("EffectiveTrust(granted): %v", err)
+		t.Fatalf("EffectiveTrust(accepted): %v", err)
 	}
-	if got.Decision != trust.Allow || got.Source != trust.SourceExplicitGrant {
-		t.Errorf("granted resolve = {%s,%s}, want {allow, explicit-grant}", got.Decision, got.Source)
+	if got.Decision != trust.Allow || got.Source != trust.SourceAccepted {
+		t.Errorf("accepted resolve = {%s,%s}, want {allow, accepted}", got.Decision, got.Source)
 	}
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: "sha256:other", Store: store, Registry: reg})
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: "sha256:other", Form: rawForm, Store: store, Registry: reg})
 	if got.Decision != trust.Deny {
-		t.Errorf("non-granted hash resolve = %s, want deny", got.Decision)
+		t.Errorf("non-accepted hash resolve = %s, want deny", got.Decision)
+	}
+}
+
+// TestSetItemTrust_RecordsBothFormHashes pins the hash-pair contract: accepting
+// an item with a distilled form records BOTH hashes, so both materializations
+// are reviewed-once and a change to either re-gates.
+func TestSetItemTrust_RecordsBothFormHashes(t *testing.T) {
+	loader, _ := seededLoader()
+	store := newTrustStore(t)
+
+	res, err := SetItemTrust(nil, SetItemTrustRequest{
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Store: store, Loader: loader,
+	})
+	if err != nil {
+		t.Fatalf("SetItemTrust: %v", err)
+	}
+	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
+	wantRaw, _ := frag.EffectiveContentHash(false)
+	wantDistilled, _ := frag.EffectiveContentHash(true)
+	if res.RawHash != wantRaw || res.DistilledHash != wantDistilled {
+		t.Errorf("hash pair = {%q,%q}, want {%q,%q}", res.RawHash, res.DistilledHash, wantRaw, wantDistilled)
+	}
+
+	// Both forms resolve accepted at their own hash.
+	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "dual"}
+	reg := newRegistry(t)
+	for form, hash := range map[string]string{rawForm: wantRaw, distilledForm: wantDistilled} {
+		got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: hash, Form: form, Store: store, Registry: reg})
+		if got.Decision != trust.Allow || got.Source != trust.SourceAccepted {
+			t.Errorf("form %s resolve = {%s,%s}, want {allow, accepted}", form, got.Decision, got.Source)
+		}
 	}
 }
 
@@ -357,38 +493,57 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetBlacklist: %v", err)
 	}
-	if res.ContentHash == "" {
-		t.Fatal("blacklist should have recorded the item's current content hash")
+	if res.Status != "rejected" {
+		t.Errorf("status = %q, want rejected", res.Status)
+	}
+	if len(res.ContentHashes) == 0 {
+		t.Fatal("rejection should have recorded the item's current content hash(es)")
 	}
 
 	reg := newRegistry(t, remoteSpec{name: "acme", url: trustRepo, trust: true})
 	tref := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "solid"}
 
-	// Same content hash → denied via denylist (checked first).
-	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: res.ContentHash, Store: store, Registry: reg})
-	if got.Decision != trust.Deny || got.Source != trust.SourceDenylist {
-		t.Errorf("blacklisted-hash resolve = {%s,%s}, want {deny, denylist}", got.Decision, got.Source)
+	// Same content hash → denied via the rejected step, even on a TRUSTED source.
+	got, _ := EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: res.ContentHashes[0], Form: rawForm, Store: store, Registry: reg})
+	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
+		t.Errorf("rejected-hash resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
 	}
-	// A changed content hash → still denied, now via the sticky ref blacklist.
-	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: "sha256:changed", Store: store, Registry: reg})
-	if got.Decision != trust.Deny || got.Source != trust.SourceBlacklist {
-		t.Errorf("changed-hash resolve = {%s,%s}, want {deny, blacklist}", got.Decision, got.Source)
+	// A changed content hash → still denied via the sticky ref-level rejection.
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: tref, ContentHash: "sha256:changed", Form: rawForm, Store: store, Registry: reg})
+	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
+		t.Errorf("changed-hash resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
+	}
+	// A renamed identical copy (different ref, same content) stays rejected.
+	renamed := trust.Ref{RepoURL: trustRepo, Bundle: "other", Kind: trust.KindFragment, Name: "clone"}
+	got, _ = EffectiveTrust(nil, EffectiveTrustRequest{Ref: renamed, ContentHash: res.ContentHashes[0], Form: rawForm, Store: store, Registry: reg})
+	if got.Decision != trust.Deny || got.Source != trust.SourceRejected {
+		t.Errorf("renamed-copy resolve = {%s,%s}, want {deny, rejected}", got.Decision, got.Source)
 	}
 }
 
-func TestSetBundleTrust_RoundTrip(t *testing.T) {
+// TestSetBlacklist_DenylistsBothForms proves rejecting a distillable item
+// denylists BOTH form hashes, so neither materialization can sneak back in
+// under another ref.
+func TestSetBlacklist_DenylistsBothForms(t *testing.T) {
+	loader, _ := seededLoader()
 	store := newTrustStore(t)
-	if _, err := SetBundleTrust(nil, SetBundleTrustRequest{Bundle: "experimental", Trust: false, Store: store}); err != nil {
-		t.Fatalf("SetBundleTrust(untrust): %v", err)
+
+	res, err := SetBlacklist(nil, SetBlacklistRequest{
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Store: store, Loader: loader,
+	})
+	if err != nil {
+		t.Fatalf("SetBlacklist: %v", err)
 	}
-	if dec, ok := store.BundlePosture("experimental"); !ok || dec != trust.Deny {
-		t.Errorf("posture = %v,%v; want deny,true", dec, ok)
+	frag := bundles.BundleFragment{Content: "raw body", Distilled: "distilled body"}
+	wantRaw, _ := frag.EffectiveContentHash(false)
+	wantDistilled, _ := frag.EffectiveContentHash(true)
+	if len(res.ContentHashes) != 2 {
+		t.Fatalf("ContentHashes = %v, want both form hashes", res.ContentHashes)
 	}
-	if _, err := SetBundleTrust(nil, SetBundleTrustRequest{Bundle: "experimental", Trust: true, Store: store}); err != nil {
-		t.Fatalf("SetBundleTrust(trust): %v", err)
-	}
-	if dec, ok := store.BundlePosture("experimental"); !ok || dec != trust.Allow {
-		t.Errorf("posture after re-trust = %v,%v; want allow,true", dec, ok)
+	for _, h := range []string{wantRaw, wantDistilled} {
+		if !store.DeniedHash(h) {
+			t.Errorf("form hash %q missing from the denylist", h)
+		}
 	}
 }
 

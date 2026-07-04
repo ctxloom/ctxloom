@@ -5,6 +5,9 @@ import mermaid from 'astro-mermaid';
 
 export default defineConfig({
 	site: 'https://ctxloom.dev',
+	redirects: {
+		'/concepts/prompts/': '/concepts/skills/',
+	},
 	integrations: [
 		mermaid(), // Must come BEFORE starlight for diagram rendering
 		starlight({
@@ -39,8 +42,9 @@ export default defineConfig({
 					items: [
 						{ label: 'Bundles', link: '/concepts/bundles/' },
 						{ label: 'Fragments', link: '/concepts/fragments/' },
-						{ label: 'Prompts', link: '/concepts/prompts/' },
+						{ label: 'Skills', link: '/concepts/skills/' },
 						{ label: 'Profiles', link: '/concepts/profiles/' },
+						{ label: 'Agents & Isolation', link: '/concepts/agents/' },
 						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
 						{ label: 'Review and Trust', link: '/concepts/review-and-trust/' },
@@ -65,7 +69,7 @@ export default defineConfig({
 				{
 					label: 'Reference',
 					items: [
-						{ label: 'CLI', link: '/reference/cli/' },
+						{ label: 'CLI', autogenerate: { directory: 'reference/cli' } },
 						{ label: 'MCP Tools', link: '/reference/mcp-tools/' },
 						{ label: 'Environment', link: '/reference/environment/' },
 					],

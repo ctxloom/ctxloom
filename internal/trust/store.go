@@ -2,12 +2,11 @@ package trust
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -15,52 +14,46 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// storeVersion is the on-disk schema version of trust.yaml.
-const storeVersion = 1
-
-// baselineSchemaVersion is the version of the one-time migration baseline (trust
-// rework, TR6). A store whose recorded baseline_version is >= this has already
-// taken its snapshot, so ApplyBaseline is a no-op (the snapshot runs exactly
-// once). Bumping it would let a future, materially different snapshot algorithm
-// re-run on stores baselined by an older version.
-const baselineSchemaVersion = 1
+// storeVersion is the on-disk schema version of trust.yaml. Version 2 is the
+// three-state review model (trust-simplify): per-item accepted/rejected states
+// bound to a (raw, distilled) hash pair, plus the content-hash denylist. A
+// version-1 file (grants/blacklist/bundles/baseline) migrates in memory on
+// load and is persisted in v2 form on the first successful mutation.
+const storeVersion = 2
 
 // keySep separates components in composite in-memory map keys. Repo URLs and
 // item refs never contain a null byte, so it cannot collide.
 const keySep = "\x00"
 
-// Grant is a per-item trust grant: it blesses one exact content version of one
-// item (repo + ref + content hash). Form and SHAAtGrant are provenance only —
-// validity is "the recomputed effective-content hash equals ContentHash", never
-// a form or SHA comparison.
-type Grant struct {
-	RepoURL     string // canonicalized repo URL (ctxloom:local for local items)
-	Ref         string // repo-relative item key, e.g. "code-quality#fragments/solid"
-	ContentHash string // EFFECTIVE-content hash this grant is bound to
-	Form        string // raw | distilled — provenance for which form was blessed
-	SHAAtGrant  string // commit the grant was minted against — provenance only
+// Item is one reviewed item's persisted state. An item with no entry is
+// implicitly pending (withheld). Accepted items are bound to the hash pair
+// present at review: a change to either exposed form returns the item to
+// pending because the recomputed hash no longer matches. A hash slot may be
+// empty (lazy v1 migration recorded only the form that was granted); the
+// resolver treats an empty slot for the current form as pending (fail closed).
+type Item struct {
+	RepoURL       string // canonicalized repo URL (ctxloom:local for local items)
+	Ref           string // repo-relative item key, e.g. "code-quality#fragments/solid"
+	State         State  // StateAccepted | StateRejected (pending is never stored)
+	RawHash       string // accepted only; hash of the raw form ("" = unknown/unreviewed)
+	DistilledHash string // accepted only; hash of the distilled form ("" = none/unknown)
+	ReviewedAt    string // RFC3339 timestamp of the recording mutation (provenance)
 }
 
-// Store is the afero-backed per-item trust store persisted to trust.yaml. It
-// holds grants, a sticky ref-level blacklist, a content-hash denylist, and
-// per-bundle postures. It is read by the resolver and written only via the
-// mutation methods, each of which rolls back its in-memory change if the save
-// fails — a half-applied blacklist that fails to persist would otherwise let a
-// process believe an item is blocked while the next load reopens it.
+// Store is the afero-backed per-item review-state store persisted to
+// trust.yaml. It holds the accepted/rejected items and the content-hash
+// denylist of rejected content. It is read by the resolver and written only
+// via the mutation methods, each of which rolls back its in-memory change if
+// the save fails — a half-applied rejection that fails to persist would
+// otherwise let a process believe an item is blocked while the next load
+// reopens it.
 type Store struct {
 	mu         sync.RWMutex
 	configPath string
 	fs         afero.Fs
 
-	grants    map[string]Grant    // grantKey -> grant
-	blacklist map[string]struct{} // blKey -> {} (sticky ref-level)
-	denylist  map[string]struct{} // content hash -> {} (repo/ref-agnostic)
-	bundles   map[string]Decision // bundle name -> trusted/untrusted posture
-
-	// baselineVersion records that the one-time TR6 migration snapshot has run
-	// (0 = never). baselinedAt is the RFC3339 timestamp it ran, provenance only.
-	baselineVersion int
-	baselinedAt     string
+	items    map[string]Item     // itemKey -> item state
+	denylist map[string]struct{} // content hash -> {} (repo/ref-agnostic)
 }
 
 // Option configures a Store.
@@ -73,8 +66,8 @@ func WithFS(fs afero.Fs) Option {
 
 // New creates a trust store persisting to configPath. If configPath is empty it
 // defaults to .ctxloom/trust.yaml in the current directory. A missing file is
-// fine (empty store); a corrupt/unreadable file returns an error so the caller
-// can fail closed rather than silently degrade to an empty (allow-by-default)
+// fine (empty store — everything pending); a corrupt/unreadable file returns an
+// error so the caller can fail closed rather than silently degrade to an empty
 // store.
 func New(configPath string, opts ...Option) (*Store, error) {
 	if configPath == "" {
@@ -83,10 +76,8 @@ func New(configPath string, opts ...Option) (*Store, error) {
 	s := &Store{
 		configPath: configPath,
 		fs:         afero.NewOsFs(),
-		grants:     make(map[string]Grant),
-		blacklist:  make(map[string]struct{}),
+		items:      make(map[string]Item),
 		denylist:   make(map[string]struct{}),
-		bundles:    make(map[string]Decision),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -97,18 +88,28 @@ func New(configPath string, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-// storeFile is the on-disk YAML shape of trust.yaml.
+// storeFile is the on-disk YAML shape of trust.yaml. The v2 fields (Items,
+// Denylist) are the persisted schema; the legacy v1 fields (Grants, Blacklist)
+// are read-only migration inputs, never written back. v1 bundle postures and
+// the baseline marker are dropped on migration (their keys are simply ignored
+// by the YAML decoder).
 type storeFile struct {
-	Version int `yaml:"version"`
-	// BaselineVersion/BaselinedAt mark the one-time TR6 migration snapshot so it
-	// runs exactly once (see baselineSchemaVersion). Omitted until the snapshot
-	// has run.
-	BaselineVersion int               `yaml:"baseline_version,omitempty"`
-	BaselinedAt     string            `yaml:"baselined_at,omitempty"`
-	Grants          []grantRecord     `yaml:"grants,omitempty"`
-	Blacklist       []blacklistRecord `yaml:"blacklist,omitempty"`
-	Denylist        []string          `yaml:"denylist,omitempty"`
-	Bundles         []bundleRecord    `yaml:"bundles,omitempty"`
+	Version  int          `yaml:"version"`
+	Items    []itemRecord `yaml:"items,omitempty"`
+	Denylist []string     `yaml:"denylist,omitempty"`
+
+	// Legacy v1 fields, parsed only to migrate. Never written.
+	Grants    []grantRecord     `yaml:"grants,omitempty"`
+	Blacklist []blacklistRecord `yaml:"blacklist,omitempty"`
+}
+
+type itemRecord struct {
+	RepoURL       string `yaml:"repo_url"`
+	Ref           string `yaml:"ref"`
+	State         string `yaml:"state"`
+	RawHash       string `yaml:"raw_hash,omitempty"`
+	DistilledHash string `yaml:"distilled_hash,omitempty"`
+	ReviewedAt    string `yaml:"reviewed_at,omitempty"`
 }
 
 type grantRecord struct {
@@ -124,12 +125,9 @@ type blacklistRecord struct {
 	Ref     string `yaml:"ref"`
 }
 
-type bundleRecord struct {
-	Bundle   string `yaml:"bundle"`
-	Decision string `yaml:"decision"`
-}
-
-// load reads the store from disk into the in-memory maps.
+// load reads the store from disk into the in-memory maps. A version-1 file is
+// migrated in memory (see migrateV1); the file itself is NOT rewritten on a
+// pure read — the migrated form persists on the first successful mutation.
 func (s *Store) load() error {
 	data, err := afero.ReadFile(s.fs, s.configPath)
 	if err != nil {
@@ -139,66 +137,71 @@ func (s *Store) load() error {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse trust store: %w", err)
 	}
-	s.baselineVersion = cfg.BaselineVersion
-	s.baselinedAt = cfg.BaselinedAt
-	for _, g := range cfg.Grants {
-		repo := CanonicalRepoURL(g.RepoURL)
-		s.grants[grantKey(repo, g.Ref, g.ContentHash)] = Grant{
-			RepoURL:     repo,
-			Ref:         g.Ref,
-			ContentHash: g.ContentHash,
-			Form:        g.Form,
-			SHAAtGrant:  g.SHAAtGrant,
-		}
-	}
-	for _, b := range cfg.Blacklist {
-		s.blacklist[blKey(CanonicalRepoURL(b.RepoURL), b.Ref)] = struct{}{}
-	}
 	for _, h := range cfg.Denylist {
 		if h != "" {
 			s.denylist[h] = struct{}{}
 		}
 	}
-	for _, b := range cfg.Bundles {
-		s.bundles[b.Bundle] = postureFromYAML(b.Decision)
+	if cfg.Version >= storeVersion {
+		for _, it := range cfg.Items {
+			state, err := stateFromYAML(it.State)
+			if err != nil {
+				// A garbled state cannot be trusted — fail the load so the caller
+				// fails closed (denies everything) rather than guessing.
+				return fmt.Errorf("failed to parse trust store: item %q: %w", it.Ref, err)
+			}
+			repo := CanonicalRepoURL(it.RepoURL)
+			item := Item{
+				RepoURL:    repo,
+				Ref:        it.Ref,
+				State:      state,
+				ReviewedAt: it.ReviewedAt,
+			}
+			if state == StateAccepted {
+				// Hashes are meaningful for accepted items only.
+				item.RawHash = it.RawHash
+				item.DistilledHash = it.DistilledHash
+			}
+			s.items[itemKey(repo, it.Ref)] = item
+		}
+		return nil
 	}
+	s.migrateV1(cfg)
 	return nil
 }
 
-// postureToYAML renders a bundle posture in the plan's storage vocabulary
-// (trusted | untrusted) rather than the resolver's allow/deny.
-func postureToYAML(d Decision) string {
-	if d == Allow {
-		return "trusted"
-	}
-	return "untrusted"
-}
-
-// postureFromYAML parses a stored bundle posture. An unknown/garbled value
-// resolves to Deny (fail closed) rather than silently trusting.
-func postureFromYAML(s string) Decision {
-	switch s {
-	case "trusted", string(Allow):
-		return Allow
+// stateFromYAML parses a persisted item state. Only the two persisted states
+// are valid; anything else is a corrupt store (the caller fails closed).
+func stateFromYAML(raw string) (State, error) {
+	switch State(raw) {
+	case StateAccepted:
+		return StateAccepted, nil
+	case StateRejected:
+		return StateRejected, nil
 	default:
-		return Deny
+		return "", fmt.Errorf("unknown item state %q", raw)
 	}
 }
 
-// snapshot reconstructs the on-disk shape from the in-memory maps with
-// deterministic ordering. trust.yaml is owned entirely by this store (unlike
-// remotes.yaml, which is shared), so a full marshal is correct.
-func (s *Store) snapshot() storeFile {
-	out := storeFile{
-		Version:         storeVersion,
-		BaselineVersion: s.baselineVersion,
-		BaselinedAt:     s.baselinedAt,
-	}
-	for _, g := range s.grants {
-		out.Grants = append(out.Grants, grantRecord(g))
-	}
-	sort.Slice(out.Grants, func(i, j int) bool {
-		a, b := out.Grants[i], out.Grants[j]
+// migrateV1 translates a version-1 store into the three-state model, in
+// memory only:
+//
+//   - grants → accepted items. The migration is lazy on hash pairs: the
+//     grant's known form-hash fills the matching slot (Form "distilled" →
+//     DistilledHash, anything else → RawHash) and the other slot stays empty —
+//     the resolver requires the CURRENT form's hash to match, so an empty slot
+//     gates (fail closed) until a review/accept records both forms. Grants are
+//     applied in sorted (repo, ref, hash) order so multiple v1 grants for one
+//     ref migrate deterministically (per form slot, the greatest hash wins).
+//   - blacklist entries → rejected items, overwriting any migrated grant for
+//     the same ref (the v1 cascade also let blacklist beat grants).
+//   - the denylist carries over (already loaded by the caller).
+//   - bundle postures and the baseline marker are dropped: the content they
+//     covered lands pending, awaiting one review session.
+func (s *Store) migrateV1(cfg storeFile) {
+	grants := append([]grantRecord(nil), cfg.Grants...)
+	sort.Slice(grants, func(i, j int) bool {
+		a, b := grants[i], grants[j]
 		if a.RepoURL != b.RepoURL {
 			return a.RepoURL < b.RepoURL
 		}
@@ -207,12 +210,52 @@ func (s *Store) snapshot() storeFile {
 		}
 		return a.ContentHash < b.ContentHash
 	})
-	for k := range s.blacklist {
-		repo, ref, _ := strings.Cut(k, keySep)
-		out.Blacklist = append(out.Blacklist, blacklistRecord{RepoURL: repo, Ref: ref})
+	for _, g := range grants {
+		if g.ContentHash == "" {
+			continue // a hash-less grant blessed nothing — nothing to migrate
+		}
+		repo := CanonicalRepoURL(g.RepoURL)
+		key := itemKey(repo, g.Ref)
+		item, ok := s.items[key]
+		if !ok {
+			item = Item{RepoURL: repo, Ref: g.Ref, State: StateAccepted}
+		}
+		if g.Form == "distilled" {
+			item.DistilledHash = g.ContentHash
+		} else {
+			item.RawHash = g.ContentHash
+		}
+		s.items[key] = item
 	}
-	sort.Slice(out.Blacklist, func(i, j int) bool {
-		a, b := out.Blacklist[i], out.Blacklist[j]
+	for _, b := range cfg.Blacklist {
+		repo := CanonicalRepoURL(b.RepoURL)
+		// Rejected wins over any migrated grant for the same ref; hashes are
+		// cleared (rejected items carry no acceptance hashes).
+		s.items[itemKey(repo, b.Ref)] = Item{RepoURL: repo, Ref: b.Ref, State: StateRejected}
+	}
+}
+
+// snapshot reconstructs the on-disk shape from the in-memory maps with
+// deterministic ordering. trust.yaml is owned entirely by this store (unlike
+// remotes.yaml, which is shared), so a full marshal is correct. The legacy v1
+// fields are never written.
+func (s *Store) snapshot() storeFile {
+	out := storeFile{Version: storeVersion}
+	for _, it := range s.items {
+		rec := itemRecord{
+			RepoURL:    it.RepoURL,
+			Ref:        it.Ref,
+			State:      string(it.State),
+			ReviewedAt: it.ReviewedAt,
+		}
+		if it.State == StateAccepted {
+			rec.RawHash = it.RawHash
+			rec.DistilledHash = it.DistilledHash
+		}
+		out.Items = append(out.Items, rec)
+	}
+	sort.Slice(out.Items, func(i, j int) bool {
+		a, b := out.Items[i], out.Items[j]
 		if a.RepoURL != b.RepoURL {
 			return a.RepoURL < b.RepoURL
 		}
@@ -222,10 +265,6 @@ func (s *Store) snapshot() storeFile {
 		out.Denylist = append(out.Denylist, h)
 	}
 	sort.Strings(out.Denylist)
-	for name, dec := range s.bundles {
-		out.Bundles = append(out.Bundles, bundleRecord{Bundle: name, Decision: postureToYAML(dec)})
-	}
-	sort.Slice(out.Bundles, func(i, j int) bool { return out.Bundles[i].Bundle < out.Bundles[j].Bundle })
 	return out
 }
 
@@ -245,180 +284,130 @@ func (s *Store) save() error {
 	return nil
 }
 
-func grantKey(repoURL, ref, hash string) string {
-	return repoURL + keySep + ref + keySep + hash
-}
-
-func blKey(repoURL, ref string) string {
+func itemKey(repoURL, ref string) string {
 	return repoURL + keySep + ref
 }
 
-// AddGrant records (or replaces) a per-item trust grant. repoURL is
-// canonicalized before keying. Rolls back the in-memory change if the save
-// fails.
-func (s *Store) AddGrant(repoURL, ref, contentHash, form, shaAtGrant string) error {
+// nowRFC3339 stamps mutation provenance; a package var so tests can pin it.
+var nowRFC3339 = func() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// SetAccepted records (or replaces) an item's accepted state, bound to the
+// (raw, distilled) hash pair present at review. distilledHash may be empty
+// when the item has no distilled form; at least one hash must be non-empty —
+// an acceptance that pins no content would be meaningless (and could mask a
+// hashing bug as an always-pending item). Overwrites a previous rejected
+// state for the same ref (the explicit un-reject path). Rolls back the
+// in-memory change if the save fails.
+func (s *Store) SetAccepted(repoURL, ref string, rawHash, distilledHash string) error {
+	if rawHash == "" && distilledHash == "" {
+		return fmt.Errorf("accepting %q requires at least one content hash", ref)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	repo := CanonicalRepoURL(repoURL)
-	key := grantKey(repo, ref, contentHash)
-	prev, existed := s.grants[key]
-	s.grants[key] = Grant{
-		RepoURL:     repo,
-		Ref:         ref,
-		ContentHash: contentHash,
-		Form:        form,
-		SHAAtGrant:  shaAtGrant,
+	key := itemKey(repo, ref)
+	prev, existed := s.items[key]
+	s.items[key] = Item{
+		RepoURL:       repo,
+		Ref:           ref,
+		State:         StateAccepted,
+		RawHash:       rawHash,
+		DistilledHash: distilledHash,
+		ReviewedAt:    nowRFC3339(),
 	}
 	if err := s.save(); err != nil {
 		if existed {
-			s.grants[key] = prev
+			s.items[key] = prev
 		} else {
-			delete(s.grants, key)
+			delete(s.items, key)
 		}
 		return err
 	}
 	return nil
 }
 
-// Blacklist records a sticky ref-level blacklist entry and, when contentHash is
-// non-empty, the matching content-hash denylist entry — the two companion
-// components written together so a renamed/moved copy of the same content stays
-// blocked. Both persist or neither: a save failure rolls back both in-memory
-// changes.
-func (s *Store) Blacklist(repoURL, ref, contentHash string) error {
+// SetRejected records an item's rejected state and adds every non-empty
+// content hash to the repo/ref-agnostic denylist — the two companion
+// components written together so a renamed/moved copy of the same content
+// stays rejected. Both persist or neither: a save failure rolls back every
+// in-memory change. The ref-level rejection is recorded even with no hashes
+// (e.g. the content is already gone) — it is the durable guarantee.
+func (s *Store) SetRejected(repoURL, ref string, contentHashes ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	repo := CanonicalRepoURL(repoURL)
-	bk := blKey(repo, ref)
-	_, blExisted := s.blacklist[bk]
-	_, dlExisted := s.denylist[contentHash]
-
-	s.blacklist[bk] = struct{}{}
-	if contentHash != "" {
-		s.denylist[contentHash] = struct{}{}
-	}
-
-	if err := s.save(); err != nil {
-		if !blExisted {
-			delete(s.blacklist, bk)
+	key := itemKey(repo, ref)
+	prev, existed := s.items[key]
+	var addedHashes []string
+	for _, h := range contentHashes {
+		if h == "" {
+			continue
 		}
-		if contentHash != "" && !dlExisted {
-			delete(s.denylist, contentHash)
+		if _, ok := s.denylist[h]; !ok {
+			s.denylist[h] = struct{}{}
+			addedHashes = append(addedHashes, h)
+		}
+	}
+	s.items[key] = Item{
+		RepoURL:    repo,
+		Ref:        ref,
+		State:      StateRejected,
+		ReviewedAt: nowRFC3339(),
+	}
+	if err := s.save(); err != nil {
+		if existed {
+			s.items[key] = prev
+		} else {
+			delete(s.items, key)
+		}
+		for _, h := range addedHashes {
+			delete(s.denylist, h)
 		}
 		return err
 	}
 	return nil
 }
 
-// SetBundle sets a SHA-agnostic posture for a bundle. Rolls back on save
-// failure.
-func (s *Store) SetBundle(bundle string, decision Decision) error {
+// Remove drops an item's recorded state, returning it to (implicit) pending.
+// Removing an absent item is a no-op. It does NOT scrub denylist hashes a
+// rejection may have added — bad content stays blocked until explicitly
+// re-accepted at its current hash. Rolls back on save failure.
+func (s *Store) Remove(repoURL, ref string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	prev, existed := s.bundles[bundle]
-	s.bundles[bundle] = decision
+	key := itemKey(CanonicalRepoURL(repoURL), ref)
+	prev, existed := s.items[key]
+	if !existed {
+		return nil
+	}
+	delete(s.items, key)
 	if err := s.save(); err != nil {
-		if existed {
-			s.bundles[bundle] = prev
-		} else {
-			delete(s.bundles, bundle)
-		}
+		s.items[key] = prev
 		return err
 	}
 	return nil
 }
 
-// DenylistMatch reports whether the content hash is on the denylist (highest
-// precedence — exact bad content blocked regardless of ref or repo).
-func (s *Store) DenylistMatch(contentHash string) bool {
-	if contentHash == "" {
+// Lookup returns the recorded state for the (canonical repo, ref) pair, and
+// whether one exists. No entry means the item is pending.
+func (s *Store) Lookup(repoURL, ref string) (Item, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.items[itemKey(CanonicalRepoURL(repoURL), ref)]
+	return item, ok
+}
+
+// DeniedHash reports whether the content hash is on the denylist (rejected
+// content stays blocked regardless of ref or repo).
+func (s *Store) DeniedHash(hash string) bool {
+	if hash == "" {
 		return false
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	_, ok := s.denylist[contentHash]
+	_, ok := s.denylist[hash]
 	return ok
-}
-
-// BlacklistMatch reports whether a sticky ref-level blacklist entry exists for
-// the (canonical repo, ref) pair.
-func (s *Store) BlacklistMatch(repoURL, ref string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.blacklist[blKey(CanonicalRepoURL(repoURL), ref)]
-	return ok
-}
-
-// GrantMatch returns the grant blessing exactly (canonical repo, ref, content
-// hash), and whether one exists. The content hash is part of the key, so
-// historical versions of a ref coexist and a content change drops the grant.
-func (s *Store) GrantMatch(repoURL, ref, contentHash string) (Grant, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	g, ok := s.grants[grantKey(CanonicalRepoURL(repoURL), ref, contentHash)]
-	return g, ok
-}
-
-// BundlePosture returns the bundle's posture and whether one is set.
-func (s *Store) BundlePosture(bundle string) (Decision, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	dec, ok := s.bundles[bundle]
-	return dec, ok
-}
-
-// IsBaselined reports whether the one-time TR6 migration snapshot has already
-// run for this store (so the caller can skip the expensive enumeration). A store
-// is baselined once its recorded baseline_version reaches baselineSchemaVersion.
-func (s *Store) IsBaselined() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.baselineVersion >= baselineSchemaVersion
-}
-
-// ApplyBaseline records the one-time migration snapshot (trust rework, TR6):
-// every supplied grant is added (or replaced if its exact {repo, ref, hash}
-// already exists) and the baseline marker is stamped, all in a single atomic
-// save. It is idempotent and runs exactly once: if the store is already
-// baselined it is a no-op, so a re-run never re-grants content that was swapped
-// after the first snapshot (that content stays absent and gates once enforcement
-// lands). A save failure rolls back every in-memory change — grants and marker
-// persist together or not at all, so a half-written baseline can't leave the
-// marker set with the grants missing (which would permanently skip the
-// snapshot). `at` is an RFC3339 timestamp recorded as provenance.
-func (s *Store) ApplyBaseline(grants []Grant, at string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.baselineVersion >= baselineSchemaVersion {
-		return nil // already baselined — idempotent no-op
-	}
-
-	prevGrants := maps.Clone(s.grants)
-	prevVersion := s.baselineVersion
-	prevAt := s.baselinedAt
-
-	for _, g := range grants {
-		repo := CanonicalRepoURL(g.RepoURL)
-		s.grants[grantKey(repo, g.Ref, g.ContentHash)] = Grant{
-			RepoURL:     repo,
-			Ref:         g.Ref,
-			ContentHash: g.ContentHash,
-			Form:        g.Form,
-			SHAAtGrant:  g.SHAAtGrant,
-		}
-	}
-	s.baselineVersion = baselineSchemaVersion
-	s.baselinedAt = at
-
-	if err := s.save(); err != nil {
-		s.grants = prevGrants
-		s.baselineVersion = prevVersion
-		s.baselinedAt = prevAt
-		return err
-	}
-	return nil
 }

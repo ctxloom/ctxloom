@@ -2,200 +2,15 @@
 title: "MCP Tools Reference"
 ---
 
-Complete reference for all MCP (Model Context Protocol) tools exposed by ctxloom's MCP server.
+Reference for the tools and resources exposed by ctxloom's MCP server (`ctxloom mcp`).
 
 ## Overview
 
-ctxloom runs as an MCP server, exposing tools that AI assistants can use to manage context, bundles, profiles, and remotes. These tools enable seamless integration with Claude Code, Cursor, and other MCP-compatible clients.
+The MCP surface is for **retrieving context during a session**: assembling context, searching content, and working with session memory. It exposes seven tools and a set of read-only resources.
 
-## Fragment Tools
+Everything that *manages* ctxloom — creating or editing bundles, profiles, fragments, and skills; pulling remotes; reviewing, approving, and trusting changes — is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 
-### list_fragments
-
-List available local context fragments with their tags and source locations.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `query` | string | No | Text search on name |
-| `tags` | string[] | No | Filter by tags |
-| `sort_by` | string | No | Sort field: `name` or `source` (default: `name`) |
-| `sort_order` | string | No | `asc` or `desc` (default: `asc`) |
-
-**Example:**
-```json
-{
-  "tool": "list_fragments",
-  "arguments": {
-    "tags": ["golang", "testing"],
-    "sort_by": "name"
-  }
-}
-```
-
-### get_fragment
-
-Get a local fragment's content by name.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Fragment name (without extension) |
-
-**Example:**
-```json
-{
-  "tool": "get_fragment",
-  "arguments": {
-    "name": "go-testing"
-  }
-}
-```
-
-### create_fragment
-
-Create a new context fragment.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Fragment name (without extension) |
-| `content` | string | Yes | Fragment content (markdown) |
-| `tags` | string[] | No | Tags for the fragment |
-| `version` | string | No | Version string (default: `1.0`) |
-
-### delete_fragment
-
-Delete a local context fragment.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Fragment name to delete |
-
----
-
-## Profile Tools
-
-### list_profiles
-
-List all configured profiles with their descriptions.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `query` | string | No | Text search on name or description |
-| `sort_by` | string | No | Sort field: `name` or `default` (default: `name`) |
-| `sort_order` | string | No | `asc` or `desc` (default: `asc`) |
-
-### get_profile
-
-Get a profile's configuration including fragments, tags, and variables.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Profile name |
-
-### create_profile
-
-Create a new profile with bundles, tags, and/or parent profiles.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Profile name |
-| `description` | string | No | Profile description |
-| `bundles` | string[] | No | Bundle references to include |
-| `tags` | string[] | No | Tags to include fragments by |
-| `parents` | string[] | No | Parent profiles to inherit from |
-| `default` | boolean | No | Set as default profile |
-| `exclude_fragments` | string[] | No | Fragment names to exclude |
-| `exclude_mcp` | string[] | No | MCP server names to exclude |
-
-**Example:**
-```json
-{
-  "tool": "create_profile",
-  "arguments": {
-    "name": "my-golang-profile",
-    "description": "Go development with testing focus",
-    "bundles": ["go-development", "testing"],
-    "parents": ["base-developer"],
-    "exclude_fragments": ["verbose-logging"],
-    "default": true
-  }
-}
-```
-
-### update_profile
-
-Update an existing profile by adding/removing bundles, tags, or parents.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Profile name to update |
-| `description` | string | No | New description |
-| `add_bundles` | string[] | No | Bundles to add |
-| `remove_bundles` | string[] | No | Bundles to remove |
-| `add_tags` | string[] | No | Tags to add |
-| `remove_tags` | string[] | No | Tags to remove |
-| `add_parents` | string[] | No | Parent profiles to add |
-| `remove_parents` | string[] | No | Parent profiles to remove |
-| `default` | boolean | No | Set as default profile |
-| `add_exclude_fragments` | string[] | No | Add fragments to exclusion list |
-| `remove_exclude_fragments` | string[] | No | Remove fragments from exclusion list |
-| `add_exclude_mcp` | string[] | No | Add MCP servers to exclusion list |
-| `remove_exclude_mcp` | string[] | No | Remove MCP servers from exclusion list |
-
-### delete_profile
-
-Delete a profile.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Profile name to delete |
-
----
-
-## Prompt Tools
-
-### list_prompts
-
-List saved prompts.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `query` | string | No | Text search on name |
-| `sort_by` | string | No | Sort field: `name` (default: `name`) |
-| `sort_order` | string | No | `asc` or `desc` (default: `asc`) |
-
-### get_prompt
-
-Get a saved prompt's content by name.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Prompt name (without extension) |
-
----
-
-## Context Assembly
+## Context Tools
 
 ### assemble_context
 
@@ -221,20 +36,16 @@ Assemble context from a profile, fragments, and/or tags. Returns the combined co
 }
 ```
 
----
-
-## Search
-
 ### search_content
 
-Search across all ctxloom content types (fragments, prompts, profiles, MCP servers).
+Search content already installed in this project (fragments, skills, profiles, MCP servers). Does not reach remotes — use `search_library` for discovery.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `query` | string | Yes | Search text (matches name, description, tags) |
-| `types` | string[] | No | Content types: `fragment`, `prompt`, `profile`, `mcp_server` |
+| `types` | string[] | No | Content types: `fragment`, `prompt`, `profile`, `mcp_server` (default: all) |
 | `tags` | string[] | No | Filter by tags (fragments only) |
 | `sort_by` | string | No | Sort: `name`, `type`, or `relevance` (default: `relevance`) |
 | `sort_order` | string | No | `asc` or `desc` (default: `asc`) |
@@ -246,270 +57,32 @@ Search across all ctxloom content types (fragments, prompts, profiles, MCP serve
   "tool": "search_content",
   "arguments": {
     "query": "testing",
-    "types": ["fragment", "prompt"],
+    "types": ["fragment"],
     "limit": 10
   }
 }
 ```
 
----
+### search_library
 
-## Remote Tools
-
-### list_remotes
-
-List configured remote sources for fragments and prompts.
-
-**Parameters:** None
-
-### discover_remotes
-
-Search GitHub/GitLab for ctxloom repositories containing fragments and prompts.
+Search the library of installable bundles across configured remotes, reading their local git clones (no network). This is the discovery counterpart to `search_content`. Each match includes a `pull_ref` for referencing the bundle from a local profile; install it with the CLI (`ctxloom profile create <name> -b <pull_ref>`, then `ctxloom remote pull`).
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `query` | string | No | Optional search term to filter repositories |
-| `source` | string | No | Which forge: `github`, `gitlab`, or `all` (default: `all`) |
-| `min_stars` | integer | No | Minimum star count filter (default: 0) |
+| `query` | string | Yes | Search text. Plain words match name/description/tags; `tag:NAME` matches a tag (e.g. `tag:golang`) |
+| `item_type` | string | No | Item type to search (currently only `bundle`; profiles ship inside bundles) |
 
 **Example:**
 ```json
 {
-  "tool": "discover_remotes",
+  "tool": "search_library",
   "arguments": {
-    "query": "golang",
-    "source": "github",
-    "min_stars": 10
+    "query": "tag:golang"
   }
 }
 ```
-
-### browse_remote
-
-List items (fragments, prompts, profiles) available in a remote repository.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `remote` | string | Yes | Remote name (from list_remotes) |
-| `item_type` | string | No | Type: `fragment`, `prompt`, or `profile` (default: all) |
-| `path` | string | No | Subdirectory path to browse |
-
-### preview_remote
-
-Preview content of a remote item before pulling. Returns a `pull_token` for `confirm_pull`.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `reference` | string | Yes | Remote reference (e.g., `github/general/tdd` or `github/security@v1.0.0`) |
-| `item_type` | string | Yes | Type: `fragment`, `prompt`, or `profile` |
-
-### confirm_pull
-
-Install a previously previewed item using the pull_token from preview_remote.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `pull_token` | string | Yes | Token from preview_remote response |
-
-### pull_remote
-
-Pull (install) a bundle or profile from a remote repository in one step. This is the recommended way to install remote content.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `reference` | string | Yes | Remote reference (e.g., `remote-name/bundle-name` or `remote-name/bundle@v1.0.0`) |
-| `item_type` | string | Yes | Type: `bundle`, `fragment`, or `profile` |
-
-**Response:**
-
-The response includes:
-- `status` - Installation status
-- `reference` - Installed reference
-- `local_path` - Path to installed file
-- `installation` - **Setup instructions from the bundle** (if present). Use these to complete setup (e.g., run npm install, set environment variables).
-
-**Example:**
-```json
-{
-  "tool": "pull_remote",
-  "arguments": {
-    "reference": "ctxloom-default/core",
-    "item_type": "bundle"
-  }
-}
-```
-
-**Response with installation instructions:**
-```json
-{
-  "status": "installed",
-  "reference": "ctxloom-default/core",
-  "local_path": ".ctxloom/bundles/core.yaml",
-  "installation": "Run: npm install -g @ctxloom/core\nSet CTXLOOM_API_KEY in your environment"
-}
-```
-
-The AI should follow the `installation` instructions after a successful install.
-
-### add_remote
-
-Register a new remote source for fragments and prompts.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Short name for the remote (e.g., `alice`) |
-| `url` | string | Yes | Repository URL (e.g., `alice/ctxloom` or `https://github.com/alice/ctxloom`) |
-
-### remove_remote
-
-Remove a registered remote source.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Remote name to remove |
-
----
-
-## MCP Server Management
-
-### list_mcp_servers
-
-List configured MCP servers.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `query` | string | No | Text search on name or command |
-| `sort_by` | string | No | Sort: `name` or `command` (default: `name`) |
-| `sort_order` | string | No | `asc` or `desc` (default: `asc`) |
-
-### add_mcp_server
-
-Add an MCP server to the configuration.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Server name (unique identifier) |
-| `command` | string | Yes | Command to run the MCP server |
-| `args` | string[] | No | Command arguments |
-| `backend` | string | No | Backend: `unified`, `claude-code`, or `antigravity` (default: `unified`) |
-
-**Example:**
-```json
-{
-  "tool": "add_mcp_server",
-  "arguments": {
-    "name": "tree-sitter",
-    "command": "npx",
-    "args": ["tree-sitter-mcp", "--stdio"],
-    "backend": "claude-code"
-  }
-}
-```
-
-### remove_mcp_server
-
-Remove an MCP server from the configuration.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `name` | string | Yes | Server name to remove |
-| `backend` | string | No | Backend to remove from: `unified`, `claude-code`, or `antigravity` (default: all) |
-
-### set_mcp_auto_register
-
-Enable or disable auto-registration of ctxloom's own MCP server.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `enabled` | boolean | Yes | Whether to auto-register ctxloom's MCP server |
-
----
-
-## Dependency Management
-
-### sync_dependencies
-
-Sync remote bundles and profiles referenced in config. Automatically fetches missing dependencies, updates lockfile, and applies hooks.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `profiles` | string[] | No | Specific profiles to sync (default: all) |
-| `force` | boolean | No | Re-pull even if already installed (default: false) |
-| `lock` | boolean | No | Update lockfile after sync (default: true) |
-| `apply_hooks` | boolean | No | Apply hooks after sync (default: true) |
-
-### lock_dependencies
-
-Generate a lockfile from currently installed remote items for reproducible installations.
-
-**Parameters:** None
-
-### install_dependencies
-
-Install all items from the lockfile.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `force` | boolean | No | Skip confirmation prompts (default: false) |
-
-### check_outdated
-
-Check if any locked items have newer versions available.
-
-**Parameters:** None
-
-### check_missing_dependencies
-
-Check which remote dependencies are not installed locally.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `profiles` | string[] | No | Specific profiles to check (default: all) |
-
----
-
-## Hooks
-
-### apply_hooks
-
-Apply/reapply ctxloom hooks to backend configuration files (`.claude/settings.json`, `.agents/hooks.json`).
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend: `claude-code`, `antigravity`, or `all` (default: `all`) |
-| `regenerate_context` | boolean | No | Also regenerate the context file (default: true) |
-
----
 
 ## Session Memory Tools
 
@@ -517,53 +90,44 @@ These tools manage session memory for context preservation across conversations.
 
 ### compact_session
 
-Compact current or specified session log into a distilled summary.
+Compact the current or a specified session log into a distilled summary. Use when context is running low.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `session_id` | string | No | Session ID to compact (defaults to current session) |
-| `model` | string | No | LLM model for distillation (default: haiku) |
-| `backend` | string | No | Backend to read from: `claude-code` or `antigravity` (default: `claude-code`) |
-
-### list_sessions
-
-List all sessions from the backend with their compaction status.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `backend` | string | No | Backend to list from: `claude-code` or `antigravity` (default: `claude-code`) |
+| `model` | string | No | LLM model for distillation (default: from config, else `claude-3-haiku`) |
+| `backend` | string | No | Backend to read from (default: the configured default LLM) |
 
 ### load_session
 
-Distill and load context from a specific session.
+Distill and load context from a session. Accepts either a backend-native `session_id` (UUID) or a `harp_name`; one of the two is required, and `harp_name` wins if both are passed. Harp names are listed in the `ctxloom://sessions/recent` resource.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `session_id` | string | Yes | Session ID to load |
-| `backend` | string | No | Backend to read from (default: `claude-code`) |
+| `session_id` | string | One of these | Backend-native session ID (UUID) |
+| `harp_name` | string | One of these | Harp-named session reference (e.g. `swift-amber-falcon`) |
+| `backend` | string | No | Backend to read from (default: the configured default LLM) |
 | `model` | string | No | LLM model for distillation if needed |
 
 ### recover_session
 
-Recover the most-recent session's context after `/clear`. Reads the session from disk at request time (no process/PID tracking).
+Recover the most-recent session's context after `/clear`. Resolves the most recent session transcript for this working directory at request time (no process/PID tracking).
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `session_id` | string | No | Session ID to recover (auto-detected if not provided) |
-| `backend` | string | No | Backend to read from (default: `claude-code`) |
+| `session_id` | string | No | Session ID to recover (most recent if not provided) |
+| `backend` | string | No | Backend to read from (default: the configured default LLM) |
 | `model` | string | No | LLM model for distillation if needed |
 
 ### get_previous_session
 
-Get the previous session's distilled content for the current project, read from disk at request time (no process/PID tracking). This is the primary tool for recovering context after `/clear`.
+Get the previous session's distilled content for the current project, read from disk at request time. This is the primary tool for recovering context after `/clear`.
 
 **Parameters:**
 
@@ -571,26 +135,43 @@ Get the previous session's distilled content for the current project, read from 
 |------|------|----------|-------------|
 | `model` | string | No | LLM model for distillation if needed |
 
-> Browsing recent sessions is exposed as a **resource**, not a tool — read `ctxloom://sessions/recent`.
+## Resources
 
----
+Read-only listings are exposed as MCP resources rather than tools:
+
+| URI | Contents |
+|-----|----------|
+| `ctxloom://help` | Orientation: what the server exposes and where management lives |
+| `ctxloom://fragments` | All installed fragments |
+| `ctxloom://fragments/{name}` | One fragment's content |
+| `ctxloom://profiles` | All profiles |
+| `ctxloom://profiles/{name}` | One profile's configuration |
+| `ctxloom://skills` | All installed skills |
+| `ctxloom://skills/{name}` | One skill's content |
+| `ctxloom://remotes` | Configured remotes |
+| `ctxloom://remotes/{name}/contents` | Bundles available in a remote |
+| `ctxloom://mcp-servers` | Configured MCP servers |
+| `ctxloom://sessions` | All harp-named sessions across every project |
+| `ctxloom://sessions/recent` | Harp-named sessions for the current project |
 
 ## Using MCP Tools
 
 ### With Claude Code
 
-Claude Code automatically discovers ctxloom tools when ctxloom is configured as an MCP server. You can invoke them naturally:
+Claude Code discovers ctxloom's tools automatically when ctxloom is configured as an MCP server. You can invoke them naturally:
 
 ```
-"List all my fragments"
-→ Uses list_fragments
+"Load the context for the developer profile"
+→ Uses assemble_context
 
-"Find ctxloom repositories about Python"
-→ Uses discover_remotes with query "python"
+"Find installable bundles about Go"
+→ Uses search_library with query "tag:golang"
 
-"Create a new profile called web-dev with the security bundle"
-→ Uses create_profile
+"Recover what we were working on before /clear"
+→ Uses get_previous_session
 ```
+
+Management requests ("create a profile", "pull the remotes", "approve the pending bundle") run through the CLI in your shell instead.
 
 ### Programmatic Access
 
@@ -602,8 +183,9 @@ Tools can be called directly via the MCP protocol:
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "list_fragments",
+    "name": "search_content",
     "arguments": {
+      "query": "testing",
       "tags": ["golang"]
     }
   }
@@ -620,7 +202,7 @@ All tools return errors in the standard MCP format:
   "id": 1,
   "error": {
     "code": -32602,
-    "message": "Invalid params: name is required"
+    "message": "Invalid params: query is required"
   }
 }
 ```

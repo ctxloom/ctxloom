@@ -8,11 +8,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Version is set at build time via ldflags
 // Example: go build -ldflags "-X ctxloom/cmd.Version=v1.0.0"
 var Version = "dev"
+
+// degradedFlag backs the persistent --degraded flag: the fail-loudly escape
+// hatch ("things may be broken, get me an agent"). Strict is the default;
+// this flag (or CTXLOOM_DEGRADED=1, which the flag beats when both are set)
+// downgrades fatal startup findings back to warn-and-continue.
+var degradedFlag bool
 
 // ExitError is returned when a command needs to exit with a specific code.
 // This allows deferred cleanup to run before the process exits.
@@ -45,6 +53,15 @@ var rootCmd = &cobra.Command{
 	// usage text — including for a wrapped LLM's ordinary nonzero exit.
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	// Apply the parsed --degraded flag before any subcommand runs. The
+	// CTXLOOM_DEGRADED env was already applied pre-dispatch (cmd/ctxloom/
+	// main.go); an explicitly set flag wins over it in either direction.
+	// No subcommand defines its own PersistentPreRun, so this runs for all.
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if cmd.Root().PersistentFlags().Changed("degraded") {
+			strictness.SetDegraded(degradedFlag)
+		}
+	},
 	Long: `ctxloom manages context for AI coding assistants.
 
 QUICK START
@@ -53,7 +70,7 @@ QUICK START
 
 CONTENT COMMANDS
   fragment      Manage fragments (list, show, create, delete, edit, search)
-  prompt        Manage prompts (list, show, create, delete, edit)
+  skill         Manage skills (list, show, create, delete, edit)
   profile       Manage profiles (list, show, create, delete, edit, default)
 
 INFRASTRUCTURE
@@ -66,14 +83,14 @@ WORKFLOW
 
 KEY CONCEPTS
   Fragments   Reusable context snippets (coding standards, patterns, etc.)
-  Prompts     Saved prompts for common tasks
+  Skills      Saved prompt templates, exported as slash commands
   Profiles    Named configurations combining bundles and variables
-  Bundles     YAML files containing fragments/prompts (internal format)
+  Bundles     YAML files containing fragments/skills (internal format)
   Remotes     Git repositories for sharing content (GitHub or generic git)
 
 REFERENCE SYNTAX
   bundle#fragments/name           Specific fragment from bundle
-  bundle#skills/name             Specific prompt from bundle
+  bundle#skills/name              Specific skill from bundle
   remote/bundle                   Bundle from a remote repository
 
 Run 'ctxloom <command> --help' for details on any command.`,
@@ -100,6 +117,16 @@ func Execute() {
 func init() {
 	// Enable --version flag
 	rootCmd.Version = Version
+
+	// The fail-loudly escape hatch, on every command (startup chokes gate on
+	// it; management commands simply ignore it). Env fallback: CTXLOOM_DEGRADED=1.
+	rootCmd.PersistentFlags().BoolVar(&degradedFlag, "degraded", false,
+		"degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway")
+
+	// The isolation layer bakes this stamp into agent images (ctxloom.version
+	// label) and compares it against present images to rebuild stale ones; it
+	// cannot import this package to read Version itself.
+	isolation.SetBinaryVersion(Version)
 
 	// Config is loaded via internal/config.Load() which handles the hierarchy:
 	// 1. Project .ctxloom/config.yaml

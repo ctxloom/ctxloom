@@ -1,14 +1,19 @@
-// Package trust implements the per-item trust store and the data model the
-// trust cascade resolves over (trust rework, TR1). Trust is expressible per
-// fragment / prompt / mcp item, with the existing per-remote trust (kept in
-// remotes.yaml as Remote.TrustBundles) and a per-bundle posture cascading to
-// the items they contain.
+// Package trust implements the per-item review-state store and the data model
+// the trust decision function resolves over (trust-simplify). Every remote
+// item (fragment, skill, MCP server, hook) is in exactly one of three states:
+// pending (never reviewed, or changed since acceptance — withheld), accepted
+// (a human reviewed this exact content, bound to its raw/distilled hash pair),
+// or rejected (withheld permanently, with a content-hash denylist companion so
+// a renamed identical copy stays rejected). First-party sources — local
+// content, builtin bundles, and trusted sources (remotes.yaml TrustBundles) —
+// are exempt from review; rejection beats even the first-party exemption.
 //
 // This package owns only the persistent store (afero-backed trust.yaml) plus
-// the addressing/canonicalization primitives. The cascade itself lives in
-// operations.EffectiveTrust, which unifies this store with the remote tier at
-// read time. The store never fetches or hashes content — callers compute the
-// effective-content hash (see bundles.EffectiveContentHash) and pass it in.
+// the addressing/canonicalization primitives. The decision function itself
+// lives in operations.EffectiveTrust, which unifies this store with the
+// trusted-sources set at read time. The store never fetches or hashes content
+// — callers compute the content hashes (see bundles.EffectiveContentHash) and
+// pass them in.
 package trust
 
 import (
@@ -29,26 +34,42 @@ const (
 	Deny Decision = "deny"
 )
 
-// Source names which cascade tier decided a trust evaluation. It is reported
-// alongside the Decision so callers (and the list-JSON stamp in TR3) can
+// Source names which decision-function step decided a trust evaluation. It is
+// reported alongside the Decision so callers (and the list-JSON stamp) can
 // explain why an item was allowed or withheld.
 type Source string
 
 const (
-	// SourceDenylist: the content hash is on the repo/ref-agnostic denylist.
-	SourceDenylist Source = "denylist"
-	// SourceBlacklist: a sticky ref-level blacklist entry matched.
-	SourceBlacklist Source = "blacklist"
-	// SourceExplicitGrant: an explicit per-item trust grant matched the hash.
-	SourceExplicitGrant Source = "explicit-grant"
-	// SourceBundle: a SHA-agnostic bundle posture decided it.
-	SourceBundle Source = "bundle"
-	// SourceLocal: project-authored local content auto-allowed (fragment/prompt).
+	// SourceRejected: a human declined this item (ref-level rejected state) or
+	// its content hash is on the repo/ref-agnostic denylist. Rejection beats
+	// every exemption, including local/builtin/trusted-source.
+	SourceRejected Source = "rejected"
+	// SourceLocal: project-authored local content auto-allowed (all kinds).
 	SourceLocal Source = "local"
-	// SourceRemote: the inherited remote.TrustBundles posture decided it.
-	SourceRemote Source = "remote"
-	// SourceDefault: nothing matched — the terminal fail-closed default-DENY.
-	SourceDefault Source = "default"
+	// SourceTrustedSource: the item's repo is in the trusted-sources set
+	// (a registry remote carrying TrustBundles).
+	SourceTrustedSource Source = "trusted-source"
+	// SourceAccepted: a human accepted this item and the recorded hash for the
+	// current effective form matches the recomputed content hash.
+	SourceAccepted Source = "accepted"
+	// SourcePending: nothing positively justified exposure — the item awaits
+	// review. This is also the terminal fail-closed source (unreadable store or
+	// registry, unresolvable ref/hash).
+	SourcePending Source = "pending"
+)
+
+// State is an item's review state in the three-state model. Pending is the
+// implicit state of any item with no store entry; only accepted and rejected
+// are persisted.
+type State string
+
+const (
+	// StatePending: never reviewed, or content changed since acceptance.
+	StatePending State = "pending"
+	// StateAccepted: a human reviewed this exact content (hash-pair bound).
+	StateAccepted State = "accepted"
+	// StateRejected: a human declined it — withheld permanently.
+	StateRejected State = "rejected"
 )
 
 // ItemKind distinguishes the trust-addressable item kinds. Only fragment and

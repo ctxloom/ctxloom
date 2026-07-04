@@ -198,7 +198,7 @@ func TestGRPCServer_Run_FullLifecycle(t *testing.T) {
 	stream.recv = []*RunInput{runStartInput(&RunStart{
 		Prompt:    &Fragment{Content: "hi"},
 		Fragments: []*Fragment{{Content: "ctx"}},
-		Options:   &RunOptions{WorkDir: "/tmp", AutoApprove: true},
+		Options:   &RunOptions{WorkDir: "/tmp", PermissionMode: agent.PermissionBypass.String()},
 	})}
 	err := srv.Run(stream)
 	require.NoError(t, err)

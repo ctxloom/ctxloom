@@ -176,7 +176,7 @@ func permissionRequestEvent(id string, req *api.RequestPermissionRequest) *agent
 }
 
 // decidePermission answers a tool-call permission request. It mirrors how the
-// claude driver handles permissions: allow only under AutoApprove, otherwise
+// claude driver handles permissions: allow only under a bypass posture, otherwise
 // reject. When allowing it selects an allow_* option; when rejecting it selects a
 // reject_* option; if the agent offered no option of the needed kind it falls
 // back to a "cancelled" outcome (a safe no-op that neither approves nor commits a

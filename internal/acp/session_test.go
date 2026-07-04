@@ -173,8 +173,8 @@ func TestChat_InitializeHandshake(t *testing.T) {
 	assert.Equal(t, "/work", newReq.Cwd)
 }
 
-// TestChat_Permission pins the agent→client permission callback: auto-approve
-// selects an allow option; otherwise the client rejects.
+// TestChat_Permission pins the agent→client permission callback: a bypass
+// posture selects an allow option; otherwise the client rejects.
 func TestChat_Permission(t *testing.T) {
 	options := []map[string]any{
 		{"kind": "allow_once", "name": "Allow once", "optionId": "ao"},
@@ -182,17 +182,17 @@ func TestChat_Permission(t *testing.T) {
 	}
 
 	cases := []struct {
-		name        string
-		autoApprove bool
-		wantOption  string
+		name       string
+		perm       agent.PermissionMode
+		wantOption string
 	}{
-		{"auto-approve selects allow", true, "ao"},
-		{"deny selects reject", false, "ro"},
+		{"bypass selects allow", agent.PermissionBypass, "ao"},
+		{"non-bypass selects reject", agent.PermissionDefault, "ro"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := startChat(t, agent.ChatRequest{AutoApprove: tc.autoApprove})
+			h := startChat(t, agent.ChatRequest{Permissions: tc.perm})
 			events := collect(h.out)
 
 			gotResp := make(chan rpcMessage, 1)

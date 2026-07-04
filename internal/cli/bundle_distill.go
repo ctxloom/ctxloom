@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
@@ -349,11 +350,11 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 			{Content: distillPrompt},
 		},
 		Options: &pb.RunOptions{
-			AutoApprove: true,
-			Mode:        pb.ExecutionMode_ONESHOT,
-			Model:       model, // explicit override; empty → backend's lightweight model
-			Env:         env,
-			SkipSetup:   true, // Headless distill: no hooks/skills/context writes
+			PermissionMode: agent.PermissionBypass.String(),
+			Mode:           pb.ExecutionMode_ONESHOT,
+			Model:          model, // explicit override; empty → backend's lightweight model
+			Env:            env,
+			SkipSetup:      true, // Headless distill: no hooks/skills/context writes
 		},
 	}
 

@@ -125,7 +125,7 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 }
 
 // TestDecidePermission pins the allow/deny decision (mirrors the claude driver:
-// allow only under AutoApprove) and the option-kind preference.
+// allow only under a bypass posture) and the option-kind preference.
 func TestDecidePermission(t *testing.T) {
 	full := []api.PermissionOption{
 		{Kind: api.PermissionOptionKindAllowAlways, Name: "Always allow", OptionId: "aa"},

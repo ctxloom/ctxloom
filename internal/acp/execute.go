@@ -53,7 +53,7 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 			WorkDir:     workDir,
 			Model:       req.Model,
 			Env:         req.Env,
-			AutoApprove: req.AutoApprove,
+			Permissions: req.Permissions,
 		}, in, out)
 	}()
 

@@ -127,11 +127,36 @@ func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
 	backend := NewClaudeCode(writeClaudeSettings)
 
 	req := &agent.ExecuteRequest{
-		AutoApprove: true,
+		Permissions: agent.PermissionBypass,
 	}
 	args := backend.buildArgs(req)
 
 	assert.Contains(t, args, "--dangerously-skip-permissions")
+}
+
+// TestClaudeCode_BuildArgs_PermissionModes verifies the non-bypass postures map
+// to --permission-mode, and the default posture adds no permission flag at all.
+func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
+	backend := NewClaudeCode(writeClaudeSettings)
+	cases := []struct {
+		perm     agent.PermissionMode
+		wantFlag string // "" = no --permission-mode flag
+	}{
+		{agent.PermissionDefault, ""},
+		{agent.PermissionAcceptEdits, "acceptEdits"},
+		{agent.PermissionPlan, "plan"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.perm.String(), func(t *testing.T) {
+			args := backend.buildArgs(&agent.ExecuteRequest{Permissions: tc.perm})
+			assert.NotContains(t, args, "--dangerously-skip-permissions")
+			if tc.wantFlag == "" {
+				assert.NotContains(t, args, "--permission-mode")
+			} else {
+				assert.Subset(t, args, []string{"--permission-mode", tc.wantFlag})
+			}
+		})
+	}
 }
 
 // TestClaudeCode_BuildArgs_Model verifies that a custom model is passed
@@ -372,7 +397,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	backend.Args = []string{"--existing-arg"}
 
 	req := &agent.ExecuteRequest{
-		AutoApprove: true,
+		Permissions: agent.PermissionBypass,
 		Model:       "opus",
 		Mode:        agent.ModeOneshot,
 		Prompt:      &agent.Fragment{Content: "Test prompt"},

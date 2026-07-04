@@ -603,10 +603,10 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 			Content: fmt.Sprintf("%s\n\n<session_log>\n%s\n</session_log>", systemPrompt, content),
 		},
 		Options: &pb.RunOptions{
-			AutoApprove: true,
-			Mode:        pb.ExecutionMode_ONESHOT,
-			Model:       c.config.Model, // e.g., "haiku", "sonnet"
-			SkipSetup:   true,           // Minimal mode for distillation
+			PermissionMode: agent.PermissionBypass.String(),
+			Mode:           pb.ExecutionMode_ONESHOT,
+			Model:          c.config.Model, // e.g., "haiku", "sonnet"
+			SkipSetup:      true,           // Minimal mode for distillation
 		},
 	}
 

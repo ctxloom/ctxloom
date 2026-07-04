@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -23,6 +24,10 @@ type AgentEntry struct {
 	// Runtime is the agent's declared runtime axis (host | container), as
 	// written; empty inherits the project `runtime:` default.
 	Runtime string `json:"runtime,omitempty"`
+	// Permissions is the agent's declared permission posture
+	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
+	// label's default and finally the built-in default.
+	Permissions string `json:"permissions,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
 	Source string `json:"source,omitempty"`
@@ -36,11 +41,12 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	out := make([]AgentEntry, 0, len(subs))
 	for _, s := range subs {
 		out = append(out, AgentEntry{
-			Name:     s.Name,
-			Engine:   s.Engine,
-			Profiles: s.Profiles,
-			Runtime:  s.Runtime,
-			Source:   s.Source,
+			Name:        s.Name,
+			Engine:      s.Engine,
+			Profiles:    s.Profiles,
+			Runtime:     s.Runtime,
+			Permissions: s.Permissions,
+			Source:      s.Source,
 		})
 	}
 	return out
@@ -57,11 +63,12 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
 	return &AgentEntry{
-		Name:     sub.Name,
-		Engine:   sub.Engine,
-		Profiles: sub.Profiles,
-		Runtime:  sub.Runtime,
-		Source:   sub.Source,
+		Name:        sub.Name,
+		Engine:      sub.Engine,
+		Profiles:    sub.Profiles,
+		Runtime:     sub.Runtime,
+		Permissions: sub.Permissions,
+		Source:      sub.Source,
 	}, nil
 }
 
@@ -69,13 +76,16 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // under the local `agents:` config key. Engine is optional (empty = project
 // default / the composed profiles' llm); Profiles compose into one context;
 // Runtime is optional (host | container; empty inherits the project
-// `runtime:` default). The workspace axis is deliberately NOT settable here —
-// it is a session trait chosen at invocation time, never stored on a binding.
+// `runtime:` default); Permissions is optional (default|acceptEdits|plan|bypass;
+// empty inherits the engine label's default). The workspace axis is deliberately
+// NOT settable here — it is a session trait chosen at invocation time, never
+// stored on a binding.
 type SetAgentRequest struct {
-	Name     string   `json:"name"`
-	Engine   string   `json:"engine,omitempty"`
-	Profiles []string `json:"profiles,omitempty"`
-	Runtime  string   `json:"runtime,omitempty"`
+	Name        string   `json:"name"`
+	Engine      string   `json:"engine,omitempty"`
+	Profiles    []string `json:"profiles,omitempty"`
+	Runtime     string   `json:"runtime,omitempty"`
+	Permissions string   `json:"permissions,omitempty"`
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key
@@ -116,20 +126,32 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 			name, req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
 	}
 
+	// Permissions is likewise stored as written; validation is advisory (an
+	// unknown value resolves to the default posture at run time), but warn NOW so
+	// a typo is caught at write time rather than at the first run.
+	if req.Permissions != "" {
+		if _, ok := agent.ParsePermissionMode(req.Permissions); !ok {
+			clidiag.Warn("ctxloom",
+				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
+				name, req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
+		}
+	}
+
 	if cfg.Agents == nil {
 		cfg.Agents = make(map[string]agents.Agent)
 	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Runtime: req.Runtime}
+	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Runtime: req.Runtime, Permissions: req.Permissions}
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
 	return &AgentEntry{
-		Name:     name,
-		Engine:   req.Engine,
-		Profiles: req.Profiles,
-		Runtime:  req.Runtime,
-		Source:   agents.SourceConfig,
+		Name:        name,
+		Engine:      req.Engine,
+		Profiles:    req.Profiles,
+		Runtime:     req.Runtime,
+		Permissions: req.Permissions,
+		Source:      agents.SourceConfig,
 	}, nil
 }
 
@@ -222,6 +244,10 @@ type ResolvedAgent struct {
 	// session trait the invocation supplies; the two meet in isolation.Axes at
 	// launch.
 	Runtime string `json:"runtime,omitempty"`
+	// Permissions is the agent's DECLARED launch-time permission posture (may be
+	// empty). The run resolver applies the engine-label default and the built-in
+	// fallback on top; the `run --permissions` flag overrides it.
+	Permissions string `json:"permissions,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -302,15 +328,16 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	}
 
 	return &ResolvedAgent{
-		Name:      name,
-		Engine:    sub.Engine,
-		Profiles:  sub.Profiles,
-		Label:     label,
-		Backend:   backend,
-		Model:     model,
-		Context:   ctxResult.Context,
-		Fragments: ctxResult.FragmentsLoaded,
-		Runtime:   runtime,
+		Name:        name,
+		Engine:      sub.Engine,
+		Profiles:    sub.Profiles,
+		Label:       label,
+		Backend:     backend,
+		Model:       model,
+		Context:     ctxResult.Context,
+		Fragments:   ctxResult.FragmentsLoaded,
+		Runtime:     runtime,
+		Permissions: sub.Permissions,
 	}, nil
 }
 

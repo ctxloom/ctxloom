@@ -35,10 +35,11 @@ ctxloom agent set <name> [flags]
 ### Options
 
 ```
-      --engine string      LLM engine/label to bind (overrides the profiles' llm; empty = project default)
-  -h, --help               help for set
-      --profiles strings   Comma-separated profile name(s)/ref(s) to compose
-      --runtime string     Runtime axis: where this agent's engine executes (host|container; empty = project default)
+      --engine string        LLM engine/label to bind (overrides the profiles' llm; empty = project default)
+  -h, --help                 help for set
+      --permissions string   Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
+      --profiles strings     Comma-separated profile name(s)/ref(s) to compose
+      --runtime string       Runtime axis: where this agent's engine executes (host|container; empty = project default)
 ```
 
 ### Options inherited from parent commands

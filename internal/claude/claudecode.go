@@ -173,8 +173,16 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	args := make([]string, len(b.Args))
 	copy(args, b.Args)
 
-	if req.AutoApprove {
+	// Map the generalized permission posture onto claude's flags. bypass is the
+	// blanket skip; acceptEdits/plan use --permission-mode; default leaves the
+	// engine's normal prompting.
+	switch req.Permissions {
+	case agent.PermissionBypass:
 		args = append(args, "--dangerously-skip-permissions")
+	case agent.PermissionAcceptEdits:
+		args = append(args, "--permission-mode", "acceptEdits")
+	case agent.PermissionPlan:
+		args = append(args, "--permission-mode", "plan")
 	}
 
 	// The model is resolved by the caller (the fast role's labeled config for

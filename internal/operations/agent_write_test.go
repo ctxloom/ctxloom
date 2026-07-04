@@ -80,6 +80,37 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 	assert.Equal(t, "podracer", sub.Runtime, "stored as written")
 }
 
+// TestSetAgent_PersistsPermissions proves the permission posture written by
+// `agent set --permissions` survives the config round-trip — a per-agent posture
+// is the "configurable by agent" knob the run resolver consults. An unknown value
+// is stored as written (advisory warn only; it resolves to the default posture).
+func TestSetAgent_PersistsPermissions(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+
+	_, err := SetAgent(cfg, SetAgentRequest{
+		Name:        "planner",
+		Engine:      "claude-code",
+		Profiles:    []string{"default"},
+		Permissions: "plan",
+	})
+	require.NoError(t, err)
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("planner")
+	require.True(t, ok)
+	assert.Equal(t, "plan", sub.Permissions)
+
+	// Unknown value: stored verbatim, never an error.
+	_, err = SetAgent(reloaded, SetAgentRequest{Name: "odd", Permissions: "wildwest"})
+	require.NoError(t, err, "unknown permissions warns, never errors")
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok = final.Agent("odd")
+	require.True(t, ok)
+	assert.Equal(t, "wildwest", sub.Permissions, "stored as written")
+}
+
 // TestSetAgent_UpdatesExisting proves a second set with the same name REPLACES
 // the binding (whole-binding rewrite, not a merge).
 func TestSetAgent_UpdatesExisting(t *testing.T) {

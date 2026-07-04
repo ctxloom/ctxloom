@@ -69,7 +69,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	sess := &chatSession{
 		ctx:         ctx,
 		out:         out,
-		autoApprove: req.AutoApprove,
+		autoApprove: req.Permissions.AllowsWithoutPrompt(),
 		forward:     req.ForwardPermissions,
 		pendingPerm: make(map[string]chan agent.PermissionAnswer),
 		clock:       b.clock(),
@@ -337,8 +337,8 @@ func (s *chatSession) HandleRequest(ctx context.Context, method string, params j
 // handlePermission answers a permission request. Under ForwardPermissions it
 // surfaces the request upstream as a ChatEvent and parks (off the read loop)
 // until the caller's PermissionAnswer resolves it. Otherwise it auto-decides —
-// allow under AutoApprove, else reject — mirroring the claude driver, since a
-// non-interactive chat has no human to prompt.
+// allow under a bypass posture, else reject — mirroring the claude driver, since
+// a non-interactive chat has no human to prompt.
 func (s *chatSession) handlePermission(params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	var req api.RequestPermissionRequest
 	if err := json.Unmarshal(params, &req); err != nil {

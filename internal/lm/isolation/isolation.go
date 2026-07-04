@@ -28,17 +28,20 @@ import (
 
 // Approvals is the policy's approval-handling axis: whether the engine keeps its
 // in-tool approval prompt or has it bypassed because a real isolation boundary
-// contains the blast radius. Backends do NOT consume it yet — it is represented
-// now so the policy carries the choice; Phase 1 wires it into launch flags.
+// contains the blast radius. It is NOT currently consumed: the run permission
+// posture resolves from config/CLI/agent (agent.PermissionMode), authoritative
+// regardless of the boundary. This axis is retained as the mechanism for the
+// earned-bypass model to be restored once container isolation is relied on again
+// (taskloom hilly-crop) — at which point the resolver may consult it.
 type Approvals int
 
 const (
-	// ApprovalsPrompt keeps the engine's in-tool approval prompting — today's
-	// behaviour: a trusted host session guarded cooperatively (ltk). The default.
+	// ApprovalsPrompt keeps the engine's in-tool approval prompting — a trusted
+	// host session guarded cooperatively (ltk). The default.
 	ApprovalsPrompt Approvals = iota
-	// ApprovalsBypass drops the in-engine prompt because an out-of-engine
-	// boundary (the container) is the safety net instead. Represented now,
-	// consumed by backends in Phase 1.
+	// ApprovalsBypass would drop the in-engine prompt because an out-of-engine
+	// boundary (the container) is the safety net instead — the earned-bypass
+	// posture the hilly-crop flip restores.
 	ApprovalsBypass
 )
 

@@ -81,7 +81,8 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 // runs use the non-interactive `exec` subcommand; interactive runs launch the
 // TUI directly. Isolation follows the request: SkipSetup (distillation) runs
 // read-only with no approvals so it can't invoke tools or mutate the workspace;
-// AutoApprove uses --full-auto; otherwise codex's configured defaults apply.
+// a bypass posture uses --full-auto and plan the same read-only sandbox;
+// otherwise codex's configured defaults (interactive approval) apply.
 func (b *Codex) buildArgs(req *agent.ExecuteRequest) []string {
 	var args []string
 
@@ -101,8 +102,13 @@ func (b *Codex) buildArgs(req *agent.ExecuteRequest) []string {
 	case req.SkipSetup:
 		// Minimal/distill: read-only sandbox, never prompt for approval.
 		args = append(args, "--sandbox", "read-only", "--ask-for-approval", "never")
-	case req.AutoApprove:
+	case req.Permissions == agent.PermissionBypass:
 		args = append(args, "--full-auto")
+	case req.Permissions == agent.PermissionPlan:
+		// Read-only planning maps to the same locked-down sandbox as minimal mode.
+		args = append(args, "--sandbox", "read-only", "--ask-for-approval", "never")
+		// default/acceptEdits: codex has no edit-only tier, so its configured
+		// defaults (interactive approval) apply.
 	}
 
 	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {

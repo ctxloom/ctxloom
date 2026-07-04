@@ -22,7 +22,7 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		WorkDir:            req.WorkDir,
 		Model:              req.Model,
 		Env:                req.Env,
-		AutoApprove:        req.AutoApprove,
+		PermissionMode:     req.Permissions.String(),
 		ForwardPermissions: req.ForwardPermissions,
 	}
 	for _, m := range req.MCPServers {
@@ -41,7 +41,7 @@ func chatStartFromProto(p *ChatStart) agent.ChatRequest {
 		WorkDir:            p.GetWorkDir(),
 		Model:              p.GetModel(),
 		Env:                p.GetEnv(),
-		AutoApprove:        p.GetAutoApprove(),
+		Permissions:        agent.WireMode(p.GetPermissionMode()),
 		ForwardPermissions: p.GetForwardPermissions(),
 	}
 	for _, m := range p.GetMcpServers() {

@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -422,9 +423,9 @@ func launchEngineWithPrompt(ctx context.Context, engine, workDir string) error {
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{Content: discoverySessionPrompt(cfg)},
 		Options: &pb.RunOptions{
-			WorkDir:     workDir,
-			AutoApprove: true,
-			Mode:        pb.ExecutionMode_INTERACTIVE,
+			WorkDir:        workDir,
+			PermissionMode: agent.PermissionBypass.String(),
+			Mode:           pb.ExecutionMode_INTERACTIVE,
 		},
 	}
 

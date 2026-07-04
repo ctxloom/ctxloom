@@ -77,6 +77,12 @@ type Agent struct {
 	// (run/map/weave `--workspace`, project `workspace:` default), never
 	// bound to the agent. Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
+	// Permissions is the agent's launch-time permission posture
+	// (default|acceptEdits|plan|bypass) — the second safety axis a binding
+	// declares alongside Runtime. Empty inherits the engine label's configured
+	// permissions and finally the built-in default. The `run --permissions` flag
+	// overrides it.
+	Permissions string `yaml:"permissions,omitempty"`
 }
 
 // ParseAgent unmarshals agent YAML into an Agent. Name and Source are

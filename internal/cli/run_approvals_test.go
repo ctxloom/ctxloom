@@ -5,35 +5,41 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestAutoApproveForRun pins the STAGE 1 rule the top-level run applies:
-// AutoApprove = (mode == ONESHOT) || approvals == ApprovalsBypass. That the
-// none/worktree policies declare ApprovalsPrompt and container declares
-// ApprovalsBypass is asserted in the isolation package (isolation_test.go /
-// worktree_test.go / container_test.go); here we pin the mapping to AutoApprove.
-func TestAutoApproveForRun(t *testing.T) {
+// TestResolvePermissionMode pins the top-level run's permission-posture resolver:
+// precedence (--permissions flag > agent binding > engine-label config > built-in
+// default), the claude-code host-bypass default (the container-isolation stopgap,
+// taskloom hilly-crop), and the headless-ONESHOT floor that upgrades a would-block
+// posture (default/acceptEdits) to bypass so a run with no human can't hang.
+func TestResolvePermissionMode(t *testing.T) {
+	const claude = config.DefaultLLM // "claude-code"
 	cases := []struct {
 		name      string
+		flag      string
+		agentPerm string
+		labelPerm string
+		backend   string
 		mode      pb.ExecutionMode
-		approvals isolation.Approvals
-		want      bool
+		want      agent.PermissionMode
 	}{
-		// Interactive + none: claude/etc. now PROMPT (no bypass) — the behaviour
-		// change the user approved.
-		{"interactive+none prompts", pb.ExecutionMode_INTERACTIVE, isolation.None{}.Approvals(), false},
-		// Interactive + a real boundary (container) bypasses the in-engine prompt.
-		{"interactive+bypass auto-approves", pb.ExecutionMode_INTERACTIVE, isolation.ApprovalsBypass, true},
-		// Any ONESHOT auto-approves regardless of the approvals axis (no human to
-		// answer a prompt — it would hang).
-		{"oneshot+prompt still auto-approves", pb.ExecutionMode_ONESHOT, isolation.ApprovalsPrompt, true},
-		{"oneshot+bypass auto-approves", pb.ExecutionMode_ONESHOT, isolation.ApprovalsBypass, true},
+		{"flag beats agent, label, and default", "plan", "bypass", "default", claude, pb.ExecutionMode_INTERACTIVE, agent.PermissionPlan},
+		{"agent beats label and default", "", "acceptEdits", "bypass", claude, pb.ExecutionMode_INTERACTIVE, agent.PermissionAcceptEdits},
+		{"label beats default", "", "", "plan", "codex", pb.ExecutionMode_INTERACTIVE, agent.PermissionPlan},
+		{"claude-code default bypasses on the host", "", "", "", claude, pb.ExecutionMode_INTERACTIVE, agent.PermissionBypass},
+		{"other backend default prompts", "", "", "", "codex", pb.ExecutionMode_INTERACTIVE, agent.PermissionDefault},
+		{"invalid flag falls through to the default", "nonsense", "", "", claude, pb.ExecutionMode_INTERACTIVE, agent.PermissionBypass},
+		{"oneshot upgrades a would-block default to bypass", "default", "", "", "codex", pb.ExecutionMode_ONESHOT, agent.PermissionBypass},
+		{"oneshot keeps safe-headless plan", "plan", "", "", "codex", pb.ExecutionMode_ONESHOT, agent.PermissionPlan},
+		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", claude, pb.ExecutionMode_ONESHOT, agent.PermissionBypass},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, autoApproveForRun(tc.mode, tc.approvals))
+			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.backend, tc.mode)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

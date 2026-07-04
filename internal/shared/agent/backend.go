@@ -216,7 +216,7 @@ type ExecuteRequest struct {
 	Env         map[string]string
 	Verbosity   uint32
 	DryRun      bool
-	AutoApprove bool
+	Permissions PermissionMode
 	Temperature float32
 	SkipSetup   bool // Minimal mode - skip hooks/skills/context in backend
 

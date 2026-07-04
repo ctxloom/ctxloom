@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -74,6 +75,9 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Runtime != "" {
 			w.Printf("    runtime: %s\n", s.Runtime)
 		}
+		if s.Permissions != "" {
+			w.Printf("    permissions: %s\n", s.Permissions)
+		}
 	}
 	return w.Err()
 }
@@ -128,6 +132,9 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 	if def.Runtime != "" {
 		w.Printf("Runtime: %s\n", def.Runtime)
 	}
+	if def.Permissions != "" {
+		w.Printf("Permissions: %s\n", def.Permissions)
+	}
 	writeBulletList(w, "Profiles", def.Profiles)
 	if rerr != nil {
 		w.Printf("Resolved engine: unavailable (%v)\n", rerr)
@@ -180,9 +187,10 @@ Run this (or ask your agent to) when you have profiles but no agents yet.`,
 }
 
 var (
-	agentSetEngine   string
-	agentSetProfiles []string
-	agentSetRuntime  string
+	agentSetEngine      string
+	agentSetProfiles    []string
+	agentSetRuntime     string
+	agentSetPermissions string
 )
 
 // agentSetCmd is the write half: add or update a LOCAL agent under the
@@ -217,10 +225,11 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		entry, err := operations.SetAgent(cfg, operations.SetAgentRequest{
-			Name:     name,
-			Engine:   agentSetEngine,
-			Profiles: agentSetProfiles,
-			Runtime:  agentSetRuntime,
+			Name:        name,
+			Engine:      agentSetEngine,
+			Profiles:    agentSetProfiles,
+			Runtime:     agentSetRuntime,
+			Permissions: agentSetPermissions,
 		})
 		if err != nil {
 			return err
@@ -237,6 +246,9 @@ Examples:
 			}
 			if entry.Runtime != "" {
 				w.Printf(", runtime: %s", entry.Runtime)
+			}
+			if entry.Permissions != "" {
+				w.Printf(", permissions: %s", entry.Permissions)
 			}
 			w.Println(")")
 			return w.Err()
@@ -279,6 +291,7 @@ func init() {
 	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
 	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
+	agentSetCmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames
@@ -286,6 +299,9 @@ func init() {
 	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = agentSetCmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = agentSetCmd.RegisterFlagCompletionFunc("permissions", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return agent.PermissionModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
@@ -230,14 +231,14 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 			WorkDir: workDir,
 			Env:     workspaceEnv,
 			// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer
-			// the engine's permission prompt, so a member must auto-approve or it
-			// hangs. The approvals axis (isolated→bypass, none→prompt) differentiates
-			// INTERACTIVE runs only; here it is invariant true (STAGE 1).
-			AutoApprove: true,
-			Mode:        pb.ExecutionMode_ONESHOT,
-			Model:       req.Model,
-			Verbosity:   uint32(req.Verbosity * 16),
-			SkipSetup:   skipSetup,
+			// the engine's permission prompt, so a member must bypass or it hangs.
+			// Interactive runs resolve the posture from config/CLI; here it is the
+			// invariant bypass.
+			PermissionMode: agent.PermissionBypass.String(),
+			Mode:           pb.ExecutionMode_ONESHOT,
+			Model:          req.Model,
+			Verbosity:      uint32(req.Verbosity * 16),
+			SkipSetup:      skipSetup,
 		},
 		ManagedConfig: managed,
 	}

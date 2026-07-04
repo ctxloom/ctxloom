@@ -37,6 +37,7 @@ var (
 	runLLM              string
 	runAgent            string
 	runWorkspace        string
+	runPermissions      string
 	runPrompt           string
 	runFragments        []string
 	runTags             []string
@@ -453,6 +454,10 @@ Examples:
 			label       string
 			backendName string
 			labelModel  string
+			// agentPermissions is the --agent binding's declared permission
+			// posture (empty for a classic run); the resolver layers the engine
+			// label and the built-in default on top.
+			agentPermissions string
 			// The session's runtime axis: the agent's resolved runtime, or the
 			// project `runtime:` default for a classic run.
 			agentRuntime = cfg.Runtime
@@ -471,6 +476,7 @@ Examples:
 			// precedence and the project fallbacks.
 			label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
 			agentRuntime = rs.Runtime
+			agentPermissions = rs.Permissions
 		} else {
 			// When nothing selects context (no -p, -f, or -t) and no default profile
 			// is configured, offer an interactive profile picker on a TTY. Off a TTY
@@ -749,16 +755,13 @@ Examples:
 		// The session's isolation axes: the SESSION-level workspace
 		// (--workspace, else the project `workspace:` default) x the runtime the
 		// launch source resolved (the agent's binding, or the project default).
-		// Resolve the lead policy up front so its approvals axis can gate
-		// AutoApprove BEFORE the request is built (Approvals() needs no
-		// workspace). The external-plugin-binary path is never isolated (none).
+		// The session's isolation axes (workspace × runtime). The managed path
+		// prepares a policy from these below; the permission posture resolves
+		// separately from config/CLI (no longer gated on the isolation boundary).
+		// The external-plugin-binary path is never isolated (none).
 		runAxes := isolation.Axes{
 			Workspace: isolation.WorkspaceAxis(sessionWorkspace),
 			Runtime:   isolation.RuntimeAxis(agentRuntime),
-		}
-		var policy isolation.Policy = isolation.None{}
-		if llmBinary == "" {
-			policy = isolation.Resolve(runAxes, backendName, operations.IsolationImageConfig(cfg, backendName))
 		}
 
 		// Build request. The host now assembles the config/bundle setup payload
@@ -778,16 +781,16 @@ Examples:
 			Prompt:    promptFragment,
 			Options: &pb.RunOptions{
 				WorkDir: workDir,
-				// AutoApprove rule (STAGE 1): a non-interactive ONESHOT (run --print)
-				// has no human to answer the engine's permission prompt, so it must
-				// auto-approve or it would hang; an INTERACTIVE run auto-approves only
-				// when the isolation policy is a real boundary that bypasses approvals
-				// (container). none/worktree keep the engine's in-tool prompt.
-				AutoApprove: autoApproveForRun(mode, policy.Approvals()),
-				Mode:        mode,
-				Env:         runEnv,
-				Verbosity:   uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
-				Model:       model,                     // e.g., "opus", "sonnet", "haiku"
+				// Launch-time permission posture. Precedence: --permissions flag >
+				// agent binding > engine-label config > built-in default (claude-code
+				// → bypass while container isolation isn't relied on; others prompt).
+				// A headless ONESHOT upgrades a would-block posture to bypass or it
+				// would hang with no human to answer the engine.
+				PermissionMode: resolvePermissionMode(runPermissions, agentPermissions, cfg.LM.Configs[label].Permissions, backendName, mode).String(),
+				Mode:           mode,
+				Env:            runEnv,
+				Verbosity:      uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
+				Model:          model,                     // e.g., "opus", "sonnet", "haiku"
 			},
 			ManagedConfig: pb.ManagedConfigToProto(backends.AssembleManagedConfig(backendName, workDir, execGate.Gate(), ctxResult.Profiles)),
 		}
@@ -812,14 +815,11 @@ Examples:
 			// worktree survives — and a worktree failure degrades to the live
 			// project dir, so `runtime: container` is a safe default.
 			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp)
-			if prepared.Name() != policy.Name() {
-				// The isolation boundary that justified bypassing the engine prompt
-				// changed underneath us (e.g. container → none); re-honor the
-				// approvals rule so an interactive fallback prompts instead of
-				// silently bypassing.
-				req.Options.AutoApprove = autoApproveForRun(mode, prepared.Approvals())
-			}
-			policy = prepared
+			// The permission posture is resolved once from config/CLI/agent and is
+			// authoritative regardless of how the isolation boundary degrades: a
+			// container that failed to launch does NOT drop a configured bypass —
+			// that is the point of the host stopgap (taskloom hilly-crop).
+			policy := prepared
 			// Tear the workspace down after the client is killed (kill the plugin/
 			// container before removing its scratch — WIP-safe). Registered before
 			// client.Kill so it runs after. none's cleanup is a noop.
@@ -872,15 +872,37 @@ Examples:
 	},
 }
 
-// autoApproveForRun computes RunOptions.AutoApprove for the top-level run from the
-// execution mode and the isolation policy's approvals axis (STAGE 1). A
-// non-interactive ONESHOT (run --print) has no human to answer the engine's
-// permission prompt, so it always auto-approves (else it hangs); an INTERACTIVE
-// run auto-approves only when the policy bypasses approvals because a real
-// out-of-engine boundary contains the blast radius (container). none/worktree keep
-// the engine's in-tool prompt.
-func autoApproveForRun(mode pb.ExecutionMode, approvals isolation.Approvals) bool {
-	return mode == pb.ExecutionMode_ONESHOT || approvals == isolation.ApprovalsBypass
+// resolvePermissionMode picks the launch-time permission posture for the top-level
+// run. Precedence: the explicit --permissions flag, then the --agent binding, then
+// the engine label's configured permissions, then the built-in default. The
+// built-in default is bypass for claude-code (the host stopgap while container
+// isolation isn't relied on — see taskloom hilly-crop) and default (prompt) for
+// every other backend. Config/CLI is authoritative: the isolation boundary no
+// longer earns or drops bypass. A non-interactive ONESHOT has no human to answer
+// the engine, so a would-block posture (default/acceptEdits) upgrades to bypass or
+// it hangs.
+func resolvePermissionMode(flag, agentPerm, labelPerm, backendType string, mode pb.ExecutionMode) agent.PermissionMode {
+	m := agent.PermissionDefault
+	resolved := false
+	for _, s := range []string{flag, agentPerm, labelPerm} {
+		if pm, ok := agent.ParsePermissionMode(s); ok {
+			m, resolved = pm, true
+			break
+		}
+	}
+	if !resolved && backendType == config.DefaultLLM {
+		m = agent.PermissionBypass
+	}
+	if mode == pb.ExecutionMode_ONESHOT && !m.SafeHeadless() {
+		m = agent.PermissionBypass
+	}
+	return m
+}
+
+// completePermissionModes offers the permission-posture values for shell
+// completion of `run --permissions`.
+func completePermissionModes(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return agent.PermissionModeNames(), cobra.ShellCompDirectiveNoFileComp
 }
 
 // resolveRunLLM picks the config label to launch. Precedence: an explicit
@@ -960,11 +982,13 @@ func init() {
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().StringVar(&runAgent, "agent", "", "Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)")
 	runCmd.Flags().StringVar(&runWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default)")
+	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "profile")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "fragment")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "tag")
 	_ = runCmd.RegisterFlagCompletionFunc("agent", completeAgentNames)
 	_ = runCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
+	_ = runCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")

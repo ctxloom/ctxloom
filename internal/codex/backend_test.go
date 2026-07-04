@@ -72,8 +72,22 @@ func TestCodex_buildArgs_SkipSetupIsolated(t *testing.T) {
 
 func TestCodex_buildArgs_AutoApprove(t *testing.T) {
 	codex := NewCodex(nil)
-	req := &agent.ExecuteRequest{AutoApprove: true, Prompt: &agent.Fragment{Content: "test"}}
+	req := &agent.ExecuteRequest{Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "test"}}
 	assert.Contains(t, codex.buildArgs(req), "--full-auto")
+}
+
+func TestCodex_buildArgs_PermissionModes(t *testing.T) {
+	codex := NewCodex(nil)
+
+	// plan → the read-only sandbox that never prompts, like minimal mode.
+	planArgs := codex.buildArgs(&agent.ExecuteRequest{Permissions: agent.PermissionPlan, Prompt: &agent.Fragment{Content: "x"}})
+	assert.Subset(t, planArgs, []string{"--sandbox", "read-only", "--ask-for-approval", "never"})
+	assert.NotContains(t, planArgs, "--full-auto")
+
+	// default → codex's own defaults: no bypass and no sandbox lockdown.
+	defArgs := codex.buildArgs(&agent.ExecuteRequest{Permissions: agent.PermissionDefault, Prompt: &agent.Fragment{Content: "x"}})
+	assert.NotContains(t, defArgs, "--full-auto")
+	assert.NotContains(t, defArgs, "read-only")
 }
 
 func TestCodex_buildArgs_EmptyPrompt(t *testing.T) {

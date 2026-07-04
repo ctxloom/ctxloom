@@ -171,7 +171,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Env:         env,
 		Verbosity:   verbosity,
 		DryRun:      opts.GetDryRun(),
-		AutoApprove: opts.GetAutoApprove(),
+		Permissions: agent.WireMode(opts.GetPermissionMode()),
 		Temperature: opts.GetTemperature(),
 		SkipSetup:   opts.GetSkipSetup(),
 		Stdin:       stdinR,

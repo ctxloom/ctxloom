@@ -19,8 +19,13 @@ type LLMConfig struct {
 	// the shipped registry. It is registry-only metadata: init reads it to wire a
 	// freshly-selected engine, and the persist path strips it so user configs
 	// stay plain {type, model}. It never affects runtime label resolution.
-	Role string         `mapstructure:"role" yaml:"role,omitempty"`
-	Body map[string]any `mapstructure:",remain" yaml:",inline"`
+	Role string `mapstructure:"role" yaml:"role,omitempty"`
+	// Permissions is this backend's launch-time permission posture
+	// (default|acceptEdits|plan|bypass). Empty defers to the resolver's built-in
+	// default (claude-code → bypass, others → default). An agent binding and the
+	// `run --permissions` flag override it.
+	Permissions string         `mapstructure:"permissions" yaml:"permissions,omitempty"`
+	Body        map[string]any `mapstructure:",remain" yaml:",inline"`
 }
 
 // RoleDefaults maps a role to the config label that plays it. Roles select

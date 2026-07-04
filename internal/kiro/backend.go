@@ -120,10 +120,11 @@ func (b *Kiro) buildArgs(req *agent.ExecuteRequest, model string) []string {
 		args = append(args, "--agent-engine", b.agentEngine)
 	}
 
-	// SkipSetup (the minimal/distill path) gets no trust flag; AutoApprove maps to
-	// Kiro's blanket trust. Fine-grained `--trust-tools=fs_read,fs_write` is a
-	// future refinement.
-	if !req.SkipSetup && req.AutoApprove {
+	// SkipSetup (the minimal/distill path) gets no trust flag; bypass maps to
+	// Kiro's blanket trust. Kiro has no read-only/edit-only tier, so every other
+	// posture leaves its default prompting. Fine-grained
+	// `--trust-tools=fs_read,fs_write` is a future refinement.
+	if !req.SkipSetup && req.Permissions == agent.PermissionBypass {
 		args = append(args, "--trust-all-tools")
 	}
 

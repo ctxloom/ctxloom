@@ -35,7 +35,7 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 		WorkDir:     opts.GetWorkDir(),
 		Model:       opts.GetModel(),
 		Env:         opts.GetEnv(),
-		AutoApprove: opts.GetAutoApprove(),
+		Permissions: agent.WireMode(opts.GetPermissionMode()),
 	})
 	if err != nil {
 		return fmt.Errorf("start chat: %w", err)

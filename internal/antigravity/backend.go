@@ -78,10 +78,10 @@ func (b *Antigravity) buildArgs(req *agent.ExecuteRequest, model string) []strin
 		args = append(args, "--model", model)
 	}
 
-	// agy v1.0.7 has no read-only/plan approval mode, so SkipSetup gets no
-	// flag (headless agy auto-approves baseline tools regardless).
-	// AutoApprove maps to agy's blanket override.
-	if !req.SkipSetup && req.AutoApprove {
+	// agy v1.0.7 has no read-only/plan or edit-only approval mode, so only the
+	// blanket bypass maps to a flag; every other posture (and SkipSetup, which
+	// auto-approves baseline tools regardless) leaves agy's defaults.
+	if !req.SkipSetup && req.Permissions == agent.PermissionBypass {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 

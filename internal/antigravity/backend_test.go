@@ -63,13 +63,13 @@ func TestAntigravity_BuildArgs(t *testing.T) {
 		},
 		{
 			name:  "auto approve",
-			req:   &agent.ExecuteRequest{Mode: agent.ModeOneshot, AutoApprove: true, Prompt: &agent.Fragment{Content: "x"}},
+			req:   &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
 			model: "",
 			want:  []string{"--dangerously-skip-permissions", "-p", "x"},
 		},
 		{
 			name: "skip setup suppresses auto approve",
-			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, AutoApprove: true, Prompt: &agent.Fragment{Content: "x"}},
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
 			want: []string{"-p", "x"},
 		},
 	}

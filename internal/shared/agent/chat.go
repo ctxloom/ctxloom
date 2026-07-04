@@ -36,12 +36,12 @@ type ChatRequest struct {
 	WorkDir     string
 	Model       string
 	Env         map[string]string
-	AutoApprove bool
+	Permissions PermissionMode
 	// ForwardPermissions asks the backend to surface each engine permission
 	// request as a ChatEvent.Permission and park the engine until the matching
 	// ChatMessage.Permission answer arrives, instead of auto-deciding
-	// (AutoApprove → allow, otherwise reject). Only meaningful to a caller that
-	// can actually answer — an interactive host with a human behind it.
+	// (Permissions bypass → allow, otherwise reject). Only meaningful to a caller
+	// that can actually answer — an interactive host with a human behind it.
 	ForwardPermissions bool
 	// MCPServers are caller-supplied MCP servers to attach to the conversation
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever

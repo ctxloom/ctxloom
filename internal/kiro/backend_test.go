@@ -75,12 +75,12 @@ func TestKiro_BuildArgs(t *testing.T) {
 		},
 		{
 			name: "auto approve trusts all tools",
-			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, AutoApprove: true, Prompt: &agent.Fragment{Content: "x"}},
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
 			want: []string{"chat", "--agent", "ctxloom", "--trust-all-tools", "--no-interactive", "x"},
 		},
 		{
 			name: "skip setup suppresses auto approve and agent selection",
-			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, AutoApprove: true, Prompt: &agent.Fragment{Content: "x"}},
+			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
 			want: []string{"chat", "--no-interactive", "x"},
 		},
 		{

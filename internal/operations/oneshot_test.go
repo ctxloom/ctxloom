@@ -111,6 +111,50 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
 }
 
+// TestRunOneshot_ResolvesHeadlessPosture pins fix C: a headless oneshot/fan member
+// honors a declared read-only plan on a backend that enforces it, but floors a
+// would-block or unenforceable posture up to bypass so the member can't hang.
+func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		LM: config.LMConfig{
+			Configs: map[string]config.LLMConfig{
+				"claude-plan": {Type: "claude-code", Permissions: "plan"},
+				"claude-none": {Type: "claude-code"},
+				"agy-plan":    {Type: "antigravity", Permissions: "plan"},
+			},
+			Defaults: config.RoleDefaults{Primary: "claude-none"},
+		},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"keep-plan":     {LLM: "claude-plan"},
+			"floor-default": {LLM: "claude-none"},
+			"collapse-agy":  {LLM: "agy-plan"},
+		}},
+	}
+	cases := []struct {
+		name    string
+		profile string
+		want    string
+	}{
+		{"enforcing backend keeps declared plan", "keep-plan", agent.PermissionPlan.String()},
+		{"no posture floors to bypass", "floor-default", agent.PermissionBypass.String()},
+		{"unenforceable plan collapses then floors to bypass", "collapse-agy", agent.PermissionBypass.String()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubClient{out: "ok"}
+			factory := func(string, string, int) (pb.Client, error) { return stub, nil }
+			_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
+				Profile: tc.profile, Task: "t", Loader: loader, Factory: factory,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, stub.gotReq.Options)
+			assert.Equal(t, tc.want, stub.gotReq.Options.PermissionMode)
+		})
+	}
+}
+
 func TestResolveBackend(t *testing.T) {
 	cfg := &config.Config{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 		"agy-code": {Type: "antigravity", Body: map[string]any{"model": "gemini-3-pro"}},

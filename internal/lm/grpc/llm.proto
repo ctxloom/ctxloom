@@ -145,6 +145,9 @@ message ChatStart {
   map<string, string> env = 3;
   // Launch-time permission posture (default|acceptEdits|plan|bypass). For the
   // per-request decision it collapses to allow-without-prompt only under bypass.
+  // Field 4 was the retired bool auto_approve; the wire-type change
+  // (varint→string) is safe because host and plugin are version-locked (always
+  // built and launched together) and ChatStart is never persisted.
   string permission_mode = 4;
   // Surface engine permission requests as ChatPermissionRequest events and
   // park until the ChatPermissionAnswer arrives, instead of auto-deciding
@@ -398,7 +401,12 @@ message Fragment {
 message RunOptions {
   string work_dir = 1;
   // Launch-time permission posture (default|acceptEdits|plan|bypass); each
-  // backend maps it to its own mechanism. Empty = the resolver's fallback.
+  // backend maps it to its own mechanism. Empty decodes to default (prompt) at
+  // the server (agent.WireMode) — the CLI-side host-bypass default is resolved
+  // before this is set, not on the server. Field 2 was the retired bool
+  // auto_approve; the wire-type change (varint→string) is safe because host and
+  // plugin are always built and launched together and RunOptions is never
+  // persisted across versions.
   string permission_mode = 2;
   ExecutionMode mode = 3;
   map<string, string> env = 4;

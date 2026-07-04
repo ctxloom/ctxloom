@@ -126,6 +126,14 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    runtime: container\n",
 		},
 		{
+			"llm config entry with permissions posture",
+			"llm:\n  configs:\n    main:\n      type: codex\n      permissions: plan\n",
+		},
+		{
+			"agent-level permissions posture",
+			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    permissions: bypass\n",
+		},
+		{
 			"per-backend isolation image overrides",
 			"isolation_images:\n  kiro: registry.example.com/my-kiro:v2\n  claude-code: my-claude:latest\n",
 		},

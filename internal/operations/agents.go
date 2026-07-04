@@ -248,6 +248,12 @@ type ResolvedAgent struct {
 	// empty). The run resolver applies the engine-label default and the built-in
 	// fallback on top; the `run --permissions` flag overrides it.
 	Permissions string `json:"permissions,omitempty"`
+	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
+	// --permissions flag: declared → engine-label config → built-in default
+	// (claude-code → bypass, else prompt). It makes a blank-declared claude-code
+	// agent's real host-bypass posture visible. A headless run may floor this up to
+	// bypass; --permissions overrides it.
+	EffectivePermissions string `json:"effectivePermissions,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -338,6 +344,11 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		Fragments:   ctxResult.FragmentsLoaded,
 		Runtime:     runtime,
 		Permissions: sub.Permissions,
+		// The interactive base an unflagged run resolves to (declared → label →
+		// built-in default), so a blank claude-code posture shows its real bypass.
+		EffectivePermissions: agent.ResolveDefault(
+			[]string{sub.Permissions, cfg.LM.Configs[label].Permissions},
+			backend == config.BackendClaudeCode).String(),
 	}, nil
 }
 

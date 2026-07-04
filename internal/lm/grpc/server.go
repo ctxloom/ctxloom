@@ -178,6 +178,14 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 		Resize:      resizeCh,
 	}
 
+	// Defense in depth: a ONESHOT has no human to answer the engine, so a
+	// would-block posture (default/acceptEdits) must not reach the backend and
+	// hang. The CLI resolver already floors this, but a direct gRPC caller might
+	// not, so enforce the "headless can't hang" invariant at the decode boundary.
+	if execReq.Mode == agent.ModeOneshot && !execReq.Permissions.SafeHeadless() {
+		execReq.Permissions = agent.PermissionBypass
+	}
+
 	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
 	// SkipSetup fan-out (oneshot/map/weave) skips Setup — so without this the
 	// passed WorkDir is dropped and the engine runs in the plugin's inherited

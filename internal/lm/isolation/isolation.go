@@ -32,7 +32,7 @@ import (
 // posture resolves from config/CLI/agent (agent.PermissionMode), authoritative
 // regardless of the boundary. This axis is retained as the mechanism for the
 // earned-bypass model to be restored once container isolation is relied on again
-// (taskloom hilly-crop) — at which point the resolver may consult it.
+// — at which point the resolver may consult it.
 type Approvals int
 
 const (
@@ -41,7 +41,7 @@ const (
 	ApprovalsPrompt Approvals = iota
 	// ApprovalsBypass would drop the in-engine prompt because an out-of-engine
 	// boundary (the container) is the safety net instead — the earned-bypass
-	// posture the hilly-crop flip restores.
+	// posture restored once container isolation is relied on again.
 	ApprovalsBypass
 )
 

@@ -84,7 +84,11 @@ func (b *LaunchBackend) History() SessionHistory { return b.history }
 // backend resolves its model + argv — the genuinely engine-specific half —
 // and delegates the launch here, so the launch plumbing can't drift between
 // engines.
-func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
+// oneshotStdin, when non-nil, is fed to the child's stdin for a non-interactive
+// run — the channel a backend uses to deliver a large oneshot prompt off the
+// argv (which the OS length-limits). It is ignored for an interactive run, whose
+// stdin is the frontend's (req.Stdin).
+func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error) {
 	if req.DryRun {
 		return &ExecuteResult{ExitCode: 0, ModelInfo: modelInfo}, nil
 	}
@@ -94,7 +98,7 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 		exitCode, err := b.RunInteractive(ctx, args, env, req.Stdin, stdout, stderr, req.Resize)
 		return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
-	exitCode, err := b.RunNonInteractive(ctx, args, env, stdout, stderr)
+	exitCode, err := b.RunNonInteractive(ctx, args, env, oneshotStdin, stdout, stderr)
 	return &ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 }
 

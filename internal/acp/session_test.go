@@ -174,7 +174,10 @@ func TestChat_InitializeHandshake(t *testing.T) {
 }
 
 // TestChat_Permission pins the agent→client permission callback: a bypass
-// posture selects an allow option; otherwise the client rejects.
+// posture selects an allow option; every non-bypass posture rejects. The ACP
+// driver distinguishes only bypass (allow-without-prompt) — plan and acceptEdits
+// have no read-only/edit-scoped ACP mapping here, so they collapse to the same
+// reject as default. This test pins that collapse so it stays intentional.
 func TestChat_Permission(t *testing.T) {
 	options := []map[string]any{
 		{"kind": "allow_once", "name": "Allow once", "optionId": "ao"},
@@ -187,7 +190,9 @@ func TestChat_Permission(t *testing.T) {
 		wantOption string
 	}{
 		{"bypass selects allow", agent.PermissionBypass, "ao"},
-		{"non-bypass selects reject", agent.PermissionDefault, "ro"},
+		{"default selects reject", agent.PermissionDefault, "ro"},
+		{"acceptEdits collapses to reject", agent.PermissionAcceptEdits, "ro"},
+		{"plan collapses to reject", agent.PermissionPlan, "ro"},
 	}
 
 	for _, tc := range cases {

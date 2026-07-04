@@ -217,6 +217,30 @@ func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
 	assert.Contains(t, args, "--print")
 }
 
+// TestClaudeCode_BuildArgs_OneshotPromptOffArgv verifies the oneshot task is NOT
+// baked into argv (it rides stdin via promptStdin, so a large task can't exceed
+// the OS argv length limit — the E2BIG that broke `ctxloom weave` synthesis),
+// while an interactive run still passes its initial prompt as a positional arg.
+func TestClaudeCode_BuildArgs_OneshotPromptOffArgv(t *testing.T) {
+	backend := NewClaudeCode(writeClaudeSettings)
+	const task = "review this enormous diff please"
+	prompt := &agent.Fragment{Content: task}
+
+	oneshot := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Prompt: prompt})
+	assert.NotContains(t, oneshot, task, "oneshot must keep the task off argv (it rides stdin)")
+	require.NotNil(t, promptStdin(&agent.ExecuteRequest{Prompt: prompt}), "promptStdin must carry the task")
+
+	interactive := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive, Prompt: prompt})
+	assert.Contains(t, interactive, task, "interactive still passes the initial prompt as a positional arg")
+}
+
+// TestClaudeCode_PromptStdin_NilWhenNoPrompt verifies an empty prompt yields no
+// stdin reader, so a no-prompt oneshot leaves the child's stdin nil (null device)
+// rather than an empty pipe.
+func TestClaudeCode_PromptStdin_NilWhenNoPrompt(t *testing.T) {
+	assert.Nil(t, promptStdin(&agent.ExecuteRequest{}), "no prompt → nil stdin")
+}
+
 // TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON verifies that minimal
 // oneshot mode (distillation/compaction) requests the JSON envelope so Execute
 // can read the resolved model id instead of guessing.
@@ -407,7 +431,10 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	assert.Contains(t, args, "--existing-arg")
 	assert.Contains(t, args, "--dangerously-skip-permissions")
 	assert.Contains(t, args, "--print")
-	assert.Contains(t, args, "Test prompt")
+	// The oneshot task is delivered on stdin, not argv (see promptStdin), so a
+	// large prompt can't blow the argv length limit.
+	assert.NotContains(t, args, "Test prompt")
+	require.NotNil(t, promptStdin(req))
 }
 
 // =============================================================================

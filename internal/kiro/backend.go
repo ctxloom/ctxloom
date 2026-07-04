@@ -90,7 +90,7 @@ func (b *Kiro) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	// Auth is ambient (like claude): the user's `kiro-cli login` subscription,
 	// or KIRO_API_KEY in the inherited env for headless — no auth env is set
 	// here. The launch tail (trace/env/routing) is the shared ExecuteCLI.
-	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), modelInfo, stdout, stderr)
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), nil, modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for `kiro-cli chat`.

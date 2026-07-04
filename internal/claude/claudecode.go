@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -82,7 +83,7 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		b.TraceArgs(req.Verbosity, args, stderr)
 		env := b.ExecuteEnv(req)
 		var raw bytes.Buffer
-		exitCode, err := b.RunNonInteractive(ctx, args, env, &raw, stderr)
+		exitCode, err := b.RunNonInteractive(ctx, args, env, promptStdin(req), &raw, stderr)
 		text, model, perr := parseClaudeJSONResult(raw.Bytes())
 		if perr != nil {
 			// Fault tolerant: hand back whatever the CLI emitted and keep the
@@ -97,7 +98,13 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
 	}
 
-	return b.ExecuteCLI(ctx, req, b.buildArgs(req), modelInfo, stdout, stderr)
+	// Oneshot pipes the task on stdin (buildArgs left it off the argv); interactive
+	// carries the prompt in argv and its stdin is the frontend's (req.Stdin).
+	var oneshotStdin io.Reader
+	if req.Mode == agent.ModeOneshot {
+		oneshotStdin = promptStdin(req)
+	}
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req), oneshotStdin, modelInfo, stdout, stderr)
 }
 
 // claudeJSONResult is the subset of the `claude --output-format json` envelope
@@ -235,11 +242,28 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 		)
 	}
 
-	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
-		args = append(args, prompt)
+	// Interactive delivers the initial prompt as an argv positional (it's short —
+	// a human typed it). Oneshot pipes the task on stdin instead (see promptStdin /
+	// Execute), so a large task (a diff to review, a session to compact) can't
+	// exceed the OS argv length limit — the E2BIG that broke `ctxloom weave`
+	// synthesis. buildArgs omits it here for oneshot; claude -p reads it from stdin.
+	if req.Mode == agent.ModeInteractive {
+		if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
+			args = append(args, prompt)
+		}
 	}
 
 	return args
+}
+
+// promptStdin returns the oneshot task as a stdin reader for claude -p, or nil
+// when there is no prompt. Delivering the task on stdin instead of argv keeps a
+// large prompt off the command line, which the OS length-limits (E2BIG).
+func promptStdin(req *agent.ExecuteRequest) io.Reader {
+	if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
+		return strings.NewReader(prompt)
+	}
+	return nil
 }
 
 // minimalSettings builds the JSON passed to `claude --settings` for headless

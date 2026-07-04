@@ -140,6 +140,9 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 				Label:     rs.Label,
 				Backend:   rs.Backend,
 				Model:     rs.Model,
+				// The member's posture: its agent binding, else the engine label's
+				// config; resolved for headless in runResolvedAgent.
+				Permissions: memberPermissions(rs, cfg),
 				// The member's axes: the fan's session-level workspace x the
 				// agent-resolved runtime, plus the user-provided agent image
 				// for the member's backend when one is configured; AgentID
@@ -308,4 +311,15 @@ func FormatParts(parts []Part) string {
 		}
 	}
 	return b.String()
+}
+
+// memberPermissions is a fan member's declared posture, with the run precedence:
+// the agent binding, else the engine label's configured permissions ("" when
+// neither declares one). runResolvedAgent resolves it to an effective headless
+// posture.
+func memberPermissions(rs *ResolvedAgent, cfg *config.Config) string {
+	if rs.Permissions != "" {
+		return rs.Permissions
+	}
+	return cfg.LM.Configs[rs.Label].Permissions
 }

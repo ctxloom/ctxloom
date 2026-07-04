@@ -44,8 +44,17 @@ type LMConfig struct {
 	Defaults RoleDefaults         `mapstructure:"defaults" yaml:"defaults,omitempty"`
 }
 
-// DefaultLLM is the backend type used when no config resolves a label.
-const DefaultLLM = "claude-code"
+// BackendClaudeCode is the claude-code backend type — the reference engine with
+// ambient host auth, and the subject of the host-bypass permission stopgap.
+// Compare a backend type against THIS (not DefaultLLM) when the intent is
+// "is this claude-code specifically", so the check doesn't silently follow a
+// change to the default-label concept.
+const BackendClaudeCode = "claude-code"
+
+// DefaultLLM is the backend type used when no config resolves a label. It is
+// claude-code today; DefaultLLM and BackendClaudeCode name distinct concepts
+// (the default fallback vs. the claude-code engine) that happen to coincide.
+const DefaultLLM = BackendClaudeCode
 
 // EffectiveType returns the backend type the entry drives, degrading to
 // DefaultLLM when Type is unset. Every consumer of LLMConfig.Type must

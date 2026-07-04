@@ -362,6 +362,13 @@ Examples:
 		// the full list. Degraded mode records nothing, so the gate is a no-op.
 		startupMark := strictness.Checkpoint()
 
+		// Friction up front: a typed --permissions value that isn't a known posture
+		// is a hard error before any work, so a typo can't silently resolve to a
+		// more permissive default. Config-sourced postures stay fault-tolerant.
+		if err := validatePermissionFlag(runPermissions); err != nil {
+			return err
+		}
+
 		// Load configuration
 		cfg, err := config.Load()
 		if err != nil {
@@ -776,17 +783,38 @@ Examples:
 		// here scopes the managed mcp/skills/hooks to the SAME profiles, so
 		// `run -p X` no longer leaks the default profile's MCP or every pulled
 		// bundle's skills into X's session.
+		// Launch-time permission posture. Precedence: --permissions flag > agent
+		// binding > engine-label config > built-in default (claude-code → bypass
+		// while container isolation isn't relied on; others prompt). A headless
+		// ONESHOT upgrades a would-block posture to bypass or it would hang with no
+		// human to answer the engine.
+		labelPerm := cfg.LM.Configs[label].Permissions
+		permMode := resolvePermissionMode(runPermissions, agentPermissions, labelPerm, backendName, mode, backends.EnforcesReadOnlyPlan(backendName))
+		// Surface a posture that resolved to something other than what was asked for,
+		// so the effective permissions are never silently different from intent.
+		requested, hasRequest := requestedPermission(runPermissions, agentPermissions, labelPerm)
+		switch {
+		case hasRequest && requested == agent.PermissionPlan && permMode != agent.PermissionPlan:
+			// The backend has no read-only tier, so plan collapsed (to prompt, or to
+			// bypass headless) — the read-only intent is not enforced.
+			clidiag.Warn("ctxloom", "%s has no read-only plan mode; this run uses %q instead", backendName, permMode)
+		case hasRequest && requested != agent.PermissionBypass && permMode == agent.PermissionBypass:
+			// An explicitly-requested narrower posture was widened to bypass because a
+			// headless ONESHOT has no human to answer the engine's prompt.
+			clidiag.Warn("ctxloom", "--print can't honor %q without a human in the loop; this run uses bypass", requested)
+		case !hasRequest && permMode == agent.PermissionBypass && backendName == config.BackendClaudeCode && runVerbosity > 0:
+			// The claude-code host-bypass stopgap: blanket auto-approval on the bare
+			// host. It's the default path, so surface it only under -v to avoid warning
+			// fatigue while still making the posture discoverable.
+			clidiag.Warn("ctxloom", "permissions bypassed on the host (claude-code stopgap)")
+		}
+
 		req := &pb.RunStart{
 			Fragments: protoFragments,
 			Prompt:    promptFragment,
 			Options: &pb.RunOptions{
-				WorkDir: workDir,
-				// Launch-time permission posture. Precedence: --permissions flag >
-				// agent binding > engine-label config > built-in default (claude-code
-				// → bypass while container isolation isn't relied on; others prompt).
-				// A headless ONESHOT upgrades a would-block posture to bypass or it
-				// would hang with no human to answer the engine.
-				PermissionMode: resolvePermissionMode(runPermissions, agentPermissions, cfg.LM.Configs[label].Permissions, backendName, mode).String(),
+				WorkDir:        workDir,
+				PermissionMode: permMode.String(),
 				Mode:           mode,
 				Env:            runEnv,
 				Verbosity:      uint32(runVerbosity * 16), // Each -v adds 16 to verbosity level
@@ -818,8 +846,16 @@ Examples:
 			// The permission posture is resolved once from config/CLI/agent and is
 			// authoritative regardless of how the isolation boundary degrades: a
 			// container that failed to launch does NOT drop a configured bypass —
-			// that is the point of the host stopgap (taskloom hilly-crop).
+			// that is the point of the host stopgap.
 			policy := prepared
+			// A container-requested run whose boundary silently degraded to the bare
+			// host still carries a configured bypass. For the claude-code host stopgap
+			// that is intended; for any other backend the boundary that justified
+			// bypass is gone, so surface it rather than run full-auto with no signal.
+			if runAxes.WantsContainer() && prepared.Name() != string(isolation.RuntimeContainer) &&
+				permMode == agent.PermissionBypass && backendName != config.BackendClaudeCode {
+				clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", backendName)
+			}
 			// Tear the workspace down after the client is killed (kill the plugin/
 			// container before removing its scratch — WIP-safe). Registered before
 			// client.Kill so it runs after. none's cleanup is a noop.
@@ -876,27 +912,52 @@ Examples:
 // run. Precedence: the explicit --permissions flag, then the --agent binding, then
 // the engine label's configured permissions, then the built-in default. The
 // built-in default is bypass for claude-code (the host stopgap while container
-// isolation isn't relied on — see taskloom hilly-crop) and default (prompt) for
-// every other backend. Config/CLI is authoritative: the isolation boundary no
-// longer earns or drops bypass. A non-interactive ONESHOT has no human to answer
-// the engine, so a would-block posture (default/acceptEdits) upgrades to bypass or
-// it hangs.
-func resolvePermissionMode(flag, agentPerm, labelPerm, backendType string, mode pb.ExecutionMode) agent.PermissionMode {
-	m := agent.PermissionDefault
-	resolved := false
-	for _, s := range []string{flag, agentPerm, labelPerm} {
-		if pm, ok := agent.ParsePermissionMode(s); ok {
-			m, resolved = pm, true
-			break
-		}
-	}
-	if !resolved && backendType == config.DefaultLLM {
-		m = agent.PermissionBypass
-	}
+// isolation isn't relied on) and default (prompt) for every other backend.
+// Config/CLI is authoritative: the isolation boundary no longer earns or drops
+// bypass. A non-interactive ONESHOT has no human to answer the engine, so a
+// would-block posture (default/acceptEdits) upgrades to bypass or it hangs.
+func resolvePermissionMode(flag, agentPerm, labelPerm, backendType string, mode pb.ExecutionMode, backendEnforcesPlan bool) agent.PermissionMode {
+	m := agent.ResolveDefault([]string{flag, agentPerm, labelPerm}, backendType == config.BackendClaudeCode)
+	// plan is only a genuine read-only posture on backends that enforce it. On a
+	// backend with no read-only tier it collapses to default — the nearest posture
+	// that still gates each tool call on a human. Interactive: that prompts; a
+	// headless ONESHOT then floors default up to bypass below (it can't hang),
+	// which the caller warns about.
+	m = m.CollapsePlanIfUnenforced(backendEnforcesPlan)
 	if mode == pb.ExecutionMode_ONESHOT && !m.SafeHeadless() {
 		m = agent.PermissionBypass
 	}
 	return m
+}
+
+// requestedPermission returns the posture the user or config asked for — the
+// first parseable of flag > agent > label — independent of any backend collapse.
+// ok is false when nothing parseable was requested (so the caller falls back to a
+// built-in default). It is the input to the "backend can't honor this" warning.
+func requestedPermission(flag, agentPerm, labelPerm string) (agent.PermissionMode, bool) {
+	for _, s := range []string{flag, agentPerm, labelPerm} {
+		if pm, ok := agent.ParsePermissionMode(s); ok {
+			return pm, true
+		}
+	}
+	return agent.PermissionDefault, false
+}
+
+// validatePermissionFlag rejects an explicitly-typed --permissions value that
+// isn't a known posture, up front (friction like an unknown --llm). A typo such
+// as "plann" must not silently fall through to a more permissive default — on
+// claude-code that would be the host bypass, the opposite of the restraint the
+// user typed. An empty flag is no override. Config-sourced agent/label postures
+// stay fault-tolerant (warn + fall through) — only the value typed now is strict.
+func validatePermissionFlag(flag string) error {
+	if flag == "" {
+		return nil
+	}
+	if _, ok := agent.ParsePermissionMode(flag); !ok {
+		return fmt.Errorf("unknown --permissions %q; valid: %s",
+			flag, strings.Join(agent.PermissionModeNames(), "|"))
+	}
+	return nil
 }
 
 // completePermissionModes offers the permission-posture values for shell

@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -149,6 +148,11 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 		w.Printf(")")
 	}
 	w.Println()
+	// The posture an unflagged interactive run actually uses — so a blank-declared
+	// claude-code agent's real host-bypass is visible, not hidden behind "".
+	if resolved.EffectivePermissions != "" {
+		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
+	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
 	return w.Err()
 }
@@ -300,9 +304,7 @@ func init() {
 	_ = agentSetCmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
-	_ = agentSetCmd.RegisterFlagCompletionFunc("permissions", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return agent.PermissionModeNames(), cobra.ShellCompDirectiveNoFileComp
-	})
+	_ = agentSetCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 }
 
 // completeWorkspaceNames completes the session-level --workspace flag values

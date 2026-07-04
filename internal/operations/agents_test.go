@@ -87,6 +87,31 @@ func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
 	assert.Equal(t, "m-slow", res.Model)
 }
 
+// TestResolveAgent_EffectivePermissions pins the resolved posture surfaced by
+// `agent show`: a declared value wins; a blank claude-code agent resolves to the
+// host-bypass stopgap (not ""); a blank non-claude agent resolves to default.
+func TestResolveAgent_EffectivePermissions(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"claude-blank": {Engine: "primary", Profiles: []string{"p1"}},
+		"mock-plan":    {Engine: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
+		"mock-blank":   {Engine: "fast", Profiles: []string{"p1"}},
+	})
+	cases := map[string]string{
+		"claude-blank": "bypass",  // claude-code host stopgap made visible
+		"mock-plan":    "plan",    // declared value surfaces
+		"mock-blank":   "default", // non-claude blank → prompt
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			res, err := ResolveAgent(context.Background(), cfg, name, "")
+			require.NoError(t, err)
+			assert.Equal(t, want, res.EffectivePermissions)
+		})
+	}
+}
+
 // TestResolveAgent_ExplicitEngineOverrideWins proves a caller-supplied
 // engine override (ACP --llm, the map/weave -l member override) beats the
 // agent's own declared engine — the same precedence the fan-out members use.

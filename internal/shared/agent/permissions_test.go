@@ -57,3 +57,41 @@ func TestPermissionMode_Predicates(t *testing.T) {
 func TestPermissionModeNames(t *testing.T) {
 	assert.Equal(t, []string{"default", "acceptEdits", "plan", "bypass"}, PermissionModeNames())
 }
+
+// TestWireMode pins the decode fallback: empty and unknown input become the safe
+// PermissionDefault (prompt) while a known value round-trips. A mutant that
+// changed the fallback to any other posture would flip a real safety default.
+func TestWireMode(t *testing.T) {
+	assert.Equal(t, PermissionDefault, WireMode(""))
+	assert.Equal(t, PermissionDefault, WireMode("nonsense"))
+	assert.Equal(t, PermissionBypass, WireMode("bypass"))
+	assert.Equal(t, PermissionPlan, WireMode("plan"))
+}
+
+// TestResolveDefault pins the shared base resolution: first parseable source
+// wins; otherwise claude-code falls to bypass (host stopgap) and everything else
+// to default (prompt).
+func TestResolveDefault(t *testing.T) {
+	// First parseable wins, in order.
+	assert.Equal(t, PermissionPlan, ResolveDefault([]string{"plan", "bypass"}, true))
+	assert.Equal(t, PermissionBypass, ResolveDefault([]string{"", "bypass", "plan"}, false))
+	// An unparseable source is skipped, not treated as a request.
+	assert.Equal(t, PermissionAcceptEdits, ResolveDefault([]string{"nonsense", "acceptEdits"}, true))
+	// Nothing set: claude-code → bypass, others → default.
+	assert.Equal(t, PermissionBypass, ResolveDefault([]string{"", ""}, true))
+	assert.Equal(t, PermissionDefault, ResolveDefault([]string{"", ""}, false))
+	assert.Equal(t, PermissionDefault, ResolveDefault(nil, false))
+}
+
+// TestCollapsePlanIfUnenforced verifies plan collapses to default only on a
+// backend that can't enforce it as read-only; every other combination is
+// unchanged.
+func TestCollapsePlanIfUnenforced(t *testing.T) {
+	assert.Equal(t, PermissionDefault, PermissionPlan.CollapsePlanIfUnenforced(false), "plan collapses where unenforced")
+	assert.Equal(t, PermissionPlan, PermissionPlan.CollapsePlanIfUnenforced(true), "plan kept where enforced")
+	// Non-plan postures are never touched, regardless of enforcement.
+	for _, m := range []PermissionMode{PermissionDefault, PermissionAcceptEdits, PermissionBypass} {
+		assert.Equal(t, m, m.CollapsePlanIfUnenforced(false), "%q unchanged (unenforced)", m)
+		assert.Equal(t, m, m.CollapsePlanIfUnenforced(true), "%q unchanged (enforced)", m)
+	}
+}

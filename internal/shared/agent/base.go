@@ -123,9 +123,11 @@ func (b *BaseBackend) RunInteractive(ctx context.Context, args []string, env map
 	return b.run(ctx, args, env, true, stdin, stdout, stderr, resize)
 }
 
-// RunNonInteractive runs the backend's command without a pty (no stdin/resize).
-func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdout, stderr io.Writer) (int32, error) {
-	return b.run(ctx, args, env, false, nil, stdout, stderr, nil)
+// RunNonInteractive runs the backend's command without a pty (no resize). stdin
+// is the child's standard input — nil for a run that takes no input, or a finite
+// reader to deliver a oneshot prompt off the argv (which the OS length-limits).
+func (b *BaseBackend) RunNonInteractive(ctx context.Context, args []string, env map[string]string, stdin io.Reader, stdout, stderr io.Writer) (int32, error) {
+	return b.run(ctx, args, env, false, stdin, stdout, stderr, nil)
 }
 
 // run builds the LaunchSpec from the backend's state and hands it to the injected

@@ -74,7 +74,7 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// has NO redirection lever, so per-agent CONCURRENT isolation requires a
 	// per-agent cwd (git worktree) or container. See taskloom loyal-eel / memory
 	// per-agent-config-delivery (ISOLATION AXIS).
-	return b.ExecuteCLI(ctx, req, b.buildArgs(req), modelInfo, stdout, stderr)
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req), nil, modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for the codex CLI. Oneshot

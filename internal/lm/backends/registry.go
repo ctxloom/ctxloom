@@ -51,6 +51,12 @@ type agentDescriptor struct {
 	// writeCommands writes the backend's slash-command files (the module's
 	// WriteCommandFiles). nil = no command export.
 	writeCommands func(string, []agent.CommandExport, ...agent.CommandFileOption) error
+	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
+	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
+	// branch). false backends have no read-only tier, so plan would run
+	// unrestrained — the run resolver collapses plan to default for them. Keep in
+	// sync with the buildArgs plan mapping when a backend gains/loses the mode.
+	enforcesReadOnlyPlan bool
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -103,6 +109,17 @@ func Exists(name string) bool {
 	return ok && d.newBackend != nil
 }
 
+// EnforcesReadOnlyPlan reports whether the named backend maps
+// agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
+// --permission-mode plan, codex --sandbox read-only). Backends that don't
+// (antigravity, kiro, acp) would run plan unrestrained and can't be trusted to
+// be headless-safe for it, so the run resolver collapses plan to default for
+// them. An unregistered name reports false.
+func EnforcesReadOnlyPlan(name string) bool {
+	d, ok := descriptors[name]
+	return ok && d.enforcesReadOnlyPlan
+}
+
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so every
 // backend embedding it is a provider.
@@ -147,9 +164,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &claude.ClaudeConfig{})
 		},
-		newWriter:     claude.NewWriter,
-		exports:       claudeExports,
-		writeCommands: claude.WriteCommandFiles,
+		newWriter:            claude.NewWriter,
+		exports:              claudeExports,
+		writeCommands:        claude.WriteCommandFiles,
+		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
 	})
 
 	registerDescriptor(agentDescriptor{
@@ -177,9 +195,10 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &codex.CodexConfig{})
 		},
-		newWriter:     codex.NewWriter,
-		exports:       codexExports,
-		writeCommands: codex.WriteCommandFiles,
+		newWriter:            codex.NewWriter,
+		exports:              codexExports,
+		writeCommands:        codex.WriteCommandFiles,
+		enforcesReadOnlyPlan: true, // --sandbox read-only --ask-for-approval never
 	})
 
 	// Kiro (direct-CLI path via `kiro-cli chat`). Materializes native config the

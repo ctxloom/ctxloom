@@ -66,7 +66,7 @@ func (b *Antigravity) Execute(ctx context.Context, req *agent.ExecuteRequest, st
 	// which needs the pty/stdin/resize wiring just as much as a bare
 	// interactive launch — running it non-interactively would leave a dead
 	// session. The launch tail (trace/env/routing) is the shared ExecuteCLI.
-	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), modelInfo, stdout, stderr)
+	return b.ExecuteCLI(ctx, req, b.buildArgs(req, modelName), nil, modelInfo, stdout, stderr)
 }
 
 // buildArgs constructs the command-line arguments for agy.

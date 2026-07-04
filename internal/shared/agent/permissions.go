@@ -3,9 +3,12 @@ package agent
 import "strings"
 
 // PermissionMode is the generalized launch-time permission posture ctxloom hands
-// a backend. It mirrors claude's --permission-mode vocabulary (and ACP
-// SessionModes) so one vocabulary spans every client; each backend maps it to
-// its own mechanism, collapsing unsupported values to the nearest safe option.
+// a backend. It mirrors claude's --permission-mode vocabulary so one vocabulary
+// spans every client; each backend maps it to its own mechanism, collapsing
+// unsupported values to the nearest safe option. Not every backend implements
+// every tier: the ACP chat driver distinguishes only bypass (allow-without-
+// prompt), so plan/acceptEdits collapse to the reject decision there, and
+// backends without a read-only tier collapse plan (see CollapsePlanIfUnenforced).
 //
 // It replaces the former AutoApprove bool: the old true maps to PermissionBypass,
 // the old false to PermissionDefault. The wire carries the String() form.
@@ -76,9 +79,43 @@ func PermissionModeNames() []string {
 }
 
 // WireMode parses a wire/config string, falling back to PermissionDefault for
-// empty or unknown input (the fail-safe posture — the most restrictive mode).
+// empty or unknown input — the fail-safe posture (nothing auto-happens; the
+// engine prompts). It is not the most restrictive mode — plan permits less (no
+// mutations at all) — but it is the safe default when intent is unknown.
 func WireMode(s string) PermissionMode {
 	m, _ := ParsePermissionMode(s)
+	return m
+}
+
+// ResolveDefault picks the posture from layered source spellings — the first
+// parseable of the ordered sources wins (e.g. flag > agent > label) — falling
+// back to bypass when nothing is set and the backend is the claude-code host
+// stopgap, else default. It is the run-context-independent base shared by the
+// run resolver and `agent show`; callers layer CollapsePlanIfUnenforced and the
+// headless floor on top. claudeCodeDefault is backendType == the claude-code
+// backend type (the caller owns that comparison so this stays config-free).
+func ResolveDefault(sources []string, claudeCodeDefault bool) PermissionMode {
+	for _, s := range sources {
+		if m, ok := ParsePermissionMode(s); ok {
+			return m
+		}
+	}
+	if claudeCodeDefault {
+		return PermissionBypass
+	}
+	return PermissionDefault
+}
+
+// CollapsePlanIfUnenforced returns PermissionDefault in place of PermissionPlan
+// when the backend cannot enforce plan as a genuine read-only mode, so plan
+// never runs unrestrained on a backend without a read-only tier; any other mode
+// is returned unchanged. Both the interactive run resolver and the headless
+// fan-out apply it before deciding the final posture. backendEnforcesPlan comes
+// from backends.EnforcesReadOnlyPlan.
+func (m PermissionMode) CollapsePlanIfUnenforced(backendEnforcesPlan bool) PermissionMode {
+	if m == PermissionPlan && !backendEnforcesPlan {
+		return PermissionDefault
+	}
 	return m
 }
 

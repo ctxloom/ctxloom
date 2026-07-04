@@ -280,6 +280,11 @@
             "type": "string",
             "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent.",
             "enum": ["host", "container"]
+          },
+          "permissions": {
+            "type": "string",
+            "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
+            "enum": ["default", "acceptEdits", "plan", "bypass"]
           }
         },
         "additionalProperties": false
@@ -295,6 +300,7 @@
           "title": "claude-code",
           "properties": {
             "type": { "const": "claude-code" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -306,6 +312,7 @@
           "title": "antigravity",
           "properties": {
             "type": { "const": "antigravity" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string", "examples": ["gemini-3-pro"] },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -317,6 +324,7 @@
           "title": "codex",
           "properties": {
             "type": { "const": "codex" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "binary_path": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } },
@@ -328,6 +336,7 @@
           "title": "mock",
           "properties": {
             "type": { "const": "mock" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
             "model": { "type": "string" },
             "env": { "type": "object", "additionalProperties": { "type": "string" } }
           },

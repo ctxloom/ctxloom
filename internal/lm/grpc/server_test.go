@@ -133,6 +133,7 @@ type fakeBackend struct {
 	captureStdout string
 	captureStderr string
 	history       agent.SessionHistory
+	capturedPerm  agent.PermissionMode // posture the server decoded into the request
 }
 
 func (f *fakeBackend) Name() string                          { return f.name }
@@ -146,6 +147,7 @@ func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error 
 }
 
 func (f *fakeBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
+	f.capturedPerm = req.Permissions
 	if f.captureStdout != "" {
 		_, _ = stdout.Write([]byte(f.captureStdout))
 	}
@@ -225,6 +227,39 @@ func TestGRPCServer_Run_FullLifecycle(t *testing.T) {
 	assert.True(t, hasStdout && hasStderr && hasExit,
 		"expected stdout + stderr + exit_code in stream; got stdout=%v stderr=%v exit=%v",
 		hasStdout, hasStderr, hasExit)
+}
+
+// TestGRPCServer_Run_HeadlessFloorsWouldBlockPosture pins fix O: the server's
+// decode boundary floors a would-block posture up to bypass for a ONESHOT (a
+// headless run has no human to answer the engine and would hang), as defense in
+// depth for a gRPC caller that didn't apply the CLI resolver's floor. A
+// safe-headless posture (plan/bypass) and interactive runs are left untouched.
+func TestGRPCServer_Run_HeadlessFloorsWouldBlockPosture(t *testing.T) {
+	cases := []struct {
+		name string
+		mode ExecutionMode
+		perm agent.PermissionMode
+		want agent.PermissionMode
+	}{
+		{"oneshot floors default to bypass", ExecutionMode_ONESHOT, agent.PermissionDefault, agent.PermissionBypass},
+		{"oneshot floors acceptEdits to bypass", ExecutionMode_ONESHOT, agent.PermissionAcceptEdits, agent.PermissionBypass},
+		{"oneshot keeps safe-headless plan", ExecutionMode_ONESHOT, agent.PermissionPlan, agent.PermissionPlan},
+		{"oneshot keeps bypass", ExecutionMode_ONESHOT, agent.PermissionBypass, agent.PermissionBypass},
+		{"interactive keeps default", ExecutionMode_INTERACTIVE, agent.PermissionDefault, agent.PermissionDefault},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeBackend{name: "capture", executeResult: &agent.ExecuteResult{ExitCode: 0}}
+			srv := &GRPCServer{Impl: backend}
+			stream := newFakeRunServer()
+			stream.recv = []*RunInput{runStartInput(&RunStart{
+				Prompt:  &Fragment{Content: "hi"},
+				Options: &RunOptions{WorkDir: "/tmp", Mode: tc.mode, PermissionMode: tc.perm.String()},
+			})}
+			require.NoError(t, srv.Run(stream))
+			assert.Equal(t, tc.want, backend.capturedPerm)
+		})
+	}
 }
 
 func TestGRPCServer_Run_SkipSetup(t *testing.T) {
@@ -342,7 +377,7 @@ func (b *launchCapturingBackend) Setup(_ context.Context, req *agent.SetupReques
 func (b *launchCapturingBackend) Cleanup(_ context.Context) error { return nil }
 
 func (b *launchCapturingBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
-	code, err := b.RunNonInteractive(ctx, nil, req.Env, stdout, stderr)
+	code, err := b.RunNonInteractive(ctx, nil, req.Env, nil, stdout, stderr)
 	return &agent.ExecuteResult{ExitCode: code}, err
 }
 

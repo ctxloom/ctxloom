@@ -91,6 +91,9 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
+		// A bare-profile oneshot has no agent binding; its posture is the engine
+		// label's configured permissions (if any), resolved for headless below.
+		Permissions: cfg.LM.Configs[label].Permissions,
 		// AgentID scopes a per-agent workspace by the profile name.
 		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),
@@ -121,6 +124,12 @@ type resolvedRunRequest struct {
 	Label   string
 	Backend string
 	Model   string
+
+	// Permissions is the member's declared posture (agent binding or label
+	// config; "" = none). The fan is always headless ONESHOT, so it is resolved
+	// to an effective posture in runResolvedAgent: an honorable read-only plan is
+	// kept, a would-block posture floors to bypass so a member can't hang.
+	Permissions string
 
 	// Axes is the resolved isolation request: the session-supplied workspace
 	// axis x the agent-resolved runtime axis (both already defaulted). It
@@ -224,17 +233,25 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		}
 	}
 
+	// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer the
+	// engine's prompt. Honor the member's declared posture when it can run headless
+	// (a read-only plan on a backend that enforces it), but floor a would-block
+	// posture (default/acceptEdits, or plan on a backend with no read-only tier) up
+	// to bypass so a member can't hang. An empty/unset posture floors to bypass,
+	// preserving the prior always-bypass behavior for members that declare nothing.
+	memberPerm, _ := agent.ParsePermissionMode(req.Permissions)
+	memberPerm = memberPerm.CollapsePlanIfUnenforced(backends.EnforcesReadOnlyPlan(req.Backend))
+	if !memberPerm.SafeHeadless() {
+		memberPerm = agent.PermissionBypass
+	}
+
 	runReq := &pb.RunStart{
 		Fragments: fragments,
 		Prompt:    &pb.Fragment{Content: req.Task},
 		Options: &pb.RunOptions{
-			WorkDir: workDir,
-			Env:     workspaceEnv,
-			// Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer
-			// the engine's permission prompt, so a member must bypass or it hangs.
-			// Interactive runs resolve the posture from config/CLI; here it is the
-			// invariant bypass.
-			PermissionMode: agent.PermissionBypass.String(),
+			WorkDir:        workDir,
+			Env:            workspaceEnv,
+			PermissionMode: memberPerm.String(),
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          req.Model,
 			Verbosity:      uint32(req.Verbosity * 16),

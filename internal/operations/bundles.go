@@ -252,13 +252,13 @@ func UpdateBundle(ctx context.Context, cfg *config.Config, req UpdateBundleReque
 	// Add* are create-if-absent: filter to names not already present, then reuse
 	// the same merge path (for brand-new names a merge is identical to a set).
 	var fragmentDistillTargets, promptDistillTargets []string
-	changes, addFT := applyFragmentEdits(bundle, onlyNewFragments(bundle, req.AddFragments), nil, changes)
+	changes, addFT := applyFragmentEdits(bundle, onlyNewKeys(req.AddFragments, bundle.Fragments), nil, changes)
 	changes, fragmentDistillTargets = applyFragmentEdits(bundle, req.SetFragments, req.RemoveFragments, changes)
 	fragmentDistillTargets = append(fragmentDistillTargets, addFT...)
-	changes, addPT := applyPromptEdits(bundle, onlyNewPrompts(bundle, req.AddPrompts), nil, changes)
+	changes, addPT := applyPromptEdits(bundle, onlyNewKeys(req.AddPrompts, bundle.Skills), nil, changes)
 	changes, promptDistillTargets = applyPromptEdits(bundle, req.SetPrompts, req.RemovePrompts, changes)
 	promptDistillTargets = append(promptDistillTargets, addPT...)
-	changes = applyMCPEdits(bundle, onlyNewMCP(bundle, req.AddMCPServers), nil, changes)
+	changes = applyMCPEdits(bundle, onlyNewKeys(req.AddMCPServers, bundle.MCP), nil, changes)
 	changes = applyMCPEdits(bundle, req.SetMCPServers, req.RemoveMCPServers, changes)
 
 	if len(changes) == 0 {
@@ -438,43 +438,17 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleSkillInput, r
 	return changes, distillTargets
 }
 
-// onlyNewFragments returns the subset of in whose names are not already present
-// in the bundle — the add-only filter so create-if-absent never overwrites.
-func onlyNewFragments(b *bundles.Bundle, in map[string]BundleFragmentInput) map[string]BundleFragmentInput {
+// onlyNewKeys returns the subset of in whose keys are absent from existing —
+// the add-only filter so create-if-absent never overwrites. The value types of
+// the two maps are independent: in carries the edit inputs, existing only gates
+// on key presence.
+func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]BundleFragmentInput, len(in))
+	out := make(map[string]V, len(in))
 	for name, v := range in {
-		if _, exists := b.Fragments[name]; !exists {
-			out[name] = v
-		}
-	}
-	return out
-}
-
-// onlyNewPrompts is the prompt counterpart of onlyNewFragments.
-func onlyNewPrompts(b *bundles.Bundle, in map[string]BundleSkillInput) map[string]BundleSkillInput {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]BundleSkillInput, len(in))
-	for name, v := range in {
-		if _, exists := b.Skills[name]; !exists {
-			out[name] = v
-		}
-	}
-	return out
-}
-
-// onlyNewMCP is the MCP-server counterpart of onlyNewFragments.
-func onlyNewMCP(b *bundles.Bundle, in map[string]BundleMCPInput) map[string]BundleMCPInput {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]BundleMCPInput, len(in))
-	for name, v := range in {
-		if _, exists := b.MCP[name]; !exists {
+		if _, exists := existing[name]; !exists {
 			out[name] = v
 		}
 	}

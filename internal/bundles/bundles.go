@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -422,12 +424,7 @@ func (b *Bundle) MCPCount() int {
 
 // MCPNames returns sorted MCP server names.
 func (b *Bundle) MCPNames() []string {
-	names := make([]string, 0, len(b.MCP))
-	for name := range b.MCP {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(b.MCP))
 }
 
 // FragmentCount returns the number of fragments in the bundle.
@@ -442,22 +439,12 @@ func (b *Bundle) SkillCount() int {
 
 // FragmentNames returns sorted fragment names.
 func (b *Bundle) FragmentNames() []string {
-	names := make([]string, 0, len(b.Fragments))
-	for name := range b.Fragments {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(b.Fragments))
 }
 
 // PromptNames returns sorted prompt names.
 func (b *Bundle) PromptNames() []string {
-	names := make([]string, 0, len(b.Skills))
-	for name := range b.Skills {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(b.Skills))
 }
 
 // HasProfiles reports whether the bundle ships any profiles.
@@ -472,12 +459,7 @@ func (b *Bundle) ProfileCount() int {
 
 // ProfileNames returns sorted profile names.
 func (b *Bundle) ProfileNames() []string {
-	names := make([]string, 0, len(b.Profiles))
-	for name := range b.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(b.Profiles))
 }
 
 // AllTags returns all unique tags from bundle and its contents.

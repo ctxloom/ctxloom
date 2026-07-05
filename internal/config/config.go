@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -400,7 +399,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		}
 		bundle, lerr := loader.LoadFile(info.Path)
 		if lerr != nil {
-			clidiag.WarnOnce("ctxloom", "failed to load bundle %q for its profiles: %v", info.Name, lerr)
+			strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded", "failed to load bundle %q for its profiles: %v", info.Name, lerr)
 			continue
 		}
 		// info.Name is the bundle's full resolution identity (the canonical ref for

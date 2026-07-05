@@ -429,7 +429,7 @@ Examples:
 			syncCancel()
 			if syncErr != nil {
 				if !errors.Is(syncErr, context.Canceled) {
-					clidiag.Warn("ctxloom", "sync failed: %v", syncErr)
+					strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 				}
 			} else {
 				writeSyncSummary(os.Stderr, result)
@@ -494,7 +494,7 @@ Examples:
 			// context at the project-default label + runtime (CLAUDE.md fault
 			// tolerance; mirrors acp's openACPEngineChat degrade).
 			if rs, rerr := operations.ResolveAgent(ctx, cfg, cfg.DefaultAgent, runLLM); rerr != nil {
-				clidiag.Warn("ctxloom", "default agent %q unavailable; continuing with empty context: %v", cfg.DefaultAgent, rerr)
+				strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", cfg.DefaultAgent, rerr)
 				ctxResult = &operations.AssembleContextResult{}
 				var lerr error
 				// resolveRunLLM: --llm override, else the project primary label.

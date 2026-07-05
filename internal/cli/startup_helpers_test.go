@@ -7,10 +7,72 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// resetStrictness restores pristine strict-mode state for a test and registers
+// cleanup, so the package-global finding collector never bleeds between tests
+// (mirrors strictness_test.go's resetForTest).
+func resetStrictness(t *testing.T) {
+	t.Helper()
+	strictness.Reset()
+	strictness.SetDegraded(false)
+	t.Cleanup(func() {
+		strictness.Reset()
+		strictness.SetDegraded(false)
+	})
+}
+
+// The strict startup gate is the whole point of fail-loudly: a collected fatal
+// finding must abort `ctxloom run`/`mcp` before launch with the distinct
+// findings exit code (3), listing every finding and its fix-it plus the
+// --degraded escape hatch. In degraded mode the same finding must NOT abort.
+func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
+	t.Run("strict mode aborts, lists finding + fix-it", func(t *testing.T) {
+		resetStrictness(t)
+
+		mark := strictness.Checkpoint()
+		strictness.Fail(strictness.ClassSync,
+			"check the remote/network, or pass --degraded to launch anyway",
+			"sync failed: %v", "boom")
+
+		var buf bytes.Buffer
+		err := failOnFindings(&buf, mark)
+
+		require.Error(t, err, "a collected fatal finding must abort startup in strict mode")
+		var exitErr *ExitError
+		require.ErrorAs(t, err, &exitErr, "the abort must be an ExitError so deferred cleanup runs")
+		assert.Equal(t, exitCodeFatalFindings, exitErr.Code,
+			"strict abort must carry the distinct findings exit code (3), not the generic 1")
+
+		out := buf.String()
+		assert.Contains(t, out, "aborting startup", "header must announce the abort")
+		assert.Contains(t, out, "[sync]", "each finding is class-tagged for diagnosis")
+		assert.Contains(t, out, "sync failed: boom", "the finding message must be listed")
+		assert.Contains(t, out, "check the remote/network", "the fix-it must be listed")
+		assert.Contains(t, out, "--degraded", "the escape hatch must be surfaced")
+	})
+
+	t.Run("degraded mode never aborts", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		mark := strictness.Checkpoint()
+		strictness.Fail(strictness.ClassSync,
+			"check the remote/network, or pass --degraded to launch anyway",
+			"sync failed: %v", "boom")
+
+		var buf bytes.Buffer
+		err := failOnFindings(&buf, mark)
+
+		assert.NoError(t, err, "degraded mode is the escape hatch — it must launch anyway")
+		assert.Empty(t, buf.String(), "degraded mode renders no findings block")
+	})
+}
 
 func TestLoadConfigOrFallback_Success(t *testing.T) {
 	want := &config.Config{AppPaths: []string{"/some/dir"}}

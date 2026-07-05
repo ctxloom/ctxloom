@@ -200,7 +200,7 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 	syncCancel()
 	if syncErr != nil {
 		if !errors.Is(syncErr, context.Canceled) {
-			clidiag.Warn("ctxloom", "sync failed: %v", syncErr)
+			strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 		}
 		return
 	}

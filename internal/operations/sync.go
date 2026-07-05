@@ -647,6 +647,14 @@ func parentBundleRefs(refs []string) []string {
 		if !isRemoteReference(r) {
 			continue
 		}
+		// Retired top-level @profiles/ refs carry no selector, so they would map
+		// to themselves and read as "not installed" — the actual sync
+		// (addRemoteBundleBase) skips them, so they must never be offered as a
+		// missing dependency (the user would be prompted for a dep sync then
+		// rejects).
+		if _, _, ok := remote.SplitRetiredProfileRef(r); ok {
+			continue
+		}
 		base, _, _ := strings.Cut(r, "#")
 		out = append(out, base)
 	}

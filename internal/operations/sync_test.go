@@ -702,6 +702,35 @@ func TestCheckMissingDependencies(t *testing.T) {
 	}
 }
 
+// TestCheckMissingDependencies_RetiredProfileRefNotOffered pins that a retired
+// top-level @profiles/ ref in profiles.defaults is NOT offered as an installable
+// dependency. It carries no selector, cannot be installed as a bundle, and the
+// actual sync (addRemoteBundleBase) skips it — so offering it here prompts the
+// user y/N for a dependency that is then immediately rejected.
+func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no host ~/.ctxloom leak into the defaults path
+	fs := afero.NewMemMapFs()
+
+	cfg := &config.Config{
+		Profiles: config.ProfilesConfig{
+			Defaults:    []string{"https://github.com/o/r@profiles/dev"},
+			Definitions: map[string]config.Profile{},
+		},
+		AppPaths: []string{testBaseDir},
+	}
+	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
+
+	result, err := CheckMissingDependencies(context.Background(), cfg, CheckMissingDependenciesRequest{
+		BundleReader: fakeBundleSource{readable: map[string]bool{}},
+	})
+	if err != nil {
+		t.Fatalf("CheckMissingDependencies failed: %v", err)
+	}
+	if result.Count != 0 {
+		t.Errorf("retired @profiles/ default must not be offered; got %d missing: %v", result.Count, result.Missing)
+	}
+}
+
 func TestCheckMissingDependencies_AllInstalled(t *testing.T) {
 	fs := afero.NewMemMapFs()
 

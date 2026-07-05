@@ -600,14 +600,15 @@ func classifyPullError(err error) pullOutcome {
 	return pullOutcomeFailed
 }
 
-// checkDefaultProfiles returns names of default profiles that don't exist.
+// checkDefaultProfiles returns names of the default agent's composed profiles
+// that don't exist (profiles.defaults was retired — see DefaultAgentProfiles).
 func checkDefaultProfiles() []string {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil // Can't check if config won't load
 	}
 
-	defaultProfiles := cfg.GetDefaultProfiles()
+	defaultProfiles := cfg.DefaultAgentProfiles()
 	if len(defaultProfiles) == 0 {
 		return nil
 	}

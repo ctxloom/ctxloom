@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -260,6 +261,62 @@ Examples:
 	},
 }
 
+// agentDefaultCmd shows or sets the always-bound DEFAULT AGENT — the binding a
+// bare `ctxloom run` (no --agent, no -p/-f/-t) resolves. It is the replacement
+// for the retired `profile default`: the default context is now whatever the
+// default agent composes.
+var agentDefaultCmd = &cobra.Command{
+	Use:   "default [name]",
+	Short: "Show or set the always-bound default agent",
+	Long: `Show or set the DEFAULT AGENT: the agent a bare 'ctxloom run' (no --agent, no
+-p/-f/-t) binds — its composed profiles become the context and its engine +
+runtime + permissions the transport. This replaces the retired 'profile default'.
+
+With no argument, prints the current default agent. With a name, sets it (written
+as 'default_agent' in .ctxloom/config.yaml). The named agent should exist under
+'agents:' or as .ctxloom/agents/<name>.yaml — an unknown name is accepted with a
+warning (a bare run then degrades to empty context until it is defined).
+
+Examples:
+  ctxloom agent default            # show the current default agent
+  ctxloom agent default dev        # make 'dev' the default agent`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+
+		// No argument: report the current default agent.
+		if len(args) == 0 {
+			if cfg.DefaultAgent == "" {
+				w.Println("No default agent set.")
+				return w.Err()
+			}
+			w.Printf("Default agent: %s\n", cfg.DefaultAgent)
+			return w.Err()
+		}
+
+		name := args[0]
+		if name == "help" {
+			return cmd.Help()
+		}
+		// Advisory only (fault tolerance): warn but don't block when the named
+		// agent isn't defined yet — a bare run degrades gracefully and the user
+		// may define it next.
+		if _, ok := cfg.Agent(name); !ok {
+			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
+		}
+		cfg.DefaultAgent = name
+		if err := cfg.Save(); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		w.Printf("Set default agent to %q.\n", name)
+		return w.Err()
+	},
+}
+
 // agentRemoveCmd deletes a config-key agent and persists the removal.
 var agentRemoveCmd = &cobra.Command{
 	Use:     "remove <name>",
@@ -290,6 +347,7 @@ func init() {
 	agentCmd.AddCommand(agentShowCmd)
 	agentCmd.AddCommand(agentSetupCmd)
 	agentCmd.AddCommand(agentSetCmd)
+	agentCmd.AddCommand(agentDefaultCmd)
 	agentCmd.AddCommand(agentRemoveCmd)
 
 	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
@@ -299,6 +357,7 @@ func init() {
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentRemoveCmd.ValidArgsFunction = completeAgentNames
+	agentDefaultCmd.ValidArgsFunction = completeAgentNames
 	_ = agentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
 	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = agentSetCmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

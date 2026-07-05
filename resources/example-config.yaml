@@ -28,11 +28,20 @@ version: 4
 #   use_distilled: true       # prefer .distilled.md versions (default true)
 #   compaction_chunks: 8000   # target tokens per compaction chunk
 
-# Profiles: default list to load, plus custom definitions.
+# The default agent: a bare `ctxloom run` binds it (its profiles become the
+# context, its engine/runtime/permissions the transport). default_agent names an
+# entry under agents:. This replaces the retired profiles.defaults.
+# default_agent: default
+# agents:
+#   default:
+#     engine: big          # LLM config label; overrides the profiles' llm
+#     runtime: host        # host | container
+#     profiles:
+#       - ctxloom-default/go-developer
+#       - ctxloom-default/python-developer
+
+# Profiles: custom named definitions (compose them via an agent's profiles list).
 # profiles:
-#   defaults:
-#     - ctxloom-default/go-developer
-#     - ctxloom-default/python-developer
 #   definitions:
 #     my-profile:
 #       description: "My custom profile"

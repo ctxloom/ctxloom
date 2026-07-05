@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
@@ -65,13 +66,15 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "beta.yaml"), []byte(betaYAML), 0644))
 }
 
-// fixtureConfig builds a *config.Config rooted at the given tempdir with
-// the directory profile "test" wired as default. No inline profiles are
-// declared, which is the case that previously failed.
+// fixtureConfig builds a *config.Config rooted at the given tempdir with the
+// directory profile "test" bound as the default agent's sole profile (the
+// default set a bare regenerate reads). No inline profiles are declared, which
+// is the case that previously failed.
 func fixtureConfig(root string) *config.Config {
 	return &config.Config{
-		AppPaths: []string{filepath.Join(root, ".ctxloom")},
-		Profiles: config.ProfilesConfig{Defaults: []string{"test"}},
+		AppPaths:     []string{filepath.Join(root, ".ctxloom")},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
 	}
 }
 

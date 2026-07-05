@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -13,33 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
-
-// PromoteToDefaultIfFirst adds profileName to defaults.profiles in config.yaml
-// if no explicit default is currently configured. Uses
-// ExplicitDefaultProfiles rather than GetDefaultProfiles so the single-profile
-// fallback does not suppress the promotion — auto-promote's job is to make
-// the implicit choice explicit on disk.
-// Save errors are warned but non-fatal — the caller's primary operation has
-// already succeeded by the time this is called.
-// Returns true if the profile was added and the config saved.
-func PromoteToDefaultIfFirst(cfg *config.Config, profileName string) bool {
-	if cfg == nil || profileName == "" {
-		return false
-	}
-	if len(cfg.ExplicitDefaultProfiles()) > 0 {
-		return false
-	}
-	if !cfg.Profiles.AddDefaultProfile(profileName) {
-		return false
-	}
-	if err := cfg.Save(); err != nil {
-		clidiag.Warn("ctxloom", "set %q as default profile in memory but failed to persist: %v", profileName, err)
-		return false
-	}
-	return true
-}
 
 // LocalProfileNameFromPath returns the profile name (as used by the profile
 // loader) for a profile file path under cfg's base ctxloom directory.
@@ -57,77 +30,6 @@ func LocalProfileNameFromPath(cfg *config.Config, localPath string) (string, boo
 		return "", false
 	}
 	return rel, true
-}
-
-// EnsureDefaultProfiles makes sure cfg has a usable set of default profiles
-// before context assembly, WITHOUT ever silently inventing one.
-//
-// Config resolution is project-XOR-home: when a project .ctxloom exists it is
-// used wholesale and the home (~/.ctxloom) config is NOT merged. That means a
-// project with no defaults.profiles would otherwise shadow the user's home
-// defaults entirely. To honor the user's intent ("inherit home, else prompt")
-// without mutating the project config on disk:
-//
-//   - If the project config already lists explicit defaults.profiles, do
-//     nothing — the user has made their choice.
-//   - Otherwise load the HOME config and, if it has defaults.profiles, record
-//     them as cfg's run-only INHERITED defaults (SetInheritedDefaults).
-//     GetDefaultProfiles falls back to them, but they are kept out of
-//     cfg.Profiles.Defaults so a later cfg.Save() from an unrelated operation
-//     never materializes them into the project config.yaml, and
-//     ExplicitDefaultProfiles stays empty so first-profile auto-promotion is
-//     not suppressed. Nothing is written to disk and no synthetic profile is
-//     created.
-//   - If home has none either, surface the choice: print a clear stderr
-//     instruction telling the user to set defaults.profiles (or run discovery).
-//     Per fault-tolerance we still return cleanly so the LLM starts; context
-//     assembly simply has no profile to expand (degraded, not crashed).
-//
-// The lookup runs at most once per cfg: subsequent calls are read-only, so
-// concurrent context assembly (operations.MapProfiles) is safe after the main
-// goroutine resolves once.
-func EnsureDefaultProfiles(cfg *config.Config) {
-	if cfg == nil {
-		return
-	}
-
-	// Project already has an explicit choice — respect it untouched.
-	if len(cfg.ExplicitDefaultProfiles()) > 0 {
-		return
-	}
-
-	// Already resolved this run (possibly to "none") — read-only fast path.
-	if cfg.Profiles.InheritedDefaultsResolved() {
-		return
-	}
-
-	// Inherit from the home config if it defines defaults.profiles.
-	if homeProfiles := homeDefaultProfiles(); len(homeProfiles) > 0 {
-		cfg.Profiles.SetInheritedDefaults(homeProfiles)
-		return
-	}
-	cfg.Profiles.SetInheritedDefaults(nil) // looked, found none — don't look again
-
-	// Neither project nor home defines defaults.profiles — surface the choice.
-	clidiag.Warn("ctxloom", "no default profiles configured (project or home).")
-	fmt.Fprintln(os.Stderr, "ctxloom: set defaults.profiles in .ctxloom/config.yaml (or ~/.ctxloom/config.yaml),")
-	fmt.Fprintln(os.Stderr, "ctxloom: or run discovery to install one. Continuing without a profile.")
-}
-
-// homeDefaultProfiles loads the user's home config (~/.ctxloom/config.yaml)
-// and returns its explicit defaults.profiles, or nil if the home config is
-// absent, unreadable, or defines none. Errors are swallowed (fault-tolerance):
-// a missing/broken home config simply means "nothing to inherit".
-func homeDefaultProfiles() []string {
-	homeDir, err := config.HomeConfigDir()
-	if err != nil {
-		return nil
-	}
-	homeCfg, err := config.Load(config.WithAppDir(homeDir))
-	if err != nil {
-		return nil
-	}
-	return homeCfg.ExplicitDefaultProfiles()
 }
 
 // ProfileEntry represents a profile in operation results.
@@ -208,6 +110,11 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 
 	query := strings.ToLower(req.Query)
 
+	// A profile is "default" when it is one of the profiles the default AGENT
+	// composes (profiles.defaults was retired — the default set is now whatever
+	// Config.DefaultAgent binds).
+	defaultSet := cfg.DefaultAgentProfiles()
+
 	var result []ProfileEntry
 	for _, p := range profileList {
 		// Filter by query if provided
@@ -224,7 +131,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 			Parents:     p.Parents,
 			Tags:        p.Tags,
 			Bundles:     p.Bundles,
-			Default:     cfg.Profiles.IsDefaultProfile(p.Name),
+			Default:     slices.Contains(defaultSet, p.Name),
 			Path:        p.Path,
 			IsRemote:    strings.HasPrefix(p.Path, profiles.SeededProfilePathPrefix),
 			Bundle:      profileBundleSource(p.Name),
@@ -259,7 +166,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 	return &ListProfilesResult{
 		Profiles: result,
 		Count:    len(result),
-		Defaults: cfg.GetDefaultProfiles(),
+		Defaults: cfg.DefaultAgentProfiles(),
 	}, nil
 }
 
@@ -330,7 +237,6 @@ type CreateProfileRequest struct {
 	Parents     []string `json:"parents"`
 	Bundles     []string `json:"bundles"`
 	Tags        []string `json:"tags"`
-	Default     bool     `json:"default"`
 
 	// Exclusions
 	ExcludeFragments []string `json:"exclude_fragments"`
@@ -383,23 +289,9 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		return nil, fmt.Errorf("failed to save profile: %w", err)
 	}
 
-	// Set as default if requested
-	if req.Default {
-		cfg.Profiles.AddDefaultProfile(req.Name)
-		if err := cfg.Save(); err != nil {
-			// The profile is already written to disk; reporting the whole
-			// creation as failed here would contradict the on-disk state. Warn
-			// and return success for the part that took (partial success is
-			// success — CLAUDE.md fault tolerance); the user can re-run
-			// `ctxloom profile default` to set it.
-			clidiag.Warn("ctxloom", "profile %q created but setting it as default failed: %v", req.Name, err)
-		}
-	} else {
-		// Auto-promote: if there is no default profile yet, this becomes it so
-		// that `ctxloom run` doesn't launch with empty context.
-		PromoteToDefaultIfFirst(cfg, req.Name)
-	}
-
+	// A newly-created profile is no longer auto-promoted to a config default
+	// (profiles.defaults was retired): compose it into an agent to make it the
+	// default context (`ctxloom agent set` / `ctxloom agent default`).
 	return &CreateProfileResult{
 		Status:  "created",
 		Profile: req.Name,
@@ -418,7 +310,6 @@ type UpdateProfileRequest struct {
 	RemoveBundles []string `json:"remove_bundles"`
 	AddTags       []string `json:"add_tags"`
 	RemoveTags    []string `json:"remove_tags"`
-	Default       *bool    `json:"default"`
 
 	// Exclusion management
 	AddExcludeFragments    []string `json:"add_exclude_fragments"`
@@ -486,9 +377,6 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 		}
 	}
 
-	// Reflect the default flag into cfg (persisted below via cfg.Save).
-	changes = append(changes, applyDefaultFlag(cfg, req.Name, req.Default)...)
-
 	// Every list field shares one add/remove primitive (see applyListEdits).
 	profile.Parents, changes = applyListEdits(profile.Parents, req.AddParents, req.RemoveParents, "parent", changes)
 	profile.Bundles, changes = applyListEdits(profile.Bundles, req.AddBundles, req.RemoveBundles, "bundle", changes)
@@ -507,13 +395,6 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	// Save profile changes
 	if err := loader.Save(profile); err != nil {
 		return nil, fmt.Errorf("failed to save profile: %w", err)
-	}
-
-	// Save config changes (for default setting)
-	if req.Default != nil {
-		if err := cfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
 	}
 
 	return &UpdateProfileResult{
@@ -543,27 +424,6 @@ func applyListEdits(list, add, remove []string, label string, changes []string) 
 		}
 	}
 	return list, changes
-}
-
-// applyDefaultFlag reflects a requested default-flag state into cfg's
-// default-profile set and returns the change lines to record — nil when want is
-// nil or the state already matches the request. It mutates cfg.Defaults in
-// memory only; the caller persists with cfg.Save once all edits are applied.
-func applyDefaultFlag(cfg *config.Config, name string, want *bool) []string {
-	if want == nil {
-		return nil
-	}
-	if *want {
-		if cfg.Profiles.AddDefaultProfile(name) {
-			return []string{"set as default"}
-		}
-		return nil
-	}
-	if cfg.Profiles.IsDefaultProfile(name) {
-		cfg.Profiles.RemoveDefaultProfile(name)
-		return []string{"unset default"}
-	}
-	return nil
 }
 
 // requireProfilesExist returns an error for the first LOCAL name the loader
@@ -613,105 +473,9 @@ func DeleteProfile(ctx context.Context, cfg *config.Config, req DeleteProfileReq
 		return nil, fmt.Errorf("failed to delete profile: %w", err)
 	}
 
-	// Clear default if deleting the default profile
-	if cfg.Profiles.IsDefaultProfile(req.Name) {
-		cfg.Profiles.RemoveDefaultProfile(req.Name)
-		if err := cfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
-	}
-
 	return &DeleteProfileResult{
 		Status:  "deleted",
 		Profile: req.Name,
-	}, nil
-}
-
-// SetDefaultProfileRequest adds or removes a default profile.
-type SetDefaultProfileRequest struct {
-	Name  string `json:"name"`
-	Unset bool   `json:"unset"`
-	// Exclusive makes Name the SOLE default, unsetting every other default in one
-	// atomic step. Mutually exclusive with Unset. This is the "make this THE
-	// default" operation, owned here so a client never has to orchestrate an
-	// unset-each-then-add sequence (which a crash mid-way could leave inconsistent).
-	Exclusive bool `json:"exclusive"`
-
-	// Loader is an optional pre-configured loader (for testing).
-	Loader profiles.Store `json:"-"`
-}
-
-// SetDefaultProfileResult reports the outcome of a default-profile change and
-// the resulting default set.
-type SetDefaultProfileResult struct {
-	Status   string   `json:"status"` // "added", "removed", "set" (exclusive), "unchanged"
-	Name     string   `json:"name"`
-	Defaults []string `json:"defaults"`
-}
-
-// SetDefaultProfile adds (or, with Unset, removes) a profile from the config
-// defaults list. defaults is a LIST, so multiple defaults may coexist and a
-// default may be a bare local profile name OR a remote ref — both are valid
-// targets for `run`/`weave` when no profile is given. Every added default is
-// checked against the loader; a remote-shaped ref that doesn't resolve yet is
-// accepted with a not-installed warning (pull may not have run), while an
-// unresolvable plain local name is an error. This is the supported replacement
-// for the default-setting that `install --profile` did, minus the parent-graft.
-func SetDefaultProfile(ctx context.Context, cfg *config.Config, req SetDefaultProfileRequest) (*SetDefaultProfileResult, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if req.Unset && req.Exclusive {
-		return nil, fmt.Errorf("unset and exclusive are mutually exclusive")
-	}
-
-	// Validate existence for any added default, regardless of spelling —
-	// acceptance must not depend on how a ref is written. A target the loader
-	// can't resolve is still accepted WITH a warning when it is remote-shaped
-	// (canonical URL or a "#profiles/" bundle-profile ref: its bundle may
-	// simply not be pulled yet); a plain local name must exist. Removals skip
-	// validation so a default can be unset after its profile is gone.
-	if !req.Unset {
-		loader := req.Loader
-		if loader == nil {
-			loader = profileLoader(cfg)
-		}
-		if !loader.Exists(req.Name) {
-			_, parseErr := remote.ParseReference(req.Name)
-			remoteShaped := parseErr == nil || strings.Contains(req.Name, remote.ProfileSelector)
-			if !remoteShaped {
-				return nil, fmt.Errorf("profile %q not found", req.Name)
-			}
-			clidiag.Warn("ctxloom", "default profile %s is not installed yet — run 'ctxloom remote pull'", req.Name)
-		}
-	}
-
-	status := "unchanged"
-	switch {
-	case req.Unset:
-		if cfg.Profiles.RemoveDefaultProfile(req.Name) {
-			status = "removed"
-		}
-	case req.Exclusive:
-		if cfg.Profiles.SetExclusiveDefaultProfile(req.Name) {
-			status = "set"
-		}
-	default:
-		if cfg.Profiles.AddDefaultProfile(req.Name) {
-			status = "added"
-		}
-	}
-
-	if status != "unchanged" {
-		if err := cfg.Save(); err != nil {
-			return nil, fmt.Errorf("failed to save config: %w", err)
-		}
-	}
-
-	return &SetDefaultProfileResult{
-		Status:   status,
-		Name:     req.Name,
-		Defaults: cfg.ExplicitDefaultProfiles(),
 	}, nil
 }
 

@@ -70,11 +70,10 @@ func MapProfiles(ctx context.Context, cfg *config.Config, req MapProfilesRequest
 	}
 
 	// Resolve every member SEQUENTIALLY on this goroutine first, before the
-	// parallel run fan. Resolution assembles context and — for a default-profile
-	// member — calls EnsureDefaultProfiles, which writes cfg's run-only default
-	// state; doing it here keeps that mutation off the worker goroutines (no data
-	// race on the shared cfg) and turns a member's resolution failure into a
-	// fault-tolerant error Part instead of a hard abort.
+	// parallel run fan. Resolution assembles context (a default-profile member
+	// composes the default agent's profiles via DefaultAgentProfiles); doing it
+	// here turns a member's resolution failure into a fault-tolerant error Part
+	// instead of a hard abort.
 	resolved := make([]*ResolvedAgent, len(req.Members))
 	for i, member := range req.Members {
 		rs, err := resolveMember(ctx, cfg, member, req.LLM, req.Loader)

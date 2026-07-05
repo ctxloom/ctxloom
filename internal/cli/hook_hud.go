@@ -121,8 +121,8 @@ func gatherCtxloomInfo() ctxloomHudInfo {
 		return info
 	}
 
-	// Get active profile
-	defaults := cfg.GetDefaultProfiles()
+	// Get active profile (the default agent's first composed profile)
+	defaults := cfg.DefaultAgentProfiles()
 	if len(defaults) > 0 {
 		info.Profile = defaults[0]
 

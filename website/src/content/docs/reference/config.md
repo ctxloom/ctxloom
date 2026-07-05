@@ -19,13 +19,14 @@ Schema for ctxloom config.yaml files
 |-------|------|-------------|
 | `agents` | map → object | Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files. |
 | `config` | object | Behavioral settings |
+| `default_agent` | string | The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop). |
 | `editor` | object | Editor configuration for fragment/prompt editing |
 | `hooks` | hooksConfig | Hooks configuration applied globally |
 | `isolation_base_containerfile` | string | USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of using the embedded default base. Relative paths resolve against the project root. |
 | `isolation_images` | map → string | Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
 | `mcp` | object | MCP (Model Context Protocol) server configuration |
-| `profiles` | object | Profile defaults and named definitions |
+| `profiles` | object | Named profile definitions |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container`. |
 | `sync` | object | Remote dependency sync behavior |
 | `version` | integer | Config schema version (integer; distinct from the application version) Examples: `1`, `2`. |
@@ -89,11 +90,10 @@ MCP (Model Context Protocol) server configuration
 
 ### profiles
 
-Profile defaults and named definitions
+Named profile definitions
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `defaults` | string[] | Default profiles to load when none is specified |
 | `definitions` | map → object | Named collections of context fragments and variables |
 
 #### profiles.definitions (map values)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -62,12 +63,13 @@ func TestResolveProfile_HookDedupWithinEvent(t *testing.T) {
 // TestProfileResolutionAccessors covers the thin profile/settings accessors
 // that the run and hook paths read through.
 func TestProfileResolutionAccessors(t *testing.T) {
-	cfg := &Config{Profiles: ProfilesConfig{
-		Defaults:    []string{"dev", "go"},
-		Definitions: map[string]Profile{"dev": {Description: "development"}},
-	}}
+	cfg := &Config{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev", "go"}}},
+		Profiles:     ProfilesConfig{Definitions: map[string]Profile{"dev": {Description: "development"}}},
+	}
 
-	assert.Equal(t, []string{"dev", "go"}, cfg.EffectiveDefaultProfiles())
+	assert.Equal(t, []string{"dev", "go"}, cfg.DefaultAgentProfiles())
 
 	t.Run("ProfileDefinition_hit", func(t *testing.T) {
 		p, ok := cfg.ProfileDefinition("dev")

@@ -86,7 +86,7 @@ tags: [tag1, tag2]
 **Key behaviors:**
 - Inheritance through parents
 - Merge bundles and tags from all ancestors
-- Default profiles are a list (`profiles.defaults` in config.yaml); all entries load together
+- The default context is the **default agent**'s composed profile list (`default_agent` → `agents.<name>.profiles` in config.yaml); all entries load together
 
 ### Context Assembly
 

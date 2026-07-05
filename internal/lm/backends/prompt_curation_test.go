@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 )
@@ -24,7 +25,9 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	return &config.Config{
-		Profiles: config.ProfilesConfig{Defaults: defaults, Definitions: defs},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
+		Profiles:     config.ProfilesConfig{Definitions: defs},
 	}
 }
 

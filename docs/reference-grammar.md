@@ -26,7 +26,7 @@ never a local file.
 ## Profile references
 
 Accepted wherever a profile is named (`run -p`, `map`/`weave -p`, `weave -s`,
-`--parent`, `profiles.defaults`, `agents:` profile lists, `acp --profile`,
+`--parent`, `agents:` profile lists (including the default agent's), `acp --profile`,
 MCP `assemble_context`):
 
 | Spelling | Meaning |

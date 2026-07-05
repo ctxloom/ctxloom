@@ -110,13 +110,10 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) []*profiles.Profi
 }
 
 // configDefaultsRoot returns a synthetic root profile whose parents are the
-// remote refs named in the configured default profiles, or nil when there are
-// none. See closureRoots.
+// remote refs named in the default agent's composed profiles, or nil when there
+// are none. See closureRoots.
 func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
-	defaults := cfg.ExplicitDefaultProfiles()
-	if len(defaults) == 0 {
-		defaults = homeDefaultProfiles()
-	}
+	defaults := cfg.DefaultAgentProfiles()
 	var remoteDefaults []string
 	for _, name := range defaults {
 		if isRemoteReference(name) {

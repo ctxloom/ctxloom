@@ -41,6 +41,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -585,9 +586,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						SelectTags: []string{"security"},
@@ -634,9 +636,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						SelectTags: []string{"security"},
@@ -691,9 +694,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						Fragments: []config.FragmentRef{{Name: "test#fragments/greeting"}},
@@ -741,9 +745,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						Fragments: []config.FragmentRef{{Name: "test#fragments/my-fragment"}},
@@ -791,9 +796,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default", "broken-profile"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default", "broken-profile"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						Fragments: []config.FragmentRef{{Name: "test#fragments/fallback"}},
@@ -849,9 +855,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						// Reference both existing and non-existing fragments
@@ -906,9 +913,10 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{testBaseDir},
+			AppPaths:     []string{testBaseDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
 						SelectTags: []string{"nonexistent-tag"}, // No fragments match this select tag

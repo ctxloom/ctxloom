@@ -48,7 +48,7 @@ func drainMigrationWarnings() []string {
 // version (cmd.Version, a string like "v0.6.4"). Bump it whenever a new Upgrader
 // is appended to configUpgrades. A config with no `version` is treated as the
 // pre-versioning generation (version 0/1) and is upgraded on load.
-const CurrentConfigVersion = 5
+const CurrentConfigVersion = 6
 
 // llmRenameUpgrade is the v1→v2 config upgrade: the schema generation that
 // renamed the "plugin" abstraction to "llm". It rewrites pre-rename keys so
@@ -438,5 +438,87 @@ func rewriteSeqSkillSelectors(m *yaml.Node, key string) {
 				break
 			}
 		}
+	}
+}
+
+// defaultAgentUpgrade is the v5→v6 config upgrade: profiles.defaults was RETIRED
+// in favor of an always-bound DEFAULT AGENT. A pre-v6 config's default profile
+// list is preserved (not dropped — this is lossless) by synthesizing an agent
+// named "default" that composes exactly those profiles, pointing default_agent
+// at it, and carrying the primary LLM label as the agent's engine so the bare
+// `ctxloom run` binds the same engine it used to. It is a comment-preserving
+// yaml.Node rewrite (via the shared upgrade helpers), modeled on migrateProfilesV3.
+//
+// The moves:
+//
+//   - profiles.defaults (a seq) → agents.default.profiles (the seq node moves so
+//     its per-item comments ride along).
+//   - llm.defaults.primary value → agents.default.engine (when present), so the
+//     synthesized default agent launches the same backend profiles.defaults did.
+//   - agents.default.runtime: host (the implicit pre-agent default).
+//   - default_agent: default (top level).
+//   - delete profiles.defaults; prune an emptied profiles: map; set version 6.
+//
+// No-clobber: an existing agents.default or a set default_agent is left intact —
+// stamping the version alone is a valid upgrade for a config that already carries
+// the new shape.
+type defaultAgentUpgrade struct{}
+
+// Name identifies the upgrade in logs and the rewrite prompt.
+func (defaultAgentUpgrade) Name() string { return "profiles.defaults → default agent (v5→v6)" }
+
+// Apply performs the reshape and stamps version 6, a no-op once at version 6+.
+func (defaultAgentUpgrade) Apply(root *yaml.Node) (changed bool) {
+	if upgrade.Version(root, versionKey) >= 6 {
+		return false
+	}
+
+	migrateDefaultAgentV6(root)
+
+	upgrade.SetVersion(root, versionKey, 6)
+	return true
+}
+
+// migrateDefaultAgentV6 synthesizes agents.default + default_agent from a legacy
+// profiles.defaults seq (see defaultAgentUpgrade). A config with no
+// profiles.defaults is left untouched (the version stamp alone upgrades it).
+func migrateDefaultAgentV6(root *yaml.Node) {
+	prof := upgrade.MapValue(root, "profiles")
+	if prof == nil || prof.Kind != yaml.MappingNode {
+		return
+	}
+	defaultsSeq := upgrade.MapValue(prof, "defaults")
+	if defaultsSeq == nil {
+		return
+	}
+	// Always drop the retired key, even if we don't synthesize (e.g. it collides
+	// with an existing agents.default) — profiles.defaults is no longer valid.
+	upgrade.MapDelete(prof, "defaults")
+	if len(prof.Content) == 0 {
+		upgrade.MapDelete(root, "profiles")
+	}
+
+	agentsMap := upgrade.EnsureMap(root, "agents")
+	// Don't clobber a hand-authored agents.default; the user's binding wins.
+	if upgrade.MapValue(agentsMap, "default") == nil {
+		entry := upgrade.EnsureMap(agentsMap, "default")
+		// engine ← llm.defaults.primary (when present), so the synthesized default
+		// agent launches the same backend the retired defaults did.
+		if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
+			if roleDefaults := upgrade.MapValue(llm, "defaults"); roleDefaults != nil && roleDefaults.Kind == yaml.MappingNode {
+				if p := upgrade.MapValue(roleDefaults, "primary"); p != nil && p.Kind == yaml.ScalarNode && p.Value != "" {
+					upgrade.MapSet(entry, "engine", upgrade.ScalarNode(p.Value))
+				}
+			}
+		}
+		// Move the defaults seq node itself so its item comments survive.
+		upgrade.MapSet(entry, "profiles", defaultsSeq)
+		upgrade.MapSet(entry, "runtime", upgrade.ScalarNode("host"))
+	}
+
+	// Point default_agent at the synthesized (or pre-existing) default agent,
+	// unless the user already set one.
+	if upgrade.MapValue(root, "default_agent") == nil {
+		upgrade.MapSet(root, "default_agent", upgrade.ScalarNode("default"))
 	}
 }

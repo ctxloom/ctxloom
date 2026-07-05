@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/spf13/afero"
@@ -52,8 +53,9 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 
 	projectDir := t.TempDir()
 	cfg := &config.Config{
-		Profiles: config.ProfilesConfig{Defaults: []string{defaultProfile}},
-		AppPaths: []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{defaultProfile}}},
+		AppPaths:     []string{appDir},
 	}
 
 	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{

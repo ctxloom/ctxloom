@@ -20,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -60,6 +59,14 @@ type Config struct {
 	// no Bundle.Agents and no remote path. Read the merged set via
 	// LoadAgents / Agent, which folds in the directory source too.
 	Agents map[string]agents.Agent `mapstructure:"agents" yaml:"agents,omitempty"`
+	// DefaultAgent names the always-bound default agent: the key in Agents (or a
+	// .ctxloom/agents/*.yaml file) whose binding a bare `ctxloom run` (no --agent,
+	// no -p/-f/-t) resolves — its composed profiles become the context and its
+	// engine + runtime + permissions the transport. It replaces the retired
+	// profiles.defaults: "the default profile set" is now whatever this agent
+	// composes (DefaultAgentProfiles). Empty or naming an undefined agent degrades
+	// to empty context (a warning, never a hard stop — CLAUDE.md fault tolerance).
+	DefaultAgent string `mapstructure:"default_agent" yaml:"default_agent,omitempty"`
 	// Workspace is the project-wide DEFAULT for the SESSION-level workspace
 	// axis (none | worktree): where a session's working directory lives.
 	// Empty means "none" (the shared live project dir — today's behaviour).
@@ -212,57 +219,30 @@ func splitEditorCommand(value string) (string, []string) {
 	}
 }
 
-// ExplicitDefaultProfiles returns profiles named in the canonical
-// defaults.profiles array. This does NOT apply the single-profile fallback
-// used by GetDefaultProfiles. Use this when deciding whether to auto-promote
-// a newly-installed profile — auto-promote should only trigger when the
-// user has made no explicit choice.
-func (c *Config) ExplicitDefaultProfiles() []string {
-	seen := collections.NewSet[string]()
-	var defaults []string
-	for _, name := range c.Profiles.Defaults {
-		if name != "" && !seen.Has(name) {
-			seen.Add(name)
-			defaults = append(defaults, name)
-		}
-	}
-	return defaults
-}
-
-// EffectiveDefaultProfiles returns the configured default profile labels
-// verbatim (profiles.defaults). Unlike GetDefaultProfiles it applies no
-// single-profile fallback.
-func (c *Config) EffectiveDefaultProfiles() []string {
-	return c.Profiles.Defaults
-}
-
 // ProfileDefinition returns the named profile definition and whether it exists.
 func (c *Config) ProfileDefinition(name string) (Profile, bool) {
 	p, ok := c.Profiles.Definitions[name]
 	return p, ok
 }
 
-// GetDefaultProfiles returns the default profiles to load for `ctxloom run`.
-// Reads the canonical defaults.profiles array, then any run-only defaults
-// inherited from the home config (see ProfilesConfig.SetInheritedDefaults —
-// these are never persisted and never explicit). As a last-resort fallback, if
-// no default is configured but exactly one profile is installed locally, that
-// profile is returned — otherwise `ctxloom run` would launch with empty
-// context.
-func (c *Config) GetDefaultProfiles() []string {
-	defaults := c.ExplicitDefaultProfiles()
-	if len(defaults) > 0 {
-		return defaults
+// DefaultAgentProfiles returns the profiles composed by the always-bound
+// default agent (Config.DefaultAgent) — the single "the default profile set"
+// accessor that replaced GetDefaultProfiles/ExplicitDefaultProfiles after
+// profiles.defaults was retired. It resolves through the MERGED agent lookup
+// (Config.Agent → config-key `agents:` folded with .ctxloom/agents/*.yaml), so a
+// default agent defined either way drives the default set identically to how a
+// bare `ctxloom run` binds it (operations.ResolveAgent also goes through Agent).
+// Returns nil when no default agent is configured or the named agent is not
+// defined by either source.
+func (c *Config) DefaultAgentProfiles() []string {
+	if c == nil || c.DefaultAgent == "" {
+		return nil
 	}
-	if inherited := c.Profiles.InheritedDefaults(); len(inherited) > 0 {
-		return inherited
+	sub, ok := c.Agent(c.DefaultAgent)
+	if !ok {
+		return nil
 	}
-
-	// Fallback: if exactly one profile is installed, treat it as the default.
-	if all, err := c.GetProfileLoader().List(); err == nil && len(all) == 1 {
-		return []string{all[0].Name}
-	}
-	return nil
+	return sub.Profiles
 }
 
 // PrimaryLabel returns the config label playing the primary (coding/

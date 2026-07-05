@@ -189,7 +189,7 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	t.Run("profiles present, no agents → nudge", func(t *testing.T) {
 		cfg := &config.Config{
 			AppPaths: []string{appDir()},
-			Profiles: config.ProfilesConfig{Defaults: []string{"default"}},
+			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
 		}
 		assert.NotEmpty(t, AgentSetupNudge(cfg))
 	})
@@ -197,7 +197,7 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	t.Run("profiles present, agent configured → silent", func(t *testing.T) {
 		cfg := &config.Config{
 			AppPaths: []string{appDir()},
-			Profiles: config.ProfilesConfig{Defaults: []string{"default"}},
+			Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{"default": {}}},
 			Agents:   map[string]agents.Agent{"dev": {Profiles: []string{"default"}}},
 		}
 		assert.Empty(t, AgentSetupNudge(cfg), "any agent silences the nudge")

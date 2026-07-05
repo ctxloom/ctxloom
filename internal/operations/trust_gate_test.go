@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
@@ -246,9 +247,10 @@ fragments:
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return &config.Config{
-			AppPaths: []string{appDir},
+			AppPaths:     []string{appDir},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {Fragments: []config.FragmentRef{
 						{Name: "dev#fragments/keep"},

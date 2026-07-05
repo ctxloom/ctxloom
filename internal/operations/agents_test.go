@@ -87,6 +87,57 @@ func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
 	assert.Equal(t, "m-slow", res.Model)
 }
 
+// TestResolveAgent_BareLaunchBindsDefaultAgent is the resolution-layer contract
+// behind a bare `ctxloom run` (internal/cli/run.go): the bare-launch else branch
+// resolves cfg.DefaultAgent through ResolveAgent, inheriting the agent's composed
+// profiles + engine + runtime + permissions exactly like --agent. profiles.defaults
+// was retired — DefaultAgentProfiles is the same set.
+func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+	cfg := agentTestConfig(root, map[string]agents.Agent{
+		"default": {Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
+	})
+	cfg.DefaultAgent = "default"
+
+	// The "default profile set" every non-run consumer reads matches the agent.
+	assert.Equal(t, []string{"p1", "p2"}, cfg.DefaultAgentProfiles())
+
+	// A bare run resolves cfg.DefaultAgent — profiles compose, engine/runtime/
+	// permissions ride along.
+	res, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+	require.NoError(t, err)
+	assert.Contains(t, res.Context, "FRAG-ONE")
+	assert.Contains(t, res.Context, "FRAG-TWO")
+	assert.Equal(t, "slow", res.Label)
+	assert.Equal(t, "container", res.Runtime, "the default agent's runtime rides the bare launch")
+	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
+}
+
+// TestResolveAgent_MissingDefaultAgentDegrades pins the fault-tolerant half: a
+// bare run resolves an empty or unknown cfg.DefaultAgent, and ResolveAgent must
+// return an error the run path degrades on (warn + empty context, never a hard
+// stop — CLAUDE.md). Unlike --agent, this is not a fatal condition.
+func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
+	root := t.TempDir()
+	writeAgentProfileFixture(t, root)
+
+	t.Run("empty default_agent", func(t *testing.T) {
+		cfg := agentTestConfig(root, nil) // no DefaultAgent set
+		assert.Nil(t, cfg.DefaultAgentProfiles())
+		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		require.Error(t, err, "an empty default_agent is the run path's degrade signal")
+	})
+
+	t.Run("default_agent names an undefined agent", func(t *testing.T) {
+		cfg := agentTestConfig(root, nil)
+		cfg.DefaultAgent = "ghost"
+		assert.Nil(t, cfg.DefaultAgentProfiles())
+		_, err := ResolveAgent(context.Background(), cfg, cfg.DefaultAgent, "")
+		require.Error(t, err, "an unresolvable default_agent is the run path's degrade signal")
+	})
+}
+
 // TestResolveAgent_EffectivePermissions pins the resolved posture surfaced by
 // `agent show`: a declared value wins; a blank claude-code agent resolves to the
 // host-bypass stopgap (not ""); a blank non-claude agent resolves to default.

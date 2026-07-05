@@ -178,6 +178,9 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// folded back into config.yaml. Pruned when empty so an emptied map removes
 	// the block rather than leaving `agents: {}` behind.
 	setOrDelete(existing, "agents", len(c.Agents) > 0, c.Agents)
+	// The always-bound default agent (replaces the retired profiles.defaults);
+	// pruned when empty so an unset default_agent leaves no key behind.
+	setOrDelete(existing, "default_agent", c.DefaultAgent != "", c.DefaultAgent)
 	// Session-level workspace default + agent-level runtime default; pruned
 	// when empty ("none"/"host" are the implicit defaults, so unset axes
 	// leave no keys behind).

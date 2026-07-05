@@ -123,14 +123,8 @@
     },
     "profiles": {
       "type": "object",
-      "description": "Profile defaults and named definitions",
+      "description": "Named profile definitions",
       "properties": {
-        "defaults": {
-          "type": "array",
-          "description": "Default profiles to load when none is specified",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        },
         "definitions": {
           "type": "object",
           "description": "Named collections of context fragments and variables",
@@ -289,6 +283,10 @@
         },
         "additionalProperties": false
       }
+    },
+    "default_agent": {
+      "type": "string",
+      "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
     }
   },
   "$defs": {

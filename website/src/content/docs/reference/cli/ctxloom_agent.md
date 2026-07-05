@@ -38,6 +38,7 @@ They are never shipped in bundles or remotes: the engine choice is yours.
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom agent default](/reference/cli/ctxloom_agent_default/)	 - Show or set the always-bound default agent
 * [ctxloom agent list](/reference/cli/ctxloom_agent_list/)	 - List all local agents
 * [ctxloom agent remove](/reference/cli/ctxloom_agent_remove/)	 - Remove a local agent from config.yaml
 * [ctxloom agent set](/reference/cli/ctxloom_agent_set/)	 - Add or update a local agent (engine↔profile binding)

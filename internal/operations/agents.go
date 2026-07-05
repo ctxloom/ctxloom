@@ -212,7 +212,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 // only to gate the setup nudge, so a directory-scan failure degrades to "none"
 // (the nudge simply stays quiet) rather than erroring.
 func hasAnyProfiles(cfg *config.Config) bool {
-	if len(cfg.ExplicitDefaultProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
+	if len(cfg.DefaultAgentProfiles()) > 0 || len(cfg.Profiles.Definitions) > 0 {
 		return true
 	}
 	list, _ := cfg.GetProfileLoader().List()

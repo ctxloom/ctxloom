@@ -122,15 +122,15 @@ func assembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 	return mcp
 }
 
-// scopedProfiles returns the caller's selected profiles, or the configured
-// defaults when none are passed — the host-side mirror of
-// config.resolveProfileScope, so the managed-config assembly scopes to the
-// SAME set the bundle resolvers do.
+// scopedProfiles returns the caller's selected profiles, or the default agent's
+// composed profiles when none are passed — the host-side mirror of
+// config.resolveProfileScope (MUST stay byte-identical to it), so the
+// managed-config assembly scopes to the SAME set the bundle resolvers do.
 func scopedProfiles(cfg *config.Config, profileNames []string) []string {
 	if len(profileNames) > 0 {
 		return profileNames
 	}
-	return cfg.GetDefaultProfiles()
+	return cfg.DefaultAgentProfiles()
 }
 
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every

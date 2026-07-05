@@ -43,6 +43,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -129,13 +130,12 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 
 	seededDefaultBundle := "https://github.com/ctxloom/ctxloom-default@bundles/default"
 	cfg := &config.Config{
-		Profiles: config.ProfilesConfig{
-			Defaults: []string{
-				seededDefaultBundle + "#profiles/default", // bundle-profile default
-				"go-dev", // local name — not a remote ref, stays out of the pull set
-			},
-			Definitions: map[string]config.Profile{},
-		},
+		DefaultAgent: "default",
+		Agents: map[string]agents.Agent{"default": {Profiles: []string{
+			seededDefaultBundle + "#profiles/default", // bundle-profile default
+			"go-dev", // local name — not a remote ref, stays out of the pull set
+		}}},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 		AppPaths: []string{testBaseDir},
 	}
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
@@ -198,8 +198,9 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"https://github.com/o/r@profiles/dev"},
 			Definitions: map[string]config.Profile{},
 		},
 		AppPaths: []string{testBaseDir},
@@ -712,8 +713,9 @@ func TestCheckMissingDependencies_RetiredProfileRefNotOffered(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	cfg := &config.Config{
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/o/r@profiles/dev"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"https://github.com/o/r@profiles/dev"},
 			Definitions: map[string]config.Profile{},
 		},
 		AppPaths: []string{testBaseDir},

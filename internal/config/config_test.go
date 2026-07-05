@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -18,6 +19,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+// withDefaultProfiles points cfg's default profile set at names by binding a
+// "default" agent and pointing DefaultAgent at it — the replacement for the
+// retired ProfilesConfig{Defaults: names} fixture. DefaultAgentProfiles reads
+// the default agent's composed profiles.
+func withDefaultProfiles(cfg *Config, names ...string) *Config {
+	cfg.DefaultAgent = "default"
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]agents.Agent{}
+	}
+	cfg.Agents["default"] = agents.Agent{Profiles: names}
+	return cfg
+}
 
 // =============================================================================
 // Config Package Tests
@@ -898,8 +912,11 @@ func TestConfig_Save(t *testing.T) {
 				"claude-code": {Type: "claude-code"},
 			},
 		},
+		DefaultAgent: "dev",
+		Agents: map[string]agents.Agent{
+			"dev": {Profiles: []string{"dev"}},
+		},
 		Profiles: ProfilesConfig{
-			Defaults: []string{"dev"},
 			Definitions: map[string]Profile{
 				"dev": {Description: "development"},
 			},
@@ -913,6 +930,7 @@ func TestConfig_Save(t *testing.T) {
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "claude-code")
+	assert.Contains(t, string(data), "default_agent: dev", "default_agent round-trips through Save")
 	assert.Contains(t, string(data), "- dev")
 	assert.Contains(t, string(data), "llm")
 }
@@ -986,24 +1004,25 @@ func TestLoad_WithOptions(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	// Create a valid v3 config file in persistent directory
+	// A valid config file already in the new (default-agent) shape.
 	configContent := `
-version: 3
+version: 6
 llm:
   configs:
     claude-code: { type: claude-code }
   defaults:
     primary: claude-code
-profiles:
-  defaults:
-    - test
+default_agent: dev
+agents:
+  dev:
+    profiles: [test]
 `
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	assert.Contains(t, cfg.Profiles.Defaults, "test")
+	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles())
 	assert.Equal(t, "claude-code", cfg.LM.Defaults.Primary)
 	assert.Equal(t, []string{appDir}, cfg.AppPaths)
 	assert.Equal(t, appDir, cfg.AppDir)
@@ -1058,12 +1077,14 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
 
-	// In-memory config reflects the full v1→v2→v3 upgrade chain.
+	// In-memory config reflects the full v1→…→v6 upgrade chain.
 	assert.Equal(t, "antigravity", cfg.LM.Defaults.Primary, "llm_plugin → llm.defaults.primary")
 	require.Contains(t, cfg.LM.Configs, "claude-code", "llm.plugins → llm.configs")
 	assert.Equal(t, "claude-code", cfg.LM.Configs["claude-code"].Type, "v3 adds the type discriminator")
 	assert.Equal(t, "opus", cfg.LM.Configs["claude-code"].Body["model"])
-	assert.Contains(t, cfg.Profiles.Defaults, "test", "defaults.profiles → profiles.defaults")
+	// v5→v6: defaults.profiles → the synthesized default agent's profiles.
+	assert.Equal(t, "default", cfg.DefaultAgent, "default_agent is set to the synthesized agent")
+	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles(), "defaults.profiles → default agent profiles")
 	assert.Empty(t, cfg.Warnings, "upgraded config should not produce validation warnings")
 
 	// Load is non-destructive: the file on disk is untouched (no silent rewrite).
@@ -1084,7 +1105,7 @@ func TestLoad_UpgradesLegacyLLMKeysInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(committed), "llm_plugin")
 	assert.NotContains(t, string(committed), "plugins:")
-	assert.Contains(t, string(committed), "version: 5", "upgrade stamps the current schema version")
+	assert.Contains(t, string(committed), "version: 6", "upgrade stamps the current schema version")
 	assert.Contains(t, string(committed), "# my config", "comments preserved on rewrite")
 }
 
@@ -1093,7 +1114,7 @@ func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	current := "version: 5\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
+	current := "version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
 	cfgPath := paths.ConfigPath(appDir)
 	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
 
@@ -1163,147 +1184,28 @@ func TestConfig_getFS_UsesSetFS(t *testing.T) {
 }
 
 // =============================================================================
-// GetDefaultProfiles Tests
+// DefaultAgentProfiles Tests
 // =============================================================================
 
-func TestConfig_GetDefaultProfiles(t *testing.T) {
-	t.Run("returns defaults.profiles", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Profiles: ProfilesConfig{
-				Defaults:    []string{"dev"},
-				Definitions: map[string]Profile{},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Contains(t, defaults, "dev")
+func TestConfig_DefaultAgentProfiles(t *testing.T) {
+	t.Run("returns the default agent's profiles", func(t *testing.T) {
+		cfg := withDefaultProfiles(&Config{}, "dev")
+		assert.Equal(t, []string{"dev"}, cfg.DefaultAgentProfiles())
 	})
 
-	t.Run("no duplicates in defaults.profiles", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Profiles: ProfilesConfig{
-				Defaults:    []string{"prod", "prod"},
-				Definitions: map[string]Profile{},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		count := 0
-		for _, d := range defaults {
-			if d == "prod" {
-				count++
-			}
-		}
-		assert.Equal(t, 1, count)
+	t.Run("returns nil when no default agent", func(t *testing.T) {
+		cfg := &Config{}
+		assert.Nil(t, cfg.DefaultAgentProfiles())
 	})
 
-	t.Run("returns nil when no defaults", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Profiles: ProfilesConfig{Definitions: map[string]Profile{}},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Nil(t, defaults)
+	t.Run("returns nil when default_agent names an undefined agent", func(t *testing.T) {
+		cfg := &Config{DefaultAgent: "missing"}
+		assert.Nil(t, cfg.DefaultAgentProfiles())
 	})
 
-	t.Run("returns multiple profiles from defaults.profiles array", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		appDir := "/project/.ctxloom"
-		require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
-
-		cfg := &Config{
-			Profiles: ProfilesConfig{
-				Defaults:    []string{"profile1", "profile2", "profile3"},
-				Definitions: map[string]Profile{},
-			},
-			AppPaths: []string{appDir},
-			fs:       fs,
-		}
-
-		defaults := cfg.GetDefaultProfiles()
-		assert.Len(t, defaults, 3)
-		assert.Contains(t, defaults, "profile1")
-		assert.Contains(t, defaults, "profile2")
-		assert.Contains(t, defaults, "profile3")
-	})
-}
-
-// =============================================================================
-// Defaults Helper Methods Tests
-// =============================================================================
-
-func TestDefaults_AddDefaultProfile(t *testing.T) {
-	t.Run("adds profile to empty profiles", func(t *testing.T) {
-		d := &ProfilesConfig{}
-		added := d.AddDefaultProfile("new-profile")
-
-		assert.True(t, added)
-		assert.Contains(t, d.Defaults, "new-profile")
-	})
-
-	t.Run("adds profile to existing profiles", func(t *testing.T) {
-		d := &ProfilesConfig{Defaults: []string{"existing"}}
-		added := d.AddDefaultProfile("new-profile")
-
-		assert.True(t, added)
-		assert.Contains(t, d.Defaults, "existing")
-		assert.Contains(t, d.Defaults, "new-profile")
-	})
-
-	t.Run("does not add duplicate", func(t *testing.T) {
-		d := &ProfilesConfig{Defaults: []string{"existing"}}
-		added := d.AddDefaultProfile("existing")
-
-		assert.False(t, added)
-		assert.Len(t, d.Defaults, 1)
-	})
-}
-
-func TestDefaults_RemoveDefaultProfile(t *testing.T) {
-	t.Run("removes profile from profiles array", func(t *testing.T) {
-		d := &ProfilesConfig{Defaults: []string{"keep", "remove", "also-keep"}}
-		removed := d.RemoveDefaultProfile("remove")
-
-		assert.True(t, removed)
-		assert.NotContains(t, d.Defaults, "remove")
-		assert.Contains(t, d.Defaults, "keep")
-		assert.Contains(t, d.Defaults, "also-keep")
-	})
-
-	t.Run("returns false for non-existent profile", func(t *testing.T) {
-		d := &ProfilesConfig{Defaults: []string{"existing"}}
-		removed := d.RemoveDefaultProfile("not-found")
-
-		assert.False(t, removed)
-		assert.Len(t, d.Defaults, 1)
-	})
-}
-
-func TestDefaults_IsDefaultProfile(t *testing.T) {
-	t.Run("finds profile in profiles array", func(t *testing.T) {
-		d := &ProfilesConfig{Defaults: []string{"profile1", "profile2"}}
-
-		assert.True(t, d.IsDefaultProfile("profile1"))
-		assert.True(t, d.IsDefaultProfile("profile2"))
-		assert.False(t, d.IsDefaultProfile("profile3"))
+	t.Run("returns multiple composed profiles verbatim", func(t *testing.T) {
+		cfg := withDefaultProfiles(&Config{}, "profile1", "profile2", "profile3")
+		assert.Equal(t, []string{"profile1", "profile2", "profile3"}, cfg.DefaultAgentProfiles())
 	})
 }
 
@@ -1482,7 +1384,7 @@ func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 	stubLookPath(t)
 	cfg := &Config{
-		Profiles: ProfilesConfig{Defaults: []string{"test"}},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
 		AppPaths: []string{},
 	}
 
@@ -1496,7 +1398,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Join(appDir, "profiles"), 0755))
 
 	cfg := &Config{
-		Profiles: ProfilesConfig{Defaults: []string{"nonexistent"}},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
 		AppPaths: []string{appDir},
 		fs:       fs,
 	}
@@ -1611,7 +1513,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		[]byte("name: seq-bundle\nversion: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
 
 	cfg := &Config{
-		Profiles: ProfilesConfig{Defaults: []string{"child"}},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
 		AppPaths: []string{appDir},
 	}
 
@@ -1636,7 +1538,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
 
 	cfg := &Config{
-		Profiles: ProfilesConfig{Defaults: []string{"dev"}},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 		AppPaths: []string{appDir},
 	}
 
@@ -1669,7 +1571,7 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 		[]byte("name: finder-bundle\nversion: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\nskills:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
 
 	cfg := &Config{
-		Profiles: ProfilesConfig{Defaults: []string{"developer"}},
+		DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
 		AppPaths: []string{appDir},
 	}
 
@@ -1745,7 +1647,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
 
-		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -1765,7 +1667,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
 			[]byte("name: child\nparents:\n  - parent\n"), 0644))
 
-		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"child"}}, AppPaths: []string{appDir}}
+		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}}, AppPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -1779,7 +1681,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "real.yaml"),
 			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
 
-		cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"missing", "real"}}, AppPaths: []string{appDir}}
+		cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, AppPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
@@ -2052,60 +1954,6 @@ llm:
 }
 
 // =============================================================================
-// GetDefaultProfiles Additional Coverage
-// =============================================================================
-
-func TestConfig_GetDefaultProfiles_SingleProfileFallback(t *testing.T) {
-	// When no default is explicitly configured but exactly one profile is
-	// installed locally, GetDefaultProfiles should return it as a fallback so
-	// `ctxloom run` doesn't launch with empty context.
-	tmpDir := t.TempDir()
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	// Single profile, NOT marked default.
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
-		[]byte("description: only profile\n"), 0644))
-
-	cfg := &Config{AppPaths: []string{tmpDir}}
-
-	assert.Empty(t, cfg.ExplicitDefaultProfiles(),
-		"no default is explicitly configured")
-	assert.Equal(t, []string{"only"}, cfg.GetDefaultProfiles(),
-		"single installed profile should be returned by fallback")
-}
-
-func TestConfig_GetDefaultProfiles_MultipleProfilesNoDefault(t *testing.T) {
-	// When two profiles exist locally and none is marked default, the fallback
-	// must NOT pick one — ambiguity should bubble up so the user sees empty
-	// context (rather than silently loading a random profile).
-	tmpDir := t.TempDir()
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "a.yaml"),
-		[]byte("description: a\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "b.yaml"),
-		[]byte("description: b\n"), 0644))
-
-	cfg := &Config{AppPaths: []string{tmpDir}}
-	assert.Nil(t, cfg.GetDefaultProfiles())
-}
-
-func TestConfig_ExplicitDefaultProfiles_IgnoresFallback(t *testing.T) {
-	// ExplicitDefaultProfiles must not trigger the single-profile fallback —
-	// auto-promote depends on this distinction.
-	tmpDir := t.TempDir()
-	profilesDir := paths.ProfilesPath(tmpDir)
-	require.NoError(t, os.MkdirAll(profilesDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "only.yaml"),
-		[]byte("description: only profile\n"), 0644))
-
-	cfg := &Config{AppPaths: []string{tmpDir}}
-	assert.Empty(t, cfg.ExplicitDefaultProfiles())
-}
-
-// =============================================================================
 // Load Schema Validation Error
 // =============================================================================
 
@@ -2219,13 +2067,14 @@ defaults:
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
-	// Loading should succeed
+	// Loading should succeed. The legacy defaults.profiles upgrades through the
+	// v1→…→v6 chain into the synthesized default agent's profiles.
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Contains(t, cfg.Profiles.Defaults, "nonexistent-profile")
+	assert.Equal(t, "default", cfg.DefaultAgent)
 
-	// GetDefaultProfiles should return the name even if profile doesn't exist
-	defaults := cfg.GetDefaultProfiles()
+	// DefaultAgentProfiles returns the name even if the profile doesn't exist.
+	defaults := cfg.DefaultAgentProfiles()
 	assert.Contains(t, defaults, "nonexistent-profile")
 }
 

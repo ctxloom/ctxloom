@@ -1,8 +1,6 @@
 package config
 
 import (
-	"slices"
-
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"gopkg.in/yaml.v3"
 )
@@ -143,45 +141,12 @@ type Profile struct {
 	ExcludeMCP       []string `mapstructure:"exclude_mcp" yaml:"exclude_mcp,omitempty"`
 }
 
-// ProfilesConfig holds the default-profile list and the named profile
-// definitions. Defaults was the old top-level defaults.profiles array;
-// Definitions was the old root-level profiles map.
+// ProfilesConfig holds the named profile definitions. Definitions was the old
+// root-level profiles map. The old top-level defaults.profiles array has been
+// RETIRED: the default context is now whatever the always-bound default AGENT
+// composes (Config.DefaultAgent → Config.DefaultAgentProfiles).
 type ProfilesConfig struct {
-	Defaults    []string           `mapstructure:"defaults" yaml:"defaults,omitempty"`       // Default profiles to load (supports multiple)
 	Definitions map[string]Profile `mapstructure:"definitions" yaml:"definitions,omitempty"` // Named profile definitions
-
-	// inheritedDefaults holds defaults inherited from the HOME config for this
-	// run only (operations.EnsureDefaultProfiles). They are deliberately
-	// unexported and yaml-invisible: GetDefaultProfiles consults them as a
-	// fallback, but Save never persists them and ExplicitDefaultProfiles never
-	// reports them — otherwise an unrelated cfg.Save() would silently
-	// materialize home defaults into the project config.yaml, and a run-only
-	// inheritance would suppress first-profile auto-promotion.
-	inheritedDefaults []string
-	// inheritedResolved records that the home-defaults lookup already ran this
-	// run (even if it found none), so repeated EnsureDefaultProfiles calls are
-	// read-only — concurrent profile assembly (operations.MapProfiles) relies
-	// on this after the main goroutine resolves once.
-	inheritedResolved bool
-}
-
-// SetInheritedDefaults records run-only defaults inherited from the home
-// config (pass nil to record "looked, found none"). See inheritedDefaults.
-func (p *ProfilesConfig) SetInheritedDefaults(names []string) {
-	p.inheritedDefaults = append([]string(nil), names...)
-	p.inheritedResolved = true
-}
-
-// InheritedDefaults returns the run-only defaults inherited from the home
-// config, or nil when none were inherited.
-func (p *ProfilesConfig) InheritedDefaults() []string {
-	return p.inheritedDefaults
-}
-
-// InheritedDefaultsResolved reports whether the home-defaults inheritance
-// lookup already ran this run.
-func (p *ProfilesConfig) InheritedDefaultsResolved() bool {
-	return p.inheritedResolved
 }
 
 // SettingsConfig holds misc behavioral settings (mapstructure key "config").
@@ -219,44 +184,7 @@ func (s *SettingsConfig) ShouldManageStatusline() bool {
 
 // hasAny reports whether any profile config is set, so Save can prune the block.
 func (p ProfilesConfig) hasAny() bool {
-	return len(p.Defaults) > 0 || len(p.Definitions) > 0
-}
-
-// AddDefaultProfile adds a profile to the defaults list if not already present.
-func (p *ProfilesConfig) AddDefaultProfile(name string) bool {
-	if p.IsDefaultProfile(name) {
-		return false
-	}
-	p.Defaults = append(p.Defaults, name)
-	return true
-}
-
-// RemoveDefaultProfile removes a profile from the defaults list.
-// Returns true if the profile was removed, false if it wasn't present.
-func (p *ProfilesConfig) RemoveDefaultProfile(name string) bool {
-	for i, name2 := range p.Defaults {
-		if name2 == name {
-			p.Defaults = append(p.Defaults[:i], p.Defaults[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
-// IsDefaultProfile checks if a profile is in the defaults list.
-func (p *ProfilesConfig) IsDefaultProfile(name string) bool {
-	return slices.Contains(p.Defaults, name)
-}
-
-// SetExclusiveDefaultProfile makes name the sole default, dropping any others in
-// one step. Returns true if the default set changed (false when name was already
-// the only default).
-func (p *ProfilesConfig) SetExclusiveDefaultProfile(name string) bool {
-	if len(p.Defaults) == 1 && p.Defaults[0] == name {
-		return false
-	}
-	p.Defaults = []string{name}
-	return true
+	return len(p.Definitions) > 0
 }
 
 // SyncConfig holds configuration for dependency sync behavior.

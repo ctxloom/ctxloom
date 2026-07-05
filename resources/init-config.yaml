@@ -1,24 +1,24 @@
 # Base config.yaml written by `ctxloom init`. It carries the static defaults a
 # fresh project starts with; init loads this into memory, sets the chosen LLM
-# backend (and optional model) on the in-memory config, and writes the result
-# before launching the engine. The `llm` block is intentionally absent here —
-# init fills it from the user's selection.
-version: 4
+# backend (and optional model) on the in-memory config, wires the always-bound
+# default agent (default_agent + agents.default, filled in from the selected
+# engine), and writes the result before launching the engine. The `llm`,
+# `agents`, and `default_agent` blocks are intentionally absent here — init
+# fills them from the user's selection.
+version: 6
 
 # Behavioral settings.
 config:
   use_distilled: true
 
-# Default profiles loaded for context assembly. init scaffolds a LOCAL profile
-# named `default` (.ctxloom/profiles/default.yaml) that inherits ctxloom-default's
-# baseline conduct/practice + developer profiles — so the seeded default is a
-# real, editable local coding profile, not a bare remote reference. Edit it, or
-# add language/stack profiles via discovery. Agents (the coordinator/developer/
-# finder bindings under `agents:`) compose these profiles; `ctxloom agent setup`
-# re-enters that interview any time.
-profiles:
-  defaults:
-    - default
+# The DEFAULT AGENT — default_agent + agents.default — is written by init (not
+# statically here): it binds the selected engine to the scaffolded LOCAL profile
+# named `default` (.ctxloom/profiles/default.yaml), which inherits ctxloom-default's
+# baseline conduct/practice + developer profiles, so the seeded default is a real,
+# editable local coding profile, not a bare remote reference. A bare `ctxloom run`
+# binds this agent. Edit the profile, add language/stack profiles via discovery,
+# or run `ctxloom agent setup` to bind more agents; `ctxloom agent default <name>`
+# repoints the default.
 
 # MCP server configuration.
 mcp:

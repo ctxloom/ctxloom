@@ -14,7 +14,7 @@ import (
 // from the package source directory as a working dir.
 //
 // HOME isolation: several operations fall back to the home config
-// (homeDefaultProfiles, config.HomeConfigDir consumers); without it, whatever
+// (config.HomeConfigDir consumers); without it, whatever
 // profiles or remotes the developer has in ~/.ctxloom leak into unit tests and
 // change collection counts and sync statuses. It also makes companion-binary
 // detection deterministic (built-in bundle fragments/hooks/MCP inject only when

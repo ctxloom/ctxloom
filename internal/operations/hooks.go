@@ -59,16 +59,12 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 		return nil, err
 	}
 
-	// Resolve inherited defaults up front, for BOTH the regenerate and
-	// non-regenerate paths. ApplyHooks reloads a fresh config, so a project that
-	// inherits defaults.profiles from the home config has none resolved until
-	// EnsureDefaultProfiles populates them. Two later steps consume the default
-	// profile set regardless of RegenerateContext — ResolveBundleMCPServers
-	// (below) and the per-backend AssembleManagedHooks — so without this the
-	// written settings would silently omit the MCP servers and hooks shipped by
-	// the default profile's bundles. Idempotent (resolves at most once per cfg);
-	// previously this only happened as a side effect inside regenerateContext.
-	EnsureDefaultProfiles(freshCfg)
+	// The default profile set (Config.DefaultAgentProfiles, from the default
+	// agent) is read directly off freshCfg by two later steps regardless of
+	// RegenerateContext — ResolveBundleMCPServers (below) and the per-backend
+	// AssembleManagedHooks — so a default agent's bundles' MCP servers and hooks
+	// land in the written settings with no run-only resolution step needed
+	// (profiles.defaults + its home-inheritance were retired).
 
 	// Honor the statusline opt-out (config: settings.statusline: false).
 	settingsOpts = append(settingsOpts, backends.WithStatusLineDisabled(!freshCfg.Settings.ShouldManageStatusline()))
@@ -257,19 +253,15 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// withhold anything the cascade denies.
 	loader := exposureLoader(cfg, bundleOpts...)
 
-	// Resolve defaults the way AssembleContext does (resolveContextProfileNames):
-	// ApplyHooks reloads a fresh config, so without EnsureDefaultProfiles a
-	// project inheriting its defaults from the home config would regenerate an
-	// EMPTY context file here while assembly injects a full one.
-	EnsureDefaultProfiles(cfg)
-
 	// Collect through the same path AssembleContext uses: collectProfileFragments
 	// emits tag-matched fragments under their canonical qualified names (so
 	// dedupeFragmentRefs actually collapses duplicates) and applies each
 	// profile's exclude_fragments to them. This function's output MUST match
 	// AssembleContext — any divergence ships a SessionStart-injected context
-	// that disagrees with what `ctxloom run` assembles.
-	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.GetDefaultProfiles(), nil, true)
+	// that disagrees with what `ctxloom run` assembles. The default set is the
+	// default agent's composed profiles (resolveContextProfileNames reads the
+	// same DefaultAgentProfiles; profiles.defaults was retired).
+	allFragments, profileVars, _, err := collectProfileFragments(cfg, loader, cfg.DefaultAgentProfiles(), nil, true)
 	if err != nil {
 		return "", err
 	}

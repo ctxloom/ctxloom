@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -36,8 +37,10 @@ func dirProfileCfg(t *testing.T, defaults []string, dirProfiles map[string]strin
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
 	return &config.Config{
-		AppPaths: []string{appDir},
-		Profiles: config.ProfilesConfig{Defaults: defaults, Definitions: inline},
+		AppPaths:     []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
+		Profiles:     config.ProfilesConfig{Definitions: inline},
 	}
 }
 

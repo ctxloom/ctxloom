@@ -484,22 +484,40 @@ Examples:
 			label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
 			agentRuntime = rs.Runtime
 			agentPermissions = rs.Permissions
-		} else {
-			// When nothing selects context (no -p, -f, or -t) and no default profile
-			// is configured, offer an interactive profile picker on a TTY. Off a TTY
-			// or with no installed profiles this is a no-op and assembly degrades to
-			// the empty context as before (CLAUDE.md fault tolerance). Skipped under
-			// --dry-run, which is documented non-interactive: it previews assembly
-			// with the empty profile instead of blocking on a prompt.
-			if !runDryRun && runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 && len(cfg.GetDefaultProfiles()) == 0 {
-				choice := resolveProfileSelection(cfg)
-				if choice.Quit {
-					fmt.Fprintln(os.Stderr, "ctxloom: cancelled")
-					return nil
+		} else if runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 {
+			// Bare launch: no --agent and no explicit context selection. Bind the
+			// always-bound DEFAULT AGENT (cfg.DefaultAgent) exactly like --agent —
+			// its composed profiles become the context and its engine + runtime +
+			// permissions the transport (profiles.defaults was retired). Unlike
+			// --agent (a HARD error on an unknown name), a missing/empty/unresolvable
+			// default_agent must NEVER block startup: warn and continue with empty
+			// context at the project-default label + runtime (CLAUDE.md fault
+			// tolerance; mirrors acp's openACPEngineChat degrade).
+			if rs, rerr := operations.ResolveAgent(ctx, cfg, cfg.DefaultAgent, runLLM); rerr != nil {
+				clidiag.Warn("ctxloom", "default agent %q unavailable; continuing with empty context: %v", cfg.DefaultAgent, rerr)
+				ctxResult = &operations.AssembleContextResult{}
+				var lerr error
+				// resolveRunLLM: --llm override, else the project primary label.
+				label, lerr = resolveRunLLM(cfg, runLLM, "")
+				if lerr != nil {
+					return lerr
 				}
-				runProfile = choice.Name
+				backendName, labelModel = operations.ResolveBackend(cfg, label)
+				agentRuntime = cfg.Runtime
+			} else {
+				ctxResult = &operations.AssembleContextResult{
+					Profiles:        rs.Profiles,
+					FragmentsLoaded: rs.Fragments,
+					Context:         rs.Context,
+				}
+				// ResolveAgent already applied the --llm-beats-declared-engine
+				// precedence and the project fallbacks.
+				label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
+				agentRuntime = rs.Runtime
+				agentPermissions = rs.Permissions
 			}
-
+		} else {
+			// Explicit context selection (-p / -f / -t): classic assembly.
 			var aerr error
 			ctxResult, aerr = operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{
 				Profile:   runProfile,
@@ -1148,12 +1166,13 @@ func promptYesNo(prompt string) (bool, error) {
 
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
 // the configured profiles applied in memory (e.g. bare bundle refs qualified with
-// their remote). It resolves each default profile through one loader — which
-// loads parents too — so every pending rewrite is surfaced, then prompts per file
-// via the shared confirmUpgrade path. No pending means every profile was current.
+// their remote). It resolves each of the default agent's composed profiles through
+// one loader — which loads parents too — so every pending rewrite is surfaced,
+// then prompts per file via the shared confirmUpgrade path. No pending means every
+// profile was current (profiles.defaults was retired — see DefaultAgentProfiles).
 func confirmProfileUpgrades(cfg *config.Config) {
 	loader := cfg.GetProfileLoader()
-	for _, name := range cfg.Profiles.Defaults {
+	for _, name := range cfg.DefaultAgentProfiles() {
 		_, _ = loader.ResolveProfile(name, nil)
 	}
 	for _, p := range loader.PendingUpgrades() {

@@ -35,7 +35,6 @@ quickly switch between different sets of context without specifying them individ
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom profile create](/reference/cli/ctxloom_profile_create/)	 - Create a new profile
-* [ctxloom profile default](/reference/cli/ctxloom_profile_default/)	 - Set, clear, or show the default profile(s)
 * [ctxloom profile delete](/reference/cli/ctxloom_profile_delete/)	 - Delete a profile
 * [ctxloom profile edit](/reference/cli/ctxloom_profile_edit/)	 - Edit a profile
 * [ctxloom profile export](/reference/cli/ctxloom_profile_export/)	 - Export a profile to a directory

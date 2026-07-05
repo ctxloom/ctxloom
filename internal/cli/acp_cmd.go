@@ -88,23 +88,30 @@ func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfil
 
 	// An agent binding resolves engine + composed profiles in one step. Per
 	// fault tolerance an unresolvable agent degrades to the plain profile
-	// flow (warn) rather than refusing the editor's session.
+	// flow (warn) rather than refusing the editor's session. Absent an explicit
+	// --agent, bind the always-bound DEFAULT AGENT (cfg.DefaultAgent) — the same
+	// bare-launch binding `ctxloom run` applies (profiles.defaults was retired);
+	// an empty/unresolvable default_agent simply degrades to the profile flow.
+	resolveAgent := flagAgent
+	if resolveAgent == "" {
+		resolveAgent = cfg.DefaultAgent
+	}
 	var contextText, label string
 	var defaultProfiles []string
 	currentAgent := ""
-	if flagAgent != "" {
-		if rs, rerr := operations.ResolveAgent(ctx, cfg, flagAgent, llmOverride); rerr != nil {
-			clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", flagAgent, rerr)
+	if resolveAgent != "" {
+		if rs, rerr := operations.ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
+			clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
 		} else {
 			contextText = rs.Context
 			label = rs.Label
-			currentAgent = flagAgent
+			currentAgent = resolveAgent
 			if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
 				// ACP sessions run in-process at the editor's cwd — a
 				// containerized engine the editor cannot reach would be worse
 				// than none. The session paths (run/map/weave) are where the
 				// runtime axis applies.
-				clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", flagAgent, rs.Runtime)
+				clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", resolveAgent, rs.Runtime)
 			}
 		}
 	}

@@ -33,11 +33,15 @@ variables:                         # Template variables (Mustache)
   DEBUG: "true"
 ```
 
-To mark a profile as the default for `ctxloom run`, list it under
-`profiles.defaults` in `.ctxloom/config.yaml` (see [Default Profiles](#default-profiles) below). The legacy per-file `default: true` flag is no longer supported.
+To make a profile the default context for a bare `ctxloom run`, bind it to the
+**default agent** — set `default_agent` in `.ctxloom/config.yaml` to an agent
+whose `profiles:` list includes it (see [The Default Agent](#the-default-agent)
+below). The legacy `profiles.defaults` array and the per-file `default: true`
+flag are no longer supported.
 
-When `ctxloom run` is invoked with no profile and no configured default, it shows
-an interactive picker of installed profiles (skipped when not on a terminal).
+When `ctxloom run` is invoked with no `--agent` and no `-p`/`-f`/`-t`, it binds
+the default agent. If no `default_agent` is configured (or it names an undefined
+agent), ctxloom warns and continues with empty context — never blocking startup.
 
 ### Preferred LLM (`llm:`)
 
@@ -99,7 +103,7 @@ ctxloom profile show developer          # Show profile details
 ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
 ctxloom profile delete old-profile      # Remove profile
-ctxloom profile default developer       # Set/show the default profile(s)
+ctxloom agent default dev               # Set/show the default agent (the default context)
 ctxloom profile materialize developer --target ./out  # Write the assembled agent surface
 ```
 
@@ -239,31 +243,36 @@ ctxloom uses a "bookend" placement strategy based on LLM attention research:
 ctxloom profile edit developer
 ```
 
-## Default Profiles
+## The Default Agent
 
-List profiles to load automatically in `.ctxloom/config.yaml`:
+A bare `ctxloom run` (no `--agent`, no `-p`/`-f`/`-t`) binds the **default
+agent**: the agent named by top-level `default_agent`, whose composed `profiles:`
+become the context and whose engine + runtime + permissions drive the session.
+This replaces the retired `profiles.defaults` — "the default profile set" is now
+simply whatever the default agent composes.
+
+`ctxloom init` scaffolds this for you: it writes a local `default` profile, binds
+it to a `default` agent (carrying the engine you selected), and points
+`default_agent` at it:
 
 ```yaml
-profiles:
-  defaults:
-    - developer
-    - base
+default_agent: default
+agents:
+  default:
+    engine: claude-code
+    runtime: host
+    profiles:
+      - default
 ```
 
-The default is a **list**, and each entry may be a local profile name or a
-bundle-qualified profile ref. ctxloom auto-promotes a profile here when:
-
-- you create the first profile (via `ctxloom profile create` or interactive setup), or
-- you reference a remote profile and no default is configured yet, or
-- exactly one profile is installed locally (single-profile fallback at run time).
-
-If you want a different default later, edit `profiles.defaults` directly or use
-the `profile default` command:
+An agent's `profiles:` is a **list**, and each entry may be a local profile name
+or a bundle-qualified profile ref. To repoint the default later, use
+`ctxloom agent default` (or edit `default_agent`/`agents` directly):
 
 ```bash
-ctxloom profile default developer         # set the default profile
-ctxloom profile default                   # show the current default(s)
-ctxloom profile default --unset developer # clear an entry
+ctxloom agent default            # show the current default agent
+ctxloom agent default dev        # make the 'dev' agent the default
+ctxloom agent set dev --profiles developer,base --engine claude-code
 ```
 
 ## Variables

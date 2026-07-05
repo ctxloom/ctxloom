@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 )
 
@@ -147,7 +148,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
 		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
 
-	cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+	cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
 	cfg.SetExecutableTrustGate(recordingGate(nil, "#mcp/noisy-server"))
 
 	result := cfg.ResolveBundleMCPServers(nil)
@@ -177,7 +178,7 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"), []byte(hookBundleYAML), 0o644))
 
-	cfg := &Config{Profiles: ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+	cfg := &Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
 	// Deny only the session_start hook (index 0 of that event).
 	cfg.SetExecutableTrustGate(recordingGate(nil, "#hooks/session_start/0"))
 

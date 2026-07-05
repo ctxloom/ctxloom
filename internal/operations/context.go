@@ -187,15 +187,15 @@ func appendBuiltinFragments(cfg *config.Config, content string, loaded []string)
 }
 
 // resolveContextProfileNames picks the profiles to assemble from: the explicit
-// request profile, else (when nothing at all is selected) the configured
-// defaults. When the project config has none, defaults inherit the home
-// config's defaults.profiles; if neither defines any, assembly degrades to
-// empty context. No synthetic profile is ever created.
+// request profile, else (when nothing at all is selected) the default agent's
+// composed profiles (Config.DefaultAgentProfiles — profiles.defaults was
+// retired). When no default agent is configured, assembly degrades to empty
+// context. No synthetic profile is ever created.
 func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) []string {
 	// A multi-profile compose ask wins over the single-profile field: collected
 	// in order and merged downstream by collectProfileFragments (the same loop
-	// the configured-defaults path uses), so the constituent profiles of a
-	// agent fold into one context.
+	// the default-agent path uses), so the constituent profiles of an agent fold
+	// into one context.
 	if len(req.Profiles) > 0 {
 		return req.Profiles
 	}
@@ -203,8 +203,7 @@ func resolveContextProfileNames(cfg *config.Config, req AssembleContextRequest) 
 		return []string{req.Profile}
 	}
 	if len(req.Fragments) == 0 && len(req.Tags) == 0 {
-		EnsureDefaultProfiles(cfg)
-		return cfg.GetDefaultProfiles()
+		return cfg.DefaultAgentProfiles()
 	}
 	return nil
 }

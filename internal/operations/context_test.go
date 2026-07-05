@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -125,11 +126,9 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 
 func setupContextTestFS(t *testing.T) (afero.Fs, *bundles.Loader) {
 	t.Helper()
-	// Isolate HOME so the assembly path's EnsureDefaultProfiles ->
-	// homeDefaultProfiles can't read the developer's real ~/.ctxloom/config.yaml.
-	// Otherwise a host config with `profiles.defaults` leaks into these tests (e.g.
-	// TestAssembleContext_EmptyRequest, which expects no default profiles) and they
-	// fail or pass based on the machine they run on, not the code.
+	// Isolate HOME so nothing in the assembly path can read the developer's real
+	// ~/.ctxloom/config.yaml — keeping these tests deterministic regardless of the
+	// machine they run on.
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 
@@ -665,11 +664,10 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := &config.Config{
-		AppPaths: []string{testBaseDir},
-		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"https://github.com/example/repo@profiles/missing"},
-			Definitions: map[string]config.Profile{},
-		},
+		AppPaths:     []string{testBaseDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"https://github.com/example/repo@profiles/missing"}}},
+		Profiles:     config.ProfilesConfig{Definitions: map[string]config.Profile{}},
 	}
 
 	mockLoader := &mockProfileLoader{

@@ -261,7 +261,7 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 	if len(profileNames) > 0 {
 		return profileNames
 	}
-	return c.GetDefaultProfiles()
+	return c.DefaultAgentProfiles()
 }
 
 // ResolveBundleSkills aggregates the prompts (slash-command/skill exports)

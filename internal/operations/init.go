@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -29,8 +30,9 @@ type InitializeProjectResult struct {
 }
 
 // SeedProfileName is the file/profile name of the LOCAL default coding profile
-// `init` scaffolds and wires as config `profiles.defaults`. Generic by design
-// (it mirrors the `profiles.defaults` concept, not any role/archetype): the
+// `init` scaffolds; init also binds it as the profile of the always-bound
+// DEFAULT AGENT (config `agents.default` + `default_agent`), which a bare
+// `ctxloom run` resolves. Generic by design (not any role/archetype): the
 // archetype taxonomy — developer/finder/code-review, per-(language × lens)
 // members — is data, living in the agent-setup prompt and ctxloom-default's
 // profiles, never baked into this binary as names.
@@ -117,6 +119,19 @@ func BuildInitialConfig(engine string) ([]byte, error) {
 	}
 
 	scaffold.LM = engineRegistry(engine, registry.LM)
+
+	// Bind the always-bound DEFAULT AGENT to the scaffolded seed profile, carrying
+	// the selected engine's primary label so a bare `ctxloom run` launches the same
+	// backend. This replaces the retired profiles.defaults: the default context is
+	// now whatever the default agent composes (Config.DefaultAgentProfiles).
+	scaffold.DefaultAgent = SeedProfileName
+	scaffold.Agents = map[string]agents.Agent{
+		SeedProfileName: {
+			Engine:   scaffold.PrimaryLabel(),
+			Runtime:  "host",
+			Profiles: []string{SeedProfileName},
+		},
+	}
 	return scaffold.Marshal()
 }
 

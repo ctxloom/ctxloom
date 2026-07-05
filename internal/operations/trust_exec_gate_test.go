@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -118,7 +119,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
 		[]byte("name: mcp-bundle\nversion: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
 
-	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+	cfg := &config.Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
 
 	// Local bundle MCP servers are project-authored (first-party), so they are
 	// exposed with no review state. A rejection still withholds one — the
@@ -157,7 +158,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"),
 		[]byte("name: hook-bundle\nversion: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n  session_start:\n    - command: echo deny\n      type: command\n"), 0o644))
 
-	cfg := &config.Config{Profiles: config.ProfilesConfig{Defaults: []string{"dev"}}, AppPaths: []string{appDir}}
+	cfg := &config.Config{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}}
 
 	// Local bundle hooks are first-party (project-authored); a rejection still
 	// withholds one — the rejected step precedes the local exemption.

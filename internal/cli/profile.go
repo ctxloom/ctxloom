@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -272,90 +273,6 @@ var profileDeleteCmd = &cobra.Command{
 	},
 }
 
-var (
-	profileDefaultUnset     bool
-	profileDefaultExclusive bool
-)
-
-var profileDefaultCmd = &cobra.Command{
-	Use:   "default [name|ref]",
-	Short: "Set, clear, or show the default profile(s)",
-	Long: `Manage which profile(s) run/weave use when none is passed with -p.
-
-The default set is a LIST: multiple defaults may coexist, and a default may be a
-local profile name OR a remote reference. With no argument, prints the current
-default set.
-
-Examples:
-  ctxloom profile default                 # show current default(s)
-  ctxloom profile default go-developer    # add a default
-  ctxloom profile default 'https://github.com/user/ctxloom@bundles/dev#profiles/dev'
-  ctxloom profile default --unset go-developer
-  ctxloom profile default --exclusive go-developer  # make it the ONLY default`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-
-		// No argument: report the current default set.
-		if len(args) == 0 {
-			if profileDefaultUnset {
-				return fmt.Errorf("--unset requires a profile name or reference")
-			}
-			if profileDefaultExclusive {
-				return fmt.Errorf("--exclusive requires a profile name or reference")
-			}
-			defaults := cfg.ExplicitDefaultProfiles()
-			if len(defaults) == 0 {
-				w.Println("No default profile set.")
-				return w.Err()
-			}
-			w.Println("Default profile(s):")
-			for _, d := range defaults {
-				w.Printf("  - %s\n", d)
-			}
-			return w.Err()
-		}
-
-		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
-
-		res, err := operations.SetDefaultProfile(cmd.Context(), cfg, operations.SetDefaultProfileRequest{
-			Name:      name,
-			Unset:     profileDefaultUnset,
-			Exclusive: profileDefaultExclusive,
-		})
-		if err != nil {
-			return err
-		}
-
-		switch res.Status {
-		case "added":
-			w.Printf("Set %q as a default profile.\n", name)
-		case "set":
-			w.Printf("Set %q as the only default profile.\n", name)
-		case "removed":
-			w.Printf("Cleared %q from the default profiles.\n", name)
-		default:
-			switch {
-			case profileDefaultUnset:
-				w.Printf("%q was not a default profile.\n", name)
-			case profileDefaultExclusive:
-				w.Printf("%q is already the only default profile.\n", name)
-			default:
-				w.Printf("%q is already a default profile.\n", name)
-			}
-		}
-		return w.Err()
-	},
-}
-
 var profileShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show details of a profile",
@@ -375,7 +292,9 @@ var profileShowCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("profile %q not found", name)
 		}
-		isDefault := cfg.Profiles.IsDefaultProfile(res.Name)
+		// "Default" now means membership in the default AGENT's composed profiles
+		// (profiles.defaults was retired — see Config.DefaultAgentProfiles).
+		isDefault := slices.Contains(cfg.DefaultAgentProfiles(), res.Name)
 		return emit(cmd, profileDetailJSON{GetProfileResult: res, Default: isDefault}, func() error {
 			return renderProfileShow(cmd.OutOrStdout(), res, isDefault)
 		})
@@ -608,7 +527,6 @@ func init() {
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileCreateCmd)
 	profileCmd.AddCommand(profileDeleteCmd)
-	profileCmd.AddCommand(profileDefaultCmd)
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
@@ -633,14 +551,9 @@ func init() {
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
 
-	profileDefaultCmd.Flags().BoolVar(&profileDefaultUnset, "unset", false, "Remove the named profile from the default set")
-	profileDefaultCmd.Flags().BoolVar(&profileDefaultExclusive, "exclusive", false, "Make the named profile the SOLE default, unsetting all others")
-	profileDefaultCmd.MarkFlagsMutuallyExclusive("unset", "exclusive")
-
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames
 	profileDeleteCmd.ValidArgsFunction = completeProfileNames
-	profileDefaultCmd.ValidArgsFunction = completeProfileNames
 	profileEditCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
 	profileExportCmd.ValidArgsFunction = completeProfileNames

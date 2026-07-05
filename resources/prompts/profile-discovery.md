@@ -42,11 +42,11 @@ Welcome to ctxloom! I'll help you discover and set up context profiles, fragment
   (e.g. `ctxloom-default/go-developer@v1.2.0`). Unpinned refs track the
   remote's default branch.
 
-**Defaults:** make a profile the default with
-`ctxloom profile default <name>` so `ctxloom run` loads it automatically.
-Defaults are a list; a default may be a local name or a remote ref, and
-`ctxloom profile default --unset <name>` clears one. Confirm the final default
-profile(s) with the user.
+**Defaults:** the default context is the **default agent**'s composed profiles.
+Bind a profile into an agent and point `default_agent` at it — e.g.
+`ctxloom agent set dev --profiles <name>` then `ctxloom agent default dev` — so a
+bare `ctxloom run` loads it automatically. An agent's profiles are a list; each
+may be a local name or a remote ref. Confirm the final default agent with the user.
 
 **Then continue straight into agent setup** — the second half of this prompt
 (below the `---`). Profiles are only half the picture: agents are named

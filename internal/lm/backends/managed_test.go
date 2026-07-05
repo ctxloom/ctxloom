@@ -3,6 +3,7 @@ package backends
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -33,9 +34,10 @@ func sessionStartCommands(h wire.UnifiedHooks) []string {
 // forward-bind.
 func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"p"},
 			Definitions: map[string]config.Profile{
 				"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 					SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
@@ -65,9 +67,10 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 				},
 				Plugins: make(map[string]wire.BackendHooks),
 			},
-			MCP: wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+			MCP:          wire.MCPConfig{Servers: make(map[string]wire.MCPServer), Plugins: make(map[string]map[string]wire.MCPServer)},
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 			Profiles: config.ProfilesConfig{
-				Defaults: []string{"p"},
 				Definitions: map[string]config.Profile{
 					"p": {Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{
 						SessionStart: []wire.Hook{{Command: "profile-session-start", Type: "command"}},
@@ -118,9 +121,10 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 // profile reference that has no definition.
 func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 	cfg := &config.Config{
-		Hooks: wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		Hooks:        wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults:    []string{"non-existent-profile"},
 			Definitions: map[string]config.Profile{},
 		},
 	}
@@ -138,8 +142,9 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 			Servers: map[string]wire.MCPServer{"config-mcp": {Command: "config-mcp-cmd"}},
 			Plugins: make(map[string]map[string]wire.MCPServer),
 		},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"p"},
 			Definitions: map[string]config.Profile{
 				"p": {MCP: wire.MCPConfig{
 					Servers: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},

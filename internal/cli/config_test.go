@@ -22,7 +22,6 @@ import (
 func fixtureConfig() *config.Config {
 	cfg := &config.Config{
 		Profiles: config.ProfilesConfig{
-			Defaults: []string{"default-profile"},
 			Definitions: map[string]config.Profile{
 				"developer": {Bundles: []string{"alice/coding"}},
 			},

@@ -344,18 +344,14 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string, fs afero
 		collectProfileReferencesRecursive(cfg, profileName, bundleSet, visited)
 	}
 
-	// Config-level default profiles are dependency roots too: the init-seeded
-	// default (and home-config defaults) may name a remote bundle profile that
-	// no local profile references. A bundle-profile default/parent
+	// The default agent's composed profiles are dependency roots too: the
+	// init-seeded default agent may name a remote bundle profile that no local
+	// profile references. A bundle-profile default/parent
 	// (<url>@bundles/x#profiles/y) resolves through its bundle's lockfile entry,
 	// so sync (and lock) the underlying bundle by stripping the selector — else
 	// the first `ctxloom run` after init fails to assemble the default.
 	if len(profileNames) == 0 {
-		defaults := cfg.ExplicitDefaultProfiles()
-		if len(defaults) == 0 {
-			defaults = homeDefaultProfiles()
-		}
-		for _, name := range defaults {
+		for _, name := range cfg.DefaultAgentProfiles() {
 			if isRemoteReference(name) {
 				addRemoteBundleBase(bundleSet, name, "default profile")
 			}
@@ -585,20 +581,16 @@ func CheckMissingDependencies(ctx context.Context, cfg *config.Config, req Check
 		missing = append(missing, collectMissingRefs(ctx, refs, "bundle", profileName, bundleReader, seen)...)
 	}
 
-	// Config-default remote references are dependency roots too — mirror
-	// collectRemoteReferences. An init-seeded or home-inherited default may name
-	// a bundle profile that no local profile references; resolveProfilesToCheck
-	// only enumerates Definitions keys and directory profiles, so such a default
-	// is never probed. Without this, the SyncOnStartup gate reports Count 0 and
+	// The default agent's composed profiles are dependency roots too — mirror
+	// collectRemoteReferences. An init-seeded default agent may name a bundle
+	// profile that no local profile references; resolveProfilesToCheck only
+	// enumerates Definitions keys and directory profiles, so such a default is
+	// never probed. Without this, the SyncOnStartup gate reports Count 0 and
 	// short-circuits to "up_to_date", leaving the default's bundle never
 	// auto-installed. Only probe defaults when no explicit profiles were
 	// requested; collectMissingRefs filters to remote refs and dedupes via seen.
 	if len(req.Profiles) == 0 {
-		defaults := cfg.ExplicitDefaultProfiles()
-		if len(defaults) == 0 {
-			defaults = homeDefaultProfiles()
-		}
-		missing = append(missing, collectMissingRefs(ctx, parentBundleRefs(defaults), "bundle", "", bundleReader, seen)...)
+		missing = append(missing, collectMissingRefs(ctx, parentBundleRefs(cfg.DefaultAgentProfiles()), "bundle", "", bundleReader, seen)...)
 	}
 
 	if len(missing) == 0 {

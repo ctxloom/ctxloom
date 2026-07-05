@@ -120,7 +120,8 @@ type Profile struct {
 	Description string        `mapstructure:"description" yaml:"description,omitempty"`
 	LLM         string        `mapstructure:"llm" yaml:"llm,omitempty"`                   // Preferred config label/backend (overridable by -l)
 	Parents     []string      `mapstructure:"parents" yaml:"parents,omitempty"`           // Parent profiles to inherit from
-	Tags        []string      `mapstructure:"tags" yaml:"tags,omitempty"`                 // Fragment tags to include
+	Tags        []string      `mapstructure:"tags" yaml:"tags,omitempty"`                 // Descriptive tags (listing/discovery only; NOT content-selecting)
+	SelectTags  []string      `mapstructure:"select_tags" yaml:"select_tags,omitempty"`   // Fragment tags to select content by
 	Bundles     []string      `mapstructure:"bundles" yaml:"bundles,omitempty"`           // Bundle references (e.g., "remote/go-tools")
 	BundleItems []string      `mapstructure:"bundle_items" yaml:"bundle_items,omitempty"` // Cherry-pick items (e.g., "remote/bundle:fragments/name")
 	Fragments   []FragmentRef `mapstructure:"fragments" yaml:"fragments,omitempty"`       // Fragment references with optional priority

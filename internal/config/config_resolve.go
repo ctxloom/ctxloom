@@ -16,6 +16,7 @@ type profileBuilder struct {
 	Description string
 	LLM         string
 	Tags        collections.Set[string]
+	SelectTags  collections.Set[string]
 	Bundles     collections.Set[string]
 	BundleItems collections.Set[string]
 	Fragments   collections.Set[string]
@@ -25,6 +26,7 @@ type profileBuilder struct {
 	MCP         wire.MCPConfig
 	// Track insertion order for stable output
 	tagsOrder        []string
+	selectTagsOrder  []string
 	bundlesOrder     []string
 	bundleItemsOrder []string
 	promptsOrder     []string
@@ -41,6 +43,7 @@ type profileBuilder struct {
 func newProfileBuilder() *profileBuilder {
 	return &profileBuilder{
 		Tags:               collections.NewSet[string](),
+		SelectTags:         collections.NewSet[string](),
 		Bundles:            collections.NewSet[string](),
 		BundleItems:        collections.NewSet[string](),
 		Fragments:          collections.NewSet[string](),
@@ -64,6 +67,13 @@ func (b *profileBuilder) addTag(tag string) {
 	if !b.Tags.Has(tag) {
 		b.Tags.Add(tag)
 		b.tagsOrder = append(b.tagsOrder, tag)
+	}
+}
+
+func (b *profileBuilder) addSelectTag(tag string) {
+	if !b.SelectTags.Has(tag) {
+		b.SelectTags.Add(tag)
+		b.selectTagsOrder = append(b.selectTagsOrder, tag)
 	}
 }
 
@@ -231,6 +241,7 @@ func (b *profileBuilder) toProfile() *Profile {
 		Description:      b.Description,
 		LLM:              b.LLM,
 		Tags:             b.tagsOrder,
+		SelectTags:       b.selectTagsOrder,
 		Bundles:          b.bundlesOrder,
 		BundleItems:      b.bundleItemsOrder,
 		Fragments:        filteredFragments,
@@ -325,6 +336,9 @@ func resolveProfileParents(profiles map[string]Profile, profile Profile, name st
 func mergeProfileValues(builder *profileBuilder, profile Profile) {
 	for _, tag := range profile.Tags {
 		builder.addTag(tag)
+	}
+	for _, tag := range profile.SelectTags {
+		builder.addSelectTag(tag)
 	}
 	for _, bundle := range profile.Bundles {
 		builder.addBundle(bundle)

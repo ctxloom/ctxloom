@@ -30,7 +30,7 @@ fragments:
 	cfg = &config.Config{
 		AppPaths: []string{appDir},
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
-			"reviewer": {Tags: []string{"security"}},
+			"reviewer": {SelectTags: []string{"security"}},
 		}},
 	}
 	return cfg, t.TempDir()

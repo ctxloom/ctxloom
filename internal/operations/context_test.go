@@ -240,7 +240,7 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
 			"go-dev": {
 				Description: "Go developer profile",
-				Tags:        []string{"go"},
+				SelectTags:  []string{"go"},
 				Fragments:   []config.FragmentRef{{Name: "dev#fragments/testing-guidelines"}},
 			},
 		}},
@@ -253,8 +253,58 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"go-dev"}, result.Profiles)
-	// Should include fragments from tags AND direct fragments
+	// Should include fragments from select_tags AND direct fragments
 	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
+}
+
+// TestAssembleContext_ProfileTags_DoNotSelectContent pins that a profile's
+// `tags:` are descriptive only — they must never pull fragments in by tag.
+// Regression for the coordinator/finder bloat: a bundle's descriptive tag,
+// inherited by every fragment, would otherwise drag the whole bundle in.
+func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-dev": {
+				Description: "Go developer profile",
+				Tags:        []string{"go"}, // descriptive only
+			},
+		}},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "go-dev",
+		Loader:  loader,
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.FragmentsLoaded)
+	assert.NotContains(t, result.Context, "Go Patterns")
+}
+
+// TestAssembleContext_ProfileSelectTags_SelectContent pins that `select_tags:`
+// selects fragment content by tag — the role `tags:` used to play.
+func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := &config.Config{
+		AppPaths: []string{testBaseDir},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"go-dev": {
+				Description: "Go developer profile",
+				SelectTags:  []string{"go"},
+			},
+		}},
+	}
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile: "go-dev",
+		Loader:  loader,
+	})
+
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(result.FragmentsLoaded), 1)
+	assert.Contains(t, result.Context, "Go Patterns")
 }
 
 func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
@@ -728,7 +778,7 @@ func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 		resolveFunc: func(name string, visited map[string]bool) (*profiles.ResolvedProfile, error) {
 			if name == "tagged-profile" {
 				return &profiles.ResolvedProfile{
-					Tags:             []string{"security", "go"},
+					SelectTags:       []string{"security", "go"},
 					ExcludeFragments: []string{"security-rules"},
 				}, nil
 			}

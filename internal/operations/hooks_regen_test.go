@@ -58,7 +58,7 @@ fragments:
 			Defaults: []string{"default"},
 			Definitions: map[string]config.Profile{
 				"default": {
-					Tags:             []string{"security"},
+					SelectTags:       []string{"security"},
 					ExcludeFragments: []string{"banned"},
 				},
 			},
@@ -100,7 +100,7 @@ fragments:
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "homeprof.yaml"),
-		[]byte("description: home default\ntags: [go]\n"), 0o644))
+		[]byte("description: home default\nselect_tags: [go]\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "other.yaml"),
 		[]byte("description: unrelated\n"), 0o644))
 
@@ -140,7 +140,7 @@ fragments:
 			Defaults: []string{"default"},
 			Definitions: map[string]config.Profile{
 				// Both the tag AND the whole bundle reference the same fragment.
-				"default": {Tags: []string{"go"}, Bundles: []string{"dev"}},
+				"default": {SelectTags: []string{"go"}, Bundles: []string{"dev"}},
 			},
 		},
 	}

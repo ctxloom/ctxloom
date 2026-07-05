@@ -590,7 +590,7 @@ fragments:
 				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
-						Tags: []string{"security"},
+						SelectTags: []string{"security"},
 					},
 				},
 			},
@@ -639,7 +639,7 @@ fragments:
 				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
-						Tags: []string{"security"},
+						SelectTags: []string{"security"},
 					},
 				},
 			},
@@ -911,7 +911,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 				Defaults: []string{"default"},
 				Definitions: map[string]config.Profile{
 					"default": {
-						Tags: []string{"nonexistent-tag"}, // No fragments match this tag
+						SelectTags: []string{"nonexistent-tag"}, // No fragments match this select tag
 					},
 				},
 			},

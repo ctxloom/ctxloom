@@ -138,8 +138,9 @@ type Profile struct {
 	Name        string   `yaml:"-"` // Derived from filename
 	Path        string   `yaml:"-"` // Full path to the file
 	Description string   `yaml:"description,omitempty"`
-	Parents     []string `yaml:"parents,omitempty"` // Parent profiles to inherit from
-	Tags        []string `yaml:"tags,omitempty"`    // Fragment tags to include
+	Parents     []string `yaml:"parents,omitempty"`     // Parent profiles to inherit from
+	Tags        []string `yaml:"tags,omitempty"`        // Descriptive tags (listing/discovery only; NOT content-selecting)
+	SelectTags  []string `yaml:"select_tags,omitempty"` // Fragment tags to select content by
 
 	// LLM is the config label (or backend type) this profile prefers to launch.
 	// Used by `ctxloom run` unless overridden by -l/--llm. Empty falls back to
@@ -775,6 +776,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Then apply this profile's settings (overrides parents)
 	resolved.Bundles = appendUnique(resolved.Bundles, profile.Bundles...)
 	resolved.Tags = appendUnique(resolved.Tags, profile.Tags...)
+	resolved.SelectTags = appendUnique(resolved.SelectTags, profile.SelectTags...)
 	// Curated prompts union with parents in declaration order, deduped by their
 	// version-agnostic stored ref — the directory-profile mirror of how inline
 	// profiles fold Prompts in config_resolve.mergeProfileValues.
@@ -813,8 +815,9 @@ func cloneVisited(visited map[string]bool) map[string]bool {
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.
 type ResolvedProfile struct {
-	Bundles     []string // All bundle references
-	Tags        []string
+	Bundles     []string         // All bundle references
+	Tags        []string         // Descriptive (listing/discovery); does NOT select content
+	SelectTags  []string         // Fragment tags to select content by
 	Prompts     []string         // Curated slash-command prompt refs (opt-in; empty = global auto-export)
 	Fragments   []FragmentRef    // Direct fragment references (with optional priority/version pin in Name)
 	BundleItems []string         // Cherry-picked bundle items (e.g. "remote/bundle:fragments/x")
@@ -834,6 +837,7 @@ type ResolvedProfile struct {
 func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Bundles = appendUnique(r.Bundles, other.Bundles...)
 	r.Tags = appendUnique(r.Tags, other.Tags...)
+	r.SelectTags = appendUnique(r.SelectTags, other.SelectTags...)
 	r.Prompts = appendUnique(r.Prompts, other.Prompts...)
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
 	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)

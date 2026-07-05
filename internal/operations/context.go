@@ -269,7 +269,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			profileVars[k] = v
 		}
 
-		tagFragments, err := fragmentsFromTags(loader, profile.Tags)
+		tagFragments, err := fragmentsFromTags(loader, profile.SelectTags)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("failed to list fragments by profile tags: %w", err)
 		}
@@ -479,8 +479,9 @@ func resolveProfile(cfg *config.Config, name string, loader *bundles.Loader, pro
 			return nil, fmt.Errorf("profile %s: %w", name, rerr)
 		}
 		profile = &config.Profile{
-			Tags:    resolved.Tags,
-			Bundles: resolved.Bundles,
+			Tags:       resolved.Tags,
+			SelectTags: resolved.SelectTags,
+			Bundles:    resolved.Bundles,
 			// BundleItems are expanded via ExpandBundleRefs below (honoring any
 			// "@<commit>" pin), exactly like Bundles — the directory-profile mirror
 			// of the inline cherry-pick path.

@@ -653,17 +653,19 @@ func TestLoader_ResolveProfile_DepthLimit(t *testing.T) {
 //   - Merge: profile1 + profile2 (first wins)
 func TestResolvedProfile_Merge(t *testing.T) {
 	r1 := &ResolvedProfile{
-		Bundles:   []string{"b1"},
-		Tags:      []string{"t1"},
-		Prompts:   []string{"p1"},
-		Variables: map[string]string{"v1": "value1", "shared": "r1"},
+		Bundles:    []string{"b1"},
+		Tags:       []string{"t1"},
+		SelectTags: []string{"s1"},
+		Prompts:    []string{"p1"},
+		Variables:  map[string]string{"v1": "value1", "shared": "r1"},
 	}
 
 	r2 := &ResolvedProfile{
-		Bundles:   []string{"b2", "b1"}, // b1 is duplicate
-		Tags:      []string{"t2"},
-		Prompts:   []string{"p2", "p1"}, // p1 is duplicate
-		Variables: map[string]string{"v2": "value2", "shared": "r2"},
+		Bundles:    []string{"b2", "b1"}, // b1 is duplicate
+		Tags:       []string{"t2"},
+		SelectTags: []string{"s2"},
+		Prompts:    []string{"p2", "p1"}, // p1 is duplicate
+		Variables:  map[string]string{"v2": "value2", "shared": "r2"},
 	}
 
 	r1.Merge(r2)
@@ -672,6 +674,8 @@ func TestResolvedProfile_Merge(t *testing.T) {
 	assert.Equal(t, []string{"b1", "b2"}, r1.Bundles)
 	// Tags combined
 	assert.Equal(t, []string{"t1", "t2"}, r1.Tags)
+	// SelectTags combined (content-selecting tags accumulate through inheritance)
+	assert.Equal(t, []string{"s1", "s2"}, r1.SelectTags)
 	// Curated prompts combined + deduped (union across active profiles).
 	assert.Equal(t, []string{"p1", "p2"}, r1.Prompts)
 	// Variables: r1 keeps its value for "shared" (first wins for variables during merge)

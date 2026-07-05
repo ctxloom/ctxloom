@@ -214,18 +214,25 @@ lint:
 gen-schemas:
     go run -tags schemagen ./cmd/gen-schemas
 
-# Generate CLI docs (man pages + website markdown) from the command tree.
-# The cobra command definitions in internal/cli are the single source of
-# truth; the website pages are checked in, the man pages are gitignored
-# release artifacts.
+# Generate reference docs from their sources of truth: the CLI reference (man
+# pages + website markdown) from the cobra command tree, the MCP reference from
+# the live tool/resource registrations, and the config reference from the
+# tracked JSON Schema. The website pages are checked in, the man pages are
+# gitignored release artifacts.
 gen-docs:
-    go run ./scripts/gendocs --man man/man1 --markdown website/src/content/docs/reference/cli
+    go run ./scripts/gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/reference/cli \
+        --mcp website/src/content/docs/reference \
+        --config website/src/content/docs/reference \
+        --config-schema resources/schema/input/config-schema.json
 
-# Drift gate: regenerate the CLI docs and fail if the checked-in website pages
-# no longer match the command definitions. man/man1 is gitignored, so only the
-# website directory is diffed. Run in the CI lint job.
+# Drift gate: regenerate the reference docs and fail if the checked-in website
+# pages (CLI, MCP tools, config) no longer match their sources of truth. man/man1
+# is gitignored, so only the website reference directory is diffed. Run in the CI
+# lint job.
 gen-docs-check: gen-docs
-    git diff --exit-code -- website/src/content/docs/reference/cli
+    git diff --exit-code -- website/src/content/docs/reference
 
 # Per-function cyclomatic complexity (lizard) — human-readable table + warnings.
 # Defaults to repo root; pass paths/flags to scope. Leading `-` ignores lizard's

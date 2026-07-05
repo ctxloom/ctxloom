@@ -1,7 +1,9 @@
-// Command gendocs generates the ctxloom CLI reference from the cobra command
-// tree — the single source of truth. It emits man pages (--man) and Starlight
-// markdown pages for the website (--markdown). Output is deterministic (the
-// cobra auto-gen timestamps are disabled) so CI can gate on drift via
+// Command gendocs generates the ctxloom reference docs from their sources of
+// truth. It emits: the CLI reference (man pages via --man, Starlight markdown
+// via --markdown) from the cobra command tree; the MCP reference (--mcp) from
+// the live tool/resource registrations; and the configuration reference
+// (--config) from the tracked JSON Schema. Output is deterministic (cobra
+// auto-gen timestamps disabled, schema keys sorted) so CI can gate on drift via
 // `just gen-docs-check`.
 package main
 
@@ -21,10 +23,13 @@ import (
 func main() {
 	manDir := flag.String("man", "", "directory to write man pages into")
 	markdownDir := flag.String("markdown", "", "directory to write website markdown pages into")
+	mcpDir := flag.String("mcp", "", "directory to write the MCP tools reference (mcp-tools.md) into")
+	configDir := flag.String("config", "", "directory to write the config reference (config.md) into")
+	configSchema := flag.String("config-schema", "resources/schema/input/config-schema.json", "path to the config JSON Schema rendered by --config")
 	flag.Parse()
 
-	if *manDir == "" && *markdownDir == "" {
-		fmt.Fprintln(os.Stderr, "Usage: gendocs [--man <dir>] [--markdown <dir>] (at least one required)")
+	if *manDir == "" && *markdownDir == "" && *mcpDir == "" && *configDir == "" {
+		fmt.Fprintln(os.Stderr, "Usage: gendocs [--man <dir>] [--markdown <dir>] [--mcp <dir>] [--config <dir>] (at least one required)")
 		os.Exit(1)
 	}
 
@@ -45,6 +50,22 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("Markdown pages generated in %s\n", *markdownDir)
+	}
+
+	if *mcpDir != "" {
+		if err := genMCPTools(*mcpDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating MCP tools reference: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("MCP tools reference generated in %s\n", *mcpDir)
+	}
+
+	if *configDir != "" {
+		if err := genConfig(*configSchema, *configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating config reference: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Config reference generated in %s\n", *configDir)
 	}
 }
 

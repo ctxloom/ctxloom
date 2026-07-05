@@ -71,6 +71,7 @@ export default defineConfig({
 					items: [
 						{ label: 'CLI', autogenerate: { directory: 'reference/cli' } },
 						{ label: 'MCP Tools', link: '/reference/mcp-tools/' },
+						{ label: 'Configuration', link: '/reference/config/' },
 						{ label: 'Environment', link: '/reference/environment/' },
 					],
 				},

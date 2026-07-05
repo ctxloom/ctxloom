@@ -390,11 +390,17 @@ install: build-compressed
 uninstall:
     rm -f ~/go/bin/ctxloom ~/go/bin/ltk ~/go/bin/taskloom
 
-# Generate CLI docs (man pages + website markdown) from the command tree.
-# The cobra command definitions in internal/cli are the single source of
-# truth; CI fails on drift (gen-docs-check in justfile.container).
+# Generate reference docs from their sources of truth: the CLI reference (man
+# pages + website markdown) from the cobra command tree, the MCP reference from
+# the live tool/resource registrations, and the config reference from the
+# tracked JSON Schema. CI fails on drift (gen-docs-check in justfile.container).
 gen-docs:
-    go run ./scripts/gendocs --man man/man1 --markdown website/src/content/docs/reference/cli
+    go run ./scripts/gendocs \
+        --man man/man1 \
+        --markdown website/src/content/docs/reference/cli \
+        --mcp website/src/content/docs/reference \
+        --config website/src/content/docs/reference \
+        --config-schema resources/schema/input/config-schema.json
 
 # Generate man pages only (the --man half of gen-docs)
 man:

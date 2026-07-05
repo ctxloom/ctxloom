@@ -333,6 +333,21 @@
           "additionalProperties": false
         },
         {
+          "title": "kiro",
+          "properties": {
+            "type": { "const": "kiro" },
+            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
+            "model": { "type": "string" },
+            "binary_path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
+            "agent": { "type": "string", "description": "Kiro custom agent selected via --agent (default \"ctxloom\")." },
+            "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." }
+          },
+          "additionalProperties": false
+        },
+        {
           "title": "mock",
           "properties": {
             "type": { "const": "mock" },

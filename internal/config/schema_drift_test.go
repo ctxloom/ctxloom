@@ -130,6 +130,10 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"llm:\n  configs:\n    main:\n      type: codex\n      permissions: plan\n",
 		},
 		{
+			"kiro llm config entry with its native fields",
+			"llm:\n  configs:\n    k:\n      type: kiro\n      model: kiro-model\n      effort: high\n      agent: ctxloom\n      agent_engine: v2\n      permissions: plan\n",
+		},
+		{
 			"agent-level permissions posture",
 			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    permissions: bypass\n",
 		},

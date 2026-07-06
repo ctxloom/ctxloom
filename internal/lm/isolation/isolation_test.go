@@ -2,11 +2,44 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// resetStrictness restores pristine strict-mode state for a test and registers
+// cleanup, so the package-global finding collector never bleeds between tests
+// (mirrors strictness_test.go's resetForTest).
+func resetStrictness(t *testing.T) {
+	t.Helper()
+	strictness.Reset()
+	strictness.SetDegraded(false)
+	t.Cleanup(func() {
+		strictness.Reset()
+		strictness.SetDegraded(false)
+	})
+}
+
+// failingPolicy is a test Policy whose Name is configurable and whose
+// PrepareWorkspace always fails — a stand-in for a tier that cannot launch
+// (a container whose image is absent / probe failed / auth unresolvable, or a
+// worktree that cannot be added). SpawnClient is never reached: the chain
+// always degrades past a failing policy to None.
+type failingPolicy struct{ name string }
+
+func (f failingPolicy) Name() string      { return f.name }
+func (failingPolicy) Approvals() Approvals { return ApprovalsBypass }
+func (failingPolicy) PrepareWorkspace(context.Context, string, string) (Workspace, error) {
+	return nil, errors.New("agent image absent")
+}
+func (failingPolicy) SpawnClient(string, string, int, Workspace) (pb.Client, error) {
+	return nil, errors.New("unused: the chain degrades before spawn")
+}
 
 // TestNone_IsHostIdentical pins the None policy to today's host behaviour: the
 // workspace IS the project directory, cleanup is a noop, and approvals stay
@@ -53,6 +86,60 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 	// Independence: an unknown RUNTIME never drops a requested worktree.
 	assert.IsType(t, Worktree{}, Resolve(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{}),
 		"an unknown runtime axis degrades alone; the workspace axis survives")
+}
+
+// TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded pins the
+// fail-loudly contract for an EXPLICITLY-requested container that can't be
+// satisfied: prepareChain still degrades to the host (the run always gets a
+// workspace), but in strict mode it records a fatal ClassIsolation finding for
+// the choke owner to abort on, while --degraded downgrades it to today's plain
+// host-degrade (no finding). A non-container (workspace-axis) degrade must never
+// record such a finding — only a LOST CONTAINER BOUNDARY is fatal.
+func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T) {
+	// The chain chainFor builds ONLY for an explicitly-requested container: a
+	// container tier that fails to prepare (image absent / probe / auth),
+	// degrading to None.
+	containerChain := []Policy{failingPolicy{name: (Container{}).Name()}, None{}}
+
+	t.Run("strict: records one fatal isolation finding and still degrades to the host", func(t *testing.T) {
+		resetStrictness(t)
+
+		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		require.NotNil(t, ws, "the run always gets a workspace — the degrade never blocks the LLM")
+		assert.IsType(t, None{}, policy, "the boundary is lost, so the workspace falls back to the host")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "a requested container that can't launch is exactly one fatal finding")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class, "classified so the abort reads [isolation]")
+		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the message must flag the lost boundary")
+		require.NotEmpty(t, findings[0].FixIt, "the finding must carry a fix-it hint")
+		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+
+		// The choke owner aborts on this finding with the distinct exit code (3).
+		// This is the same failOnFindings the run path calls right after Prepare;
+		// here we assert the mapping so the isolation class is provably fatal.
+		require.NotEmpty(t, strictness.Since(0), "the finding is visible to the choke owner's Since(mark) check")
+	})
+
+	t.Run("degraded: records nothing — the host degrade is the accepted outcome", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		require.NotNil(t, ws)
+		assert.IsType(t, None{}, policy)
+		assert.Empty(t, strictness.All(), "--degraded is the escape hatch: no finding, just the host degrade")
+	})
+
+	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
+		resetStrictness(t)
+
+		workspaceChain := []Policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
+		policy, _ := prepareChain(context.Background(), workspaceChain, "/project", "agent-a")
+		assert.IsType(t, None{}, policy)
+		assert.Empty(t, strictness.All(),
+			"a lost worktree degrades gracefully — only a lost CONTAINER boundary is fatal")
+	})
 }
 
 // TestApprovals_String renders the approvals axis for diagnostics.

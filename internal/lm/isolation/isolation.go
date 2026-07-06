@@ -24,7 +24,15 @@ import (
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
+
+// isolationFixIt is the fix-it hint attached to every requested-container
+// degrade finding (ClassIsolation): the three ways to restore the boundary
+// plus the escape hatch. Shared by the no-runtime site (chainFor) and the
+// image/probe/auth site (prepareChain) so the abort listing reads the same
+// regardless of which stage dropped the container.
+const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
 
 // Approvals is the policy's approval-handling axis: whether the engine keeps its
 // in-tool approval prompt or has it bypassed because a real isolation boundary
@@ -278,10 +286,16 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 			return []Policy{containerFor(rt, backend, img), None{}}
 		}
 		// Runtime axis degrades alone: the workspace request below is untouched.
+		// A container was EXPLICITLY requested (WantsContainer) but no runtime is
+		// reachable, so this run would land UNSANDBOXED on the host — a
+		// fail-loudly finding (ClassIsolation) the choke owner aborts on unless
+		// --degraded downgrades it back to the warn-and-continue degrade.
 		if axes.WantsWorktree() {
-			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; keeping the worktree on the host%s", noRuntimeHint())
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"runtime: container requested but no container runtime is available; keeping the worktree on the host%s", noRuntimeHint())
 		} else {
-			clidiag.Warn("ctxloom", "runtime: container requested but no container runtime is available; running on the host%s", noRuntimeHint())
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"runtime: container requested but no container runtime is available; running on the host%s", noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {
@@ -329,16 +343,23 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 			next = chain[i+1].Name()
 		}
 		// Losing the container boundary is a security-relevant downgrade: the run
-		// was to be sandboxed and now isn't. A single degrade line is easy to miss
-		// when the engine then takes over the terminal, so surface it prominently
-		// at default verbosity — naming the reason (image absent, shared-fs probe,
-		// no resolvable auth) — so a failed or denied container start can't be
-		// mistaken for a normal host run. The runtime-unreachable reason is warned
-		// earlier in chainFor; the handshake-timeout reason surfaces as a fatal
-		// SpawnClient error at the choke owner. This does NOT change the
-		// degrade-vs-abort semantics — the run still falls back per the chain.
+		// was to be sandboxed and now isn't. The chain only holds a container tier
+		// when one was EXPLICITLY requested (chainFor builds it solely for
+		// WantsContainer), so a container→non-container transition here is a
+		// requested-container-unsatisfiable event: a fail-loudly finding
+		// (ClassIsolation) naming the reason (image absent, shared-fs probe, no
+		// resolvable auth). The warning still streams to stderr in both modes
+		// (strictness.Fail wraps clidiag.Warn), so a failed or denied container
+		// start can't be mistaken for a normal host run; in strict mode the choke
+		// owner additionally aborts on it before the unsandboxed engine launches,
+		// while --degraded records nothing and the chain falls back to the host as
+		// before. The runtime-unreachable reason is recorded earlier in chainFor;
+		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
+		// choke owner. The `continue` is unchanged — the chain still walks to None
+		// so a degraded run gets a workspace.
 		if isContainerPolicyName(p.Name()) && !isContainerPolicyName(next) {
-			clidiag.Warn("ctxloom", "container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
+			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
+				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
 			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)

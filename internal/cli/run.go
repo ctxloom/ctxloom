@@ -857,24 +857,40 @@ Examples:
 			// the agent image absent) drops ONLY the runtime axis — a requested
 			// worktree survives — and a worktree failure degrades to the live
 			// project dir, so `runtime: container` is a safe default.
+			//
+			// Fail-loudly re-gate: isolation resolves HERE, AFTER the startup gate
+			// (failOnFindings above), so a requested-container-degraded-to-host
+			// finding (ClassIsolation, raised inside Prepare) would slip past that
+			// already-passed gate. Checkpoint immediately before Prepare and
+			// re-check right after, so an EXPLICITLY-requested container that can't
+			// be satisfied aborts (exit 3) before an UNSANDBOXED engine is spawned —
+			// unless --degraded, which records nothing and proceeds on the host per
+			// the degrade chain.
+			isolationMark := strictness.Checkpoint()
 			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp)
 			// The permission posture is resolved once from config/CLI/agent and is
 			// authoritative regardless of how the isolation boundary degrades: a
 			// container that failed to launch does NOT drop a configured bypass —
 			// that is the point of the host stopgap.
 			policy := prepared
+			// Tear the workspace down after the client is killed (kill the plugin/
+			// container before removing its scratch — WIP-safe). Registered before
+			// client.Kill so it runs after, and before the gate below so an abort on
+			// a container→worktree degrade still tears the prepared worktree down.
+			// none's cleanup is a noop.
+			defer func() { _ = ws.Cleanup() }()
+			if ferr := failOnFindings(os.Stderr, isolationMark); ferr != nil {
+				return ferr
+			}
 			// A container-requested run whose boundary silently degraded to the bare
 			// host still carries a configured bypass. For the claude-code host stopgap
 			// that is intended; for any other backend the boundary that justified
 			// bypass is gone, so surface it rather than run full-auto with no signal.
+			// Only reached in degraded mode: strict mode aborted at the gate above.
 			if runAxes.WantsContainer() && prepared.Name() != string(isolation.RuntimeContainer) &&
 				permMode == agent.PermissionBypass && backendName != config.BackendClaudeCode {
 				clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", backendName)
 			}
-			// Tear the workspace down after the client is killed (kill the plugin/
-			// container before removing its scratch — WIP-safe). Registered before
-			// client.Kill so it runs after. none's cleanup is a noop.
-			defer func() { _ = ws.Cleanup() }()
 			// The engine's cwd lands in the prepared workspace (identical-path for
 			// container/none; a worktree in Phase 2).
 			req.Options.WorkDir = ws.Dir()

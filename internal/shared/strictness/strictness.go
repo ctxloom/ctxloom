@@ -51,6 +51,14 @@ const (
 	ClassBundle Class = "bundle"
 	// ClassTrust is a corrupt/unreadable trust store (the deny-all posture).
 	ClassTrust Class = "trust-store"
+	// ClassIsolation is an EXPLICITLY-requested container runtime that cannot be
+	// satisfied (no reachable runtime, agent image absent/unbuildable, shared-fs
+	// probe failed, no resolvable auth) so the run would otherwise fall back to
+	// the UNSANDBOXED host. Only an explicit request — an agent's `runtime:`
+	// trait, the project `runtime:` default, or `--runtime container` — reaches
+	// this class; the ambient host default degrades silently and never lands
+	// here.
+	ClassIsolation Class = "isolation"
 )
 
 // Finding is one collected fatal fault: what broke (Message, already

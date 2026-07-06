@@ -74,6 +74,52 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 	})
 }
 
+// An explicitly-requested-but-unsatisfiable container runtime is a fail-loudly
+// finding (ClassIsolation) raised inside isolation.Prepare. The run path
+// re-gates on it right after Prepare (isolation resolves AFTER the main startup
+// gate), so it must abort with the distinct findings exit code (3) — before an
+// UNSANDBOXED engine spawns — and stay a no-op under --degraded (the host
+// degrade). This pins the class→choke mapping the run path relies on.
+func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testing.T) {
+	const fixit = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
+
+	t.Run("strict mode aborts exit 3, names the lost boundary + escape hatch", func(t *testing.T) {
+		resetStrictness(t)
+
+		mark := strictness.Checkpoint()
+		strictness.Fail(strictness.ClassIsolation, fixit,
+			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
+
+		var buf bytes.Buffer
+		err := failOnFindings(&buf, mark)
+
+		require.Error(t, err, "an explicitly-requested unsatisfiable container must abort before an unsandboxed launch")
+		var exitErr *ExitError
+		require.ErrorAs(t, err, &exitErr)
+		assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "must carry the distinct findings exit code (3)")
+
+		out := buf.String()
+		assert.Contains(t, out, "[isolation]", "the finding must be class-tagged for diagnosis")
+		assert.Contains(t, out, "NOT sandboxed", "the abort must name the lost container boundary")
+		assert.Contains(t, out, "--degraded", "the escape hatch must be surfaced")
+	})
+
+	t.Run("degraded mode never aborts — the host degrade is the accepted outcome", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+
+		mark := strictness.Checkpoint()
+		strictness.Fail(strictness.ClassIsolation, fixit,
+			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
+
+		var buf bytes.Buffer
+		err := failOnFindings(&buf, mark)
+
+		assert.NoError(t, err, "--degraded downgrades the isolation finding to the plain host degrade")
+		assert.Empty(t, buf.String(), "degraded mode renders no findings block")
+	})
+}
+
 func TestLoadConfigOrFallback_Success(t *testing.T) {
 	want := &config.Config{AppPaths: []string{"/some/dir"}}
 	var buf bytes.Buffer

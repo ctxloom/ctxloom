@@ -20,7 +20,6 @@ import (
 var updateApply bool
 var updateForce bool
 var updateCleanup bool
-var updateBlind bool
 
 var remoteUpdateCmd = &cobra.Command{
 	Use:   "update [reference]",
@@ -441,7 +440,6 @@ func applyUpdateBatch(ctx context.Context, out io.Writer, p pullRunner, header s
 		result, err := p.Pull(ctx, u.Ref+"@"+u.LatestSHA, remote.PullOptions{
 			ItemType:         u.Type,
 			Force:            updateForce,
-			Blind:            updateBlind,
 			RequestedVersion: &constraint,
 		})
 		if err != nil {
@@ -639,8 +637,6 @@ func init() {
 		"Apply available updates")
 	remoteUpdateCmd.Flags().BoolVar(&updateForce, "force", false,
 		"Skip confirmation prompts when applying updates")
-	remoteUpdateCmd.Flags().BoolVar(&updateBlind, "blind", false,
-		"Skip security review display (implies --force)")
 	remoteUpdateCmd.Flags().BoolVar(&updateCleanup, "cleanup", false,
 		"Remove local files for items deleted from remote")
 }

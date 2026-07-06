@@ -44,7 +44,7 @@ type SyncDependenciesRequest struct {
 type SyncItem struct {
 	Reference string `json:"reference"`
 	Type      string `json:"type"`
-	Status    string `json:"status"` // "installed", "updated", "skipped", "staged", "failed"
+	Status    string `json:"status"` // "installed", "updated", "skipped", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
 }
@@ -55,19 +55,11 @@ type SyncDependenciesResult struct {
 	Synced    []SyncItem `json:"synced,omitempty"`
 	Skipped   []SyncItem `json:"skipped,omitempty"`
 	Failed    []SyncItem `json:"failed,omitempty"`
-	Staged    []SyncItem `json:"staged,omitempty"`
 	Total     int        `json:"total"`
 	Installed int        `json:"installed"`
 	Updated   int        `json:"updated"`
 	Errors    int        `json:"errors"`
 	Message   string     `json:"message,omitempty"`
-
-	// Changes lists the bundle-level delta between active and pending
-	// lockfiles after this sync. Non-empty only when a bundle was added
-	// or its SHA changed AND its source remote is not TrustBundles=true.
-	// Consumed by the MCP review state in ctxServer (see
-	// docs/bundle-review-plan.md Phase 3). nil for non-bundle syncs.
-	Changes *BundleChangeSet `json:"-"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -91,7 +83,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		}, nil
 	}
 
-	registry, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
+	_, puller, err := resolveSyncDeps(cfg, req, baseDir, fs)
 	if err != nil {
 		return nil, err
 	}
@@ -123,34 +115,25 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		return result, err
 	}
 
-	// SECURITY: surface staged first-installs loudly — they are inert (no
-	// hooks/MCP/context) until the user reviews and approves them.
-	if n := len(result.Staged); n > 0 {
-		clidiag.Warn("ctxloom", "%d new bundle(s)/profile(s) staged pending review — run 'ctxloom bundle review'", n)
-	}
-
 	runSyncPostSteps(ctx, cfg, req, result, fs)
 
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
 	}
 
-	recordReviewState(cfg, registry, fs, result)
-
-	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d staged for review, %d failed",
-		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Staged), result.Errors)
+	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d failed",
+		result.Total, result.Installed, result.Updated, len(result.Skipped), result.Errors)
 
 	return result, nil
 }
 
 // resolveSyncDeps returns the registry and puller for a sync, preferring
-// injected (test) instances. Sync installs exactly the pinned set; surfacing
-// an upstream change to an already-locked item is `remote upgrade`'s job
-// (operations.StageUpgrade), and the post-sync lock rebuilds the active
-// lockfile from the pinned closure. The one exception is a FIRST install from
-// an untrusted remote: sync pulls are Blind (no security review), so syncItem
-// sets StageUntrustedNew and the puller stages such items into the pending
-// lockfile for `bundle review` instead of activating them.
+// injected (test) instances. Sync installs exactly the pinned set and writes
+// each pin straight to the active lockfile; surfacing an upstream change to an
+// already-locked item is `remote upgrade`'s job (operations.UpgradeDependencies),
+// and the post-sync lock rebuilds the active lockfile from the pinned closure.
+// Whether pulled content ever reaches the agent is decided per item at exposure
+// by the content-hash trust gate, so sync itself needs no review ceremony.
 func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir string, fs afero.Fs) (*remote.Registry, Puller, error) {
 	registry := req.Registry
 	if registry == nil {
@@ -208,9 +191,8 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	if req.Lock && result.Installed+result.Updated > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
-		// second sync pass. StageUntrustedNew keeps the closure rebuild from
-		// activating untrusted first-installs the puller just staged for review.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true, StageUntrustedNew: true}); err != nil {
+		// second sync pass.
+		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs, SkipSync: true}); err != nil {
 			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
 		}
@@ -231,58 +213,6 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}
 	}
-}
-
-// recordReviewState records the active↔pending bundle delta on result so the MCP
-// review surface can show any changes a `remote upgrade` staged for review.
-// Sync itself never stages (it installs exactly the pinned set) and never
-// auto-applies trust — trusted changes are applied coherently by StageUpgrade,
-// which rewrites the refs. result.Changes is empty when pending is empty.
-func recordReviewState(cfg *config.Config, registry *remote.Registry, fs afero.Fs, result *SyncDependenciesResult) {
-	result.Changes = computeBundleChanges(cfg, registry, fs)
-}
-
-// computeBundleChanges loads the active + pending lockfiles and diffs them.
-// nil result means "nothing to review" — either no pending file exists or
-// every change was filtered out by TrustBundles.
-func computeBundleChanges(cfg *config.Config, registry *remote.Registry, fs afero.Fs) *BundleChangeSet {
-	baseDir := getBaseDir(cfg)
-	activeMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
-
-	active, err := activeMgr.Load()
-	if err != nil {
-		return nil
-	}
-	pending, err := pendingMgr.Load()
-	if err != nil || pending.IsEmpty() {
-		return nil
-	}
-	cs := DiffLockfiles(active, pending, registry)
-	if cs.IsEmpty() {
-		return nil
-	}
-	return cs
-}
-
-// PendingBundleChanges returns the active↔pending diff for cfg using the
-// real OS filesystem. Used by the MCP startup path so review state gets
-// populated even when no fresh sync ran this session (e.g. the user
-// restarted while pending was still on disk from a previous run). nil
-// when there's nothing to review.
-func PendingBundleChanges(cfg *config.Config) *BundleChangeSet {
-	if cfg == nil {
-		return nil
-	}
-	registry, err := getRegistry(cfg)
-	if err != nil {
-		registry = nil // diff degrades to "no trust filter" rather than aborting
-	}
-	fs := afero.NewOsFs()
-	// Trusted changes are applied coherently by StageUpgrade (it rewrites the
-	// refs), and DiffLockfiles filters trusted entries from review regardless, so
-	// there is nothing to promote here — just report the reviewable delta.
-	return computeBundleChanges(cfg, registry, fs)
 }
 
 // syncRefURLs returns the unique repo URLs behind the given canonical refs, in
@@ -479,23 +409,17 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		return item
 	}
 
-	// Pull the item. The pull must be Blind: there is no interactive
-	// confirmation to give — the bundle-review gate is the confirmation — and
-	// any content display would be premature. Because Blind skips the security
-	// review entirely, StageUntrustedNew is the compensating gate: a FIRST
-	// install from an untrusted remote lands in the pending lockfile for
-	// `ctxloom bundle review` instead of the active one, so its hooks/MCP/
-	// context cannot activate until approved. Stdout is pinned to stderr
-	// because sync runs inside the MCP server, whose process stdout carries
-	// the JSON-RPC stream; pull's informational output (Blind-mode notice,
-	// lockfile warnings) must never land there.
+	// Pull the item. Force so the non-interactive sync never blocks on a
+	// retraction prompt (there is no other confirmation gate — exposure of the
+	// pulled content is decided per item by the content trust gate). Stdout is
+	// pinned to stderr because sync runs inside the MCP server, whose process
+	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
+	// warnings) must never land there.
 	opts := remote.PullOptions{
-		LocalDir:          baseDir,
-		Force:             force,
-		Blind:             true,
-		StageUntrustedNew: true,
-		ItemType:          itemType,
-		Stdout:            os.Stderr,
+		LocalDir: baseDir,
+		Force:    true,
+		ItemType: itemType,
+		Stdout:   os.Stderr,
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)
@@ -506,12 +430,9 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	}
 
 	item.LocalPath = result.LocalPath
-	switch {
-	case result.Staged:
-		item.Status = "staged"
-	case result.Overwritten:
+	if result.Overwritten {
 		item.Status = "updated"
-	default:
+	} else {
 		item.Status = "installed"
 	}
 
@@ -529,8 +450,6 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 		result.Updated++
 	case "skipped":
 		result.Skipped = append(result.Skipped, item)
-	case "staged":
-		result.Staged = append(result.Staged, item)
 	case "failed":
 		result.Failed = append(result.Failed, item)
 		result.Errors++

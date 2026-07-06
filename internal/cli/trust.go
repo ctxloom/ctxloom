@@ -148,6 +148,7 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 // only a project whose harness is already applied (some backend has managed
 // artifacts wired); re-applying into a project that never installed the harness
 // would create artifacts where none exist, so that case is skipped.
+// reprise:ignore — its only twin was bundle_review_cli.go's applyHooksAfterReview, deleted with the review flow in the trust-simplify demolition; this survivor is correct and untouched, so the duplicate group no longer exists.
 func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
 	if !harnessApplied(ctx, cfg) {
 		return

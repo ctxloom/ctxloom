@@ -17,19 +17,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-const (
-	lockfileName        = paths.LockFileName + ".yaml"
-	pendingLockfileName = paths.LockFileName + ".pending.yaml"
-)
+const lockfileName = paths.LockFileName + ".yaml"
 
-// LockfileManager handles reading and writing lockfiles. Each manager is
-// scoped to one role: "active" (lock.yaml — what BundleReader reads
-// against) or "pending" (lock.pending.yaml — proposed updates from a sync
-// that have not yet been approved through the review flow).
+// LockfileManager handles reading and writing the active lockfile (lock.yaml —
+// what BundleReader reads against). It is pure dependency pinning; there is no
+// pending-review split (trust-simplify slice 3) — exposure of pulled content is
+// gated per item by the content-hash trust gate.
 type LockfileManager struct {
 	baseDir  string
 	fs       afero.Fs
-	filename string // lockfileName or pendingLockfileName
+	filename string
 }
 
 // LockfileOption is a functional option for configuring a LockfileManager.
@@ -42,19 +39,8 @@ func WithLockfileFS(fs afero.Fs) LockfileOption {
 	}
 }
 
-// WithPendingLockfile re-points the manager at lock.pending.yaml instead of
-// the active lock.yaml. Used by SyncOnStartup so changed/added bundles
-// land in pending; the active file is left untouched until the user
-// approves the review.
-func WithPendingLockfile() LockfileOption {
-	return func(m *LockfileManager) {
-		m.filename = pendingLockfileName
-	}
-}
-
 // NewLockfileManager creates a new lockfile manager for the active lockfile.
-// If baseDir is empty, uses the current directory's .ctxloom folder. Pass
-// WithPendingLockfile to operate on the pending file instead.
+// If baseDir is empty, uses the current directory's .ctxloom folder.
 func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager {
 	if baseDir == "" {
 		baseDir = paths.AppDirName
@@ -70,30 +56,9 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 	return m
 }
 
-// Path returns the path to the managed lockfile (active or pending).
+// Path returns the path to the managed (active) lockfile.
 func (m *LockfileManager) Path() string {
 	return filepath.Join(m.baseDir, m.filename)
-}
-
-// IsPending reports whether this manager operates on lock.pending.yaml.
-func (m *LockfileManager) IsPending() bool { return m.filename == pendingLockfileName }
-
-// PendingCounterpart returns a manager over the pending lockfile in the same
-// directory and filesystem. Used by the puller to stage an untrusted first
-// install for review instead of writing it to the active lockfile.
-func (m *LockfileManager) PendingCounterpart() *LockfileManager {
-	return &LockfileManager{baseDir: m.baseDir, fs: m.fs, filename: pendingLockfileName}
-}
-
-// Delete removes the lockfile from disk (no-op if it doesn't exist). Used
-// after acknowledge_bundle_review to drop the pending file once its
-// contents have been merged into active.
-func (m *LockfileManager) Delete() error {
-	err := m.fs.Remove(m.Path())
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete lockfile: %w", err)
-	}
-	return nil
 }
 
 // Load reads the lockfile from disk.

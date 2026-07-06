@@ -30,16 +30,6 @@ type LockDependenciesRequest struct {
 	// (CLAUDE.md).
 	FailOnConflict bool `json:"-"`
 
-	// StageUntrustedNew routes a FIRST INSTALL (a closure pin with no existing
-	// active lockfile entry) from an untrusted remote into the pending lockfile
-	// for `ctxloom bundle review` instead of the active one. SECURITY: the
-	// startup auto-lock (runSyncPostSteps) sets this so never-reviewed remote
-	// content cannot reach the active lockfile — and so cannot activate its
-	// hooks/MCP/context — without approval. Trust follows the registry's
-	// TrustBundles flag, mirroring StageUpgrade. A deliberate, explicit lock
-	// (the default) applies the full closure as before.
-	StageUntrustedNew bool `json:"-"`
-
 	FS afero.Fs `json:"-"` // Optional filesystem (defaults to OS filesystem if nil)
 }
 
@@ -84,10 +74,9 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 
 	lockManager := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	// The previous lockfile anchors two safety nets across the closure rebuild:
-	// the per-item Pinned flag (the user's "do not upgrade this" mark must
-	// survive a relock), the first-install detection for StageUntrustedNew, and
-	// the preserved entries when the closure is incomplete. An unreadable
-	// previous lockfile degrades to an empty one.
+	// the per-item Pinned flag (the user's "do not upgrade this" hold must
+	// survive a relock), and the preserved entries when the closure is
+	// incomplete. An unreadable previous lockfile degrades to an empty one.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
 		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
@@ -99,28 +88,11 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		}
 	}
 
-	// Trust is only consulted for the StageUntrustedNew gate; registry load is
-	// best-effort (nil registry → nothing is trusted, the safe default).
-	var registry *remote.Registry
-	if req.StageUntrustedNew {
-		registry, _ = remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(fs))
-	}
-
 	lockfile := &remote.Lockfile{
 		Version: 1,
 		Bundles: make(map[string]remote.LockEntry),
 	}
-	var staged []PinnedRef
 	for _, p := range pins {
-		// SECURITY: a first install from an untrusted remote is staged for
-		// review, never activated (see LockDependenciesRequest.StageUntrustedNew).
-		if req.StageUntrustedNew {
-			if _, had := prev.GetEntry(p.Type, p.Identity); !had &&
-				!isTrustedRemote(registry, remoteNameForKey(registry, p.Identity)) {
-				staged = append(staged, p)
-				continue
-			}
-		}
 		// RequestedVersion records the manifest constraint so a later relock can
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
@@ -148,8 +120,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		}
 	}
 
-	stageNewForReview(baseDir, fs, staged)
-
 	if lockfile.IsEmpty() {
 		return &LockDependenciesResult{
 			Status:  "empty",
@@ -166,30 +136,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Path:      lockManager.Path(),
 		ItemCount: len(lockfile.AllEntries()),
 	}, nil
-}
-
-// stageNewForReview merges untrusted first-install pins into the pending
-// lockfile and warns that they await `ctxloom bundle review`. Best-effort:
-// a pending load/save failure warns but never blocks the lock (CLAUDE.md) —
-// the entries simply stay out of the active lockfile either way.
-func stageNewForReview(baseDir string, fs afero.Fs, staged []PinnedRef) {
-	if len(staged) == 0 {
-		return
-	}
-	pendingMgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs), remote.WithPendingLockfile())
-	pending, err := pendingMgr.Load()
-	if err != nil {
-		clidiag.Warn("ctxloom", "failed to load pending lockfile: %v", err)
-		return
-	}
-	for _, p := range staged {
-		pending.AddEntry(p.Type, p.Identity, remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind})
-	}
-	if err := pendingMgr.Save(pending); err != nil {
-		clidiag.Warn("ctxloom", "failed to stage new bundles for review: %v", err)
-		return
-	}
-	clidiag.Warn("ctxloom", "%d new bundle(s) staged pending review — run 'ctxloom bundle review'", len(staged))
 }
 
 // dropConflicted removes every pin whose identity is in conflicts — used by the

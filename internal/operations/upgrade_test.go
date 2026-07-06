@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -31,7 +30,11 @@ func setupUpgrade(t *testing.T) (cfgBase string, ref, identity, c1 string) {
 	return baseDir, ref, identity, c1
 }
 
-func TestStageUpgrade_StagesUntrustedAdvance_LockOnly(t *testing.T) {
+// TestUpgrade_AdvancesActiveLock pins the new model: an upgrade re-resolves the
+// closure and writes the new SHA straight to the ACTIVE lock — there is no
+// pending-review split. Whether the new content ever reaches the agent is
+// decided per item at exposure by the content trust gate, not here.
+func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	baseDir, ref, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
@@ -48,36 +51,21 @@ func TestStageUpgrade_StagesUntrustedAdvance_LockOnly(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), "ctxloom/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := StageUpgrade(ctx, cfg)
+	advanced, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 0, res.TrustedApplied, "an unregistered remote is untrusted → nothing auto-applied")
-	assert.Equal(t, 1, res.Staged)
+	assert.Equal(t, 1, advanced)
 
-	// Active still at c1; the new SHA is staged in pending.
+	// The active lock now holds the new SHA — no approval step.
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	assert.Equal(t, c1, e1.SHA, "an untrusted upgrade leaves the active lock untouched")
-
-	pending, err := LoadPendingLockfile(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, pending)
-	pe, ok := pending.GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, ok)
-	assert.Equal(t, c2, pe.SHA, "the new SHA is staged for review")
-
-	// Approve merges pending → active.
-	applied, err := ApproveUpgrade(ctx, cfg)
-	require.NoError(t, err)
-	assert.Equal(t, 1, applied)
-	e2, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	assert.Equal(t, c2, e2.SHA, "approval advances the active lock")
+	assert.Equal(t, c2, e1.SHA, "the upgrade advances the active lock directly")
 
 	// The manifest still holds the bare constraint — never rewritten.
 	loaded, err := profileLoader(cfg).Load("default")
 	require.NoError(t, err)
-	assert.Equal(t, []string{ref}, loaded.Bundles, "upgrade/approve never rewrite the manifest ref")
+	assert.Equal(t, []string{ref}, loaded.Bundles, "upgrade never rewrites the manifest ref")
 }
 
-func TestStageUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
+func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	baseDir, ref, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
@@ -94,25 +82,24 @@ func TestStageUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), "ctxloom/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := StageUpgrade(ctx, cfg)
+	advanced, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 0, res.Staged, "a held entry is never staged for upgrade")
-	assert.Equal(t, 0, res.TrustedApplied)
+	assert.Equal(t, 0, advanced, "a held entry is never advanced by upgrade")
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
 	assert.Equal(t, c1, e1.SHA, "the held entry stays frozen at its locked SHA")
+	assert.True(t, e1.Pinned, "the hold survives the relock")
 }
 
-// TestStageUpgrade_PreservesInlineRootedEntry pins the canonical-root-set fix:
-// when a trusted change triggers the wholesale active-lock rewrite, a dependency
-// rooted ONLY in an inline config.yaml profile must not be erased. Using a
-// narrower root set (directory profiles only) dropped such entries, silently
-// re-resolving them without review on the next lock.
-func TestStageUpgrade_PreservesInlineRootedEntry(t *testing.T) {
+// TestUpgrade_PreservesInlineRootedEntry pins the canonical-root-set fix: the
+// wholesale active-lock rewrite an upgrade performs must not erase a dependency
+// rooted ONLY in an inline config.yaml profile. A narrower root set (directory
+// profiles only) dropped such entries.
+func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	tmp := t.TempDir()
 	baseDir := filepath.Join(tmp, ".ctxloom")
 
-	// Trusted bundle in repo A, referenced by a directory profile.
+	// Bundle in repo A, referenced by a directory profile.
 	srcA := filepath.Join(tmp, "srcA")
 	a1 := initLocalRepoWithFile(t, srcA, "ctxloom/bundles/demoA.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
@@ -128,32 +115,24 @@ func TestStageUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 		"inlineprof": {Bundles: []string{refB}},
 	}
 
-	// Register repo A as a TRUSTED remote so its advance auto-applies (which is
-	// what triggers Save(newActive)).
-	reg, err := remote.NewRegistry(paths.RemotesPath(baseDir))
-	require.NoError(t, err)
-	require.NoError(t, reg.Add("repoA", "file://"+srcA))
-	require.NoError(t, reg.SetTrustBundles("repoA", true))
-
 	ctx := context.Background()
-	_, err = LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 
 	active0 := mustLoadActive(t, baseDir)
 	_, okA := active0.GetEntry(remote.ItemTypeBundle, refA)
 	eB0, okB := active0.GetEntry(remote.ItemTypeBundle, refB)
-	require.True(t, okA, "trusted bundle locked")
+	require.True(t, okA, "repo-A bundle locked")
 	require.True(t, okB, "inline-rooted bundle locked")
 	require.Equal(t, b1, eB0.SHA)
 
-	// Advance the TRUSTED bundle upstream and upgrade: the trusted change
-	// auto-applies, rewriting the active lock.
+	// Advance repo A and upgrade: the active lock is rewritten from the closure.
 	a2 := addFileToLocalRepo(t, srcA, "ctxloom/bundles/demoA2.yaml", "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 
-	res, err := StageUpgrade(ctx, cfg)
+	advanced, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	require.Equal(t, 1, res.TrustedApplied, "the trusted advance auto-applies and rewrites the active lock")
+	require.Equal(t, 1, advanced, "repo A advanced")
 
 	// The inline-rooted entry must survive the wholesale rewrite.
 	active1 := mustLoadActive(t, baseDir)

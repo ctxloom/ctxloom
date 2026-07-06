@@ -12,7 +12,6 @@ Feature: Review pending items
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
-    And I run "ctxloom bundle approve"
     # The pinned third-party bundle's items are born pending: review names them…
     When I run "ctxloom review --list"
     Then the command succeeds
@@ -42,7 +41,6 @@ Feature: Review pending items
     And I run "ctxloom remote default origin"
     And I run "ctxloom profile create dev --bundle demo"
     And I run "ctxloom remote pull"
-    And I run "ctxloom bundle approve"
     When I reject the pending item "demo#fragments/demo-frag" from remote "origin"
     Then the command succeeds
     And the output contains "Rejected"

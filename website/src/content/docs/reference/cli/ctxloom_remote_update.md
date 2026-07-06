@@ -34,7 +34,6 @@ ctxloom remote update [reference] [flags]
 
 ```
       --apply     Apply available updates
-      --blind     Skip security review display (implies --force)
       --cleanup   Remove local files for items deleted from remote
       --force     Skip confirmation prompts when applying updates
   -h, --help      help for update

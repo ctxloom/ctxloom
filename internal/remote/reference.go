@@ -115,7 +115,7 @@ func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
 // at a given commit IS pinned to that commit. On any failure ref is returned
 // unchanged (fault tolerant — persist the authored form rather than drop it).
 func ResolveRefString(ref, sourceURL, sourceHash string, kind ItemType) string {
-	base, item := splitItemPath(ref)
+	base, item := SplitItemPath(ref)
 	if _, err := ParseReference(base); err == nil {
 		return ref // already self-contained
 	}
@@ -293,7 +293,7 @@ func parseTypePathVersion(s string) (itemType ItemType, itemPath string, content
 	// loader (see loader_content.go splitItemRef). Done BEFORE the @version
 	// split so the "<path>@<version>#sel" form (what ResolveRefString emits)
 	// doesn't fold the selector into the version.
-	itemPath, selector := splitItemPath(pathWithVersion)
+	itemPath, selector := SplitItemPath(pathWithVersion)
 
 	// Check for content version suffix: path@contentVersion. The legacy
 	// "<path>#sel@<version>" ordering carries its version inside the selector.

@@ -13,17 +13,21 @@ Upgrade pinned dependencies to the latest available
 
 ### Synopsis
 
-Re-pin each local profile's direct remote references to current HEAD and
-stage the resulting dependency changes for review.
+Re-resolve each local profile's dependency closure to the newest commit each
+version constraint allows and write the advances straight to the active lock —
+your profile YAML is never rewritten. A held entry ('ctxloom bundle hold') stays
+frozen.
+
+The lockfile is pure dependency pinning: upgrading a pin does not expose new
+content to the agent. Any changed content from an untrusted source is withheld
+until you accept it with 'ctxloom review'.
 
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
-'remote upgrade' advances your pins to the newest commit. The changes are NOT
-applied directly — they are staged in the pending lockfile so you can review
-them ('ctxloom bundle review') and approve or decline. Passive 'remote pull'
-installs exactly what is already pinned and never stages a change.
+'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'
+installs exactly what is already pinned and never advances.
 
 Examples:
-  ctxloom remote upgrade                 # Stage HEAD pins for review
+  ctxloom remote upgrade                 # Advance pins to the latest available
 
 ```
 ctxloom remote upgrade [flags]

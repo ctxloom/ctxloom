@@ -41,9 +41,7 @@ Examples:
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom bundle approve](/reference/cli/ctxloom_bundle_approve/)	 - Approve pending bundle changes
 * [ctxloom bundle create](/reference/cli/ctxloom_bundle_create/)	 - Create a new bundle
-* [ctxloom bundle decline](/reference/cli/ctxloom_bundle_decline/)	 - Decline pending bundle changes
 * [ctxloom bundle delete](/reference/cli/ctxloom_bundle_delete/)	 - Delete a bundle
 * [ctxloom bundle distill](/reference/cli/ctxloom_bundle_distill/)	 - Distill bundle files to create token-efficient versions
 * [ctxloom bundle edit](/reference/cli/ctxloom_bundle_edit/)	 - Edit a bundle
@@ -53,9 +51,7 @@ Examples:
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle mcp](/reference/cli/ctxloom_bundle_mcp/)	 - Manage MCP servers within a bundle
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
-* [ctxloom bundle review](/reference/cli/ctxloom_bundle_review/)	 - Show bundle changes pending review
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
-* [ctxloom bundle show-pending](/reference/cli/ctxloom_bundle_show-pending/)	 - Print a pending bundle's YAML and structural diff against active
 * [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again
 * [ctxloom bundle view](/reference/cli/ctxloom_bundle_view/)	 - View bundle content
 

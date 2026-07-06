@@ -19,10 +19,12 @@ func FragmentName(ref string) (name string, ok bool) {
 	return "", false
 }
 
-// splitItemPath separates a bundle reference's URL/name part from an optional
+// SplitItemPath separates a bundle reference's URL/name part from an optional
 // "#item-path" suffix (e.g. "...#fragments/name"). When no suffix is present,
-// itemPath is empty and base is the input unchanged.
-func splitItemPath(ref string) (base, itemPath string) {
+// itemPath is empty and base is the input unchanged. Exported so callers
+// outside this package (e.g. operations dependency-URL collection) share the
+// one splitter instead of copying it.
+func SplitItemPath(ref string) (base, itemPath string) {
 	if hashIdx := strings.Index(ref, "#"); hashIdx != -1 {
 		return ref[:hashIdx], ref[hashIdx:]
 	}
@@ -80,7 +82,7 @@ func CanonicalFragmentRef(ref string) string {
 // stay version-agnostic); the version is meant to be honored only at the
 // read/resolution path.
 func SplitFragmentVersion(ref string) (canonical, version string) {
-	base, sel := splitItemPath(ref)
+	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, FragmentSelector) {
 		return ref, ""
 	}
@@ -107,7 +109,7 @@ const PromptSelector = "#skills/"
 // skill selector (a bare name) is returned unchanged with no version — a bare
 // name has no bundle to pin a historical version against.
 func SplitPromptVersion(ref string) (canonical, version string) {
-	base, sel := splitItemPath(ref)
+	base, sel := SplitItemPath(ref)
 	if !strings.HasPrefix(sel, PromptSelector) {
 		return ref, ""
 	}

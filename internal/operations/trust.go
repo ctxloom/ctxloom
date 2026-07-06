@@ -95,7 +95,7 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 		// A trust store we cannot read may hold rejections we would otherwise
 		// miss — deny everything rather than silently reopen it. Fatal-class in
 		// strict mode (a deny-all session is not the session the user set up).
-		strictness.Fail(strictness.ClassTrust, "fix or remove .ctxloom/trust.yaml, then re-review (ctxloom bundle review)",
+		strictness.Fail(strictness.ClassTrust, "fix or remove .ctxloom/trust.yaml, then re-review (ctxloom review)",
 			"trust store unreadable, denying all items: %v", err)
 		return decide(trust.Deny, trust.SourcePending), nil
 	}

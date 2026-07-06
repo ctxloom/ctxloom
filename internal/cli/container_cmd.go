@@ -167,7 +167,7 @@ func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error
 	w := iox.NewErrWriter(out)
 	if len(entries) == 0 {
 		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' skill).")
-		w.Println("Untrusted declarations are withheld — review with `ctxloom bundle review`, then re-run.")
+		w.Println("Untrusted declarations are withheld — review with `ctxloom review`, then re-run.")
 		return w.Err()
 	}
 	w.Println(toolingPrompt)

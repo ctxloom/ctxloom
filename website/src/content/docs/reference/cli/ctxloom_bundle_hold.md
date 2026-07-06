@@ -13,8 +13,8 @@ Hold an item at its locked SHA so `upgrade` won't advance it
 
 ### Synopsis
 
-Set the hold flag on a bundle or profile's active lockfile entry so 'remote
-upgrade' leaves it frozen at its currently-locked commit — even when its version
+Set the hold flag on a bundle's active lockfile entry so 'remote upgrade'
+leaves it frozen at its currently-locked commit — even when its version
 constraint would otherwise allow a newer one. The hold is policy only: it does
 not edit the manifest, and the held SHA still satisfies the constraint. Unhold to
 let it move again. ('hold' was formerly 'pin', which now risks confusion with an

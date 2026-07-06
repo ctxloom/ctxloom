@@ -41,13 +41,10 @@ func init() {
 	bundleCmd.AddCommand(bundleMCPCmd)
 	bundleMCPCmd.AddCommand(bundleMCPEditCmd)
 
-	// Bundle-review CLI (replaces the former in-chat MCP review flow).
-	bundleCmd.AddCommand(bundleReviewCmd)
-	bundleCmd.AddCommand(bundleApproveCmd)
-	bundleCmd.AddCommand(bundleDeclineCmd)
+	// Bundle hold/unhold — dependency management over the active lockfile.
+	// (Per-item content review lives in the top-level `ctxloom review`.)
 	bundleCmd.AddCommand(bundleHoldCmd)
 	bundleCmd.AddCommand(bundleUnholdCmd)
-	bundleCmd.AddCommand(bundleShowPendingCmd)
 
 	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")

@@ -436,12 +436,9 @@ Examples:
 			}
 		}
 
-		// Surface untrusted bundle changes that sync left pending. Trusted
-		// remotes auto-apply; the rest wait for an explicit CLI review (this
-		// replaces the former in-chat review gate — startup is never blocked).
-		if pending := operations.PendingBundleChanges(cfg); !pending.IsEmpty() {
-			fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(pending.All()))
-		}
+		// Items awaiting review are surfaced per-item by the content trust gate
+		// during assembly (the "N item(s) awaiting review — run 'ctxloom review'"
+		// advisory), not by a bundle-level lockfile diff here.
 
 		// Log which companion binaries (taskloom, ltk) this session is wired
 		// with, version-probed via `<bin> version --format json`. Skipped under

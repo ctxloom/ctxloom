@@ -33,8 +33,6 @@ type BundleByteSource interface {
 //
 // It never writes to disk and never hits a forge API: the supplied
 // FetcherFactory MUST be a cached factory (see NewCachedFetcherFactory).
-// Pass the active lockfile for normal reads, or a pending lockfile to
-// preview content that hasn't been approved yet (used by show_bundle_verbatim).
 //
 // BundleReader is intentionally bytes-only — it has no knowledge of bundle
 // YAML structure. Callers in higher layers parse via internal/bundles.

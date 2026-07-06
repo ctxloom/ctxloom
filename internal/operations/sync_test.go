@@ -341,9 +341,9 @@ remotes:
 
 // TestSyncDependencies_PullOutputAvoidsStdout pins the MCP stdio invariant:
 // sync runs inside the MCP server, whose stdout carries JSON-RPC, so every
-// pull's informational output (Blind-mode notice, lockfile warnings) must be
-// routed to stderr. An unset PullOptions.Stdout defaults to os.Stdout inside
-// Pull, which would corrupt the protocol stream.
+// pull's informational output (lockfile warnings) must be routed to stderr. An
+// unset PullOptions.Stdout defaults to os.Stdout inside Pull, which would
+// corrupt the protocol stream.
 func TestSyncDependencies_PullOutputAvoidsStdout(t *testing.T) {
 	fs := afero.NewMemMapFs()
 

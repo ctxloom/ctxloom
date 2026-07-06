@@ -126,14 +126,30 @@ No grandfathering (pre-1.0, no-compat policy):
    Acceptance: a third-party bundle's items are withheld until reviewed, then
    exposed; an upstream edit re-gates exactly the changed items and review
    shows the diff.
-3. **Demolition.** Remove bundle posture, baseline, pending-lockfile security
-   semantics and the `bundle review/approve/decline/show-pending` family
-   (lockfile keeps pins + holds); simplify sync/blind paths to the pending
-   notice. Update acceptance suite. This slice is the breaking sweep — land
-   after 1+2 are green and covered.
-4. **Docs + messaging.** Rewrite `docs/trust-model.md` and the website
-   review-and-trust page against the new model; fold the pending-count line
-   into the fail-loudly strict messaging; release-notes entry.
+3. **Demolition. — DONE (breaking sweep).** Removed the pending-lockfile
+   "security layer" (`lock.pending.yaml` + `WithPendingLockfile`/
+   `PendingCounterpart`/`StageUntrustedNew`/`Staged`, the active↔pending diff
+   `DiffLockfiles`/`BundleChangeSet`/`PendingBundleChanges`, and the
+   `bundle review/approve/decline/show-pending` family) and blind mode (the
+   `Blind` pull option + the pull-time `securityReview` gate and its
+   `SecureContent`/`SecurityWarning` model + `remote update --blind`).
+   `remote pull`/`upgrade` now move pins straight to the active lock;
+   `StageUpgrade`/`ApproveUpgrade` collapsed into `UpgradeDependencies`
+   (advance-to-active, holds preserved). `bundle hold`/`unhold` survive as
+   dependency management. Invariant preserved: changed remote content re-hashes
+   to `pending` and is withheld by the content-hash trust gate at every
+   exposure choke (content, MCP/hook exec, prompt export) until accepted via
+   `ctxloom review`. Acceptance suite updated. NOTE: bundle posture
+   (`bundle trust/untrust`) and the first-run baseline were retired in slices
+   1–2, not here.
+4. **Docs + messaging. — PARTIAL / DEFERRED.** Source help text and the MCP
+   server instructions were retargeted at `ctxloom review`, and generated CLI
+   docs + man pages regenerate (dropping the deleted commands/flag). Still
+   DEFERRED to slice 4: the conceptual prose rewrite of `docs/trust-model.md`,
+   the website `concepts/review-and-trust.md` page, and `docs/adr/0033`'s
+   dependency-model summary (all still describe the old two-layer/pending
+   model); folding the pending-count line into fail-loudly strict messaging;
+   release-notes entry.
 
 ## Interactions
 

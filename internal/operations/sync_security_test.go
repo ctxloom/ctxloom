@@ -18,8 +18,7 @@ import (
 )
 
 // captureStderr runs fn with os.Stderr redirected to a pipe and returns what
-// was written — the "ctxloom: warning:" lines the fault-tolerance and review
-// paths emit.
+// was written — the "ctxloom: warning:" lines the fault-tolerance paths emit.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stderr
@@ -38,127 +37,29 @@ func captureStderr(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// loadPending returns the pending lockfile for baseDir (empty if absent).
-func loadPending(t *testing.T, baseDir string) *remote.Lockfile {
-	t.Helper()
-	lf, err := remote.NewLockfileManager(baseDir, remote.WithPendingLockfile()).Load()
-	require.NoError(t, err)
-	return lf
-}
-
-// TestSyncDependencies_UntrustedFirstInstallStaged pins the startup-sync
-// security gate end to end: a profile-referenced bundle from an UNTRUSTED
-// remote that has never been locked is a blind first install — it must be
-// staged in the pending lockfile for `ctxloom bundle review`, never written to
-// the active lockfile (which is what hooks/MCP/context activation reads), and
-// the user must be warned. Approval then activates it.
-func TestSyncDependencies_UntrustedFirstInstallStaged(t *testing.T) {
+// TestSyncDependencies_FirstInstallLandsActive pins the post-demolition model:
+// a profile-referenced bundle from an UNTRUSTED remote installs straight into
+// the ACTIVE lockfile — the pin moves freely, with no pending-review split.
+// Withholding its content from the agent is the content trust gate's job
+// (per-item, at exposure), not the lockfile's.
+func TestSyncDependencies_FirstInstallLandsActive(t *testing.T) {
 	baseDir, ref, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 	_ = ref
-
-	var result *SyncDependenciesResult
-	stderr := captureStderr(t, func() {
-		var err error
-		result, err = SyncDependencies(ctx, cfg, SyncDependenciesRequest{Lock: true})
-		require.NoError(t, err)
-	})
-
-	require.Len(t, result.Staged, 1, "the first install is reported as staged, not installed")
-	assert.Equal(t, 0, result.Installed)
-	assert.Contains(t, stderr, "staged pending review", "the user is told to run bundle review")
-
-	// SECURITY: the active lockfile must NOT contain the unreviewed bundle.
-	active := mustLoadActive(t, baseDir)
-	_, inActive := active.GetEntry(remote.ItemTypeBundle, identity)
-	assert.False(t, inActive, "an unreviewed first install must not reach the active lockfile")
-
-	pending := loadPending(t, baseDir)
-	pe, inPending := pending.GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, inPending, "the first install is staged for review")
-	assert.Equal(t, c1, pe.SHA)
-
-	// Approval merges the staged first install into active — only then is the
-	// bundle resolvable (and its hooks/MCP applied by the review CLI).
-	applied, err := ApproveUpgrade(ctx, cfg)
-	require.NoError(t, err)
-	assert.Equal(t, 1, applied)
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, ok, "approval activates the staged first install")
-	assert.Equal(t, c1, e.SHA)
-	pendingAfter, err := LoadPendingLockfile(cfg)
-	require.NoError(t, err)
-	assert.Nil(t, pendingAfter, "pending is cleared after approval")
-}
-
-// TestSyncDependencies_TrustedFirstInstallApplies pins the trusted half of the
-// gate: a first install from a remote with TrustBundles=true behaves exactly
-// as before — straight into the active lockfile, nothing staged.
-func TestSyncDependencies_TrustedFirstInstallApplies(t *testing.T) {
-	baseDir, ref, identity, c1 := setupUpgrade(t)
-	cfg := testConfigWithSCMPath(baseDir)
-	ctx := context.Background()
-
-	reg, err := remote.NewRegistry(paths.RemotesPath(baseDir))
-	require.NoError(t, err)
-	require.NoError(t, reg.Add("src", "file://"+srcDirOf(ref)))
-	require.NoError(t, reg.SetTrustBundles("src", true))
 
 	result, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{Lock: true})
 	require.NoError(t, err)
+	assert.Equal(t, 1, result.Installed, "the first install lands in the active lockfile")
 
-	assert.Empty(t, result.Staged, "trusted first installs are not staged")
-	assert.Equal(t, 1, result.Installed)
-
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, ok, "trusted first install lands in the active lockfile as before")
-	assert.Equal(t, c1, e.SHA)
-
-	pending := loadPending(t, baseDir)
-	assert.True(t, pending.IsEmpty(), "nothing pends for a trusted remote")
-}
-
-// TestLockDependencies_StageUntrustedNewGate pins the lock-side half of the
-// startup gate: even when the closure walk discovers an untrusted first
-// install (e.g. a bundle referenced by a remote parent profile, which sync
-// itself never pulls directly), the startup auto-lock must stage it instead
-// of writing it into the active lockfile.
-func TestLockDependencies_StageUntrustedNewGate(t *testing.T) {
-	baseDir, ref, identity, c1 := setupUpgrade(t)
-	cfg := testConfigWithSCMPath(baseDir)
-	ctx := context.Background()
-	_ = ref
-
-	stderr := captureStderr(t, func() {
-		result, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, StageUntrustedNew: true})
-		require.NoError(t, err)
-		assert.Equal(t, "empty", result.Status, "nothing reaches the active lockfile")
-	})
-	assert.Contains(t, stderr, "staged pending review")
-
-	_, inActive := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	assert.False(t, inActive)
-	pe, inPending := loadPending(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, inPending)
-	assert.Equal(t, c1, pe.SHA)
-
-	// Once approved into the active lockfile, a later startup lock keeps the
-	// entry active — it is no longer a first install.
-	applied, err := ApproveUpgrade(ctx, cfg)
-	require.NoError(t, err)
-	require.Equal(t, 1, applied)
-	result, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, StageUntrustedNew: true})
-	require.NoError(t, err)
-	assert.Equal(t, "generated", result.Status)
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
-	require.True(t, ok, "an approved entry stays active across relocks")
+	active := mustLoadActive(t, baseDir)
+	e, inActive := active.GetEntry(remote.ItemTypeBundle, identity)
+	require.True(t, inActive, "the pin reaches the active lockfile directly")
 	assert.Equal(t, c1, e.SHA)
 }
 
-// TestLockDependencies_DefaultLockAppliesFirstInstalls pins that a deliberate,
-// explicit lock (StageUntrustedNew unset — not the startup path) keeps its
-// historical semantics: the full closure lands in the active lockfile.
+// TestLockDependencies_DefaultLockAppliesFirstInstalls pins that a lock applies
+// the full closure straight to the active lockfile.
 func TestLockDependencies_DefaultLockAppliesFirstInstalls(t *testing.T) {
 	baseDir, _, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)
@@ -238,48 +139,43 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	assert.Equal(t, be0.SHA, be1.SHA)
 }
 
-// TestStageUpgrade_UnreachableParentPreservesEntries covers the same data-loss
-// path through StageUpgrade's wholesale Save(newActive): a trusted change
-// elsewhere triggers the active-lock rewrite while a remote parent profile is
-// unreachable — the unexpanded subtree's entries must survive.
-func TestStageUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
+// TestUpgrade_UnreachableParentPreservesEntries covers the same data-loss path
+// through UpgradeDependencies's wholesale Save(newActive): a reachable bundle
+// advances while a remote parent profile is unreachable — the unexpanded
+// subtree's entries must survive the rewrite.
+func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	baseDir, src, _, bundleID := setupRemoteParent(t)
 	tmp := filepath.Dir(baseDir)
 
-	// A second, TRUSTED repo whose advance triggers the wholesale rewrite.
+	// A second repo whose advance drives the wholesale rewrite.
 	srcA := filepath.Join(tmp, "srcA")
 	a1 := initLocalRepoWithFile(t, srcA, "ctxloom/bundles/demoA.yaml", "name: demoA\n")
 	refA := "file://" + srcA + "@bundles/demoA"
-	writeLocalProfile(t, baseDir, "trustedprof", "bundles:\n  - "+refA+"\n")
+	writeLocalProfile(t, baseDir, "otherprof", "bundles:\n  - "+refA+"\n")
 
 	cfg := testConfigWithSCMPath(baseDir)
-	reg, err := remote.NewRegistry(paths.RemotesPath(baseDir))
-	require.NoError(t, err)
-	require.NoError(t, reg.Add("repoA", "file://"+srcA))
-	require.NoError(t, reg.SetTrustBundles("repoA", true))
-
 	ctx := context.Background()
-	_, err = LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
 	require.NoError(t, err)
 	be0, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, bundleID)
 	require.True(t, okB, "bundle under the remote parent locked")
 
-	// Advance the trusted repo, then make the parent's repo unreachable.
+	// Advance repo A, then make the parent's repo unreachable.
 	a2 := addFileToLocalRepo(t, srcA, "ctxloom/bundles/demoA2.yaml", "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 	require.NoError(t, os.RemoveAll(paths.ReposCachePath(baseDir)))
 	require.NoError(t, os.RemoveAll(src))
 
-	var res UpgradeResult
+	var advanced int
 	stderr := captureStderr(t, func() {
-		res, err = StageUpgrade(ctx, cfg)
+		advanced, err = UpgradeDependencies(ctx, cfg)
 		require.NoError(t, err)
 	})
-	require.Equal(t, 1, res.TrustedApplied, "the trusted advance triggers the wholesale rewrite")
+	assert.GreaterOrEqual(t, advanced, 1, "repo A advanced")
 	assert.Contains(t, stderr, "could not expand remote parent profile")
 
 	be1, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, bundleID)
-	require.True(t, okB, "the unexpanded subtree's entry survives the trusted rewrite")
+	require.True(t, okB, "the unexpanded subtree's entry survives the rewrite")
 	assert.Equal(t, be0.SHA, be1.SHA)
 }
 

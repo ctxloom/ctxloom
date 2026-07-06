@@ -6,35 +6,23 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/spf13/afero"
-	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
 // PullOptions configures pull behavior.
+//
+// A pull only records a dependency pin; it never exposes content to the agent.
+// Whether the pulled bytes ever reach the LLM is decided later, per item, by the
+// content-hash-keyed trust gate (operations.EffectiveTrust) — so pull carries no
+// security-review ceremony of its own (trust-simplify slice 3).
 type PullOptions struct {
-	// Force skips the confirmation prompt but still displays content.
+	// Force skips the retracted-version confirmation prompt.
 	Force bool
-
-	// Blind skips both confirmation prompt AND content display.
-	// Use this for automated/batch operations. Implies Force.
-	Blind bool
-
-	// StageUntrustedNew redirects the lockfile write of a FIRST INSTALL (an
-	// item with no existing active lockfile entry) from a remote without
-	// TrustBundles into the pending lockfile (lock.pending.yaml) instead of
-	// the active one. SECURITY: Blind pulls skip the interactive security
-	// review, so non-interactive callers (startup/auto sync) set this so
-	// never-reviewed content cannot reach the active lockfile — and thus its
-	// hooks/MCP/context cannot activate — until the user approves it via
-	// `ctxloom bundle review` / `ctxloom bundle approve`. Items already in the
-	// active lockfile (previously installed or reviewed) are unaffected.
-	StageUntrustedNew bool
 
 	// LocalDir overrides the default .ctxloom directory path.
 	LocalDir string
@@ -74,13 +62,6 @@ type PullResult struct {
 	// re-read from LocalPath. Populated for bundles (whose LocalPath is
 	// synthetic) and also for profiles (where it equals what was written).
 	Content []byte
-
-	// Staged reports that the item's lockfile entry was written to the
-	// PENDING lockfile for review instead of the active one (see
-	// PullOptions.StageUntrustedNew). A staged item is not installed: its
-	// content cannot resolve, and its hooks/MCP cannot activate, until the
-	// entry is approved into the active lockfile.
-	Staged bool
 }
 
 // FetcherFactory creates Fetcher instances. Allows mocking for tests.
@@ -95,38 +76,13 @@ func DefaultFetcherFactory(repoURL string, auth AuthConfig) (Fetcher, error) {
 	return NewFetcher(repoURL, auth)
 }
 
-// TerminalChecker checks if readers/writers are terminals.
-type TerminalChecker interface {
-	IsTerminalReader(r io.Reader) bool
-	IsTerminalWriter(w io.Writer) bool
-}
-
-// defaultTerminalChecker uses os/term for real terminal detection.
-type defaultTerminalChecker struct{}
-
-func (d *defaultTerminalChecker) IsTerminalReader(r io.Reader) bool {
-	if f, ok := r.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
-}
-
-func (d *defaultTerminalChecker) IsTerminalWriter(w io.Writer) bool {
-	if f, ok := w.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
-}
-
 // Puller handles pulling items from remotes.
 type Puller struct {
-	registry              *Registry
-	auth                  AuthConfig
-	lockfileManager       *LockfileManager
-	bundleLockfileManager *LockfileManager // optional: when set, bundle pulls write here instead of lockfileManager
-	fetcherFactory        FetcherFactory
-	terminalChecker       TerminalChecker
-	fs                    afero.Fs
+	registry        *Registry
+	auth            AuthConfig
+	lockfileManager *LockfileManager
+	fetcherFactory  FetcherFactory
+	fs              afero.Fs
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -146,16 +102,6 @@ func WithLockfileManager(lm *LockfileManager) PullerOption {
 	}
 }
 
-// WithBundleLockfileTarget redirects bundle-pull lockfile writes to lm
-// while leaving profile-pull writes pointed at the main lockfile manager.
-// SyncOnStartup uses this so bundle changes land in lock.pending.yaml
-// instead of the active lock.yaml (docs/bundle-review-plan.md Phase 2.3).
-func WithBundleLockfileTarget(lm *LockfileManager) PullerOption {
-	return func(p *Puller) {
-		p.bundleLockfileManager = lm
-	}
-}
-
 // WithFetcherFactory sets a custom fetcher factory (for testing).
 func WithFetcherFactory(ff FetcherFactory) PullerOption {
 	return func(p *Puller) {
@@ -163,21 +109,14 @@ func WithFetcherFactory(ff FetcherFactory) PullerOption {
 	}
 }
 
-// WithTerminalChecker sets a custom terminal checker (for testing).
-func WithTerminalChecker(tc TerminalChecker) PullerOption {
-	return func(p *Puller) {
-		p.terminalChecker = tc
-	}
-}
-
 // NewPuller creates a new puller.
+// reprise:accept-drift — shares the functional-options constructor idiom with publish.go's NewPublishManager (and, in the base scan, the now-removed terminal-checker methods); the trust demolition reshaped only this file, and these are legitimately independent constructors, not co-maintained copies.
 func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Puller {
 	p := &Puller{
-		registry:        registry,
-		auth:            auth,
-		fetcherFactory:  DefaultFetcherFactory,
-		terminalChecker: &defaultTerminalChecker{},
-		fs:              afero.NewOsFs(),
+		registry:       registry,
+		auth:           auth,
+		fetcherFactory: DefaultFetcherFactory,
+		fs:             afero.NewOsFs(),
 	}
 
 	// Apply options first to allow overrides
@@ -205,10 +144,12 @@ type fetchedItem struct {
 	content          []byte
 }
 
-// Pull downloads an item from a remote with security review. It is the
-// orchestrator: fetch (resolve → retraction → SHA → download → security gate),
-// then install (transform → write → lock → cascade). Each phase is a helper
-// below so this stays readable and each piece is independently testable.
+// Pull downloads an item from a remote and records its pin. It is the
+// orchestrator: fetch (resolve → retraction → SHA → download), then install
+// (write → lock). Each phase is a helper below so this stays readable and each
+// piece is independently testable. Exposure of the pulled content to the agent
+// is gated later, per item, by the content-hash trust gate — pull itself only
+// pins.
 func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*PullResult, error) {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout
@@ -222,7 +163,7 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
 
-	item, err := p.fetchForPull(ctx, ref, refStr, opts)
+	item, err := p.fetchForPull(ctx, ref, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +171,9 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	return p.installPulledItem(ctx, ref, opts, item)
 }
 
-// fetchForPull resolves the remote, checks retraction, resolves the SHA, fetches
-// the content, and runs the security gate — everything needed before writing.
-func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string, opts PullOptions) (*fetchedItem, error) {
+// fetchForPull resolves the remote, checks retraction, resolves the SHA, and
+// fetches the content — everything needed before writing the pin.
+func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOptions) (*fetchedItem, error) {
 	repoURL, rem, localName, err := p.resolveRemoteTarget(ref)
 	if err != nil {
 		return nil, err
@@ -263,10 +204,6 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, refStr string
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
 
-	if err := p.securityReview(ref, rem, refStr, opts, sha, filePath, content); err != nil {
-		return nil, err
-	}
-
 	return &fetchedItem{rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion, resolvedVersion: resolvedVersion, kind: kind, content: content}, nil
 }
 
@@ -287,9 +224,8 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 }
 
 // confirmRetraction warns and (unless forced) prompts when a version has been
-// retracted. A declined prompt cancels the pull. Blind implies force here, as
-// in securityReview: blind pulls run non-interactively (MCP startup sync), so
-// a prompt would block on a stdin nobody answers.
+// retracted. A declined prompt cancels the pull. Non-interactive callers (sync,
+// batch update) pass Force so a prompt never blocks on a stdin nobody answers.
 func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, opts PullOptions) error {
 	retracted, reason, _ := CheckRetracted(ctx, fetcher, owner, repo, ref, opts.ItemType)
 	if !retracted {
@@ -297,7 +233,7 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	}
 	_, _ = fmt.Fprintf(opts.Stdout, "\n⚠️  WARNING: This version has been retracted!\n")
 	_, _ = fmt.Fprintf(opts.Stdout, "Reason: %s\n\n", reason)
-	if opts.Force || opts.Blind {
+	if opts.Force {
 		return nil
 	}
 	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Continue anyway?")
@@ -330,62 +266,6 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 	return res.SHA, requestedVersion, res.Version, res.Kind, nil
 }
 
-// securityReview enforces the pull's safety gate: blind mode implies force,
-// non-forced pulls require an interactive terminal and show the security
-// warning plus a confirmation prompt. Returns an error when the gate is not
-// satisfied (no terminal, parse failure, or declined prompt).
-func (p *Puller) securityReview(ref *Reference, rem *Remote, refStr string, opts PullOptions, sha, filePath string, content []byte) error {
-	effectiveForce := opts.Force || opts.Blind
-
-	if opts.Blind {
-		_, _ = fmt.Fprintf(opts.Stdout, "⚠️  Blind mode: skipping security review for %s\n", refStr)
-	}
-
-	if !effectiveForce && !p.terminalChecker.IsTerminalReader(opts.Stdin) {
-		return fmt.Errorf("interactive terminal required for pull; use --force to skip confirmation")
-	}
-
-	if !opts.Blind {
-		if err := p.displaySecurityReview(ref, rem, opts, sha, filePath, content); err != nil {
-			return err
-		}
-	}
-
-	if effectiveForce {
-		return nil
-	}
-	return confirmInstall(opts)
-}
-
-// displaySecurityReview parses the content for its type-specific security
-// warning and prints it. Returns an error only when the content cannot be
-// parsed.
-func (p *Puller) displaySecurityReview(ref *Reference, rem *Remote, opts PullOptions, sha, filePath string, content []byte) error {
-	shortSHA := sha
-	if len(sha) > 7 {
-		shortSHA = sha[:7]
-	}
-	secure, err := ParseSecureContent(opts.ItemType, content)
-	if err != nil {
-		return fmt.Errorf("failed to parse content: %w", err)
-	}
-	displaySecurityWarning(opts.Stdout, ref, rem, shortSHA, filePath, content, secure, p.terminalChecker)
-	return nil
-}
-
-// confirmInstall prompts for install confirmation, returning ErrCancelled when
-// the user declines.
-func confirmInstall(opts PullOptions) error {
-	confirmed, err := promptConfirmation(opts.Stdout, opts.Stdin, "Install this item?")
-	if err != nil {
-		return fmt.Errorf("failed to read confirmation: %w", err)
-	}
-	if !confirmed {
-		return fmt.Errorf("installation cancelled: %w", errs.ErrCancelled)
-	}
-	return nil
-}
-
 // installPulledItem records a pulled remote item (synthetic path — nothing is
 // materialized) and writes its lockfile entry. Dependencies are NOT cascaded:
 // every reference is hash-pinned, so the dependency closure is determined by
@@ -407,12 +287,11 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		// (see PullOptions.RequestedVersion).
 		requestedVersion = *opts.RequestedVersion
 	}
-	staged, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind)
-	if err != nil {
+	if err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind); err != nil {
 		_, _ = fmt.Fprintf(opts.Stdout, "Warning: failed to update lockfile: %v\n", err)
 	}
 
-	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content, Staged: staged}, nil
+	return &PullResult{LocalPath: localPath, SHA: item.sha, Overwritten: overwritten, Content: content}, nil
 }
 
 // writePulledContent records a pulled remote item. Remote bundles AND profiles
@@ -422,76 +301,6 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 // LocalPath and never overwrites a local file.
 func (p *Puller) writePulledContent(_ *Reference, _ PullOptions, localName, sha string, _ []byte) (localPath string, overwritten bool, err error) {
 	return fmt.Sprintf("<remote>:%s@%s", localName, sha), false, nil
-}
-
-// displaySecurityWarning shows the security warning and full content.
-func displaySecurityWarning(w io.Writer, ref *Reference, rem *Remote, sha, filePath string, content []byte, secure SecureContent, tc TerminalChecker) {
-	warning := secure.SecurityWarning()
-
-	_, _ = fmt.Fprintln(w, "")
-	_, _ = fmt.Fprintln(w, "┌─────────────────────────────────────────────────────────────────┐")
-	_, _ = fmt.Fprintf(w, "│  ⚠️  WARNING: %-50s│\n", warning.Title)
-	_, _ = fmt.Fprintln(w, "│                                                                 │")
-	_, _ = fmt.Fprintf(w, "│  %-62s│\n", warning.Context)
-	_, _ = fmt.Fprintln(w, "│  Malicious content can:                                         │")
-	for _, risk := range warning.Risks {
-		_, _ = fmt.Fprintf(w, "│    • %-58s│\n", risk)
-	}
-	_, _ = fmt.Fprintln(w, "│                                                                 │")
-	_, _ = fmt.Fprintln(w, "│  REVIEW THE FULL CONTENT BELOW BEFORE ACCEPTING                │")
-	_, _ = fmt.Fprintln(w, "└─────────────────────────────────────────────────────────────────┘")
-	_, _ = fmt.Fprintln(w, "")
-
-	// Source info
-	_, _ = fmt.Fprintf(w, "Source: %s @ %s\n", rem.URL, sha)
-	_, _ = fmt.Fprintf(w, "Org:    %s\n", ref.LocalRemoteName())
-	_, _ = fmt.Fprintf(w, "Name:   %s\n", ref.Path)
-	_, _ = fmt.Fprintf(w, "Path:   %s\n", filePath)
-
-	// Display note if present
-	if note := secure.Note(); note != "" {
-		// Truncate very long notes (max 4K chars)
-		const maxNoteLen = 4096
-		if len(note) > maxNoteLen {
-			note = note[:maxNoteLen-3] + "..."
-		}
-		_, _ = fmt.Fprintln(w, "")
-		_, _ = fmt.Fprintf(w, "Note: %s\n", note)
-	}
-
-	_, _ = fmt.Fprintln(w, "")
-
-	// Content with pager for long content
-	contentStr := string(content)
-	lineCount := strings.Count(contentStr, "\n") + 1
-
-	_, _ = fmt.Fprintln(w, "─────────────────── CONTENT START ───────────────────")
-
-	// Use pager for long content if terminal.
-	// Security note: PAGER is user-controlled. This is standard Unix behavior
-	// but users should be aware that PAGER could execute arbitrary commands.
-	if lineCount > 50 && tc.IsTerminalWriter(w) {
-		pager := os.Getenv("PAGER")
-		if pager == "" {
-			pager = "less"
-		}
-
-		cmd := exec.Command(pager)
-		cmd.Stdin = strings.NewReader(contentStr)
-		cmd.Stdout = w
-		cmd.Stderr = os.Stderr
-
-		if err := cmd.Run(); err != nil {
-			// Fallback to direct output
-			_, _ = fmt.Fprint(w, contentStr)
-		}
-	} else {
-		_, _ = fmt.Fprint(w, contentStr)
-	}
-
-	_, _ = fmt.Fprintln(w, "")
-	_, _ = fmt.Fprintln(w, "─────────────────── CONTENT END ─────────────────────")
-	_, _ = fmt.Fprintln(w, "")
 }
 
 // promptConfirmation asks the user for yes/no confirmation.
@@ -511,22 +320,16 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 	return response == "y" || response == "yes", nil
 }
 
-// updateLockfile records provenance in the lockfile. Bundles route to
-// bundleLockfileManager when one was configured (see WithBundleLockfileTarget),
-// so SyncOnStartup can land changes in lock.pending.yaml without touching
-// the active lock.yaml. Profiles always go to the main lockfile manager.
-//
-// With opts.StageUntrustedNew, a first install (no existing entry in the
-// target lockfile) from a remote without TrustBundles is staged into the
-// pending lockfile instead — the security gate for non-interactive pulls.
-// Returns staged=true when that redirect happened.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind) (staged bool, err error) {
+// updateLockfile records provenance in the (active) lockfile. Every pull writes
+// straight to the active lock — there is no pending-review split anymore;
+// whether the pulled content ever reaches the agent is decided per item by the
+// content-hash trust gate, not by which lockfile the pin lives in.
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind) error {
 	itemType := opts.ItemType
-	target := p.lockfileTargetFor(itemType)
-	writingToPending := p.bundleLockfileManager != nil && target == p.bundleLockfileManager
+	target := p.lockfileManager
 	lockfile, err := target.Load()
 	if err != nil {
-		return false, fmt.Errorf("failed to load lockfile: %w", err)
+		return fmt.Errorf("failed to load lockfile: %w", err)
 	}
 
 	existing, hadExisting := lockfile.GetEntry(itemType, localName)
@@ -540,34 +343,14 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		FetchedAt:        time.Now().UTC(),
 	}
 
-	// SECURITY: an untrusted first install never reaches the active lockfile
-	// from a non-interactive pull — it is staged for `bundle review` instead.
-	// Trust mirrors StageUpgrade's routing: TrustBundles means "apply without
-	// review". Only applies when writing to the main (active) manager.
-	if opts.StageUntrustedNew && !hadExisting && !remote.TrustBundles &&
-		target == p.lockfileManager && !target.IsPending() {
-		pendingMgr := target.PendingCounterpart()
-		pending, perr := pendingMgr.Load()
-		if perr != nil {
-			return false, fmt.Errorf("failed to load pending lockfile: %w", perr)
-		}
-		pending.AddEntry(itemType, localName, entry)
-		if serr := pendingMgr.Save(pending); serr != nil {
-			return false, fmt.Errorf("failed to save pending lockfile: %w", serr)
-		}
-		return true, nil
-	}
-
-	// A pin is a deliberate "do not upgrade" decision; a content re-pull must
-	// never silently clear it. Always carry the flag forward. On the ACTIVE
-	// lockfile a blanket pull (no explicit version requested, e.g.
-	// `remote pull --force`) also keeps the entry's frozen SHA/Version — force
-	// repairs a clone, it does not advance past a pin. The pending lockfile
-	// still receives the new SHA so the user can unpin and review it later
-	// (see LockEntry.Pinned).
+	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull
+	// must never silently clear it. Always carry the flag forward, and on a
+	// blanket pull (no explicit version requested, e.g. `remote pull --force`)
+	// keep the entry's frozen SHA/Version too — force repairs a clone, it does
+	// not advance past a hold (see LockEntry.Pinned).
 	if hadExisting && existing.Pinned {
 		entry.Pinned = true
-		if !writingToPending && requestedVersion == "" {
+		if requestedVersion == "" {
 			entry.SHA = existing.SHA
 			entry.Version = existing.Version
 			entry.RequestedVersion = existing.RequestedVersion
@@ -578,18 +361,8 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	lockfile.AddEntry(itemType, localName, entry)
 
 	if err := target.Save(lockfile); err != nil {
-		return false, fmt.Errorf("failed to save lockfile: %w", err)
+		return fmt.Errorf("failed to save lockfile: %w", err)
 	}
 
-	return false, nil
-}
-
-// lockfileTargetFor picks the manager that should own a write for itemType.
-// Bundles use bundleLockfileManager when set; everything else uses the main
-// manager.
-func (p *Puller) lockfileTargetFor(itemType ItemType) *LockfileManager {
-	if itemType == ItemTypeBundle && p.bundleLockfileManager != nil {
-		return p.bundleLockfileManager
-	}
-	return p.lockfileManager
+	return nil
 }

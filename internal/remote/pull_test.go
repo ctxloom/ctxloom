@@ -3,7 +3,6 @@ package remote
 import (
 	"bytes"
 	"context"
-	"io"
 	"strings"
 	"testing"
 
@@ -13,76 +12,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
-
-// mockTerminalChecker is a test double for TerminalChecker.
-type mockTerminalChecker struct {
-	isReader bool
-	isWriter bool
-}
-
-func (m *mockTerminalChecker) IsTerminalReader(r io.Reader) bool {
-	return m.isReader
-}
-
-func (m *mockTerminalChecker) IsTerminalWriter(w io.Writer) bool {
-	return m.isWriter
-}
-
-func TestDisplaySecurityWarning(t *testing.T) {
-	var buf bytes.Buffer
-
-	ref := &Reference{
-		URL:            "https://github.com/alice/ctxloom",
-		ItemType:       ItemTypeBundle,
-		Path:           "security",
-		ContentVersion: "v1.0.0",
-	}
-	rem := &Remote{
-		Name: "alice",
-		URL:  "https://github.com/alice/ctxloom",
-	}
-	sha := "abc1234"
-	filePath := "ctxloom/bundles/security.yaml"
-	content := []byte("description: Test bundle\nfragments:\n  tdd:\n    content: Test content here\n")
-
-	secure, _ := ParseSecureContent(ItemTypeBundle, content)
-	tc := &mockTerminalChecker{isWriter: false}
-	displaySecurityWarning(&buf, ref, rem, sha, filePath, content, secure, tc)
-
-	output := buf.String()
-
-	// Check warning banner is present (bundles show "BUNDLE INSTALLATION")
-	if !strings.Contains(output, "WARNING: BUNDLE INSTALLATION") {
-		t.Error("Missing warning banner")
-	}
-
-	// Check source info
-	if !strings.Contains(output, "https://github.com/alice/ctxloom") {
-		t.Error("Missing source URL")
-	}
-	if !strings.Contains(output, "abc1234") {
-		t.Error("Missing SHA")
-	}
-	if !strings.Contains(output, "alice") {
-		t.Error("Missing org")
-	}
-	if !strings.Contains(output, "security") {
-		t.Error("Missing name")
-	}
-
-	// Check content markers
-	if !strings.Contains(output, "CONTENT START") {
-		t.Error("Missing content start marker")
-	}
-	if !strings.Contains(output, "CONTENT END") {
-		t.Error("Missing content end marker")
-	}
-
-	// Check content is present
-	if !strings.Contains(output, "Test content here") {
-		t.Error("Missing content body")
-	}
-}
 
 func TestPromptConfirmation(t *testing.T) {
 	tests := []struct {
@@ -197,7 +126,6 @@ func mockFetcherFactory(f Fetcher) FetcherFactory {
 func TestNewPuller_WithOptions(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
-	tc := &mockTerminalChecker{}
 	ff := mockFetcherFactory(newMockFetcher())
 
 	// Create registry
@@ -207,17 +135,18 @@ func TestNewPuller_WithOptions(t *testing.T) {
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
 		WithLockfileManager(lm),
-		WithTerminalChecker(tc),
 		WithFetcherFactory(ff),
 	)
 
 	assert.NotNil(t, puller)
 	assert.Equal(t, fs, puller.fs)
 	assert.Equal(t, lm, puller.lockfileManager)
-	assert.Equal(t, tc, puller.terminalChecker)
 }
 
-func TestPuller_Pull_Force(t *testing.T) {
+// TestPuller_Pull records a dependency pin. A pull no longer shows a security
+// warning or asks for confirmation — content is gated per item at exposure —
+// so a plain (non-forced) pull just records the lockfile entry.
+func TestPuller_Pull(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	// Create registry with a remote
@@ -232,21 +161,16 @@ func TestPuller_Pull_Force(t *testing.T) {
 	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security bundle\nfragments:\n  tdd:\n    content: test\n")
 	mf.refs["main"] = "abc123def456"
 
-	// Create lockfile manager
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
-
-	tc := &mockTerminalChecker{isReader: true}
 
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
 		WithLockfileManager(lm),
-		WithTerminalChecker(tc),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	)
 
 	var stdout bytes.Buffer
 	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    true,
 		LocalDir: "/test",
 		ItemType: ItemTypeBundle,
 		Stdout:   &stdout,
@@ -255,23 +179,18 @@ func TestPuller_Pull_Force(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	// Bundles no longer materialize on fs after PR 1 of the bundle-review
-	// plan. LocalPath is a synthetic "<remote>:name@sha" string and the
-	// fetched bytes come back on Content for callers that need them.
+	// Bundles no longer materialize on fs: LocalPath is a synthetic
+	// "<remote>:name@sha" string and the fetched bytes come back on Content.
 	assert.Equal(t, "<remote>:https://github.com/alice/ctxloom@bundles/security@abc123def456", result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 	assert.NotEmpty(t, result.Content)
 
-	// The lockfile is now the only on-disk record of the install.
+	// The lockfile is the only on-disk record of the pin.
 	lock, lerr := lm.Load()
 	require.NoError(t, lerr)
 	entry, ok := lock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
 	require.True(t, ok, "lockfile entry should exist")
 	assert.Equal(t, "abc123def456", entry.SHA)
-
-	// Verify security warning was displayed
-	assert.Contains(t, stdout.String(), "WARNING")
-	assert.Contains(t, stdout.String(), "Security bundle")
 }
 
 func TestPuller_Pull_InvalidReference(t *testing.T) {
@@ -282,107 +201,17 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 		WithPullerFS(fs),
 	)
 
-	_, err := puller.Pull(context.Background(), "invalid", PullOptions{
-		Force: true,
-	})
+	_, err := puller.Pull(context.Background(), "invalid", PullOptions{})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid reference")
 }
 
-func TestPuller_Pull_RequiresTerminalWithoutForce(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create registry with a remote
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
-
-	// Create mock fetcher
-	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
-
-	// Terminal checker returns false (not a terminal)
-	tc := &mockTerminalChecker{isReader: false}
-
-	puller := NewPuller(registry, AuthConfig{},
-		WithPullerFS(fs),
-		WithTerminalChecker(tc),
-		WithFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    false, // Not forcing
-		ItemType: ItemTypeBundle,
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "interactive terminal required")
-}
-
-func TestPuller_Pull_UserCancels(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	_ = registry.Add("alice", "https://github.com/alice/ctxloom")
-
-	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: test\n")
-
-	tc := &mockTerminalChecker{isReader: true}
-
-	puller := NewPuller(registry, AuthConfig{},
-		WithPullerFS(fs),
-		WithTerminalChecker(tc),
-		WithFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	var stdout bytes.Buffer
-	_, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Force:    false,
-		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-		Stdin:    strings.NewReader("n\n"), // User says no
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cancelled")
-}
-
-func TestPuller_Pull_BlindMode(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	// Mock fetcher
-	mf := newMockFetcher()
-	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
-	mf.refs["main"] = "abc123"
-
-	puller := NewPuller(registry, AuthConfig{},
-		WithPullerFS(fs),
-		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
-		WithTerminalChecker(&mockTerminalChecker{isReader: false}),
-	)
-
-	var stdout bytes.Buffer
-	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Blind:    true,
-		LocalDir: paths.AppDirName,
-		ItemType: ItemTypeBundle,
-		Stdout:   &stdout,
-	})
-
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Contains(t, stdout.String(), "Blind mode")
-}
-
-// TestPuller_Pull_BlindMode_RetractedVersion_DoesNotPrompt pins the Blind
-// contract: Blind implies Force for every confirmation gate, including the
-// retraction prompt. Blind pulls run non-interactively (MCP startup sync), so
-// any prompt would block on a stdin nobody answers.
-func TestPuller_Pull_BlindMode_RetractedVersion_DoesNotPrompt(t *testing.T) {
+// TestPuller_Pull_RetractedVersion_Force pins the retraction contract: a
+// retracted version warns, and a forced (non-interactive) pull proceeds without
+// prompting — sync/batch callers set Force so a prompt never blocks on a stdin
+// nobody answers.
+func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
@@ -400,12 +229,11 @@ func TestPuller_Pull_BlindMode_RetractedVersion_DoesNotPrompt(t *testing.T) {
 		WithPullerFS(fs),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
-		WithTerminalChecker(&mockTerminalChecker{isReader: false}),
 	)
 
 	var stdout bytes.Buffer
 	result, err := puller.Pull(context.Background(), "https://github.com/alice/ctxloom@bundles/security", PullOptions{
-		Blind:    true,
+		Force:    true,
 		LocalDir: paths.AppDirName,
 		ItemType: ItemTypeBundle,
 		Stdout:   &stdout,
@@ -427,11 +255,9 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	mf.files["ctxloom/bundles/security.yaml"] = []byte("description: Security\n")
 	mf.refs["main"] = "abc123"
 
-	tc := &mockTerminalChecker{isReader: true, isWriter: true}
 	puller := NewPuller(registry, AuthConfig{},
 		WithPullerFS(fs),
 		WithFetcherFactory(mockFetcherFactory(mf)),
-		WithTerminalChecker(tc),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
 	)
 
@@ -447,25 +273,6 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, "abc123", result.SHA)
-}
-
-func TestDefaultTerminalChecker(t *testing.T) {
-	checker := &defaultTerminalChecker{}
-
-	t.Run("IsTerminalReader returns false for bytes.Buffer", func(t *testing.T) {
-		buf := &bytes.Buffer{}
-		assert.False(t, checker.IsTerminalReader(buf))
-	})
-
-	t.Run("IsTerminalReader returns false for strings.Reader", func(t *testing.T) {
-		reader := strings.NewReader("test")
-		assert.False(t, checker.IsTerminalReader(reader))
-	})
-
-	t.Run("IsTerminalWriter returns false for bytes.Buffer", func(t *testing.T) {
-		buf := &bytes.Buffer{}
-		assert.False(t, checker.IsTerminalWriter(buf))
-	})
 }
 
 func TestDefaultFetcherFactory(t *testing.T) {
@@ -499,7 +306,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion)
+		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion)
 
 		require.NoError(t, err)
 
@@ -530,10 +337,10 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion)
+		err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion)
 		require.NoError(t, err)
 
-		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion)
+		err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion)
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -544,9 +351,9 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 	})
 
 	// A blanket re-pull (no explicit version, as in `remote pull --force`) must
-	// not silently un-pin a pinned entry or advance its frozen SHA. The pin is a
-	// "do not upgrade" decision; force repairs, it does not move past the pin.
-	t.Run("blanket re-pull preserves pin and frozen SHA on the active lockfile", func(t *testing.T) {
+	// not silently un-hold a held entry or advance its frozen SHA. The hold is a
+	// "do not upgrade" decision; force repairs, it does not move past the hold.
+	t.Run("blanket re-pull preserves hold and frozen SHA", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
 
@@ -570,14 +377,14 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		entry := loaded.Bundles[ref]
-		assert.True(t, entry.Pinned, "pin must survive a blanket re-pull")
+		assert.True(t, entry.Pinned, "hold must survive a blanket re-pull")
 		assert.Equal(t, "pinnedsha", entry.SHA, "frozen SHA must not advance to HEAD")
 		assert.Equal(t, "v1.0.0", entry.Version)
 	})
 
-	// An explicit version pull is a deliberate move; it advances a pinned entry
-	// but keeps it pinned at the new SHA (the flag is never silently dropped).
-	t.Run("explicit version pull advances a pinned entry but keeps the pin", func(t *testing.T) {
+	// An explicit version pull is a deliberate move; it advances a held entry
+	// but keeps it held at the new SHA (the flag is never silently dropped).
+	t.Run("explicit version pull advances a held entry but keeps the hold", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(paths.AppDirName, 0755))
 
@@ -599,16 +406,16 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		entry := loaded.Bundles[ref]
-		assert.True(t, entry.Pinned, "pin must survive an explicit move")
+		assert.True(t, entry.Pinned, "hold must survive an explicit move")
 		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
 		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
 	})
 }
 
 // requireUpdateLockfile calls updateLockfile with a bundle PullOptions and
-// fails the test on error (helper for the pin-preservation cases above).
+// fails the test on error (helper for the hold-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "")
+	err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "")
 	require.NoError(t, err)
 }

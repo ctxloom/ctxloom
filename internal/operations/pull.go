@@ -37,9 +37,9 @@ func canonicalizeUserRef(reference string, itemType remote.ItemType, registry *r
 // CanonicalizeRemoteRef expands a convenience short-form reference
 // ("<alias>/<path>") to its canonical "<url>@<kind>/<path>" form via the
 // registry, leaving an already-canonical (or unresolvable) ref unchanged. CLI
-// commands that look items up by their canonical lockfile key (show-pending,
-// decline, pin) use it so they accept the same short input as install. Returns
-// the ref unchanged when no registry is available.
+// commands that look items up by their canonical lockfile key (`bundle
+// hold`/`unhold`) use it so they accept the same short input as install.
+// Returns the ref unchanged when no registry is available.
 func CanonicalizeRemoteRef(cfg *config.Config, ref string, itemType remote.ItemType) string {
 	registry, err := getRegistry(cfg, remote.WithRegistryFS(getFS(nil)))
 	if err != nil {
@@ -63,7 +63,6 @@ type PullItemRequest struct {
 	Reference string `json:"reference"`
 	ItemType  string `json:"item_type"` // "bundle" or "profile"
 	Force     bool   `json:"force"`
-	Blind     bool   `json:"blind"` // Skip security review display (implies Force)
 
 	// Registry is an optional pre-configured registry (for testing).
 	Registry *remote.Registry `json:"-"`
@@ -109,9 +108,8 @@ func PullItem(ctx context.Context, cfg *config.Config, req PullItemRequest) (*Pu
 	}
 
 	opts := remote.PullOptions{
-		LocalDir: baseDir, // THIS IS THE BUG FIX
+		LocalDir: baseDir,
 		Force:    req.Force,
-		Blind:    req.Blind,
 		ItemType: itemType,
 	}
 

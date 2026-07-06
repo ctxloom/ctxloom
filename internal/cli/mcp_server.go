@@ -136,19 +136,10 @@ func (s *ctxServer) startup(ctx context.Context) error {
 
 	runStartupSync(ctx, cfg)
 
-	// Always check for leftover pending state from a previous session,
-	// regardless of whether we just synced. Otherwise a user who closes
-	// ctxloom without acknowledging review would silently bypass the
-	// gate on restart. This call also covers the post-sync path: if the
-	// sync just wrote to pending, the diff picks it up here.
-	s.handleSyncChanges(ctx, operations.PendingBundleChanges(cfg))
-
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	// Apply hooks against the active (approved) lockfile. ApplyHooks never
-	// reads pending content, so unreviewed bundle hooks never run here.
+	// Apply hooks against the active lockfile. Unreviewed bundle hooks/MCP are
+	// withheld per item by the executable trust gate ApplyHooks installs, so
+	// changed untrusted content never activates until accepted via `ctxloom
+	// review`.
 	s.applyStartupHooks(ctx)
 
 	if ctx.Err() != nil {
@@ -207,36 +198,9 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 	writeSyncSummary(os.Stderr, result)
 }
 
-// handleSyncChanges reports bundle changes that sync left pending. Bundle review
-// is no longer an in-chat gate: untrusted changes wait for an explicit CLI review
-// (`ctxloom bundle review`) and the server never blocks on them. The only action
-// taken here is the non-interactive bypass: with CTXLOOM_AUTO_APPROVE_BUNDLES=1
-// (CI/cron), pending changes are merged into active immediately.
-func (s *ctxServer) handleSyncChanges(ctx context.Context, changes *operations.BundleChangeSet) {
-	if changes.IsEmpty() {
-		return
-	}
-	if reviewBypassed() {
-		clidiag.Warn("ctxloom", "%s=1, auto-approving %d bundle change(s):", reviewBypassEnvVar, len(changes.All()))
-		for _, c := range changes.All() {
-			if c.OldSHA == "" {
-				fmt.Fprintf(os.Stderr, "  + %s @ %s (from %s)\n", c.Name, shortSHA(c.NewSHA), c.Remote)
-			} else {
-				fmt.Fprintf(os.Stderr, "  ~ %s %s → %s (from %s)\n", c.Name, shortSHA(c.OldSHA), shortSHA(c.NewSHA), c.Remote)
-			}
-		}
-		if _, err := operations.ApproveUpgrade(ctx, s.cfg); err != nil {
-			clidiag.Warn("ctxloom", "auto-approve pending changes: %v", err)
-		}
-		return
-	}
-	fmt.Fprintf(os.Stderr, "ctxloom: %d bundle change(s) pending review — run `ctxloom bundle review`\n", len(changes.All()))
-}
-
 // applyStartupHooks runs the ApplyHooks startup phase against the active
-// (approved) lockfile. ApplyHooks never reads pending content, so unreviewed
-// bundle hooks are not executed — they only run after a CLI approval merges
-// them into active.
+// lockfile. ApplyHooks installs the executable trust gate, so unreviewed bundle
+// hooks/MCP are withheld per item until accepted via `ctxloom review`.
 func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	// "all": the server doesn't know which agent hosts it, and every backend
 	// with settings must see the same regenerated context/hooks/commands —

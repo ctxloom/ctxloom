@@ -526,7 +526,8 @@ func Serve(opts *ServeConfig) {
 }
 
 func serverListener(unixSocketCfg UnixSocketConfig) (net.Listener, error) {
-	// ctxloom fork patch (the ONLY change vs upstream v1.7.0): honor an env flag
+	// ctxloom fork patch (1 of 2 vs upstream v1.7.0; see CTXLOOM_FORK.md and
+	// the bind-address patch in serverListener_tcp below): honor an env flag
 	// so a plugin whose own GOOS is linux can still be forced onto the TCP
 	// listener. Upstream picks unix-vs-TCP purely by the server's compile-time
 	// runtime.GOOS, so a plugin server running INSIDE a linux container always

@@ -22,6 +22,9 @@ go.work.sum
 
 # Generated protobuf (source .proto files are kept)
 *.pb.go
+# ...except in the vendored go-plugin fork: the root go.mod `replace` points at
+# it, so a fresh clone cannot build without its generated files committed.
+!third_party/go-plugin/**/*.pb.go
 
 # Local config
 .ctxloom/*

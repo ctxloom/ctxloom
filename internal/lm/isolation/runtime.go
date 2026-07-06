@@ -44,6 +44,13 @@ type RunSpec struct {
 	Command []string // in-container argv (the container's ctxloom + "llm serve …")
 	Env     []string // -e KEY=VAL, the curated go-plugin handshake env
 	Mounts  []Mount  // --mount type=bind bind mounts
+	// PublishPort, when > 0, publishes that TCP port on host loopback
+	// (-p 127.0.0.1:PORT:PORT). Non-zero only for the loopback plugin transport
+	// (non-Linux hosts): the in-container plugin listens on TCP at this port and
+	// the host go-plugin client dials it over loopback, crossing the Docker
+	// Desktop VM boundary that a bind-mounted unix socket cannot. Zero on Linux,
+	// where the unix-socket transport is used and no port is published.
+	PublishPort int
 }
 
 // Mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
@@ -178,6 +185,15 @@ func (Host) RemoveArgs(string) []string { return nil }
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
 func renderRunSpec(spec RunSpec) []string {
 	var args []string
+	if spec.PublishPort > 0 {
+		// Loopback plugin transport: bind the container's TCP listener to the
+		// SAME host loopback port so the host go-plugin client can dial it. Only
+		// 127.0.0.1 is published (never 0.0.0.0) — the plugin RPC is host-local.
+		// --network host would be simpler but is unavailable on Docker Desktop
+		// Mac/Windows (the container is in a VM), which is exactly where this path
+		// runs, so an explicit loopback port-publish it is.
+		args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:%d", spec.PublishPort, spec.PublishPort))
+	}
 	if spec.Home != "" {
 		args = append(args, "-e", "HOME="+spec.Home)
 	}

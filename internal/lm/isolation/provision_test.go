@@ -32,7 +32,7 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 	spec := buildRunSpec("img", "name", "/proj", "/root",
 		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claudecode"},
 		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123",
-		hostEnv, extraEnv, []Mount{credMount, overlayMount})
+		hostEnv, extraEnv, []Mount{credMount, overlayMount}, 0)
 
 	assert.Equal(t, "/proj", spec.WorkDir)
 	assert.Equal(t, "/root", spec.Home)

@@ -2,6 +2,15 @@ module github.com/ctxloom/ctxloom
 
 go 1.25.0
 
+// ctxloom-local fork of hashicorp/go-plugin@v1.7.0 with a single env-gated
+// serverListener patch (PLUGIN_LISTEN_TCP=1 forces the TCP listener) so the
+// containerized backend plugin can speak TCP over host loopback across the
+// Docker Desktop VM boundary on macOS/Windows. Self-contained relative replace:
+// resolves identically under the host go.work AND container/CI GOWORK=off builds
+// (the devcontainer mounts the repo root, so ./third_party is present). See
+// third_party/go-plugin/CTXLOOM_FORK.md. Migrate to an org fork before release.
+replace github.com/hashicorp/go-plugin => ./third_party/go-plugin
+
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0

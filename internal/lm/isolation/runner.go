@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -124,8 +125,18 @@ type containerAddrTranslator struct {
 }
 
 // PluginToHost maps an address the plugin announced (container namespace) to the
-// host namespace before the host connects to it.
+// host namespace before the host connects to it. Unix sockets get the socket-dir
+// prefix swap; a TCP announce (the loopback transport) gets its host rewritten to
+// 127.0.0.1: the plugin binds and advertises 0.0.0.0:PORT inside the container,
+// but the host reaches it on the loopback port published by -p 127.0.0.1:PORT:PORT
+// — so only the port carries over, dialed on host loopback.
 func (t containerAddrTranslator) PluginToHost(network, addr string) (string, string, error) {
+	if network == "tcp" {
+		if _, port, err := net.SplitHostPort(addr); err == nil {
+			return network, net.JoinHostPort("127.0.0.1", port), nil
+		}
+		return network, addr, nil
+	}
 	return network, swapPrefix(addr, t.containerSocketDir, t.hostSocketDir), nil
 }
 
@@ -160,9 +171,13 @@ func swapPrefix(path, from, to string) string {
 //
 // go-plugin RunnerFunc+AddrTranslator: canonical plugin-in-container transport; do
 // not hand-roll docker-exec + socket plumbing.
-func containerRunnerFunc(rt ContainerRuntime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount) pb.ContainerRunnerFunc {
+// loopbackPort > 0 selects the TCP-over-host-loopback transport (non-Linux
+// hosts): the in-container plugin is told to listen on TCP at that pinned port
+// (PLUGIN_LISTEN_TCP + PLUGIN_MIN_PORT/PLUGIN_MAX_PORT) and the run publishes it
+// to host loopback. 0 keeps the default unix-socket transport (Linux).
+func containerRunnerFunc(rt ContainerRuntime, image, name, projectDir, home string, command []string, containerSocketDir string, extraEnv []string, extraMounts []Mount, loopbackPort int) pb.ContainerRunnerFunc {
 	return func(_ hclog.Logger, cmd *exec.Cmd, hostSocketDir string) (runner.Runner, error) {
-		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts)
+		spec := buildRunSpec(image, name, projectDir, home, command, containerSocketDir, hostSocketDir, cmd.Env, extraEnv, extraMounts, loopbackPort)
 		return newContainerRunner(rt, spec, hostSocketDir, containerSocketDir)
 	}
 }
@@ -183,23 +198,26 @@ var containerBaseEnv = []string{"IS_SANDBOX=1"}
 // unchanged) + the socket-dir mount + extraMounts (auth credential mounts + config
 // overlays). Pure and deterministic so the mount/env wiring is unit-testable
 // without a container.
-func buildRunSpec(image, name, projectDir, home string, command []string, containerSocketDir, hostSocketDir string, hostEnv, extraEnv []string, extraMounts []Mount) RunSpec {
-	env := append(append([]string(nil), containerBaseEnv...), containerHandshakeEnv(hostEnv, containerSocketDir)...)
+func buildRunSpec(image, name, projectDir, home string, command []string, containerSocketDir, hostSocketDir string, hostEnv, extraEnv []string, extraMounts []Mount, loopbackPort int) RunSpec {
+	env := append(append([]string(nil), containerBaseEnv...), containerHandshakeEnv(hostEnv, containerSocketDir, loopbackPort)...)
 	env = append(env, extraEnv...)
 	mounts := append([]Mount{
 		// Identical-path project mount: cwd + .git gitdir resolve unchanged.
 		{Host: projectDir, Container: projectDir},
 		// The unix-socket dir go-plugin created, mounted to the container path.
+		// Inert under the loopback (TCP) transport — the plugin listens on TCP
+		// and creates no socket here — but harmless, so the mount is unconditional.
 		{Host: hostSocketDir, Container: containerSocketDir},
 	}, extraMounts...)
 	return RunSpec{
-		Image:   image,
-		Name:    name,
-		WorkDir: projectDir,
-		Home:    home,
-		Command: command,
-		Env:     env,
-		Mounts:  mounts,
+		Image:       image,
+		Name:        name,
+		WorkDir:     projectDir,
+		Home:        home,
+		Command:     command,
+		Env:         env,
+		Mounts:      mounts,
+		PublishPort: loopbackPort,
 	}
 }
 
@@ -210,7 +228,16 @@ func buildRunSpec(image, name, projectDir, home string, command []string, contai
 // socket in the bind-mounted dir. Anything else (host paths, secrets) is dropped;
 // a real engine's auth is a separate, deliberate follow-up (see the container
 // policy docs).
-func containerHandshakeEnv(cmdEnv []string, containerSocketDir string) []string {
+//
+// loopbackPort > 0 selects the TCP-over-loopback transport (the ctxloom fork's
+// PLUGIN_LISTEN_TCP gate). It then PINS PLUGIN_MIN_PORT/PLUGIN_MAX_PORT to that
+// single port (overriding go-plugin's client default of 10000-25000) so the
+// in-container listener binds exactly the port the run publishes to host
+// loopback, and appends PLUGIN_LISTEN_TCP=1 so the forked serverListener chooses
+// TCP even though the plugin's own GOOS is linux. On Linux (loopbackPort == 0)
+// none of this fires and the forwarded port vars are inert (the unix listener
+// ignores them), so the default transport is byte-for-byte unchanged.
+func containerHandshakeEnv(cmdEnv []string, containerSocketDir string, loopbackPort int) []string {
 	var out []string
 	for _, kv := range cmdEnv {
 		key, _, ok := strings.Cut(kv, "=")
@@ -223,9 +250,15 @@ func containerHandshakeEnv(cmdEnv []string, containerSocketDir string) []string 
 		case key == "PLUGIN_UNIX_SOCKET_DIR":
 			// Override: the host path go-plugin set is meaningless in the container.
 			out = append(out, "PLUGIN_UNIX_SOCKET_DIR="+containerSocketDir)
+		case loopbackPort > 0 && (key == "PLUGIN_MIN_PORT" || key == "PLUGIN_MAX_PORT"):
+			// Pin the listener to the single published loopback port.
+			out = append(out, fmt.Sprintf("%s=%d", key, loopbackPort))
 		case strings.HasPrefix(key, "PLUGIN_"):
 			out = append(out, kv)
 		}
+	}
+	if loopbackPort > 0 {
+		out = append(out, "PLUGIN_LISTEN_TCP=1")
 	}
 	return out
 }

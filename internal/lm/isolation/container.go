@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -288,9 +289,48 @@ func (c Container) spawnInContainer(backendName, label string, verbosity int, ag
 		fmt.Fprintf(os.Stderr, "ctxloom: container auth via %s\n", authMode)
 	}
 
+	// Pick the plugin transport: unix socket on Linux (fast, shared kernel), TCP
+	// over host loopback off Linux where a bind-mounted unix socket cannot cross
+	// the Docker Desktop VM boundary. A reservation failure is fatal to this run
+	// (the caller degrades to None) — better than launching a container the host
+	// could never reach.
+	loopbackPort, err := loopbackPluginPort()
+	if err != nil {
+		return nil, err
+	}
+	if verbosity > 0 && loopbackPort > 0 {
+		fmt.Fprintf(os.Stderr, "ctxloom: container plugin transport: TCP loopback 127.0.0.1:%d\n", loopbackPort)
+	}
+
 	name := containerName(agentID)
-	runnerFunc := containerRunnerFunc(c.runtime, c.image, name, workDir, c.home, command, c.socketDir, extraEnv, extraMounts)
+	runnerFunc := containerRunnerFunc(c.runtime, c.image, name, workDir, c.home, command, c.socketDir, extraEnv, extraMounts, loopbackPort)
 	return pb.NewContainerClient(backendName, label, verbosity, runnerFunc, hostSocketDir)
+}
+
+// loopbackPluginPort decides the plugin transport for a container run and, when
+// TCP is required, RESERVES the host loopback port that bridges it. On Linux the
+// host and container share one kernel, so the unix-socket-over-bind-mount
+// transport works and this returns 0 (unix — the default, unchanged path). Off
+// Linux (macOS/Windows Docker Desktop) the container runs inside a Linux VM
+// where a unix socket in a bind-mounted dir is NOT a live endpoint on the host
+// kernel, so the plugin must speak TCP over host loopback: reserve a free
+// 127.0.0.1 port to BOTH publish (-p 127.0.0.1:P:P) and pin the in-container
+// listener to (PLUGIN_MIN_PORT/PLUGIN_MAX_PORT), so publish and listen agree on
+// one port. PLUGIN_LISTEN_TCP=1 in the environment forces this path on Linux too
+// — the integration-test hook that exercises the identical loopback transport on
+// the same kernel. (The reserve-then-close leaves a small window before the
+// container binds the port; acceptable, and a bind clash would surface as a
+// clean plugin-handshake failure, not a silent wrong-context run.)
+func loopbackPluginPort() (int, error) {
+	if runtime.GOOS == "linux" && os.Getenv("PLUGIN_LISTEN_TCP") != "1" {
+		return 0, nil
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("reserve loopback plugin port: %w", err)
+	}
+	defer func() { _ = l.Close() }()
+	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 // containerConfigOverlay builds one bind mount per managed-config directory

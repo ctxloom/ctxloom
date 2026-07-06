@@ -72,6 +72,62 @@ func TestContainerPolicy_TransportEndToEnd(t *testing.T) {
 	}, 15*time.Second, 250*time.Millisecond, "the container must be force-removed on Kill")
 }
 
+// TestContainerPolicy_TransportLoopbackTCP is the macOS/Windows-path proof, run on
+// Linux. Forcing PLUGIN_LISTEN_TCP=1 makes ctxloom take the exact transport a
+// non-Linux host takes: the in-container plugin listens on TCP, the run publishes
+// that port to host loopback (-p 127.0.0.1:P:P), and the host client dials
+// loopback. On Linux this rides the same kernel, but it exercises the identical
+// publish + loopback-dial + AddrTranslator-no-op-on-tcp wiring the Docker Desktop
+// VM boundary needs. It asserts the LIVE container actually publishes a 127.0.0.1
+// TCP port (proving TCP, not the unix socket, is in use) and that Info() round-
+// trips over it.
+func TestContainerPolicy_TransportLoopbackTCP(t *testing.T) {
+	if !(Docker{}).Available() {
+		t.Skip("docker unavailable; skipping the TCP-loopback transport integration test")
+	}
+	// Force the loopback (TCP) transport ctxloom otherwise takes only off Linux.
+	t.Setenv("PLUGIN_LISTEN_TCP", "1")
+	buildIntegrationImage(t)
+
+	rt := SelectRuntime("docker")
+	require.Equal(t, "docker", rt.Name())
+	pol := NewContainer(rt, integrationImage)
+
+	projectDir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	ws, err := pol.PrepareWorkspace(ctx, projectDir, "itest-tcp")
+	require.NoError(t, err, "PrepareWorkspace must succeed")
+
+	client, err := pol.SpawnClient("mock", "", 0, ws)
+	require.NoError(t, err, "SpawnClient must bring up the plugin over the TCP-loopback transport")
+
+	// The live container must publish a 127.0.0.1 TCP port — the discriminating
+	// proof that the loopback transport (not the bind-mounted unix socket) is in
+	// use. SpawnClient has already completed the go-plugin handshake, so the
+	// container is up with its port published here.
+	require.Eventually(t, func() bool {
+		out, _ := exec.CommandContext(ctx, "docker", "ps",
+			"--filter", "name=ctxloom-iso-itest-tcp-", "--format", "{{.Ports}}").Output()
+		return strings.Contains(string(out), "127.0.0.1:")
+	}, 10*time.Second, 200*time.Millisecond, "the container must publish a loopback TCP port")
+
+	info, err := client.Info(ctx)
+	require.NoError(t, err, "Info() must round-trip over the TCP-loopback transport")
+	assert.Equal(t, "mock", info.GetName(), "backend name over the TCP-loopback transport")
+	t.Logf("Info() over TCP-loopback container transport: name=%q version=%q", info.GetName(), info.GetVersion())
+
+	client.Kill()
+	require.NoError(t, ws.Cleanup())
+
+	assert.Eventually(t, func() bool {
+		out, _ := exec.CommandContext(ctx, "docker", "ps", "-a",
+			"--filter", "name=ctxloom-iso-itest-tcp-", "--format", "{{.Names}}").Output()
+		return strings.TrimSpace(string(out)) == ""
+	}, 15*time.Second, 250*time.Millisecond, "the container must be force-removed on Kill")
+}
+
 // buildIntegrationImage builds the minimal image (static linux ctxloom on alpine)
 // used by the transport test. It rebuilds the binary + image each run so the test
 // exercises the current tree.

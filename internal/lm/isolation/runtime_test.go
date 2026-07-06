@@ -114,17 +114,53 @@ func TestContainerHandshakeEnv_Curates(t *testing.T) {
 		"ANTHROPIC_API_KEY=secret",              // secret — must be dropped
 		"malformed-no-equals",                   // skipped
 	}
-	out := containerHandshakeEnv(in, "/run/ctxloom/plugin")
+	out := containerHandshakeEnv(in, "/run/ctxloom/plugin", 0)
 
 	assert.Contains(t, out, pb.HandshakeConfig.MagicCookieKey+"=ai-backend-v1")
 	assert.Contains(t, out, "PLUGIN_PROTOCOL_VERSIONS=1")
 	assert.Contains(t, out, "PLUGIN_MIN_PORT=0")
 	assert.Contains(t, out, "PLUGIN_UNIX_SOCKET_DIR=/run/ctxloom/plugin", "socket dir overridden to the container path")
 	assert.NotContains(t, out, "PLUGIN_UNIX_SOCKET_DIR=/tmp/host-sock", "host socket path must not leak")
+	assert.NotContains(t, out, "PLUGIN_LISTEN_TCP=1", "unix transport (port 0) must not force TCP")
 	for _, kv := range out {
 		assert.False(t, strings.HasPrefix(kv, "HOME="), "host HOME must not cross")
 		assert.NotContains(t, kv, "ANTHROPIC_API_KEY", "secrets must not cross")
 	}
+}
+
+// TestContainerHandshakeEnv_LoopbackTCP: the loopback (non-Linux) transport pins
+// PLUGIN_MIN_PORT/PLUGIN_MAX_PORT to the single published port and forces the
+// forked serverListener onto TCP via PLUGIN_LISTEN_TCP=1, so the in-container
+// plugin binds exactly the port the host publishes + dials over loopback.
+func TestContainerHandshakeEnv_LoopbackTCP(t *testing.T) {
+	in := []string{
+		pb.HandshakeConfig.MagicCookieKey + "=ai-backend-v1",
+		"PLUGIN_MIN_PORT=10000", // go-plugin client default — must be pinned to the reserved port
+		"PLUGIN_MAX_PORT=25000",
+		"PLUGIN_UNIX_SOCKET_DIR=/tmp/host-sock",
+	}
+	out := containerHandshakeEnv(in, "/run/ctxloom/plugin", 54321)
+
+	assert.Contains(t, out, "PLUGIN_LISTEN_TCP=1", "the fork's TCP listener must be forced on")
+	assert.Contains(t, out, "PLUGIN_MIN_PORT=54321", "min port pinned to the reserved loopback port")
+	assert.Contains(t, out, "PLUGIN_MAX_PORT=54321", "max port pinned to the reserved loopback port")
+	assert.NotContains(t, out, "PLUGIN_MIN_PORT=10000", "the client's default port range must be overridden")
+	assert.NotContains(t, out, "PLUGIN_MAX_PORT=25000", "the client's default port range must be overridden")
+	// Socket dir override still applies (inert under TCP, but harmless + consistent).
+	assert.Contains(t, out, "PLUGIN_UNIX_SOCKET_DIR=/run/ctxloom/plugin")
+}
+
+// TestRenderRunSpec_PublishesLoopbackPort: a spec with PublishPort renders the
+// loopback port-publish arg; a zero PublishPort (the Linux/unix default) renders
+// none.
+func TestRenderRunSpec_PublishesLoopbackPort(t *testing.T) {
+	withPort := renderRunSpec(RunSpec{Image: "img", PublishPort: 54321})
+	assert.Contains(t, strings.Join(withPort, " "), "-p 127.0.0.1:54321:54321",
+		"loopback port published on host loopback only")
+
+	noPort := renderRunSpec(RunSpec{Image: "img"})
+	assert.NotContains(t, strings.Join(noPort, " "), "-p ",
+		"the unix (port 0) default publishes no port")
 }
 
 // TestAddrTranslator_PrefixSwap maps the plugin's announced container socket path
@@ -144,6 +180,14 @@ func TestAddrTranslator_PrefixSwap(t *testing.T) {
 	_, outside, err := tr.PluginToHost("unix", "/var/run/other.sock")
 	assert.NoError(t, err)
 	assert.Equal(t, "/var/run/other.sock", outside, "paths outside the mount are unchanged")
+
+	// TCP announce (loopback transport): the plugin advertises 0.0.0.0:PORT bound
+	// inside the container; the host dials the same PORT on 127.0.0.1 (the
+	// -p 127.0.0.1:PORT:PORT publish), so only the port carries over.
+	tnet, taddr, err := tr.PluginToHost("tcp", "0.0.0.0:54321")
+	assert.NoError(t, err)
+	assert.Equal(t, "tcp", tnet)
+	assert.Equal(t, "127.0.0.1:54321", taddr, "tcp announce host rewritten to loopback, port preserved")
 }
 
 // TestInContainer_EnvMarkers: the dev-container env markers trip detection (the

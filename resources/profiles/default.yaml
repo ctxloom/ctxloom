@@ -8,5 +8,5 @@ tags:
 # the seeded default is a real coding profile you can extend, set as the
 # orchestrating/developer member, or split into tighter per-role profiles.
 parents:
-  - https://github.com/ctxloom/ctxloom-default@bundles/default#profiles/default
-  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
+  - https://github.com/ctxloom/ctxloom-default@bundles/default@branch:main#profiles/default
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer

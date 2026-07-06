@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -98,22 +97,6 @@ func effectiveSkillHash(t *testing.T, appDir, bundle, name string) string {
 	require.True(t, ok, "seeded skill %q missing", name)
 	hash, _ := skill.EffectiveContentHash(true)
 	return hash
-}
-
-// TestRunBundleTrust_DeprecatedNoOp drives the retired `ctxloom bundle
-// trust/untrust` stubs: they exit zero, print nothing to stdout (the
-// deprecation warning goes to stderr), and make NO store change — postures no
-// longer exist, so no trust.yaml is even created.
-func TestRunBundleTrust_DeprecatedNoOp(t *testing.T) {
-	appDir := t.TempDir()
-	neutralizeRefresh(t)
-
-	c, out := testCmd()
-	require.NoError(t, runBundleTrust(c, "experimental"))
-	assert.Empty(t, out.String(), "the deprecation stub writes only a stderr warning")
-
-	_, statErr := os.Stat(paths.TrustPath(appDir))
-	assert.True(t, os.IsNotExist(statErr), "bundle trust/untrust must not touch the trust store")
 }
 
 // TestRunItemTrust_AcceptsLocalFragment drives `ctxloom trust <ref>`: the

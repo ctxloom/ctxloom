@@ -247,7 +247,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			// a persisted one): skip it so degraded mode still assembles what's
 			// left, and let the startup choke owner abort on the finding.
 			if fromDefaults {
-				strictness.Fail(strictness.ClassRef, "fix profiles.defaults in .ctxloom/config.yaml, or install the missing content (ctxloom remote pull)",
+				strictness.Fail(strictness.ClassRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom remote pull)",
 					"skipping default profile %s: %v", pName, err)
 				continue
 			}

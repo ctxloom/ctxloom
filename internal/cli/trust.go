@@ -132,38 +132,6 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-var bundleTrustCmd = &cobra.Command{
-	Use:        "trust <name>",
-	Short:      "Deprecated: bundle postures no longer affect exposure",
-	Deprecated: "bundle postures no longer affect exposure; use 'ctxloom trust <ref>' to accept items (or the upcoming 'ctxloom review'). This command will be removed.",
-	Args:       cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBundleTrust(cmd, args[0])
-	},
-}
-
-var bundleUntrustCmd = &cobra.Command{
-	Use:        "untrust <name>",
-	Short:      "Deprecated: bundle postures no longer affect exposure",
-	Deprecated: "bundle postures no longer affect exposure; use 'ctxloom blacklist <ref>' to reject items (or the upcoming 'ctxloom review'). This command will be removed.",
-	Args:       cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBundleTrust(cmd, args[0])
-	},
-}
-
-// runBundleTrust is the deprecation stub for the retired bundle-posture
-// commands (trust-simplify): postures stopped affecting decisions, so the
-// commands warn and make NO store change. They exit zero so existing scripts
-// don't break before the commands are removed outright (slice 3).
-func runBundleTrust(cmd *cobra.Command, name string) error {
-	clidiag.Warn("ctxloom",
-		"deprecated: bundle postures no longer affect exposure — %q was not changed; "+
-			"use 'ctxloom trust <ref>' / 'ctxloom blacklist <ref>' per item (interactive 'ctxloom review' is coming); "+
-			"'bundle trust/untrust' will be removed", name)
-	return nil
-}
-
 // refreshManagedArtifacts re-applies the managed harness after a trust mutation so
 // the gate's new decision is reflected on disk immediately: a now-withheld bundle
 // MCP server / hook is scrubbed from backend settings (and the regenerated
@@ -214,10 +182,4 @@ func init() {
 	// Top-level per-item mutations.
 	rootCmd.AddCommand(trustCmd)
 	rootCmd.AddCommand(blacklistCmd)
-
-	// Deprecated bundle-grain posture stubs, mirroring the existing `bundle`
-	// subcommand registration in bundle.go. bundleCmd is a package-level var,
-	// initialized before any init() runs, so adding to it here is safe.
-	bundleCmd.AddCommand(bundleTrustCmd)
-	bundleCmd.AddCommand(bundleUntrustCmd)
 }

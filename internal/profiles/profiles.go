@@ -748,12 +748,14 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// would otherwise repeat the same line — and finding — a dozen
 				// times per startup.
 				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
-					// The retired top-level @profiles/ grammar can never pull, so
-					// "remote pull" would be wrong advice. The load-time upgrade
-					// rewrites this parent automatically once a bundle shipping
-					// the profile is installed — refreshing pins is the fix.
-					strictness.FailOnce(strictness.ClassRef, "ctxloom remote upgrade",
-						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; run `ctxloom remote upgrade` to refresh pins, or point the parent at \"<url>@bundles/<bundle>#profiles/<name>\"",
+					// The retired top-level @profiles/ grammar can never pull or
+					// pin, so "remote pull"/"remote upgrade" would both be wrong
+					// advice. The load-time upgrade rewrites this parent
+					// automatically once a bundle shipping the profile is
+					// installed — so the fix is to point the parent at the
+					// bundle-shipped form (or install a bundle that ships it).
+					strictness.FailOnce(strictness.ClassRef, "point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it",
+						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it (the load-time upgrade then rewrites the parent automatically)",
 						name, parent, bare)
 				} else {
 					strictness.FailOnce(strictness.ClassRef, "ctxloom remote pull",

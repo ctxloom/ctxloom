@@ -72,11 +72,14 @@ const (
 	StateRejected State = "rejected"
 )
 
-// ItemKind distinguishes the trust-addressable item kinds. Only fragment and
-// prompt are project-authored *content* that the local tier auto-allows; mcp and
-// hook are executable surfaces that are never auto-trusted — they are gated at
-// their own chokes in TR5 (MCP-server resolver, bundle-hook resolver) and follow
-// the same executable treatment.
+// ItemKind distinguishes the trust-addressable item kinds. The local tier of
+// the decision function (EffectiveTrust step 2) auto-allows ALL kinds when the
+// item is project-authored — fragment and prompt content AND the mcp/hook
+// executable surfaces the user configured in this project themselves. IsContent
+// only names which kinds are project-authorable *content* (fragment/prompt) vs
+// executable surfaces (mcp/hook); it no longer governs the local auto-allow.
+// Remote mcp/hook still gate at their exposure chokes (MCP-server resolver,
+// bundle-hook resolver) until reviewed — only locality, not kind, exempts them.
 type ItemKind string
 
 const (
@@ -105,8 +108,10 @@ func (k ItemKind) Dir() string {
 }
 
 // IsContent reports whether the kind is project-authorable *content* (fragment
-// or prompt) as opposed to an executable surface (mcp / hook). Only content
-// kinds get the local-tier auto-allow.
+// or prompt) as opposed to an executable surface (mcp / hook). It classifies the
+// kind for content-vs-executable handling; it does NOT govern the local-tier
+// auto-allow, which the decision function extends to all local kinds (a
+// project-authored local mcp/hook is allowed too — see EffectiveTrust step 2).
 func (k ItemKind) IsContent() bool {
 	return k == KindFragment || k == KindPrompt
 }

@@ -433,7 +433,7 @@ func addRemoteBundleBase(bundleSet collections.Set[string], ref, owner string) {
 	base, _, _ := strings.Cut(ref, "#")
 	if _, _, retired := remote.SplitRetiredProfileRef(base); retired {
 		clidiag.WarnOnce("ctxloom",
-			"%s references %s in the retired top-level @profiles/ grammar; profiles ship inside bundles now (\"<url>@bundles/<bundle>#profiles/<name>\") — run `ctxloom remote upgrade` to refresh pins; skipping from sync",
+			"%s references %s in the retired top-level @profiles/ grammar; profiles ship inside bundles now — point the parent at \"<url>@bundles/<bundle>#profiles/<name>\" (or install a bundle that ships it, which auto-rewrites the parent on load); skipping from sync",
 			owner, ref)
 		return
 	}

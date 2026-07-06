@@ -722,7 +722,14 @@ func loadConfigFile(cfg *Config, configPath string, validator *schema.ConfigVali
 	// the user and persist via CommitUpgrade (see cmd/run.go). This keeps
 	// non-interactive contexts (MCP server, scripts) from silently rewriting a
 	// user's config — the exact failure mode that motivated this layer.
-	if upgraded, applied := configUpgrades.Run(data); len(applied) > 0 {
+	// The registry-free schema upgrades (configUpgrades) plus the registry-aware
+	// agent-profile canonicalization compose into one pipeline so the load parses
+	// and re-encodes the document exactly once. The canonicalization step is
+	// threaded the alias→URL resolver here (it depends on .ctxloom/remotes.yaml,
+	// which the static pipeline cannot reach); a nil resolver makes it a no-op.
+	pipeline := append(upgrade.Pipeline{}, configUpgrades...)
+	pipeline = append(pipeline, agentProfileCanonicalizeUpgrade{aliasToURL: cfg.ProfileRemoteURLResolver()})
+	if upgraded, applied := pipeline.Run(data); len(applied) > 0 {
 		data = upgraded
 		cfg.PendingUpgrade = &upgrade.Pending{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))

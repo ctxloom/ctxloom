@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/profiles"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -151,14 +150,11 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Expand bare convenience refs (e.g. "code-review-base#fragments/conduct")
-	// against the configured default remote so the profile stores canonical
-	// URLs. Scheme-qualified refs pass through untouched.
-	registry := defaultRemoteRegistry()
-	// Parents are NOT expanded against a remote: a bare name is a local profile,
-	// a <bundle>#profiles/<name> ref is a bundle-shipped profile — both resolve as
-	// typed (top-level @profiles/ distribution was retired).
-	profileCreateBundles = expandRefsAgainstDefaultRemote(profileCreateBundles, remote.ItemTypeBundle, registry)
+	// Bundle/parent refs are canonicalized on store by operations.CreateProfile
+	// (decision B: a per-remote short "<remote>/<bundle>[#profiles/...]" ref is
+	// expanded to its canonical URL there, so the CLI and MCP paths share one
+	// choke). A bare, unprefixed name is LOCAL (decision A) — no longer expanded
+	// against a default remote.
 
 	// Route through the operations core so the CLI shares the MCP path's
 	// validation and the default auto-promotion (so `ctxloom run` doesn't
@@ -195,43 +191,6 @@ func profileCreateDirs(cfg *config.Config) []string {
 		dirs = []string{filepath.Join(cfg.AppPaths[0], "profiles")}
 	}
 	return dirs
-}
-
-// defaultRemoteRegistry loads the remote registry for ref expansion, returning
-// nil on any error. Expansion is a convenience: a missing/unreadable registry
-// simply means bare refs pass through unchanged rather than failing the command.
-func defaultRemoteRegistry() *remote.Registry {
-	registry, err := remote.NewRegistry("")
-	if err != nil {
-		return nil
-	}
-	return registry
-}
-
-// expandRefsAgainstDefaultRemote expands bare convenience refs (e.g.
-// "code-review-base#fragments/conduct") into canonical URLs against the
-// configured default remote, so profiles store canonical identity while the CLI
-// accepts the short input form. A scheme-qualified ref (canonical URL or
-// ctxloom:local) is returned untouched; so is any ref when no default remote is
-// configured or its URL is unknown — the downstream parser then accepts or
-// rejects it. kind selects the item-type segment (bundles/profiles).
-func expandRefsAgainstDefaultRemote(refs []string, kind remote.ItemType, registry *remote.Registry) []string {
-	if len(refs) == 0 || registry == nil {
-		return refs
-	}
-	def := registry.GetDefault()
-	if def == "" {
-		return refs
-	}
-	rem, err := registry.Get(def)
-	if err != nil || rem.URL == "" {
-		return refs
-	}
-	out := make([]string, len(refs))
-	for i, ref := range refs {
-		out[i] = remote.ResolveRefString(ref, rem.URL, "", kind)
-	}
-	return out
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
@@ -374,17 +333,16 @@ Examples:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Expand bare convenience BUNDLE refs against the default remote so
-		// additions are stored canonical; removals are expanded too so they match
-		// the canonical form on disk. Parents are left as typed — a bare name is a
-		// local profile, a <bundle>#profiles/<name> ref a bundle-shipped one.
-		registry := defaultRemoteRegistry()
+		// Bundle/parent refs are canonicalized on store by operations.UpdateProfile
+		// (decision B): a short "<remote>/<bundle>[#profiles/...]" ref expands to its
+		// canonical URL, and removals canonicalize the same way so they match the
+		// on-disk form. A bare, unprefixed name is LOCAL (decision A).
 		req := operations.UpdateProfileRequest{
 			Name:                   name,
 			AddParents:             profileUpdateAddParents,
 			RemoveParents:          profileUpdateRemoveParents,
-			AddBundles:             expandRefsAgainstDefaultRemote(profileUpdateAddBundles, remote.ItemTypeBundle, registry),
-			RemoveBundles:          expandRefsAgainstDefaultRemote(profileUpdateRemoveBundles, remote.ItemTypeBundle, registry),
+			AddBundles:             profileUpdateAddBundles,
+			RemoveBundles:          profileUpdateRemoveBundles,
 			AddExcludeFragments:    profileUpdateAddExcludeFragments,
 			RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
 			AddExcludeMCP:          profileUpdateAddExcludeMCP,

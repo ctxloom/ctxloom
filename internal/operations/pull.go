@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/afero"
 
@@ -13,25 +12,17 @@ import (
 )
 
 // canonicalizeUserRef accepts a convenience short-form reference
-// ("<remote-alias>/<path>") as USER INPUT and expands it to a canonical
-// "<url>@<kind>/<path>" ref via the registry. Anything already scheme-qualified
-// (a canonical URL or ctxloom:local) — or an unresolvable alias — is returned
-// unchanged for the downstream parser to accept or reject. The short form is a
-// CLI convenience only: this resolved canonical ref is what flows on to the
-// lockfile and the on-disk install path, so nothing short is ever stored.
-func canonicalizeUserRef(reference string, itemType remote.ItemType, registry *remote.Registry) string {
-	if _, err := remote.ParseReference(reference); err == nil {
-		return reference
-	}
-	alias, path, ok := strings.Cut(reference, "/")
-	if !ok || alias == "" || path == "" {
-		return reference
-	}
-	rem, err := registry.Get(alias)
-	if err != nil || rem.URL == "" {
-		return reference
-	}
-	return fmt.Sprintf("%s@%s/%s", rem.URL, itemType.DirName(), path)
+// ("<remote-alias>/<path>[#<sel>/<item>]") as USER INPUT and expands it to a
+// canonical "<url>@bundles/<path>[#<sel>/<item>]" ref via the registry. Anything
+// already scheme-qualified (a canonical URL or ctxloom:local) — or an
+// unresolvable alias, or a bare unprefixed name — is returned unchanged for the
+// downstream parser to accept or reject. The short form is a CLI convenience
+// only: this resolved canonical ref is what flows on to the lockfile and the
+// on-disk install path, so nothing short is ever stored. Delegates to the shared
+// short-name choke (remote.CanonicalizeShortRef) so the widened grammar —
+// selector preservation, local-only bare names — lives in one place.
+func canonicalizeUserRef(reference string, _ remote.ItemType, registry *remote.Registry) string {
+	return remote.CanonicalizeShortRef(reference, registryAliasToURL(registry), nil)
 }
 
 // CanonicalizeRemoteRef expands a convenience short-form reference

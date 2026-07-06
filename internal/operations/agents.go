@@ -137,10 +137,17 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 		}
 	}
 
+	// Canonicalize-on-store (decision B): a per-remote short profile ref
+	// ("<remote>/<bundle>#profiles/<name>") is expanded to its canonical URL so the
+	// binding persists a stable identity, not a machine-local alias that a later
+	// remote rename would strand. Bare/local names stay verbatim (decision A). This
+	// replaces the old verbatim store.
+	profiles := canonicalizeProfileRefs(req.Profiles, aliasToURLResolver(cfg))
+
 	if cfg.Agents == nil {
 		cfg.Agents = make(map[string]agents.Agent)
 	}
-	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: req.Profiles, Runtime: req.Runtime, Permissions: req.Permissions}
+	cfg.Agents[name] = agents.Agent{Engine: req.Engine, Profiles: profiles, Runtime: req.Runtime, Permissions: req.Permissions}
 
 	if err := cfg.Save(); err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
@@ -148,7 +155,7 @@ func SetAgent(cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	return &AgentEntry{
 		Name:        name,
 		Engine:      req.Engine,
-		Profiles:    req.Profiles,
+		Profiles:    profiles,
 		Runtime:     req.Runtime,
 		Permissions: req.Permissions,
 		Source:      agents.SourceConfig,

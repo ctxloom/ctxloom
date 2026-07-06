@@ -322,7 +322,10 @@ func GetBundle(cfg *config.Config, name string) (*bundles.Bundle, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
-	return bundleLoader(cfg).Load(name)
+	// A per-remote short "<remote>/<bundle>" arg resolves to the pinned remote
+	// bundle's canonical key so the seeded loader finds it; a local file of the
+	// same spelling wins (decision E). A bare/canonical name is unchanged.
+	return bundleLoader(cfg).Load(canonicalizeBundleArg(cfg, name, cfg.GetBundleDirs(), nil))
 }
 
 // bundleStore returns the injected bundle store or the default filesystem

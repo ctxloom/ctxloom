@@ -269,6 +269,16 @@ func CreateProfile(ctx context.Context, cfg *config.Config, req CreateProfileReq
 		return nil, fmt.Errorf("profile %q already exists", req.Name)
 	}
 
+	// Canonicalize-on-store (decision B): a per-remote short bundle/parent ref
+	// ("<remote>/<bundle>[#profiles/<name>]") is expanded to its canonical URL so
+	// the stored profile never carries a machine-local alias. Bare names stay
+	// local (decision A). Done before the parent-existence check so a resolved
+	// remote parent is recognized as remote (isRemoteReference) rather than looked
+	// up on the local fs.
+	aliasToURL := aliasToURLResolver(cfg)
+	req.Bundles = canonicalizeBundleRefs(req.Bundles, aliasToURL)
+	req.Parents = canonicalizeProfileRefs(req.Parents, aliasToURL)
+
 	// Validate that local parents exist.
 	if err := requireProfilesExist(loader, req.Parents); err != nil {
 		return nil, err
@@ -351,6 +361,16 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	if profiles.IsSeededPath(profile.Path) {
 		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom remote pull'", req.Name)
 	}
+
+	// Canonicalize-on-store (decision B): short "<remote>/<bundle>[#profiles/...]"
+	// refs expand to canonical URLs so the stored profile carries no machine-local
+	// alias. Removals are canonicalized the SAME way so a "remove <remote>/<bundle>"
+	// matches the canonical form already on disk. Bare names stay local (decision A).
+	aliasToURL := aliasToURLResolver(cfg)
+	req.AddBundles = canonicalizeBundleRefs(req.AddBundles, aliasToURL)
+	req.RemoveBundles = canonicalizeBundleRefs(req.RemoveBundles, aliasToURL)
+	req.AddParents = canonicalizeProfileRefs(req.AddParents, aliasToURL)
+	req.RemoveParents = canonicalizeProfileRefs(req.RemoveParents, aliasToURL)
 
 	// Validate new parents up front so a bad parent halts before any mutation —
 	// including the cfg default-flag change, which an unrelated cfg.Save()

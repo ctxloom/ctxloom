@@ -6,6 +6,18 @@
 
 Accepted.
 
+**Partially superseded** by the trust-simplify work (Slice 3, commit `192d4ef`).
+The review-gated *staging* half of `upgrade` described below — untrusted bundle
+changes staging to a pending lockfile for `bundle review`/`approve` — was
+removed along with the `bundle review/approve/decline/show-pending` family.
+`upgrade` now moves the **active** lock unconditionally (holds still frozen, hash
+conflicts still abort); whether any changed content ever reaches the agent is
+decided per item at exposure by the content-hash trust gate and reviewed with the
+single `ctxloom review` porcelain (see [trust-model.md](../trust-model.md)). The
+three-layer constraint / lock / hold model, the "lock is the sole home of the
+resolved SHA" invariant, and everything else in this ADR still stand — only the
+lockfile's role as a *security* review surface was retired.
+
 Updates [0028](0028-reference-pinned-discovery-head.md) (referenced content is now read at the **lock's** resolved SHA, derived from a constraint, rather than a SHA carried in the manifest ref). Builds on [0032](0032-single-canonical-reference-no-short-form.md) (the `@version` slot of the canonical reference now holds a *constraint*, not just a tag/SHA), [0027](0027-mirror-established-tool-naming.md) (apt `update`/`upgrade` naming), and the `Pinned`-flag hold from the already-superseded [0003](0003-skip-contentversion-pinning.md).
 
 ## Context

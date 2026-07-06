@@ -3,8 +3,10 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -12,6 +14,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
@@ -170,6 +173,55 @@ func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageCon
 	}
 }
 
+// prepareIsolation is runResolvedAgent's seam onto isolation.Prepare — a
+// package var so tests simulate a container degrade (which records
+// ClassIsolation findings) without probing the real host's container
+// runtimes. Mirrors isolation's selectRuntimeProbe/sharedFSCheck seam style.
+var prepareIsolation = isolation.Prepare
+
+// isolationGateMu serializes the checkpoint→Prepare→gate window across
+// parallel fan members. strictness Marks are indices into ONE process-global
+// findings list, so concurrent windows interleave: member A's Since(mark)
+// would pick up — and wrongly fail A on — member B's findings. Serializing
+// the window keeps each member's gate scoped to its own Prepare, at the cost
+// of prepare-phase parallelism across the fan (the engine runs themselves
+// stay parallel). The deeper fix is per-window finding ownership inside
+// strictness itself.
+var isolationGateMu sync.Mutex
+
+// isolationGateErr is the fail-loudly member gate over the strictness findings
+// collected during one member's isolation.Prepare: a ClassIsolation finding
+// means an EXPLICITLY-requested container could not be satisfied and the
+// prepared workspace silently degraded toward the bare host — running the
+// member there (headless, floored to bypass) would silently unsandbox it. In
+// strict mode that fails THE MEMBER (an error Part in the fan; other members
+// continue — partial success is still success), never the whole call. Returns
+// nil in degraded mode (recording is disabled there, so found is empty anyway)
+// or when no ClassIsolation finding was collected.
+func isolationGateErr(found []strictness.Finding) error {
+	if strictness.Degraded() {
+		return nil
+	}
+	var iso []strictness.Finding
+	for _, f := range found {
+		if f.Class == strictness.ClassIsolation {
+			iso = append(iso, f)
+		}
+	}
+	if len(iso) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("isolation: requested container could not be satisfied; refusing to run this member UNSANDBOXED on the host")
+	for _, f := range iso {
+		fmt.Fprintf(&b, ": %s", f.Message)
+	}
+	if fix := iso[0].FixIt; fix != "" {
+		fmt.Fprintf(&b, " (fix: %s)", fix)
+	}
+	return errors.New(b.String())
+}
+
 // runResolvedAgent launches the resolved backend once in ONESHOT mode with the
 // composed context as the lead fragment and stdout captured. It carries no
 // context-assembly or LLM-resolution logic — those happen upstream (RunOneshot
@@ -205,7 +257,20 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// It warns at each degrade and never blocks — None never fails. The
 		// none tier loses cwd config isolation (shared project dir), the
 		// documented non-git edge.
-		policy, ws := isolation.Prepare(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
+		//
+		// Fail-loudly member gate: a container degrade inside Prepare records a
+		// ClassIsolation finding, but the fan has no startup choke owner to abort
+		// on it — and the headless floor below would then run this member on the
+		// bare host with FORCED BYPASS. Checkpoint before Prepare and gate on the
+		// findings it recorded, failing THIS MEMBER (an error Part upstream;
+		// other members continue) unless --degraded. The window is serialized
+		// (isolationGateMu) because parallel members share one process-global
+		// findings list — see the var's doc.
+		isolationGateMu.Lock()
+		mark := strictness.Checkpoint()
+		policy, ws := prepareIsolation(ctx, req.Axes, req.Backend, req.IsolationImage, req.WorkDir, req.AgentID)
+		found := strictness.Since(mark)
+		isolationGateMu.Unlock()
 		workDir = ws.Dir()
 		// Per-agent config-home envs (worktree) isolate each engine's GLOBAL
 		// config layer; nil for none/container. Threaded into the member's engine
@@ -213,8 +278,13 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		workspaceEnv = isolation.WorkspaceEnv(ws)
 		// Tear the workspace down after the run. Registered BEFORE the client so
 		// it runs AFTER client.Kill() (kill the plugin before removing its
-		// workspace — WIP-safe for the worktree teardown). none's cleanup is a noop.
+		// workspace — WIP-safe for the worktree teardown). none's cleanup is a
+		// noop. Registered before the gate below, so a gated member's degraded
+		// workspace is still torn down.
 		defer func() { _ = ws.Cleanup() }()
+		if gerr := isolationGateErr(found); gerr != nil {
+			return nil, gerr
+		}
 		factory = isolation.FactoryForWorkspace(policy, ws)
 
 		// P3 write-enable: an ISOLATED member gets per-member NATIVE config written

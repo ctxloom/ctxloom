@@ -51,9 +51,14 @@ func TestDegraded_NothingRecorded(t *testing.T) {
 	assert.True(t, Degraded())
 }
 
-// FailOnce dedups the recording per formatted message (mirroring
-// clidiag.WarnOnce's print dedup): a diagnostic re-fired by every subsystem
-// that rebuilds a loader yields exactly one finding.
+// FailOnce dedups the recording per formatted message WITHIN one checkpoint
+// window (the print dedup, clidiag.WarnOnce, stays process-wide): a diagnostic
+// re-fired by every subsystem that rebuilds a loader yields exactly one
+// finding per window. DELIBERATE CHANGE: this test used to pin process-wide
+// recording dedup; that swallowed re-fired findings in later windows of a
+// long-lived server (`ctxloom acp`), letting a session that was refused on a
+// broken profile silently open on retry — see
+// TestFailOnce_RefiresAcrossCheckpoints for the cross-window contract.
 func TestFailOnce_DedupsRecording(t *testing.T) {
 	resetForTest(t)
 
@@ -62,9 +67,35 @@ func TestFailOnce_DedupsRecording(t *testing.T) {
 	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "other")
 
 	got := All()
-	require.Len(t, got, 2, "identical FailOnce messages collapse; distinct ones don't")
+	require.Len(t, got, 2, "identical FailOnce messages collapse within a window; distinct ones don't")
 	assert.Contains(t, got[0].Message, `parent core`)
 	assert.Contains(t, got[1].Message, `parent other`)
+}
+
+// A long-lived server (`ctxloom acp`) opens each session under a fresh
+// Checkpoint. A session refused over a FailOnce finding and retried UNFIXED
+// re-fires the same FailOnce — the recording must land in the NEW window, or
+// the retry opens silently on broken context (the print dedup even suppresses
+// the stderr line). The recording dedup is therefore scoped per checkpoint
+// generation, not per process; worst case is a duplicate line inside one
+// findings listing.
+func TestFailOnce_RefiresAcrossCheckpoints(t *testing.T) {
+	resetForTest(t)
+
+	mark1 := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	require.Len(t, Since(mark1), 1, "first window collects the finding")
+
+	// The session is retried unfixed: a new window, the same FailOnce.
+	mark2 := Checkpoint()
+	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	got := Since(mark2)
+	require.Len(t, got, 1, "the re-fired finding must be visible to the NEW window — otherwise the retried session opens silently on broken context")
+	assert.Contains(t, got[0].Message, "parent core")
+
+	// Within the second window the dedup still collapses repeats.
+	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	assert.Len(t, Since(mark2), 1, "within one window the recording dedup still applies")
 }
 
 // Record collects without printing — the variant for chokes that already own

@@ -120,6 +120,43 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 	})
 }
 
+// The run path has TWO findings gates: gate 1 after config/sync/assembly
+// (anchored at startupMark) and gate 2 after isolation.Prepare. Gate 2 must be
+// anchored at a checkpoint captured IMMEDIATELY after gate 1 passes so the two
+// windows tile: a finding recorded in the gap between them (trust gate, session
+// accounting, hook work on the way to the launch) is still fatal. This pins the
+// tiling contract run.go wires (postStartupMark); the old anchoring — a
+// checkpoint taken just before Prepare — left the gap ungated.
+func TestStartupGates_TileWithoutHole(t *testing.T) {
+	resetStrictness(t)
+
+	// Gate 1 passes clean.
+	startupMark := strictness.Checkpoint()
+	var gate1 bytes.Buffer
+	require.NoError(t, failOnFindings(&gate1, startupMark), "gate 1 passes with nothing recorded")
+
+	// run.go's anchoring: the gate-2 mark is captured immediately after gate 1.
+	postStartupMark := strictness.Checkpoint()
+
+	// A fault fires IN THE GAP — after gate 1, before isolation.Prepare.
+	strictness.Fail(strictness.ClassTrust, "remove or restore the trust store", "trust store unreadable: boom")
+
+	// The OLD anchoring (a checkpoint taken only when Prepare runs) misses it…
+	lateMark := strictness.Checkpoint()
+	var lateGate bytes.Buffer
+	assert.NoError(t, failOnFindings(&lateGate, lateMark),
+		"a gate anchored AFTER the gap cannot see the gap finding — the hole this test pins closed")
+
+	// …the tiled anchoring catches it.
+	var gate2 bytes.Buffer
+	err := failOnFindings(&gate2, postStartupMark)
+	require.Error(t, err, "gate 2 anchored at the post-gate-1 checkpoint must catch a gap finding")
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
+	assert.Contains(t, gate2.String(), "trust store unreadable")
+}
+
 func TestLoadConfigOrFallback_Success(t *testing.T) {
 	want := &config.Config{AppPaths: []string{"/some/dir"}}
 	var buf bytes.Buffer

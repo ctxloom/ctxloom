@@ -60,6 +60,15 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 	},
 }
 
+// acpOpenGateMu serializes each ACP session-open's strictness window
+// (Checkpoint → config load/assembly → findingsError). The server opens
+// sessions on concurrent goroutines, but strictness Marks only isolate
+// SEQUENTIAL windows (see strictness.Mark): unserialized opens interleave,
+// and one session's fatal finding would land inside — and refuse — every
+// concurrently-opening session. The lock covers assembly only, never the
+// engine launch below it, so a slow engine spawn does not block other opens.
+var acpOpenGateMu sync.Mutex
+
 // openACPEngineChat is the production ChatOpener: it loads ctxloom config for
 // the session's cwd, assembles the context (an agent's composed profiles, or
 // the profile flow), resolves the engine label (override → agent engine /
@@ -69,81 +78,95 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 // the entries replay to the ACP client, and a rendered transcript primes the
 // fresh engine via the first-turn lead block.
 func openACPEngineChat(ctx context.Context, req acpagent.OpenRequest, flagProfile, flagAgent, llmOverride string) (*acpagent.EngineChat, error) {
+	var (
+		cfg             *config.Config
+		profile         string
+		contextText     string
+		label           string
+		defaultProfiles []string
+		currentAgent    string
+		backendName     string
+		model           string
+	)
 	// Fail-loudly gate, per session: checkpoint before config load + assembly
 	// so this session's fatal findings don't bleed across sessions (the process
-	// keeps running). In strict mode findingsError below surfaces them to the
-	// editor as a session-open failure; in degraded mode it is a no-op and the
-	// session opens with whatever context survived.
-	startupMark := strictness.Checkpoint()
+	// keeps running). In strict mode the findingsError closing the window
+	// surfaces them to the editor as a session-open failure; in degraded mode
+	// it is a no-op and the session opens with whatever context survived. The
+	// whole window is serialized (acpOpenGateMu) because concurrent opens would
+	// interleave their Mark windows — see the var's doc.
+	if gerr := func() error {
+		acpOpenGateMu.Lock()
+		defer acpOpenGateMu.Unlock()
+		startupMark := strictness.Checkpoint()
 
-	cfg, err := loadConfigForDir(req.Cwd)
-	if err != nil {
-		return nil, err
-	}
+		var err error
+		cfg, err = loadConfigForDir(req.Cwd)
+		if err != nil {
+			return err
+		}
 
-	profile := req.Profile
-	if profile == "" {
-		profile = flagProfile
-	}
+		profile = req.Profile
+		if profile == "" {
+			profile = flagProfile
+		}
 
-	// An agent binding resolves engine + composed profiles in one step. Per
-	// fault tolerance an unresolvable agent degrades to the plain profile
-	// flow (warn) rather than refusing the editor's session. Absent an explicit
-	// --agent, bind the always-bound DEFAULT AGENT (cfg.DefaultAgent) — the same
-	// bare-launch binding `ctxloom run` applies (profiles.defaults was retired);
-	// an empty/unresolvable default_agent simply degrades to the profile flow.
-	resolveAgent := flagAgent
-	if resolveAgent == "" {
-		resolveAgent = cfg.DefaultAgent
-	}
-	var contextText, label string
-	var defaultProfiles []string
-	currentAgent := ""
-	if resolveAgent != "" {
-		if rs, rerr := operations.ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
-			clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
-		} else {
-			contextText = rs.Context
-			label = rs.Label
-			currentAgent = resolveAgent
-			if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
-				// ACP sessions run in-process at the editor's cwd — a
-				// containerized engine the editor cannot reach would be worse
-				// than none. The session paths (run/map/weave) are where the
-				// runtime axis applies.
-				clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", resolveAgent, rs.Runtime)
+		// An agent binding resolves engine + composed profiles in one step. Per
+		// fault tolerance an unresolvable agent degrades to the plain profile
+		// flow (warn) rather than refusing the editor's session. Absent an explicit
+		// --agent, bind the always-bound DEFAULT AGENT (cfg.DefaultAgent) — the same
+		// bare-launch binding `ctxloom run` applies (profiles.defaults was retired);
+		// an empty/unresolvable default_agent simply degrades to the profile flow.
+		resolveAgent := flagAgent
+		if resolveAgent == "" {
+			resolveAgent = cfg.DefaultAgent
+		}
+		if resolveAgent != "" {
+			if rs, rerr := operations.ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
+				clidiag.Warn("ctxloom", "acp agent: agent %q unavailable; opening a default session: %v", resolveAgent, rerr)
+			} else {
+				contextText = rs.Context
+				label = rs.Label
+				currentAgent = resolveAgent
+				if rs.Runtime != "" && rs.Runtime != string(isolation.RuntimeHost) {
+					// ACP sessions run in-process at the editor's cwd — a
+					// containerized engine the editor cannot reach would be worse
+					// than none. The session paths (run/map/weave) are where the
+					// runtime axis applies.
+					clidiag.Warn("ctxloom", "acp agent: agent %q declares runtime %q; ACP sessions run at the editor's cwd, so the runtime axis is ignored here", resolveAgent, rs.Runtime)
+				}
 			}
 		}
-	}
 
-	if currentAgent == "" {
-		// Context assembly is fault-tolerant (CLAUDE.md): a failed assembly
-		// warns and the session still opens — the engine runs without ctxloom
-		// context rather than refusing the editor's session.
-		var profileLLM string
-		if ctxResult, cerr := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profile: profile}); cerr != nil {
-			clidiag.Warn("ctxloom", "acp agent: context assembly failed; continuing without context: %v", cerr)
-		} else {
-			contextText = ctxResult.Context
-			profileLLM = ctxResult.ProfileLLM
-			defaultProfiles = ctxResult.Profiles
-		}
+		if currentAgent == "" {
+			// Context assembly is fault-tolerant (CLAUDE.md): a failed assembly
+			// warns and the session still opens — the engine runs without ctxloom
+			// context rather than refusing the editor's session.
+			var profileLLM string
+			if ctxResult, cerr := operations.AssembleContext(ctx, cfg, operations.AssembleContextRequest{Profile: profile}); cerr != nil {
+				clidiag.Warn("ctxloom", "acp agent: context assembly failed; continuing without context: %v", cerr)
+			} else {
+				contextText = ctxResult.Context
+				profileLLM = ctxResult.ProfileLLM
+				defaultProfiles = ctxResult.Profiles
+			}
 
-		label = llmOverride
-		if label == "" {
-			label = profileLLM
+			label = llmOverride
+			if label == "" {
+				label = profileLLM
+			}
+			if label == "" {
+				label = cfg.PrimaryLabel()
+			}
 		}
-		if label == "" {
-			label = cfg.PrimaryLabel()
-		}
-	}
-	backendName, model := operations.ResolveBackend(cfg, label)
+		backendName, model = operations.ResolveBackend(cfg, label)
 
-	// Strict mode: refuse to open the session when config load or assembly
-	// recorded a fatal finding, surfacing the full list to the editor. Degraded
-	// mode returns nil here and the session opens (ACP's usual fault tolerance).
-	if ferr := findingsError(startupMark); ferr != nil {
-		return nil, ferr
+		// Strict mode: refuse to open the session when config load or assembly
+		// recorded a fatal finding, surfacing the full list to the editor. Degraded
+		// mode returns nil here and the session opens (ACP's usual fault tolerance).
+		return findingsError(startupMark)
+	}(); gerr != nil {
+		return nil, gerr
 	}
 
 	// Session accounting: resume the named harp, or mint a fresh one. A resume

@@ -264,6 +264,13 @@ func Resolve(axes Axes, backend string, img ImageConfig) Policy {
 	return chainFor(axes, backend, img)[0]
 }
 
+// selectRuntimeProbe is chainFor's seam onto the host runtime probe
+// (SelectRuntime), a package var so tests drive the no-runtime fatal path
+// hermetically — SelectRuntime probes the REAL host (docker/podman CLIs +
+// daemons), which a unit test must never depend on. Mirrors the sharedFSCheck
+// seam in sharedfs.go.
+var selectRuntimeProbe = SelectRuntime
+
 // chainFor builds the ordered degrade chain for the requested axes. The
 // runtime probe runs ONCE; each degrade step drops exactly one axis:
 //
@@ -278,7 +285,7 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	warnUnknownAxes(axes)
 
 	if axes.WantsContainer() {
-		rt := SelectRuntime("")
+		rt := selectRuntimeProbe("")
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
 				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
@@ -307,11 +314,13 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	return []Policy{None{}}
 }
 
-// isContainerPolicyName reports whether a policy name denotes a container-backed
+// IsContainerPolicyName reports whether a policy name denotes a container-backed
 // policy (the two that provide a real container boundary). Used by prepareChain
-// to detect a degrade that DROPS the container boundary, which warrants a
-// prominent, security-framed warning rather than the generic degrade line.
-func isContainerPolicyName(name string) bool {
+// to detect a degrade that DROPS the container boundary (which warrants a
+// prominent, security-framed warning rather than the generic degrade line), and
+// by the run path to tell a satisfied container request (container OR
+// container-worktree) from one that degraded to the host.
+func IsContainerPolicyName(name string) bool {
 	return name == (Container{}).Name() || name == (ContainerWorktree{}).Name()
 }
 
@@ -357,7 +366,7 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
 		// choke owner. The `continue` is unchanged — the chain still walks to None
 		// so a degraded run gets a workspace.
-		if isContainerPolicyName(p.Name()) && !isContainerPolicyName(next) {
+		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
 			strictness.Fail(strictness.ClassIsolation, isolationFixIt,
 				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
 			continue

@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -70,6 +72,40 @@ func TestBuildPickerEntries_NoRaw(t *testing.T) {
 // integration including config loading and plugin execution.
 func TestRunCommand_Integration(t *testing.T) {
 	t.Skip("Run command requires full system setup - tested in integration tests")
+}
+
+// warnBypassOnLostContainer must warn ONLY when a container-requested run
+// actually lost its boundary: any container-BACKED prepared policy (container
+// or container-worktree) is a satisfied request. The original inline predicate
+// compared the prepared name against exactly "container", so a SUCCESSFUL
+// container-worktree run warned "running with bypass on the host" — false.
+func TestWarnBypassOnLostContainer(t *testing.T) {
+	containerAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeContainer}
+
+	t.Run("successful container-worktree run does not warn", func(t *testing.T) {
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container-worktree", agent.PermissionBypass, "codex"),
+			"container-worktree IS a container boundary — a successful sandboxed run must not warn")
+	})
+
+	t.Run("successful plain-container run does not warn", func(t *testing.T) {
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "container", agent.PermissionBypass, "codex"))
+	})
+
+	t.Run("genuine degrade to the host warns", func(t *testing.T) {
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "worktree", agent.PermissionBypass, "codex"),
+			"container requested, worktree prepared → the boundary is lost; bypass on the host must warn")
+		assert.True(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, "codex"))
+	})
+
+	t.Run("no warning without a container request, without bypass, or for the claude-code stopgap", func(t *testing.T) {
+		hostAxes := isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}
+		assert.False(t, warnBypassOnLostContainer(hostAxes, "worktree", agent.PermissionBypass, "codex"),
+			"no container was requested — nothing was lost")
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionDefault, "codex"),
+			"a prompting posture on the host is the normal degrade, not a silent full-auto")
+		assert.False(t, warnBypassOnLostContainer(containerAxes, "none", agent.PermissionBypass, config.BackendClaudeCode),
+			"bypass-on-host is the claude-code stopgap's intended posture")
+	})
 }
 
 func TestResolveResumeIntentWith_SessionFlag(t *testing.T) {

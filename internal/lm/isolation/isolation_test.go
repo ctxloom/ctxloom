@@ -142,6 +142,64 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 	})
 }
 
+// stubRuntimeProbe swaps chainFor's runtime probe for one returning rt, and
+// restores the real SelectRuntime on cleanup. Hermetic: the real probe shells
+// out to docker/podman on the host.
+func stubRuntimeProbe(t *testing.T, rt ContainerRuntime) {
+	t.Helper()
+	prev := selectRuntimeProbe
+	selectRuntimeProbe = func(string) ContainerRuntime { return rt }
+	t.Cleanup(func() { selectRuntimeProbe = prev })
+}
+
+// TestChainFor_NoRuntime_FatalUnlessDegraded pins chainFor's no-runtime fatal
+// path hermetically (via the selectRuntimeProbe seam): an EXPLICITLY-requested
+// container with no reachable runtime records a fatal ClassIsolation finding in
+// strict mode — the choke owner aborts on it — while the chain still degrades
+// so the run gets a workspace (never blocks). The workspace axis must survive
+// the runtime-axis degrade untouched.
+func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
+	t.Run("strict {none,container}: one fatal isolation finding; chain degrades to None", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeProbe(t, Host{})
+
+		chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		require.Len(t, chain, 1)
+		assert.IsType(t, None{}, chain[0], "no runtime → the container tier never enters the chain")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1, "runtime-unreachable on an explicit container request is exactly one fatal finding")
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "no container runtime is available")
+		assert.Contains(t, findings[0].FixIt, "--degraded", "the fix-it must name the escape hatch")
+	})
+
+	t.Run("strict {worktree,container}: the finding fires but the worktree survives", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeProbe(t, Host{})
+
+		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		require.NotEmpty(t, chain)
+		assert.IsType(t, Worktree{}, chain[0], "the runtime axis degrades ALONE; the requested worktree stays")
+
+		findings := strictness.All()
+		require.Len(t, findings, 1)
+		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Contains(t, findings[0].Message, "keeping the worktree", "the message must say the worktree survived")
+	})
+
+	t.Run("degraded: no finding — the host degrade is the accepted outcome", func(t *testing.T) {
+		resetStrictness(t)
+		strictness.SetDegraded(true)
+		stubRuntimeProbe(t, Host{})
+
+		chain := chainFor(Axes{Runtime: RuntimeContainer}, "claude-code", ImageConfig{})
+		require.Len(t, chain, 1)
+		assert.IsType(t, None{}, chain[0])
+		assert.Empty(t, strictness.All())
+	})
+}
+
 // TestApprovals_String renders the approvals axis for diagnostics.
 func TestApprovals_String(t *testing.T) {
 	assert.Equal(t, "prompt", ApprovalsPrompt.String())

@@ -558,6 +558,12 @@ Examples:
 		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
 			return ferr
 		}
+		// Anchor for the SECOND gate (after isolation.Prepare, far below):
+		// captured immediately after gate 1 passes so the two windows TILE — a
+		// finding recorded between the gates (trust gate, session accounting,
+		// hook/config work on the way to the launch) still aborts at gate 2
+		// instead of falling into an ungated hole.
+		postStartupMark := strictness.Checkpoint()
 
 		llmBinary, llmArgs := llmBinaryArgsFor(cfg, label)
 		llmEnv := llmEnvFor(cfg, label)
@@ -861,12 +867,13 @@ Examples:
 			// Fail-loudly re-gate: isolation resolves HERE, AFTER the startup gate
 			// (failOnFindings above), so a requested-container-degraded-to-host
 			// finding (ClassIsolation, raised inside Prepare) would slip past that
-			// already-passed gate. Checkpoint immediately before Prepare and
-			// re-check right after, so an EXPLICITLY-requested container that can't
-			// be satisfied aborts (exit 3) before an UNSANDBOXED engine is spawned —
-			// unless --degraded, which records nothing and proceeds on the host per
-			// the degrade chain.
-			isolationMark := strictness.Checkpoint()
+			// already-passed gate. Gate 2 below re-checks from postStartupMark —
+			// captured immediately after gate 1 passed, so the two windows TILE
+			// (a finding recorded anywhere between the gates is caught, not just
+			// one raised inside Prepare) — and an EXPLICITLY-requested container
+			// that can't be satisfied aborts (exit 3) before an UNSANDBOXED
+			// engine is spawned — unless --degraded, which records nothing and
+			// proceeds on the host per the degrade chain.
 			prepared, ws := isolation.Prepare(ctx, runAxes, backendName, operations.IsolationImageConfig(cfg, backendName), workDir, activeHarp)
 			// The permission posture is resolved once from config/CLI/agent and is
 			// authoritative regardless of how the isolation boundary degrades: a
@@ -879,16 +886,18 @@ Examples:
 			// a container→worktree degrade still tears the prepared worktree down.
 			// none's cleanup is a noop.
 			defer func() { _ = ws.Cleanup() }()
-			if ferr := failOnFindings(os.Stderr, isolationMark); ferr != nil {
+			if ferr := failOnFindings(os.Stderr, postStartupMark); ferr != nil {
 				return ferr
 			}
 			// A container-requested run whose boundary silently degraded to the bare
 			// host still carries a configured bypass. For the claude-code host stopgap
 			// that is intended; for any other backend the boundary that justified
 			// bypass is gone, so surface it rather than run full-auto with no signal.
-			// Only reached in degraded mode: strict mode aborted at the gate above.
-			if runAxes.WantsContainer() && prepared.Name() != string(isolation.RuntimeContainer) &&
-				permMode == agent.PermissionBypass && backendName != config.BackendClaudeCode {
+			// A SATISFIED container request (the container OR container-worktree
+			// policy prepared) never warns. In strict mode a lost boundary recorded
+			// a ClassIsolation finding and gate 2 above already aborted, so this
+			// warning fires only in degraded mode (or if a degrade recorded nothing).
+			if warnBypassOnLostContainer(runAxes, prepared.Name(), permMode, backendName) {
 				clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", backendName)
 			}
 			// The engine's cwd lands in the prepared workspace (identical-path for
@@ -937,6 +946,18 @@ Examples:
 
 		return nil
 	},
+}
+
+// warnBypassOnLostContainer reports whether the launch should warn that a
+// container-requested run lost its boundary and now runs full-auto on the bare
+// host: the runtime axis asked for a container, the PREPARED policy is not
+// container-backed (neither container nor container-worktree — a satisfied
+// request, including a successful container-worktree, never warns), and the
+// resolved posture is bypass. The claude-code host stopgap is exempt:
+// bypass-on-host is its intended posture.
+func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMode agent.PermissionMode, backendName string) bool {
+	return axes.WantsContainer() && !isolation.IsContainerPolicyName(preparedName) &&
+		permMode == agent.PermissionBypass && backendName != config.BackendClaudeCode
 }
 
 // resolvePermissionMode picks the launch-time permission posture for the top-level

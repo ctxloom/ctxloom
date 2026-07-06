@@ -73,9 +73,16 @@ var (
 	mu       sync.Mutex
 	degraded bool
 	findings []Finding
-	// onceRecorded dedups FailOnce recordings per process, mirroring
-	// clidiag.WarnOnce's print dedup so one repeated diagnostic yields one
-	// finding.
+	// generation counts Checkpoint calls. onceRecorded keys FailOnce
+	// recordings by generation+class+message, so the RECORDING dedup is
+	// scoped to one checkpoint window: a long-lived server (`ctxloom acp`)
+	// that refuses a session over a FailOnce finding must see the SAME
+	// finding again when the unfixed session is retried under a new
+	// Checkpoint — a process-wide dedup would swallow the re-fire and the
+	// retry would open silently on broken context. The PRINT dedup
+	// (clidiag.WarnOnce) deliberately stays process-wide; worst case of the
+	// window scoping is a duplicate line inside one findings listing.
+	generation   int
 	onceRecorded = map[string]struct{}{}
 )
 
@@ -98,14 +105,26 @@ func Degraded() bool {
 
 // Mark is a checkpoint into the findings list; Since(mark) returns only the
 // findings recorded after it. Choke owners checkpoint at the start of their
-// own startup sequence so an earlier invocation in the same process (another
-// ACP session, another test) never bleeds into their abort decision.
+// own startup sequence so an EARLIER, COMPLETED invocation in the same
+// process (a previous ACP session, another test) never bleeds into their
+// abort decision.
+//
+// LIMITATION: windows are only isolated when they run SEQUENTIALLY. A Mark is
+// an index into the one process-global findings list, so windows that overlap
+// in time interleave: a finding recorded by a concurrent goroutine lands
+// inside every open window and is attributed to all of them. Callers that
+// checkpoint on concurrent goroutines (the ACP server's session opens, the
+// fan-out's per-member isolation gate) must serialize their checkpoint→gate
+// sections externally; per-window finding ownership inside this package is
+// the eventual fix.
 type Mark int
 
-// Checkpoint returns a Mark for the current findings position.
+// Checkpoint returns a Mark for the current findings position and opens a new
+// FailOnce recording-dedup window (see generation above).
 func Checkpoint() Mark {
 	mu.Lock()
 	defer mu.Unlock()
+	generation++
 	return Mark(len(findings))
 }
 
@@ -126,12 +145,14 @@ func All() []Finding {
 	return Since(0)
 }
 
-// Reset clears the collected findings and the FailOnce dedup set (test seam;
-// the mode is left untouched — use SetDegraded).
+// Reset clears the collected findings, the FailOnce dedup set, and the
+// checkpoint generation (test seam; the mode is left untouched — use
+// SetDegraded).
 func Reset() {
 	mu.Lock()
 	defer mu.Unlock()
 	findings = nil
+	generation = 0
 	onceRecorded = map[string]struct{}{}
 }
 
@@ -165,7 +186,9 @@ func Record(class Class, fixit, format string, args ...any) {
 }
 
 // record appends a finding in strict mode, honoring the FailOnce dedup set
-// when once is set.
+// when once is set. The dedup key includes the current checkpoint generation,
+// so the dedup collapses repeats WITHIN one window but never swallows a
+// re-fire in a later window (see generation's doc).
 func record(class Class, fixit, msg string, once bool) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -173,7 +196,7 @@ func record(class Class, fixit, msg string, once bool) {
 		return
 	}
 	if once {
-		key := string(class) + "\x00" + msg
+		key := fmt.Sprintf("%d\x00%s\x00%s", generation, class, msg)
 		if _, seen := onceRecorded[key]; seen {
 			return
 		}

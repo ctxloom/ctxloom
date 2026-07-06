@@ -21,8 +21,8 @@ func (p probeRuntime) RunArgs(spec RunSpec) []string {
 }
 
 // stubProbeExec swaps the probe's exec seam for the test and restores it.
-// The stub receives the marker file's host path (parsed from the rendered -v
-// mount) so behaviors can read or ignore the real marker.
+// The stub receives the marker file's host path (parsed from the rendered
+// --mount bind spec) so behaviors can read or ignore the real marker.
 func stubProbeExec(t *testing.T, fn func(markerPath string) (string, error)) *int {
 	t.Helper()
 	calls := 0
@@ -30,8 +30,13 @@ func stubProbeExec(t *testing.T, fn func(markerPath string) (string, error)) *in
 	probeExec = func(_ context.Context, _ string, args []string) (string, error) {
 		calls++
 		for i, a := range args {
-			if a == "-v" && i+1 < len(args) {
-				host := strings.SplitN(args[i+1], ":", 2)[0]
+			if a == "--mount" && i+1 < len(args) {
+				host := ""
+				for _, field := range strings.Split(args[i+1], ",") {
+					if src, ok := strings.CutPrefix(field, "source="); ok {
+						host = src
+					}
+				}
 				return fn(filepath.Join(host, "marker"))
 			}
 		}

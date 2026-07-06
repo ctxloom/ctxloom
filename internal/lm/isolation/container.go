@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -179,6 +180,23 @@ func (sc containerScratch) runEnv() []string {
 	return append(append([]string(nil), sc.auth.env...), sc.termEnv...)
 }
 
+// containerScratchBase returns the PARENT directory for a run's host-side scratch
+// tree (the empty default means os.TempDir). It exists to keep the plugin unix
+// socket path short on darwin: go-plugin creates the socket at
+// <scratch>/sock/plugin-dir<rand>/plugin<rand>, and on macOS the default $TMPDIR
+// is a long per-user /var/folders/… path that pushes the full path past darwin's
+// ~104-byte AF_UNIX sun_path limit — so the host dial fails with "invalid
+// argument" even when the boundary is otherwise fine. /tmp (a Docker Desktop
+// default-shared path, under the shared /private tree) is short and keeps the
+// socket comfortably under the limit. Linux and every other OS keep os.TempDir
+// unchanged — the limit is generous there (~108 bytes) and $TMPDIR is short.
+func containerScratchBase() string {
+	if runtime.GOOS == "darwin" {
+		return "/tmp"
+	}
+	return ""
+}
+
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
 // the required image present (or locally buildable, see ensureImage), and
 // resolvable engine auth (the profile's resolver) — then provisions the host
@@ -210,7 +228,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	if !ok {
 		return containerScratch{}, fmt.Errorf("container auth: %s", c.profile.authHint)
 	}
-	root, err := os.MkdirTemp("", "ctxloom-iso-")
+	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}

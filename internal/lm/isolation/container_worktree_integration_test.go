@@ -134,7 +134,12 @@ func TestContainerWorktreePolicy_WorktreeInContainer(t *testing.T) {
 func dockerRun(ctx context.Context, image, workDir string, mounts []Mount, args ...string) (string, error) {
 	full := []string{"run", "--rm"}
 	for _, m := range mounts {
-		full = append(full, "-v", m.Host+":"+m.Container)
+		// Mirror the policy's render (renderRunSpec): --mount type=bind, not -v.
+		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
+		if m.ReadOnly {
+			opt += ",readonly"
+		}
+		full = append(full, "--mount", opt)
 	}
 	full = append(full, "-w", workDir, image)
 	full = append(full, args...)

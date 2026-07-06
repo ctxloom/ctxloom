@@ -55,9 +55,9 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 
 	// Rendered argv: the credential mount is read-only; the auth env is an -e.
 	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
-	assert.Contains(t, argv, "-v /h/.claude/.credentials.json:/root/.claude/.credentials.json:ro")
+	assert.Contains(t, argv, "--mount type=bind,source=/h/.claude/.credentials.json,target=/root/.claude/.credentials.json,readonly")
 	assert.Contains(t, argv, "-e ANTHROPIC_API_KEY=scoped")
-	assert.Contains(t, argv, "-v /scratch/cfg0:/proj/.claude")
+	assert.Contains(t, argv, "--mount type=bind,source=/scratch/cfg0,target=/proj/.claude")
 }
 
 // TestContainerConfigOverlay_ShadowsManagedPaths: the overlay produces one

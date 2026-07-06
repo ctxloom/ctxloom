@@ -39,8 +39,8 @@ func TestDockerRootless_RunsAsMappedRoot(t *testing.T) {
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4], "run head")
 	assert.NotContains(t, joined, "--user", "rootless docker maps root→host user; no --user")
 	assert.NotContains(t, joined, "PUID", "no identity remap: container-root IS the launching user")
-	assert.Contains(t, joined, "-v /home/u/proj:/home/u/proj", "identical-path project mount")
-	assert.Contains(t, joined, "-v /tmp/sock:/run/ctxloom/plugin", "socket-dir mount")
+	assert.Contains(t, joined, "--mount type=bind,source=/home/u/proj,target=/home/u/proj", "identical-path project mount")
+	assert.Contains(t, joined, "--mount type=bind,source=/tmp/sock,target=/run/ctxloom/plugin", "socket-dir mount")
 	assert.Contains(t, joined, "-e HOME=/root", "fresh HOME")
 	assert.Contains(t, joined, "-w /home/u/proj", "workdir")
 	// The image precedes the in-container command as the final tokens.
@@ -70,7 +70,7 @@ func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
 	assert.NotContains(t, joined, "keep-id")
 	assert.NotContains(t, joined, "--user")
 	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
-	assert.Contains(t, joined, "-v /home/u/proj:/home/u/proj")
+	assert.Contains(t, joined, "--mount type=bind,source=/home/u/proj,target=/home/u/proj")
 	assert.Equal(t, []string{"rm", "-f", "c1"}, Podman{}.RemoveArgs("c1"))
 }
 

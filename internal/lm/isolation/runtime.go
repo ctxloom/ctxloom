@@ -43,10 +43,10 @@ type RunSpec struct {
 	Home    string   // fresh $HOME inside the container (engine global state isolated)
 	Command []string // in-container argv (the container's ctxloom + "llm serve …")
 	Env     []string // -e KEY=VAL, the curated go-plugin handshake env
-	Mounts  []Mount  // -v host:container bind mounts
+	Mounts  []Mount  // --mount type=bind bind mounts
 }
 
-// Mount is one bind mount rendered as `-v host:container[:ro]`.
+// Mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
 type Mount struct {
 	Host      string
 	Container string
@@ -185,11 +185,18 @@ func renderRunSpec(spec RunSpec) []string {
 		args = append(args, "-e", e)
 	}
 	for _, m := range spec.Mounts {
-		v := m.Host + ":" + m.Container
+		// --mount (not -v host:container[:ro]): the colon-delimited -v grammar is
+		// ambiguous on Windows, where a host path carries a drive-letter colon
+		// (C:\...) that mis-splits. --mount type=bind,source=,target=[,readonly]
+		// is colon-free and renders identically on docker + podman + Linux. Every
+		// mount in this package funnels through here, so this is the single site.
+		// (--mount requires the source to already exist; every Mount.Host in this
+		// package is a path we created or verified before the run, so that holds.)
+		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
 		if m.ReadOnly {
-			v += ":ro"
+			opt += ",readonly"
 		}
-		args = append(args, "-v", v)
+		args = append(args, "--mount", opt)
 	}
 	if spec.WorkDir != "" {
 		args = append(args, "-w", spec.WorkDir)

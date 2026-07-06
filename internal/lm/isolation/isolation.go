@@ -293,6 +293,14 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	return []Policy{None{}}
 }
 
+// isContainerPolicyName reports whether a policy name denotes a container-backed
+// policy (the two that provide a real container boundary). Used by prepareChain
+// to detect a degrade that DROPS the container boundary, which warrants a
+// prominent, security-framed warning rather than the generic degrade line.
+func isContainerPolicyName(name string) bool {
+	return name == (Container{}).Name() || name == (ContainerWorktree{}).Name()
+}
+
 // Prepare prepares a workspace for the requested axes and the run's BACKEND
 // (per-member engines — the backend picks the container profile, with the
 // user's ImageConfig applied), walking chainFor's degrade chain until a policy
@@ -319,6 +327,19 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		next := None{}.Name()
 		if i+1 < len(chain) {
 			next = chain[i+1].Name()
+		}
+		// Losing the container boundary is a security-relevant downgrade: the run
+		// was to be sandboxed and now isn't. A single degrade line is easy to miss
+		// when the engine then takes over the terminal, so surface it prominently
+		// at default verbosity — naming the reason (image absent, shared-fs probe,
+		// no resolvable auth) — so a failed or denied container start can't be
+		// mistaken for a normal host run. The runtime-unreachable reason is warned
+		// earlier in chainFor; the handshake-timeout reason surfaces as a fatal
+		// SpawnClient error at the choke owner. This does NOT change the
+		// degrade-vs-abort semantics — the run still falls back per the chain.
+		if isContainerPolicyName(p.Name()) && !isContainerPolicyName(next) {
+			clidiag.Warn("ctxloom", "container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", agentID, err)
+			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)
 	}

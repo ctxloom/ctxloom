@@ -558,20 +558,32 @@ profiles: {}
 	registry, err := remote.NewRegistry(paths.RemotesPath(testBaseDir), remote.WithRegistryFS(fs))
 	require.NoError(t, err)
 
+	// Inject a fetcher that resolves the default branch to the SAME SHA the
+	// lockfile pins, so this genuinely exercises SHA-match up-to-date detection.
+	// Injecting FetcherFactory (with RepoCache left nil) also makes the test
+	// hermetic: CheckOutdated's real-network/real-FS refresh pre-pass only runs
+	// when RepoCache != nil || FetcherFactory == nil, so it is skipped entirely
+	// here — no git clone, no touch of the OS filesystem outside the afero memfs.
+	mockFetcher := remote.NewMockFetcher()
+	mockFetcher.DefaultBranch = "main"
+	mockFetcher.Refs = map[string]string{
+		"main": "abc123def456789", // Matches the locked SHA above.
+	}
+	fetcherFactory := func(url string, auth remote.AuthConfig) (remote.Fetcher, error) {
+		return mockFetcher, nil
+	}
+
 	cfg := testConfigWithSCMPath(testBaseDir)
 
-	// Note: This test will actually try to fetch from the network since we can't mock the fetcher
-	// creation inside the loop. We're primarily testing that the function handles the empty case
-	// and that the code reaches the registry lookup. The network calls will fail gracefully.
 	result, err := CheckOutdated(context.Background(), cfg, CheckOutdatedRequest{
-		FS:          fs,
-		LockManager: lockManager,
-		Registry:    registry,
+		FS:             fs,
+		LockManager:    lockManager,
+		Registry:       registry,
+		FetcherFactory: fetcherFactory,
 	})
 
 	require.NoError(t, err)
-	// Result should be up_to_date since all entries failed to check (network error)
-	// and thus no outdated items were found
+	// Locked SHA == resolved SHA, so the item is genuinely up to date.
 	assert.Equal(t, "up_to_date", result.Status)
 }
 

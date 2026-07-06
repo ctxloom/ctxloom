@@ -34,10 +34,18 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, exists, "legit skill %s must be written", p)
 	}
+	// Assert absence at the ACTUAL join sites the writer would use if the
+	// SafeCommandRelPath guard regressed — not at paths the code can never
+	// reach. filepath.Join(skillsDir, <rendered name>) resolves each traversal
+	// name to: "../escape" -> /work/.agents/escape.md; "/abs/path" ->
+	// /work/.agents/skills/abs/path.md (leading slash is a separator, not an
+	// escape); "a/../../b" -> /work/.agents/b.md (escapes up into .agents/).
+	// The old expectations (/abs/path.md, /work/b.md) targeted locations the
+	// writer never writes, so they could never fail.
 	for _, p := range []string{
-		"/work/.agents/escape.md", // ../escape from skills dir
-		"/abs/path.md",
-		"/work/b.md", // a/../../b from skills dir
+		"/work/.agents/escape.md",          // ../escape escapes to .agents/
+		"/work/.agents/skills/abs/path.md", // /abs/path joins under skills dir
+		"/work/.agents/b.md",               // a/../../b escapes to .agents/
 	} {
 		exists, err := afero.Exists(fs, p)
 		require.NoError(t, err)
@@ -50,6 +58,9 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 	assert.Contains(t, string(manifest), "group/cmd.md")
 	assert.NotContains(t, string(manifest), "escape")
 	assert.NotContains(t, string(manifest), "abs")
+	// The a/../../b case had no compensating manifest signal; its rendered line
+	// would be "b.md", so a regression that re-enabled the traversal is caught here.
+	assert.NotContains(t, string(manifest), "b.md")
 }
 
 // TestWriteCommandFiles_ManifestTraversalLinesNotDeleted verifies the

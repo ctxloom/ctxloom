@@ -74,9 +74,13 @@ func TestClaudeSessionHistory_ListSessions(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, sessions, 2)
-	// Sessions should be sorted by time, most recent first
-	assert.Contains(t, []string{"session1", "session2"}, sessions[0].ID)
-	assert.Contains(t, []string{"session1", "session2"}, sessions[1].ID)
+	// Sessions must be sorted most-recent-first. session2 is written later (newer
+	// mod time; the 10ms sleep above guarantees a distinct one) and also carries
+	// the later transcript timestamps, so it must come first. Asserting the exact
+	// order — not just set membership — is what actually pins the sort so a
+	// regression that dropped or reversed it would fail here.
+	assert.Equal(t, "session2", sessions[0].ID)
+	assert.Equal(t, "session1", sessions[1].ID)
 }
 
 func TestClaudeSessionHistory_ListSessions_Empty(t *testing.T) {

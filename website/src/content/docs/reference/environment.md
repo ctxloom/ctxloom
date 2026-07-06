@@ -11,7 +11,6 @@ Environment variables that affect ctxloom behavior.
 | `CTXLOOM_VERBOSE` | Enable verbose logging | `0` (disabled) |
 | `CTXLOOM_ROOT` | Override project-root resolution (normally the git root or the directory containing `.ctxloom`) | unset |
 | `CTXLOOM_DEBUG_HTTP` | Log HTTP requests made to remote forges | `0` (disabled) |
-| `CTXLOOM_AUTO_APPROVE_BUNDLES` | Auto-merge pending bundle changes instead of leaving them for review (non-interactive/CI use) | `0` (disabled) |
 
 ```bash
 CTXLOOM_VERBOSE=1 ctxloom run -p developer "help"

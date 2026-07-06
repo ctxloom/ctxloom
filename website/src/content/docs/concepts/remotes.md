@@ -25,8 +25,9 @@ ctxloom remote trust <name>             # Apply this remote's upgrades without r
 ctxloom remote untrust <name>           # Gate this remote's upgrades behind review
 ```
 
-Bundle changes from a trusted remote apply automatically; changes from an
-untrusted remote are staged for review — see
+Content from a trusted remote reaches the agent automatically; content from an
+untrusted remote lands as **pending** and is withheld per item until you accept
+it with `ctxloom review` — see
 [Review and trust](/concepts/review-and-trust/).
 
 ### Add a Remote
@@ -133,7 +134,8 @@ ctxloom remote pull      # resolve every constraint → lock.yaml and fetch exac
                          # constraint is unchanged)
 ctxloom remote update    # report the newest commit available within each constraint
 ctxloom remote upgrade   # re-resolve within constraints and move the LOCK (never the
-                         # manifest); trusted remotes apply, others stage for review
+                         # manifest); whether changed content reaches the agent is
+                         # decided per item at exposure (ctxloom review)
 ```
 
 Locking happens automatically as part of `pull` — there is no separate lock step.
@@ -141,8 +143,9 @@ Locking happens automatically as part of `pull` — there is no separate lock st
 `upgrade` resolves a range (`@^1.2`) to the newest matching tag, a branch to its
 new tip, and leaves exact pins and [held](#holds) items untouched. It writes only
 the lockfile — your profile YAML is never rewritten, so a version bump is a clean
-`lock.yaml` diff. Changes from an untrusted remote are staged for `ctxloom bundle
-review` / `approve`; see [Review and trust](/concepts/review-and-trust/).
+`lock.yaml` diff. Whether any changed content reaches the agent is decided per
+item at exposure and reviewed with `ctxloom review`; see
+[Review and trust](/concepts/review-and-trust/).
 
 ### Holds
 

@@ -25,7 +25,7 @@ ctxloom bundle show <name> [flags]
 
 ```
   -h, --help          help for show
-  -i, --interactive   Review per-item effective trust, trust/blacklist individual hooks, and offer to mark the bundle trusted (interactive terminal only)
+  -i, --interactive   Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)
 ```
 
 ### Options inherited from parent commands

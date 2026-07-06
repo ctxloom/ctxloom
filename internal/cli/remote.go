@@ -158,8 +158,8 @@ var remoteTrustCmd = &cobra.Command{
 	Long: `Add a remote to the trusted-sources set. Every item a trusted source
 publishes — including all future updates — is exposed to the agent without
 per-item review. Content from an untrusted remote stays pending (withheld)
-until a human accepts it; its staged bundle changes likewise stay pending
-until approved.
+until a human accepts it with 'ctxloom review'; there is no separate staging
+or approve step.
 
 Trusting a source does not touch per-item review states: an item you rejected
 stays rejected even when its source is trusted.

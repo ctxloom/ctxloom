@@ -6,6 +6,16 @@
 
 Accepted.
 
+**Partially superseded** by the trust-simplify work (Slice 3, commit `192d4ef`).
+The `bundle review|approve|decline|show-pending` family named below — and the
+`CTXLOOM_AUTO_APPROVE_BUNDLES` escape hatch — were removed. Per-item content
+review now happens at exposure through the content-hash trust gate and the
+single `ctxloom review` porcelain (see [trust-model.md](../trust-model.md)); a
+trusted source is set with `ctxloom remote trust`, and dependency pins moved to
+`ctxloom bundle hold`/`unhold`. The core decision — keep the MCP surface small
+and route management through the CLI — still stands; only those specific command
+names have changed.
+
 ## Context
 
 The MCP server had grown to ~20 tools and 13 resources that mixed two audiences.

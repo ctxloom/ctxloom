@@ -178,4 +178,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you grant them (`ctxloom trust <ref>` or `ctxloom bundle trust <name>`).
+Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom trust <ref>` for a single item) — or trust the source with `ctxloom remote trust <name>`.

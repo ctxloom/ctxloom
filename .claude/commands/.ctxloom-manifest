@@ -1,10 +1,5 @@
 check-triggers.md
 discover.md
 recover.md
-versionator-release.md
-versionator-suggest-version.md
-versionator-version-bump.md
 sequential-thinking-complex-problem.md
-go-development-code-review.md
-go-development-refactor.md
-session-tools-prepare-quit.md
+ltk-tooling.md

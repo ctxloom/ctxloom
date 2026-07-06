@@ -79,3 +79,6 @@ resources/schema/gen/
 
 # ctxloom private working state (synced bundles, session/context, project id)
 .agents/
+
+# ctxloom private working state (synced bundles, session/context, project id)
+.ctxloom/project-id

@@ -2,18 +2,27 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin/runner"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// containerRemoveTimeout bounds our OWN teardown: the go-plugin fork calls Kill
+// with context.Background() (no deadline), so a `docker/podman rm -f` against a
+// wedged daemon would hang session shutdown forever. We cap it here regardless of
+// the ctx passed in.
+const containerRemoveTimeout = 15 * time.Second
 
 // containerRunner implements go-plugin's runner.Runner by launching the plugin
 // server INSIDE a container via a ContainerRuntime. It mirrors go-plugin's own
@@ -77,18 +86,44 @@ func (r *containerRunner) Start(_ context.Context) error {
 // Wait blocks until the container process exits.
 func (r *containerRunner) Wait(_ context.Context) error { return r.cmd.Wait() }
 
-// Kill tears the container down: force-remove by name (stops + removes it, which
-// also ends the --rm `run` process), then best-effort kill the run process. Both
-// errors are swallowed — teardown must never panic a run, and a racing --rm makes
-// the remove report an already-gone container (CLAUDE.md fault tolerance).
+// Kill tears the container down: a name-targeted force-remove (stops + removes the
+// container, which also ends the --rm `run` process), under OUR own timeout so a
+// wedged daemon cannot hang shutdown. The remove targets the CONTAINER by name —
+// the real stop; the trailing cmd.Process kill only reaps our own `run` CLI (it
+// would NOT stop the container). If the remove does not confirm the container is
+// gone (timeout on a wedged daemon, or a real rm error) we surface the leak
+// LOUDLY: the live container still holds the workspace Cleanup is about to remove.
+// Teardown runs outside the startup choke, so this is a streamed warn-and-continue
+// (not a strictness finding) — never panic a run, but never hide a leak either. A
+// racing --rm makes the remove report an already-gone container, which is success.
 func (r *containerRunner) Kill(ctx context.Context) error {
 	if r.name != "" && r.runtime.Binary() != "" {
-		_ = exec.CommandContext(ctx, r.runtime.Binary(), r.runtime.RemoveArgs(r.name)...).Run()
+		cctx, cancel := context.WithTimeout(ctx, containerRemoveTimeout)
+		// probeExec is the package's exec seam (`.Output()` captures stderr onto
+		// the ExitError); reuse it so teardown is testable without a real runtime.
+		if _, err := probeExec(cctx, r.runtime.Binary(), r.runtime.RemoveArgs(r.name)); err != nil && !removeReportsGone(err) {
+			clidiag.Warn("ctxloom",
+				"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",
+				r.name, err, r.runtime.Name(), r.runtime.Binary(), strings.Join(r.runtime.RemoveArgs(r.name), " "))
+		}
+		cancel()
 	}
 	if r.cmd.Process != nil {
 		_ = r.cmd.Process.Kill()
 	}
 	return nil
+}
+
+// removeReportsGone reports whether a force-remove error is the benign
+// already-gone race (the --rm `run` beat us to removing the container): docker/
+// podman exit non-zero with "No such container". That is teardown SUCCESS — the
+// container is gone — not a leak, so it is not surfaced.
+func removeReportsGone(err error) bool {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(ee.Stderr)), "no such container")
 }
 
 // Stdout is the container's stdout — go-plugin negotiates the handshake here.

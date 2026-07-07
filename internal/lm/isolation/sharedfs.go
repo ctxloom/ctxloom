@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,13 +29,39 @@ var probeExec = func(ctx context.Context, bin string, args []string) (string, er
 var sharedFSCheck = sharedFSProbe
 
 // sharedFSResults memoizes one probe outcome per (runtime binary, image):
-// map/weave fan many members through the same runtime+image, and the answer
-// cannot change within one process run — so the fleet pays for one short
-// probe container, not one per member.
+// map/weave fan many members through the same runtime+image, and a DEFINITIVE
+// answer cannot change within one process run — so the fleet pays for one short
+// probe container, not one per member. Only definitive outcomes latch here (see
+// definitiveProbe): a transient run failure (a cold Docker Desktop VM, a daemon
+// stall, our own probe timeout, or a cancelled caller ctx) must re-probe next
+// call, never pin every later isolation decision to degrade for the process's life.
 var (
 	sharedFSMu      sync.Mutex
 	sharedFSResults = map[string]error{}
 )
+
+// sharedFSMismatch is a DEFINITIVE negative verdict: the probe container ran and
+// the daemon read the marker back, but the content did not match this process's
+// write (an empty read is the docker-outside-of-docker auto-create signature).
+// Definitive because the filesystem genuinely is not shared, so it — like a
+// success — latches into the memo. A run FAILURE (daemon down/cold, image
+// unreadable, probe timeout, cancellation) is a plain wrapped error instead:
+// transient, never latched, and reported as its real cause rather than as a
+// sharing mismatch.
+type sharedFSMismatch struct{ msg string }
+
+func (e *sharedFSMismatch) Error() string { return e.msg }
+
+// definitiveProbe reports whether a probe outcome is a permanent per-process
+// verdict safe to memoize: success (nil) or a genuine content mismatch. Every
+// other error is a transient run failure that must re-probe.
+func definitiveProbe(err error) bool {
+	if err == nil {
+		return true
+	}
+	var mism *sharedFSMismatch
+	return errors.As(err, &mism)
+}
 
 // sharedFSProbe verifies the runtime's DAEMON shares this process's
 // filesystem namespace — the invariant every identical-path bind mount in
@@ -56,9 +83,14 @@ func sharedFSProbe(ctx context.Context, rt ContainerRuntime, image string) error
 		return res
 	}
 	res = runSharedFSProbe(ctx, rt, image)
-	sharedFSMu.Lock()
-	sharedFSResults[key] = res
-	sharedFSMu.Unlock()
+	// Latch ONLY a definitive outcome. Caching a transient failure (a cold VM's
+	// first probe, a stall, DeadlineExceeded, context.Canceled) would pin every
+	// later isolation decision in this long-lived process to degrade until restart.
+	if definitiveProbe(res) {
+		sharedFSMu.Lock()
+		sharedFSResults[key] = res
+		sharedFSMu.Unlock()
+	}
 	return res
 }
 
@@ -87,10 +119,30 @@ func runSharedFSProbe(ctx context.Context, rt ContainerRuntime, image string) er
 	})
 	out, err := probeExec(cctx, rt.Binary(), args)
 	if err != nil {
-		return fmt.Errorf("marker not readable through the daemon: %w", err)
+		// The probe container did not run to completion: daemon down/cold, image
+		// unreadable, our own timeout, or a cancelled caller ctx. This is NOT a
+		// filesystem-sharing verdict — surface the REAL cause (docker's stderr,
+		// which .Output() stashes on the ExitError) so the fix-it points at the
+		// daemon/image, not at a phantom sharing gap. Transient: never memoized.
+		return probeRunError(err)
 	}
-	if strings.TrimSpace(out) != marker {
-		return fmt.Errorf("marker content mismatch (daemon read %q)", strings.TrimSpace(out))
+	if got := strings.TrimSpace(out); got != marker {
+		// The container ran and the daemon read the dir back, but not our marker
+		// (empty = the docker-outside-of-docker auto-create signature). Definitive.
+		return &sharedFSMismatch{fmt.Sprintf("marker content mismatch (daemon read %q) — the filesystem is not shared", got)}
 	}
 	return nil
+}
+
+// probeRunError decorates a probe-run failure with the runtime's stderr when it
+// carried one (exec's .Output() stashes it on *exec.ExitError), preserving the
+// wrapped error so callers can still errors.Is it (context.Canceled/DeadlineExceeded).
+func probeRunError(err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if stderr := strings.TrimSpace(string(ee.Stderr)); stderr != "" {
+			return fmt.Errorf("shared-fs probe container did not run: %w — %s", err, stderr)
+		}
+	}
+	return fmt.Errorf("shared-fs probe container did not run: %w", err)
 }

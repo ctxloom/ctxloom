@@ -2,10 +2,11 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 )
 
 // Diagnosis is the container-capability report `ctxloom container check`
@@ -81,7 +82,15 @@ func Diagnose(ctx context.Context, backend string, img ImageConfig) Diagnosis {
 // diagnoseProbe runs the definitive marker probe against the present image
 // and folds the outcome into the diagnosis.
 func diagnoseProbe(ctx context.Context, rt ContainerRuntime, image string, d *Diagnosis) {
-	if perr := sharedFSProbe(ctx, rt, image); perr != nil {
+	perr := sharedFSProbe(ctx, rt, image)
+	if perr == nil {
+		d.SharedFS = "ok"
+		d.Guidance = append(d.Guidance, "containerized agents can launch here (`runtime: container`)")
+		return
+	}
+	var mism *sharedFSMismatch
+	if errors.As(perr, &mism) {
+		// A DEFINITIVE negative: the probe ran and proved the fs is not shared.
 		d.SharedFS = "mismatch: " + perr.Error()
 		g := "the daemon does NOT share this process's filesystem: containerized agents cannot mount this project"
 		if d.InContainer {
@@ -90,8 +99,12 @@ func diagnoseProbe(ctx context.Context, rt ContainerRuntime, image string, d *Di
 		d.Guidance = append(d.Guidance, g)
 		return
 	}
-	d.SharedFS = "ok"
-	d.Guidance = append(d.Guidance, "containerized agents can launch here (`runtime: container`)")
+	// The probe could not RUN (daemon down/cold, image unreadable, timeout) —
+	// that is not a sharing verdict, so do not cry docker-outside-of-docker.
+	// Surface the real cause and invite a re-check (the failure was not cached).
+	d.SharedFS = "unprobed: " + perr.Error()
+	d.Guidance = append(d.Guidance,
+		"the shared-filesystem probe could not run; resolve the error above (daemon reachable? image pullable?) and re-run `ctxloom container check`")
 }
 
 // diagnoseAdvisory fills SharedFS with the cheap no-image heuristic: a daemon
@@ -115,11 +128,33 @@ func diagnoseAdvisory(ctx context.Context, rt ContainerRuntime, d *Diagnosis) {
 	}
 }
 
-// daemonName asks the runtime for its daemon's reported name.
+// daemonInfoTimeout bounds one `<runtime> info` call: the advisory heuristic is
+// best-effort, so a wedged daemon degrades it (falls to "unprobed") rather than
+// hanging `ctxloom container check` on a caller ctx that may carry no deadline.
+const daemonInfoTimeout = 10 * time.Second
+
+// daemonName asks the runtime for its daemon's reported host name. It routes
+// through the probeExec seam (so the whole diagnose path is testable without a
+// runtime) under its own timeout, and selects a template that exists on BOTH
+// docker and podman — docker exposes the name at the top level, podman under
+// Host — so podman does not fail the template and silently break the advisory.
 func daemonName(ctx context.Context, rt ContainerRuntime) (string, error) {
-	out, err := exec.CommandContext(ctx, rt.Binary(), "info", "--format", "{{.Name}}").Output()
+	cctx, cancel := context.WithTimeout(ctx, daemonInfoTimeout)
+	defer cancel()
+	out, err := probeExec(cctx, rt.Binary(), []string{"info", "--format", daemonNameTemplate(rt)})
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(out), nil
+}
+
+// daemonNameTemplate picks the `info` Go-template field that reports the daemon
+// host's name per runtime. `docker info` exposes it as top-level {{.Name}};
+// `podman info` has no top-level Name (that template is an execution error) and
+// carries the host name under {{.Host.Hostname}}.
+func daemonNameTemplate(rt ContainerRuntime) string {
+	if rt.Name() == "podman" {
+		return "{{.Host.Hostname}}"
+	}
+	return "{{.Name}}"
 }

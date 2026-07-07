@@ -287,6 +287,23 @@
     "default_agent": {
       "type": "string",
       "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
+    },
+    "ui": {
+      "type": "object",
+      "description": "Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section.",
+      "properties": {
+        "prefix_key": {
+          "type": "string",
+          "pattern": "^ctrl[-+].$",
+          "description": "Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-].",
+          "examples": ["ctrl-]", "ctrl-t"]
+        },
+        "surround": {
+          "type": "boolean",
+          "description": "Persistent bottom status bar (harp · agent · engine │ children digest │ prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {

@@ -58,6 +58,7 @@ ctxloom run [flags] [prompt...]
       --new-session          Start a fresh session without resume. Skips the picker.
       --no-tasks             When combined with --session, skip task restoration (essence only).
       --permissions string   Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
+      --plain-terminal       Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
       --print                Print response and exit (non-interactive mode)
   -p, --profile string       Profile to use (predefined fragment collection)
       --prompt string        Prompt to send to the AI (alternative to positional args)

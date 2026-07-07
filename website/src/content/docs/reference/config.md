@@ -29,6 +29,7 @@ Schema for ctxloom config.yaml files
 | `profiles` | object | Named profile definitions |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container`. |
 | `sync` | object | Remote dependency sync behavior |
+| `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
 | `version` | integer | Config schema version (integer; distinct from the application version) Examples: `1`, `2`. |
 | `workspace` | string | Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning). Allowed values: `none`, `worktree`. |
 
@@ -129,6 +130,15 @@ Remote dependency sync behavior
 | Field | Type | Description |
 |-------|------|-------------|
 | `auto_sync` | boolean | Automatically sync remote dependencies on startup (default: true) |
+
+### ui
+
+Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prefix_key` | string | Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-]. Examples: `ctrl-]`, `ctrl-t`. |
+| `surround` | boolean | Persistent bottom status bar (harp · agent · engine │ children digest │ prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true. |
 
 ## Definitions
 

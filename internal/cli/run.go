@@ -46,6 +46,7 @@ var (
 	runDryRun           bool
 	runPrint            bool
 	runStructured       bool
+	runPlainTerminal    bool
 	runVerbosity        int
 	runAssumeYes        bool
 	runResumeSession    string
@@ -465,6 +466,9 @@ Examples:
 			// The session's runtime axis: the agent's resolved runtime, or the
 			// project `runtime:` default for a classic run.
 			agentRuntime = cfg.Runtime
+			// boundAgent names the agent binding this run launched under
+			// (--agent or the default agent) — surround-bar identity only.
+			boundAgent string
 		)
 		if runAgent != "" {
 			rs, rerr := operations.ResolveAgent(ctx, cfg, runAgent, runLLM)
@@ -481,6 +485,7 @@ Examples:
 			label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
 			agentRuntime = rs.Runtime
 			agentPermissions = rs.Permissions
+			boundAgent = runAgent
 		} else if runProfile == "" && len(runFragments) == 0 && len(runTags) == 0 {
 			// Bare launch: no --agent and no explicit context selection. Bind the
 			// always-bound DEFAULT AGENT (cfg.DefaultAgent) exactly like --agent —
@@ -512,6 +517,7 @@ Examples:
 				label, backendName, labelModel = rs.Label, rs.Backend, rs.Model
 				agentRuntime = rs.Runtime
 				agentPermissions = rs.Permissions
+				boundAgent = cfg.DefaultAgent
 			}
 		} else {
 			// Explicit context selection (-p / -f / -t): classic assembly.
@@ -548,6 +554,11 @@ Examples:
 			// The backend name (not the label) drives session naming and transport.
 			backendName, labelModel = operations.ResolveBackend(cfg, label)
 		}
+
+		// An invalid ui.prefix_key is a broken-config finding like any other:
+		// recorded here so the gate below aborts before launch (a viewer on a
+		// key the user didn't configure is a wrong-context session's cousin).
+		validateTerminalUIConfig(cfg)
 
 		// Strict startup gate: config load, sync, and assembly have run and any
 		// fatal-class fault (broken config, unresolvable default profile/parent,
@@ -932,18 +943,39 @@ Examples:
 		// + resize are pumped over the bidi Run stream to the controller's pty.
 		// Oneshot runs need none of that.
 		var stdin io.Reader
+		var stdout io.Writer = os.Stdout
 		var resize <-chan *pb.WindowSize
 		restoreTerm := func() {}
 		if mode == pb.ExecutionMode_INTERACTIVE {
 			stdin, resize, restoreTerm = interactiveTerminal(ctx)
-			// Deferred so a panic inside client.Run can't strand the shell
-			// in raw mode. restoreTerm is idempotent; the inline call below
-			// still restores before any normal-path output.
-			defer restoreTerm()
+			// Wrap the terminal seams with the observation layer (prefix-key
+			// viewer + surround bar) — real tty only, never a pipe, and
+			// --plain-terminal opts a session out entirely. Its Close composes
+			// onto the raw-mode restore so every exit path (clean, error,
+			// signal-cancelled ctx) unwinds scroll region, held output, and
+			// raw mode together.
+			if stdin != nil && !runPlainTerminal {
+				if ui := setupTerminalUI(ctx, cfg, terminalUIIdentity{
+					WorkDir: workDir,
+					Harp:    activeHarp,
+					Agent:   boundAgent,
+					Backend: backendName,
+					Model:   labelModel,
+				}, stdin, resize); ui != nil {
+					stdin, stdout, resize = ui.Stdin(), ui.Stdout(), ui.Resize()
+					rawRestore := restoreTerm
+					restoreTerm = func() { ui.Close(); rawRestore() }
+				}
+			}
+			// Deferred via closure (the value above may be the composed one) so
+			// a panic inside client.Run can't strand the shell in raw mode.
+			// restoreTerm is idempotent; the inline call below still restores
+			// before any normal-path output.
+			defer func() { restoreTerm() }()
 		}
 
 		// Run the AI plugin
-		exitCode, err := client.Run(ctx, req, stdin, os.Stdout, os.Stderr, resize)
+		exitCode, err := client.Run(ctx, req, stdin, stdout, os.Stderr, resize)
 		restoreTerm()
 		if err != nil {
 			return fmt.Errorf("AI plugin failed: %w", err)
@@ -1114,6 +1146,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
 	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")
+	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
 	runCmd.MarkFlagsMutuallyExclusive("structured", "print")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")

@@ -1,0 +1,149 @@
+package termui
+
+import (
+	"bytes"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newTestSurround(tty *bytes.Buffer, info BarInfo) *Surround {
+	var mu sync.Mutex
+	return NewSurround(&mu, tty, true, info)
+}
+
+func TestSurround_EstablishSetsScrollRegionAndPaints(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "perky-same-chevy", Engine: "claude-code", Model: "opus", PrefixHint: "^]"})
+	s.SetSize(24, 80)
+
+	out := tty.String()
+	assert.True(t, strings.HasPrefix(out, "\x1b[1;23r"),
+		"DECSTBM must protect exactly the reserved bottom row (rows−1)")
+	assert.Contains(t, out, "\x1b[24;1H", "bar paints on the bottom row")
+	assert.Contains(t, out, "\x1b7", "cursor saved before the bar paint")
+	assert.Contains(t, out, "\x1b8", "cursor restored after the bar paint")
+	assert.Contains(t, out, "perky-same-chevy · claude-code/opus")
+	assert.Contains(t, out, "^] viewer")
+}
+
+func TestSurround_BarContentWidthExact(t *testing.T) {
+	info := BarInfo{Harp: "h", Agent: "dev", Engine: "claude-code", Model: "opus", PrefixHint: "^]"}
+	got := string(appendBarContent(nil, info, "1● 0◐ 0✓ · kid→executing", 60))
+	assert.Equal(t, 60, len([]rune(got)), "bar content pads to exactly the terminal width")
+	assert.Contains(t, got, "h · dev · claude-code/opus │ 1● 0◐ 0✓ · kid→executing")
+}
+
+func TestSurround_BarContentTruncatesByRune(t *testing.T) {
+	info := BarInfo{Harp: "a-very-long-harp-name-indeed", Agent: "developer", Engine: "claude-code", Model: "opus"}
+	got := string(appendBarContent(nil, info, "5● 3◐ 9✓ · x→ended", 20))
+	assert.Equal(t, 20, len([]rune(got)), "over-wide content truncates to the width")
+}
+
+func TestSurround_TinyTerminalSkipsReservation(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(5, 80) // below minRowsForReserve
+	assert.Empty(t, tty.String(), "no region, no bar on a tiny terminal")
+
+	// Growing past the threshold establishes; shrinking hands the region back.
+	s.SetSize(24, 80)
+	require.Contains(t, tty.String(), "\x1b[1;23r")
+	tty.Reset()
+	s.SetSize(4, 80)
+	assert.Equal(t, "\x1b[r", tty.String(), "shrink below threshold resets the scroll region")
+}
+
+func TestSurround_ResizeReestablishes(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	tty.Reset()
+	s.SetSize(40, 120) // SIGWINCH
+	out := tty.String()
+	assert.Contains(t, out, "\x1b[1;39r", "region tracks the new height")
+	assert.Contains(t, out, "\x1b[40;1H", "bar moves to the new bottom row")
+}
+
+func TestSurround_RestoreResetsRegionAndClearsBar(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	tty.Reset()
+	s.Restore()
+	assert.Equal(t, "\x1b[r\x1b[24;1H\x1b[2K", tty.String(),
+		"exit restores the full scroll region and clears the bar row")
+
+	tty.Reset()
+	s.Restore()
+	assert.Empty(t, tty.String(), "Restore is idempotent")
+	s.SetRoster([]RosterEntry{{Harp: "kid", State: "executing"}})
+	assert.Empty(t, tty.String(), "nothing paints after Restore")
+}
+
+func TestSurround_SuspendResume(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	s.Suspend()
+	tty.Reset()
+	s.SetRoster([]RosterEntry{{Harp: "kid", State: "executing"}})
+	assert.Empty(t, tty.String(), "no painting while an overlay owns the screen")
+
+	seq := string(s.ResumeSequence())
+	assert.Contains(t, seq, "\x1b[1;23r", "resume re-establishes the scroll region the overlay dropped")
+	assert.Contains(t, seq, "kid→executing", "resume repaints with the latest roster")
+	assert.NotContains(t, seq, "\x1b7", "no DECSC — the engine's engage-time saved cursor must survive")
+	assert.Empty(t, tty.String(), "the resume bytes are returned for the release preamble, not written")
+
+	tty.Reset()
+	s.SetRoster([]RosterEntry{{Harp: "kid", State: "ended"}})
+	assert.Contains(t, tty.String(), "kid→ended", "painting works again after resume")
+}
+
+func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h", PrefixHint: "^]"})
+	s.SetEngineIdle(func() int64 { return 0 }) // engine idle forever
+	s.SetSize(24, 80)
+	tty.Reset()
+
+	s.SetRoster([]RosterEntry{
+		{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 30},
+		{Harp: "deep-oak-hen", State: "ended", LastActivityUnix: 10},
+		{Harp: "flat-ash-owl", State: "parked", LastActivityUnix: 20},
+	})
+	out := tty.String()
+	assert.Contains(t, out, "1● 1◐ 1✓ · swift-elm-fox→executing",
+		"digest counts by state and names the latest transition")
+}
+
+func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	now := int64(1_000_000_000)
+	restore := nowNanos
+	nowNanos = func() int64 { return now }
+	defer func() { nowNanos = restore }()
+
+	s.SetEngineIdle(func() int64 { return now - 1 }) // engine wrote 1ns ago: busy
+	s.SetSize(24, 80)
+	tty.Reset()
+
+	s.SetRoster([]RosterEntry{{Harp: "kid", State: "queued"}})
+	assert.Empty(t, tty.String(), "mid-stream repaint defers to the gate's flush")
+
+	s.FlushLocked() // what the gate runs after its next passthrough write
+	assert.Contains(t, tty.String(), "kid→queued")
+
+	tty.Reset()
+	s.FlushLocked()
+	assert.Empty(t, tty.String(), "flush repaints once per dirty mark")
+}
+
+func TestRosterDigest_Empty(t *testing.T) {
+	assert.Equal(t, "no agents", RosterDigest([]RosterEntry{}))
+}

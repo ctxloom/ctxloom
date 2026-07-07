@@ -145,6 +145,10 @@ func TestConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"user base containerfile for local agent-image builds",
 			"isolation_base_containerfile: container/base.Containerfile\n",
 		},
+		{
+			"terminal-ui section (viewer prefix key + surround toggle)",
+			"ui:\n  prefix_key: ctrl-t\n  surround: false\n",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// The parser accepts it...

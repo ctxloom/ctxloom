@@ -93,6 +93,11 @@ type Config struct {
 	// instead of the embedded default base (container/base/Containerfile).
 	// Relative paths resolve against the project root.
 	IsolationBaseContainerfile string `mapstructure:"isolation_base_containerfile" yaml:"isolation_base_containerfile,omitempty"`
+	// UI configures the interactive-run terminal layer (the prefix-key viewer
+	// and the persistent surround bar). Flag/env never lives here — only
+	// presentation preferences; `run --plain-terminal` disables the layer
+	// entirely regardless of this section.
+	UI UIConfig `mapstructure:"ui" yaml:"ui,omitempty"`
 
 	AppPaths []string     // Resolved .ctxloom directory (at most one)
 	AppRoot  string       // Project root (parent of .ctxloom directory)
@@ -150,6 +155,36 @@ func WithAppDir(dir string) LoadOption {
 type EditorConfig struct {
 	Command string   `mapstructure:"command" yaml:"command,omitempty"` // Editor command (default: nano)
 	Args    []string `mapstructure:"args" yaml:"args,omitempty"`       // Additional arguments
+}
+
+// UIConfig holds the interactive-run terminal-layer preferences.
+type UIConfig struct {
+	// PrefixKey is the keystroke that engages the agent-observation viewer
+	// during an interactive run ("ctrl-]" by default; press it twice to send
+	// one literal prefix byte to the engine). Control keys only — a printable
+	// prefix would swallow ordinary typing.
+	PrefixKey string `mapstructure:"prefix_key" yaml:"prefix_key,omitempty"`
+	// Surround toggles the persistent bottom status bar (harp · agent · engine
+	// │ children digest │ prefix hint). Default true; nil means unset.
+	Surround *bool `mapstructure:"surround" yaml:"surround,omitempty"`
+}
+
+// DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
+// agent-io-observation plan: Ctrl-], explicitly not ESC).
+const DefaultUIPrefixKey = "ctrl-]"
+
+// UIPrefixKey returns the configured viewer prefix key, defaulting to Ctrl-].
+func (c *Config) UIPrefixKey() string {
+	if c.UI.PrefixKey == "" {
+		return DefaultUIPrefixKey
+	}
+	return c.UI.PrefixKey
+}
+
+// UISurroundEnabled reports whether the persistent surround bar is enabled
+// (default true; `ui.surround: false` opts out).
+func (c *Config) UISurroundEnabled() bool {
+	return c.UI.Surround == nil || *c.UI.Surround
 }
 
 // GetEditorCommand returns the editor binary and arguments to use. This is the

@@ -26,6 +26,36 @@ type SettingsWriter interface {
 	Status(projectDir string) (SettingsStatus, error)
 }
 
+// ContextWriter is the CONTEXT facet of an agent: it writes the assembled
+// context string to the backend's native on-disk context surface (CLAUDE.md,
+// .agents/AGENTS.md, .kiro/steering/…). It is a SIBLING of SettingsWriter, not
+// an extension — a backend with no native context surface (codex/acp/mock)
+// simply does not implement it, so the dispatch opts it out. Kept separate so a
+// consumer that only writes context does not drag in the hooks/MCP surface, and
+// a settings-only backend does not grow an unused WriteContext method.
+type ContextWriter interface {
+	// WriteContext writes the assembled context to the backend's native
+	// surface under req.ProjectDir, replacing any prior ctxloom-managed
+	// content, and reports the relative paths it wrote (or removed).
+	WriteContext(req ContextWriteRequest) (ContextReport, error)
+}
+
+// ContextWriteRequest carries the assembled context payload for a WriteContext
+// call. Context is the fully assembled string; each backend chooses its own
+// framing/markers. It is a struct (not a bare string) so the request can grow
+// without a signature churn — MCP/skills/hooks stay on their own delivery paths.
+type ContextWriteRequest struct {
+	ProjectDir string
+	Context    string
+}
+
+// ContextReport lists the backend-relative paths a WriteContext call wrote or
+// removed, for the caller's write report and later clean removal.
+type ContextReport struct {
+	Wrote   []string
+	Removed []string
+}
+
 // SettingsStatus reports which managed artifacts an agent has wired into its
 // settings files.
 type SettingsStatus struct {

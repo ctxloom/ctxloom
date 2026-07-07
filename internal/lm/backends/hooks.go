@@ -34,6 +34,26 @@ func WriteSettings(backendName string, hooks *wire.HooksConfig, mcp *wire.MCPCon
 	return writer.WriteSettings(hooks, mcp, bundleMCP, projectDir)
 }
 
+// WriteContext writes the assembled context to the named backend's native
+// context surface (CLAUDE.md, .agents/AGENTS.md, steering, …). The writer is the
+// same struct the settings dispatch builds; backends that carry a native context
+// surface implement the sibling agent.ContextWriter facet. Backends with none
+// (codex/acp/mock) don't implement it — the type assertion fails (a nil writer
+// asserts false too) and this returns an empty report and nil (opt-out).
+// Use WithSettingsFS to provide a custom filesystem for testing.
+func WriteContext(backendName, projectDir, context string, opts ...SettingsOption) (agent.ContextReport, error) {
+	options := &agent.SettingsOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	cw, ok := newSettingsWriter(backendName, options).(agent.ContextWriter)
+	if !ok {
+		return agent.ContextReport{}, nil // backend has no native context surface
+	}
+	return cw.WriteContext(agent.ContextWriteRequest{ProjectDir: projectDir, Context: context})
+}
+
 // newSettingsWriter constructs the named backend's writer from the resolved
 // options, or nil if the backend doesn't support settings. The per-backend
 // writer constructors live in the descriptor table (registry.go).

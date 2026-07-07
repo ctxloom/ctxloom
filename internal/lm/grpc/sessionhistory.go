@@ -44,6 +44,7 @@ func entryToProto(e agent.SessionEntry) *SessionEntry {
 		ToolOutput:    e.ToolOutput,
 		IsError:       e.IsError,
 		TimestampUnix: timeToUnix(e.Timestamp),
+		Sidechain:     e.Sidechain,
 	}
 }
 
@@ -94,6 +95,7 @@ func entryFromProto(e *SessionEntry) agent.SessionEntry {
 		ToolInput:  ti,
 		ToolOutput: e.GetToolOutput(),
 		IsError:    e.GetIsError(),
+		Sidechain:  e.GetSidechain(),
 	}
 }
 

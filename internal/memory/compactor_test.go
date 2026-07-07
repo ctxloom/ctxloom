@@ -480,6 +480,78 @@ func TestCompact_EmptySession(t *testing.T) {
 	assert.Contains(t, err.Error(), "has no entries")
 }
 
+// TestCompact_SidechainEntriesExcluded: the reader now surfaces
+// subagent-interior (sidechain) entries for viewers, but distillation keeps
+// its historic main-thread-only input — sidechain content never reaches the
+// distilling LLM, and an all-sidechain session is "no entries".
+func TestCompact_SidechainEntriesExcluded(t *testing.T) {
+	testsupport.Isolate(t)
+	tmpDir := t.TempDir()
+
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "sidechain-session",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "MAIN_THREAD_ASK"},
+				{Type: agent.EntryTypeAssistant, Content: "SIDECHAIN_INTERIOR", Sidechain: true},
+				{Type: agent.EntryTypeAssistant, Content: "MAIN_THREAD_ANSWER"},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	var mu sync.Mutex
+	var prompts []string
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			mu.Lock()
+			prompts = append(prompts, req.GetPrompt().GetContent())
+			mu.Unlock()
+			_, _ = stdout.Write([]byte("Distilled."))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       tmpDir,
+	})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, prompts)
+	joined := strings.Join(prompts, "\n")
+	assert.Contains(t, joined, "MAIN_THREAD_ASK")
+	assert.Contains(t, joined, "MAIN_THREAD_ANSWER")
+	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach distillation")
+}
+
+// TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is
+// subagent-interior has nothing to distill.
+func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
+	mockHistory := &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: "interior-only",
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeAssistant, Content: "interior", Sidechain: true},
+			},
+		},
+	}
+	mockBe := &mockBackend{history: mockHistory}
+
+	compactor, err := NewCompactor(CompactionConfig{BackendOverride: mockBe})
+	require.NoError(t, err)
+
+	_, err = compactor.Compact(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no entries")
+}
+
 func TestCompact_WithMockClient(t *testing.T) {
 	testsupport.Isolate(t)
 	tmpDir := t.TempDir()

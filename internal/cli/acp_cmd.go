@@ -388,7 +388,9 @@ func recordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEn
 	if err != nil {
 		return nil, fmt.Errorf("load session %q: %w", harp, err)
 	}
-	return sess.Entries, nil
+	// Replay primes the resumed engine with the conversation the user had —
+	// subagent-interior (sidechain) entries stay out of it.
+	return agent.MainThreadEntries(sess.Entries), nil
 }
 
 // resumeTranscriptBudget caps how much rendered history primes the resumed

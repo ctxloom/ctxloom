@@ -334,8 +334,19 @@ func LocateTranscript(harpName string) (string, bool) {
 	var bestJSONL, bestJSON string
 	var tJSONL, tJSON time.Time
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return nil // an absent/unreadable subtree degrades to "not found"
+		}
+		if d.IsDir() {
+			// claude-code records each in-harness subagent's interior under
+			// <session>/subagents/agent-<id>.jsonl. Those files are often the
+			// newest in the store while a subagent runs, but they are not the
+			// session's transcript — skip the subtree so "newest wins" cannot
+			// resolve a harp to a subagent interior.
+			if d.Name() == "subagents" {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		info, ierr := d.Info()
 		if ierr != nil {

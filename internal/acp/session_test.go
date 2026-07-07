@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,11 +26,18 @@ type chatHarness struct {
 
 func startChat(t *testing.T, req agent.ChatRequest) *chatHarness {
 	t.Helper()
+	return startChatWithClock(t, req, func() time.Time { return time.Unix(1700000000, 0) })
+}
+
+// startChatWithClock is startChat with an injected clock, for tests that
+// assert self-measured timing (the fixed default keeps stamps deterministic).
+func startChatWithClock(t *testing.T, req agent.ChatRequest, now func() time.Time) *chatHarness {
+	t.Helper()
 	c2aR, c2aW := io.Pipe() // client → agent
 	a2cR, a2cW := io.Pipe() // agent → client
 
 	b := NewACP(nil)
-	b.now = func() time.Time { return time.Unix(1700000000, 0) } // deterministic stamps
+	b.now = now
 	b.openTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*transport, error) {
 		return &transport{
 			stdin:  c2aW,
@@ -124,6 +132,76 @@ func TestChat_FullTurn(t *testing.T) {
 	require.NotNil(t, evs[5].Complete)
 	assert.Equal(t, "end_turn", evs[5].Complete.StopReason)
 	assert.Equal(t, "test-model", evs[5].Complete.Model)
+}
+
+// TestChat_TurnMetaAccounting: the out-of-SDK usage_update /
+// session_info_update variants — the ACP session-usage RFD shapes ctxloom's
+// own acp agent emits; protocol v1 itself delivers no usage anywhere — fold
+// into the turn's Complete meta instead of being dropped as malformed, and
+// the turn duration is self-measured off the clock.
+func TestChat_TurnMetaAccounting(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	var tick atomic.Int64
+	h := startChatWithClock(t, agent.ChatRequest{Model: "requested-model"}, func() time.Time {
+		return base.Add(time.Duration(tick.Add(1)) * 100 * time.Millisecond)
+	})
+	events := collect(h.out)
+
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"session_info_update","model":"real-model","permissionMode":"default","contextWindow":150000}`)
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"usage_update","used":53000,"size":200000,"cost":{"amount":0.045,"currency":"USD"}}`)
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+
+	// Session info + Complete only: the accounting variants yield no entries.
+	require.Len(t, evs, 2)
+	require.NotNil(t, evs[0].Session)
+	meta := evs[1].Complete
+	require.NotNil(t, meta)
+	assert.Equal(t, "end_turn", meta.StopReason)
+	assert.Equal(t, "real-model", meta.Model, "the agent-reported model outranks the requested one")
+	assert.Equal(t, 53000, meta.InputTokens)
+	assert.Equal(t, 200000, meta.ContextWindow, "usage_update's window size outranks session_info")
+	assert.InDelta(t, 0.045, meta.CostUSD, 1e-9)
+	assert.Positive(t, meta.DurationMs, "duration is self-measured (ACP carries no timing)")
+}
+
+// TestChat_TurnMetaDefaults: with no accounting variants on the wire (every
+// spec-only adapter today), the Complete meta carries what protocol v1
+// actually delivers — stop reason, the requested model echoed back, and the
+// self-measured duration; the token/cost fields stay zero ("unknown").
+func TestChat_TurnMetaDefaults(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{Model: "test-model"})
+	events := collect(h.out)
+
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}`)
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+
+	require.NoError(t, <-h.chatErr)
+	evs := events()
+	require.Len(t, evs, 3)
+	meta := evs[2].Complete
+	require.NotNil(t, meta)
+	assert.Equal(t, "test-model", meta.Model)
+	assert.Zero(t, meta.InputTokens)
+	assert.Zero(t, meta.ContextWindow)
+	assert.Zero(t, meta.CostUSD)
+	assert.Zero(t, meta.DurationMs, "a fixed clock measures a zero-length turn")
 }
 
 // TestChat_InitializeHandshake asserts the client sends a spec-shaped initialize

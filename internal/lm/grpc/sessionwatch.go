@@ -133,6 +133,54 @@ func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSess
 	}
 }
 
+// WatchHistoryByPath streams a transcript's structured turns by HOST file
+// path, polling the backend's normalized GetSessionByPath parser in-process —
+// no plugin RPC. It exists for transcripts bound by LOCATION rather than by
+// the SessionStart hook (sessions.LocateTranscript): a containerized child's
+// transcript lives in ctxloom's own per-harp store
+// (~/.ctxloom/sessions/<harp>/persist/…), which the agent server's
+// self-situated store lookup can never find — the host owns that file, so the
+// host parses it. The same sessionWatcher core as WatchSession decides what
+// to emit, so both feeds speak one contract. poll <= 0 uses the default
+// cadence. A transient read error is warned and retried next tick (a
+// long-lived stream must not die on a blip); the stream ends when ctx is
+// cancelled, after which both channels close (errs mirrors the gRPC watch
+// signature so consumers render either source identically).
+func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path string, poll time.Duration) (<-chan *WatchEvent, <-chan error) {
+	if poll <= 0 {
+		poll = defaultWatchPoll
+	}
+	events := make(chan *WatchEvent)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(events)
+		defer close(errs)
+		w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
+		for {
+			sess, err := hist.GetSessionByPath(path)
+			if err != nil {
+				clidiag.Warn("ctxloom", "watch transcript %s: %v", path, err)
+			} else {
+				for _, ev := range w.step(sess) {
+					select {
+					case events <- ev:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return events, errs
+}
+
 // --- client (host) methods ---
 
 // WatchSession opens the server stream and fans the structured WatchEvents onto

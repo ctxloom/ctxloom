@@ -50,6 +50,28 @@ func TestLocateTranscript_NewestJSONLWins(t *testing.T) {
 	}
 }
 
+// TestLocateTranscript_SkipsSubagentInteriors: claude-code records in-harness
+// subagent interiors under <session>/subagents/agent-<id>.jsonl — often the
+// newest files in the store while a subagent runs. They are not the session's
+// transcript, so "newest wins" must never resolve a harp to one.
+func TestLocateTranscript_SkipsSubagentInteriors(t *testing.T) {
+	home := testsupport.Isolate(t)
+	base := time.Now().Add(-time.Hour)
+
+	want := writeStoreFile(t, home, "brisk-teal-otter", "-proj-enc/uuid.jsonl", base)
+	// The subagent interior is NEWER — and must still lose.
+	writeStoreFile(t, home, "brisk-teal-otter",
+		"-proj-enc/uuid/subagents/agent-a1b2c3.jsonl", base.Add(30*time.Minute))
+
+	got, ok := LocateTranscript("brisk-teal-otter")
+	if !ok {
+		t.Fatal("expected a located transcript")
+	}
+	if got != want {
+		t.Fatalf("located %q, want the main transcript %q", got, want)
+	}
+}
+
 // TestLocateTranscript_JSONFallback: with no .jsonl in the store (the kiro
 // layout), the newest .json is returned.
 func TestLocateTranscript_JSONFallback(t *testing.T) {

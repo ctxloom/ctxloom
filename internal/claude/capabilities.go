@@ -212,15 +212,29 @@ type claudeBlock struct {
 // SessionEntries. The modern schema nests typed blocks under message.content,
 // so one assistant line can yield a text entry plus a tool-call entry per
 // tool_use block, and a user line can yield tool-result entries. Sidechain
-// (sub-agent) lines are skipped so a session reflects only its main thread.
+// (sub-agent) lines are parsed like any other but marked Sidechain, so a
+// viewer can attribute an engine subagent's interior events instead of
+// mistaking them for (or losing them from) the main thread; main-thread-only
+// consumers filter via agent.MainThreadEntries. Legacy transcripts inline
+// sidechain lines in the session file; current claude-code writes them to
+// separate <session>/subagents/agent-<id>.jsonl files, whose every line is
+// sidechain-marked — so a by-path read of one yields all-sidechain entries.
 func (h *ClaudeSessionHistory) parseEntries(line []byte) ([]agent.SessionEntry, error) {
 	var raw claudeEntry
 	if err := json.Unmarshal(line, &raw); err != nil {
 		return nil, err
 	}
+	entries, err := h.entriesForLine(raw)
 	if raw.IsSidechain {
-		return nil, nil
+		for i := range entries {
+			entries[i].Sidechain = true
+		}
 	}
+	return entries, err
+}
+
+// entriesForLine dispatches one decoded JSONL line on its entry type.
+func (h *ClaudeSessionHistory) entriesForLine(raw claudeEntry) ([]agent.SessionEntry, error) {
 	ts := parseClaudeTimestamp(raw.Timestamp)
 	switch raw.Type {
 	case "user", "human":

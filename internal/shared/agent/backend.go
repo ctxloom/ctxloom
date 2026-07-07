@@ -155,6 +155,27 @@ type SessionEntry struct {
 	ToolInput  json.RawMessage // For tool_use entries
 	ToolOutput string          // For tool_result entries
 	IsError    bool            // For tool_result entries
+	// Sidechain marks an entry that belongs to an engine's own in-harness
+	// subagent (e.g. a Claude Code Task sidechain) rather than the session's
+	// main thread. Backends set it when their transcript records the
+	// distinction; false means main thread. Viewers use it to attribute
+	// subagent-interior events; distillation and session-load replay keep to
+	// the main thread via MainThreadEntries.
+	Sidechain bool
+}
+
+// MainThreadEntries returns the entries that belong to the session's main
+// thread, dropping subagent-interior (sidechain) ones. The single filter for
+// consumers whose semantics are "the conversation the user had" — distillation
+// and session-load replay — so they cannot drift from each other.
+func MainThreadEntries(entries []SessionEntry) []SessionEntry {
+	out := make([]SessionEntry, 0, len(entries))
+	for _, e := range entries {
+		if !e.Sidechain {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // SessionEntryType identifies the type of session entry.

@@ -11,8 +11,10 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -22,26 +24,46 @@ const watchBoundaryRule = "─────────────────�
 var sessionWatchCmd = &cobra.Command{
 	Use:   "watch <harp-name>",
 	Short: "Stream a session's transcript as structured turns (messages, not raw bytes)",
-	// GUI-facing structured stream (the chat frontend renders it); hidden from help.
-	Hidden: true,
-	Long: `Tail a harp's bound backend session as a structured turn stream: each new
-transcript entry arrives as it appears, with a boundary marking where a
-response completes. This is the read side of the structured chat interface a
-frontend renders.
+	Long: `Tail a harp's backend session as a structured turn stream: each new
+transcript entry arrives as it appears (within ~250ms), with a boundary
+marking where a response completes. This is ctxloom's per-session observation
+contract — the stream structured frontends (the VSCode companion, the
+terminal viewer) consume.
 
-With --format json the stream is emitted as NDJSON — one WatchEvent per line —
-which is the contract structured frontends (e.g. the VSCode companion) consume.
-Text mode pretty-prints each turn and draws a rule at each response boundary.
+With --format json the stream is NDJSON: one WatchEvent per line, in protojson
+field names, carrying exactly one of
 
-Ctrl-C ends the stream cleanly. Errors if the harp has no session_id bound
-(the SessionStart bind hook records it for sessions launched via ctxloom run).`,
+  {"entry": {...}}     a newly-appended normalized turn — type (user |
+                       assistant | thinking | tool_use | tool_result |
+                       system), content, toolName, toolInput (the raw JSON
+                       arguments, base64-encoded), toolOutput, isError,
+                       timestampUnix, and sidechain (true marks an engine
+                       subagent's interior entry, not the main thread)
+  {"boundary": {...}}  a completed response: entries[fromIndex, toIndex)
+  {"heartbeat": {}}    idle keepalive, roughly every 2s while nothing is new
+
+The stream is lossless: each entry is the backend's full normalized form —
+complete tool inputs/outputs and thinking content, untruncated. Text mode
+pretty-prints each turn, draws a rule at each response boundary, prefixes
+subagent-interior entries with "↳", and stays silent on heartbeats.
+
+The watch runs until interrupted; Ctrl-C ends the stream cleanly. A harp
+whose bind hook recorded a session id is tailed through the owning backend;
+a harp with no bound session whose transcript lives in its own session store
+(a containerized run's persist/ mount) is tailed by file location. Errors if
+the harp has neither yet.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionWatch,
 }
 
-// runSessionWatch resolves the harp's backend + bound session_id (mirroring
-// session distill), opens a WatchSession stream, and renders it until the stream
-// ends or the user interrupts.
+// runSessionWatch resolves the harp to a watchable transcript and renders the
+// stream until it ends or the user interrupts. Two locators, one contract: a
+// hook-bound session id is tailed through the owning backend's agent server
+// (WatchSession); an entry bound only by location — a transcript discovered in
+// the harp's own persist/ store, where the bind hook never fired — is tailed
+// host-side by path (WatchHistoryByPath), since the agent server's
+// self-situated store lookup cannot see a file that lives in ctxloom's
+// session dir.
 func runSessionWatch(cmd *cobra.Command, args []string) error {
 	harpName := args[0]
 	entry, err := operations.GetSession(harpName)
@@ -50,10 +72,6 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 	}
 	if entry == nil {
 		return fmt.Errorf("harp not found: %q", harpName)
-	}
-	sessionID := entry.SessionID
-	if sessionID == "" {
-		return fmt.Errorf("harp %q has no session_id bound; nothing to watch (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", harpName)
 	}
 
 	backendName := entry.Backend
@@ -65,16 +83,43 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 		backendName = cfg.GetDefaultLLM()
 	}
 
-	// Clean Ctrl-C: cancelling the stream context returns WatchSession and tears
-	// the plugin down.
+	// Clean Ctrl-C: cancelling the stream context returns the watch (and tears
+	// the plugin down on the by-id path).
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
 	defer stop()
 
-	events, errs, err := pb.NewSessionReader(backendName, 0).WatchSession(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("watch %s: %w", harpName, err)
+	var events <-chan *pb.WatchEvent
+	var errs <-chan error
+	switch {
+	case entry.SessionID != "":
+		events, errs, err = pb.NewSessionReader(backendName, 0).WatchSession(ctx, entry.SessionID)
+		if err != nil {
+			return fmt.Errorf("watch %s: %w", harpName, err)
+		}
+	case entry.TranscriptPath != "":
+		hist, err := historyForBackend(backendName)
+		if err != nil {
+			return fmt.Errorf("watch %s: %w", harpName, err)
+		}
+		events, errs = pb.WatchHistoryByPath(ctx, hist, entry.TranscriptPath, 0)
+	default:
+		return fmt.Errorf("harp %q has no session bound and no transcript in its session store; nothing to watch yet (the SessionStart bind hook records the id for sessions launched via ctxloom run; containerized runs surface their transcript once the engine writes it)", harpName)
 	}
 	return streamWatchEvents(cmd.OutOrStdout(), outputFormatOf(cmd), events, errs)
+}
+
+// historyForBackend returns the named backend's in-process transcript reader,
+// used only for host-located (by-location) transcripts.
+func historyForBackend(name string) (agent.SessionHistory, error) {
+	b := backends.Get(name)
+	if b == nil {
+		return nil, fmt.Errorf("unknown backend %q", name)
+	}
+	h := b.History()
+	if h == nil {
+		return nil, fmt.Errorf("backend %q has no session history", name)
+	}
+	return h, nil
 }
 
 // streamWatchEvents renders a WatchSession stream until it closes. json mode
@@ -135,17 +180,23 @@ func writeWatchText(out io.Writer, events <-chan *pb.WatchEvent) {
 }
 
 // renderWatchEntryText writes one normalized entry in a human-readable shape.
+// Subagent-interior (sidechain) entries carry a "↳ " prefix so a human can
+// tell them from the main thread.
 func renderWatchEntryText(w *iox.ErrWriter, e *pb.SessionEntry) {
+	prefix := ""
+	if e.GetSidechain() {
+		prefix = "↳ "
+	}
 	switch e.GetType() {
 	case "tool_use":
-		w.Printf("  → %s\n", e.GetToolName())
+		w.Printf("  %s→ %s\n", prefix, e.GetToolName())
 	case "tool_result":
 		marker := "✓"
 		if e.GetIsError() {
 			marker = "✗"
 		}
-		w.Printf("  %s %s\n", marker, e.GetToolName())
+		w.Printf("  %s%s %s\n", prefix, marker, e.GetToolName())
 	default:
-		w.Printf("%s: %s\n", e.GetType(), e.GetContent())
+		w.Printf("%s%s: %s\n", prefix, e.GetType(), e.GetContent())
 	}
 }

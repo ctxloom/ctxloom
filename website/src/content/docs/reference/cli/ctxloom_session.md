@@ -39,4 +39,5 @@ once `ctxloom run` has been used to launch a backend.
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
 * [ctxloom session rename](/reference/cli/ctxloom_session_rename/)	 - Rename a harp entry. The backend transcript is unaffected.
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the distilled essence of a harp-named session
+* [ctxloom session watch](/reference/cli/ctxloom_session_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)
 

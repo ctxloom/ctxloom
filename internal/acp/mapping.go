@@ -136,6 +136,51 @@ func mapPlan(p *api.SessionUpdatePlan) []agent.ChatEvent {
 	return []agent.ChatEvent{{Entry: &agent.SessionEntry{Type: agent.EntryTypeSystem, Content: b.String()}}}
 }
 
+// --- accounting update variants (out-of-SDK) ---
+
+// The pinned SDK's SessionUpdate union predates the ACP session-usage RFD, so
+// the accounting variants are decoded by hand here — the client-side twins of
+// the shapes ctxloom's own acp agent emits (internal/acpagent/wire.go). They
+// are the ONLY usage data any ACP agent delivers today: protocol v1 itself
+// carries no token/cost/context-window/timing fields anywhere (PromptResponse
+// is stopReason alone), so every other TurnMeta figure is either self-measured
+// (duration) or absent.
+const (
+	usageUpdateVariant = "usage_update"
+	sessionInfoVariant = "session_info_update"
+)
+
+// usageUpdateWire is the session-usage RFD's usage_update: tokens currently
+// in context, the context-window size, and optional cumulative cost.
+type usageUpdateWire struct {
+	Used int            `json:"used"`
+	Size int            `json:"size"`
+	Cost *usageCostWire `json:"cost,omitempty"`
+}
+
+// usageCostWire is the optional cumulative cost of a usage_update.
+type usageCostWire struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"` // ISO 4217
+}
+
+// sessionInfoWire is the session_info_update subset the turn accounting
+// consumes (the frame also carries permissionMode/mcpServers).
+type sessionInfoWire struct {
+	Model         string `json:"model"`
+	ContextWindow int    `json:"contextWindow"`
+}
+
+// updateDiscriminator reads a raw update's sessionUpdate type tag without
+// decoding the full variant. Malformed JSON reads as "" (not ours to handle).
+func updateDiscriminator(raw json.RawMessage) string {
+	var d struct {
+		SessionUpdate string `json:"sessionUpdate"`
+	}
+	_ = json.Unmarshal(raw, &d)
+	return d.SessionUpdate
+}
+
 // --- permission decisioning ---
 
 // ACP RequestPermissionResponse.outcome discriminator values.

@@ -213,7 +213,10 @@ func TestClaudeSessionHistory_GetSessionByPath(t *testing.T) {
 // a plain string, the top-level type is only user/assistant, and sub-agent
 // lines carry `isSidechain: true`. The pre-fix parser read content only as a
 // string, so it produced empty entries and never surfaced tool blocks — the
-// ~99% under-read behind the broken /recover distillation.
+// ~99% under-read behind the broken /recover distillation. Sidechain lines
+// parse like any other but are MARKED (not dropped), so a watch viewer can
+// attribute an engine subagent's interior events; main-thread-only consumers
+// go through agent.MainThreadEntries.
 func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	backend := NewClaudeCode(writeClaudeSettings)
@@ -221,14 +224,15 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	// One JSONL line per entry. Mirrors real shapes sampled from a live
 	// transcript: assistant content = [thinking, text, tool_use]; the tool
 	// result comes back as a user message with a tool_result block; metadata
-	// lines (mode/file-history-snapshot) and isSidechain sub-agent lines must
-	// be excluded from the main thread. A thinking block becomes its own
-	// thinking entry (preserving block order), so a frontend can style/toggle it.
+	// lines (mode/file-history-snapshot) are excluded; the isSidechain
+	// sub-agent line yields a sidechain-marked entry. A thinking block becomes
+	// its own thinking entry (preserving block order), so a frontend can
+	// style/toggle it.
 	content := `{"type":"file-history-snapshot","timestamp":"2026-06-01T10:00:00Z"}
 {"type":"user","timestamp":"2026-06-01T10:00:01Z","message":{"role":"user","content":"Merge PR 8"}}
 {"type":"assistant","timestamp":"2026-06-01T10:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"internal reasoning"},{"type":"text","text":"I'll check PR 8 first."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr view 8"}}]}}
 {"type":"user","timestamp":"2026-06-01T10:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"PR 8 is open","is_error":false}]}}
-{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"SIDECHAIN_SHOULD_NOT_APPEAR"}]}}`
+{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"SIDECHAIN_INTERIOR_TEXT"}]}}`
 
 	sessionPath := "/p/modern.jsonl"
 	require.NoError(t, fs.MkdirAll("/p", 0755))
@@ -238,15 +242,11 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	session, err := history.GetSessionByPath(sessionPath)
 	require.NoError(t, err)
 
-	// Sidechain text must never leak into the main-thread entries.
-	for _, e := range session.Entries {
-		assert.NotContains(t, e.Content, "SIDECHAIN_SHOULD_NOT_APPEAR", "sidechain content must be excluded")
-	}
-
-	require.Len(t, session.Entries, 5)
+	require.Len(t, session.Entries, 6)
 
 	assert.Equal(t, agent.EntryTypeUser, session.Entries[0].Type)
 	assert.Equal(t, "Merge PR 8", session.Entries[0].Content)
+	assert.False(t, session.Entries[0].Sidechain)
 
 	// thinking precedes the prose it produced, as its own entry.
 	assert.Equal(t, agent.EntryTypeThinking, session.Entries[1].Type)
@@ -262,6 +262,47 @@ func TestClaudeSessionHistory_ModernBlockSchema(t *testing.T) {
 	assert.Equal(t, agent.EntryTypeToolResult, session.Entries[4].Type)
 	assert.Equal(t, "PR 8 is open", session.Entries[4].ToolOutput)
 	assert.False(t, session.Entries[4].IsError)
+
+	// The sub-agent interior entry is present, attributed off the main thread.
+	assert.Equal(t, agent.EntryTypeAssistant, session.Entries[5].Type)
+	assert.Equal(t, "SIDECHAIN_INTERIOR_TEXT", session.Entries[5].Content)
+	assert.True(t, session.Entries[5].Sidechain)
+
+	// Main-thread consumers (distillation, session-load replay) see exactly
+	// the pre-marking view.
+	main := agent.MainThreadEntries(session.Entries)
+	require.Len(t, main, 5)
+	for _, e := range main {
+		assert.NotContains(t, e.Content, "SIDECHAIN_INTERIOR_TEXT", "sidechain content must stay off the main thread")
+	}
+}
+
+// TestClaudeSessionHistory_SubagentFileAllSidechain: current claude-code
+// records each in-harness subagent's interior in its own
+// <session>/subagents/agent-<id>.jsonl file, every line isSidechain:true. A
+// by-path read of one (the viewer's drill-in) yields all-sidechain entries,
+// including tool_use blocks.
+func TestClaudeSessionHistory_SubagentFileAllSidechain(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	backend := NewClaudeCode(writeClaudeSettings)
+
+	content := `{"type":"user","isSidechain":true,"timestamp":"2026-06-01T10:00:00Z","message":{"role":"user","content":"audit the parser"}}
+{"type":"assistant","isSidechain":true,"timestamp":"2026-06-01T10:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Grep","input":{"pattern":"parse"}}]}}`
+
+	path := "/p/sess/subagents/agent-a1b2.jsonl"
+	require.NoError(t, fs.MkdirAll("/p/sess/subagents", 0755))
+	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0644))
+
+	history := NewClaudeSessionHistory(backend, WithClaudeSessionFS(fs))
+	session, err := history.GetSessionByPath(path)
+	require.NoError(t, err)
+
+	require.Len(t, session.Entries, 2)
+	for i, e := range session.Entries {
+		assert.True(t, e.Sidechain, "entry %d must be sidechain-marked", i)
+	}
+	assert.Equal(t, agent.EntryTypeToolUse, session.Entries[1].Type)
+	assert.Equal(t, "Grep", session.Entries[1].ToolName)
 }
 
 // Previous-session resolution moved to ctxloom (operations.ResolvePreviousSession,

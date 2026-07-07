@@ -226,6 +226,133 @@ func TestWatchSession_ContextCancelStops(t *testing.T) {
 	}
 }
 
+// --- WatchHistoryByPath: host-side by-location tail ---
+
+// collectWatch drains events into a slice (goroutine-safe getter) so tests can
+// poll for progress while the watcher runs.
+func collectWatch(events <-chan *WatchEvent) (get func() []*WatchEvent, done <-chan struct{}) {
+	var mu sync.Mutex
+	var got []*WatchEvent
+	d := make(chan struct{})
+	go func() {
+		defer close(d)
+		for ev := range events {
+			mu.Lock()
+			got = append(got, ev)
+			mu.Unlock()
+		}
+	}()
+	return func() []*WatchEvent {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*WatchEvent(nil), got...)
+	}, d
+}
+
+// waitForWatch polls the getter until at least n events arrived or the
+// deadline passes.
+func waitForWatch(t *testing.T, get func() []*WatchEvent, n int, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for len(get()) < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d events; got %d", n, len(get()))
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestWatchHistoryByPath_StreamsEntriesAndBoundary: the by-path watcher polls
+// GetSessionByPath with the given path and emits the same entry/boundary
+// vocabulary as the gRPC watch — one contract, two locators.
+func TestWatchHistoryByPath_StreamsEntriesAndBoundary(t *testing.T) {
+	var mu sync.Mutex
+	gotPaths := map[string]int{}
+	hist := &fakeHistory{getSessionByPathFunc: func(path string) (*agent.Session, error) {
+		mu.Lock()
+		gotPaths[path]++
+		mu.Unlock()
+		return sessionWith("a", "b"), nil
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, errs := WatchHistoryByPath(ctx, hist, "/harp/persist/t.jsonl", time.Millisecond)
+	get, done := collectWatch(events)
+
+	// Two entries, then the stall boundary [0,2).
+	waitForWatch(t, get, 3, 2*time.Second)
+	cancel()
+	<-done
+	require.NoError(t, <-errs)
+
+	got := get()
+	assert.Equal(t, "a", got[0].GetEntry().GetContent())
+	assert.Equal(t, "b", got[1].GetEntry().GetContent())
+	b := got[2].GetBoundary()
+	require.NotNil(t, b, "growth stall must emit a boundary")
+	assert.Equal(t, int32(0), b.GetFromIndex())
+	assert.Equal(t, int32(2), b.GetToIndex())
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, gotPaths, 1, "the watcher must poll exactly the given path")
+	assert.Positive(t, gotPaths["/harp/persist/t.jsonl"])
+}
+
+// TestWatchHistoryByPath_TransientErrorDoesNotTerminate: a failing read (e.g.
+// the transcript momentarily unreadable) is retried on the next tick, not
+// fatal — mirroring the gRPC watch's fault posture.
+func TestWatchHistoryByPath_TransientErrorDoesNotTerminate(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls <= 2 {
+			return nil, errors.New("transcript not ready")
+		}
+		return sessionWith("recovered"), nil
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, errs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", time.Millisecond)
+	get, done := collectWatch(events)
+
+	waitForWatch(t, get, 1, 2*time.Second)
+	cancel()
+	<-done
+	require.NoError(t, <-errs)
+	assert.Equal(t, "recovered", get()[0].GetEntry().GetContent())
+}
+
+// TestWatchHistoryByPath_CancelClosesChannels: cancelling the context ends the
+// stream cleanly — both channels close, no error.
+func TestWatchHistoryByPath_CancelClosesChannels(t *testing.T) {
+	hist := &fakeHistory{getSessionByPathFunc: func(string) (*agent.Session, error) {
+		return sessionWith(), nil // always idle
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, errs := WatchHistoryByPath(ctx, hist, "/p/t.jsonl", time.Millisecond)
+	cancel()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				require.NoError(t, <-errs)
+				return
+			}
+		case <-deadline:
+			t.Fatal("events channel did not close after context cancel")
+		}
+	}
+}
+
 // --- client WatchSession: server stream → channels ---
 
 // fakeWatchClientStream returns canned WatchEvents then EOF (or recvErr).

@@ -114,9 +114,10 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		err  error
 	}
 	var (
-		turnDone chan turnResult // non-nil while a turn is in flight
-		queued   []string        // text messages that arrived mid-turn, in order
-		inChan   = in            // nil'd once the caller closes input
+		turnDone    chan turnResult // non-nil while a turn is in flight
+		turnStarted time.Time       // when the in-flight turn's prompt was written
+		queued      []string        // text messages that arrived mid-turn, in order
+		inChan      = in            // nil'd once the caller closes input
 	)
 	// startTurn WRITES the session/prompt frame synchronously (so a CancelTurn
 	// processed later by this loop is guaranteed to reach the agent after the
@@ -124,6 +125,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	startTurn := func(text string) {
 		done := make(chan turnResult, 1)
 		turnDone = done
+		turnStarted = sess.clock()
 		await, err := b.promptAsync(conn, sessionID, text)
 		if err != nil {
 			done <- turnResult{err: err}
@@ -164,7 +166,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 				teardown()
 				return res.err
 			}
-			if !sess.send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: res.stop, Model: req.Model}}) {
+			if !sess.send(agent.ChatEvent{Complete: sess.completeMeta(res.stop, turnStarted, req.Model)}) {
 				abort()
 				return ctx.Err()
 			}
@@ -283,6 +285,14 @@ type chatSession struct {
 	permSeq     int64
 	pendingPerm map[string]chan agent.PermissionAnswer
 	noInput     bool // input closed: no answers can arrive anymore
+
+	// turn accounting fed by the out-of-SDK usage_update/session_info_update
+	// variants (see consumeMetaUpdate). Guarded by metaMu: updates arrive on
+	// the read loop while completeMeta runs on the Chat loop.
+	metaMu     sync.Mutex
+	usage      *usageUpdateWire // latest usage report (cumulative; freshest wins)
+	infoModel  string           // model the agent named in session_info_update
+	infoWindow int              // context window from session_info_update
 }
 
 // send emits one event, stamping a receipt time when the entry lacks one (ACP
@@ -303,16 +313,94 @@ func (s *chatSession) HandleNotification(ctx context.Context, method string, par
 	if method != api.MethodSessionUpdate {
 		return
 	}
-	upd, err := decodeSessionUpdate(params)
+	raw, err := rawSessionUpdate(params)
 	if err != nil {
 		warnf("acp: dropping malformed session/update: %v", err)
 		return
 	}
-	for _, ev := range mapSessionUpdate(upd) {
+	// Accounting variants the pinned SDK's union does not model (the ACP
+	// session-usage RFD shapes — see mapping.go) fold into the turn meta
+	// instead of tripping the strict union decoder.
+	if s.consumeMetaUpdate(raw) {
+		return
+	}
+	var upd api.SessionUpdate
+	if err := json.Unmarshal(raw, &upd); err != nil {
+		warnf("acp: dropping malformed session/update: %v", err)
+		return
+	}
+	for _, ev := range mapSessionUpdate(&upd) {
 		if !s.send(ev) {
 			return
 		}
 	}
+}
+
+// consumeMetaUpdate absorbs the accounting session/update variants the pinned
+// SDK does not model — usage_update and session_info_update, the shapes
+// ctxloom's own acp agent emits (internal/acpagent/wire.go) — into the turn
+// accounting. Returns true when the update was one of those (there is no
+// entry to emit); a malformed frame of a recognized variant is warned and
+// dropped, never crashing the stream.
+func (s *chatSession) consumeMetaUpdate(raw json.RawMessage) bool {
+	switch updateDiscriminator(raw) {
+	case usageUpdateVariant:
+		var u usageUpdateWire
+		if err := json.Unmarshal(raw, &u); err != nil {
+			warnf("acp: dropping malformed usage_update: %v", err)
+			return true
+		}
+		s.metaMu.Lock()
+		s.usage = &u
+		s.metaMu.Unlock()
+		return true
+	case sessionInfoVariant:
+		var info sessionInfoWire
+		if err := json.Unmarshal(raw, &info); err != nil {
+			warnf("acp: dropping malformed session_info_update: %v", err)
+			return true
+		}
+		s.metaMu.Lock()
+		if info.Model != "" {
+			s.infoModel = info.Model
+		}
+		if info.ContextWindow > 0 {
+			s.infoWindow = info.ContextWindow
+		}
+		s.metaMu.Unlock()
+		return true
+	}
+	return false
+}
+
+// completeMeta assembles one turn's completion accounting: the wire-sourced
+// stop reason; the latest usage/session-info the agent reported (both are
+// cumulative session state, so the freshest value stands across turns); the
+// requested model unless the agent named its own; and the self-measured
+// wall-clock duration (the protocol carries no timing — see mapping.go on
+// what ACP v1 does and does not deliver).
+func (s *chatSession) completeMeta(stop string, started time.Time, requestedModel string) *agent.TurnMeta {
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
+	m := &agent.TurnMeta{
+		StopReason:    stop,
+		Model:         requestedModel,
+		ContextWindow: s.infoWindow,
+		DurationMs:    int(s.clock().Sub(started).Milliseconds()),
+	}
+	if s.infoModel != "" {
+		m.Model = s.infoModel
+	}
+	if u := s.usage; u != nil {
+		m.InputTokens = u.Used
+		if u.Size > 0 {
+			m.ContextWindow = u.Size
+		}
+		if u.Cost != nil && (u.Cost.Currency == "" || u.Cost.Currency == "USD") {
+			m.CostUSD = u.Cost.Amount
+		}
+	}
+	return m
 }
 
 // HandleRequest answers an agent→client request. fs I/O and auto-decided
@@ -459,17 +547,31 @@ func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error
 
 // --- helpers ---
 
-// decodeSessionUpdate parses a session/update notification's params, decoding the
-// (SDK-typed-as-interface{}) `update` field into the typed SessionUpdate union.
-func decodeSessionUpdate(params json.RawMessage) (*api.SessionUpdate, error) {
+// rawSessionUpdate extracts a session/update notification's `update` object
+// undecoded, so the handler can sniff out-of-SDK variants before the strict
+// union decoder sees them.
+func rawSessionUpdate(params json.RawMessage) (json.RawMessage, error) {
 	var n struct {
-		SessionId api.SessionId     `json:"sessionId"`
-		Update    api.SessionUpdate `json:"update"`
+		Update json.RawMessage `json:"update"`
 	}
 	if err := json.Unmarshal(params, &n); err != nil {
 		return nil, err
 	}
-	return &n.Update, nil
+	return n.Update, nil
+}
+
+// decodeSessionUpdate parses a session/update notification's params, decoding the
+// (SDK-typed-as-interface{}) `update` field into the typed SessionUpdate union.
+func decodeSessionUpdate(params json.RawMessage) (*api.SessionUpdate, error) {
+	raw, err := rawSessionUpdate(params)
+	if err != nil {
+		return nil, err
+	}
+	var upd api.SessionUpdate
+	if err := json.Unmarshal(raw, &upd); err != nil {
+		return nil, err
+	}
+	return &upd, nil
 }
 
 // stampTime records receipt time on an entry event that arrived without one.

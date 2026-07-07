@@ -266,6 +266,9 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	if session == nil {
 		return nil, fmt.Errorf("no session found")
 	}
+	// Distillation reflects the conversation the user had: subagent-interior
+	// (sidechain) entries are attribution data for viewers, not essence input.
+	session.Entries = agent.MainThreadEntries(session.Entries)
 	if len(session.Entries) == 0 {
 		return nil, fmt.Errorf("session %s has no entries", session.ID)
 	}

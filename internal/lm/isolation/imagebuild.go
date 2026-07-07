@@ -32,9 +32,26 @@ const imageBuildTimeout = 10 * time.Minute
 // tests, like hostHomeDir): it yields the path buildImage bakes into the image.
 var resolveSelfExe = selfLinuxExe
 
-// baseImageTag is the local tag the shared base stage builds to; the agent
-// stages FROM it via --build-arg BASE_IMAGE.
-const baseImageTag = "ctxloom-agent-base:latest"
+// baseImageTagFor derives the local tag the shared base stage builds to from
+// the base Containerfile's CONTENT; the agent stages FROM it via --build-arg
+// BASE_IMAGE. Content-keyed on purpose: concurrent SESSIONS with different
+// isolation_base_containerfile configs build DIFFERENT tags, so one session's
+// agent stage can never FROM a base another session just tagged (a fixed
+// :latest tag was exactly that cross-contamination), while identical content
+// shares one tag — and the runtime's layer cache — as before. A content change
+// lands on a fresh tag, which is simply absent and therefore built: the tag
+// itself is the base's staleness gate, no separate label check.
+func baseImageTagFor(content []byte) string {
+	return "ctxloom-agent-base:" + baseContentHash(content)
+}
+
+// baseContentHash is the short base-Containerfile content digest shared by the
+// base image tag and the provenance suffix (combineProvenance), so an agent
+// image's provenance label names the base generation it was built on.
+func baseContentHash(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])[:12]
+}
 
 // buildSource is one way to produce the agent image locally: the agent-stage
 // Containerfile (a rendered overlay onto a client-shipped base, or the embedded
@@ -43,8 +60,9 @@ const baseImageTag = "ctxloom-agent-base:latest"
 type buildSource struct {
 	desc          string
 	containerfile []byte
-	// base, when non-nil, is stage 1: a base image built first and tagged
-	// baseImageTag, which the agent stage above FROMs via --build-arg.
+	// base, when non-nil, is stage 1: a base image built first and tagged by
+	// its content (baseImageTagFor), which the agent stage above FROMs via
+	// --build-arg.
 	base *baseStage
 }
 
@@ -168,13 +186,19 @@ var companionBinaries = []string{"taskloom", "ltk", "reprise"}
 // DROPPED with a warning rather than failing the build — companions are
 // auxiliary, and one incompatible tool must not block the whole agent image
 // (CLAUDE.md: partial success is success). Unlike ctxloom's own gate, which
-// fails the build: the image is useless without a runnable ctxloom.
-const companionGate = `RUN set -e; for b in taskloom ltk reprise; do \
+// fails the build: the image is useless without a runnable ctxloom. Rendered
+// from companionBinaries so an added companion can never silently miss the gate.
+var companionGate = companionGateFor(companionBinaries)
+
+// companionGateFor renders the gate's shell loop over the given binary names.
+func companionGateFor(names []string) string {
+	return `RUN set -e; for b in ` + strings.Join(names, " ") + `; do \
         if command -v "$b" >/dev/null && ! "$b" --version; then \
             echo "warning: companion $b cannot run on this base (ABI mismatch); dropping it from the image" >&2; \
             rm -f "/usr/local/bin/$b"; \
         fi; \
     done`
+}
 
 // stageCompanions populates <contextDir>/companions with every companion binary
 // found on the host PATH. The directory always exists — the agent stages'
@@ -219,18 +243,49 @@ var (
 	provenanceCached string
 )
 
-// HostProvenanceDigest returns a content digest over every binary this build
-// would bake into an agent image — the running ctxloom plus each companion
-// present on the host PATH. It is the STALENESS SIGNAL: a changed binary (a dev
-// `just install` of ctxloom, a taskloom/ltk/reprise update, even an uncommitted
-// rebuild the version stamp can't see) changes the digest, and ensureImage
-// rebuilds. Empty when the running binary can't be resolved (non-linux dev
-// hosts, test seams) — the check then disables rather than churn. Computed once
-// per process: the binaries are fixed for a running ctxloom. Exported so the
+// HostProvenanceDigest returns the provenance label an agent image built NOW —
+// from this host's binaries, on the given base Containerfile config ("" = the
+// embedded default) — would carry: a content digest over the running ctxloom
+// plus each companion present on the host PATH, suffixed with the base
+// config's content hash. It is the STALENESS SIGNAL: a changed binary (a dev
+// `just install` of ctxloom, a taskloom/ltk/reprise update, even an
+// uncommitted rebuild the version stamp can't see) or a changed base config
+// changes the digest, and ensureImage rebuilds. Empty when the running binary
+// can't be resolved (non-linux dev hosts, test seams) or the base config can't
+// be read — the check then disables rather than churn. The binaries half is
+// computed once per process (fixed for a running ctxloom). Exported so the
 // build tooling (`ctxloom container provenance`) can stamp a matching label.
-func HostProvenanceDigest() string {
+func HostProvenanceDigest(baseContainerfile string) string {
 	provenanceOnce.Do(func() { provenanceCached = computeProvenanceDigest() })
-	return provenanceCached
+	return combineProvenance(provenanceCached, baseContainerfile)
+}
+
+// combineProvenance suffixes the binaries digest with the base-config content
+// hash, so the ONE existing staleness gate (the ctxloom.provenance label vs
+// imageStale) also rebuilds an agent image whose base Containerfile config
+// changed — no parallel staleness mechanism. The suffix is baseContentHash,
+// i.e. the baseImageTagFor generation the image rode on. Either half unknown
+// yields "" — an untrustable digest disables the check rather than forcing a
+// wrong rebuild, matching computeProvenanceDigest.
+func combineProvenance(binariesDigest, baseContainerfile string) string {
+	if binariesDigest == "" {
+		return ""
+	}
+	content, err := baseContent(baseContainerfile)
+	if err != nil {
+		return ""
+	}
+	return binariesDigest + "-" + baseContentHash(content)
+}
+
+// baseContent resolves the base Containerfile content a build on this config
+// would layer the agent stage onto: the user-provided file
+// (isolation_base_containerfile), or the embedded default.
+func baseContent(baseContainerfile string) ([]byte, error) {
+	if baseContainerfile == "" {
+		return containerfiles.Base, nil
+	}
+	return os.ReadFile(baseContainerfile)
 }
 
 // computeProvenanceDigest hashes the running ctxloom (which also covers the
@@ -276,15 +331,64 @@ func hashFileTagged(h hash.Hash, name, path string) error {
 	return err
 }
 
+// imageEnsureFlight is one in-flight ensureImage outcome: err is set before
+// done closes, and followers read it only after <-done.
+type imageEnsureFlight struct {
+	done chan struct{}
+	err  error
+}
+
+// imageEnsureFlights dedupes CONCURRENT ensureImage calls per (runtime binary,
+// image tag) — the sharedFSResults keying: a map/weave fan-out drives many
+// members through the same tag from parallel goroutines, and N racing builds
+// of one tag waste N-1 multi-minute builds and can untag each other mid-build,
+// flaking another member's post-build presence recheck. Followers share the
+// in-flight leader's outcome. NOTHING outlives the flight (unlike
+// sharedFSResults): a present, current image re-checks cheaply, and a
+// transient build failure must stay retryable in a long-lived server process
+// (mcp/acp) instead of pinning every later run degraded.
+var (
+	imageEnsureMu      sync.Mutex
+	imageEnsureFlights = map[string]*imageEnsureFlight{}
+)
+
 // ensureImage is the image half of the container degrade gate, used by run and
-// the map/weave fan-out alike. Present and current → run. Absent (or present
-// but STALE — its baked ctxloom/companion binaries no longer match the host's)
-// and locally buildable → build (official-image overlay first, then the install
-// Containerfile), with the RUNNING static ctxloom binary layered in — no go
-// toolchain, no ctxloom release needed. A failed REBUILD of a stale-but-present
-// image degrades to running the stale image (warn, never block); anything else
-// errors so the caller degrades (CLAUDE.md fault tolerance).
+// the map/weave fan-out alike. Concurrent callers of one tag share a single
+// flight (imageEnsureFlights) — one build per tag, every member getting its
+// outcome; the work itself is runEnsureImage.
 func (c Container) ensureImage(ctx context.Context) error {
+	key := c.runtime.Binary() + "|" + c.image
+	imageEnsureMu.Lock()
+	if f, ok := imageEnsureFlights[key]; ok {
+		imageEnsureMu.Unlock()
+		select {
+		case <-f.done:
+			return f.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f := &imageEnsureFlight{done: make(chan struct{})}
+	imageEnsureFlights[key] = f
+	imageEnsureMu.Unlock()
+
+	f.err = c.runEnsureImage(ctx)
+	imageEnsureMu.Lock()
+	delete(imageEnsureFlights, key)
+	imageEnsureMu.Unlock()
+	close(f.done)
+	return f.err
+}
+
+// runEnsureImage performs one un-deduped ensure. Present and current → run.
+// Absent (or present but STALE — its baked ctxloom/companion binaries or base
+// Containerfile config no longer match the host's) and locally buildable →
+// build (official-image overlay first, then the install Containerfile), with
+// the RUNNING static ctxloom binary layered in — no go toolchain, no ctxloom
+// release needed. A failed REBUILD of a stale-but-present image degrades to
+// running the stale image (warn, never block); anything else errors so the
+// caller degrades (CLAUDE.md fault tolerance).
+func (c Container) runEnsureImage(ctx context.Context) error {
 	sources := buildSources(c.profile, "", c.baseContainerfile)
 	present := c.imagePresent(ctx)
 	if present && len(sources) == 0 {
@@ -292,7 +396,7 @@ func (c Container) ensureImage(ctx context.Context) error {
 		// never inspected or rebuilt — the user owns that image's lifecycle.
 		return nil
 	}
-	if present && !imageStale(c.imageLabels(ctx), HostProvenanceDigest()) {
+	if present && !imageStale(c.imageLabels(ctx), HostProvenanceDigest(c.baseContainerfile)) {
 		return nil
 	}
 	if len(sources) == 0 {
@@ -306,13 +410,13 @@ func (c Container) ensureImage(ctx context.Context) error {
 		return fmt.Errorf("container image %q is not present and cannot be built from this binary: %w", c.image, err)
 	}
 	if present {
-		clidiag.Warn("ctxloom", "container image %q was built from different ctxloom/companion binaries than are installed now; rebuilding it", c.image)
+		clidiag.Warn("ctxloom", "container image %q was built from different ctxloom/companion binaries (or base Containerfile config) than are installed now; rebuilding it", c.image)
 	} else {
 		clidiag.Warn("ctxloom", "container image %q not found; building it locally (first run — this may take a few minutes)", c.image)
 	}
 	var lastErr error
 	for _, src := range sources {
-		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, false, nil)
+		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, c.baseContainerfile, false, nil)
 		if err == nil && !c.imagePresent(ctx) {
 			err = fmt.Errorf("image %q is still absent after a build via the %s", c.image, src.desc)
 		}
@@ -365,25 +469,31 @@ func (c Container) imageLabels(ctx context.Context) map[string]string {
 }
 
 // buildFromSource executes one build source: the base stage first when the
-// source has one (tagged baseImageTag, handed to the agent stage via
-// --build-arg BASE_IMAGE), then the agent/overlay stage with the running
-// ctxloom binary in its context. `fresh` pulls + skips cache on stages whose
-// FROM is an external image; the agent stage over a just-built local base
-// never --pulls (the tag exists only locally) but still skips cache so the
-// client install re-runs.
-func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src buildSource, selfExe string, fresh bool, output io.Writer) error {
+// source has one (tagged by content via buildBaseImage, handed to the agent
+// stage via --build-arg BASE_IMAGE), then the agent/overlay stage with the
+// running ctxloom binary in its context. `fresh` pulls + skips cache on stages
+// whose FROM is an external image; the agent stage over a just-built local
+// base never --pulls (the tag exists only locally) but still skips cache so
+// the client install re-runs. baseContainerfile is the CONFIGURED base ("" =
+// default) — the provenance stamp uses it whether or not this source's base
+// is that config, so the stamp always equals what runEnsureImage's staleness
+// check computes for the same config (a mismatch would re-flag the image
+// stale on every run).
+func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src buildSource, selfExe, baseContainerfile string, fresh bool, output io.Writer) error {
 	var buildArgs []string
 	if src.base != nil {
-		if err := buildBaseImage(ctx, rt, src.base, fresh, output); err != nil {
+		baseTag, err := buildBaseImage(ctx, rt, src.base, fresh, output)
+		if err != nil {
 			return fmt.Errorf("base image (%s): %w", src.base.desc, err)
 		}
-		buildArgs = append(buildArgs, "BASE_IMAGE="+baseImageTag)
+		buildArgs = append(buildArgs, "BASE_IMAGE="+baseTag)
 	}
 	// Stamp the diagnostic version label and — the staleness signal — the
-	// content digest of the ctxloom+companion binaries baked in, so a later
-	// ensureImage rebuilds when they change (both empty when unknown — dev seams).
+	// content digest of the ctxloom+companion binaries baked in plus the base
+	// config, so a later ensureImage rebuilds when they change (both empty
+	// when unknown — dev seams).
 	buildArgs = append(buildArgs, "CTXLOOM_VERSION="+binaryVersion)
-	buildArgs = append(buildArgs, "CTXLOOM_PROVENANCE="+HostProvenanceDigest())
+	buildArgs = append(buildArgs, "CTXLOOM_PROVENANCE="+HostProvenanceDigest(baseContainerfile))
 	return buildImage(ctx, rt, image, src.containerfile, selfExe, buildFlags{
 		pull:      fresh && src.base == nil,
 		noCache:   fresh,
@@ -391,32 +501,36 @@ func buildFromSource(ctx context.Context, rt ContainerRuntime, image string, src
 	}, output)
 }
 
-// buildBaseImage builds the stage-1 base image (baseImageTag). A user-provided
-// Containerfile builds with ITS OWN directory as the context (so its COPYs
-// resolve); the embedded default builds from a scratch context.
-func buildBaseImage(ctx context.Context, rt ContainerRuntime, base *baseStage, fresh bool, output io.Writer) error {
+// buildBaseImage builds the stage-1 base image and returns the content-keyed
+// tag it built (baseImageTagFor). A user-provided Containerfile builds with
+// ITS OWN directory as the context (so its COPYs resolve); the embedded
+// default builds from a scratch context.
+func buildBaseImage(ctx context.Context, rt ContainerRuntime, base *baseStage, fresh bool, output io.Writer) (string, error) {
 	flags := buildFlags{pull: fresh, noCache: fresh}
 	if base.path != "" {
 		abs, err := filepath.Abs(base.path)
 		if err != nil {
-			return fmt.Errorf("base containerfile: %w", err)
+			return "", fmt.Errorf("base containerfile: %w", err)
 		}
-		if _, err := os.Stat(abs); err != nil {
-			return fmt.Errorf("base containerfile: %w", err)
+		content, err := os.ReadFile(abs)
+		if err != nil {
+			return "", fmt.Errorf("base containerfile: %w", err)
 		}
-		return runImageBuild(ctx, rt, baseImageTag, abs, filepath.Dir(abs), flags, output)
+		tag := baseImageTagFor(content)
+		return tag, runImageBuild(ctx, rt, tag, abs, filepath.Dir(abs), flags, output)
 	}
 
 	dir, err := os.MkdirTemp("", "ctxloom-imgbase-")
 	if err != nil {
-		return fmt.Errorf("base build context: %w", err)
+		return "", fmt.Errorf("base build context: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	file := filepath.Join(dir, "Containerfile")
 	if err := os.WriteFile(file, base.containerfile, 0o644); err != nil {
-		return fmt.Errorf("base build context: %w", err)
+		return "", fmt.Errorf("base build context: %w", err)
 	}
-	return runImageBuild(ctx, rt, baseImageTag, file, dir, flags, output)
+	tag := baseImageTagFor(base.containerfile)
+	return tag, runImageBuild(ctx, rt, tag, file, dir, flags, output)
 }
 
 // ImageBuildOptions parameterize an explicit agent-image build
@@ -470,7 +584,7 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 		if opts.Output != nil {
 			fmt.Fprintf(opts.Output, "ctxloom: building %s via the %s (%s)\n", p.image, src.desc, rt.Name())
 		}
-		if err := buildFromSource(ctx, rt, p.image, src, selfExe, !opts.KeepCache, opts.Output); err != nil {
+		if err := buildFromSource(ctx, rt, p.image, src, selfExe, opts.BaseContainerfile, !opts.KeepCache, opts.Output); err != nil {
 			clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)
 			lastErr = err
 			continue
@@ -575,8 +689,11 @@ func runImageBuild(ctx context.Context, rt ContainerRuntime, image, file, contex
 	return nil
 }
 
-// copyExecutable copies src to dst with the executable bit set (the build
-// context is a fresh temp dir, so a plain copy suffices — no atomicity needed).
+// copyExecutable copies src to dst with mode 0755 EXACTLY (the build context
+// is a fresh temp dir, so a plain copy suffices — no atomicity needed). The
+// explicit Chmod is load-bearing: O_CREATE's mode is umask-narrowed, and a
+// narrowed binary (0700) still passes the root-run in-image build gates but
+// cannot exec for the dropped ctxloom-user at runtime.
 func copyExecutable(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -585,6 +702,10 @@ func copyExecutable(src, dst string) error {
 	defer in.Close()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
+		return err
+	}
+	if err := out.Chmod(0o755); err != nil {
+		_ = out.Close()
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {

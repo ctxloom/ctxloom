@@ -113,7 +113,11 @@ var containerProvenanceCmd = &cobra.Command{
 	Hidden: true,
 	Args:   cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest())
+		// The DEFAULT-base digest on purpose: the ahead-of-time just recipes
+		// this stamps for bake the embedded default base; a custom
+		// isolation_base_containerfile build stamps its own label inside
+		// BuildAgentImage.
+		fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest(""))
 		return nil
 	},
 }

@@ -2,24 +2,75 @@ package isolation
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	containerfiles "github.com/ctxloom/ctxloom/container"
 )
 
 // withFakeSelfExe points resolveSelfExe at a dummy static-binary stand-in so
 // ensureImage's build path runs hermetically (no ELF inspection of the real
-// test binary, whose linkage is toolchain-dependent).
-func withFakeSelfExe(t *testing.T) {
+// test binary, whose linkage is toolchain-dependent). Returns the stand-in's
+// path for callers that pass selfExe explicitly.
+func withFakeSelfExe(t *testing.T) string {
 	t.Helper()
 	exe := filepath.Join(t.TempDir(), "ctxloom")
 	require.NoError(t, os.WriteFile(exe, []byte("#!/bin/true\n"), 0o755))
 	orig := resolveSelfExe
 	resolveSelfExe = func() (string, error) { return exe, nil }
 	t.Cleanup(func() { resolveSelfExe = orig })
+	return exe
+}
+
+// writeFakeRuntimeScript writes a container-runtime CLI stand-in at path:
+// `build` appends its argv to logFile and marks the -t image present (a
+// marker file under markerDir, keyed by image name); `image inspect` reports
+// presence by that marker and answers --format with labelsJSON. It makes the
+// ensure/build flow observable without a daemon. The build's short sleep
+// widens the concurrency window so racing callers demonstrably overlap.
+func writeFakeRuntimeScript(t *testing.T, path, logFile, markerDir, labelsJSON string) {
+	t.Helper()
+	script := fmt.Sprintf(`#!/bin/sh
+# Tests empty the process PATH (companion hermeticity); pin one for tr/touch/sleep.
+PATH=/usr/bin:/bin
+name=$(printf '%%s' "$3" | tr '/:' '__')
+case "$1" in
+build)
+    echo "$@" >> %q
+    sleep 0.1
+    touch %q/"$name"
+    ;;
+image)
+    [ -f %q/"$name" ] || exit 1
+    if [ "$4" = "--format" ]; then printf '%%s' %q; fi
+    ;;
+esac
+exit 0
+`, logFile, markerDir, markerDir, labelsJSON)
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+}
+
+// buildInvocations returns the fake runtime's logged `build` argv lines
+// (empty when no build ran).
+func buildInvocations(t *testing.T, logFile string) []string {
+	t.Helper()
+	out, err := os.ReadFile(logFile)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
 }
 
 // TestEnsureImage_PresentIsNoop: `<binary> image inspect` succeeding (binary
@@ -212,7 +263,7 @@ func TestStageCompanions_MirrorsPresentSkipsMissing(t *testing.T) {
 
 	info, err := os.Stat(filepath.Join(ctxDir, "companions", "taskloom"))
 	require.NoError(t, err)
-	assert.NotZero(t, info.Mode()&0o111, "staged companion keeps the executable bit")
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "staged companion is 0755 exactly, umask notwithstanding")
 }
 
 // TestStageCompanions_EmptyPathStillCreatesDir: with no companion on PATH the
@@ -255,4 +306,177 @@ func TestEnsureImage_UnbuildableBinaryDegrades(t *testing.T) {
 func TestTailLines(t *testing.T) {
 	assert.Equal(t, "b\nc", tailLines("a\nb\nc\n", 2))
 	assert.Equal(t, "a\nb\nc", tailLines("a\nb\nc", 5), "short input passes through whole")
+}
+
+// TestEnsureImage_ParallelCallersShareOneBuild: a fan-out drives N members
+// through ensureImage for the SAME absent tag concurrently — exactly one build
+// must run, every caller sharing its outcome (pre-dedup, each member raced its
+// own build and a mid-build untag could flake another's post-build recheck).
+// A later, non-overlapping ensure re-checks presence instead of rebuilding,
+// and a DIFFERENT tag still builds independently — flights are per-tag.
+func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
+	withFakeSelfExe(t)
+	t.Setenv("PATH", t.TempDir()) // no companions on PATH: staging warns + skips
+
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "builds.log")
+	// The fake runtime reports the just-built image's provenance label as
+	// current, so a caller landing after the flight re-checks cheaply instead
+	// of rebuilding.
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	script := filepath.Join(dir, "fake-docker")
+	writeFakeRuntimeScript(t, script, logFile, dir, labels)
+
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-dedup-test:latest",
+		profile: containerProfile{officialImage: "example/client:1"},
+	}
+
+	const n = 8
+	var (
+		start = make(chan struct{})
+		wg    sync.WaitGroup
+		errs  [n]error
+	)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = c.ensureImage(context.Background())
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoError(t, err, "caller %d shares the flight outcome", i)
+	}
+	assert.Len(t, buildInvocations(t, logFile), 1, "one build per tag, not one per fan-out member")
+
+	require.NoError(t, c.ensureImage(context.Background()))
+	assert.Len(t, buildInvocations(t, logFile), 1, "a present, current image never rebuilds")
+
+	c2 := c
+	c2.image = "ctxloom-agent-dedup-test-2:latest"
+	require.NoError(t, c2.ensureImage(context.Background()))
+	assert.Len(t, buildInvocations(t, logFile), 2, "a different tag is its own flight and builds")
+}
+
+// TestBuildFromSource_BaseTagPerConfigContent: the shared base stage's tag is
+// keyed by the base Containerfile CONTENT — two configs build two tags (no
+// cross-session contamination through a fixed :latest), the agent stage FROMs
+// exactly the tag its own flight built (--build-arg BASE_IMAGE), and identical
+// content re-lands on the identical tag so the layer cache still shares.
+func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
+	selfExe := withFakeSelfExe(t)
+	t.Setenv("PATH", t.TempDir())
+
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "builds.log")
+	script := filepath.Join(dir, "fake-docker")
+	writeFakeRuntimeScript(t, script, logFile, dir, "{}")
+	rt := fakeRuntime{name: "docker", binary: script, available: true}
+
+	build := func(baseContent string) {
+		t.Helper()
+		src := buildSource{
+			desc:          "test recipe",
+			containerfile: []byte("ARG BASE_IMAGE\nFROM ${BASE_IMAGE}\n"),
+			base:          &baseStage{desc: "test base", containerfile: []byte(baseContent)},
+		}
+		require.NoError(t, buildFromSource(context.Background(), rt, "ctxloom-agent-basetag-test:latest", src, selfExe, "", false, nil))
+	}
+	build("FROM debian:13\n")
+	build("FROM alpine:3\n")
+	build("FROM debian:13\n")
+
+	// Each buildFromSource logs a base build then an agent build.
+	lines := buildInvocations(t, logFile)
+	require.Len(t, lines, 6)
+	var baseTags, fromArgs []string
+	for i, line := range lines {
+		fields := strings.Fields(line)
+		require.Greater(t, len(fields), 2, "line %d: %s", i, line)
+		if i%2 == 0 {
+			baseTags = append(baseTags, fields[2])
+			continue
+		}
+		require.Contains(t, line, "BASE_IMAGE=", "agent build line %d wires the base tag", i)
+		arg := line[strings.Index(line, "BASE_IMAGE=")+len("BASE_IMAGE="):]
+		fromArgs = append(fromArgs, strings.Fields(arg)[0])
+	}
+	for i, tag := range baseTags {
+		assert.Regexp(t, `^ctxloom-agent-base:[0-9a-f]{12}$`, tag)
+		assert.Equal(t, tag, fromArgs[i], "the agent stage FROMs the tag its own flight built")
+	}
+	assert.NotEqual(t, baseTags[0], baseTags[1], "different base content → different tag")
+	assert.Equal(t, baseTags[0], baseTags[2], "identical base content → identical tag")
+
+	// A user-provided base Containerfile is keyed by the same content hash —
+	// the config FORM (file vs embedded) doesn't fragment the tag space — and
+	// a missing file still errors.
+	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
+	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
+	tag, err := buildBaseImage(context.Background(), rt, userBaseStage(userFile), false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, baseImageTagFor([]byte("FROM debian:13\n")), tag)
+	_, err = buildBaseImage(context.Background(), rt, userBaseStage(filepath.Join(t.TempDir(), "missing")), false, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "base containerfile")
+}
+
+// TestCombineProvenance_CoversBaseConfig: the ONE existing staleness gate (the
+// ctxloom.provenance label) also covers the base Containerfile config — same
+// binaries + different base config → different digest, so the agent image
+// rebuilds onto the right base. An unknown half yields "" (the check disables
+// rather than force a wrong rebuild), and the suffix is the base tag's content
+// hash, naming the base generation the image rode on.
+func TestCombineProvenance_CoversBaseConfig(t *testing.T) {
+	deflt := combineProvenance("bin-digest", "")
+	assert.Equal(t, "bin-digest-"+baseContentHash(containerfiles.Base), deflt)
+
+	userFile := filepath.Join(t.TempDir(), "Containerfile.base")
+	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
+	user := combineProvenance("bin-digest", userFile)
+	assert.Equal(t, "bin-digest-"+baseContentHash([]byte("FROM debian:13\n")), user)
+	assert.NotEqual(t, deflt, user, "a different base config is a different provenance")
+
+	assert.Empty(t, combineProvenance("", ""), "unknown binaries digest disables the check")
+	assert.Empty(t, combineProvenance("bin-digest", filepath.Join(t.TempDir(), "missing")),
+		"unreadable base config disables the check")
+}
+
+// TestCopyExecutable_Forces0755: staged binaries land at 0755 EXACTLY, even
+// over a pre-narrowed file — the explicit chmod is what defeats a restrictive
+// umask, whose narrowed mode (0700) passes the root-run in-image build gates
+// but fails exec for the dropped ctxloom-user at runtime.
+func TestCopyExecutable_Forces0755(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	require.NoError(t, os.WriteFile(src, []byte("#!/bin/sh\n"), 0o755))
+
+	dst := filepath.Join(dir, "dst")
+	require.NoError(t, os.WriteFile(dst, nil, 0o600)) // narrowed, as under umask 077
+	require.NoError(t, copyExecutable(src, dst))
+
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	assert.Equal(t, "#!/bin/sh\n", string(got))
+}
+
+// TestCompanionGate_DerivedFromCompanionList: the gate's shell loop iterates
+// exactly companionBinaries — adding a companion to the slice can never
+// silently miss the in-image ABI gate (a hard-coded literal could drift).
+func TestCompanionGate_DerivedFromCompanionList(t *testing.T) {
+	assert.Equal(t, companionGateFor(companionBinaries), companionGate)
+	assert.Contains(t, companionGate, "for b in "+strings.Join(companionBinaries, " ")+"; do")
+
+	synthetic := companionGateFor([]string{"alpha", "beta"})
+	assert.Contains(t, synthetic, "for b in alpha beta; do")
+	assert.NotContains(t, synthetic, "taskloom", "no hard-coded companion survives the derivation")
 }

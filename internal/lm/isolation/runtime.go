@@ -65,6 +65,31 @@ type Mount struct {
 	ReadOnly  bool
 }
 
+// ociRuntime is the shared OCI (Docker/Podman) base: the two engines have a
+// docker-CLI-compatible `run`/`rm` grammar, so everything that does not depend
+// on the rootless identity head lives here once. It owns RemoveArgs (identical
+// `rm -f <name>` teardown) and runArgs — the shared RunArgs TAIL that appends
+// the runtime-agnostic renderRunSpec render onto a runtime-specific HEAD. Docker
+// and Podman embed it and keep ONLY their Name/Binary/Available and their
+// rootless-specific run-arg head (identityEnvArgs stays shared, called from each
+// head). The rootless flag itself stays on the concrete types: it is consulted
+// solely by that per-type head, so the base never needs it.
+type ociRuntime struct{}
+
+// RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
+// racing --rm auto-remove just reports "no such container", which callers ignore).
+// Shared by Docker and Podman — the `rm -f <name>` argv is identical on both.
+func (ociRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
+
+// runArgs assembles the full `run` argv from a runtime-specific HEAD (the
+// --rm/--name/--user/identity prefix each concrete runtime builds) and the
+// shared, runtime-agnostic TAIL (env, mounts, workdir, image, in-container
+// command) rendered by renderRunSpec. The single append site both Docker and
+// Podman funnel through.
+func (ociRuntime) runArgs(head []string, spec RunSpec) []string {
+	return append(head, renderRunSpec(spec)...)
+}
+
 // Docker launches containers via the docker CLI. rootless records whether the
 // daemon is rootless — the axis that decides the run's identity mapping:
 // under rootless docker the container's ROOT user maps to the invoking host
@@ -74,7 +99,10 @@ type Mount struct {
 // PUID/PGID tell the image entrypoint to remap its `ctxloom` user to the
 // launching uid/gid and drop to it — named non-root identity with correct
 // host-side ownership (socket and project files land launching-user-owned).
-type Docker struct{ rootless bool }
+type Docker struct {
+	ociRuntime
+	rootless bool
+}
 
 // Name identifies the runtime.
 func (Docker) Name() string { return "docker" }
@@ -85,7 +113,8 @@ func (Docker) Binary() string { return "docker" }
 // Available reports docker CLI on PATH + a reachable daemon.
 func (Docker) Available() bool { return runtimeReachable("docker") }
 
-// RunArgs renders the spec into a `docker run` argv.
+// RunArgs renders the spec into a `docker run` argv: the rootless-specific
+// identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
 func (d Docker) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	if !d.rootless {
@@ -93,8 +122,7 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 		// uid/gid and drops privileges. Rootless already maps root→host user.
 		args = append(args, identityEnvArgs()...)
 	}
-	args = append(args, renderRunSpec(spec)...)
-	return args
+	return d.runArgs(args, spec)
 }
 
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
@@ -116,10 +144,6 @@ func identityEnvArgs() []string {
 	return args
 }
 
-// RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
-// racing --rm auto-remove just reports "no such container", which callers ignore).
-func (Docker) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
-
 // Podman launches containers via the podman CLI. podman's run/rm argv is
 // docker-CLI-compatible. rootless records whether the engine is rootless:
 // rootless podman needs --userns=keep-id so the launching uid maps to ITSELF
@@ -128,7 +152,10 @@ func (Docker) RemoveArgs(name string) []string { return []string{"rm", "-f", nam
 // the host, something rootless docker cannot express. Rootful podman behaves
 // like rootful docker (identity mapping; entrypoint remap only). (Built but
 // not daemon-tested on this host — no podman installed.)
-type Podman struct{ rootless bool }
+type Podman struct {
+	ociRuntime
+	rootless bool
+}
 
 // Name identifies the runtime.
 func (Podman) Name() string { return "podman" }
@@ -139,10 +166,12 @@ func (Podman) Binary() string { return "podman" }
 // Available reports podman CLI on PATH + a reachable engine.
 func (Podman) Available() bool { return runtimeReachable("podman") }
 
-// RunArgs renders the spec into a `podman run` argv (docker-compatible). Both
-// modes start as container-root and let the image entrypoint remap ctxloom to
-// the launching uid/gid (PUID/PGID) and drop to it; rootless additionally
-// needs keep-id so that uid maps to itself on the host instead of a subuid.
+// RunArgs renders the spec into a `podman run` argv (docker-compatible): the
+// rootless-specific keep-id/identity HEAD plus the shared renderRunSpec tail
+// (via ociRuntime.runArgs). Both modes start as container-root and let the
+// image entrypoint remap ctxloom to the launching uid/gid (PUID/PGID) and drop
+// to it; rootless additionally needs keep-id so that uid maps to itself on the
+// host instead of a subuid.
 func (p Podman) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	if p.rootless {
@@ -151,11 +180,8 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 		args = append(args, "--userns=keep-id", "--user", "0:0")
 	}
 	args = append(args, identityEnvArgs()...)
-	return append(args, renderRunSpec(spec)...)
+	return p.runArgs(args, spec)
 }
-
-// RemoveArgs force-removes the container.
-func (Podman) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
 
 // podmanIsRootless reports whether the podman engine is rootless (`podman info`
 // security flag). Best-effort: on any error it returns true — podman is
